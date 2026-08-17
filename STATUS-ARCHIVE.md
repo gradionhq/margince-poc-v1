@@ -21,6 +21,87 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-17 — the filter vocabulary's own follow-ups, and what two review rounds found in the fixes for them (PRs #1476, #1477, #1485, #1490, #1473; foundation#1327)
+
+The four issues #1286's review filed against itself, plus #920. What is worth
+reading here is not the four fixes; it is that **three of the four were the
+wrong size when filed, and the review rounds on the fixes found worse than the
+review round on the original work.**
+
+**#1279 asked for a one-character change.** `createProjectTx` passed 11 to
+`InsertFragments` where its eleven fixed binds needed 12, so the first custom
+placeholder aliased `captured_by` and every `CreateProject` carrying a
+custom-field value died on a bind-count mismatch. But four sibling statements
+pass 14, 17, 19 and 21 — each a hand-count that must equal its own base bind
+count, with nothing checking that it does. `project` was simply the one that had
+drifted. The signature takes the statement's fixed args now and answers the
+complete bind list, so the index is derived rather than counted. The returned
+slice is fresh rather than an append onto the caller's, because appending into a
+base with spare capacity writes through to an array every caller still holds for
+the Exec that follows.
+
+**Why only project was broken is the finding.** Person, organization, lead and
+deal each already had a create-with-a-custom-field integration case. Project had
+none, so nothing ever executed the statement that was wrong. A record whose
+writer splices custom columns is not covered until something creates it WITH one.
+
+**#1272 rested on a hazard that does not exist.** The issue argued that omitting
+an unmappable catalogue column would let a saved segment "silently stop matching
+rather than erroring". It would not: `CompilePredicate` refuses an unknown field
+name outright. So omission only shrinks the blast radius — one filter refused
+legibly, instead of every list, membership read and export for that record type
+answering 500, including for lists that never named the field. What the gate is
+actually for is stopping a seventh type becoming quietly unfilterable, which is
+a different failure. Four gates derive the closed set from `fieldcatalog.Types()`
+now, and the one the sweep nearly missed matters most: storekit's round-trip
+matrix guards silent VALUE loss on write and read, not a dropped filter.
+
+**#1244 was a point fix pretending to be a fix**, and the security review is
+what caught it. Migration 0131 widened FOUR CHECKs to five — `activity_link`,
+`list`, `list_member`, `taggable` — and the contract had caught up on exactly
+one. Eight enums declared four values while the database, `RecordTypes()` and
+the segment engines admitted five, and every one casts back unchecked at its
+wire edge, so a project list, list member, activity link and tag were already
+being accepted, stored and RETURNED as a value three enums said could not exist.
+The consequence worth knowing is not the typing: **an agent could not link an
+activity to a project**, because the tool schema did not offer the value — and
+`log_activity` and `book_meeting` still described "the people, accounts and
+deals", prose already stale for `lead` before this branch touched it. A stale
+description on an agent surface is a capability the model cannot reach.
+
+**The review rounds found three things no gate could.**
+
+A new fitness test **ratified the exact gap this session had filed an hour
+earlier**: it asserted `projects` is a working saved-view resource while the
+`saved_view.resource` CHECK refuses it (#1484). Both reviewers caught it
+independently. The integration lane compares against the CHECK now and asserts
+the divergence as a NAMED exception, so it fails the day either side moves.
+
+A test comment **claimed to pin the deadlock invariant and structurally could
+not** — the store it built had no field catalogue, so `SegmentEngine` returned
+the core vocabulary and never reached for a second connection. The repo already
+owned the real gate; two new callers of that invariant had been left outside it.
+Moving the resolution inside the transaction now times out deterministically.
+
+And a coverage-motivated test **proved that a function returns its own
+argument** — three cases, one tautology, and swapping the field names at either
+real call site left it green. It drives the real entry points now.
+
+SonarCloud's coverage gate then found a gap that was not a metric: **nothing
+reached `SavedViewFilterSource` or `ListFilterSource` at all**, so #693's central
+guarantee held for the `object` export path and was untested for the other two
+ways into the same engine.
+
+**Of the CI failures investigated across the day, two were defects in this code
+and six were not** — golangci lock collisions, a stale-branch contract diff that
+renders main's additions as your deletions, uncommitted generated files twice,
+and a Docker registry 502 that killed a shard before any test ran. The habit
+that paid every time was reading the log line instead of theorising from the job
+name. The one genuinely new lesson: **"regenerate the contract" is two commands**
+— `make gen` for the Go artifacts and the MCP surface docs, `pnpm gen:api` for
+the frontend's — and missing the second produces a dozen errors about properties
+that exist and parameters that are typed, none of them near the cause.
+
 ## 2026-08-16 — custom fields and tags become filter vocabulary, and every gate was green the whole time it did not work (PR #1286; foundation#1311 open)
 
 Started as an audit, not a build: 254 open issues read against `origin/main` to
