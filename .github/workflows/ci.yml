@@ -67,6 +67,9 @@ jobs:
       contents: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
+      # The database-bearing subset of `backend`. See the filter below for why
+      # the two differ, and by exactly what.
+      backend_db: ${{ steps.filter.outputs.backend_db }}
       frontend: ${{ steps.filter.outputs.frontend }}
       e2e: ${{ steps.filter.outputs.e2e }}
       deps: ${{ steps.filter.outputs.deps }}
@@ -78,7 +81,19 @@ jobs:
         id: filter
         with:
           filters: |
-            backend:
+            # `backend_db` is every path that can change what a DATABASE-backed
+            # lane proves; `backend` is that set PLUS the agent rulebooks, which
+            # a Go unit test reads and no integration test does. The anchor makes
+            # the second derive from the first — two hand-maintained copies of
+            # one list is the shape this repo refuses everywhere else, and it
+            # would rot in the direction that silently under-tests.
+            #
+            # The split exists because one flag was driving two unrelated
+            # things: run the Go unit gates, and boot twelve Postgres shards.
+            # A rulebook edit needs the first and cannot affect the second —
+            # the same reasoning already applied to `infra/**/!(*.md)` below,
+            # applied to the last two entries as well.
+            backend_db: &backend_db
               - 'backend/**'
               # The MCP App admission vocabulary is AUTHORED under frontend/ and
               # copied into the Go package, where a byte-equality test gates the
@@ -111,8 +126,20 @@ jobs:
               # every Go job restores, so an edit to it changes what the gates
               # compile — the same claim on this scope that ci.yml itself has.
               - '.github/actions/**'
-              - 'AGENTS.md'
               - 'sonar-project.properties'
+            # The rulebooks. `backend/agentsdocparity_test.go` reads BOTH and
+            # fails when the three shared sections drift, so a unit lane has to
+            # run for either — but no integration test opens them, so twelve
+            # Postgres shards do not.
+            #
+            # CLAUDE.md was absent from this classifier entirely until now,
+            # which meant an edit to it alone ran no Go lane at all and could
+            # break that parity test with nothing to catch it. Listing it here
+            # is the fix for that, not a convenience.
+            backend:
+              - *backend_db
+              - 'AGENTS.md'
+              - 'CLAUDE.md'
             frontend:
               - 'frontend/**'
               - 'backend/api/**'
@@ -508,7 +535,11 @@ jobs:
   integration-shards:
     name: integration shard (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: [changes]
-    if: needs.changes.outputs.backend == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
+    # backend_db, not backend: this is the twelve-Postgres lane, and the two
+    # paths that differ (the agent rulebooks) cannot change what it proves.
+    # It moves in lockstep with the `integration` fan-in below, which asserts
+    # on this job's result and would read a skip as a failure if only one moved.
+    if: needs.changes.outputs.backend_db == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -649,9 +680,14 @@ jobs:
     # skipped required check counts as passing, and `!cancelled()` is false for
     # every job once a run is cancelled — so cancelling mid-lane would have
     # skipped this check and greened it. The assertion below sees `cancelled`.
+    #
+    # backend_db, in lockstep with integration-shards: the assertion below
+    # demands `success` from that job, so a run where the shards skipped and
+    # this did not would fail on the string "skipped" — a docs PR reported as
+    # a broken integration lane.
     if: >-
       always()
-      && needs.changes.outputs.backend == 'true'
+      && needs.changes.outputs.backend_db == 'true'
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
