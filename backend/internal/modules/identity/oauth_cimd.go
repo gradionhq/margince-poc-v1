@@ -190,17 +190,22 @@ func (s *Service) cimdCacheIsFresh(ctx context.Context, clientID string) (bool, 
 // anyone who could serve a document at that URL — and with it, its redirect
 // list. The conflict target is the row this document may own or nothing.
 func (s *Service) upsertCIMDClient(ctx context.Context, doc cimdDocument, ttl time.Duration) error {
-	expires := time.Now().Add(ttl)
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// The cache window is a DELAY on the database's clock: freshness is read
+		// as `metadata_expires_at > now()` INSIDE Postgres, so a deadline bound
+		// from this process would be a cross-clock comparison. A process running
+		// behind the database re-fetches a document that is still fresh; one
+		// running ahead serves a client's redirect list past the window its
+		// publisher was promised.
 		_, err := tx.Exec(ctx, `
 			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris, created_via, metadata_expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'cimd', $4)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'cimd', now() + $4::interval)
 			ON CONFLICT (client_id) DO UPDATE SET
 			  client_name         = EXCLUDED.client_name,
 			  redirect_uris       = EXCLUDED.redirect_uris,
-			  metadata_expires_at = EXCLUDED.metadata_expires_at
+			  metadata_expires_at = now() + $4::interval
 			WHERE oauth_client.created_via = 'cimd'`,
-			doc.ClientID, doc.ClientName, doc.RedirectURIs, expires)
+			doc.ClientID, doc.ClientName, doc.RedirectURIs, ttl.String())
 		if err != nil {
 			return fmt.Errorf("identity: recording a client's metadata document: %w", err)
 		}
