@@ -3960,7 +3960,7 @@ export const vi = {
   "license.meter.label": "Đang dùng {used} trong {granted} chỗ",
   "license.over.title": "Bạn đã vượt quá số chỗ được cấp",
   "license.over.body":
-    "Đang dùng {used} chỗ trong khi giấy phép cấp {granted}. Không có gì bị chặn và không ai mất quyền truy cập — hãy bỏ một chỗ hoặc nâng hạn mức để trở lại trong giới hạn.",
+    "Đang dùng {used} chỗ trong khi giấy phép cấp {granted}. Không ai mất quyền truy cập và không chỗ nào bị thu hồi — nhưng không thể mời thành viên mới cho đến khi trở lại trong hạn mức. Hãy vô hiệu hoá một thành viên hoặc nâng hạn mức.",
   "license.holder.title": "Cấp phép cho",
   "license.holder.org": "Tổ chức",
   "license.holder.contact": "Liên hệ",
@@ -3975,7 +3975,7 @@ export const vi = {
   "license.renewal.body":
     "Giấy phép hết hạn vào {expiry}. Không có gì thay đổi trước ngày đó.",
   "license.counting":
-    "Chỗ đầy đủ chưa bị vô hiệu hoá, bao gồm cả agent. Chỗ chỉ đọc là không giới hạn và không bao giờ được tính.",
+    "Chỗ đầy đủ chưa bị vô hiệu hoá và chưa bị tạm ngưng, bao gồm cả agent. Chỗ chỉ đọc là không giới hạn và không bao giờ được tính. Thành viên mới được xét theo con số này.",
   "settings.group.you": "Cá nhân",
   "settings.group.org": "Tổ chức",
   "settings.rates.fxTitle": "Tỷ giá",

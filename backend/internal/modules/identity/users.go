@@ -87,6 +87,13 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 	ctx = actorCtx(ctx, actor)
 	var newUserID ids.UserID
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
+		// An invited member is a full seat — the insert below takes the column's
+		// default and there is no read-seat invite — so every invite is one more
+		// seat against the licensed ceiling, and it is refused here rather than
+		// after the member exists.
+		if err := s.refuseWhenNoSeatIsLeft(ctx, tx); err != nil {
+			return err
+		}
 		var roleID ids.UUID
 		roleErr := tx.QueryRow(ctx, `SELECT id FROM role WHERE key = $1`, in.Role).Scan(&roleID)
 		if errors.Is(roleErr, pgx.ErrNoRows) {
@@ -149,10 +156,10 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 	}
 	ctx = actorCtx(ctx, actor)
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		var status string
+		var status, seat string
 		err := tx.QueryRow(ctx,
-			`SELECT status FROM app_user WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
-			userID).Scan(&status)
+			`SELECT status, seat_type FROM app_user WHERE id = $1 AND archived_at IS NULL FOR UPDATE`,
+			userID).Scan(&status, &seat)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -167,6 +174,15 @@ func (s *Service) ReactivateUser(ctx context.Context, actor Identity, userID ids
 		// cleared by this path.
 		if status != userStatusDeactivated {
 			return errNotDeactivated
+		}
+		// A deactivated member counts against nothing, so returning one to active
+		// takes a seat exactly as an invite does. Only a FULL one: read seats are
+		// unlimited and never metered, and refusing a viewer their account back on
+		// a full-seat ceiling would meter the one thing the license does not.
+		if principal.SeatType(seat) == principal.SeatFull {
+			if err := s.refuseWhenNoSeatIsLeft(ctx, tx); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.Exec(ctx,
 			`UPDATE app_user SET status = 'active' WHERE id = $1`, userID); err != nil {

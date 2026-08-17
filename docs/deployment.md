@@ -75,7 +75,10 @@ env template is [`.env.template`](../.env.template). The essentials:
 | `MARGINCE_PUBLIC_BASE_URL` | api, worker | canonical external base URL (buyer-facing links / marketing mail) |
 
 Do **not** set `MARGINCE_ENV=dev` in a deployed environment — it enables dev-only
-trust switches.
+trust switches, and it is what lets an installation run with no license at all.
+A deployed installation needs a license: with none configured, `cmd/api` and
+`cmd/worker` refuse to boot unless the environment says non-production (see
+[configuration.md](reference/configuration.md#license)).
 
 ### First-boot bootstrap config
 

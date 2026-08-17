@@ -19,25 +19,39 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
-// unlicensedEnvironment makes the environment say what these tests need it to
-// say: nothing. deployconfig.License.Token reads MARGINCE_LICENSE before it
-// looks at the file reference, so an engineer or CI lane that exports a real
-// license would otherwise fail all three for a reason that has nothing to do
-// with the code — one would stop being absent, and two would stop exercising
-// the file path they name. (the environment travels as a parameter now, so these
-// three do not run parallel.)
-func unlicensedEnvironment(t *testing.T) {
-	t.Helper()
+// Every case here hands EnsureLicense a lookup that answers nothing, which is
+// what makes them tests of the code rather than of the shell they run in: the
+// token is read through that lookup, so an engineer or CI lane exporting a real
+// MARGINCE_LICENSE cannot turn an absent posture into a valid one, or make a
+// case that names a token FILE read a variable instead.
+
+// A production installation serves on a license or it does not serve. The whole
+// point of the gate is that this is the DEFAULT: MARGINCE_ENV is fail-closed, so
+// an installation that names no posture is held to a license.
+func TestEnsureLicenseRefusesAProductionBootWithNoLicense(t *testing.T) {
+	_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), deployconfig.Config{},
+		runtimeenv.Parse(""), config.Static(nil))
+	if err == nil {
+		t.Fatal("EnsureLicense booted a production installation that configured no license")
+	}
+	// Both ways out are named, because the operator reading this is either
+	// licensed and missing the reference, or running a development installation
+	// that never said so — and the message that names one of the two sends the
+	// other operator after a problem they do not have.
+	for _, want := range []string{"license.token_file", deployconfig.LicenseTokenEnvVar, runtimeenv.EnvVar, string(runtimeenv.Development)} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("boot refusal %q does not name %q", err, want)
+		}
+	}
 }
 
-func TestEnsureLicenseBootsUnlicensedAndSaysSo(t *testing.T) {
-	unlicensedEnvironment(t)
+func TestEnsureLicenseBootsUnlicensedInNonProductionAndSaysSo(t *testing.T) {
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	watcher, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Production, config.Static(nil))
+	watcher, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Development, config.Static(nil))
 	if err != nil {
-		t.Fatalf("EnsureLicense refused an unlicensed installation: %v", err)
+		t.Fatalf("EnsureLicense refused an unlicensed development installation: %v", err)
 	}
 	if got := watcher.Posture().State; got != licensecheck.StateAbsent {
 		t.Errorf("posture = %q, want %q", got, licensecheck.StateAbsent)
@@ -53,23 +67,27 @@ func TestEnsureLicenseBootsUnlicensedAndSaysSo(t *testing.T) {
 	}
 }
 
+// A refused license refuses the boot in EVERY posture. Only the ABSENT case
+// bends for a development installation: naming yourself non-production is how
+// you say you have no license, not a way to run one the module judged.
 func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T) {
-	unlicensedEnvironment(t)
 	path := filepath.Join(t.TempDir(), "license")
 	if err := os.WriteFile(path, []byte("not.a.license"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: path}}
 
-	_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production, config.Static(nil))
-	if err == nil {
-		t.Fatal("EnsureLicense booted on a license the bundled module refuses")
-	}
-	// The refusal has to name the setting to correct, or an operator is left to
-	// guess which of two places the token came from.
-	for _, want := range []string{"license.token_file", deployconfig.LicenseTokenEnvVar} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("boot refusal %q does not name %q", err, want)
+	for _, env := range []runtimeenv.Environment{runtimeenv.Production, runtimeenv.Development} {
+		_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, env, config.Static(nil))
+		if err == nil {
+			t.Fatalf("EnsureLicense booted a %s installation on a license the bundled module refuses", env)
+		}
+		// The refusal has to name the setting to correct, or an operator is left to
+		// guess which of two places the token came from.
+		for _, want := range []string{"license.token_file", deployconfig.LicenseTokenEnvVar} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("boot refusal %q (%s) does not name %q", err, env, want)
+			}
 		}
 	}
 }
@@ -77,7 +95,6 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 // A path that does not resolve fails the boot rather than reading as an
 // unlicensed installation, which is the same posture to everything downstream.
 func TestEnsureLicenseRefusesAnUnreadableTokenFile(t *testing.T) {
-	unlicensedEnvironment(t)
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: filepath.Join(t.TempDir(), "typo")}}
 	if _, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production, config.Static(nil)); err == nil {
 		t.Fatal("EnsureLicense booted with a token_file that does not exist")
@@ -190,10 +207,9 @@ func TestAssembledMetricsSectionsOmitTheLicenseWhenNoneWasWired(t *testing.T) {
 // posture logged without its source cannot answer "which license is this
 // installation running on".
 func TestEnsureLicenseBootLineNamesTheTokenSource(t *testing.T) {
-	unlicensedEnvironment(t)
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if _, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Production, config.Static(nil)); err != nil {
+	if _, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Development, config.Static(nil)); err != nil {
 		t.Fatalf("EnsureLicense: %v", err)
 	}
 	if !strings.Contains(log.String(), "token_from=none") {

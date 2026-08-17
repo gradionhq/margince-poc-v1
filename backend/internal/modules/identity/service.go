@@ -52,6 +52,12 @@ type Service struct {
 	// successful resolution (installation.go) — the id is immutable for
 	// the process lifetime, so no request pays the lookup twice.
 	installation atomic.Pointer[ids.WorkspaceID]
+	// seatCeiling answers how many full seats the installation's license
+	// admits, injected by the composition root (seatceiling.go) because what
+	// a license grants is resolved from the deployment file and a validation
+	// module identity never imports. Nil ⟹ nothing caps seats, which is what
+	// a role that resolved no license posture means.
+	seatCeiling SeatCeiling
 }
 
 func NewService(pool *pgxpool.Pool) *Service {
