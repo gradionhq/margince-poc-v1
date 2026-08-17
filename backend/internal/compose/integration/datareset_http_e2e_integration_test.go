@@ -20,10 +20,16 @@ import (
 // flag /me carries for the client gate, the confirmation refusal, and a
 // successful reset. Reaching 200 also proves the live session path populates
 // the admin RoleKeys that RequireAdmin gates on.
+//
+// It runs under the PRODUCTION posture on purpose. Armed-and-non-production is
+// the one combination the retired gate would also have served, so a test using
+// it proves nothing about which gate is live; armed-and-production can only
+// pass if the capability is independent of the posture, and fails against any
+// regression to `allowed && env.IsNonProduction()`.
 func TestResetDataOverHTTP(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t,
 		compose.WithDataReset(nil, deployconfig.Seeds{}, true),
-		compose.WithNonProduction(runtimeenv.Development),
+		compose.WithNonProduction(runtimeenv.Production),
 		compose.WithDataResetAvailable(true),
 	)
 	apptest.BootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
@@ -41,9 +47,10 @@ func TestResetDataOverHTTP(t *testing.T) {
 	if me.DataResetAvailable == nil || !*me.DataResetAvailable {
 		t.Fatalf("me.data_reset_available = %v; the endpoint below is armed, so the client must be told so", me.DataResetAvailable)
 	}
-	// And the posture travels separately, on its own deprecated field.
-	if !me.NonProduction {
-		t.Fatal("me.non_production = false; want true under the Development posture")
+	// And the posture travels separately, reporting production — which is the
+	// point: the two answers disagree here, and the reset below still runs.
+	if me.NonProduction {
+		t.Fatal("me.non_production = true under the Production posture")
 	}
 
 	// Wrong confirmation is refused before anything is deleted.
