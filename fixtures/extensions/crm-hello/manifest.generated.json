@@ -16,8 +16,8 @@
         "read"
       ],
       "tier": "confirmation_required",
-      "fragment_hash": "d6310bcb4e4a9f121d711da667449afe63ff9cdc3a47325947c43816f3fd7044",
-      "digest": "sha256:6569ff09c395e55010ecc2b7cd716180102c482bd90453f8306a8dbb7ffacdb8"
+      "fragment_hash": "sha256:d6310bcb4e4a9f121d711da667449afe63ff9cdc3a47325947c43816f3fd7044",
+      "digest": "sha256:1fc8a5bc3aebe1d44efd755e73f4f1e8bc8bf7baead29d6bb5a510b6a35734fa"
     }
   ]
 }

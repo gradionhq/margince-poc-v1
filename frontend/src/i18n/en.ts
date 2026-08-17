@@ -4922,7 +4922,7 @@ export const en = {
   "person.brief.reading": "Reading the relationship…",
   "person.brief.empty":
     "Nothing has been captured yet that this brief could be written from.",
-  "person.brief.sourceEmail": "Email thread",
+  "person.brief.sourceActivity": "Conversation",
   "person.brief.sourceDeal": "Deal notes",
 
   "person.matters.title": "What matters to {name}",
@@ -4963,6 +4963,8 @@ export const en = {
   "person.memory.channelMeeting": "Meeting",
   "person.memory.channelCall": "Call",
   "person.memory.channelNote": "Note",
+  "person.memory.channelMessage": "Message",
+  "person.memory.channelTask": "Task",
   "person.memory.replied": "Replied",
   "person.memory.unanswered": "Unanswered",
 
@@ -4999,6 +5001,9 @@ export const en = {
   "person.rail.consentTitle": "Consent & channels",
   "person.rail.email": "Email",
   "person.rail.phone": "Phone",
+  "person.rail.noEmailAddress": "No address on file",
+  "person.rail.noPhoneNumber": "No number on file",
+  "person.rail.channelNotDeliverable": "Not deliverable",
   "person.rail.recentActivity": "Recent activity",
   "person.rail.nothingCaptured": "Nothing captured yet.",
   "person.rail.viewAllActivity": "View all activity",

@@ -824,6 +824,90 @@ export const RailConsentBlocked: Story = {
   },
 };
 
+// The contact a chat connector creates: no address, no number, and two channel
+// identities — one that can still be delivered to and one that cannot. It is
+// the shape the Consent & Channels block used to be silent about, reporting the
+// two transports this person does NOT have and omitting the two they do.
+const channelReached: View = {
+  ...populated,
+  person: {
+    ...populated.person,
+    emails: [],
+    phones: [],
+    reachability: [
+      {
+        provider: "zalo_oa",
+        reachable: true,
+        since: "2026-08-01T09:00:00Z",
+      },
+      {
+        provider: "dispact",
+        reachable: false,
+        since: "2026-08-09T09:00:00Z",
+      },
+    ],
+  },
+};
+
+export const RailChannelReached: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () =>
+        jsonResponse(meFixture({ allow: { person: ["update"] } })),
+      // A transport is named by the directory, so the story has to serve it:
+      // without this the rows fall back to the raw provider ids, which is the
+      // resolver's honest behaviour and not what this story is about.
+      "GET /channel-providers": () =>
+        jsonResponse({
+          data: [
+            {
+              provider: "zalo_oa",
+              label: "Zalo OA",
+              credential_model: "workspace_bot",
+              supplies_transport: true,
+            },
+            {
+              provider: "dispact",
+              label: "Dispact",
+              credential_model: "per_member",
+              supplies_transport: true,
+            },
+          ],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <div style={{ maxWidth: 320 }}>
+          <PersonRail
+            view={channelReached}
+            guard={{
+              person_id: "p-1",
+              entries: [
+                {
+                  purpose_key: "business_correspondence",
+                  purpose_class: "business_correspondence",
+                  channel: "email",
+                  verdict: "allowed",
+                  reason: "She wrote to you on 1 Aug 2026.",
+                },
+                {
+                  purpose_key: "phone_outreach",
+                  purpose_class: "phone_outreach",
+                  channel: "phone",
+                  verdict: "unknown",
+                  reason: "No consent recorded.",
+                },
+              ],
+            }}
+            firstName="Dana"
+            onExplain={() => {}}
+          />
+        </div>
+      </StoryProviders>
+    );
+  },
+};
+
 // A record with an open deal, an empty committee and no meeting booked, and
 // a last inbound reply well past the 14-day threshold: the shape that fires
 // three of derivedSignals' four warnings at once (personrail.tsx) plus the
@@ -1027,6 +1111,75 @@ export const OverviewPanels: Story = {
       </div>
     </StoryProviders>
   ),
+};
+
+// The same two cards for a contact whose whole relationship arrived over a chat
+// channel. Both used to name it mail — an envelope on the memory row, and
+// "Email thread" under the brief — on a person with no address at all.
+const chatConversation: View = {
+  ...channelReached,
+  activities: {
+    data: [
+      {
+        id: "a-9",
+        kind: "message",
+        channel_provider: "zalo_oa",
+        direction: "inbound",
+        subject: null,
+        body: "Bên mình cần báo giá cho 40 xe.",
+        occurred_at: "2026-08-12T04:20:00Z",
+        links: [{ entity_type: "person", entity_id: "p-1" }],
+        source: "ext:zalo-oa:zalo",
+        captured_by: "connector:zalo-oa",
+        created_at: "2026-08-12T04:20:00Z",
+        updated_at: "2026-08-12T04:20:00Z",
+        is_done: false,
+      },
+    ],
+    page,
+  },
+  conversation_memory: [],
+};
+
+export const OverviewChannelConversation: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": () => jsonResponse(meFixture({ allow: {} })),
+      "GET /channel-providers": () =>
+        jsonResponse({
+          data: [
+            {
+              provider: "zalo_oa",
+              label: "Zalo OA",
+              credential_model: "workspace_bot",
+              supplies_transport: true,
+            },
+          ],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <div className="pe-overview-stack" style={{ maxWidth: 720 }}>
+          <PersonBriefCard
+            brief={{
+              person_id: "p-1",
+              generated_at: "2026-08-13T09:00:00Z",
+              generated_by: "deterministic",
+              sentences: [
+                {
+                  text: "She asked for a quote on forty vehicles and has not been answered.",
+                  evidence: [{ entity_type: "activity", entity_id: "a-9" }],
+                },
+              ],
+            }}
+            loading={false}
+            view={chatConversation}
+          />
+          <PersonMemory view={chatConversation} />
+        </div>
+      </StoryProviders>
+    );
+  },
 };
 
 // A deal with money, stage and a close date, and more than one stakeholder in

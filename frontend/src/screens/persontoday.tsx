@@ -1,7 +1,9 @@
 import {
   AlertTriangle,
   CalendarDays,
-  Mail,
+  CheckSquare,
+  FileText,
+  Send,
   Sparkles,
   Users,
 } from "lucide-react";
@@ -10,6 +12,7 @@ import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
+import { interactionIcon } from "./interactionchrome";
 
 // "Today with {first name}" (concept §5.5, ADR-0096 D2).
 //
@@ -152,14 +155,22 @@ function ActionVerb({
   );
 }
 
+// A moment says what to do; it never says what carries it. So the reply verb is
+// drawn as a send and not as an envelope — the envelope told a contact reached
+// only over a chat channel that the button would mail them, which is neither
+// what the action does nor something this card can know.
 function actionIcon(kind: string): ReactNode {
   switch (kind) {
     case "schedule_meeting":
     case "open_meeting_brief":
     case "ask_colleague":
       return <Users size={15} aria-hidden="true" />;
+    case "draft_reply":
+      return <Send size={15} aria-hidden="true" />;
+    case "complete_task":
+      return <CheckSquare size={15} aria-hidden="true" />;
     default:
-      return <Mail size={15} aria-hidden="true" />;
+      return <FileText size={15} aria-hidden="true" />;
   }
 }
 
@@ -182,14 +193,18 @@ function readiness(
   return t("person.rail.ready");
 }
 
+// A moment's evidence names a record TYPE and nothing about the transport, so
+// there is no honest envelope to draw beside an activity: it is as likely to
+// be a chat message or a call as a mail, and on a contact reached only over a
+// channel the envelope was simply wrong. It is drawn as the record it is.
 function evidenceIcon(type: string): ReactNode {
   switch (type) {
-    case "activity":
-      return <Mail size={15} aria-hidden="true" />;
     case "task":
       return <CalendarDays size={15} aria-hidden="true" />;
-    default:
+    case "relationship_change":
       return <Users size={15} aria-hidden="true" />;
+    default:
+      return interactionIcon(null, 15);
   }
 }
 

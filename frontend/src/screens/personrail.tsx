@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Mail, Phone } from "lucide-react";
+import type { ReactNode } from "react";
 import { useCallback, useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -25,7 +26,9 @@ import {
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
 import { useT } from "../i18n";
+import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
+import { interactionIcon } from "./interactionchrome";
 import { consentWord } from "./personstrip";
 
 // The right rail (concept §5.11): one continuous panel, its six slices told
@@ -64,7 +67,7 @@ export function PersonRail({
         <RelationshipPulse view={view} onExplain={onExplain} />
         <WhoKnows view={view} firstName={firstName} />
         <SignalsAndRisks view={view} />
-        <ConsentAndChannels guard={guard} />
+        <ConsentAndChannels view={view} guard={guard} />
         <RecentActivity view={view} />
       </Panel>
     </div>
@@ -1006,41 +1009,107 @@ function derivedSignals(
 // The action guard, not the proof ledger. It renders even on a thin record,
 // because "may I write to this person" is a question with an answer whatever
 // else is missing.
+//
+// Every row answers ONE transport, and it answers reachability before consent.
+// A verdict presupposes somewhere to send: reporting "allowed" against mail and
+// phone for a contact captured over a chat channel — no address, no number —
+// asserted a reachability nothing in the record supports, while the transport
+// the CRM can actually reach them on had no row at all.
+//
+// The channel rows come from `person.reachability`, the record's own read of
+// `person_channel_identity` — the same binding the reply path resolves a
+// recipient from. They carry the correspondence verdict rather than one of
+// their own because the send gate is per PURPOSE: it resolves the person and
+// asks the one question, so the transport never enters the answer.
 function ConsentAndChannels({
+  view,
   guard,
-}: Readonly<{ guard: PersonConsentGuard | undefined }>) {
+}: Readonly<{ view: Person360; guard: PersonConsentGuard | undefined }>) {
   const t = useT();
+  const providerLabel = useProviderLabel();
   const entries = guard?.entries ?? [];
-  const email = entries.find((entry) => entry.channel === "email");
+  const correspondence = entries.find((entry) => entry.channel === "email");
   const phone = entries.find((entry) => entry.channel === "phone");
+  const hasEmail = (view.person.emails?.length ?? 0) > 0;
+  const channels = view.person.reachability ?? [];
   return (
     <Disclosure
       className="pe-sect"
       open
       summary={t("person.rail.consentTitle")}
     >
-      <div className="pe-rail-row">
-        <span className="pe-rail-label">
-          <Mail size={15} aria-hidden="true" />
-          {t("person.rail.email")}
-        </span>
-        <span className={verdictClass(email?.verdict)}>
-          {consentWord(email?.verdict, t)}
-        </span>
-      </div>
-      <div className="pe-rail-row">
-        <span className="pe-rail-label">
-          <Phone size={15} aria-hidden="true" />
-          {t("person.rail.phone")}
-        </span>
-        <span className={verdictClass(phone?.verdict)}>
-          {consentWord(phone?.verdict, t)}
-        </span>
-      </div>
+      <ConsentRow
+        icon={<Mail size={15} aria-hidden="true" />}
+        label={t("person.rail.email")}
+        reachable={hasEmail}
+        verdict={correspondence?.verdict}
+        unreachableWord={t("person.rail.noEmailAddress")}
+      />
+      <ConsentRow
+        icon={<Phone size={15} aria-hidden="true" />}
+        label={t("person.rail.phone")}
+        reachable={(view.person.phones?.length ?? 0) > 0}
+        verdict={phone?.verdict}
+        unreachableWord={t("person.rail.noPhoneNumber")}
+      />
+      {/* A blocked identity still gets its row, with `reachable: false`: the
+          conversation happened, and hiding the transport it happened on would
+          answer "can I write to them" by pretending they were never here. */}
+      {channels.map((channel) => (
+        <ConsentRow
+          key={channel.provider}
+          icon={interactionIcon("message", 15)}
+          label={providerLabel(channel.provider)}
+          reachable={channel.reachable}
+          verdict={correspondence?.verdict}
+          unreachableWord={t("person.rail.channelNotDeliverable")}
+        />
+      ))}
       {/* The REASON, in the reader's words. A verdict a rep cannot explain to
-          the person in front of them is not usable. */}
-      {email?.reason && <p className="pe-colleague-proof">{email.reason}</p>}
+          the person in front of them is not usable — and one explaining a
+          verdict no row above shows explains nothing. */}
+      {(hasEmail || channels.some((channel) => channel.reachable)) &&
+        correspondence?.reason && (
+          <p className="pe-colleague-proof">{correspondence.reason}</p>
+        )}
     </Disclosure>
+  );
+}
+
+// One transport's row. Reachability is a fact about the RECORD and the verdict
+// is a fact about consent, and the row states the first before the second: a
+// permission to send where there is nowhere to send is not one a rep can act
+// on, and colouring it green says they may.
+function ConsentRow({
+  icon,
+  label,
+  reachable,
+  verdict,
+  unreachableWord,
+}: Readonly<{
+  icon: ReactNode;
+  label: string;
+  reachable: boolean;
+  verdict: string | undefined;
+  unreachableWord: string;
+}>) {
+  const t = useT();
+  return (
+    <div className="pe-rail-row">
+      <span className="pe-rail-label">
+        {icon}
+        {label}
+      </span>
+      <span
+        className={
+          reachable
+            ? verdictClass(verdict)
+            : "pe-rail-value pe-rail-value-muted"
+        }
+      >
+        {reachable ? consentWord(verdict, t) : unreachableWord}
+      </span>
+    </div>
   );
 }
 

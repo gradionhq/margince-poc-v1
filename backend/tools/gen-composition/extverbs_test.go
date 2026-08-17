@@ -4,11 +4,18 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
+
+// digestEncoding is how digestBytes spells a hash, which is what a fragment
+// hash is checked against here. The gate over the COMMITTED manifests lives in
+// the product module (backend/manifestdigest_test.go), because it reads files
+// this module's test cache cannot key.
+var digestEncoding = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // contractWith wraps a path item into the smallest document this reader will
 // accept, so a case reads as the operation it is about.
@@ -134,8 +141,9 @@ func TestExtensionVerbsReadsAnOperationOutOfTheMergedContract(t *testing.T) {
 	if string(v.OutputSchema) != `{"properties":{"quote":{"type":"string"}},"type":"object"}` {
 		t.Fatalf("OutputSchema = %s", v.OutputSchema)
 	}
-	if got[0].fragmentHash == "" || len(got[0].fragmentHash) != 64 {
-		t.Fatalf("fragmentHash = %q, want a sha256 hex digest", got[0].fragmentHash)
+	// Algorithm-prefixed, the one spelling every hash in a manifest carries.
+	if !digestEncoding.MatchString(got[0].fragmentHash) {
+		t.Fatalf("fragmentHash = %q, want an algorithm-prefixed sha256 digest", got[0].fragmentHash)
 	}
 }
 

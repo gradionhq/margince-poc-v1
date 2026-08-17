@@ -243,7 +243,10 @@ func syntheticVerb(unit, tool, tier, scope string) declaredVerb {
 			Tier:           extension.Tier(tier),
 			RequestedScope: extension.Scope(scope),
 		},
-		fragmentHash: "0000000000000000000000000000000000000000000000000000000000000000",
+		// Spelled the way operationHash spells it, prefix included: a stand-in
+		// that carried a shape production never produces would let the manifest
+		// assertions below pass over an encoding no real unit has.
+		fragmentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
 }
 
@@ -451,7 +454,7 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 		`"method": "POST"`,
 		`"tier": "auto_execute"`,
 		`"write"`,
-		`"fragment_hash": "0000`,
+		`"fragment_hash": "sha256:0000`,
 		`"digest": "sha256:`,
 	} {
 		if !strings.Contains(string(first), want) {
