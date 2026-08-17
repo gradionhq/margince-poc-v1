@@ -4,8 +4,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { Select } from "../design-system/select";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
-import { throwProblem } from "./common";
+import { ProblemError, throwProblem } from "./common";
 
 // Recording an agreement.
 //
@@ -295,6 +296,45 @@ function draftOf(contract: Contract | undefined): ContractDraft {
 }
 
 /**
+ * paperState is what the field KNOWS about an agreement's documents.
+ *
+ * The four not-ready cases are kept apart because each is a different sentence
+ * to the reader, and collapsing them into an empty list makes the field claim
+ * "no paper on file" three times over when it has no idea. A contract being
+ * created is the one honest empty: it cannot have documents yet.
+ *
+ * A 403 is WITHHELD, not failed. Reading documents carries its own grant, so a
+ * reader without it must be told the answer is being kept from them rather than
+ * offered a retry that will refuse again exactly the same way.
+ */
+export function paperState(
+  hasContract: boolean,
+  query: { isPending: boolean; isError: boolean; error: unknown },
+  count: number,
+): SectionState {
+  if (!hasContract) {
+    return "empty";
+  }
+  if (query.isPending) {
+    return "loading";
+  }
+  if (query.isError) {
+    return problemStatus(query.error) === 403 ? "withheld" : "failed";
+  }
+  return count === 0 ? "empty" : "ready";
+}
+
+// The HTTP status out of a thrown RFC-7807 body, or 0 when the failure carried
+// none (a dropped connection throws no problem document at all).
+function problemStatus(err: unknown): number {
+  if (!(err instanceof ProblemError) || typeof err.problem !== "object") {
+    return 0;
+  }
+  const body = err.problem as Record<string, unknown>;
+  return typeof body.status === "number" ? body.status : 0;
+}
+
+/**
  * SignedFileField shows the paper already on file and takes a new one by
  * drag-and-drop or by clicking.
  *
@@ -303,6 +343,14 @@ function draftOf(contract: Contract | undefined): ContractDraft {
  * agreement to check its terms wants the signed PDF, and the edit form is where
  * they land when they click the row — so a filed document that can only be
  * reached from somewhere else is a document they will conclude does not exist.
+ *
+ * AND IT NEVER SAYS THAT WHEN IT DOES NOT KNOW. A read still in flight, one
+ * that failed, and one a grant refused are each a state where the answer is
+ * unknown — and rendering a bare drop zone in any of them makes the same false
+ * claim this field exists to stop, just later and more convincingly. Reading
+ * documents needs its own grant, so a reader who cannot have them is told they
+ * are withheld rather than shown an empty field about a contract that has
+ * paper.
  *
  * The picker takes BOTH gestures, not one: dropping is what a reader reaches
  * for with a PDF already in front of them, and clicking is what works from a
@@ -350,25 +398,45 @@ function SignedFileField({
   };
 
   const onFile = filed.data ?? [];
+  const state = paperState(Boolean(contractID), filed, onFile.length);
+  // A drop zone always shows: uploading does not depend on being able to READ
+  // what is already filed, and withholding the only way to attach paper would
+  // punish the reader for a grant they do not have. What changes is whether
+  // anything above it claims to be the full picture.
+  const known = state === "ready" || state === "empty";
 
   return (
     <Field label={t("contracts.form.file")} hint={t("contracts.form.fileHint")}>
       {(props) => (
         <>
-          {/* Each filed document, downloadable by name. A failed read renders
-              nothing rather than an error: the terms above are what the reader
-              came for, and a document problem reported here would read as
-              doubt about the agreement itself. */}
-          {onFile.map((doc) => (
-            <a
-              key={doc.id}
-              className="co-rowlink"
-              href={`/v1/attachments/${doc.id}`}
-              download={doc.filename}
+          {/* Each filed document, downloadable by name — and when the answer
+              is not known, the reason instead. `empty` renders nothing here
+              because the drop zone below already says the field is waiting for
+              a file; two sentences saying the same absence is noise. */}
+          {known ? (
+            onFile.map((doc) => (
+              <a
+                key={doc.id}
+                className="co-rowlink"
+                href={`/v1/attachments/${doc.id}`}
+                download={doc.filename}
+              >
+                {doc.title || doc.filename}
+              </a>
+            ))
+          ) : (
+            <SurfaceState
+              state={state}
+              emptyLabel=""
+              detail={
+                state === "failed"
+                  ? { onRetry: () => void filed.refetch() }
+                  : {}
+              }
             >
-              {doc.title || doc.filename}
-            </a>
-          ))}
+              {null}
+            </SurfaceState>
+          )}
           {/* A LABEL, not a div: it owns the real file input, so a click or a
               keypress anywhere in the zone opens the picker without a handler
               faking it, and a screen reader announces one control rather than
@@ -394,14 +462,16 @@ function SignedFileField({
               onChange={(e) => take(e.target.files)}
             />
             <span className="dropzone-label">
-              {/* The label says ADD when paper is already filed: an agreement
-                  can carry an amendment beside its original, and "no file yet"
-                  over a list of files is a contradiction the reader has to
-                  resolve. */}
+              {/* The label says ADD whenever this field is not asserting that
+                  nothing is filed — either because paper IS filed (an
+                  agreement can carry an amendment beside its original) or
+                  because the read did not come back, where "drop a file here"
+                  would quietly restate the absence the panel above just
+                  declined to claim. */}
               {file
                 ? file.name
                 : t(
-                    onFile.length > 0
+                    onFile.length > 0 || !known
                       ? "contracts.form.fileAdd"
                       : "contracts.form.fileEmpty",
                   )}
