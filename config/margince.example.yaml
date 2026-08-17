@@ -81,6 +81,30 @@ bootstrap_admin:
 # ai:
 #   capture_payloads: true
 
+# How large a file this installation accepts, per route (optional, OPS-CFG-12).
+#
+# DECIMAL megabytes — 25 means 25,000,000 bytes, not 26,214,400. The number you
+# write here is the number the server's refusal names and the number the upload
+# form states, and those three agreeing is the whole reason the unit is decimal.
+#
+# The ceiling bounds the WHOLE request, part framing included, not the file
+# alone. The overhead is a few hundred bytes, so it only matters within a
+# rounding error of the limit.
+#
+# Each key is separate on purpose: raising what a scanned contract may weigh is
+# not a reason to let a CSV import attempt more parsing work. An omitted key
+# takes the default below; a value outside 1–100 MB is a boot error, not a
+# silent clamp. Past 100 MB the answer is an upload straight to object storage,
+# which is a different design rather than a bigger number.
+#
+# What this section does NOT decide is which routes may carry a file at all —
+# that stays in the source, and it is what keeps a route carrying no file from
+# claiming the wider bound by sending a multipart header.
+# uploads:
+#   attachment_mb: 25        # POST /v1/attachments — the documents surface
+#   csv_import_mb: 10        # POST /v1/imports/sources
+#   linkedin_import_mb: 8    # POST /v1/me/linkedin-connections
+
 # Capture pipeline posture (optional).
 #
 # trace_payloads turns on payload capture in the 24-hour Capture activity trace

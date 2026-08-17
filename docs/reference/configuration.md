@@ -730,6 +730,47 @@ injects bounded context into declared AI tasks; `onboarding` additionally enable
 the five-step first-run flow. The default is `onboarding`. Moving backward is a
 reversible operational kill switch and never deletes confirmed company data.
 
+### Uploads
+
+The `uploads:` block sets how large a request each route that carries a **file**
+may read (OPS-CFG-12). Every other route stays on the 1 MiB JSON bound, which is
+a security invariant and is deliberately not configurable: several handlers
+decode the body with no bound of their own, and two of those routes are
+unauthenticated.
+
+| Key | Default | Route |
+|---|---|---|
+| `uploads.attachment_mb` | `25` | `POST /v1/attachments` — the documents surface |
+| `uploads.csv_import_mb` | `10` | `POST /v1/imports/sources` |
+| `uploads.linkedin_import_mb` | `8` | `POST /v1/me/linkedin-connections` |
+
+**Decimal megabytes**: `25` means 25,000,000 bytes, not 26,214,400. The value
+here is the number the server's 413 names and the number the upload form states,
+and those three agreeing is why the unit is decimal rather than binary — a
+binary constant reads as "25 MB" in a sentence while admitting 4.8% more.
+
+The ceiling bounds the **whole request**, part framing included, not the file
+alone. The overhead is a few hundred bytes, so it only matters within a rounding
+error of the limit; a client that refuses before sending should leave itself
+that much room.
+
+An omitted key takes the default. A value outside **1–100 MB** — including an
+explicit `0`, which would refuse every upload — is a boot error naming the key,
+never a silent clamp. Past 100 MB the answer is an upload straight to object
+storage rather than a larger number here, because the request is buffered
+through the api's own temp filesystem on its way to the store.
+
+`attachment_mb` is also published, read-only, as `max_upload_bytes` on
+`GET /v1/installation/settings`, which every role may read. That is what lets an
+upload surface state and enforce **this** installation's limit instead of one
+compiled into the client, so an oversize file is refused before it is sent.
+A change takes effect on restart, like every other key in this file.
+
+What the block does **not** decide is which routes may carry a file at all. That
+list is declared in source (`internal/compose/bodyceiling.go`) and is what keeps
+a route carrying no file from obtaining the wider bound by sending a multipart
+header; adding to it is a code change with two fitness gates over it.
+
 ### License
 
 The `license:` block points at the installation's entitlement token. It is

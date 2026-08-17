@@ -102,7 +102,8 @@ func (s *Server) wireCaptureSettingsSurface(pool *pgxpool.Pool) {
 	// name, reporting zone, base currency — the last of which locks once a
 	// deal has converted against it (ADR-0085 §7).
 	s.installationSettingsHandlers = installationSettingsHandlers{
-		store: identity.NewInstallationSettings(InstallationDB(pool), NewSettingsStore(pool)),
+		store:          identity.NewInstallationSettings(InstallationDB(pool), NewSettingsStore(pool)),
+		maxUploadBytes: s.uploadLimits.Attachment,
 	}
 	// The workspace's own consumer-mail list (CAP-PARAM-5): the surviving
 	// domain control, and the only way an operator corrects a shipped
@@ -173,7 +174,7 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	s.blockedDomainHandlers = blockedDomainHandlers{people: s.peopleStore}
 	// The importer maps only core columns (see importTargets for why custom
 	// fields are not among them), so it needs no field catalog of its own.
-	s.importHandlers = importHandlers{db: InstallationDB(pool)}
+	s.importHandlers = importHandlers{db: InstallationDB(pool), uploadLimit: s.uploadLimits.CSVImport}
 	s.org360Svc = org360.NewService(pool, s.peopleStore, approvals.NewService(InstallationDB(pool)), time.Now)
 	s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, s.peopleStore, nil, "", time.Now)
 	s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)

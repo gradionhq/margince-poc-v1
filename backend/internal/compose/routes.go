@@ -277,6 +277,26 @@ func WithBootstrapSeeds(seeds deployconfig.Seeds) Option {
 	}
 }
 
+// WithUploadLimits carries the deployment file's `uploads` section to every
+// place one number has to be the same number (OPS-CFG-12): the chassis ceiling
+// a route rides, the cap its handler parses under, and the figure the
+// installation read publishes so a client can refuse an oversize file before
+// sending it.
+//
+// All three are set from ONE value here rather than resolved separately, which
+// is the only arrangement in which they cannot disagree. Without the option the
+// compiled-in defaults stand — the composition is still fully bounded, it just
+// was never told about a deployment file.
+func WithUploadLimits(limits deployconfig.UploadLimits) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.uploadLimits = limits
+		s.activitiesHandlers = s.activitiesHandlers.WithUploadLimit(limits.Attachment)
+		s.peopleHandlers = s.peopleHandlers.WithUploadLimit(limits.LinkedInImport)
+		s.uploadLimit = limits.CSVImport
+		s.maxUploadBytes = limits.Attachment
+	}
+}
+
 // extensionEdge builds the composed extension router and returns it as an edge
 // around the generated /v1 surface: a request matching a declared extension
 // route is served by that router, and everything else falls straight through.

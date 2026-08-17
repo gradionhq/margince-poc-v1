@@ -59,8 +59,10 @@ and consent. Settings is where the actual import happens.
 
 The endpoint is `multipart/form-data` with a part named `file`, and it is
 `x-agent-access: human-only` — a session cookie only; an agent Passport is refused by design. The
-upload is bounded at **8 MB**, which is generous for a few thousand rows of short text and still
-refuses a mis-picked video before it reaches the CSV reader.
+upload is bounded at **8 MB by default**, which is generous for a few thousand rows of short text
+and still refuses a mis-picked video before it reaches the CSV reader. Whoever operates the
+installation sets the real number (`uploads.linkedin_import_mb` in `margince.yaml`), and the
+refusal names the one in force — so read it from the message rather than from here.
 
 ```sh
 curl -X POST http://localhost:8080/v1/me/linkedin-connections \
@@ -235,7 +237,8 @@ reporting success is worse than one that fails:
 | `skipped > 0` | Rows with no usable name. They identify nobody, so they are counted and passed over. |
 | `imported < rows - skipped` | A row matched the **erasure suppression list** by address and was refused. An erased subject must not walk back in through a colleague's next export — an import that did not consult the list would undo an Art. 17 request with a file upload. It is not reported as imported, because that would tell you your file landed data the system deliberately destroyed. |
 | `422 unreadable_export` | No recognizable LinkedIn header row. Export the file from LinkedIn without editing it. |
-| `422 invalid_multipart` / `422 required` | Not sent as `multipart/form-data`, over the 8 MB limit, or missing the `file` part. |
+| `422 invalid_multipart` / `422 required` | Not sent as `multipart/form-data`, or missing the `file` part. |
+| `413 body_too_large` | Over this installation's upload limit. The message names the limit in force; the default is 8 MB. |
 
 ## Lifecycle and privacy
 

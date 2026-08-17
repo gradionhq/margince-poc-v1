@@ -8254,6 +8254,18 @@ export interface components {
              *     it. Absent when it is still changeable.
              */
             base_currency_locked_reason?: string;
+            /**
+             * Format: int64
+             * @description The largest upload request this installation accepts, in bytes — set by whoever
+             *     operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+             *     it is a deployment fact, so PATCH does not carry it.
+             *
+             *     An upload surface states and enforces THIS number rather than one of its own, so
+             *     a file too large is refused before it is sent instead of after. The ceiling bounds
+             *     the whole request, part framing included, which is why a client should leave a
+             *     little room rather than compare a file against it exactly.
+             */
+            max_upload_bytes: number;
         };
         /** @description A sparse installation-settings patch (admin/ops, human-only). */
         UpdateInstallationSettingsRequest: {
@@ -31077,7 +31089,12 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
-            /** @description The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read. */
+            /**
+             * @description The upload exceeds this installation's import body cap (CAP-BODY) — 10 MB by default,
+             *     set by whoever operates it (`uploads.csv_import_mb`, OPS-CFG-12). The refusal NAMES the
+             *     configured number rather than one compiled in, and it is a distinct refusal, never a
+             *     truncated read that imports half an estate and reports success.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;

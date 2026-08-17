@@ -123,7 +123,7 @@ func (a acceptEnv) acceptRequest(keys ...string) crmcontracts.AcceptExtractionRe
 func setupExtractionAccept(t *testing.T) acceptEnv {
 	t.Helper()
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))
@@ -264,7 +264,7 @@ func TestAcceptAttachmentExtractionEditFlipsProvenanceAndCapturedBy(t *testing.T
 
 func TestAcceptAttachmentExtractionRefusesNonDealAttachment(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	org := e.SeedOrg(t, "Non-Deal Accept Parent", &e.Rep1)
 	att := uploadTestAttachmentForOrg(e.Admin(), t, h, org, "org-notes.pdf", []byte("org bytes"))
 	reading := seedExtractionReading(e.Admin(), t, e, ids.UUID(att.Id), acceptExtractionFields())
@@ -397,7 +397,7 @@ func TestAcceptAttachmentExtractionEditedAcceptRequiresActivityGrant(t *testing.
 // write one document's values onto another document's deal.
 func TestAcceptAttachmentExtractionRefusesAReadingOfAnotherDocument(t *testing.T) {
 	a := setupExtractionAccept(t)
-	h := activities.NewHandlers(a.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(a.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	other := uploadDealAttachment(a.Admin(), t, h, a.deal, "other.pdf", []byte("other bytes"))
 	elsewhere := seedExtractionReading(a.Admin(), t, a.Env, ids.UUID(other.Id), acceptExtractionFields())
 
@@ -414,7 +414,7 @@ func TestAcceptAttachmentExtractionRefusesAReadingOfAnotherDocument(t *testing.T
 // an accept finds when no reading exists: nothing to accept, and no write.
 func TestAcceptAttachmentExtractionRefusesWhenNothingHasReadTheDocument(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Accept Target", pipeline, open, &e.Rep1)
 	att := uploadDealAttachment(e.Admin(), t, h, deal, "quote.pdf", []byte("quote bytes"))

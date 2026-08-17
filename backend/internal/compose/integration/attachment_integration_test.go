@@ -56,7 +56,7 @@ func multipartAttachment(t *testing.T, entityType, entityID, filename string, da
 // end to end against real Postgres + an in-memory store.
 func TestAttachmentHandlersHTTPRoundTrip(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "HTTP Attach", &e.Rep1)
 
@@ -137,7 +137,7 @@ func TestAttachmentHandlersHTTPRoundTrip(t *testing.T) {
 // TestAttachmentHandlersErrorPaths covers the handlers' 404/422 branches.
 func TestAttachmentHandlersErrorPaths(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	missing := openapi_types.UUID(ids.NewV7())
 
@@ -192,7 +192,7 @@ func TestAttachmentHandlersErrorPaths(t *testing.T) {
 // object store declares attachments unavailable rather than nil-derefing.
 func TestAttachmentHandlersAnswer501WithoutAStore(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()) // no WithBlobstore
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling) // no WithBlobstore
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "No Store", &e.Rep1)
 
@@ -235,7 +235,7 @@ func TestAttachmentUploadThenDownloadRoundTrip(t *testing.T) {
 		EntityID:    person,
 		Filename:    "report.pdf",
 		ContentType: "application/pdf",
-		Body:        body,
+		Content:     bytes.NewReader(body),
 	})
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
@@ -274,7 +274,7 @@ func TestAttachmentUploadDeniedForInvisibleParent(t *testing.T) {
 	ctx := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
 
 	_, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "x.txt", Body: []byte("secret"),
+		EntityType: "person", EntityID: person, Filename: "x.txt", Content: bytes.NewReader([]byte("secret")),
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("upload to an invisible parent: err = %v, want ErrNotFound (existence-hiding)", err)
@@ -305,7 +305,7 @@ func TestOpenAttachmentHidesAnInvisibleParent(t *testing.T) {
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
 
 	uploaded, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "secret.pdf", Body: []byte("secret bytes"),
+		EntityType: "person", EntityID: person, Filename: "secret.pdf", Content: bytes.NewReader([]byte("secret bytes")),
 	})
 	if err != nil {
 		t.Fatalf("seeding the attachment through the real writer: %v", err)
@@ -344,7 +344,7 @@ func TestErasurePurgesAttachmentObjects(t *testing.T) {
 	person := e.SeedPerson(t, "To Be Erased", &e.Rep1)
 
 	att, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "secret.pdf", Body: []byte("pii bytes"),
+		EntityType: "person", EntityID: person, Filename: "secret.pdf", Content: bytes.NewReader([]byte("pii bytes")),
 	})
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
@@ -373,7 +373,7 @@ func TestErasureWithoutStoreRollsBackRatherThanHalfErasing(t *testing.T) {
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Config Mismatch", &e.Rep1)
 	att, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "f.pdf", Body: []byte("bytes"),
+		EntityType: "person", EntityID: person, Filename: "f.pdf", Content: bytes.NewReader([]byte("bytes")),
 	})
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)
@@ -406,7 +406,7 @@ func TestArchiveAttachmentHidesItButKeepsTheObject(t *testing.T) {
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Doc Owner", &e.Rep1)
 	att, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "a.txt", Body: []byte("hello"),
+		EntityType: "person", EntityID: person, Filename: "a.txt", Content: bytes.NewReader([]byte("hello")),
 	})
 	if err != nil {
 		t.Fatalf("UploadAttachment: %v", err)

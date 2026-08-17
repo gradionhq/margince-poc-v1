@@ -27,21 +27,16 @@ import (
 // amplification on the cheapest endpoints.
 const MaxBodyBytes = 1 << 20
 
-// MaxMultipartBodyBytes bounds a body that carries FILES (25 MB), which cannot
-// live under the JSON ceiling.
+// A body that carries FILES rides a SECOND, wider ceiling, which cannot live
+// under the JSON bound and is not a constant here: it is per route and the
+// operator sets it (OPS-CFG-12, `uploads` in margince.yaml), resolved by
+// platform/deployconfig and injected where routes are known.
 //
-// A SECOND ceiling, never an exemption: an exempt route is an unbounded one the
+// A second ceiling, never an exemption. An exempt route is an unbounded one the
 // day somebody forgets its own cap, and a handler cannot supply that cap itself
 // because its `http.MaxBytesReader` can only tighten a body the chassis already
-// bounded, never widen it. A route may therefore only tighten below this — and
-// WHICH routes ride it is decided where routes are known, not here.
-//
-// Decimal MB rather than MiB so that every surface stating the limit — the
-// server's refusal, the upload form's hint — states the number this actually
-// is. 25 << 20 reads as "25 MB" in a sentence while admitting 26.2 million
-// bytes, and a reader whose 25.5 MB file is refused has been told the wrong
-// thing by 4.8%.
-const MaxMultipartBodyBytes = 25_000_000
+// bounded, never widen it — so a route may only tighten below what it was
+// granted.
 
 // Decode parses the request body, answering the validation problem shape
 // on malformed JSON. The body is size-capped and must contain exactly

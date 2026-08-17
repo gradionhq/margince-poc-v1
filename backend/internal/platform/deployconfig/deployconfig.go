@@ -40,6 +40,7 @@ type Config struct {
 	CompanyContext CompanyContext  `yaml:"company_context"`
 	OverlayBudget  OverlayBudget   `yaml:"overlay_budget"`
 	Operations     Operations      `yaml:"operations"`
+	Uploads        Uploads         `yaml:"uploads"`
 }
 
 // Operations carries the ops kill switches (OPS-CFG-9): capabilities an
@@ -345,6 +346,9 @@ func (c Config) validate() error {
 		if err := ib.validate(name); err != nil {
 			return err
 		}
+	}
+	if err := c.Uploads.validate(); err != nil {
+		return err
 	}
 	if c.Email.Enabled {
 		return c.Email.validate()

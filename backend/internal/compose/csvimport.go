@@ -14,6 +14,7 @@ package compose
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -33,11 +34,12 @@ import (
 )
 
 const (
-	// maxImportUploadBytes is CAP-BODY, the 10 MB import-only request cap the
-	// rate-limit chapter owns. Enforced with a MaxBytesReader so an oversized
-	// file is a distinct refusal, never a truncated read that imports half a
-	// customer's estate and reports success.
-	maxImportUploadBytes = 10 << 20
+	// importSpillBytes is how much of the upload is held in memory before the
+	// rest goes to a temp file. The request cap itself is CAP-BODY, owned by the
+	// rate-limit chapter and set by the deployment (OPS-CFG-12); enforced with a
+	// MaxBytesReader so an oversized file is a distinct refusal, never a
+	// truncated read that imports half a customer's estate and reports success.
+	importSpillBytes = 1 << 20
 	// importBlobKind namespaces uploaded sources inside the workspace's blob
 	// prefix, beside attachments and logos.
 	importBlobKind = "import"
@@ -52,6 +54,10 @@ const (
 type importHandlers struct {
 	db    *database.DB
 	blobs blobstore.Store
+	// uploadLimit is the deployment's ceiling for this route (OPS-CFG-12).
+	// Zero refuses every upload, which is the honest reading of "nobody has
+	// said" for a bound.
+	uploadLimit int64
 }
 
 // UploadImportSource stores a file and describes it (IEM-WIRE-8). Nothing is
@@ -72,7 +78,16 @@ func (h importHandlers) UploadImportSource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	object, body, err := readImportUpload(w, r)
+	if h.uploadLimit <= 0 {
+		// Our fault, not the caller's — the same guard the other two upload
+		// routes carry, and for the same reason: a zero bound refuses a
+		// perfectly good file and tells its sender it "exceeds the 0 MB limit",
+		// which sends them off to shrink something that was never too large.
+		httperr.Write(w, r, errUploadLimitUnset)
+		return
+	}
+
+	object, body, err := readImportUpload(w, r, h.uploadLimit)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -334,6 +349,12 @@ func (h importHandlers) staged(r *http.Request, id openapi_types.UUID) (migratio
 	}
 	return run, nil
 }
+
+// errUploadLimitUnset reports that this composition never told the import
+// handler its ceiling. A wiring fault, not a request fault, so it answers 500
+// rather than refusing the caller's file for a size nobody set — the same guard
+// the attachment and LinkedIn routes carry.
+var errUploadLimitUnset = errors.New("compose: no upload ceiling configured for the import route")
 
 // errNoObjectStore refuses an import on a process role that stores no objects.
 // A conflict rather than a 500: the installation is configured this way, and a

@@ -1751,7 +1751,7 @@ export const de = {
   "docs.add.nameHint":
     "Optional. Leer gelassen, zeigt die Zeile den Dateinamen.",
   "docs.add.file": "Datei",
-  "docs.add.fileHint": "Bis zu 25 MB.",
+  "docs.add.fileHint": "Bis zu {size}.",
   "docs.add.fileEmpty": "Datei hierher ziehen oder zum Auswählen klicken",
   "docs.add.cancel": "Abbrechen",
   "docs.add.submit": "Hochladen",
@@ -1760,6 +1760,8 @@ export const de = {
   "docs.add.errRefused":
     "Sie dürfen zu diesem Datensatz keine Dokumente hinzufügen.",
   "docs.add.errInFlight": "Dieses Dokument wird noch hochgeladen.",
+  "docs.add.errTooLarge":
+    "Diese Datei ist größer als {size} — mehr nimmt diese Installation nicht an. Bitte eine kleinere wählen.",
   "docs.add.failedTitle": "Der Upload ist fehlgeschlagen",
   "docs.add.failed":
     "Es wurde nichts gespeichert. Versuchen Sie es erneut oder wählen Sie eine andere Datei.",

@@ -47,9 +47,15 @@ func post(contentType string, size int) *http.Request {
 	return req
 }
 
-// wide is a BodyCeiling that grants the multipart bound to everything, standing
-// in for a composition that declared this route an upload route.
-func wide(*http.Request) int64 { return httperr.MaxMultipartBodyBytes }
+// wideCeiling stands in for the ceiling a composition grants a declared upload
+// route. Not a round number and not any shipped default: it has to be visible
+// in a failure that the bound applied was THIS one rather than something the
+// chassis picked for itself.
+const wideCeiling = 9_000_000
+
+// wide is a BodyCeiling that grants that bound to everything, standing in for a
+// composition that declared this route an upload route.
+func wide(*http.Request) int64 { return wideCeiling }
 
 func TestLimitBodiesCapsJSONAtTheJSONCeiling(t *testing.T) {
 	var read int
@@ -88,14 +94,13 @@ func TestLimitBodiesStillCapsAWidenedRoute(t *testing.T) {
 	var read int
 	rec := httptest.NewRecorder()
 	LimitBodies(wide, readTo(t, &read)).ServeHTTP(rec,
-		post("multipart/form-data; boundary=abc123", httperr.MaxMultipartBodyBytes+1024))
+		post("multipart/form-data; boundary=abc123", wideCeiling+1024))
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("a multipart body past the 25 MiB ceiling was accepted: status %d", rec.Code)
+		t.Fatalf("a multipart body past the granted ceiling was accepted: status %d", rec.Code)
 	}
-	if int64(read) > httperr.MaxMultipartBodyBytes {
-		t.Fatalf("read %d bytes past the multipart ceiling of %d",
-			read, httperr.MaxMultipartBodyBytes)
+	if int64(read) > wideCeiling {
+		t.Fatalf("read %d bytes past the granted ceiling of %d", read, wideCeiling)
 	}
 }
 

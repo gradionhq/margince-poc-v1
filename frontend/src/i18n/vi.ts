@@ -1743,7 +1743,7 @@ export const vi = {
   "docs.add.name": "Tiêu đề",
   "docs.add.nameHint": "Không bắt buộc. Để trống thì dòng hiển thị tên tệp.",
   "docs.add.file": "Tệp",
-  "docs.add.fileHint": "Tối đa 25 MB.",
+  "docs.add.fileHint": "Tối đa {size}.",
   "docs.add.fileEmpty": "Kéo tệp vào đây, hoặc bấm để chọn",
   "docs.add.cancel": "Huỷ",
   "docs.add.submit": "Tải lên",
@@ -1751,6 +1751,8 @@ export const vi = {
   "docs.add.errNoFile": "Hãy chọn một tệp để tải lên.",
   "docs.add.errRefused": "Bạn không được thêm tài liệu vào bản ghi này.",
   "docs.add.errInFlight": "Tài liệu này vẫn đang được tải lên.",
+  "docs.add.errTooLarge":
+    "Tệp này lớn hơn {size}, là mức tối đa bản cài đặt này nhận. Hãy chọn tệp nhỏ hơn.",
   "docs.add.failedTitle": "Tải lên không thành công",
   "docs.add.failed": "Chưa lưu được gì. Hãy thử lại, hoặc chọn tệp khác.",
   "docs.add.partialTitle": "Đã tải lên, nhưng chưa xếp loại",

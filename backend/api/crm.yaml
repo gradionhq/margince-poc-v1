@@ -11734,7 +11734,8 @@ paths:
   # Every one is human-only (IEM-WIRE-7 / A139): an import is the least
   # reversible write in the product, and a confirm-first gate over a
   # thousand-row dry-run report is a rubber stamp that manufactures evidence of
-  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (10 MB, import only).
+  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (import only, 10 MB by
+  # default and set per installation — `uploads.csv_import_mb`, OPS-CFG-12).
   # =========================================================================
   /imports/sources:
     post:
@@ -11777,7 +11778,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/PermissionDenied' }
         '413':
-          description: 'The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read.'
+          description: |
+            The upload exceeds this installation's import body cap (CAP-BODY) — 10 MB by default,
+            set by whoever operates it (`uploads.csv_import_mb`, OPS-CFG-12). The refusal NAMES the
+            configured number rather than one compiled in, and it is a distinct refusal, never a
+            truncated read that imports half an estate and reports success.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -12858,7 +12863,7 @@ components:
       description: |
         The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
         changed only by admin/ops.
-      required: [name, timezone, base_currency, base_currency_locked]
+      required: [name, timezone, base_currency, base_currency_locked, max_upload_bytes]
       properties:
         name:
           type: string
@@ -12881,6 +12886,18 @@ components:
           description: |
             Why the currency is locked, naming how many deals have already converted against
             it. Absent when it is still changeable.
+        max_upload_bytes:
+          type: integer
+          format: int64
+          description: |
+            The largest upload request this installation accepts, in bytes — set by whoever
+            operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+            it is a deployment fact, so PATCH does not carry it.
+
+            An upload surface states and enforces THIS number rather than one of its own, so
+            a file too large is refused before it is sent instead of after. The ceiling bounds
+            the whole request, part framing included, which is why a client should leave a
+            little room rather than compare a file against it exactly.
     UpdateInstallationSettingsRequest:
       type: object
       description: A sparse installation-settings patch (admin/ops, human-only).

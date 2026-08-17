@@ -1750,7 +1750,7 @@ export const en = {
   "docs.add.name": "Title",
   "docs.add.nameHint": "Optional. Left blank, the row shows the filename.",
   "docs.add.file": "File",
-  "docs.add.fileHint": "Up to 25 MB.",
+  "docs.add.fileHint": "Up to {size}.",
   "docs.add.fileEmpty": "Drop the file here, or click to choose one",
   "docs.add.cancel": "Cancel",
   "docs.add.submit": "Upload",
@@ -1758,6 +1758,8 @@ export const en = {
   "docs.add.errNoFile": "Choose a file to upload.",
   "docs.add.errRefused": "You may not add documents to this record.",
   "docs.add.errInFlight": "This document is still uploading.",
+  "docs.add.errTooLarge":
+    "That file is larger than {size}, which is the most this installation accepts. Choose a smaller one.",
   "docs.add.failedTitle": "The upload did not go through",
   "docs.add.failed": "Nothing was stored. Try again, or choose another file.",
   "docs.add.partialTitle": "Uploaded, but not filed",
