@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -117,11 +118,26 @@ func TestEveryUninjectedInstallationSeamRefuses(t *testing.T) {
 	for i := range inst.NumField() {
 		field := inst.Type().Field(i).Name
 		t.Run(field, func(t *testing.T) {
-			seam, ok := inst.Field(i).Interface().(InstallationValue)
-			if !ok || seam == nil {
-				t.Fatalf("%s is nil after orRefusing; an un-injected seam must refuse, not panic", field)
+			// Two seam shapes live on this struct: the InstallationValue
+			// readers, and StampCorrespondence, which writes. Both must refuse
+			// when un-injected, so the test calls whichever this field is
+			// rather than asserting one shape and skipping the other — a
+			// skipped field is a seam nobody proved fails closed.
+			var err error
+			switch seam := inst.Field(i).Interface().(type) {
+			case InstallationValue:
+				if seam == nil {
+					t.Fatalf("%s is nil after orRefusing; an un-injected seam must refuse, not panic", field)
+				}
+				_, err = seam(context.Background(), nil)
+			case StampCorrespondence:
+				if seam == nil {
+					t.Fatalf("%s is nil after orRefusing; an un-injected seam must refuse, not panic", field)
+				}
+				err = seam(context.Background(), nil, ids.DealID{}, BasisDealWon)
+			default:
+				t.Fatalf("%s is neither seam shape; teach this test how to call it", field)
 			}
-			_, err := seam(context.Background(), nil)
 			if err == nil {
 				t.Fatalf("%s resolved a value with nothing injected", field)
 			}

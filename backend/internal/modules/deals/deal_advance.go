@@ -143,6 +143,17 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, dealStageChangedPayload(current, in.ToStageID, status, winProbability)); err != nil {
 			return fmt.Errorf("emit deal.stage_changed: %w", err)
 		}
+		// Winning the deal turns the correspondence filed against it into
+		// Handelsbriefe (A165/ADR-0114). Stamped here, in the transaction that
+		// won it: a stamp that landed later would leave a window in which an
+		// erasure sees unclassified correspondence and destroys it. Reopening
+		// the deal never unstamps — the classification is monotonic because
+		// over-retention is arguable and destruction is not.
+		if DealStatus(status) == DealWon {
+			if err := s.stampCorrespondence(ctx, tx, id, BasisDealWon); err != nil {
+				return fmt.Errorf("stamp won deal's correspondence: %w", err)
+			}
+		}
 		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced deal: %w", err)
 		}

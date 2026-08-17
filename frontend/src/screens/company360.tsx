@@ -50,6 +50,7 @@ import {
   useViewerId,
 } from "./common";
 import "./company360.css";
+import { activityTimeline } from "../design-system/activitytimeline";
 import {
   HEALTH_RANK,
   HEALTH_RATING_LABEL,
@@ -70,7 +71,6 @@ import {
 } from "./coverage";
 import { CoverageExplorer } from "./coverageexplorer";
 import { EntityRef } from "./entityref";
-import { activityTimeline } from "../design-system/activitytimeline";
 import { TaskCompleteCheck, type useTaskUpdate } from "./taskactions";
 
 // The company view's data layer and its right-rail cards.

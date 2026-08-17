@@ -1283,6 +1283,19 @@ export const de = {
   "lead.filterScoreWarm": "Ab 60",
   "lead.filterScoreCool": "Ab 40",
   "person.fromLead": "Aus Lead übernommen",
+  "lead.promotedTitle": "Als Kontakt übernommen",
+  "lead.promotedMerged":
+    "Dieser Lead wurde mit einem bereits bekannten Kontakt zusammengeführt — es entstand kein Duplikat.",
+  "lead.promotedCreated": "Aus diesem Lead wurde ein neuer Kontakt.",
+  "lead.promotedAt": "Übernommen am",
+  "lead.promotedTrigger": "Auslöser:",
+  "lead.promotedEvidence": "Beleg:",
+  "lead.promotedOutcomePending":
+    "Wird gelesen, was diese Übernahme bewirkt hat …",
+  "lead.promotedOutcomeUnavailable":
+    "Wir können nicht anzeigen, ob dabei zusammengeführt oder neu angelegt wurde.",
+  "lead.terminalPromoted":
+    "Übernommen — dieser Lead ist jetzt schreibgeschützt.",
   "lead.statusNew": "Neu",
   "lead.statusWorking": "In Bearbeitung",
   "lead.statusPromoted": "Übernommen",

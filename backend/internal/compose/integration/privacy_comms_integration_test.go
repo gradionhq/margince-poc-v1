@@ -253,6 +253,9 @@ func TestErasureRedactsTheDeliveryBehindARedactedActivity(t *testing.T) {
 	aged := seedDelivery(t, e, "9 years", "Old order confirmation", "the agreed price was 4200 EUR", "sent", mailRecipientEmail, person)
 	agedParked := seedDelivery(t, e, "9 years", "Old quote", "the quote nobody could deliver", "parked", mailRecipientEmail, person)
 	shielded := seedDelivery(t, e, "30 days", "Recent order confirmation", "the agreed price was 900 EUR", "sent", mailRecipientEmail, person)
+	// Age alone no longer shields: A165 narrowed the floor to correspondence
+	// about an actual transaction, so the shielded case needs the transaction.
+	e.SeedWonDealLinkedTo(t, shielded.activity)
 	// The class the link-walk cannot see: a message this installation SENT to
 	// the subject whose activity inherited no person link (its anchor had
 	// none, or was linked to an organization or deal instead). Nothing links
@@ -311,6 +314,9 @@ func TestErasureReachesAMessageWhereTheSubjectIsOnlyACcRecipient(t *testing.T) {
 	held := seedAddressedDelivery(t, e, "9 years", "Disputed renewal quote", "the quote before the dispute", "sent",
 		addresses{counterparty: "buyer@example.test", to: "buyer@example.test", cc: mailRecipientEmail}, ids.UUID{})
 	linkToHeldDeal(t, e, held.activity)
+	// The floor arm needs its transaction now (A165): a fresh message about
+	// nothing commercial is erasable, which is the narrowing, not a regression.
+	e.SeedWonDealLinkedTo(t, fresh.activity)
 
 	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)

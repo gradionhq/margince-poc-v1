@@ -50,9 +50,16 @@ type AuditHistoryListResponse =
 export function useRecordHistory(
   kind: EntityKind,
   id: string,
+  // Whether to fetch at all. A caller that reads the history to describe ONE
+  // recorded event — the lead page naming what its promotion did — has nothing
+  // to read on a record where that event never happened, and a disabled query
+  // says so rather than paying for a page nothing renders. Defaults to on, so
+  // the History tab is unchanged.
+  enabled = true,
 ): UseInfiniteQueryResult<InfiniteData<AuditHistoryListResponse>> {
   return useInfiniteQuery({
     queryKey: ["record-history", kind, id],
+    enabled,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET(
@@ -69,7 +76,7 @@ export function useRecordHistory(
       }
       return data;
     },
-    getNextPageParam: (last) => last.page.next_cursor ?? null,
+    getNextPageParam: (last) => last?.page?.next_cursor ?? null,
   });
 }
 
@@ -213,7 +220,7 @@ export function useFieldHistory(
       }
       return data;
     },
-    getNextPageParam: (last) => last.page.next_cursor ?? null,
+    getNextPageParam: (last) => last?.page?.next_cursor ?? null,
   });
 }
 

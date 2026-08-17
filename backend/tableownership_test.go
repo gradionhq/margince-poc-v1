@@ -129,6 +129,10 @@ var tableOwners = map[string]string{
 	"transcript_read":       "internal/modules/activities",
 	"attachment_extraction": "internal/modules/activities",
 	"activity_link":         "internal/modules/activities",
+	// The evidence that qualified an activity for the statutory retention
+	// floor (A165/ADR-0114). It hangs off `activity` and is written by the
+	// stamp, so it belongs to the module that owns the row it substantiates.
+	"activity_retention_evidence": "internal/modules/activities",
 	// ACT-DDL-3: who was in the interaction. It belongs beside activity and
 	// activity_link for the same reason they belong together — it is part of
 	// what an activity IS, not a graph artifact derived from one.

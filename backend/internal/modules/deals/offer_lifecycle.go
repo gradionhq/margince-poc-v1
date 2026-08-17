@@ -103,6 +103,14 @@ func (s *Store) SendOffer(ctx context.Context, id ids.OfferID, ifVersion *int64)
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, offerSentPayload(current, rate)); err != nil {
 			return fmt.Errorf("emit offer.sent: %w", err)
 		}
+		// An offer leaving draft is the preparation of a Handelsgeschäft
+		// whether or not it closes, so the deal's correspondence qualifies now
+		// (A165/ADR-0114). Sending is the ONLY transition out of draft, so
+		// stamping here covers accepted, rejected, expired and superseded too:
+		// each is reached through a sent offer.
+		if err := s.stampCorrespondence(ctx, tx, ids.DealID{UUID: ids.UUID(current.DealId)}, BasisOfferBeyondDraft); err != nil {
+			return fmt.Errorf("stamp sent offer's correspondence: %w", err)
+		}
 		if out, err = readOfferWithLines(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return fmt.Errorf("read sent offer: %w", err)
 		}

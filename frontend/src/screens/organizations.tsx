@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
+import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Avatar,
   Badge,
@@ -118,7 +119,6 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
-import { activityTimeline } from "../design-system/activitytimeline";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
