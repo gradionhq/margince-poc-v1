@@ -641,7 +641,7 @@ describe("company view — overlay mode", () => {
     // pipeline, the money) are absent entirely rather than showing cards
     // that would each read as an empty account.
     expect(
-      document.querySelector(".co-overview-stack")?.textContent,
+      document.querySelector(".co-panel-stack")?.textContent,
     ).toBeFalsy();
   });
 });

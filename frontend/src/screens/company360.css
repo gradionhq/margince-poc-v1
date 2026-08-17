@@ -23,8 +23,12 @@
   align-items: stretch;
 }
 
-/* The overview's own main column: one vertical stack of same-shaped panels. */
-.co-overview-stack {
+/* A tab's main column: one vertical stack of same-shaped panels, the gap owned
+   HERE rather than by each panel — a panel carrying its own bottom margin
+   spaces itself differently depending on what it is stacked with. The
+   overview's column and the documents tab's agreements-then-library pair are
+   the same shape, so the name is the shape rather than the overview. */
+.co-panel-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
