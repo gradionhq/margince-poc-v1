@@ -67,7 +67,21 @@ func menuForKind(kind crmcontracts.SiteReadPageKind) (pageMenu, bool) {
 		// is what separates the two — a company prints an address for the
 		// person you should talk to, and never for the customer it is
 		// quoting.
-		return pageMenu{factFields: append(factFields("offering", "market", "signal"), people.FactLocation), people: true}, true
+		//
+		// They also carry the COMPANY category, and the omission was costly.
+		// A home page's key-figures strip is where a company states its own
+		// headcount and founding year — adesso.de prints "11500
+		// Mitarbeitende" on its homepage, arvato.com "20,000 employees" on
+		// its about page. Measured across 171 crawled companies, 51 of the 73
+		// that print a headcount print it on one of these two kinds, and
+		// employee_range was not on the menu for either: the field the
+		// product promotes into the size_band column was unreachable exactly
+		// where it is published.
+		//
+		// contact_email and phone ride along, which is right for these pages
+		// too — a home page footer carries both as often as a contact page.
+		// location comes with the category and is no longer appended by hand.
+		return pageMenu{factFields: factFields(companyWord, "offering", "market", "signal"), people: true}, true
 	case crmcontracts.SiteReadPageKindTeam:
 		return pageMenu{people: true}, true
 	default:
