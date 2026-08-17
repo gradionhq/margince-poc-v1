@@ -67,11 +67,13 @@ func startChild(name, bin string, args, env []string, workDir, logDir string) (*
 		return nil, fmt.Errorf("create log directory: %w", err)
 	}
 	logPath := filepath.Join(logDir, name+".log")
+	// #nosec G304 -- logPath is logDir joined with this launcher's own service name; both are ours
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", logPath, err)
 	}
 
+	// #nosec G204 -- bin is a shipped binary addressed through layout.appBin/pgBin; the args are built in this file, never from input
 	cmd := exec.Command(bin, args...)
 	cmd.Dir = workDir
 	cmd.Stdout = logFile

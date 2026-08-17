@@ -89,11 +89,11 @@ func run() error {
 	openBrowser(s.web.baseURL())
 
 	<-ctx.Done()
-	fmt.Println("\nShutting down…")
+	say("\nShutting down…\n")
 	if err := s.stop(); err != nil {
 		return err
 	}
-	fmt.Println("Margince has stopped. Your data is safe in the data folder.")
+	say("Margince has stopped. Your data is safe in the data folder.\n")
 	return nil
 }
 
@@ -122,7 +122,7 @@ func (s *stack) start(ctx context.Context, userEnv []string, port int) error {
 		return err
 	}
 	s.pg = pg
-	fmt.Println("Starting database…")
+	say("Starting database…\n")
 	if err := pg.start(ctx); err != nil {
 		return err
 	}
@@ -131,17 +131,17 @@ func (s *stack) start(ctx context.Context, userEnv []string, port int) error {
 	}
 
 	s.bus = &eventBus{layout: s.layout}
-	fmt.Println("Starting event bus…")
+	say("Starting event bus…\n")
 	if err := s.bus.start(ctx); err != nil {
 		return err
 	}
 
 	s.be = &backend{layout: s.layout, pg: pg, bus: s.bus, userEnv: userEnv}
-	fmt.Println("Updating database schema…")
+	say("Updating database schema…\n")
 	if err := s.be.migrate(); err != nil {
 		return err
 	}
-	fmt.Println("Starting Margince…")
+	say("Starting Margince…\n")
 	if err := s.be.start(ctx); err != nil {
 		return err
 	}
@@ -184,22 +184,22 @@ func (s *stack) stop() error {
 // only, how to sign in. The password is shown once because that is the only
 // moment it is not yet the user's responsibility to have stored.
 func announce(baseURL string, l layout, adminPassword string) {
-	fmt.Printf("\n  Margince is running at  %s\n", baseURL)
+	say("\n  Margince is running at  %s\n", baseURL)
 
 	// Every launch says how to sign in, not just the first. A user who
 	// closed the window on the first run would otherwise have no way to
 	// discover where the credentials went — and the file is the only copy.
-	fmt.Printf("\n  Sign in as  owner@margince.local\n")
+	say("\n  Sign in as  owner@margince.local\n")
 	if adminPassword != "" {
-		fmt.Printf("  Password    %s\n", adminPassword)
-		fmt.Printf("              (shown once — also saved in data/admin-password)\n")
+		say("  Password    %s\n", adminPassword)
+		say("              (shown once — also saved in data/admin-password)\n")
 	} else {
-		fmt.Printf("  Password    see data/admin-password\n")
+		say("  Password    see data/admin-password\n")
 	}
 
-	fmt.Printf("\n  Folder    %s\n", l.root)
-	fmt.Printf("  Settings  margince.env      turn on AI, email capture, attachments\n")
-	fmt.Printf("  Company   margince.yaml     name, currency, timezone\n")
-	fmt.Printf("  Logs      data/logs/\n")
-	fmt.Printf("\n  Press Ctrl-C to stop.\n\n")
+	say("\n  Folder    %s\n", l.root)
+	say("  Settings  margince.env      turn on AI, email capture, attachments\n")
+	say("  Company   margince.yaml     name, currency, timezone\n")
+	say("  Logs      data/logs/\n")
+	say("\n  Press Ctrl-C to stop.\n\n")
 }

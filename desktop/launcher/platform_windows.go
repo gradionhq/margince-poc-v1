@@ -26,6 +26,12 @@ const busBinary = "redis-server"
 // exeName is what an executable is called on disk.
 func exeName(name string) string { return name + ".exe" }
 
+// openNoFollow is zero because Windows has no O_NOFOLLOW. O_EXCL is what
+// refuses an existing entry and it works here, so writeNewSecret keeps its
+// property; what Windows does not give is the 0600 itself, which is the limit
+// layout.go and the known-limits doc already name.
+const openNoFollow = 0
+
 // localTimezone reports UTC, because Windows does not record an IANA zone.
 //
 // It stores a Windows-specific identifier ("W. Europe Standard Time") and the
@@ -65,8 +71,9 @@ func holdConsole() {
 // what this launches, and it launches with the user's own privileges at the
 // end of a successful start.
 func openBrowser(url string) {
+	// #nosec G204 -- rundll32 is addressed absolutely under SystemRoot and url is this launcher's own loopback address
 	if err := exec.Command(systemBin("rundll32.exe"), "url.dll,FileProtocolHandler", url).Start(); err != nil {
-		fmt.Printf("  (could not open your browser automatically — visit %s)\n\n", url)
+		say("  (could not open your browser automatically — visit %s)\n\n", url)
 	}
 }
 

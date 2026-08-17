@@ -24,6 +24,7 @@ import (
 // results the assignment below compiles and does nothing, which is a swallowed
 // error wearing the clothes of a handled one.
 func loadEnvFile(path string) (env []string, err error) {
+	// #nosec G304 -- path is layout.envPath(), derived from the installation directory; no request or user input reaches it
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)

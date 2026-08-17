@@ -163,9 +163,12 @@ func (l layout) ensureAdminPassword() (string, error) {
 // while the first was mid-bootstrap. The generated password would then be
 // announced on one screen while a different one sat in the file, and the
 // installation would be locked out of the account it just created. O_EXCL
-// makes the create itself the check.
+// makes the create itself the check, and refuses an existing final component
+// whether or not it is a symlink; openNoFollow reinforces that where the
+// platform has it.
 func writeNewSecret(path, secret string) error {
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// #nosec G304 -- path is a layout.data() secret file; the caller derives it from the installation directory, never from input
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|openNoFollow, 0o600)
 	if err != nil {
 		return fmt.Errorf("create %s: %w", path, err)
 	}

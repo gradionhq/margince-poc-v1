@@ -129,6 +129,7 @@ func (c cluster) ensureSchema() error {
 
 func (c cluster) psql(database string, args ...string) *exec.Cmd {
 	base := append(append([]string{}, c.connArgs...), "-d", database, "-v", "ON_ERROR_STOP=1")
+	// #nosec G204 -- psql ships in runtime/pgsql/bin and is addressed by absolute path; the SQL is this file's own literals
 	cmd := exec.Command(c.layout.pgBin("psql"), append(base, args...)...)
 	if len(c.connEnv) > 0 {
 		cmd.Env = append(os.Environ(), c.connEnv...)

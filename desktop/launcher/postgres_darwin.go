@@ -96,6 +96,7 @@ func (p *postgres) ensureCluster() error {
 	// collation. See the design note on collation before shipping: names with
 	// diacritics sort by byte value under this setting.
 	return initCluster(p.layout, func(dataDir string) *exec.Cmd {
+		// #nosec G204 -- initdb ships in runtime/pgsql/bin and is addressed by absolute path; every flag below is a literal
 		return exec.Command(
 			p.layout.pgBin("initdb"),
 			"-D", dataDir,
@@ -126,6 +127,7 @@ func (p *postgres) start(ctx context.Context) error {
 	p.proc = proc
 
 	return waitUntil(ctx, "postgres", 60*time.Second, proc.exited, func() error {
+		// #nosec G204 -- pg_isready ships in runtime/pgsql/bin and is addressed by absolute path; the socket dir is ours
 		return exec.Command(p.layout.pgBin("pg_isready"),
 			"-h", p.socketDir, "-U", ownerRole).Run()
 	})

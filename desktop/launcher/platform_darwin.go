@@ -4,10 +4,10 @@
 package main
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 )
 
 // busBinary is the event bus this platform ships.
@@ -21,6 +21,12 @@ const busBinary = "valkey-server"
 
 // exeName is what an executable is called on disk. Unix has no suffix.
 func exeName(name string) string { return name }
+
+// openNoFollow refuses to create a secret through a symbolic link. O_EXCL
+// already refuses any existing final component here, so this is reinforcement
+// rather than a guarantee of its own — see writeNewSecret, and the same
+// constant in platform_windows.go for what that platform can promise.
+const openNoFollow = syscall.O_NOFOLLOW
 
 // localTimezone reports the IANA zone name macOS records, so the first-run
 // organization is created in the user's own time rather than UTC.
@@ -50,7 +56,8 @@ func holdConsole() {}
 // writable directory ahead of /usr/bin decide what this launches, and it
 // launches with the user's own privileges at the end of a successful start.
 func openBrowser(url string) {
+	// #nosec G204 -- /usr/bin/open is an absolute system path and url is this launcher's own loopback address
 	if err := exec.Command("/usr/bin/open", url).Start(); err != nil {
-		fmt.Printf("  (could not open your browser automatically — visit %s)\n\n", url)
+		say("  (could not open your browser automatically — visit %s)\n\n", url)
 	}
 }

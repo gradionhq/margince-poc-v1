@@ -84,6 +84,7 @@ func (b *backend) baseURL() string { return fmt.Sprintf("http://%s:%d", loopback
 // the owner DSN — the app role deliberately cannot alter the schema it is
 // bound by.
 func (b *backend) migrate() error {
+	// #nosec G204 -- migrate is a shipped binary addressed by absolute path; the DSN travels in the environment, not argv
 	cmd := exec.Command(b.layout.appBin("migrate"), "up")
 	cmd.Env = append(os.Environ(), "MARGINCE_OWNER_DSN="+b.pg.ownerDSN())
 	if out, err := cmd.CombinedOutput(); err != nil {
