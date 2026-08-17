@@ -150,6 +150,44 @@ func (c *client) get(path string, query url.Values, out any) error { //craft:ign
 	return c.do(req, out)
 }
 
+// seedAdminPassword is what the bootstrap account lands on once the
+// operator-supplied credential has been replaced.
+//
+// The same value scripts/seed-dev.sh uses, deliberately: an installation
+// seeded by either tool answers to one documented password, and the demo
+// logins in the README stay true whichever path somebody took.
+const seedAdminPassword = "demo-password-123"
+
+// replaceOperatorPassword takes the bootstrap account off its first-login
+// hold, and returns a client signed in afterwards.
+//
+// A configured bootstrap sets must_change_password (migration 0273), and every
+// write is refused with 403 password_change_required until the operator's
+// chosen credential has been REPLACED. Rotating it to itself does not count —
+// the product refuses that with "the new password must differ from the current
+// one", which is the rule working: the operator's password is meant to have no
+// life beyond the first login.
+//
+// The change ends every session including the one that made it, so this signs
+// in again and hands back the new client.
+func replaceOperatorPassword(baseURL, email, password string, c *client) (*client, string, error) {
+	body := jsonBody{"current_password": password, "new_password": seedAdminPassword}
+	if err := c.post("/v1/auth/change-password", body, nil); err != nil {
+		// Already replaced by an earlier run or by seed-dev: the account is
+		// not on hold and the current client is fine to carry on with.
+		if isUnprocessable(err) || isConflict(err) {
+			return c, password, nil
+		}
+		return nil, password, fmt.Errorf("replacing the operator-supplied password: %w", err)
+	}
+	fresh, err := login(baseURL, email, seedAdminPassword)
+	if err != nil {
+		return nil, password, fmt.Errorf("signing in after replacing the password: %w", err)
+	}
+	fmt.Printf("admin:         operator password replaced with %q\n", seedAdminPassword)
+	return fresh, seedAdminPassword, nil
+}
+
 // delete sends a DELETE, which for some resources is how a state is REACHED
 // rather than how a row is removed: disqualifying a lead is
 // `DELETE /v1/leads/{id}`, and it sets status=disqualified and archives the
@@ -271,6 +309,17 @@ func isConflict(err error) bool {
 		return false
 	}
 	return apiErr.Status == http.StatusConflict
+}
+
+// isUnprocessable reports the server refusing a request it understood. For
+// the password rotation it means the account is not on a first-login hold,
+// which is a state to carry on from rather than stop for.
+func isUnprocessable(err error) bool {
+	var apiErr apiError
+	if !asAPIError(err, &apiErr) {
+		return false
+	}
+	return apiErr.Status == http.StatusUnprocessableEntity
 }
 
 // isNotFound reports the server hiding a record from this caller. Row scope

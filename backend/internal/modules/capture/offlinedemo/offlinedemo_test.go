@@ -1,0 +1,478 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package offlinedemo
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
+)
+
+// TestTheConnectorCannotSend is the guarantee the whole design rests on. The
+// addresses in this dataset are synthesized for identifiable real people, and
+// the dataset's own rule is that nothing is ever delivered to one. A connector
+// that grew a send seam would break that rule silently, so the absence is
+// pinned rather than described.
+func TestTheConnectorCannotSend(t *testing.T) {
+	var c any = New(stubDirectory{})
+	if _, ok := c.(connector.EmailSender); ok {
+		t.Error("the offline demo connector implements EmailSender — it must never be able to deliver")
+	}
+	if _, ok := c.(connector.MessageSender); ok {
+		t.Error("the offline demo connector implements MessageSender — it must never be able to deliver")
+	}
+}
+
+type stubDirectory struct{ box Mailbox }
+
+func (s stubDirectory) Mailbox(context.Context, string) (Mailbox, error) { return s.box, nil }
+
+func demoMailbox() Mailbox {
+	return Mailbox{
+		UserID: "01a00000-0000-7000-8000-000000000001", DisplayName: "Lena Fischer",
+		Email: "lena.fischer@demo.test", ColleagueName: "Markus Steiner",
+		ColleagueEmail: "markus.steiner@demo.test",
+		Accounts: []Account{{
+			OrganizationID: "01a00000-0000-7000-8000-0000000000aa",
+			Name:           "Acme GmbH", Domain: "acme.de", Lifecycle: "customer",
+			ContractNumber: "V-1234-ACME",
+			Now:            time.Date(2026, 8, 17, 9, 0, 0, 0, time.UTC),
+			People:         []Person{{Name: "Petra Wolf", Email: "petra.wolf@acme.de", Role: "Head of IT"}},
+			Deals:          []Deal{{ID: "01a00000-0000-7000-8000-0000000000bb", Name: "Acme Rollout", Stage: "Proposal"}},
+		}},
+	}
+}
+
+// TestGenerationIsDeterministic — a re-sync must produce the same
+// conversation, or the natural key stops deduplicating and every pass files
+// the thread again.
+func TestGenerationIsDeterministic(t *testing.T) {
+	box := demoMailbox()
+	first := generate(box, box.Accounts[0])
+	second := generate(box, box.Accounts[0])
+	if len(first) != len(second) || len(first) == 0 {
+		t.Fatalf("generated %d then %d messages", len(first), len(second))
+	}
+	for i := range first {
+		if first[i].MessageID != second[i].MessageID || !first[i].OccurredAt.Equal(second[i].OccurredAt) {
+			t.Errorf("message %d differs between runs: %s@%s vs %s@%s",
+				i, first[i].MessageID, first[i].OccurredAt, second[i].MessageID, second[i].OccurredAt)
+		}
+	}
+}
+
+// TestThreadShape — the opener roots the thread and every reply joins it. The
+// sink's reply detection keys on a thread whose earlier message was outbound,
+// so an inbound reply that rooted itself would join nothing.
+func TestThreadShape(t *testing.T) {
+	box := demoMailbox()
+	msgs := generate(box, box.Accounts[0])
+	byThread := map[string][]message{}
+	for _, m := range msgs {
+		byThread[m.ThreadKey] = append(byThread[m.ThreadKey], m)
+	}
+	if len(byThread) == 0 {
+		t.Fatal("a customer account generated no threads")
+	}
+	for key, thread := range byThread {
+		if thread[0].MessageID != key {
+			t.Errorf("thread %s does not root on its own opener (%s)", key, thread[0].MessageID)
+		}
+		for i := 1; i < len(thread); i++ {
+			if !thread[i].OccurredAt.After(thread[i-1].OccurredAt) {
+				t.Errorf("thread %s message %d does not follow the one before it", key, i)
+			}
+		}
+	}
+}
+
+// TestEveryMessageIdIsValid — a Message-ID the product refuses costs the whole
+// message, and offline-demo.invalid is reserved (RFC 2606) so no such mailbox
+// can ever exist.
+func TestEveryMessageIdIsValid(t *testing.T) {
+	box := demoMailbox()
+	for _, m := range generate(box, box.Accounts[0]) {
+		if !strings.HasPrefix(m.MessageID, "<") || !strings.HasSuffix(m.MessageID, ">") {
+			t.Errorf("message id %q is not angle-bracketed", m.MessageID)
+		}
+		if !strings.Contains(m.MessageID, "@offline-demo.invalid") {
+			t.Errorf("message id %q does not sit on the reserved demo domain", m.MessageID)
+		}
+	}
+}
+
+// TestEveryAddressIsKnown — the generator must never invent a correspondent.
+// An address outside the mailbox and its accounts would be a real person
+// nobody in this dataset agreed to.
+func TestEveryAddressIsKnown(t *testing.T) {
+	box := demoMailbox()
+	known := map[string]bool{box.Email: true, box.ColleagueEmail: true}
+	for _, a := range box.Accounts {
+		for _, p := range a.People {
+			known[p.Email] = true
+		}
+	}
+	for _, m := range generate(box, box.Accounts[0]) {
+		for _, addr := range []string{m.FromAddr, m.ToAddr, m.CCAddr} {
+			if addr != "" && !known[addr] {
+				t.Errorf("message %s names %q, which is nobody in this mailbox", m.MessageID, addr)
+			}
+		}
+	}
+}
+
+// TestEveryThreadHasAnExternalParty — the sink DROPS a record whose every
+// party is on an own domain. A thread between colleagues would vanish
+// silently, which looks like a generator that produced nothing.
+func TestEveryThreadHasAnExternalParty(t *testing.T) {
+	box := demoMailbox()
+	for _, m := range generate(box, box.Accounts[0]) {
+		rec := m.record()
+		external := false
+		for _, addr := range rec.Addresses {
+			if !strings.HasSuffix(addr, "@demo.test") {
+				external = true
+			}
+		}
+		if !external {
+			t.Errorf("message %s names only own-domain parties — the sink drops it as internal-only", m.MessageID)
+		}
+	}
+}
+
+// TestOutboundNamesItsRecipient — and deliberately does NOT carry the owner
+// attestation. WithOwnerAttestation is the T1 correspondence gate's only
+// evidence and may be minted solely by the mail mapper, which knows the
+// provider's own filing of the message; a generator asserting it from its own
+// content is the hole that rule closes. A fitness test in package backendarch
+// enforces it.
+func TestOutboundNamesItsRecipient(t *testing.T) {
+	box := demoMailbox()
+	sawOutbound := false
+	for _, m := range generate(box, box.Accounts[0]) {
+		if m.Kind == "meeting" {
+			if m.record().Counterparty.Email != "" {
+				t.Errorf("meeting %s carries a counterparty; a calendar record has attendees instead", m.MessageID)
+			}
+			continue
+		}
+		rec := m.record()
+		if m.Direction == directionOutbound {
+			sawOutbound = true
+			if rec.Counterparty.Email != strings.ToLower(m.ToAddr) {
+				t.Errorf("outbound %s names %q as counterparty, want the recipient", m.MessageID, rec.Counterparty.Email)
+			}
+		}
+		if rec.Counterparty.Email == "" {
+			t.Errorf("mail %s has no counterparty", m.MessageID)
+		}
+	}
+	if !sawOutbound {
+		t.Error("no outbound message was generated, so the attestation path is untested")
+	}
+}
+
+// TestRecordsLinkTheAccount — an activity that links nothing shows on no
+// company page, which is the failure the seeder's verify pass exists to catch.
+func TestRecordsLinkTheAccount(t *testing.T) {
+	box := demoMailbox()
+	for _, m := range generate(box, box.Accounts[0]) {
+		rec := m.record()
+		found := false
+		for _, link := range rec.Links {
+			if link.Type == datasource.EntityOrganization {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("message %s links to no organization", m.MessageID)
+		}
+	}
+}
+
+// TestAnAccountWithNoPeopleWritesNothing — most Automation World companies
+// publish no staff, and a thread addressed to a company rather than a person
+// is not correspondence.
+func TestAnAccountWithNoPeopleWritesNothing(t *testing.T) {
+	box := demoMailbox()
+	account := box.Accounts[0]
+	account.People = nil
+	if msgs := generate(box, account); len(msgs) != 0 {
+		t.Errorf("an account with no contacts generated %d messages", len(msgs))
+	}
+}
+
+// TestTheSecondSyncEmitsNothing — the cursor is what keeps a two-minute sweep
+// from re-walking every mailbox. Without it the steady state is a full replay
+// against the natural key on every pass.
+func TestTheSecondSyncEmitsNothing(t *testing.T) {
+	box := demoMailbox()
+	c := New(stubDirectory{box: box})
+	sink := &countingSink{}
+	cursor, err := c.Sync(context.Background(), connector.Auth(box.UserID), nil, sink)
+	if err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if sink.n == 0 {
+		t.Fatal("the first sync emitted nothing")
+	}
+	first := sink.n
+	if _, err := c.Sync(context.Background(), connector.Auth(box.UserID), cursor, sink); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	if sink.n != first {
+		t.Errorf("the second sync emitted %d more records; the cursor is not holding", sink.n-first)
+	}
+}
+
+// TestSyncNeedsASeat — without one there is no mailbox to generate, and
+// guessing would put another seat's correspondence in somebody's inbox.
+func TestSyncNeedsASeat(t *testing.T) {
+	c := New(stubDirectory{box: demoMailbox()})
+	if _, err := c.Sync(context.Background(), nil, nil, &countingSink{}); err == nil {
+		t.Error("a sync with no seat succeeded")
+	}
+}
+
+type countingSink struct{ n int }
+
+func (s *countingSink) Upsert(context.Context, connector.NormalizedRecord) (datasource.EntityRef, error) {
+	s.n++
+	return datasource.EntityRef{}, nil
+}
+
+// TestNoMessageIsDatedInTheFuture is the bug that cost the most to find.
+//
+// The first version anchored an account's correspondence on the organization's
+// created_at. In a fresh installation that is TODAY for every company, so
+// "twenty days after the account existed" landed twenty days from now — and a
+// captured message that has not happened yet is refused. The generator
+// produced six mails per customer, the database stayed empty, and nothing was
+// logged, because the refusal was the product doing its job.
+func TestNoMessageIsDatedInTheFuture(t *testing.T) {
+	box := demoMailbox()
+	now := box.Accounts[0].Now
+	for _, m := range generate(box, box.Accounts[0]) {
+		if m.OccurredAt.After(now) {
+			t.Errorf("message %s is dated %s, which is after the run at %s — the sink refuses it",
+				m.MessageID, m.OccurredAt.Format(time.RFC3339), now.Format(time.RFC3339))
+		}
+	}
+}
+
+// TestHistoryReachesBack — correspondence bunched into one afternoon reads as
+// generated. A worked account has a few months behind it.
+func TestHistoryReachesBack(t *testing.T) {
+	box := demoMailbox()
+	msgs := generate(box, box.Accounts[0])
+	if len(msgs) < 2 {
+		t.Fatalf("only %d messages to spread", len(msgs))
+	}
+	oldest, newest := msgs[0].OccurredAt, msgs[0].OccurredAt
+	for _, m := range msgs {
+		if m.OccurredAt.Before(oldest) {
+			oldest = m.OccurredAt
+		}
+		if m.OccurredAt.After(newest) {
+			newest = m.OccurredAt
+		}
+	}
+	if newest.Sub(oldest) < 14*24*time.Hour {
+		t.Errorf("the whole history spans %s — an account worked for a quarter should reach further back",
+			newest.Sub(oldest))
+	}
+}
+
+// TestDescriptorIsReadOnly — the descriptor drives scope enforcement and the
+// risk tier, so a connector that quietly asked for write scopes would be
+// granted them by the connect path without anybody reading this file.
+func TestDescriptorIsReadOnly(t *testing.T) {
+	d := New(stubDirectory{}).Descriptor()
+	if d.Name != Name {
+		t.Errorf("descriptor names %q, want %q", d.Name, Name)
+	}
+	if len(d.Scopes) != 1 || d.Scopes[0] != principal.ScopeRead {
+		t.Errorf("descriptor asks for %v, want read only — this connector writes nothing outward", d.Scopes)
+	}
+	if d.RiskTier != mcp.TierAutoExecute {
+		t.Errorf("risk tier is %v, want auto-execute: generating into the local database is a capture", d.RiskTier)
+	}
+	if len(d.Produces) != 1 || d.Produces[0] != datasource.EntityActivity {
+		t.Errorf("descriptor produces %v, want activities only", d.Produces)
+	}
+}
+
+// TestAuthCarriesTheSeat — Auth is an opaque bundle and this connector puts
+// the seat id in it, the way imap carries its mailbox owner. Nothing is
+// sealed because there is no secret: the generator reads the local database.
+func TestAuthCarriesTheSeat(t *testing.T) {
+	auth, err := New(stubDirectory{}).Authenticate(context.Background(),
+		connector.AuthRequest{Payload: []byte("seat-1")})
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if string(auth) != "seat-1" {
+		t.Errorf("auth carries %q, want the seat it was handed", string(auth))
+	}
+}
+
+// TestHealthCheckAlwaysPasses — there is no remote to be unhealthy, and a
+// connector reporting a fault it cannot have would park a mailbox forever.
+func TestHealthCheckAlwaysPasses(t *testing.T) {
+	if err := New(stubDirectory{}).HealthCheck(context.Background(), nil); err != nil {
+		t.Errorf("health check failed for a connector with no remote: %v", err)
+	}
+}
+
+// TestNormalizeRebuildsTheRecord — Raw has to be re-parseable on its own, or
+// a re-normalization of a stored message produces something different from
+// what was captured.
+func TestNormalizeRebuildsTheRecord(t *testing.T) {
+	box := demoMailbox()
+	msgs := generate(box, box.Accounts[0])
+	if len(msgs) == 0 {
+		t.Fatal("nothing generated to normalize")
+	}
+	original := msgs[0].record()
+	rebuilt, err := New(stubDirectory{}).Normalize(context.Background(), original.Raw)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(rebuilt) != 1 {
+		t.Fatalf("normalize produced %d records, want 1", len(rebuilt))
+	}
+	if rebuilt[0].NaturalKey != original.NaturalKey {
+		t.Errorf("normalize changed the natural key: %v vs %v", rebuilt[0].NaturalKey, original.NaturalKey)
+	}
+	if rebuilt[0].ThreadKey != original.ThreadKey {
+		t.Errorf("normalize changed the thread key")
+	}
+}
+
+// TestNormalizeRefusesGibberish — a stored raw that will not parse is an
+// error rather than an empty record nobody notices.
+func TestNormalizeRefusesGibberish(t *testing.T) {
+	if _, err := New(stubDirectory{}).Normalize(context.Background(), []byte("{not json")); err == nil {
+		t.Error("normalize accepted unparseable raw bytes")
+	}
+}
+
+// TestACursorFromAnotherGeneratorIsDiscarded — version 1 dated its messages in
+// the future and left a `through` two months ahead. Honouring that cursor
+// would skip every message forever, so a version mismatch restarts.
+func TestACursorFromAnotherGeneratorIsDiscarded(t *testing.T) {
+	stale := []byte(`{"v":1,"gen":1,"through":"2099-01-01T00:00:00Z"}`)
+	state, since := readCursor(stale)
+	if !since.IsZero() {
+		t.Errorf("a cursor from generator 1 was honoured, resuming at %s", since)
+	}
+	if state.Gen != generatorVersion {
+		t.Errorf("the fresh cursor claims generator %d, want %d", state.Gen, generatorVersion)
+	}
+}
+
+// TestEveryLifecycleWritesTheRightConversation — the inbox has to AGREE with
+// the pipeline. A customer whose only thread is a cold intro, or a target
+// holding a kickoff, reads as decoration beside the records rather than as the
+// account's own history.
+func TestEveryLifecycleWritesTheRightConversation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		lifecycle string
+		stage     string
+		wantSubj  string
+		wantAny   bool
+	}{
+		{"customer gets a kickoff", "customer", "Won", "Kickoff", true},
+		{"a lost customer gets an offboarding", "former_customer", "Won", "Kündigung", true},
+		{"a proposal gets an offer thread", "opportunity", "Proposal", "Angebot", true},
+		{"a negotiation gets one too", "opportunity", "Negotiation", "Angebot", true},
+		{"an early deal gets an intro", "opportunity", "Qualified", "Austausch", true},
+		{"a prospect gets an inbound enquiry", "prospect", "", "Anfrage", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			box := demoMailbox()
+			a := box.Accounts[0]
+			a.Lifecycle = tc.lifecycle
+			a.Deals = nil
+			if tc.stage != "" {
+				a.Deals = []Deal{{ID: "01a00000-0000-7000-8000-0000000000bb", Name: "d", Stage: tc.stage}}
+			}
+			specs := threadsFor(a)
+			if tc.wantAny && len(specs) == 0 {
+				t.Fatalf("a %s account with a %q deal writes no correspondence at all", tc.lifecycle, tc.stage)
+			}
+			var found bool
+			for _, s := range specs {
+				if strings.Contains(s.Subject, tc.wantSubj) {
+					found = true
+				}
+			}
+			if !found {
+				var got []string
+				for _, s := range specs {
+					got = append(got, s.Subject)
+				}
+				t.Errorf("a %s account wrote %v, want a thread mentioning %q", tc.lifecycle, got, tc.wantSubj)
+			}
+			// Whatever it writes must survive the trip to a record.
+			for _, m := range generate(box, a) {
+				if m.record().NaturalKey.SourceID == "" {
+					t.Error("a generated message carries no natural key, so it cannot be deduplicated")
+				}
+			}
+		})
+	}
+}
+
+// TestAnUntouchedTargetIsMostlySilent — the honest majority of a prospect list
+// has never been written to, and a demo where every account has a thread looks
+// invented.
+func TestAnUntouchedTargetIsMostlySilent(t *testing.T) {
+	box := demoMailbox()
+	silent, total := 0, 0
+	for _, domain := range []string{"a.de", "b.de", "c.de", "d.de", "e.de", "f.de", "g.de", "h.de"} {
+		a := box.Accounts[0]
+		a.Lifecycle, a.Deals, a.Domain = "target", nil, domain
+		total++
+		if len(threadsFor(a)) == 0 {
+			silent++
+		}
+	}
+	if silent == 0 {
+		t.Error("every untouched target carries correspondence — nobody has an inbox that tidy")
+	}
+	if silent == total {
+		t.Error("no untouched target was ever written to, so the cold-outreach thread is unreachable")
+	}
+}
+
+// TestTheSmallHelpersHoldTheirEdges — each is one line and each has a branch
+// that only fires on input the generator will eventually see.
+func TestTheSmallHelpersHoldTheirEdges(t *testing.T) {
+	if got := domainOf("nobody"); got != "" {
+		t.Errorf("domainOf on an address with no @ = %q, want empty", got)
+	}
+	if got := firstWord("Petra"); got != "Petra" {
+		t.Errorf("firstWord on a single name = %q", got)
+	}
+	if got := orDash(""); got != "—" {
+		t.Errorf("orDash on empty = %q, want a dash so the line is not blank", got)
+	}
+	if got := shortKey("!!!"); got != "unknown" {
+		t.Errorf("shortKey on a domain with no usable characters = %q, want a safe fallback", got)
+	}
+	if got := hashIndex("anything", 0); got != 0 {
+		t.Errorf("hashIndex with no buckets = %d, want 0 rather than a division by zero", got)
+	}
+	if got := dealStage(Account{}); got != "" {
+		t.Errorf("dealStage with no deals = %q", got)
+	}
+}
