@@ -190,3 +190,88 @@ func TestNoCoreFieldNameCanBeACustomColumnName(t *testing.T) {
 		}
 	}
 }
+
+// Derived from the port's own closed set, never a copy of it: a list restated
+// here would pass unchanged the day a seventh type is added to fieldcatalog,
+// which is the one moment this test exists to fail.
+//
+// Mapping alone is not enough either — a type that resolved to a FieldType the
+// predicate engine admits no operator for would sit in the vocabulary and
+// refuse every filter written against it — so each mapping is compiled, with
+// `exists`, the one operator every type in the matrix carries.
+func TestEveryCustomFieldTypeIsFilterable(t *testing.T) {
+	for _, declared := range fieldcatalog.Types() {
+		field, ok := customField(fieldcatalog.Column{Name: "cf_probe", Type: declared})
+		if !ok {
+			t.Errorf("custom-field type %q has no filter type, so a column of that type is unfilterable", declared)
+			continue
+		}
+		_, err := storekit.CompilePredicate(
+			storekit.Predicate{Field: "cf_probe", Op: storekit.OpExists, Value: true},
+			map[string]storekit.Field{"cf_probe": field},
+			func(any) int { return 1 },
+		)
+		if err != nil {
+			t.Errorf("custom-field type %q maps to %q, which admits no filter: %v", declared, field.Type, err)
+		}
+	}
+}
+
+// The whole point of omitting rather than failing: one column this engine has
+// no operators for costs that column its filter and nothing else. A refusal
+// costs the entire resolution instead — list validation, membership evaluation
+// and filtered export all fail for the record type, including for lists that
+// never name the field.
+func TestAnUnmappableCustomColumnCostsOnlyItself(t *testing.T) {
+	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {
+			{Name: "cf_known", Type: fieldcatalog.TypeText},
+			{Name: "cf_from_the_future", Type: "geo"},
+		},
+	}})
+
+	engine, ok, err := store.SegmentEngine(context.Background(), "person")
+
+	if err != nil || !ok {
+		t.Fatalf("one unmappable column broke the whole resolution: ok=%v err=%v", ok, err)
+	}
+	if _, present := engine.Fields["cf_known"]; !present {
+		t.Error("the mappable sibling column was lost with it")
+	}
+	if _, present := engine.Fields["owner_id"]; !present {
+		t.Error("the core vocabulary was lost with it")
+	}
+	if _, present := engine.Fields["cf_from_the_future"]; present {
+		t.Error("the unmappable column entered the vocabulary, where it can only refuse every operator")
+	}
+}
+
+// Omission is not silence. A predicate that actually NAMES the omitted field is
+// refused by name — so a saved segment on a field that stopped being mappable
+// says so, rather than quietly matching a different set of rows.
+func TestAPredicateOnAnOmittedColumnIsRefusedByName(t *testing.T) {
+	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {{Name: "cf_from_the_future", Type: "geo"}},
+	}})
+	engine, _, err := store.SegmentEngine(context.Background(), "person")
+	if err != nil {
+		t.Fatalf("segmentEngine: %v", err)
+	}
+
+	_, err = storekit.CompilePredicate(
+		storekit.Predicate{Field: "cf_from_the_future", Op: storekit.OpEq, Value: "x"},
+		engine.Fields,
+		func(any) int { return 1 },
+	)
+
+	var perr *storekit.PredicateError
+	if !errors.As(err, &perr) {
+		t.Fatalf("err = %v, want a PredicateError naming the field", err)
+	}
+	if perr.Code != storekit.CodeFilterFieldNotAllowed {
+		t.Errorf("code = %q, want %q", perr.Code, storekit.CodeFilterFieldNotAllowed)
+	}
+	if perr.Field != "cf_from_the_future" {
+		t.Errorf("field = %q, want the offending column named", perr.Field)
+	}
+}

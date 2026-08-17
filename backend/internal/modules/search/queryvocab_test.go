@@ -298,10 +298,10 @@ func TestEverySearchableEntityHasAContractBinding(t *testing.T) {
 // The six closed custom-field types must each map onto a kind, or a
 // workspace's own column silently vanishes from its vocabulary.
 func TestEveryCustomFieldTypeHasAVocabularyKind(t *testing.T) {
-	for _, declared := range []string{
-		fieldcatalog.TypeText, fieldcatalog.TypeNumber, fieldcatalog.TypeDate,
-		fieldcatalog.TypeCurrency, fieldcatalog.TypePicklist, fieldcatalog.TypeBoolean,
-	} {
+	// The port's own set, not a copy of it: a list restated here would pass
+	// unchanged the day a seventh type is added, which is the one moment this
+	// test exists to fail.
+	for _, declared := range fieldcatalog.Types() {
 		kind, ok := customFieldKinds[declared]
 		if !ok {
 			t.Errorf("custom-field type %q has no vocabulary kind, so a workspace column of that type is unaskable", declared)

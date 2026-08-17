@@ -233,6 +233,20 @@ func TestSQLValue_RoundTrip(t *testing.T) {
 			scanned: "red", wantWire: "red",
 		},
 	}
+	// The case table is hand-written, so what it covers is derived rather than
+	// trusted: a seventh catalog type with no case here would leave this test
+	// green while SQLValue and extractValue answer ok=false for it — silently
+	// dropping the value on the write AND on the read, which is a worse
+	// outcome than any unfilterable column.
+	covered := make(map[string]bool, len(cases))
+	for _, c := range cases {
+		covered[c.typ] = true
+	}
+	for _, declared := range fieldcatalog.Types() {
+		if !covered[declared] {
+			t.Errorf("custom-field type %q has no round-trip case, so a value of that type could be dropped unnoticed", declared)
+		}
+	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			column := col("cf_x", c.typ)

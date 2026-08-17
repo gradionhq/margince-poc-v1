@@ -199,40 +199,55 @@ func (s *Store) SegmentEngine(ctx context.Context, resource string) (storekit.Qu
 		if _, coreOwns := core.Fields[column.Name]; coreOwns {
 			continue
 		}
-		field, err := customField(column)
-		if err != nil {
-			return storekit.Query{}, false, err
+		field, ok := customField(column)
+		if !ok {
+			continue
 		}
 		merged.Fields[column.Name] = field
 	}
 	return merged, true, nil
 }
 
-// customField types one custom column for the predicate engine. The six catalog
-// types and the six filter types are the same closed set spelled in two packages,
-// so the mapping is total — and an unrecognised value fails rather than defaulting
-// to text, which would admit `contains` on a number and read as a working filter.
-func customField(column fieldcatalog.Column) (storekit.Field, error) {
-	var fieldType storekit.FieldType
-	switch column.Type {
-	case fieldcatalog.TypeText:
-		fieldType = storekit.FieldText
-	case fieldcatalog.TypeNumber:
-		fieldType = storekit.FieldNumber
-	case fieldcatalog.TypeDate:
-		fieldType = storekit.FieldDate
-	case fieldcatalog.TypeCurrency:
-		fieldType = storekit.FieldCurrency
-	case fieldcatalog.TypePicklist:
-		fieldType = storekit.FieldPicklist
-	case fieldcatalog.TypeBoolean:
-		fieldType = storekit.FieldBoolean
-	default:
-		return storekit.Field{}, fmt.Errorf(
-			"custom column %s carries type %q, which the filter engine has no operators for",
-			column.Name, column.Type)
+// customFieldTypes maps the six closed catalog types onto the predicate
+// engine's own. Both sets are closed and neither is this file's to extend: a
+// seventh catalog type arrives with its own entry here, and
+// TestEveryCustomFieldTypeIsFilterable fails until it has one.
+var customFieldTypes = map[string]storekit.FieldType{
+	fieldcatalog.TypeText:     storekit.FieldText,
+	fieldcatalog.TypeNumber:   storekit.FieldNumber,
+	fieldcatalog.TypeDate:     storekit.FieldDate,
+	fieldcatalog.TypeCurrency: storekit.FieldCurrency,
+	fieldcatalog.TypePicklist: storekit.FieldPicklist,
+	fieldcatalog.TypeBoolean:  storekit.FieldBoolean,
+}
+
+// customField types one custom column for the predicate engine, and answers
+// false for a catalog type this engine has no operators for.
+//
+// LEFT OUT rather than refused, and the difference is the blast radius. This
+// mapping runs over EVERY column of the object, so a refusal here costs the
+// whole resolution — list-create validation, membership evaluation and
+// filtered export all fail for that record type, including for filters that
+// never name the field. Omitting contains the damage to the one field, which
+// is the same call `search`'s vocabulary makes next door on its own stated
+// grounds — an unasked field is a smaller failure than one that answers the
+// wrong comparison.
+//
+// Omission does not hide anything either, because a field the vocabulary does
+// not carry is not silently dropped from a predicate: CompilePredicate refuses
+// an unknown name with CodeFilterFieldNotAllowed, so a saved segment that
+// actually NAMES such a field says "not filterable on this resource" rather
+// than quietly matching a different set of rows. What omission must never
+// become is a guess — defaulting an unknown type to text would admit
+// `contains` on a number and read as a working filter — which is why the
+// mapping is a closed map with a gate over it rather than a switch with a
+// fallback.
+func customField(column fieldcatalog.Column) (storekit.Field, bool) {
+	fieldType, ok := customFieldTypes[column.Type]
+	if !ok {
+		return storekit.Field{}, false
 	}
-	return storekit.Field{Expr: `t.` + pgx.Identifier{column.Name}.Sanitize(), Type: fieldType}, nil
+	return storekit.Field{Expr: `t.` + pgx.Identifier{column.Name}.Sanitize(), Type: fieldType}, true
 }
 
 // predicateFromDefinition decodes a dynamic list's stored `definition`
