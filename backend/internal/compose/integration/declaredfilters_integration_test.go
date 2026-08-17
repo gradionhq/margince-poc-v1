@@ -379,3 +379,93 @@ func TestTheOrganizationListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
 		t.Fatalf("unassigned=true returned %d organizations, want only the unowned one", len(queue))
 	}
 }
+
+func TestThePersonListNarrowsToOneEmployer(t *testing.T) {
+	e := Setup(t)
+	acme := e.SeedOrg(t, "Acme", nil)
+	other := e.SeedOrg(t, "Other", nil)
+	staff := e.SeedPerson(t, "Works At Acme", nil)
+	leaver := e.SeedPerson(t, "Left Acme", nil)
+	elsewhere := e.SeedPerson(t, "Works Elsewhere", nil)
+
+	// Seeded through the real writer, so the edge carries whatever that writer
+	// stamps: a hand-inserted row proves nothing about the rows production makes.
+	employ := func(person ids.UUID, org ids.UUID, current bool) {
+		t.Helper()
+		personID := ids.From[ids.PersonKind](person)
+		orgID := ids.From[ids.OrganizationKind](org)
+		if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
+			Kind:             "employment",
+			PersonID:         &personID,
+			OrganizationID:   &orgID,
+			IsCurrentPrimary: current,
+			Source:           "manual",
+		}); err != nil {
+			t.Fatalf("seeding the employment edge: %v", err)
+		}
+	}
+	employ(staff, acme, true)
+	// A past employer at the same account: the filter answers who works there,
+	// not who has ever worked there, and returning the leaver beside the staff
+	// is the wrong answer wearing the right shape.
+	employ(leaver, acme, false)
+	employ(elsewhere, other, true)
+
+	orgID := ids.From[ids.OrganizationKind](acme)
+	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OrganizationID: &orgID})
+	if err != nil {
+		t.Fatalf("listing people by employer: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != staff {
+		got := make([]string, 0, len(page))
+		for _, person := range page {
+			got = append(got, person.FullName)
+		}
+		t.Fatalf("organization_id returned %v, want only the current employee", got)
+	}
+}
+
+// setFirmographics writes industry and size through the store the product
+// writes them with, so the rows under test are the rows production makes.
+func setFirmographics(t *testing.T, e *Env, org ids.UUID, industry, band string) {
+	t.Helper()
+	if _, err := e.People.UpdateOrganization(e.Admin(), ids.From[ids.OrganizationKind](org),
+		people.UpdateOrganizationInput{Industry: &industry, SizeBand: &band}); err != nil {
+		t.Fatalf("setting firmographics: %v", err)
+	}
+}
+
+func TestTheOrganizationListNarrowsByIndustryAndSizeBand(t *testing.T) {
+	e := Setup(t)
+	small := e.SeedOrg(t, "Small Software", nil)
+	big := e.SeedOrg(t, "Big Software", nil)
+	e.SeedOrg(t, "Small Logistics", nil)
+
+	setFirmographics(t, e, small, "Software", "1-10")
+	setFirmographics(t, e, big, "Software", "1001-5000")
+
+	industry := "Software"
+	page, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{Industry: &industry})
+	if err != nil {
+		t.Fatalf("listing by industry: %v", err)
+	}
+	if len(page) != 2 {
+		t.Fatalf("industry=Software returned %d accounts, want both software accounts", len(page))
+	}
+
+	band := "1-10"
+	sized, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{SizeBand: &band})
+	if err != nil {
+		t.Fatalf("listing by size band: %v", err)
+	}
+	if len(sized) != 1 || ids.UUID(sized[0].Id) != small {
+		t.Fatalf("size_band=1-10 returned %d accounts, want only the small one", len(sized))
+	}
+
+	// An unknown band is refused rather than answered with an empty page:
+	// empty reads as "no accounts that size", which is a different claim.
+	unknown := "12-13"
+	if _, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{SizeBand: &unknown}); err == nil {
+		t.Fatal("an unknown size band was accepted; want a validation refusal")
+	}
+}

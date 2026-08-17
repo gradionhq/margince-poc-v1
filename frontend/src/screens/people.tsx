@@ -547,7 +547,7 @@ export function ContactsScreen() {
         tools={<SaveViewAction resource="people" query={state.query} />}
         rowKey={(person) => person.id}
         rowRoute={(person) => ({ screen: "contacts", id: person.id })}
-        chips={ownerChips}
+        dataChips={ownerChips}
         dataViews={savedViews}
         views={[
           { label: "list.viewAll", sort: "-created_at" },

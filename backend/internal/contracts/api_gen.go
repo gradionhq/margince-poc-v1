@@ -10134,6 +10134,39 @@ func (e ListOrganizationsParamsRelationshipType) Valid() bool {
 	}
 }
 
+// Defines values for ListOrganizationsParamsSizeBand.
+const (
+	N10015000 ListOrganizationsParamsSizeBand = "1001-5000"
+	N110      ListOrganizationsParamsSizeBand = "1-10"
+	N1150     ListOrganizationsParamsSizeBand = "11-50"
+	N201500   ListOrganizationsParamsSizeBand = "201-500"
+	N5000     ListOrganizationsParamsSizeBand = "5000+"
+	N5011000  ListOrganizationsParamsSizeBand = "501-1000"
+	N51200    ListOrganizationsParamsSizeBand = "51-200"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsSizeBand enum.
+func (e ListOrganizationsParamsSizeBand) Valid() bool {
+	switch e {
+	case N10015000:
+		return true
+	case N110:
+		return true
+	case N1150:
+		return true
+	case N201500:
+		return true
+	case N5000:
+		return true
+	case N5011000:
+		return true
+	case N51200:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListOrganizationContractsParamsStatus.
 const (
 	ListOrganizationContractsParamsStatusActive     ListOrganizationContractsParamsStatus = "active"
@@ -22111,8 +22144,15 @@ type ListOrganizationsParams struct {
 	// Unassigned `true` returns only rows with no owner. Unassigned rows are visible at every row scope
 	// (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
 	// Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
-	Unassigned *bool   `form:"unassigned,omitempty" json:"unassigned,omitempty"`
-	Q          *string `form:"q,omitempty" json:"q,omitempty"`
+	Unassigned *bool `form:"unassigned,omitempty" json:"unassigned,omitempty"`
+
+	// Industry Accounts in one industry, matched exactly (DM-VOCAB-2). The column is free text rather
+	// than an enum, so this is the value as it was written.
+	Industry *string `form:"industry,omitempty" json:"industry,omitempty"`
+
+	// SizeBand How many people work there (DM-VOCAB-2).
+	SizeBand *ListOrganizationsParamsSizeBand `form:"size_band,omitempty" json:"size_band,omitempty"`
+	Q        *string                          `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // ListOrganizationsParamsCapturedByKind defines parameters for ListOrganizations.
@@ -22123,6 +22163,9 @@ type ListOrganizationsParamsLifecycle string
 
 // ListOrganizationsParamsRelationshipType defines parameters for ListOrganizations.
 type ListOrganizationsParamsRelationshipType string
+
+// ListOrganizationsParamsSizeBand defines parameters for ListOrganizations.
+type ListOrganizationsParamsSizeBand string
 
 // CreateOrganizationParams defines parameters for CreateOrganization.
 type CreateOrganizationParams struct {
@@ -22601,6 +22644,12 @@ type ListPeopleParams struct {
 
 	// Tag Filter by tag name.
 	Tag *string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// OrganizationId People who work at this account, by their CURRENT PRIMARY employment edge
+	// (`relationship` kind `employment`, DM-VOCAB-1). A past employer does not match:
+	// "who works there" and "who has ever worked there" are different questions, and the
+	// list answers the first.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
 
 // ListPeopleParamsCapturedByKind defines parameters for ListPeople.
@@ -41990,6 +42039,32 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "industry" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "industry", r.URL.Query(), &params.Industry, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "industry"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "industry", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "size_band" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "size_band", r.URL.Query(), &params.SizeBand, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "size_band"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "size_band", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "q" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -44468,6 +44543,19 @@ func (siw *ServerInterfaceWrapper) ListPeople(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tag"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "organization_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
 		}
 		return
 	}

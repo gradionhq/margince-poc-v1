@@ -17,6 +17,7 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useMe, useSorMode } from "./common";
+import { useRoster } from "./entityref";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -227,21 +228,7 @@ export function ListTable<Row>({
     })),
     ...dataViews,
   ];
-  // Which tab the reader actually pressed, remembered only while it still
-  // describes the list. Two views can ask for the SAME sort and filters — a
-  // saved "German customers" that narrows exactly as the built-in Customers
-  // preset does — and deriving the highlight from the query alone lights the
-  // first of them, so the reader's own view never highlights when they pick it.
-  const [picked, setPicked] = useState<number | null>(null);
-  const matched = allViews.findIndex((spec) => matchesView(spec, query));
-  // The pressed tab wins only while the query still matches it; the moment a
-  // sort or filter moves away, the highlight falls back to whatever the query
-  // now describes, which is the property that made this derived in the first
-  // place.
-  const view =
-    picked !== null && allViews[picked] && matchesView(allViews[picked], query)
-      ? picked
-      : matched;
+  const [view, setPicked] = useActiveView(allViews, query);
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -402,6 +389,31 @@ function translateView(spec: ViewSpec, t: Translate): ListView {
 }
 
 /**
+ * Which view tab is lit, and the setter the table reports a press to.
+ *
+ * The highlight is DERIVED from the query, so a reader who edits a filter is no
+ * longer claimed to be looking at the preset they started from. But two views
+ * can ask for the same sort and filters — a saved "German customers" that
+ * narrows exactly as the built-in Customers preset does — and a purely derived
+ * highlight lights the first match, so the reader's own view never lights when
+ * they pick it.
+ *
+ * The pressed tab therefore wins, but only while it still describes the list.
+ * The moment the query moves away it stops matching and the highlight falls
+ * back to whatever the query now describes.
+ */
+function useActiveView(
+  views: readonly ListView[],
+  query: ListQuery,
+): [number, (index: number) => void] {
+  const [picked, setPicked] = useState<number | null>(null);
+  const matched = views.findIndex((spec) => matchesView(spec, query));
+  const pinned = picked !== null && views[picked];
+  const view = pinned && matchesView(views[picked], query) ? picked : matched;
+  return [view, setPicked];
+}
+
+/**
  * Is the list showing exactly what this view asks for, nothing added or left?
  *
  * Takes the sort and filters alone, so it reads a screen's built-in preset and
@@ -441,29 +453,32 @@ function matchesView(
  * guessing which one the reader meant — the wire takes one team id, and picking
  * for them would answer a question they did not ask.
  */
-export function useOwnerChips(): readonly FilterSpec[] {
+export function useOwnerChips(): readonly ListChip[] {
+  const t = useT();
   const me = useMe();
   const viewerId = me.data?.user.id;
+  const teams = useRoster("team", Boolean(viewerId));
   if (!viewerId) {
     return [];
   }
-  const teams = me.data?.teams ?? [];
+  // Named, not counted. The viewer may sit in several teams, and a dial that
+  // withheld itself past the first one left everyone on two teams unable to
+  // ask a question the API answers. Each team is its own option, so picking one
+  // is picking a team rather than accepting a guess about which was meant.
+  const mine = new Set(me.data?.teams ?? []);
+  const named = (teams.data ?? []).filter((entry) => mine.has(entry.id));
   return [
     {
       key: "owner",
-      label: "list.owner",
-      allLabel: "list.filterOwnerAll",
+      label: t("list.owner"),
+      allLabel: t("list.filterOwnerAll"),
       options: [
-        { value: `owner_id:${viewerId}`, label: "list.filterOwnerMe" },
-        ...(teams.length === 1
-          ? [
-              {
-                value: `owner_team_id:${teams[0]}`,
-                label: "list.filterOwnerTeam" as const,
-              },
-            ]
-          : []),
-        { value: "unassigned:true", label: "list.filterOwnerUnassigned" },
+        { value: `owner_id:${viewerId}`, label: t("list.filterOwnerMe") },
+        ...named.map((team) => ({
+          value: `owner_team_id:${team.id}`,
+          label: "display_name" in team ? team.display_name : team.name,
+        })),
+        { value: "unassigned:true", label: t("list.filterOwnerUnassigned") },
       ],
     },
   ];

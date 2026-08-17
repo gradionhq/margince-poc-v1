@@ -48,6 +48,9 @@ type ListOrganizationsInput struct {
 	Classification   *string
 	Lifecycle        *string
 	RelationshipType *string
+	// Industry is free text on the record; SizeBand is the contract's enum.
+	Industry *string
+	SizeBand *string
 	// Domain narrows to the account that lists one domain — the
 	// employer-inference lookup, spelled as a filter over the same
 	// organization_domain rows the page attaches.
@@ -178,6 +181,22 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 						"filter by one of the account stages the contract defines, or leave the parameter off")
 				}
 				where = append(where, storekit.SQLf("lifecycle = $%d", arg(*in.Lifecycle)))
+			}
+			if in.Industry != nil {
+				// Free text on the record, so matched as written rather than
+				// against a vocabulary the column does not have.
+				where = append(where, storekit.SQLf("industry = $%d", arg(*in.Industry)))
+			}
+			if in.SizeBand != nil {
+				// Checked against the generated enum for the same reason
+				// lifecycle is: an unknown band would answer an empty page,
+				// and empty reads as "no accounts that size" rather than as
+				// "that is not a size".
+				if !crmcontracts.ListOrganizationsParamsSizeBand(*in.SizeBand).Valid() {
+					return nil, httperr.Validation("size_band", "not_a_known_value",
+						"filter by one of the size bands the contract defines, or leave the parameter off")
+				}
+				where = append(where, storekit.SQLf("size_band = $%d", arg(*in.SizeBand)))
 			}
 			if in.RelationshipType != nil {
 				if !crmcontracts.ListOrganizationsParamsRelationshipType(*in.RelationshipType).Valid() {

@@ -51,6 +51,8 @@ func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, para
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
 	in.OwnerTeamID = idArg[ids.TeamKind](params.OwnerTeamId)
 	in.Unassigned = params.Unassigned
+	in.Industry = params.Industry
+	in.SizeBand = enumArg(params.SizeBand)
 
 	orgs, page, err := h.store.ListOrganizations(r.Context(), in)
 	if err != nil {
