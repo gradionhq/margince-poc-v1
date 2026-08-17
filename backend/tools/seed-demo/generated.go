@@ -135,7 +135,24 @@ func generatedAmount(domain string) int64 {
 		maxHundreds = 1800 // 180,000 EUR
 	)
 	hundreds := minHundreds + hashIndex("amount:"+domain, maxHundreds-minHundreds)
-	return int64(hundreds) * 100 * 100 // hundreds of euros, in minor units
+	amount := int64(hundreds) * 100 * 100 // hundreds of euros, in minor units
+
+	// Scaled into the account's own currency, because the figure is READ.
+	// A dong contract carrying a euro-sized number printed "VND 154.800,00"
+	// -- about 1,500 euro, which is not a number any Vietnamese contract
+	// would show, and the rendered PDF is where that became obvious.
+	//
+	// Deliberately round multiples rather than the real FX rate: these are
+	// plausible order sizes, not conversions of one another, and a demo whose
+	// amounts track a rate invites a question nobody wants to answer.
+	switch currencyFor(localeFor(domain)) {
+	case "VND":
+		return amount * 25000 // dong has no minor unit in practice
+	case "USD":
+		return amount // near enough to the euro at this precision
+	default:
+		return amount
+	}
 }
 
 // seedGeneratedLeads files the unqualified names at the top of the funnel for

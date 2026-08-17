@@ -145,7 +145,58 @@ func planProfiles(domains []string, cfg demoConfig) map[string]profile {
 
 	// Pass 2: promote companies until the matrix is satisfied.
 	fillCoverage(sorted, pinned, out)
+
+	// Pass 3: make sure the non-German half is actually SHOWN.
+	//
+	// The matrix guarantees counts, never which company holds them, and there
+	// are two Vietnamese companies among 171. The hash reliably made both a
+	// prospect and a target, so the Vietnamese contracts, documents and dong
+	// invoices existed in code and in tests and nowhere a demo could reach —
+	// which is the same as not having built them.
+	ensureLocaleIsVisible(sorted, pinned, out)
 	return out
+}
+
+// ensureLocaleIsVisible promotes one company per non-German language to
+// customer, so every language the seeder can write actually appears on paper.
+//
+// Only ever promotes: a language that already has a customer is left alone,
+// so this is a floor rather than a quota, and it runs after coverage so it
+// cannot pull a cell below its minimum.
+func ensureLocaleIsVisible(domains []string, pinned map[string]string, out map[string]profile) {
+	byLocale := map[docLocale][]string{}
+	hasCustomer := map[docLocale]bool{}
+	for _, domain := range domains {
+		locale := localeFor(domain)
+		if locale == localeDE {
+			continue // the German half is the majority and needs no help
+		}
+		if _, isPinned := pinned[domain]; isPinned {
+			continue
+		}
+		byLocale[locale] = append(byLocale[locale], domain)
+		if out[domain].Lifecycle == "customer" {
+			hasCustomer[locale] = true
+		}
+	}
+	for locale, candidates := range byLocale {
+		if hasCustomer[locale] || len(candidates) == 0 {
+			continue
+		}
+		// Stable choice, so the same company is the showcase on every machine.
+		pick := candidates[hashIndex("localeshowcase:"+string(locale), len(candidates))]
+		p := out[pick]
+		p.Lifecycle = "customer"
+		p.DealStage = "won"
+		p.LeadState = ""
+		if len(p.Contracts) == 0 {
+			p.Contracts = []string{"active"}
+		}
+		if len(p.LooseDocs) == 0 {
+			p.LooseDocs = []string{looseDocTypes[hashIndex("doctype:"+pick, len(looseDocTypes))]}
+		}
+		out[pick] = p
+	}
 }
 
 // baseProfile is one company's profile from weights alone, before coverage.
