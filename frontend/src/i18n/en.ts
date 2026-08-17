@@ -1299,6 +1299,10 @@ export const en = {
   "lead.promotedAt": "Promoted",
   "lead.promotedTrigger": "Trigger:",
   "lead.promotedEvidence": "Evidence:",
+  "lead.promotedOutcomePending": "Reading what this promotion did…",
+  "lead.promotedOutcomeUnavailable":
+    "We cannot show whether this merged or created a contact.",
+  "lead.terminalPromoted": "Promoted — this lead is now read-only.",
   "lead.statusNew": "New",
   "lead.statusWorking": "Working",
   "lead.statusPromoted": "Promoted",

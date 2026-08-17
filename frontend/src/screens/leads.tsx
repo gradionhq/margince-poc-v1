@@ -1020,11 +1020,26 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
   );
 }
 
-/** What the promotion did, read from the promote audit row it wrote. */
+/**
+ * What the promotion did, read from the promote audit row it wrote.
+ *
+ * `outcome` is a closed union with an explicit unknown, not a bare string: the
+ * page states "merged into a contact we already knew" or "became a new
+ * contact", and treating every non-"merged" value as "created" would make
+ * schema drift, a bad row, or a future third outcome read as a confident
+ * claim about a merge that never happened.
+ */
+type PromotionOutcome = "merged" | "created" | "unknown";
+
 type PromotionRecord = {
-  outcome?: string;
+  outcome: PromotionOutcome;
   trigger?: string;
   evidenceNote?: string;
+  // The read's own state. Loading and failing are not "created" — a panel that
+  // reported an outcome while its source was still in flight would show the
+  // wrong one for as long as the request took, and forever on a 403.
+  pending: boolean;
+  failed: boolean;
 };
 
 /**
@@ -1040,15 +1055,22 @@ type PromotionRecord = {
  */
 function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
   const history = useRecordHistory("lead", id, promoted);
-  const entries = history.data?.pages.flatMap((page) => page.data ?? []) ?? [];
-  const after = (entries.find((entry) => entry.action === "promote")?.after ??
-    {}) as Record<string, unknown>;
+  // `page?.data` for the same reason getNextPageParam needs it: a 200 with no
+  // body is a shape the contract permits, and this read runs on every promoted
+  // lead page.
+  const entries = history.data?.pages.flatMap((page) => page?.data ?? []) ?? [];
+  const row = entries.find((entry) => entry.action === "promote");
+  const after = (row?.after ?? {}) as Record<string, unknown>;
   const str = (key: string) =>
     typeof after[key] === "string" ? (after[key] as string) : undefined;
+  const recorded = str("dedupe_outcome");
   return {
-    outcome: str("dedupe_outcome"),
+    outcome:
+      recorded === "merged" || recorded === "created" ? recorded : "unknown",
     trigger: str("trigger"),
     evidenceNote: str("evidence_note"),
+    pending: promoted && history.isPending,
+    failed: promoted && history.isError,
   };
 }
 
@@ -1069,16 +1091,34 @@ function PromotedLeadPanel({
 }: Readonly<{ lead: Lead; promotion: PromotionRecord }>) {
   const t = useT();
   const { locale } = useLocale();
-  const merged = promotion.outcome === "merged";
   const triggerLabel = PROMOTE_TRIGGERS.find(
     (option) => option.value === promotion.trigger,
   )?.label;
+  // Four states, not two. The person link below is a fact the LEAD row carries,
+  // so it renders either way; only the outcome waits on the audit read.
+  const outcomeLine = () => {
+    if (promotion.pending) {
+      return t("lead.promotedOutcomePending");
+    }
+    if (promotion.failed) {
+      return t("lead.promotedOutcomeUnavailable");
+    }
+    switch (promotion.outcome) {
+      case "merged":
+        return t("lead.promotedMerged");
+      case "created":
+        return t("lead.promotedCreated");
+      // The audit row is missing, unreadable, or names an outcome this build
+      // does not know. Saying so is the honest answer; picking one would be a
+      // claim about a merge nobody recorded.
+      case "unknown":
+        return t("lead.promotedOutcomeUnavailable");
+    }
+  };
   return (
     <Panel title={t("lead.promotedTitle")}>
       <PanelBody>
-        <p className="t-body">
-          {merged ? t("lead.promotedMerged") : t("lead.promotedCreated")}
-        </p>
+        <p className="t-body">{outcomeLine()}</p>
         <p className="t-body" style={{ marginTop: "var(--space-2)" }}>
           <EntityRef kind="person" id={lead.promoted_person_id} />
         </p>
@@ -1300,9 +1340,10 @@ function LeadActions({
       )}
       {/* A terminal lead keeps its controls, DISABLED with the reason
           (STATE-4a): the reason is the information, and hiding the control
-          hides a fact the reader needs. A promoted lead redirects to its
-          person, so the terminal lead that reaches this page is a
-          disqualified one. */}
+          hides a fact the reader needs. Both closures reach this page — a
+          disqualified lead and, since ADR-0119/A170, a promoted one — and the
+          band above names which, so these controls point at that one
+          sentence rather than guessing at it. */}
       <EditAction
         disabledReasonId={lead.archived_at ? terminalReasonId : undefined}
         label={t("record.edit")}
@@ -1506,7 +1547,14 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                     printed beside all six. */}
                 {lead.archived_at && (
                   <p id={terminalReasonId} className="t-caption">
-                    {t("lead.terminalDisqualified")}
+                    {/* Which closure, not merely THAT it is closed. Both
+                        terminal states archive the row, so keying this off
+                        archived_at alone told every promoted lead it had been
+                        disqualified — invisible until ADR-0119 stopped the
+                        page redirecting away before anyone could read it. */}
+                    {lead.status === "promoted"
+                      ? t("lead.terminalPromoted")
+                      : t("lead.terminalDisqualified")}
                   </p>
                 )}
               </>

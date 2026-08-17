@@ -1292,6 +1292,11 @@ export const vi = {
   "lead.promotedAt": "Đã chuyển",
   "lead.promotedTrigger": "Tác nhân:",
   "lead.promotedEvidence": "Bằng chứng:",
+  "lead.promotedOutcomePending": "Đang đọc kết quả của lần chuyển này…",
+  "lead.promotedOutcomeUnavailable":
+    "Không thể hiển thị việc này đã gộp hay tạo liên hệ mới.",
+  "lead.terminalPromoted":
+    "Đã chuyển — khách hàng tiềm năng này giờ ở chế độ chỉ đọc.",
   "lead.statusNew": "Mới",
   "lead.statusWorking": "Đang xử lý",
   "lead.statusPromoted": "Đã chuyển đổi",

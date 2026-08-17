@@ -1290,6 +1290,12 @@ export const de = {
   "lead.promotedAt": "Übernommen am",
   "lead.promotedTrigger": "Auslöser:",
   "lead.promotedEvidence": "Beleg:",
+  "lead.promotedOutcomePending":
+    "Wird gelesen, was diese Übernahme bewirkt hat …",
+  "lead.promotedOutcomeUnavailable":
+    "Wir können nicht anzeigen, ob dabei zusammengeführt oder neu angelegt wurde.",
+  "lead.terminalPromoted":
+    "Übernommen — dieser Lead ist jetzt schreibgeschützt.",
   "lead.statusNew": "Neu",
   "lead.statusWorking": "In Bearbeitung",
   "lead.statusPromoted": "Übernommen",

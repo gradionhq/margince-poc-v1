@@ -270,6 +270,70 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(screen.getByText(/Replied asking for a quote\./)).toBeTruthy();
   });
 
+  it("a promoted lead reads as promoted, not disqualified", async () => {
+    // Both closures archive the row, so a page keying its terminal sentence off
+    // archived_at alone told every promoted lead it had been disqualified. The
+    // redirect hid that until ADR-0119/A170 removed it.
+    stubFetch(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/records/lead/")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText("Promoted — this lead is now read-only."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Disqualified — this lead/)).toBeNull();
+  });
+
+  it("says it cannot tell the outcome rather than guessing 'created'", async () => {
+    // An empty, unreadable, or unrecognised audit row is not a merge and not a
+    // creation. Reporting one would be a confident claim about something
+    // nobody recorded — and "created" is the wrong half to guess, because it
+    // tells a rep no duplicate check happened.
+    stubFetch(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/records/lead/")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "a-1",
+              actor_type: "human",
+              actor_id: "human:u-9",
+              action: "promote",
+              occurred_at: "2026-06-20T08:00:00Z",
+              after: { dedupe_outcome: "something_new" },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "We cannot show whether this merged or created a contact.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("This lead became a new contact.")).toBeNull();
+  });
+
   it("promote is disabled for an ineligible lead, and the button says why", async () => {
     // A LIVE lead with no email: ineligible, but still on screen. A promoted
     // lead is terminal and carries no promote control at all, so it cannot
