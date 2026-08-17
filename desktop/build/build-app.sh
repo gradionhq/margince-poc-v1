@@ -71,12 +71,19 @@ build_frontend() {
     exit 1
   fi
 
+  # Install at the REPO ROOT, build in frontend/. The lockfile is a root pnpm
+  # workspace — a unit's frontend layer is a member of it — so there is no
+  # frontend/pnpm-lock.yaml to install against, and --frozen-lockfile run from
+  # frontend/ would either resolve the root lockfile from a subdirectory or
+  # rewrite it. The Dockerfile's web stage splits the two steps for the same
+  # reason and is the reference for this lane.
+  #
   # --ignore-scripts matches every other frontend install in this repo (the
   # Dockerfile, scripts/verify-boot.sh, the CI lane): a lockfile pins WHAT is
   # installed, and this stops a dependency's lifecycle script from running
   # arbitrary code on the build machine on the way in.
+  (cd "$ROOT" && pnpm install --frozen-lockfile --ignore-scripts)
   (cd "$ROOT/frontend" &&
-    pnpm install --frozen-lockfile --ignore-scripts &&
     MARGINCE_COMPOSITION_FRONTEND="$registry" pnpm gen:composed-types &&
     MARGINCE_COMPOSITION_FRONTEND="$registry" pnpm build:composed)
   rm -rf "$OUT/web"

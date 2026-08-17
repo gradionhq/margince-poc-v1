@@ -78,14 +78,27 @@ function Build-Frontend {
         throw 'an enabled extension contributes public events, so frontend/src/api/public-events.ts must be regenerated (pnpm gen:events:composed) before this bundle can ship correct types'
     }
 
+    # Install at the REPO ROOT, build in frontend/. The lockfile is a root pnpm
+    # workspace -- a unit's frontend layer is a member of it -- so there is no
+    # frontend\pnpm-lock.yaml to install against, and --frozen-lockfile run
+    # from frontend\ would either resolve the root lockfile from a
+    # subdirectory or rewrite it. The Dockerfile's web stage splits the two
+    # steps for the same reason and is the reference for this lane.
+    #
+    # --ignore-scripts matches every other frontend install in this repo: the
+    # lockfile pins what is installed, and this stops a dependency's lifecycle
+    # script from running arbitrary code on the build machine.
+    Push-Location $RepoRoot
+    try {
+        Invoke-Native 'pnpm install' 'pnpm' 'install' '--frozen-lockfile' '--ignore-scripts'
+    } finally {
+        Pop-Location
+    }
+
     $frontend = Join-Path $RepoRoot 'frontend'
     $previous = $env:MARGINCE_COMPOSITION_FRONTEND
     Push-Location $frontend
     try {
-        # --ignore-scripts matches every other frontend install in this repo:
-        # the lockfile pins what is installed, and this stops a dependency's
-        # lifecycle script from running arbitrary code on the build machine.
-        Invoke-Native 'pnpm install' 'pnpm' 'install' '--frozen-lockfile' '--ignore-scripts'
         $env:MARGINCE_COMPOSITION_FRONTEND = $registry
         Invoke-Native 'pnpm gen:composed-types' 'pnpm' 'gen:composed-types'
         Invoke-Native 'pnpm build:composed' 'pnpm' 'build:composed'
