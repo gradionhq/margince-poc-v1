@@ -88,8 +88,18 @@ function Build-Redis {
     # MALLOC=libc because jemalloc does not build on this layer, and
     # BUILD_TLS=no because the bus is reached only over loopback by processes
     # this launcher started -- the same choice the macOS lane makes for Valkey.
+    #
+    # REDIS_CFLAGS=-D_GNU_SOURCE is what makes debug.c compile here. It calls
+    # dladdr() and declares Dl_info unconditionally -- no #if guards that code
+    # -- and this layer's dlfcn.h puts both behind `#if __GNU_VISIBLE`, which is
+    # 0 until _GNU_SOURCE is defined. Redis never defines it and relies on the
+    # platform's default visibility instead, so the file compiles everywhere it
+    # is normally built and fails here with "unknown type name 'Dl_info'".
+    # REDIS_CFLAGS is the Makefile's own hook for this: FINAL_CFLAGS appends it
+    # last, so it adds to Redis's flags rather than replacing them.
     $srcPosix = ConvertTo-MsysPath $src
-    Invoke-Msys 'building redis' "cd '$srcPosix' && make -j`$(nproc) MALLOC=libc BUILD_TLS=no"
+    Invoke-Msys 'building redis' `
+        "cd '$srcPosix' && make -j`$(nproc) MALLOC=libc BUILD_TLS=no REDIS_CFLAGS=-D_GNU_SOURCE"
     return $src
 }
 
