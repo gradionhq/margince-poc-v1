@@ -97,9 +97,27 @@ function Build-Redis {
     # is normally built and fails here with "unknown type name 'Dl_info'".
     # REDIS_CFLAGS is the Makefile's own hook for this: FINAL_CFLAGS appends it
     # last, so it adds to Redis's flags rather than replacing them.
+    # DEBUG_FLAGS carries -Wno-char-subscripts into the bundled hiredis, which
+    # otherwise fails the build outright rather than warning. Its sds.c calls
+    # isprint(*p) on a char*, and this layer's ctype implementation is an array
+    # lookup indexed by the argument, so a plain char index raises
+    # -Wchar-subscripts -- which hiredis promotes with its own -Werror. (The
+    # index is in fact safe: this libc pads its ctype table with 128 leading
+    # entries precisely so a signed char cannot run off the front. The
+    # diagnostic is conservative, not a defect being hidden.)
+    #
+    # DEBUG_FLAGS is the lever because it is the ONLY one that lands after
+    # hiredis's WARNINGS in REAL_CFLAGS, and gcc lets the last flag win; CFLAGS
+    # is placed before them, so -Wall would simply switch the warning back on.
+    # It is declared `?=` for exactly this kind of override, and reaches the
+    # nested make through the environment.
+    #
+    # Redis's own src/ build only WARNS on the same construct, and the other
+    # bundled deps compile clean, so this is the one dependency that needs it.
     $srcPosix = ConvertTo-MsysPath $src
-    Invoke-Msys 'building redis' `
-        "cd '$srcPosix' && make -j`$(nproc) MALLOC=libc BUILD_TLS=no REDIS_CFLAGS=-D_GNU_SOURCE"
+    Invoke-Msys 'building redis' ("cd '$srcPosix' && " +
+        "DEBUG_FLAGS='-g -ggdb -Wno-char-subscripts' " +
+        "make -j`$(nproc) MALLOC=libc BUILD_TLS=no REDIS_CFLAGS=-D_GNU_SOURCE")
     return $src
 }
 
