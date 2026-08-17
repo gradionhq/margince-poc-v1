@@ -41,12 +41,22 @@ that several full lanes can now run on `main` at once.
 ## Run only the checks a change can affect
 
 The first job, **`changes`**, classifies the diff (dorny/paths-filter,
-SHA-pinned) into four scopes; every downstream job gates on the relevant
+SHA-pinned) into five scopes; every downstream job gates on the relevant
 output. A required job skipped this way still counts as passing.
+
+`backend` and `backend_db` are the same set apart from the two agent
+rulebooks. They are split because one flag was driving two unrelated things:
+run the Go unit gates, and boot twelve Postgres databases. `AGENTS.md` and
+`CLAUDE.md` are read by `backend/agentsdocparity_test.go`, so an edit to
+either has to run a unit lane — and by no integration test, so it must not
+run the database lanes. The two shards move in lockstep with the
+`integration` fan-in, which asserts `success` from them: skipping one alone
+would report a documentation PR as a broken integration lane.
 
 | Scope | Paths | Gates |
 |---|---|---|
-| `backend` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `AGENTS.md`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | Go build/gate, extension reference, craftsmanship, integration, vuln |
+| `backend_db` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | the twelve integration shards and the `integration` fan-in — every lane that opens a database |
+| `backend` | `backend_db` (by YAML anchor, so the two cannot drift) plus the agent rulebooks `AGENTS.md` and `CLAUDE.md` | Go build/gate, extension reference, craftsmanship, unit coverage, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types), plus the composition inputs the lane now typechecks against — `extensions/**`, `fixtures/**`, `composition/**`, `backend/tools/gen-composition/**`, `Makefile` — and the install inputs `pnpm-lock.yaml` and `pnpm-workspace.yaml`, which decide *which* dependency the SPA builds on and which one `openapi-typescript` parses the contract with (`overrides` lives in the workspace file, so it resolves versions the lockfile then merely records) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
 | `deps` | `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `pnpm-workspace.yaml` (`overrides` lives there, so it decides resolved versions the way a manifest does), `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml`, `.github/actions/**` | the license gate |
