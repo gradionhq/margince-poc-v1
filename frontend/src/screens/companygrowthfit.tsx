@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, EmptyState, Skeleton } from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
+import { Panel, PanelBody } from "../design-system/panel";
 import { Meter } from "../design-system/readings";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -122,26 +124,28 @@ export function GrowthFitPanel({
       : undefined;
 
   return (
-    <section
-      className="co-part co-growth-fit"
-      aria-label={t("co.growthFit.title")}
-    >
-      <Eyebrow as="h2">{t("co.growthFit.title")}</Eyebrow>
-      {fit.isPending ? (
-        <Skeleton width="100%" height={64} />
-      ) : !readable ? (
-        <EmptyState>{t("co.growthFit.unavailable")}</EmptyState>
-      ) : (
-        <>
-          <GrowthFitVerdict fit={readable} />
-          <GrowthFitReasons fit={readable} onOpenRecord={onOpenRecord} />
-          <p className="co-part-foot">
-            <WrittenBy by={readable.generated_by} />{" "}
+    <Panel
+      className="co-worth"
+      title={t("co.growthFit.title")}
+      // The same shape the account brief beside it keeps: the "as of" stamp
+      // reads as the header's own fact — when this reading was assembled —
+      // while who wrote it and the verb to have it written again sit together
+      // in the footer band, which is the panel's sourcing rather than part of
+      // what it says.
+      titleAction={
+        readable && (
+          <span className="t-small">
             {t("co.brief.generatedAt", {
               when: formatDateTime(readable.generated_at, locale, RECORD_ZONE),
-            })}{" "}
+            })}
+          </span>
+        )
+      }
+      footer={
+        readable && (
+          <div className="co-brief-foot">
+            <WrittenBy by={readable.generated_by} />
             <Button
-              variant="ghost"
               small
               onClick={() => reassess.mutate()}
               disabled={reassess.isPending}
@@ -150,15 +154,30 @@ export function GrowthFitPanel({
                 ? t("co.growthFit.reassessing")
                 : t("co.growthFit.reassess")}
             </Button>
-          </p>
-          {reassess.error && (
-            <p className="co-part-error">
-              {problemMessageOf(reassess.error, t)}
-            </p>
-          )}
+          </div>
+        )
+      }
+    >
+      {fit.isPending ? (
+        <PanelBody>
+          <Skeleton width="100%" height={64} />
+        </PanelBody>
+      ) : !readable ? (
+        <PanelBody>
+          <EmptyState>{t("co.growthFit.unavailable")}</EmptyState>
+        </PanelBody>
+      ) : (
+        <>
+          <GrowthFitVerdict fit={readable} />
+          <GrowthFitReasons fit={readable} onOpenRecord={onOpenRecord} />
         </>
       )}
-    </section>
+      {reassess.error && (
+        <PanelBody className="co-worth-block">
+          <p className="co-part-error">{problemMessageOf(reassess.error, t)}</p>
+        </PanelBody>
+      )}
+    </Panel>
   );
 }
 
@@ -169,17 +188,31 @@ export function GrowthFitPanel({
  */
 function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
   const t = useT();
-  const { present, expected, missing } = fit.data_completeness;
+  const { present, expected } = fit.data_completeness;
   return (
-    <div className="co-growth-fit-verdict">
-      <p className="co-growth-fit-band">
-        <Badge tone={BAND_TONES[fit.band]}>{t(BAND_LABELS[fit.band])}</Badge>{" "}
-        {/* Both counts, always. A proportion without its denominator is not a
-            completeness figure. */}
-        <span className="co-growth-fit-completeness">
-          {t("co.growthFit.completeness", { present, expected })}
-        </span>
-      </p>
+    <>
+      <PanelBody className="co-worth-block">
+        <p className="co-growth-fit-band">
+          <Badge tone={BAND_TONES[fit.band]}>{t(BAND_LABELS[fit.band])}</Badge>{" "}
+          {/* Both counts, always. A proportion without its denominator is not a
+              completeness figure. */}
+          <span className="co-growth-fit-completeness">
+            {t("co.growthFit.completeness", { present, expected })}
+          </span>
+        </p>
+        {/* The cap and the next step qualify the BAND, so they stay in its
+            block rather than becoming rows of their own further down. */}
+        {fit.band_capped_reason && (
+          <p className="co-growth-fit-capped">
+            {t("co.growthFit.capped", { reason: fit.band_capped_reason })}
+          </p>
+        )}
+        {fit.next_step && (
+          <p className="co-growth-fit-next">
+            {t("co.growthFit.nextStep", { step: fit.next_step })}
+          </p>
+        )}
+      </PanelBody>
       {/* The band, taken apart (DOSS-AC-17). Four named dimensions over the
           same evidence the band was read from, so a reader who disagrees with
           the verdict can see which input carried it.
@@ -188,45 +221,38 @@ function GrowthFitVerdict({ fit }: Readonly<{ fit: GrowthFit }>) {
           judgment the assembly declined to make — never drawn as zeroes, which
           would be a claim about the company rather than about the reading. */}
       {fit.sub_scores && fit.sub_scores.length > 0 && (
-        <ul className="co-growth-fit-scores">
-          {fit.sub_scores.map((sub) => (
-            <li key={sub.dimension} className="co-growth-fit-score">
-              {/* The label and the figure are DRAWN, not only announced:
-                  Meter carries its label to assistive tech as an aria-label
-                  and renders none, so a row of bare bars would say nothing
-                  about which dimension is which. */}
-              <span className="co-growth-fit-score-head">
-                <span>{t(SUB_SCORE_LABELS[sub.dimension])}</span>
-                <span className="co-growth-fit-score-value">{sub.score}</span>
-              </span>
-              <Meter
-                value={sub.score}
-                max={100}
-                label={t(SUB_SCORE_LABELS[sub.dimension])}
-              />
-              {/* The reason travels WITH the bar. A number and no sentence is
-                  the unexplainable score this model replaced. */}
-              <span className="co-row-meta">{sub.reason}</span>
-            </li>
-          ))}
-        </ul>
+        <PanelBody className="co-worth-block">
+          <ul className="co-growth-fit-scores">
+            {fit.sub_scores.map((sub) => (
+              <li key={sub.dimension} className="co-growth-fit-score">
+                {/* The label and the figure are DRAWN, not only announced:
+                    Meter carries its label to assistive tech as an aria-label
+                    and renders none, so a row of bare bars would say nothing
+                    about which dimension is which. */}
+                <span className="co-growth-fit-score-head">
+                  <span>{t(SUB_SCORE_LABELS[sub.dimension])}</span>
+                  <span className="co-growth-fit-score-value">{sub.score}</span>
+                </span>
+                {/* Flat, like the health meters beside it: the gradient's
+                    second colour reads as a warning creeping in at the high
+                    end, and a high dimension score is the GOOD end here. */}
+                <Meter
+                  value={sub.score}
+                  max={100}
+                  flat
+                  label={t(SUB_SCORE_LABELS[sub.dimension])}
+                />
+                {/* The reason travels WITH the bar. A number and no sentence is
+                    the unexplainable score this model replaced. */}
+                <span className="co-row-meta co-growth-fit-score-reason">
+                  {sub.reason}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </PanelBody>
       )}
-      {missing && missing.length > 0 && (
-        <p className="co-growth-fit-missing">
-          {t("co.growthFit.missing", { inputs: missing.join(", ") })}
-        </p>
-      )}
-      {fit.band_capped_reason && (
-        <p className="co-growth-fit-capped">
-          {t("co.growthFit.capped", { reason: fit.band_capped_reason })}
-        </p>
-      )}
-      {fit.next_step && (
-        <p className="co-growth-fit-next">
-          {t("co.growthFit.nextStep", { step: fit.next_step })}
-        </p>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -246,12 +272,24 @@ function GrowthFitReasons({
   fit: GrowthFit;
   onOpenRecord?: (entityType: string, entityId: string) => void;
 }>) {
-  const groups: ReadonlyArray<{
+  const t = useT();
+  const missing = fit.data_completeness.missing;
+  // The two sides of the argument are read AGAINST each other, so they sit in
+  // one block as two columns rather than as two stacked sections a reader has
+  // to scroll between to compare.
+  const forAgainst: ReadonlyArray<{
     key: MessageKey;
     sentences: BriefSentence[] | undefined;
   }> = [
     { key: "co.growthFit.positive", sentences: fit.positive_factors },
     { key: "co.growthFit.negative", sentences: fit.negative_factors },
+  ];
+  // Everything else is one answer to one question, so it reads as a labelled
+  // row: the label in its own column, the answer beside it.
+  const rows: ReadonlyArray<{
+    key: MessageKey;
+    sentences: BriefSentence[] | undefined;
+  }> = [
     { key: "co.growthFit.whitespace", sentences: fit.whitespace },
     { key: "co.growthFit.objections", sentences: fit.objections },
     {
@@ -259,38 +297,57 @@ function GrowthFitReasons({
       sentences: fit.recommended_angle ? [fit.recommended_angle] : undefined,
     },
   ];
+  const sides = forAgainst.filter(
+    (group) => group.sentences && group.sentences.length > 0,
+  );
   return (
     <>
-      {groups.map(
+      {sides.length > 0 && (
+        <PanelBody className="co-worth-block co-worth-split">
+          {sides.map((group) => (
+            <div key={group.key} className="co-worth-column">
+              <Eyebrow as="h3">{t(group.key)}</Eyebrow>
+              <SentenceList
+                sentences={group.sentences ?? []}
+                onOpenRecord={onOpenRecord}
+              />
+            </div>
+          ))}
+        </PanelBody>
+      )}
+      {rows.map(
         (group) =>
           group.sentences &&
           group.sentences.length > 0 && (
-            <GrowthFitGroup
-              key={group.key}
-              label={group.key}
-              sentences={group.sentences}
-              onOpenRecord={onOpenRecord}
-            />
+            <GrowthFitRow key={group.key} label={group.key}>
+              <SentenceList
+                sentences={group.sentences}
+                onOpenRecord={onOpenRecord}
+              />
+            </GrowthFitRow>
           ),
+      )}
+      {missing && missing.length > 0 && (
+        <GrowthFitRow label="co.growthFit.missing">
+          <p className="co-growth-fit-missing">{missing.join(", ")}</p>
+        </GrowthFitRow>
       )}
     </>
   );
 }
 
-function GrowthFitGroup({
+/** One labelled answer: the label in its own column, the answer beside it. */
+function GrowthFitRow({
   label,
-  sentences,
-  onOpenRecord,
-}: Readonly<{
-  label: MessageKey;
-  sentences: BriefSentence[];
-  onOpenRecord?: (entityType: string, entityId: string) => void;
-}>) {
+  children,
+}: Readonly<{ label: MessageKey; children: ReactNode }>) {
   const t = useT();
   return (
-    <div className="co-growth-fit-group">
-      <h3 className="co-part-sublabel">{t(label)}</h3>
-      <SentenceList sentences={sentences} onOpenRecord={onOpenRecord} />
-    </div>
+    <PanelBody className="co-worth-block co-worth-row">
+      <Eyebrow as="h3" className="co-worth-row-label">
+        {t(label)}
+      </Eyebrow>
+      <div>{children}</div>
+    </PanelBody>
   );
 }

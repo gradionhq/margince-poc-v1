@@ -26,7 +26,6 @@ import {
   EvidenceMark,
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
-import { Panel } from "../design-system/panel";
 import { sectionState } from "../design-system/surfacestate";
 import {
   AutonomyDot,
@@ -2612,18 +2611,16 @@ function CompanyOverviewStack({
       />
       {!overlay && (
         <>
-          {/* What this account is worth to us. Boxed like every panel beside
-              it — GrowthFitPanel draws its own heading inside — rather than
-              left standing bare in the column. Inside the overlay guard: the
-              panel has nothing to hold in overlay mode, where none of the
+          {/* What this account is worth to us. GrowthFitPanel IS a Panel —
+              title, the reassess verb in its header, the attribution in its
+              footer — so it needs no wrapper here. Inside the overlay guard:
+              the panel has nothing to hold in overlay mode, where none of the
               facts it is assembled from exist. */}
-          <Panel className="co-worth">
-            <GrowthFitPanel
-              orgId={org.id}
-              enabled={!overlay}
-              onOpenRecord={onOpenRecord}
-            />
-          </Panel>
+          <GrowthFitPanel
+            orgId={org.id}
+            enabled={!overlay}
+            onOpenRecord={onOpenRecord}
+          />
           {/* The commercial picture: the pipeline's own lifetime figures,
               then the open deals themselves. */}
           <CommercialPanel

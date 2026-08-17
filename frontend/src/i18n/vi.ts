@@ -945,14 +945,14 @@ export const vi = {
   "co.growthFit.band.unknown": "Chưa đủ để kết luận",
   "co.growthFit.completeness":
     "Đã có {present} trên {expected} thông tin cần thiết",
-  "co.growthFit.missing": "Còn thiếu: {inputs}.",
+  "co.growthFit.missing": "Còn thiếu",
   "co.growthFit.capped": "Bị giới hạn: {reason}.",
   "co.growthFit.nextStep": "Tiếp theo: {step}.",
   "co.growthFit.positive": "Điều ủng hộ",
   "co.growthFit.negative": "Điều phản đối",
-  "co.growthFit.whitespace": "Những thứ họ chưa mua của bạn",
-  "co.growthFit.objections": "Những điều họ có thể phản đối",
-  "co.growthFit.angle": "Hướng tiếp cận đề xuất",
+  "co.growthFit.whitespace": "Còn có thể bán",
+  "co.growthFit.objections": "Phản đối có thể gặp",
+  "co.growthFit.angle": "Hướng tiếp cận đề xuất",
   "co.writeEmail": "Viết email",
   "co.dossier.title": "Công ty này là gì",
   "co.dossier.unavailable":

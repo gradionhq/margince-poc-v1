@@ -30,11 +30,14 @@
   gap: var(--space-4);
   margin-bottom: var(--space-4);
 }
-/* What this account is worth to us, boxed like every panel beside it rather
-   than standing bare in the column. GrowthFitPanel draws its own heading
-   (an Eyebrow) inside, so this wrapper carries no title of its own. */
-.co-worth > .co-growth-fit {
-  margin-bottom: 0;
+/* What this account is worth to us. The panel is one reading in five parts —
+   the verdict, the dimensions under it, the two sides of the argument, the
+   labelled answers, the attribution — and a hairline between consecutive
+   parts is what says where one answer ends and the next begins. The rule is
+   hung on this screen's own class rather than on .panel-body, so Panel keeps
+   sole authorship of its internals. */
+.co-worth-block + .co-worth-block {
+  border-top: 1px solid var(--borderSubtle);
 }
 
 /* The dot between two readings on one line. Owned by the reading that FOLLOWS
@@ -600,7 +603,14 @@
    caption stacked above its own paragraph — and sections are separated by
    space rather than rules: a boxed heading reads as a card, and these are
    parts of one reading. */
-.co-brief-section {
+/* The labelled row: a fixed label column and the answer beside it. Declared
+   once for all three sites that use it — a brief section, one of the worth
+   panel's answers, one dimension of its fit score — because they are read as
+   one page and a label column that moves on two of the three is exactly the
+   misalignment a reader notices without being able to name. */
+.co-brief-section,
+.co-worth-row,
+.co-growth-fit-score {
   display: grid;
   grid-template-columns: 138px 1fr;
   column-gap: var(--space-5);
@@ -623,13 +633,47 @@
    figure and the next step are ONE answer — a reader who sees `unknown`
    without the counts beside it cannot tell "we could not judge" from "a poor
    fit", and separating them visually invites exactly that reading. */
-.co-growth-fit {
-  padding: var(--space-4);
-  margin-bottom: var(--space-3);
+/* A sentence's receipts start their OWN row at the prose's left edge here,
+   for the same reason the collected row under a brief section does: this
+   panel sets its claims in columns narrow enough that a trailing chip run
+   wraps anyway, and once wrapped the inline gap indents the first chip
+   against the paragraph above it — two left edges that nearly agree read as
+   a mistake rather than a hierarchy. */
+.co-worth .co-brief-cites {
+  display: flex;
+  margin-inline-start: 0;
 }
-.co-growth-fit-verdict {
-  margin: var(--space-2) 0 var(--space-3);
+
+/* The two sides of the argument, side by side: they are read against each
+   other, and stacked they are read one after the other. Below the fold width
+   there is no second column to read across, so the pair stacks rather than
+   squeezing two unreadable measures out of one. */
+.co-worth-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+  align-items: start;
 }
+.co-worth-column > .t-eyebrow {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+/* A labelled answer: the label holds its own column beside the answer rather
+   than sitting as a caption above it, so a column of them reads down — the
+   same shape .co-brief-section uses for the account brief. */
+.co-worth-row-label {
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .co-worth-split,
+  .co-worth-row {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-2);
+  }
+}
+
 .co-growth-fit-band {
   display: flex;
   align-items: center;
@@ -641,18 +685,14 @@
 .co-growth-fit-completeness {
   color: var(--textMeta);
 }
-.co-growth-fit-missing,
+/* What is missing sits in its own labelled row and needs no top margin; the
+   cap and the next step follow the band inside the verdict block. */
+.co-growth-fit-missing {
+  color: var(--textMeta);
+}
 .co-growth-fit-capped,
 .co-growth-fit-next {
   margin-top: var(--space-2);
-  color: var(--textMeta);
-}
-.co-growth-fit-group {
-  margin-top: var(--space-3);
-}
-.co-part-sublabel {
-  font-size: 12px;
-  font-weight: 600;
   color: var(--textMeta);
 }
 .co-part-foot {
@@ -867,30 +907,54 @@
   padding: var(--space-3) var(--space-5) 0;
 }
 
-/* The growth-fit bars: the band taken apart, one row per dimension. The reason
-   sits under its bar rather than beside it — at this width a sentence and a
-   meter side by side leave neither enough room to read. */
+/* The growth-fit bars: the band taken apart, one row per dimension. The
+   dimension and its figure hold a fixed left column so four labels and four
+   figures each read down as a column; the bar and the reason for it share the
+   right one, the reason under its own bar rather than under the label, which
+   is what ties a sentence to the figure it explains. */
 .co-growth-fit-scores {
   display: grid;
-  gap: var(--space-3);
-  margin: var(--space-3) 0 0;
+  gap: var(--space-4);
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
+/* The reason sits under its own bar, so this row is two lines tall where the
+   other labelled rows are one. */
 .co-growth-fit-score {
-  display: grid;
-  gap: var(--space-1);
+  row-gap: var(--space-1);
 }
 
-/* The dimension and its figure share a line above the bar, the figure
-   right-aligned so a column of them reads down. */
+/* The dimension and its figure share the left column, the figure
+   right-aligned against the bar it belongs to. */
 .co-growth-fit-score-head {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   gap: var(--space-2);
   font-size: 13px;
+}
+
+/* The bar carries the same weight as the health meters in the rail — one
+   product, one bar — rather than the taller default with its own margins. */
+.co-growth-fit-score .meterbar {
+  height: 6px;
+  margin: 0;
+}
+
+/* The reason starts under the bar, in the bar's own column. */
+.co-growth-fit-score-reason {
+  grid-column: 2;
+}
+
+@media (max-width: 640px) {
+  .co-growth-fit-score {
+    grid-template-columns: 1fr;
+  }
+  .co-growth-fit-score-reason {
+    grid-column: 1;
+  }
 }
 
 .co-growth-fit-score-value {

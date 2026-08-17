@@ -60,9 +60,10 @@ async function show(fit: GrowthFit) {
       </LocaleProvider>
     </QueryClientProvider>,
   );
-  // The footer only renders once the query has resolved, so waiting for it is
-  // what makes the synchronous assertions below run against loaded content.
-  // The panel heading is static and would match while the skeleton is up.
+  // The "as of" stamp only renders once the query has resolved, so waiting for
+  // it is what makes the synchronous assertions below run against loaded
+  // content. The panel heading is static and would match while the skeleton is
+  // up.
   await screen.findByText(/as of /i);
 }
 
@@ -133,7 +134,7 @@ describe("how well this company fits what we sell", () => {
       ],
     });
 
-    expect(screen.getByText("What argues for them")).toBeTruthy();
+    expect(screen.getByText("Argues for")).toBeTruthy();
     // A judgment that read as a stored fact would be the one claim the reader
     // could not check, so only the assessment carries a label.
     expect(screen.getByText("Our read")).toBeTruthy();

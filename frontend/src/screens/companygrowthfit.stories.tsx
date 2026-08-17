@@ -196,7 +196,7 @@ function Panel({
   installFetchStub({ "GET /organizations/o-1/growth-fit": route });
   return (
     <StoryProviders>
-      <div style={{ maxWidth: 480 }}>
+      <div style={{ maxWidth: 760 }}>
         <GrowthFitPanel orgId="o-1" enabled />
       </div>
     </StoryProviders>
