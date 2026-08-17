@@ -568,6 +568,13 @@ export const de = {
   "list.filterOwnerTeam": "Mein Team",
   "list.viewTeam": "Mein Team",
   "list.viewUnassigned": "Nicht zugewiesen",
+  "views.save": "Ansicht speichern",
+  "views.saveConfirm": "Speichern",
+  "views.saveTitle": "Diese Ansicht speichern",
+  "views.name": "Name",
+  "views.delete": "Ansicht löschen",
+  "views.deleteConfirm":
+    "Die Ansicht \u201e{name}\u201c löschen? Die Datensätze bleiben, nur der gespeicherte Filter geht.",
   "list.viewMine": "Meine",
   "list.viewCustomers": "Kunden",
   "list.viewProspects": "Interessenten",

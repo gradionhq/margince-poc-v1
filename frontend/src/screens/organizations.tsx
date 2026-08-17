@@ -120,6 +120,7 @@ import {
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
   TaskDetailModal,
   TaskQuickActions,
@@ -548,6 +549,7 @@ export function CompaniesScreen() {
   // nothing — the same reason the deal list builds its owner chip this way.
   const viewerId = useViewerId();
   const ownerChips = useOwnerChips();
+  const savedViews = useSavedViewTabs("organizations");
 
   return (
     <div className="wrap">
@@ -647,6 +649,7 @@ export function CompaniesScreen() {
             sort: "created_at",
           },
         ]}
+        tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
         chips={[
@@ -669,6 +672,7 @@ export function CompaniesScreen() {
           },
           ...ownerChips,
         ]}
+        dataViews={savedViews}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
           ...(viewerId
@@ -1806,9 +1810,12 @@ function useAccountChronology({
   // still have more. Another page of changes only reaches the reader when the
   // change feed owns that cut — i.e. its oldest loaded row is not older than
   // the activity feed's.
+  // Seeded with the first row rather than left to throw on an empty one. The
+  // length check above already made that unreachable, but a reduce whose safety
+  // lives in a ternary two lines up is one refactor away from not having it.
   const oldest = (rows: TimelineEntry[]) =>
     rows.length > 0
-      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b)).atIso
+      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b), rows[0]).atIso
       : undefined;
   const oldestChange = oldest(changeEntries);
   const oldestActivity = oldest(activityEntries);

@@ -52,6 +52,7 @@ import {
 import { EnrichedFields } from "./personcorrections";
 import { PersonGraphPanel } from "./persongraph";
 import { RelationshipsTab } from "./relationships";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
 import { isTranscriptActivity, TranscriptReadCard } from "./transcriptread";
 
@@ -465,6 +466,7 @@ export function ContactsScreen() {
   // as "clear this filter", so a half-built owner dial narrows nothing.
   const viewerId = useViewerId();
   const ownerChips = useOwnerChips();
+  const savedViews = useSavedViewTabs("people");
   const cf = useObjectCustomFields("person");
   const state = useListQuery<Person>({
     key: "people",
@@ -542,9 +544,11 @@ export function ContactsScreen() {
             sort: "created_at",
           },
         ]}
+        tools={<SaveViewAction resource="people" query={state.query} />}
         rowKey={(person) => person.id}
         rowRoute={(person) => ({ screen: "contacts", id: person.id })}
         chips={ownerChips}
+        dataViews={savedViews}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
           ...(viewerId

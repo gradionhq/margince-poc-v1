@@ -161,6 +161,7 @@ export function ListTable<Row>({
   chips = [],
   dataChips = [],
   views = [],
+  dataViews = [],
   action,
   caption,
   footer,
@@ -187,6 +188,12 @@ export function ListTable<Row>({
    */
   dataChips?: readonly ListChip[];
   views?: readonly ViewSpec[];
+  /**
+   * View tabs whose labels are server strings rather than message keys — the
+   * reader's own saved views. Rendered after the screen's built-in presets, so
+   * All/Mine/A-Z keep their positions as a saved view is added or removed.
+   */
+  dataViews?: readonly ListView[];
   action?: ReactNode;
   /** What this list is, for the lists that need saying. Never the screen name. */
   caption?: MessageKey;
@@ -212,7 +219,29 @@ export function ListTable<Row>({
   // filter or a sort is no longer looking at that preset. Stored, the highlight
   // would keep claiming a view the query had already left; derived, it simply
   // stops matching, and comes back by itself if the reader undoes the edit.
-  const view = views.findIndex((spec) => matchesView(spec, query));
+  const allViews: readonly ListView[] = [
+    ...views.map((spec) => ({
+      label: spec.label,
+      sort: spec.sort,
+      filters: spec.filters,
+    })),
+    ...dataViews,
+  ];
+  // Which tab the reader actually pressed, remembered only while it still
+  // describes the list. Two views can ask for the SAME sort and filters — a
+  // saved "German customers" that narrows exactly as the built-in Customers
+  // preset does — and deriving the highlight from the query alone lights the
+  // first of them, so the reader's own view never highlights when they pick it.
+  const [picked, setPicked] = useState<number | null>(null);
+  const matched = allViews.findIndex((spec) => matchesView(spec, query));
+  // The pressed tab wins only while the query still matches it; the moment a
+  // sort or filter moves away, the highlight falls back to whatever the query
+  // now describes, which is the property that made this derived in the first
+  // place.
+  const view =
+    picked !== null && allViews[picked] && matchesView(allViews[picked], query)
+      ? picked
+      : matched;
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -321,8 +350,13 @@ export function ListTable<Row>({
       // A view tab whose preset the mirror would refuse is a tab that lights up
       // and does nothing, so overlay mode shows none — the same reason its
       // chips and its sort are withheld.
-      views={overlay ? [] : views.map((spec) => translateView(spec, t))}
+      views={
+        overlay
+          ? []
+          : [...views.map((spec) => translateView(spec, t)), ...dataViews]
+      }
       activeView={view}
+      onViewChange={setPicked}
       archived={
         showArchivedToggle
           ? {
@@ -367,8 +401,17 @@ function translateView(spec: ViewSpec, t: Translate): ListView {
   return { label: t(spec.label), sort: spec.sort, filters: spec.filters };
 }
 
-/** Is the list showing exactly what this view asks for, nothing added or left? */
-function matchesView(spec: ViewSpec, query: ListQuery): boolean {
+/**
+ * Is the list showing exactly what this view asks for, nothing added or left?
+ *
+ * Takes the sort and filters alone, so it reads a screen's built-in preset and
+ * a reader's saved view the same way — the two differ only in where the label
+ * came from, and the highlight is about the query, not the name.
+ */
+function matchesView(
+  spec: Readonly<{ sort?: string; filters?: Readonly<Record<string, string>> }>,
+  query: ListQuery,
+): boolean {
   if (query.sort !== (spec.sort ?? "")) {
     return false;
   }
