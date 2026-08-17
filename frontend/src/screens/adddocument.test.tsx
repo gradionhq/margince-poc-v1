@@ -74,6 +74,9 @@ function stubApi(
     // What this installation says it accepts. Absent means the read answers
     // without the field, which is the "server has not said" case.
     maxUploadBytes?: number;
+    // Refuses the installation read outright — the other way the client can end
+    // up without a limit.
+    settingsStatus?: number;
   } = {},
 ) {
   const calls: Recorded[] = [];
@@ -100,6 +103,12 @@ function stubApi(
         return json(me);
       }
       if (url.includes("/installation/settings")) {
+        if (options.settingsStatus) {
+          return json(
+            { title: "Server error", status: options.settingsStatus },
+            options.settingsStatus,
+          );
+        }
         return json({
           name: "Demo",
           timezone: "Europe/Berlin",
@@ -588,5 +597,21 @@ describe("adding a document from the account", () => {
     // argue with a number the client invented.
     await waitFor(() => expect(uploads(calls)).toHaveLength(1));
     expect(screen.queryByText(/larger than/)).toBeNull();
+  });
+  it("still uploads when the installation read fails outright", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT, { settingsStatus: 500 });
+    show();
+
+    await user.upload(screen.getByLabelText(/File/), fileOf(50_000_000));
+    await pressUpload(user);
+
+    // A failed settings read is not this dialog's problem to report: the screen
+    // it belongs to says so, and the upload still has a server that will refuse
+    // it if it must. What must NOT happen is a banner here, or a refusal over a
+    // limit nobody ever stated.
+    await waitFor(() => expect(uploads(calls)).toHaveLength(1));
+    expect(screen.queryByText(/larger than/)).toBeNull();
+    expect(screen.queryByText(/Up to/)).toBeNull();
   });
 });
