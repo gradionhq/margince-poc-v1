@@ -59,11 +59,11 @@ func TestProductListSortsByEveryOfferedColumn(t *testing.T) {
 
 	// Seeded so that creation order disagrees with every sort below: a list
 	// still ordering by created_at would return the same page each time.
-	const seedProduct = `INSERT INTO product (id, workspace_id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at, updated_at)
-	                     VALUES ($1, $2, $3, $4, 'day', $5, 'EUR', 0, $6, 'ui', 'human:x', $7, $8)`
-	e.Seed(t, seedProduct, "Middle", "SKU-M", 5000, true, seedMiddle, seedEarliest)
-	e.Seed(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest, seedMiddle)
-	e.Seed(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest, seedLatest)
+	const seedProduct = `INSERT INTO product (id, name, sku, unit, unit_price_minor, currency, default_tax_rate, active, source, captured_by, created_at, updated_at)
+	                     VALUES ($1, $2, $3, 'day', $4, 'EUR', 0, $5, 'ui', 'human:x', $6, $7)`
+	e.SeedID(t, seedProduct, "Middle", "SKU-M", 5000, true, seedMiddle, seedEarliest)
+	e.SeedID(t, seedProduct, "Apex", "SKU-A", 9000, false, seedLatest, seedMiddle)
+	e.SeedID(t, seedProduct, "Zenith", "SKU-Z", 1000, true, seedEarliest, seedLatest)
 
 	store := deals.NewStore(e.DB(), installseam.Deals())
 	for _, tc := range []struct {
@@ -97,11 +97,11 @@ func TestOfferTemplateListSortsByEveryOfferedColumn(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := asCatalogueReader(e.WS, "offer_template")
 
-	const seedTemplate = `INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout, created_at, updated_at)
-	                      VALUES ($1, $2, $3, $4, $5, '{}'::jsonb, $6, $7)`
-	e.Seed(t, seedTemplate, "Middle", "de-DE", false, seedMiddle, seedEarliest)
-	e.Seed(t, seedTemplate, "Apex", "en-GB", false, seedLatest, seedMiddle)
-	e.Seed(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest, seedLatest)
+	const seedTemplate = `INSERT INTO offer_template (id, name, locale, is_default, layout, created_at, updated_at)
+	                      VALUES ($1, $2, $3, $4, '{}'::jsonb, $5, $6)`
+	e.SeedID(t, seedTemplate, "Middle", "de-DE", false, seedMiddle, seedEarliest)
+	e.SeedID(t, seedTemplate, "Apex", "en-GB", false, seedLatest, seedMiddle)
+	e.SeedID(t, seedTemplate, "Zenith", "fr-FR", true, seedEarliest, seedLatest)
 
 	store := deals.NewStore(e.DB(), installseam.Deals())
 	for _, tc := range []struct {

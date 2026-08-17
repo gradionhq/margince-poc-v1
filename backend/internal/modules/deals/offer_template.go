@@ -7,7 +7,7 @@
 // data — no owner_id, no source/captured_by, gated by the
 // offer_template object grant alone (no row-scope EnsureVisible probe).
 // At most one is_default template per locale (uq_offer_template_default,
-// the partial unique index on (workspace_id, locale) WHERE is_default
+// the partial unique index on (locale) WHERE is_default
 // AND NOT archived). A second default for the same locale is REJECTED
 // with a named 409 (offer_template_default_conflict) — this store never
 // auto-demotes an incumbent default; the caller un-defaults or archives
@@ -91,8 +91,8 @@ func (e *DefaultConflictError) Is(target error) bool { return target == apperror
 func (s *Store) checkTemplateNameConflict(ctx context.Context, tx pgx.Tx, excludeID ids.OfferTemplateID, name string) error {
 	var existing ids.OfferTemplateID
 	err := tx.QueryRow(ctx,
-		`SELECT id FROM offer_template WHERE workspace_id = $1 AND name = $2 AND id <> $3`,
-		storekit.MustWorkspace(ctx), name, excludeID).Scan(&existing)
+		`SELECT id FROM offer_template WHERE name = $1 AND id <> $2`,
+		name, excludeID).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -107,8 +107,8 @@ func (s *Store) checkTemplateNameConflict(ctx context.Context, tx pgx.Tx, exclud
 func (s *Store) checkTemplateDefaultConflict(ctx context.Context, tx pgx.Tx, excludeID ids.OfferTemplateID, locale string) error {
 	var existing ids.OfferTemplateID
 	err := tx.QueryRow(ctx,
-		`SELECT id FROM offer_template WHERE workspace_id = $1 AND locale = $2 AND is_default AND archived_at IS NULL AND id <> $3`,
-		storekit.MustWorkspace(ctx), locale, excludeID).Scan(&existing)
+		`SELECT id FROM offer_template WHERE locale = $1 AND is_default AND archived_at IS NULL AND id <> $2`,
+		locale, excludeID).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -182,9 +182,9 @@ func (s *Store) CreateOfferTemplate(ctx context.Context, in CreateOfferTemplateI
 			}
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO offer_template (id, workspace_id, name, locale, is_default, layout, version)
-			 VALUES ($1, $2, $3, $4, $5, $6, 1)`,
-			id, storekit.MustWorkspace(ctx), in.Name, locale, in.IsDefault, layout); err != nil {
+			`INSERT INTO offer_template (id, name, locale, is_default, layout, version)
+			 VALUES ($1, $2, $3, $4, $5, 1)`,
+			id, in.Name, locale, in.IsDefault, layout); err != nil {
 			if conflict := offerTemplateUniqueViolation(err, locale); conflict != nil {
 				return conflict
 			}
@@ -396,7 +396,7 @@ func (s *Store) ArchiveOfferTemplate(ctx context.Context, id ids.OfferTemplateID
 	return out, err
 }
 
-const offerTemplateColumns = `id, workspace_id, name, locale, is_default, layout, version, created_at, updated_at, archived_at`
+const offerTemplateColumns = `id, name, locale, is_default, layout, version, created_at, updated_at, archived_at`
 
 func readOfferTemplate(ctx context.Context, tx pgx.Tx, id ids.OfferTemplateID, archived storekit.ArchivedFilter) (crmcontracts.OfferTemplate, error) {
 	q := `SELECT ` + offerTemplateColumns + ` FROM offer_template WHERE id = $1`
@@ -412,11 +412,11 @@ func readOfferTemplate(ctx context.Context, tx pgx.Tx, id ids.OfferTemplateID, a
 
 func scanOfferTemplate(row pgx.Row, extra ...any) (crmcontracts.OfferTemplate, error) {
 	var t crmcontracts.OfferTemplate
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &t.Name, &t.Locale, &t.IsDefault, &t.Layout,
+		&id, &t.Name, &t.Locale, &t.IsDefault, &t.Layout,
 		&version, &t.CreatedAt, &t.UpdatedAt, &t.ArchivedAt,
 	}
 	err := row.Scan(append(dests, extra...)...)

@@ -134,8 +134,8 @@ func (q *queryEnv) seedFixture(t *testing.T) queryFixture {
 		VALUES ($1, $2, $3, 'Stuttgart Logistik', 'Stuttgart', 'manual', 'human:x')`, q.Rep3)
 	// A project named like a deal, so the traversal proves that two tables
 	// sharing a column name resolve to the right one.
-	f.project = q.Seed(t, `INSERT INTO project (id, workspace_id, owner_id, name, organization_id, source, captured_by)
-		VALUES ($1, $2, $3, 'Rollout', $4, 'manual', 'human:x')`, q.Rep1, f.rep1Org)
+	f.project = q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep1, f.rep1Org)
 
 	f.rep1Deal = q.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, project_id, amount_minor, currency, status, expected_close_date, source, captured_by)
 		VALUES ($1, $2, $3, 'Rollout', $4, $5, $6, $7, 100000, 'EUR', 'open', '2026-12-01', 'manual', 'human:x')`,

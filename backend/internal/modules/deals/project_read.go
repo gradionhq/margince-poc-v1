@@ -147,7 +147,7 @@ func appendProjectFilters(where []string, in ListProjectsInput, arg func(any) in
 	return where
 }
 
-const projectColumns = `id, workspace_id, name, key, organization_id, owner_id, phase, closed_reason,
+const projectColumns = `id, name, key, organization_id, owner_id, phase, closed_reason,
 	description, started_at, target_end_date, ended_at, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
@@ -170,14 +170,14 @@ func readProject(ctx context.Context, tx pgx.Tx, id ids.ProjectID, archived stor
 // trailing expressions the caller's SELECT appended.
 func scanProject(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Project, error) {
 	var p crmcontracts.Project
-	var id, wsID, orgID ids.UUID
+	var id, orgID ids.UUID
 	var ownerID *ids.UUID
 	var phase string
 	var startedAt, targetEnd, endedAt *time.Time
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &p.Name, &p.Key, &orgID, &ownerID, &phase, &p.ClosedReason,
+		&id, &p.Name, &p.Key, &orgID, &ownerID, &phase, &p.ClosedReason,
 		&p.Description, &startedAt, &targetEnd, &endedAt, &p.LastActivityAt,
 		&p.Source, &p.CapturedBy, &version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt,
 	}

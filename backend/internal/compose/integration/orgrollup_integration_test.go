@@ -80,9 +80,9 @@ func seedRollupWonDeal(t *testing.T, e *Env, st rollupStages, org ids.UUID,
 
 func seedRollupFxRate(t *testing.T, e *Env, fromCurrency, rate string, day time.Time) {
 	t.Helper()
-	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		VALUES ($1, $2, 'EUR', $3, $4)`,
-		e.WS, fromCurrency, rate, day)
+	e.WsExec(t, `INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
+		VALUES ($1, 'EUR', $2, $3)`,
+		fromCurrency, rate, day)
 }
 
 func seedRollupOrgActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.Time) {

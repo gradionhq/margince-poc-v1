@@ -159,7 +159,7 @@ func seedUnlinkedActivity(t *testing.T, e *Env, subject string) ids.UUID {
 func seedLiveOffer(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	e.WsExec(t, `INSERT INTO offer (id, workspace_id, deal_id, offer_number, currency, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'EUR', 'manual', 'human:fixture')`, id, e.WS, deal, "AN-"+id.String())
+	e.WsExec(t, `INSERT INTO offer (id, deal_id, offer_number, currency, source, captured_by)
+		VALUES ($1, $2, $3, 'EUR', 'manual', 'human:fixture')`, id, deal, "AN-"+id.String())
 	return id
 }

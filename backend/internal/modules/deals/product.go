@@ -63,10 +63,10 @@ func (s *Store) CreateProduct(ctx context.Context, in CreateProductInput) (crmco
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		id := ids.New[ids.ProductKind]()
 		_, err := tx.Exec(ctx,
-			`INSERT INTO product (id, workspace_id, name, sku, description, unit, unit_price_minor,
+			`INSERT INTO product (id, name, sku, description, unit, unit_price_minor,
 			                      currency, default_tax_rate, active, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
-			id, storekit.MustWorkspace(ctx), in.Name, in.SKU, in.Description, unit,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+			id, in.Name, in.SKU, in.Description, unit,
 			in.UnitPriceMinor, in.Currency, taxRate, active, in.Source, by)
 		if err != nil {
 			if storekit.IsUniqueViolation(err) {
@@ -281,7 +281,7 @@ func scanProductPage(rows pgx.Rows, _ []fieldcatalog.Column, sorted *storekit.Li
 	return products, cursorKeys, nil
 }
 
-const productColumns = `id, workspace_id, name, sku, description, unit, unit_price_minor,
+const productColumns = `id, name, sku, description, unit, unit_price_minor,
 	currency, default_tax_rate::text, active, source, captured_by, version, created_at, updated_at, archived_at`
 
 func readProduct(ctx context.Context, tx pgx.Tx, id ids.ProductID, archived storekit.ArchivedFilter) (crmcontracts.Product, error) {
@@ -298,13 +298,13 @@ func readProduct(ctx context.Context, tx pgx.Tx, id ids.ProductID, archived stor
 
 func scanProduct(row pgx.Row, extra ...any) (crmcontracts.Product, error) {
 	var p crmcontracts.Product
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var taxRate string
 	var capturedBy string
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &p.Name, &p.Sku, &p.Description, &p.Unit, &p.UnitPriceMinor,
+		&id, &p.Name, &p.Sku, &p.Description, &p.Unit, &p.UnitPriceMinor,
 		&p.Currency, &taxRate, &p.Active, &p.Source, &capturedBy, &version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt,
 	}
 	err := row.Scan(append(dests, extra...)...)

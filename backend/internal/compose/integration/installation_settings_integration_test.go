@@ -278,10 +278,10 @@ func TestBaseCurrencyFreezesOnASentOfferWithNoClosedDeal(t *testing.T) {
 		                  amount_minor, currency, status)
 		VALUES ($1, $2, 'Open deal', $3, $4, 'seed', 'system:test', 100000, 'EUR', 'open')`,
 		pipeline, stage)
-	e.Seed(t, `
-		INSERT INTO offer (id, workspace_id, deal_id, offer_number, currency, status,
+	e.SeedID(t, `
+		INSERT INTO offer (id, deal_id, offer_number, currency, status,
 		                   fx_rate_to_base, fx_rate_date, source, captured_by)
-		VALUES ($1, $2, $3, 'AN-2026-001', 'EUR', 'sent', 1.0850000000, current_date, 'seed', 'system:test')`,
+		VALUES ($1, $2, 'AN-2026-001', 'EUR', 'sent', 1.0850000000, current_date, 'seed', 'system:test')`,
 		deal)
 
 	// Prove the fixture is the one this test claims: no deal froze anything.
@@ -322,9 +322,9 @@ func TestBaseCurrencyWillNotMoveOutFromUnderAPricedRateSheet(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.Seed(t, `
-		INSERT INTO fx_rate (id, workspace_id, from_currency, to_currency, rate, rate_date)
-		VALUES ($1, $2, 'USD', $3, 0.9150000000, current_date)`, base.BaseCurrency)
+	e.SeedID(t, `
+		INSERT INTO fx_rate (id, from_currency, to_currency, rate, rate_date)
+		VALUES ($1, 'USD', $2, 0.9150000000, current_date)`, base.BaseCurrency)
 
 	chf := "CHF"
 	_, err = store.UpdateInstallation(admin, nil, nil, &chf)
