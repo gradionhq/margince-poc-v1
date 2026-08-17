@@ -103,10 +103,10 @@ const weak: GrowthFit = {
   data_completeness: {
     present: 5,
     expected: 7,
-    missing: ["decision_maker_confirmed"],
+    missing: ["a confirmed decision-maker"],
   },
   next_step:
-    "Confirm who signs off on new vendors before investing further here.",
+    "confirm who signs off on new vendors before investing further here",
   sub_scores: [
     {
       dimension: "industry_fit",
@@ -148,13 +148,13 @@ const capped: GrowthFit = {
   organization_id: "o-1",
   band: "moderate",
   band_capped_reason:
-    "Our own offering context for this segment is not yet confirmed.",
+    "our own offering context for this segment is not yet confirmed",
   data_completeness: {
     present: 4,
     expected: 7,
-    missing: ["offering_context", "budget_signal"],
+    missing: ["our own offering context", "any budget signal"],
   },
-  next_step: "Confirm our offering fit for this segment to lift the cap.",
+  next_step: "confirm our offering fit for this segment to lift the cap",
   sub_scores: [
     {
       dimension: "industry_fit",
@@ -183,9 +183,9 @@ const unknown: GrowthFit = {
   data_completeness: {
     present: 1,
     expected: 7,
-    missing: ["industry", "size_band", "recent_activity"],
+    missing: ["their industry", "how big they are", "any recent activity"],
   },
-  next_step: "Log at least one meeting or call before this can be assessed.",
+  next_step: "log at least one meeting or call before this can be assessed",
   generated_at: "2026-07-10T09:00:00Z",
   generated_by: "deterministic",
 };

@@ -302,8 +302,17 @@ function GrowthFitReasons({
   );
   return (
     <>
+      {/* Two columns only when there are two sides to read across. One side
+          alone in a half-width column is a column of empty space claiming the
+          other argument exists and was left blank. */}
       {sides.length > 0 && (
-        <PanelBody className="co-worth-block co-worth-split">
+        <PanelBody
+          className={
+            sides.length > 1
+              ? "co-worth-block co-worth-split"
+              : "co-worth-block"
+          }
+        >
           {sides.map((group) => (
             <div key={group.key} className="co-worth-column">
               <Eyebrow as="h3">{t(group.key)}</Eyebrow>
