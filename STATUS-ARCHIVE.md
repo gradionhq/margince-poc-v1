@@ -69,9 +69,11 @@ activity to a project**, because the tool schema did not offer the value — and
 deals", prose already stale for `lead` before this branch touched it. A stale
 description on an agent surface is a capability the model cannot reach.
 
-**The review rounds found five things no gate could, and every one was an
-obligation maintained as a LIST rather than derived from the system** — which is
-the same defect the four issues were about, committed while fixing them.
+**The review rounds found five gaps no gate caught, and what they share is
+narrower and more useful than "the same defect again": every one was a claim
+this work MADE and nothing checked.** They fall into three kinds — one
+obligation kept as a list instead of derived, three tests asserting properties
+they could not observe, and one authorization ordering silently changed.
 
 A new fitness test **ratified the exact gap this session had filed an hour
 earlier**: it asserted `projects` is a working saved-view resource while the
@@ -83,7 +85,10 @@ A test comment **claimed to pin the deadlock invariant and structurally could
 not** — the store it built had no field catalogue, so `SegmentEngine` returned
 the core vocabulary and never reached for a second connection. The repo already
 owned the real gate; two new callers of that invariant had been left outside it.
-Moving the resolution inside the transaction now times out deterministically.
+Production resolves the vocabulary before opening its transaction, as it always
+did — what changed is that the gate now proves it: deliberately moving the
+resolution inside the transaction makes the test time out, where before it
+passed either way.
 
 And a coverage-motivated test **proved that a function returns its own
 argument** — three cases, one tautology, and swapping the field names at either
