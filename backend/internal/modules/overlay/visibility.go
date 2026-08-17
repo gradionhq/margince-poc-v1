@@ -37,8 +37,7 @@ type OwnerEmailResolver interface {
 // theirs.
 func visibilityJoin(mirrorUserID ids.UUID) (clause string, args []any) {
 	return `JOIN mirror_visibility v
-       ON v.workspace_id = m.workspace_id
-      AND v.object_class = m.object_class
+       ON v.object_class = m.object_class
       AND v.external_id = m.external_id
       AND v.mirror_user_id = $1
       AND v.can_see`, []any{mirrorUserID}
@@ -79,8 +78,8 @@ WHERE object_class = $1 AND external_id = $2`
 // (many app users → one incumbent user) is allowed by design.md §4.6 rule
 // so every mapped app user, not just one, is projected visible.
 const grantVisibilitySQL = `
-INSERT INTO mirror_visibility (workspace_id, incumbent, mirror_user_id, object_class, external_id, can_see, snapshot_at)
-SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, m.incumbent, m.app_user_id, $2, $3, true, now()
+INSERT INTO mirror_visibility (incumbent, mirror_user_id, object_class, external_id, can_see, snapshot_at)
+SELECT m.incumbent, m.app_user_id, $2, $3, true, now()
 FROM mirror_user_map m
 WHERE m.incumbent_user_id = $1
 ON CONFLICT (incumbent, mirror_user_id, object_class, external_id)
@@ -263,8 +262,8 @@ WITH cleared AS (
   DELETE FROM mirror_user_automap_block
    WHERE app_user_id = $1 AND incumbent = $2 AND $4 = 'manual'
 )
-INSERT INTO mirror_user_map (workspace_id, app_user_id, incumbent, incumbent_user_id, match_source)
-SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4
+INSERT INTO mirror_user_map (app_user_id, incumbent, incumbent_user_id, match_source)
+SELECT $1, $2, $3, $4
  WHERE $4 = 'manual'
     OR NOT EXISTS (SELECT 1 FROM mirror_user_automap_block b
                     WHERE b.app_user_id = $1 AND b.incumbent = $2)

@@ -111,8 +111,7 @@ func TestSaveBackfillCursorEnforcesIdentityEvenOnAPlainFenceStore(t *testing.T) 
 	// own identity check rather than re-exercising the reconnect flow.
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(ctx, `
-			UPDATE incumbent_connection SET connected_at = now()
-			WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+			UPDATE incumbent_connection SET connected_at = now()`)
 		return execErr
 	}); err != nil {
 		t.Fatalf("reconnecting: %v", err)

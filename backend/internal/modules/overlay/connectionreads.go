@@ -84,7 +84,7 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 			scanErr := tx.QueryRow(wsCtx, `
 				SELECT c.incumbent, c.region, c.credential_ref, c.connected_at
 				FROM incumbent_connection c
-				LEFT JOIN overlay_sync_state s ON s.workspace_id = c.workspace_id
+				LEFT JOIN overlay_sync_state s ON true
 				WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()
 				  AND s.mirror_frozen_at IS NULL`,
 				statusActive).Scan(&incumbent, &region, &ref, &connectedAt)
@@ -269,7 +269,7 @@ func DueConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnectio
 const dueConnectionQuery = `
 	SELECT c.incumbent, c.region, c.credential_ref, c.connected_at
 	FROM incumbent_connection c
-	LEFT JOIN overlay_sync_state s ON s.workspace_id = c.workspace_id
+	LEFT JOIN overlay_sync_state s ON true
 	WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()
 	  AND s.mirror_frozen_at IS NULL`
 

@@ -151,8 +151,8 @@ func TestOverlayRefetchWorkerSkipsAHaltedMirror(t *testing.T) {
 	// unhalt to drive it through, so insert the row the way the ledger does.
 	if err := database.WithWorkspaceTx(adminCtx, f.e.Pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(adminCtx, `
-			INSERT INTO overlay_mirror_halt (workspace_id, reason)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'value-hash collision')`)
+			INSERT INTO overlay_mirror_halt (reason)
+			VALUES ('value-hash collision')`)
 		return execErr
 	}); err != nil {
 		t.Fatalf("halting the mirror: %v", err)
@@ -311,8 +311,7 @@ func (r *revokeOnGetIncumbent) Get(ctx context.Context, objectClass, externalID 
 	}
 	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(ctx,
-			`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()
-			 WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+			`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()`)
 		return execErr
 	}); err != nil {
 		return overlay.Record{}, err

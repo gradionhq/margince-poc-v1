@@ -125,8 +125,8 @@ const writebackOwner = "owner-1"
 func seedActiveConnection(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, status)
-			VALUES (current_setting('app.workspace_id')::uuid, 'hubspot', 'eu1', 'ref-writeback', 'active')`)
+		_, err := tx.Exec(ctx, `INSERT INTO incumbent_connection (incumbent, region, credential_ref, status)
+			VALUES ('hubspot', 'eu1', 'ref-writeback', 'active')`)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding active connection: %v", err)

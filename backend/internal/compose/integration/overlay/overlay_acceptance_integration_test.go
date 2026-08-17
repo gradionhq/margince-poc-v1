@@ -569,10 +569,10 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	}
 
 	var seededMirror, seededAssoc int
-	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_mirror WHERE workspace_id = $1`, wsIDStr).Scan(&seededMirror); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_mirror`).Scan(&seededMirror); err != nil {
 		t.Fatalf("counting the seeded mirror rows: %v", err)
 	}
-	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_association WHERE workspace_id = $1`, wsIDStr).Scan(&seededAssoc); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_association`).Scan(&seededAssoc); err != nil {
 		t.Fatalf("counting the seeded association rows: %v", err)
 	}
 	if seededMirror == 0 || seededAssoc == 0 {
@@ -600,7 +600,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	counts := map[string]int{}
 	for _, table := range []string{"overlay_mirror", "overlay_association", "mirror_visibility", "mirror_user_map", "overlay_backfill_cursor", "overlay_reconcile_watermark"} {
 		var n int
-		if err := e.Owner.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, table), wsIDStr).Scan(&n); err != nil {
+		if err := e.Owner.QueryRow(context.Background(), fmt.Sprintf(`SELECT count(*) FROM %s`, table)).Scan(&n); err != nil {
 			t.Fatalf("counting %s: %v", table, err)
 		}
 		counts[table] = n
@@ -612,7 +612,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 	}
 
 	var tombstoneCount int
-	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_tombstone WHERE workspace_id = $1`, wsIDStr).Scan(&tombstoneCount); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_tombstone`).Scan(&tombstoneCount); err != nil {
 		t.Fatalf("counting overlay_tombstone rows: %v", err)
 	}
 	if tombstoneCount == 0 {

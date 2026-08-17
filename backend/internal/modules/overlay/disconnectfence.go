@@ -65,22 +65,18 @@ var ErrConnectionGone = errors.New("overlay: the incumbent connection was revoke
 // closing it needs the shared per-request incumbent resolver
 // (overlay.Provider.resolveIncumbent) to carry connectedAt, which it does
 // not today. Concretely, a write-back straddling a disconnect+reconnect TO A
-// DIFFERENT PORTAL can ingest portal A's record into portal B's mirror
-// (intra-tenant data pollution, not a cross-tenant leak — the workspace
-// scope never changes) and land a write-ledger echo entry under the new
-// generation that could mask a genuine portal-B change as an echo.
+// DIFFERENT PORTAL can ingest portal A's record into portal B's mirror, and
+// land a write-ledger echo entry under the new generation that could mask a
+// genuine portal-B change as an echo.
 //
-// The GUC is read WITHOUT missing_ok, exactly as lockWorkspaceVisibility is:
-// a fenced write with app.workspace_id unset RAISEs rather than resolving to
-// NULL and matching no row (or, worse, every row) — the same fail-closed
-// posture the RLS policies take on the same condition. It is only ever
-// reached inside database.WithWorkspaceTx, which sets the GUC.
+// The fence is `status = 'active'` and nothing else, which is the whole
+// selection: incumbent_connection holds one row per installation (its
+// singleton index), so an active connection is THE connection.
 func assertActiveConnection(ctx context.Context, tx pgx.Tx) error {
 	var one int
 	err := tx.QueryRow(ctx, `
 		SELECT 1 FROM incumbent_connection
-		WHERE workspace_id = current_setting('app.workspace_id')::uuid
-		  AND status = 'active'
+		WHERE status = 'active'
 		FOR SHARE`).Scan(&one)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrConnectionGone
@@ -123,8 +119,7 @@ func assertOwnConnection(ctx context.Context, tx pgx.Tx, connectedAt time.Time) 
 	var one int
 	err := tx.QueryRow(ctx, `
 		SELECT 1 FROM incumbent_connection
-		WHERE workspace_id = current_setting('app.workspace_id')::uuid
-		  AND status = 'active'
+		WHERE status = 'active'
 		  AND connected_at = $1
 		FOR SHARE`, connectedAt).Scan(&one)
 	if errors.Is(err, pgx.ErrNoRows) {

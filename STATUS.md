@@ -805,6 +805,18 @@ line. Eight production sites hid there, including two whole-module reads in
 sibling packages. The reliable sweep is two steps — `grep -l` the table, then
 `grep -n workspace_id` inside each file it names.
 
+**The reset's CREDENTIAL collector had the same defect as its table sweep, and
+it was already live.** `collectWorkspaceSecretRefs` reads every sealed handle
+before the sweep deletes the rows naming them — vault_secret is never swept, so
+an uncollected ref is credential material that outlives the wipe, resident and
+unreachable forever. Its table list required a `credential_ref` column **and** a
+`workspace_id` column, so `capture_connection` and `channel_connection` fell out
+of it the moment 0282 landed, and nothing failed: the collector simply found
+fewer tables. Fixed by deriving on `credential_ref` alone. Two derivations have
+now had this exact bug; if a third asks "does this table have a workspace_id",
+it is asking a question whose answer is becoming "no" everywhere, and the sweep
+above it will go quiet rather than red.
+
 **An index that outlives its reason goes quiet, it does not go red.**
 `channel_connection` carried two live-row unique rules: one live bot per
 provider, and one live binding per bot. The second existed to stop a SECOND

@@ -240,15 +240,15 @@ func isForeignKeyViolation(err error) bool {
 // column exists, which a hand-kept list would not be.
 const vaultRefColumn = "credential_ref"
 
-// collectWorkspaceSecretRefs reads every sealed-credential handle this
-// workspace owns, BEFORE the sweep deletes the rows that name them.
+// collectWorkspaceSecretRefs reads every sealed-credential handle in the
+// installation, BEFORE the sweep deletes the rows that name them.
 //
-// It has to run first because vault_secret is deliberately not a tenant table:
-// it carries no workspace_id and no RLS (migrations/core/0062), since the
-// tenant lives inside the ref and inside the AES-256-GCM AAD. The sweep
-// therefore never sees it, and a reset that did not collect these first would
-// leave the ciphertext resident and unreachable forever — credential material
-// outliving the wipe that was supposed to clear it.
+// It has to run first because vault_secret is deliberately not swept: it
+// carries no RLS (migrations/core/0062), since the tenant lives inside the ref
+// and inside the AES-256-GCM AAD. The sweep therefore never sees it, and a
+// reset that did not collect these first would leave the ciphertext resident
+// and unreachable forever — credential material outliving the wipe that was
+// supposed to clear it.
 func collectWorkspaceSecretRefs(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	tables, err := tablesWithVaultRef(ctx, tx)
 	if err != nil {
@@ -259,8 +259,7 @@ func collectWorkspaceSecretRefs(ctx context.Context, tx pgx.Tx) ([]string, error
 		rows, err := tx.Query(ctx,
 			`SELECT `+pgx.Identifier{vaultRefColumn}.Sanitize()+
 				` FROM `+pgx.Identifier{t}.Sanitize()+
-				` WHERE workspace_id = current_setting('app.workspace_id')::uuid
-				  AND `+pgx.Identifier{vaultRefColumn}.Sanitize()+` IS NOT NULL`)
+				` WHERE `+pgx.Identifier{vaultRefColumn}.Sanitize()+` IS NOT NULL`)
 		if err != nil {
 			return nil, fmt.Errorf("data reset: reading credential handles from %s: %w", t, err)
 		}
@@ -280,20 +279,25 @@ func collectWorkspaceSecretRefs(ctx context.Context, tx pgx.Tx) ([]string, error
 	return refs, nil
 }
 
-// tablesWithVaultRef lists the workspace-scoped tables holding a
-// credential handle, derived from the catalog for the same reason
-// resetTargetTables is: a new one enrols itself.
+// tablesWithVaultRef lists the tables holding a credential handle, derived from
+// the catalog for the same reason resetTargetTables is: a new one enrols itself.
+//
+// Holding the COLUMN is the whole test. It used to also require a workspace_id,
+// which was the same set only while every connection table had one — and phase
+// D (ADR-0091 §8) is removing it table by table, so each connection table that
+// dropped it silently stopped being collected and left its sealed credential
+// resident after a reset. That is the same failure resetTargetTables already
+// had for the same reason, and it is why neither derivation may ask about a
+// column that is on its way out.
 func tablesWithVaultRef(ctx context.Context, tx pgx.Tx) ([]string, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT c.relname
 		FROM pg_class c
 		JOIN pg_namespace n ON n.oid = c.relnamespace
 		JOIN pg_attribute a ON a.attrelid = c.oid
-		JOIN pg_attribute w ON w.attrelid = c.oid
 		WHERE n.nspname = 'public'
 		  AND c.relkind = 'r'
 		  AND a.attname = $1 AND a.attnum > 0 AND NOT a.attisdropped
-		  AND w.attname = 'workspace_id' AND w.attnum > 0 AND NOT w.attisdropped
 		ORDER BY c.relname`, vaultRefColumn)
 	if err != nil {
 		return nil, fmt.Errorf("data reset: listing tables holding a credential handle: %w", err)

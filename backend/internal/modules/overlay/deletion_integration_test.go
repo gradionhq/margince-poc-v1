@@ -217,8 +217,8 @@ func seedVisibilityRow(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ob
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO mirror_visibility
-				(workspace_id, incumbent, mirror_user_id, object_class, external_id, can_see)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, 'hubspot', $1, $2, $3, true)`,
+				(incumbent, mirror_user_id, object_class, external_id, can_see)
+			VALUES ('hubspot', $1, $2, $3, true)`,
 			ids.NewV7(), objectClass, externalID)
 		return err
 	}); err != nil {

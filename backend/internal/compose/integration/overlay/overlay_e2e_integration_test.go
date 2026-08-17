@@ -415,13 +415,13 @@ func assertDisconnectPurgesTheMirrorAndRetainsTheAudit(t *testing.T, e *apptest.
 	}
 
 	var mirrorCount, tombstoneCount int
-	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_mirror WHERE workspace_id = $1`, wsIDStr).Scan(&mirrorCount); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_mirror`).Scan(&mirrorCount); err != nil {
 		t.Fatalf("counting overlay_mirror rows: %v", err)
 	}
 	if mirrorCount != 0 {
 		t.Errorf("overlay_mirror still has %d rows after disconnect, want 0", mirrorCount)
 	}
-	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_tombstone WHERE workspace_id = $1`, wsIDStr).Scan(&tombstoneCount); err != nil {
+	if err := e.Owner.QueryRow(context.Background(), `SELECT count(*) FROM overlay_tombstone`).Scan(&tombstoneCount); err != nil {
 		t.Fatalf("counting overlay_tombstone rows: %v", err)
 	}
 	if tombstoneCount == 0 {

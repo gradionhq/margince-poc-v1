@@ -194,8 +194,8 @@ func (s *Service) SealFlipSnapshot(ctx context.Context) (FlipSnapshot, error) {
 	candidate := "snap-" + time.Now().UTC().Format("2006-01-02T15:04:05Z") + "-" + ids.NewV7().String()
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, flip_snapshot_id, mirror_frozen_at, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(), $1, now(), now())
+			INSERT INTO overlay_sync_state (next_sweep_at, flip_snapshot_id, mirror_frozen_at, updated_at)
+			VALUES (now(), $1, now(), now())
 			ON CONFLICT ((true)) DO UPDATE SET
 			  flip_snapshot_id = COALESCE(overlay_sync_state.flip_snapshot_id, EXCLUDED.flip_snapshot_id),
 			  mirror_frozen_at = COALESCE(overlay_sync_state.mirror_frozen_at, EXCLUDED.mirror_frozen_at),
@@ -261,15 +261,18 @@ func (s *Service) UnsealFlipSnapshot(ctx context.Context) error {
 		var priorFrozen time.Time
 		err := tx.QueryRow(ctx, `
 			WITH prior AS (
-			  SELECT workspace_id, flip_snapshot_id, mirror_frozen_at FROM overlay_sync_state
+			  SELECT flip_snapshot_id, mirror_frozen_at FROM overlay_sync_state
 			  WHERE mirror_frozen_at IS NOT NULL
 			), cleared AS (
-			  UPDATE overlay_sync_state s
+			  -- FROM prior with no join predicate, because overlay_sync_state is a
+			  -- singleton: prior holds the one row or none, and the cross product
+			  -- says "clear exactly what prior saw" without a key to say it with.
+			  UPDATE overlay_sync_state
 			  SET flip_snapshot_id = NULL, mirror_frozen_at = NULL, updated_at = now()
-			  FROM prior WHERE s.workspace_id = prior.workspace_id
-			  RETURNING s.workspace_id
+			  FROM prior
+			  RETURNING 1 AS cleared
 			)
-			SELECT prior.flip_snapshot_id, prior.mirror_frozen_at FROM prior JOIN cleared USING (workspace_id)`,
+			SELECT prior.flip_snapshot_id, prior.mirror_frozen_at FROM prior JOIN cleared ON true`,
 		).Scan(&priorID, &priorFrozen)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil // not sealed: a no-op, nothing to audit

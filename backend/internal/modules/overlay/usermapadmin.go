@@ -289,8 +289,8 @@ func (s *MirrorStore) SetManualUserMap(ctx context.Context, appUser ids.UserID, 
 }
 
 const insertAutomapBlockSQL = `
-INSERT INTO mirror_user_automap_block (workspace_id, app_user_id, incumbent, blocked_by)
-VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3)
+INSERT INTO mirror_user_automap_block (app_user_id, incumbent, blocked_by)
+VALUES ($1, $2, $3)
 ON CONFLICT (app_user_id, incumbent) DO NOTHING`
 
 const deleteUserMapSQL = `

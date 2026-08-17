@@ -45,8 +45,8 @@ import (
 // truncated=true must never be overwritten back to false by an earlier
 // in-flight save landing after it).
 const upsertBackfillCursorSQL = `
-INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, truncated, updated_at)
-VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, now())
+INSERT INTO overlay_backfill_cursor (object_class, cursor, done, truncated, updated_at)
+VALUES ($1, $2, $3, $4, now())
 ON CONFLICT (object_class) DO UPDATE
    SET cursor = EXCLUDED.cursor,
        done = overlay_backfill_cursor.done OR EXCLUDED.done,
@@ -124,8 +124,8 @@ func (s *MirrorStore) LoadBackfillCursor(ctx context.Context, objectClass string
 // newer pass already saw. The same monotonic-progress discipline ingestSQL's
 // staleness guard applies to a mirror row (mirrorstore.go).
 const upsertReconcileWatermarkSQL = `
-INSERT INTO overlay_reconcile_watermark (workspace_id, object_class, watermark, updated_at)
-VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, now())
+INSERT INTO overlay_reconcile_watermark (object_class, watermark, updated_at)
+VALUES ($1, $2, now())
 ON CONFLICT (object_class) DO UPDATE
    SET watermark = EXCLUDED.watermark, updated_at = now()
    WHERE EXCLUDED.watermark > overlay_reconcile_watermark.watermark`

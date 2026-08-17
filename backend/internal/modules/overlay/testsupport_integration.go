@@ -305,7 +305,7 @@ func archiveUser(t *testing.T, user ids.UserID) {
 // the cross-tenant target the composite-FK test aims at. It has to be a user
 // that genuinely exists somewhere else: a merely invented uuid would be
 // rejected by any FK at all, proving nothing about the tenant-local
-// (workspace_id, app_user_id) pair being the thing that rejects it.
+// app_user_id being the thing that rejects it.
 func seedUserInOtherWorkspace(t *testing.T, email string) ids.UserID {
 	t.Helper()
 	conn := testOwnerConn(t)
@@ -339,8 +339,8 @@ func seedAutoMapBlock(ctx context.Context, t *testing.T, pool *pgxpool.Pool, use
 	}
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO mirror_user_automap_block (workspace_id, app_user_id, incumbent, blocked_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+			INSERT INTO mirror_user_automap_block (app_user_id, incumbent, blocked_by)
+			VALUES ($1, $2, $3)`,
 			user, incumbent, actor.UserID)
 		return err
 	}); err != nil {
