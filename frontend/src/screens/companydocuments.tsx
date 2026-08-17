@@ -2,13 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanWrite } from "../app/capability";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem, useMe } from "./common";
+import { AddDocumentDialog } from "./adddocument";
+import { throwProblem } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { DocumentExtractionPanel } from "./documentextraction";
 
@@ -50,21 +52,6 @@ const STATE_LABELS: Record<DocState, MessageKey> = {
 // not a candidate. The rest are equal citizens and get no tone.
 const STATE_TONE: Partial<Record<DocState, "warn">> = { superseded: "warn" };
 
-// Whether this reader may write what a document says onto a deal.
-//
-// Read from /me's own effective grants rather than assumed: reading a document
-// and writing what it says are different authorities, and a panel that offered
-// Accept to a seat holding only the first would hand out a button whose every
-// press is a 403. The grant is ABSENT from the map when it was never given —
-// the generated index signature cannot say so — which is why it is widened and
-// read fail-closed.
-function useCanWriteDeals(): boolean {
-  const me = useMe();
-  const objects: Readonly<Record<string, { update?: boolean } | undefined>> =
-    me.data?.authorization?.objects ?? {};
-  return objects.deal?.update === true;
-}
-
 // A FILTERED read that found nothing is not an empty account. SectionCard's
 // empty state replaces the whole body — filters included — so reporting it here
 // would strand the reader on a category with no matches and no control left to
@@ -88,10 +75,16 @@ function documentsState(
 }
 
 export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
-  const canWriteDeals = useCanWriteDeals();
+  // Reading a document and writing what it says onto a deal are different
+  // authorities: a panel that offered Accept to a seat holding only the first
+  // would hand out a button whose every press is a 403. `useCanWrite` is both
+  // axes — the object grant AND the licensing seat, which the server clamps
+  // separately and before RBAC.
+  const canWriteDeals = useCanWrite("deal", "update");
   const t = useT();
   const { locale } = useLocale();
   const [category, setCategory] = useState<Category | "">("");
+  const [adding, setAdding] = useState(false);
 
   const query = useQuery({
     queryKey: ["orgDocuments", orgId, category],
@@ -122,7 +115,22 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
   const present = state === "ready" || state === "empty";
 
   return (
-    <Panel title={t("docs.title")}>
+    <Panel
+      title={t("docs.title")}
+      // Offered even when the read failed or the account is empty: an empty
+      // library is the state this verb exists to leave, and hiding it there
+      // would withhold the control exactly when it is wanted.
+      titleAction={
+        <Button small onClick={() => setAdding(true)}>
+          {t("docs.add.action")}
+        </Button>
+      }
+    >
+      <AddDocumentDialog
+        orgId={orgId}
+        open={adding}
+        onClose={() => setAdding(false)}
+      />
       {present && (
         <PanelBody className="docs-filters">
           <Button small onClick={() => setCategory("")}>

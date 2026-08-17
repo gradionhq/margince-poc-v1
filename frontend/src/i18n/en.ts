@@ -1713,6 +1713,36 @@ export const en = {
   "docs.noneInCategory": "No documents of that kind on this account.",
   "docs.pinned": "Pinned",
 
+  // Adding one. The "About" wording is doing real work: it decides whether the
+  // file becomes evidence in a deal or a paper about the account, and only the
+  // first can be read for deal fields — so the hint says so rather than leaving
+  // the reader to discover it from a panel that never appears.
+  "docs.add.action": "Add a document",
+  "docs.add.title": "Add a document",
+  "docs.add.about": "About",
+  "docs.add.aboutHint":
+    "A document on a deal can be read for deal fields; one on the company cannot.",
+  "docs.add.thisCompany": "This company",
+  "docs.add.category": "Category",
+  "docs.add.name": "Title",
+  "docs.add.nameHint": "Optional. Left blank, the row shows the filename.",
+  "docs.add.file": "File",
+  "docs.add.fileHint": "Up to 25 MB.",
+  "docs.add.fileEmpty": "Drop the file here, or click to choose one",
+  "docs.add.cancel": "Cancel",
+  "docs.add.submit": "Upload",
+  "docs.add.uploading": "Uploading…",
+  "docs.add.errNoFile": "Choose a file to upload.",
+  "docs.add.errRefused": "You may not add documents to this record.",
+  "docs.add.errInFlight": "This document is still uploading.",
+  "docs.add.failedTitle": "The upload did not go through",
+  "docs.add.failed": "Nothing was stored. Try again, or choose another file.",
+  "docs.add.partialTitle": "Uploaded, but not filed",
+  "docs.add.partial":
+    "The file is on the record and listed below. Only its category and title were not saved, so it is filed under Other.",
+  "docs.add.dealsFailed":
+    "This account's deals could not be loaded, so the document can only be filed against the company.",
+
   // The staged-document-reading panel (RD-AC-N-2/-3). Three states that must
   // stay apart in the words as well as in the data: not answered yet, answered
   // and states none of them, could not be read at all.

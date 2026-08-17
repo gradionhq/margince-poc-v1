@@ -1,27 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
+import { FileDropzoneControl } from "../design-system/filedropzone";
 import { Select } from "../design-system/select";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import { ProblemError, throwProblem } from "./common";
-// The drop zone needs BOTH sheets, and neither was imported here.
-//
-// `.dropzone` — the dashed box, its padding and its dragover state — lives in
-// onboarding.css, where the first drop zone was built; `.dropzone-input` and
-// `.dropzone-label`, which hide the real file input and draw the text over it,
-// live in company360.css. This form loaded neither and looked right only
-// because the company page pulls both in elsewhere in the bundle. Rendered on
-// its own — a story, or a route that opens the modal directly — it showed the
-// browser's raw "Choose File" control and no box at all.
-//
-// Split across two screen sheets is not where this belongs; it is a
-// design-system control with two homes. Filed rather than moved here, because
-// moving it is a design-system change with its own review surface.
-import "./company360.css";
-import "./onboarding.css";
 
 // Recording an agreement.
 //
@@ -112,7 +98,7 @@ export function ContractForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
-      queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["organization360", orgId] });
       queryClient.invalidateQueries({ queryKey: ["orgDocuments", orgId] });
       // The paper list this form and the contract row BOTH read. Without it an
       // upload lands on the server and neither surface shows it: the row keeps
@@ -396,7 +382,6 @@ export function SignedFileField({
   onPick: (file: File) => void;
 }>) {
   const t = useT();
-  const [over, setOver] = useState(false);
   // A contract being CREATED has no id and therefore no paper — asking would be
   // a request for the documents of an agreement that does not exist yet.
   const filed = useQuery({
@@ -415,13 +400,6 @@ export function SignedFileField({
       return data?.data ?? [];
     },
   });
-
-  const take = (dropped: FileList | null) => {
-    const first = dropped?.[0];
-    if (first) {
-      onPick(first);
-    }
-  };
 
   const onFile = filed.data ?? [];
   const state = paperState(Boolean(contractID), filed, onFile.length);
@@ -467,46 +445,23 @@ export function SignedFileField({
               {null}
             </SurfaceState>
           )}
-          {/* A LABEL, not a div: it owns the real file input, so a click or a
-              keypress anywhere in the zone opens the picker without a handler
-              faking it, and a screen reader announces one control rather than
-              an interactive box of unknown purpose. Dropping is the mouse
-              affordance layered on top of that, not a replacement for it. */}
-          <label
-            className={over ? "dropzone dragover" : "dropzone"}
-            onDragOver={(e: DragEvent<HTMLLabelElement>) => {
-              e.preventDefault();
-              setOver(true);
-            }}
-            onDragLeave={() => setOver(false)}
-            onDrop={(e: DragEvent<HTMLLabelElement>) => {
-              e.preventDefault();
-              setOver(false);
-              take(e.dataTransfer.files);
-            }}
-          >
-            <input
-              {...props}
-              type="file"
-              className="dropzone-input"
-              onChange={(e) => take(e.target.files)}
-            />
-            <span className="dropzone-label">
-              {/* The label says ADD whenever this field is not asserting that
-                  nothing is filed — either because paper IS filed (an
-                  agreement can carry an amendment beside its original) or
-                  because the read did not come back, where "drop a file here"
-                  would quietly restate the absence the panel above just
-                  declined to claim. */}
-              {file
-                ? file.name
-                : t(
-                    onFile.length > 0 || !known
-                      ? "contracts.form.fileAdd"
-                      : "contracts.form.fileEmpty",
-                  )}
-            </span>
-          </label>
+          {/* The zone is the design-system control, and this field owns the
+              `Field` around it so the filed paper above can sit under the same
+              label. `fileAdd` whenever this field is not asserting that nothing
+              is filed — either because paper IS filed (an agreement can carry
+              an amendment beside its original) or because the read did not come
+              back, where "drop a file here" would quietly restate the absence
+              the panel above just declined to claim. */}
+          <FileDropzoneControl
+            control={props}
+            file={file}
+            onPick={onPick}
+            emptyLabel={t(
+              onFile.length > 0 || !known
+                ? "contracts.form.fileAdd"
+                : "contracts.form.fileEmpty",
+            )}
+          />
         </>
       )}
     </Field>

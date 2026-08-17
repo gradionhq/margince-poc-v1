@@ -1713,6 +1713,39 @@ export const de = {
   "docs.noneInCategory": "Keine Dokumente dieser Art zu diesem Account.",
   "docs.pinned": "Angeheftet",
 
+  // Ein Dokument hinzufügen. Die Frage „Wozu gehört es?" trägt die eigentliche
+  // Entscheidung: nur ein Dokument an einem Deal kann für Deal-Felder gelesen
+  // werden. Der Hinweis sagt das, statt es die Lesenden an einem Panel
+  // herausfinden zu lassen, das nie erscheint.
+  "docs.add.action": "Dokument hinzufügen",
+  "docs.add.title": "Dokument hinzufügen",
+  "docs.add.about": "Gehört zu",
+  "docs.add.aboutHint":
+    "Ein Dokument an einem Deal kann für Deal-Felder gelesen werden, eines an der Firma nicht.",
+  "docs.add.thisCompany": "Diese Firma",
+  "docs.add.category": "Kategorie",
+  "docs.add.name": "Titel",
+  "docs.add.nameHint":
+    "Optional. Leer gelassen, zeigt die Zeile den Dateinamen.",
+  "docs.add.file": "Datei",
+  "docs.add.fileHint": "Bis zu 25 MB.",
+  "docs.add.fileEmpty": "Datei hierher ziehen oder zum Auswählen klicken",
+  "docs.add.cancel": "Abbrechen",
+  "docs.add.submit": "Hochladen",
+  "docs.add.uploading": "Wird hochgeladen…",
+  "docs.add.errNoFile": "Wählen Sie eine Datei zum Hochladen.",
+  "docs.add.errRefused":
+    "Sie dürfen zu diesem Datensatz keine Dokumente hinzufügen.",
+  "docs.add.errInFlight": "Dieses Dokument wird noch hochgeladen.",
+  "docs.add.failedTitle": "Der Upload ist fehlgeschlagen",
+  "docs.add.failed":
+    "Es wurde nichts gespeichert. Versuchen Sie es erneut oder wählen Sie eine andere Datei.",
+  "docs.add.partialTitle": "Hochgeladen, aber nicht eingeordnet",
+  "docs.add.partial":
+    "Die Datei liegt am Datensatz und steht unten in der Liste. Nur Kategorie und Titel wurden nicht gespeichert, sie ist daher unter Sonstiges abgelegt.",
+  "docs.add.dealsFailed":
+    "Die Deals dieses Accounts konnten nicht geladen werden; das Dokument kann daher nur der Firma zugeordnet werden.",
+
   // Das Panel für die abgelegte Dokumentenlesung (RD-AC-N-2/-3). Drei Zustände,
   // die auch in den Worten getrennt bleiben müssen: noch keine Antwort, gelesen
   // und keines der Felder genannt, gar nicht lesbar.

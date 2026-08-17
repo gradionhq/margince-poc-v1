@@ -281,8 +281,10 @@ func readImportUpload(w http.ResponseWriter, r *http.Request) (string, []byte, e
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportUploadBytes)
 	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so the total parse size is capped; this argument only sets the in-memory/spill threshold.
 	if err := r.ParseMultipartForm(maxImportUploadBytes); err != nil {
-		return "", nil, httperr.Validation("file", "unreadable",
-			"The upload could not be read, or it exceeds the 10 MB import cap.")
+		// The cap is DERIVED, never spelled again in prose: this sentence said
+		// "10 MB" while the constant beside it decided the real answer, and the
+		// two were free to drift the moment either moved.
+		return "", nil, httperr.MultipartRefusal(err, maxImportUploadBytes)
 	}
 
 	object := strings.TrimSpace(r.FormValue("object"))

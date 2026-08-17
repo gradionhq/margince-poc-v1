@@ -1706,6 +1706,36 @@ export const vi = {
   "docs.noneInCategory": "Không có tài liệu loại đó cho tài khoản này.",
   "docs.pinned": "Đã ghim",
 
+  // Thêm một tài liệu. Câu hỏi "Thuộc về đâu" mới là quyết định thật: chỉ tài
+  // liệu gắn với một thương vụ mới được đọc để lấy các trường của thương vụ.
+  // Phần gợi ý nói thẳng điều đó, thay vì để người dùng tự đoán qua một bảng
+  // không bao giờ hiện ra.
+  "docs.add.action": "Thêm tài liệu",
+  "docs.add.title": "Thêm tài liệu",
+  "docs.add.about": "Thuộc về",
+  "docs.add.aboutHint":
+    "Tài liệu gắn với một thương vụ có thể được đọc để lấy các trường của thương vụ; gắn với công ty thì không.",
+  "docs.add.thisCompany": "Công ty này",
+  "docs.add.category": "Phân loại",
+  "docs.add.name": "Tiêu đề",
+  "docs.add.nameHint": "Không bắt buộc. Để trống thì dòng hiển thị tên tệp.",
+  "docs.add.file": "Tệp",
+  "docs.add.fileHint": "Tối đa 25 MB.",
+  "docs.add.fileEmpty": "Kéo tệp vào đây, hoặc bấm để chọn",
+  "docs.add.cancel": "Huỷ",
+  "docs.add.submit": "Tải lên",
+  "docs.add.uploading": "Đang tải lên…",
+  "docs.add.errNoFile": "Hãy chọn một tệp để tải lên.",
+  "docs.add.errRefused": "Bạn không được thêm tài liệu vào bản ghi này.",
+  "docs.add.errInFlight": "Tài liệu này vẫn đang được tải lên.",
+  "docs.add.failedTitle": "Tải lên không thành công",
+  "docs.add.failed": "Chưa lưu được gì. Hãy thử lại, hoặc chọn tệp khác.",
+  "docs.add.partialTitle": "Đã tải lên, nhưng chưa xếp loại",
+  "docs.add.partial":
+    "Tệp đã nằm trên bản ghi và có trong danh sách bên dưới. Chỉ phân loại và tiêu đề là chưa lưu được, nên tệp đang xếp ở mục Khác.",
+  "docs.add.dealsFailed":
+    "Không tải được danh sách thương vụ của tài khoản này, nên tài liệu chỉ có thể gắn với công ty.",
+
   // Bảng đọc tài liệu đã lưu (RD-AC-N-2/-3). Ba trạng thái phải tách bạch cả
   // trong câu chữ: chưa trả lời, đã đọc và không nêu trường nào, và không đọc
   // được.

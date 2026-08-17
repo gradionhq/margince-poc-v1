@@ -47,8 +47,7 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 	r.Body = http.MaxBytesReader(w, r.Body, maxLinkedInExportBytes)
 	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so total parse size is capped; the arg only sets the in-memory/spill threshold.
 	if err := r.ParseMultipartForm(maxLinkedInExportBytes); err != nil {
-		httperr.Write(w, r, httperr.Validation("file", "invalid_multipart",
-			"upload the Connections.csv as multipart/form-data, within the size limit"))
+		httperr.WriteMultipartRefusal(w, r, err, maxLinkedInExportBytes)
 		return
 	}
 	file, _, err := r.FormFile("file")
