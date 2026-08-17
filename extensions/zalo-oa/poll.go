@@ -142,10 +142,9 @@ func fillGap(ctx context.Context, rt extension.Runtime, api *client, conn connec
 // transaction before anything else happens.
 //
 // A connection that is not `connected` is not an error and not a skip worth
-// reporting: `pending_authorization` is an admin part way through a browser
-// flow, and the two parked states are already saying what a human must do. A
-// tick that failed them would fill a log with the fact that somebody has not
-// finished something.
+// reporting: the two parked states already say what a human must do, and a tick
+// that failed on them would fill a log with the fact that somebody has not
+// repaired something yet.
 func connectedInstallation(ctx context.Context, rt extension.Runtime) (*connection, error) {
 	var found *connection
 	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {

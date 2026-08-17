@@ -36,8 +36,10 @@
 //     a successful empty page.
 //   - oauth.go — the token endpoint, which this unit reaches for exactly one
 //     thing: the single-use REFRESH.
-//   - connection.go — connect / status / disconnect, and the tier gate, which is
-//     a CAPABILITY PROBE and never a match on the localized package name.
+//   - connect.go — connecting: the tier gate, which is a CAPABILITY PROBE and
+//     never a match on the localized package name; the one renewal that takes
+//     custody of the credential; and the row it writes.
+//   - connection.go — the row itself, plus status and disconnect.
 //   - credential.go — the sealed token document and the serialized refresh. It
 //     is the sharpest correctness requirement in this unit: the refresh token is
 //     single-use, and a rotation issued but not persisted costs an OA-admin

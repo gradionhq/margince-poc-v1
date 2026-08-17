@@ -231,7 +231,7 @@ func TestATruncatedBacklogWalkMovesTheGapDownAndKeepsTheFloor(t *testing.T) {
 // page that is then discarded, which costs one request.
 func TestTheBacklogResumesOnePageShallowerThanTheArithmeticSays(t *testing.T) {
 	at := cursor{gap: 800, offset: 60}
-	if got := resumePage(at, 20); got != (60+20)/maxChatPage-1 {
+	if got := resumePage(at, 20); got != 7 {
 		t.Fatalf("resumePage = %d, want the arithmetic minus one page", got)
 	}
 	// And it never goes below the newest page, which does not exist.
@@ -264,5 +264,32 @@ func TestAProviderRefusalStopsTheWalkWithNothingCollected(t *testing.T) {
 	}
 	if len(result.items) != 0 {
 		t.Fatalf("collected %d messages from a refused walk", len(result.items))
+	}
+}
+
+// A BACKFILL THAT COLLECTED NOTHING STILL MOVED, and its page progress has to be
+// kept.
+//
+// Spending a whole budget paging above the gap is the designed outcome when the
+// budget is one page and resumePage deliberately starts one page shallower.
+// Leaving the offset where it was means the next tick begins at the same relative
+// page, collects nothing again, and never reaches the unread region — on a busy
+// account the backlog drains never, and at nine days' retention those
+// conversations are gone.
+func TestATruncatedBacklogWalkKeepsItsPageProgressEvenCollectingNothing(t *testing.T) {
+	before := cursor{floor: 100, gap: 1500, top: 2000, offset: 30}
+	after := afterBackfill(before, walkResult{closed: false, oldest: 0, stoppedAtPage: 6})
+
+	if after.offset == before.offset {
+		t.Fatal("a backfill that paged and collected nothing left the resume hint where it was, so the next tick repeats it forever")
+	}
+	if after.offset != 6*maxChatPage {
+		t.Fatalf("offset = %d, want the page it stopped at", after.offset)
+	}
+	if after.gap != 1500 {
+		t.Fatalf("gap = %d, want it held — nothing under it was read", after.gap)
+	}
+	if after.floor != 100 {
+		t.Fatalf("floor = %d, want it held while a hole is open", after.floor)
 	}
 }

@@ -380,7 +380,7 @@ func TestAMissingAppSecretIsFoundBeforeTheLeaseIsClaimed(t *testing.T) {
 	}
 }
 
-// Withdrawing a credential takes BOTH the token pair and any PKCE material, and a
+// Withdrawing a credential takes BOTH keys sealed for that administrator, and a
 // key that already held nothing is not an error — this is the withdrawal path,
 // and "it was already gone" is the outcome asked for.
 func TestWithdrawingACredentialTakesEverythingSealedForThatAdmin(t *testing.T) {

@@ -138,9 +138,6 @@ func TestTheTokenEndpointIsCalledWithTheSecretInItsOwnHeader(t *testing.T) {
 	if form.Get("refresh_token") != "old-refresh" {
 		t.Fatalf("refresh_token = %q, want the token being spent", form.Get("refresh_token"))
 	}
-	if form.Get("code_verifier") != "" {
-		t.Fatal("a rotation carried a code verifier, which belongs only to a first redemption")
-	}
 }
 
 // A token endpoint that never answers carries the unanswered class, which is what

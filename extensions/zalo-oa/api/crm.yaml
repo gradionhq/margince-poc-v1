@@ -8,18 +8,22 @@
 # operation's risk tier, Passport scope, RBAC object, prose and I/O schemas are
 # declared.
 #
-# FOUR OPERATIONS, and the first two are one act split in half because a browser
-# leaves and comes back in the middle of it. Zalo has no client-credentials grant
-# for an Official Account: an OA ADMIN must open a permission URL and click
-# *Cho phép*, and what returns is a single-use code that dies in ten minutes.
-# `authorize` prepares that trip; `connect` completes it.
+# THREE OPERATIONS: connect, status, disconnect.
 #
-# NONE OF THEM TAKES A USER ID, and that absence is load-bearing. Whoever
-# completes the authorization becomes the connection's `authorized_by`: their
-# sealed credential is what the poll spends, and their LIVE authority is what
-# every captured message is landed on. An operation that let one person deposit a
-# credential in a colleague's name would forge, through this unit's own front
-# door, the consent the ingress port checks.
+# CONNECTING TAKES A TOKEN PAIR rather than conducting a browser flow. Zalo has no
+# client-credentials grant for an Official Account — an OA admin must open a
+# permission URL and click *Cho phép*, and what returns is a single-use code that
+# dies in ten minutes. That trip mints the FIRST pair and nothing else, so it is
+# run once with a tool, by a human, outside the product; from then on the pair
+# renews itself unattended. The cost, stated rather than discovered: onboarding is
+# not self-serve.
+#
+# NONE OF THEM TAKES A USER ID, and that absence is load-bearing. Whoever connects
+# the account becomes its `authorized_by`: their sealed credential is what the
+# poll spends, and their LIVE authority is what every captured message is landed
+# on. An operation that let one person deposit a credential in a colleague's name
+# would forge, through this unit's own front door, the consent the ingress port
+# checks.
 #
 # One RBAC object, ext_zalo_oa_connection, held by no seeded role: connecting an
 # Official Account reaches every conversation that account has, so granting it is
@@ -48,6 +52,16 @@ actions:
           # own namespace and writes the unit's own row. It does spend the
           # supplied refresh token once, at the provider — which renews this
           # installation's own credential and reaches no third party.
+          #
+          # A CREDENTIAL DEPOSIT THAT REPOINTS A WHOLE INSTALLATION'S CHANNEL
+          # IDENTITY is the archetype of a confirm-first act, and it is not one
+          # here for a reason that is a property of this tier rather than a
+          # judgement about the operation: a served extension tool may not
+          # declare TierConfirmationRequired at all — this surface cannot stage
+          # an approval, so the boot refuses it. What stands in its place is that
+          # ext_zalo_oa_connection is held by NO seeded role, so an agent reaches
+          # this only on the live authority of a human an operator granted it to,
+          # and the sibling unit's connect carries the same tier.
           tier: auto_execute
           scope: write
           description: >-

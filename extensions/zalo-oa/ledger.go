@@ -36,14 +36,9 @@ const connectionEntity = "ext_zalo_oa_connection"
 // `ext_zalo_oa.<verb>` — the core prefixes the namespace, so these are verbs and
 // not types.
 const (
-	// eventAuthorizationStarted is a permission URL minted and a verifier sealed.
-	// It is published because the pair that follows it may not: an authorization
-	// nobody completed is the ordinary explanation for a connection that never
-	// appeared, and it is invisible without this.
-	eventAuthorizationStarted = "authorization_started"
-	eventConnected            = "connected"
-	eventDisconnected         = "disconnected"
-	eventPolled               = "polled"
+	eventConnected    = "connected"
+	eventDisconnected = "disconnected"
+	eventPolled       = "polled"
 	// eventCredentialRotated is one refresh that succeeded and was kept. It is
 	// the counterpart of the class refresh_rotation_lost: between the two, a
 	// human can always tell which side of a single-use rotation a connection is

@@ -235,6 +235,32 @@ func disconnect(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 	}{Disconnected: true})
 }
 
+// lockedConnection reads this installation's connection FOR UPDATE, or nothing.
+//
+// It is what a write that depends on the row's previous state must use. A plain
+// read followed by an upsert is two statements with a gap: under READ COMMITTED
+// two administrators connecting at once both read the pre-existing row, both
+// upsert, and the second one's before-image names an administrator who is
+// already superseded — so the withdrawal that follows takes a credential nobody
+// holds and LEAVES the one that was just replaced. That orphan is not a stray
+// blob: the ingress port reads any deposit as live consent to act for that
+// person, and no disconnect ever reaches it, because a disconnect withdraws the
+// row's current administrator.
+//
+// The lock is taken on the row rather than the table, so it serializes exactly
+// the pair of writers that can collide: an installation has one connection.
+func lockedConnection(ctx context.Context, tx extension.Tx) (*connection, error) {
+	found, err := scanConnection(tx.QueryRow(ctx,
+		`SELECT `+connectionColumns+` FROM `+connectionTable+` FOR UPDATE`).Scan)
+	if err != nil {
+		if isNoRows(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &found, nil
+}
+
 // currentConnection reads this installation's connection, or nothing.
 //
 // It names no workspace: the Runtime pins the transaction to the invocation's

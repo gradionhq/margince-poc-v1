@@ -139,8 +139,8 @@ func (o *oauthClient) grant(ctx context.Context, appSecret string, form url.Valu
 
 // errNoGrant is an answer that carried no token pair. It is deliberately NOT a
 // class of its own to a caller: what an unproductive answer MEANS differs by
-// which grant asked for it, so each entry point maps this to the class its own
-// failure has (see Redeem and Rotate).
+// which grant asked for it, so each caller maps it to the class its own
+// failure has (see firstRenewalRefusal and rotationRefusal).
 const errNoGrant zaloError = "zalo-oa: the token endpoint returned no grant"
 
 // decodeGrant reads the token endpoint's answer.

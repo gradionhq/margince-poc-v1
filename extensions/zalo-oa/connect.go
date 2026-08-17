@@ -84,21 +84,11 @@ func connectVia(ctx context.Context, rt extension.Runtime, in json.RawMessage,
 	if err != nil {
 		return nil, err
 	}
-	label, renewed, err := admitAndTakeCustody(ctx, rt, dial, grants, admin, pasted, now())
+	label, renewed, resumed, err := admitAndTakeCustody(ctx, rt, dial, grants, admin, pasted, now())
 	if err != nil {
 		return nil, err
 	}
-	// The credentials go down BEFORE the row, for the reason every deposit in this
-	// tree does: a row with nothing sealed behind it is a connection that reads as
-	// live on the screen and answers nothing on the first tick, while a sealed
-	// credential with no row is invisible and costs nothing.
-	if err := rt.Secrets().PutUser(ctx, admin, appSecretKey, []byte(pasted.appSecret)); err != nil {
-		return nil, err
-	}
-	if err := sealTokens(ctx, rt, admin, renewed); err != nil {
-		return nil, err
-	}
-	stored, superseded, err := recordConnected(ctx, rt, admin, pasted.appID, label, renewed.ExpiresAt)
+	stored, superseded, err := recordConnected(ctx, rt, admin, pasted.appID, resumed, label, renewed.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -154,86 +144,122 @@ func pastedGrantOf(appID, appSecret, accessToken, refreshToken string) (pastedGr
 	return grant, nil
 }
 
-// admitAndTakeCustody gates the account and renews the credential, in whichever
-// order the pasted pair allows.
+// admitAndTakeCustody gates the account, renews the credential, and KEEPS what
+// it renewed before anything else can fail.
 //
 // THE TWO HALVES OF A PAIR AGE VERY DIFFERENTLY, and that is what shapes this.
 // An access token lasts about 25 hours; a refresh token lasts three months. So a
-// pair that has been sitting in a file since yesterday — which is the ORDINARY
-// state of anything a human carries from one tool to another — has a dead access
-// half and a perfectly good refresh half.
+// pair that has been sitting in a file since yesterday — the ORDINARY state of
+// anything a human carries from one tool to another — has a dead access half and
+// a perfectly good refresh half.
 //
-// Gating on the pasted access token alone therefore refuses almost every real
-// pair. Renewing first instead would fix that and spend a single-use refresh
-// token before knowing whether the account can be used at all, so a free-tier
-// account would cost an administrator their pair to be told "no".
+// Gating on the pasted access token alone would therefore refuse almost every
+// real pair. Renewing first instead would fix that and spend a single-use refresh
+// token before knowing whether the account can be used at all. So the gate is
+// tried as pasted, and only if Zalo says that token is no longer accepted is the
+// credential renewed and the gate tried again on what comes back.
 //
-// Neither, then. The gate is tried as pasted; only if Zalo says that token is no
-// longer accepted is the credential renewed and the gate tried again on what
-// comes back. A fresh pair still meets the tier refusal having spent nothing, and
-// a day-old pair connects.
+// THE SEALING SITS BETWEEN THE TWO, and that ordering is the whole point of this
+// function existing rather than being three lines in connectVia. Once the
+// provider has rotated, the pasted refresh token is dead whatever happens next —
+// so a tier refusal AFTER the renewal must not also destroy the replacement. It
+// is kept first; the refusal then leaves an installation holding a usable pair, a
+// human who can fix the package or the console toggle, and a reconnect that
+// resumes from what is held. Refusing before keeping would hand somebody a
+// remedy they cannot execute: "connect again" with a pair that no longer exists.
 func admitAndTakeCustody(ctx context.Context, rt extension.Runtime, dial clientFactory,
 	grants grantExchanger, admin extension.UserID, pasted pastedGrant, now time.Time,
-) (oaProfile, tokenPair, error) {
-	label, err := probeAccount(ctx, dial(pasted.accessToken))
-	if errors.Is(err, errUnauthorized) {
-		// The access half has expired. Renewing answers both questions at once:
-		// whether the refresh half is good, and what this account may do.
-		renewed, rotateErr := renewOrResume(ctx, rt, grants, admin, pasted, now)
-		if rotateErr != nil {
-			return oaProfile{}, tokenPair{}, rotateErr
-		}
-		label, err = probeAccount(ctx, dial(renewed.AccessToken))
-		if err != nil {
-			return oaProfile{}, tokenPair{}, tierRefusal(err, "reading the Official Account")
-		}
-		return label, renewed, nil
+) (oaProfile, tokenPair, bool, error) {
+	pastedLabel, err := probeAccount(ctx, dial(pasted.accessToken))
+	staleAccess := errors.Is(err, errUnauthorized)
+	if err != nil && !staleAccess {
+		return oaProfile{}, tokenPair{}, false, tierRefusal(err, "reading the Official Account")
 	}
+	renewed, resumed, err := renewOrResume(ctx, rt, grants, admin, pasted, now)
 	if err != nil {
-		return oaProfile{}, tokenPair{}, tierRefusal(err, "reading the Official Account")
+		return oaProfile{}, tokenPair{}, false, err
 	}
-	// The gate passed on the pasted token, so the account is usable. The renewal
-	// is still spent, for the reason the file header gives: it takes the
-	// credential out of the custody of whatever produced it, and it replaces an
-	// expiry nobody knows with one the provider stated.
-	renewed, err := renewOrResume(ctx, rt, grants, admin, pasted, now)
+	if err := keepCredentials(ctx, rt, admin, pasted, renewed, resumed); err != nil {
+		return oaProfile{}, tokenPair{}, false, err
+	}
+	// THE ACCOUNT IS READ FROM THE CREDENTIAL THAT WILL BE SPENT, always, and the
+	// probe above is discarded as evidence of anything but the tier.
+	//
+	// Nothing ties the four pasted values to one account: an access token for one
+	// Official Account and an app-and-refresh-token for another are four
+	// well-formed strings, and each half would pass its own check. Reading the
+	// label from the pasted token while sealing the pair from the exchange would
+	// write a row whose oa_id names X over a credential that answers for Y — and
+	// that id is the namespace under which every key, thread key and person
+	// binding is written, and the prefix accountWithinOA lets a reply through on.
+	// The poll reconciles the two on its next tick, but a reply staged before then
+	// reaches whoever holds that number at the OTHER account.
+	label, err := probeAccount(ctx, dial(renewed.AccessToken))
 	if err != nil {
-		return oaProfile{}, tokenPair{}, err
+		return oaProfile{}, tokenPair{}, false, tierRefusal(err, "reading the Official Account")
 	}
-	return label, renewed, nil
+	// And when the pasted token DID name an account, the two must agree. Refusing
+	// beats connecting the one the credential happens to answer for: a caller who
+	// supplied a token for X and is silently given Y ends up administering
+	// something they never asked for and cannot see they asked for.
+	if !staleAccess && label.OAID != pastedLabel.OAID {
+		return oaProfile{}, tokenPair{}, false, fmt.Errorf("%w: the access token and the refresh token belong to different Official Accounts, so nothing has been connected — supply a pair from one authorization of one account", extension.ErrInvalid)
+	}
+	return label, renewed, resumed, nil
 }
 
-// renewOrResume spends the pasted refresh token — or, when that token is refused
-// and this installation is already holding a usable pair, RESUMES from the pair
-// it holds.
+// keepCredentials seals what the connection will spend, before anything that
+// could fail afterwards.
 //
-// The fallback exists because of what the ordering in connectVia costs when the
-// step after sealing fails. The credential is sealed before the row is written,
-// deliberately: a row with nothing behind it reads as a live connection and polls
-// nothing. But a rotation that succeeded and a row that did not leaves an
-// installation holding the ONLY live pair for that account, with no row naming
+// The app secret is NOT overwritten on a resume, and that is the load-bearing
+// half: a resumed connect is spending a pair this installation already held, and
+// the secret that can renew that pair is the one already on deposit beside it.
+// Writing the pasted one over it would seal an app secret that cannot renew the
+// credential in use, and the next scheduled rotation would park a connection that
+// was working.
+func keepCredentials(ctx context.Context, rt extension.Runtime, admin extension.UserID,
+	pasted pastedGrant, renewed tokenPair, resumed bool,
+) error {
+	if !resumed {
+		if err := rt.Secrets().PutUser(ctx, admin, appSecretKey, []byte(pasted.appSecret)); err != nil {
+			return err
+		}
+	}
+	return sealTokens(ctx, rt, admin, renewed)
+}
+
+// renewOrResume spends the pasted refresh token — or, when the provider says that
+// token is spent and this installation is already holding a usable pair, RESUMES
+// from the pair it holds. It reports which of the two happened.
+//
+// The fallback exists because of what the ordering in admitAndTakeCustody costs
+// when a step after the renewal fails. The credential is sealed before the row is
+// written, deliberately: a row with nothing behind it reads as a live connection
+// and polls nothing. But a rotation that succeeded and a row that did not leaves
+// an installation holding the ONLY live pair for that account, with no row naming
 // it — and the pasted token is dead, so a retry could not get past this line.
 // Without the fallback the remedy is an OA administrator in a browser, for a
 // failure that happened entirely on this side.
 //
-// It is a fallback and not a preference, which is the part that matters. A
-// connect naming a DIFFERENT account must not quietly complete against the one
-// already held, so the pasted pair is always tried first and what is held is
-// reached only when the provider refuses it. The account the caller ends up
-// connected to is then whatever the tier gate reads back from the credential
-// actually used, and the screen names it.
+// It is reached ONLY by the two refusals that mean "this token is spent", never
+// by every failure: a 503 at the token endpoint says nothing about the pasted
+// pair, and resuming on one would quietly substitute a different credential for a
+// caller who should simply try again.
 func renewOrResume(ctx context.Context, rt extension.Runtime, grants grantExchanger,
 	admin extension.UserID, pasted pastedGrant, now time.Time,
-) (tokenPair, error) {
+) (tokenPair, bool, error) {
 	renewed, err := grants.Rotate(ctx, pasted.appID, pasted.appSecret, pasted.refreshToken)
 	if err == nil {
-		return renewed, nil
+		return renewed, false, nil
+	}
+	if !errors.Is(err, errNoGrant) && !errors.Is(err, errUnauthorized) {
+		return tokenPair{}, false, firstRenewalRefusal(err)
 	}
 	held, heldErr := unsealTokens(ctx, rt, admin)
 	if heldErr != nil || !held.usable(now) {
-		return tokenPair{}, firstRenewalRefusal(err)
+		return tokenPair{}, false, firstRenewalRefusal(err)
 	}
-	return held, nil
+	return held, true, nil
 }
 
 // probeAccount is THE TIER GATE, and it is a capability probe rather than a name
@@ -312,19 +338,33 @@ func firstRenewalRefusal(cause error) error {
 // which is what makes "one account, one connection, every rep replying through
 // it" true in the schema rather than only in the documentation.
 func recordConnected(ctx context.Context, rt extension.Runtime, admin extension.UserID,
-	appID string, label oaProfile, expiresAt time.Time,
+	pastedAppID string, resumed bool, label oaProfile, expiresAt time.Time,
 ) (connection, string, error) {
 	var (
 		stored     connection
 		superseded string
 	)
 	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		before, err := currentConnection(ctx, tx)
+		// FOR UPDATE, because what follows this transaction depends on who the
+		// row named BEFORE it: two administrators connecting at once would
+		// otherwise both read the same pre-image, and the second withdrawal would
+		// take a credential nobody holds while leaving the one just superseded.
+		before, err := lockedConnection(ctx, tx)
 		if err != nil {
 			return err
 		}
 		if before != nil {
 			superseded = before.AuthorizedBy
+		}
+		// THE APP ID STORED IS THE ONE WHOSE SECRET IS ON DEPOSIT. On an ordinary
+		// connect that is the pasted one, which was just sealed. On a RESUME the
+		// pasted secret was deliberately not written (see keepCredentials), so the
+		// app that can renew the credential in use is the one the row already
+		// named — and storing the pasted id over it would leave the row describing
+		// an application whose secret this installation does not hold.
+		appID := pastedAppID
+		if resumed && before != nil && before.AppID != "" {
+			appID = before.AppID
 		}
 		stored, err = scanConnection(tx.QueryRow(ctx,
 			`INSERT INTO `+connectionTable+` (workspace_id, oa_id, app_id, authorized_by,

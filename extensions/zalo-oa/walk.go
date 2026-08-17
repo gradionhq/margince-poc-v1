@@ -212,8 +212,19 @@ func afterBackfill(before cursor, result walkResult) cursor {
 		after.floor, after.gap, after.top, after.offset = maxOf(before.top, before.floor), 0, 0, 0
 		return after
 	}
+	// THE PAGE PROGRESS IS KEPT WHETHER OR NOT ANYTHING WAS COLLECTED, and that
+	// asymmetry is the one this used to get wrong.
+	//
+	// A truncated backfill that spent its whole budget paging ABOVE the gap
+	// collects nothing — which is the designed outcome when the budget is one page
+	// and resumePage deliberately starts one page shallower. Leaving the offset
+	// where it was then meant the next tick began at the same relative page,
+	// collected nothing again, and never entered the unread region at all: on a
+	// busy account the backlog drained never, and at nine days' retention those
+	// conversations are gone with no depth to page to.
+	after.offset = result.stoppedAtPage * maxChatPage
 	if result.oldest > 0 {
-		after.gap, after.offset = result.oldest, result.stoppedAtPage*maxChatPage
+		after.gap = result.oldest
 	}
 	return after
 }

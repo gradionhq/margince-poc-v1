@@ -51,9 +51,15 @@ const openAPIBase = "https://openapi.zalo.me"
 // comparable, so errors.Is answers about these exactly as it does about a
 // sentinel.
 const (
-	// errUnauthorized is `-216` (expired) or `-211` (invalid): the access token
-	// is no longer accepted. It is the class a REFRESH answers, and only when
-	// the refresh itself fails does the connection park.
+	// errUnauthorized is the access token no longer being accepted. It is the
+	// class a REFRESH answers, and only when the refresh itself fails does the
+	// connection park.
+	//
+	// `-216` is measured and covers both of this provider's wordings ("Access
+	// token has expired" and "is invalid"). `-211` is mapped alongside it as
+	// DOCUMENTED AND NOT OBSERVED, which is worth marking rather than assuming:
+	// this class is what triggers a single-use rotation, so a code mapped here on
+	// a guess would spend a credential on a guess.
 	errUnauthorized zaloError = "zalo-oa: the access token was rejected"
 
 	// errTierTooLow is `-224`: the OA's package does not include this API. It is
@@ -101,6 +107,7 @@ const (
 	codeOK              = 0
 	codeInvalidArgument = -201
 	codePageTooLarge    = -210
+	// codeTokenInvalid is documented, not observed — see errUnauthorized.
 	codeTokenInvalid    = -211
 	codeAPINotRegisterd = -212
 	codeTokenExpired    = -216

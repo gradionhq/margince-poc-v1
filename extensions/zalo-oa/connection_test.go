@@ -488,3 +488,107 @@ func TestATransactionTheCoreRefusesToOpenIsReported(t *testing.T) {
 		t.Fatalf("error = %v, want the refusal propagated", err)
 	}
 }
+
+// THE ACCOUNT IS READ FROM THE CREDENTIAL THAT WILL BE SPENT, and a pasted pair
+// whose two halves belong to different Official Accounts is refused.
+//
+// Nothing ties the four pasted values to one account: an access token for X and
+// an app-and-refresh-token for Y are four well-formed strings that each pass
+// their own check. Reading the label from the pasted token while sealing the pair
+// from the exchange writes a row whose oa_id names X over a credential answering
+// for Y — and that id is the namespace every key is written under and the prefix
+// a reply is let through on, so a message staged before the poll reconciles them
+// reaches whoever holds that number at the OTHER account.
+func TestAPastedPairWhoseHalvesNameDifferentAccountsIsRefused(t *testing.T) {
+	rt := connectableRuntime()
+	fake := newZaloFake(t)
+	fake.accountFor = map[string]string{
+		"pasted-access": "1111111111", // the token the caller gated with
+		"access-2":      "2222222222", // the account the renewal answers for
+	}
+
+	_, err := connectVia(t.Context(), rt, connectArgs(), fake.dial(),
+		&fakeGrants{rotated: renewedPair()}, frozen(at(0)))
+	if !errors.Is(err, extension.ErrInvalid) {
+		t.Fatalf("error = %v, want the mismatch refused", err)
+	}
+	if !strings.Contains(err.Error(), "different Official Accounts") {
+		t.Fatalf("the refusal does not name what disagreed: %v", err)
+	}
+	for _, sql := range rt.tx.statements {
+		if strings.Contains(sql, "ON CONFLICT") {
+			t.Fatalf("a row was written for a credential and a label that disagree: %s", sql)
+		}
+	}
+}
+
+// A RESUME DOES NOT OVERWRITE THE APP SECRET, because the secret that can renew
+// the pair being resumed is the one already on deposit beside it.
+//
+// Writing the pasted one over it seals an app secret that cannot renew the
+// credential in use: the connect answers 200, and the next scheduled rotation —
+// up to a day later — parks a connection that was working, with recovery
+// requiring an OA administrator in a browser.
+func TestAResumeKeepsTheAppSecretThatCanActuallyRenewTheHeldPair(t *testing.T) {
+	rt := newRuntime()
+	// What an earlier connect left: a usable pair, and the app secret that renews it.
+	seal(t, rt, renewedPair())
+	if err := rt.secrets.PutUser(t.Context(), adminUserID, appSecretKey, []byte("the-secret-that-works")); err != nil {
+		t.Fatalf("depositing the app secret: %v", err)
+	}
+	existing := connectionRow(statusConnected, nil, cursor{})
+	existing[2] = "the-app-that-works"
+	rt.tx.singleRows = [][]any{existing, connectionRow(statusConnected, nil, cursor{})}
+	// The caller pastes a spent refresh token and an app that does not match.
+	grants := &fakeGrants{rotateErr: errNoGrant}
+
+	if _, err := connectVia(t.Context(), rt, connectArgs(), newZaloFake(t).dial(), grants, frozen(at(0))); err != nil {
+		t.Fatalf("a resumable connect was refused: %v", err)
+	}
+	held := rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey]
+	if string(held) != "the-secret-that-works" {
+		t.Fatalf("the app secret on deposit is %q; a resume must keep the one that can renew the pair it resumed", held)
+	}
+	_, args := rt.tx.statementMentioning(t, "ON CONFLICT")
+	if args[1] != "the-app-that-works" {
+		t.Fatalf("the row named app %v, want the one whose secret is on deposit", args[1])
+	}
+}
+
+// The before-image is read FOR UPDATE, because what happens after this
+// transaction depends on who the row named before it: two administrators
+// connecting at once would otherwise both read the same pre-image, and the second
+// withdrawal would take a credential nobody holds while leaving the one just
+// superseded — a live credential, and standing ingest consent, that no disconnect
+// ever reaches.
+func TestTheBeforeImageIsReadUnderTheRowLock(t *testing.T) {
+	rt := connectableRuntime(connectionRow(statusConnected, nil, cursor{}))
+	if _, err := connectVia(t.Context(), rt, connectArgs(), newZaloFake(t).dial(),
+		&fakeGrants{rotated: renewedPair()}, frozen(at(0))); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	sql, _ := rt.tx.statementMentioning(t, "FOR UPDATE")
+	if !strings.Contains(sql, connectionTable) {
+		t.Fatalf("the locked read does not name this unit's table: %s", sql)
+	}
+}
+
+// The resume fallback is reached ONLY by the refusals that mean "this token is
+// spent". A 503 at the token endpoint says nothing about the pasted pair, and
+// resuming on one would quietly substitute a different credential for a caller
+// who should simply try again.
+func TestATransientTokenEndpointFailureDoesNotResume(t *testing.T) {
+	rt := connectableRuntime()
+	seal(t, rt, renewedPair())
+	grants := &fakeGrants{rotateErr: errTransient}
+
+	_, err := connectVia(t.Context(), rt, connectArgs(), newZaloFake(t).dial(), grants, frozen(at(0)))
+	if err == nil {
+		t.Fatal("an unreachable token endpoint completed the connect from a held pair")
+	}
+	for _, sql := range rt.tx.statements {
+		if strings.Contains(sql, "ON CONFLICT") {
+			t.Fatalf("a row was written on a transient renewal failure: %s", sql)
+		}
+	}
+}

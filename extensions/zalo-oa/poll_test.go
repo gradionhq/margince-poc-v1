@@ -155,9 +155,9 @@ func TestARecordTheCoreRefusesAsInvalidIsDroppedRatherThanRetried(t *testing.T) 
 }
 
 // A tick with no connection, or one that is parked, does nothing and reports
-// nothing. `pending_authorization` is somebody part way through a browser flow and
-// the parked states already say what a human must do — a tick that failed them
-// would fill a log with the fact that somebody has not finished something.
+// nothing. The parked states already say what a human must do — a tick that
+// failed on them would fill a log with the fact that somebody has not repaired
+// something yet.
 func TestATickOverAConnectionThatIsNotWorkingDoesNothingQuietly(t *testing.T) {
 	for name, arm := range map[string]struct{ status string }{
 		"no connection at all":  {""},

@@ -434,6 +434,12 @@ type zaloFake struct {
 	// other one accepted. It is how a test scripts the ordinary state of a pair
 	// carried between tools: a dead access half beside a live refresh half.
 	rejectToken string
+	// accountFor answers a DIFFERENT Official Account id per access token, which
+	// is what lets a test see two credentials disagree. A fake that answered one
+	// id for every token could not distinguish the credential that was gated from
+	// the credential that was sealed, and that is exactly the divergence the
+	// connect path has to refuse.
+	accountFor map[string]string
 	// chatPages is what listrecentchat answers, indexed by offset/10. An offset
 	// past the end answers an empty page, which is how the real walk terminates.
 	chatPages [][]map[string]any
@@ -476,8 +482,12 @@ func (z *zaloFake) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.URL.Path {
 	case "/v2.0/oa/getoa":
+		account := fixtureOAID
+		if named, ok := z.accountFor[r.Header.Get("access_token")]; ok {
+			account = named
+		}
 		z.answer(w, map[string]any{"error": 0, "message": "Success", "data": map[string]any{
-			"oa_id": fixtureOAID, "name": "NFQ",
+			"oa_id": account, "name": "NFQ",
 			"package_name": "Tăng trưởng", "package_valid_through_date": "12/08/2027",
 		}})
 	case "/v2.0/oa/listrecentchat":
