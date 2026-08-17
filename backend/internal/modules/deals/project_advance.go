@@ -111,9 +111,9 @@ func recordPhaseTransition(ctx context.Context, tx pgx.Tx, id ids.ProjectID,
 	}
 
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO project_phase_history (workspace_id, project_id, from_phase, to_phase, reason, changed_by)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		storekit.MustWorkspace(ctx), id, fromPhase, in.ToPhase, in.Reason, by); err != nil {
+		`INSERT INTO project_phase_history (project_id, from_phase, to_phase, reason, changed_by)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		id, fromPhase, in.ToPhase, in.Reason, by); err != nil {
 		return fmt.Errorf("record project phase history: %w", err)
 	}
 

@@ -231,12 +231,12 @@ func TestAddStagedOfferLinesUngroundedPriceIsTheHonestZeroSentinel(t *testing.T)
 	err = database.WithWorkspaceTx(rawCtx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(rawCtx,
 			`INSERT INTO offer_line_item
-			   (workspace_id, offer_id, position, description, quantity, unit_price_minor,
+			   (offer_id, position, description, quantity, unit_price_minor,
 			    tax_rate, price_grounded, proposal_state)
-			 VALUES ($1, $2,
-			         (SELECT COALESCE(MAX(position), 0) + 1 FROM offer_line_item WHERE offer_id = $2),
+			 VALUES ($1,
+			         (SELECT COALESCE(MAX(position), 0) + 1 FROM offer_line_item WHERE offer_id = $1),
 			         'Bypassed bogus line', 1, 500, '0.00', false, 'staged')`,
-			e.WS, offerID.UUID)
+			offerID.UUID)
 		return err
 	})
 	if _, ok := storekit.CheckViolation(err); !ok {

@@ -212,9 +212,9 @@ func TestNarrowingToAnUnreadableRecordAnswersNotFound(t *testing.T) {
 	orgID, hiddenProjectID, taskID := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	e.exec(t, `INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Zeta GmbH', $3, 'seed', 'system')`, orgID, e.ws, e.rep)
-	e.exec(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, 'seed', 'system')`,
-		hiddenProjectID, e.ws, hiddenProjectNam, orgID, e.other)
+	e.exec(t, `INSERT INTO project (id, name, organization_id, owner_id, source, captured_by)
+		VALUES ($1, $2, $3, $4, 'seed', 'system')`,
+		hiddenProjectID, hiddenProjectNam, orgID, e.other)
 	// The task is assigned to the CALLER, so nothing about the task itself is
 	// what hides it — only the project the sweep is narrowed to.
 	e.exec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at,

@@ -404,8 +404,8 @@ func nextOfferRevision(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerNumbe
 	}
 	var nextRevision int
 	if err := tx.QueryRow(ctx,
-		`SELECT MAX(revision) + 1 FROM offer WHERE workspace_id = $1 AND offer_number = $2`,
-		wsID, offerNumber).Scan(&nextRevision); err != nil {
+		`SELECT MAX(revision) + 1 FROM offer WHERE offer_number = $1`,
+		offerNumber).Scan(&nextRevision); err != nil {
 		return 0, fmt.Errorf("mint next revision: %w", err)
 	}
 	return nextRevision, nil
@@ -416,10 +416,10 @@ func nextOfferRevision(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerNumbe
 // snapshot semantics: nothing is re-derived from today's products.
 func copyOfferIntoRevision(ctx context.Context, tx pgx.Tx, fromID, newID ids.OfferID, nextRevision int, by string) error {
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
+		`INSERT INTO offer (id, deal_id, offer_number, revision, status, currency,
 		                    buyer_org_id, valid_until, intro_text, terms_text,
 		                    net_minor, tax_minor, gross_minor, source, captured_by)
-		 SELECT $1, workspace_id, deal_id, offer_number, $3, 'draft', currency,
+		 SELECT $1, deal_id, offer_number, $3, 'draft', currency,
 		        buyer_org_id, valid_until, intro_text, terms_text,
 		        net_minor, tax_minor, gross_minor, source, $4
 		 FROM offer WHERE id = $2`,
@@ -430,9 +430,9 @@ func copyOfferIntoRevision(ctx context.Context, tx pgx.Tx, fromID, newID ids.Off
 	// not silently become accepted (and start counting toward totals)
 	// just because the offer grew a revision.
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
+		`INSERT INTO offer_line_item (id, offer_id, position, product_id, description,
 		                              unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state, price_grounded)
-		 SELECT uuidv7(), workspace_id, $2, position, product_id, description,
+		 SELECT uuidv7(), $2, position, product_id, description,
 		        unit, quantity, unit_price_minor, discount_pct, tax_rate, evidence, proposal_state, price_grounded
 		 FROM offer_line_item WHERE offer_id = $1`,
 		fromID, newID); err != nil {

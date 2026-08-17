@@ -315,8 +315,8 @@ func TestRepricingAClosedDealRefreezesFx(t *testing.T) {
 
 	owner := OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		 VALUES ($1, 'USD', 'EUR', 0.9200000000, current_date)`, e.WS); err != nil {
+		`INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
+		 VALUES ('USD', 'EUR', 0.9200000000, current_date)`); err != nil {
 		t.Fatal(err)
 	}
 

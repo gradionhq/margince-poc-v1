@@ -112,14 +112,14 @@ func createOfferTx(ctx context.Context, tx pgx.Tx, dealID ids.DealID, in CreateO
 
 	id := ids.New[ids.OfferKind]()
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, revision, status, currency,
+		`INSERT INTO offer (id, deal_id, offer_number, revision, status, currency,
 		                    buyer_org_id, valid_until, intro_text, terms_text, template_id, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 1, 'draft', $5, $6, $7, $8, $9, $10, $11, $12)`,
-		id, wsID, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText,
+		 VALUES ($1, $2, $3, 1, 'draft', $4, $5, $6, $7, $8, $9, $10, $11)`,
+		id, dealID, number, in.Currency, buyerOrg, in.ValidUntil, in.IntroText, in.TermsText,
 		in.TemplateID, in.Source, by); err != nil {
 		return crmcontracts.Offer{}, fmt.Errorf("insert offer: %w", err)
 	}
-	if err := insertOfferLines(ctx, tx, wsID, id, in.Currency, in.LineItems); err != nil {
+	if err := insertOfferLines(ctx, tx, id, in.Currency, in.LineItems); err != nil {
 		return crmcontracts.Offer{}, err
 	}
 	if err := recomputeOfferTotals(ctx, tx, id); err != nil {
@@ -178,8 +178,7 @@ func resolveOfferTemplateRef(ctx context.Context, tx pgx.Tx, templateID *ids.Off
 	var exists bool
 	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM offer_template
-		   WHERE id = $1 AND archived_at IS NULL
-		     AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)`,
+		   WHERE id = $1 AND archived_at IS NULL)`,
 		*templateID).Scan(&exists); err != nil {
 		return fmt.Errorf("check offer_template reference: %w", err)
 	}
@@ -189,7 +188,7 @@ func resolveOfferTemplateRef(ctx context.Context, tx pgx.Tx, templateID *ids.Off
 	return nil
 }
 
-// nextOfferNumber mints the workspace's next human-facing Angebot number
+// nextOfferNumber mints the installation's next human-facing Angebot number
 // under a transaction-scoped advisory lock — two concurrent creates
 // serialize on the mint instead of racing into offer_number_rev_unique.
 func nextOfferNumber(ctx context.Context, tx pgx.Tx, wsID ids.UUID) (string, error) {
@@ -200,7 +199,7 @@ func nextOfferNumber(ctx context.Context, tx pgx.Tx, wsID ids.UUID) (string, err
 	var next int
 	if err := tx.QueryRow(ctx,
 		`SELECT COALESCE(MAX(substring(offer_number FROM '^A-([0-9]+)$')::int), 1000) + 1
-		 FROM offer WHERE workspace_id = $1`, wsID).Scan(&next); err != nil {
+		 FROM offer`).Scan(&next); err != nil {
 		return "", fmt.Errorf("mint offer number: %w", err)
 	}
 	return fmt.Sprintf("A-%d", next), nil
