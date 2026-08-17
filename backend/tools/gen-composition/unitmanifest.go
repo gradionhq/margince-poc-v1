@@ -197,26 +197,68 @@ func descriptorDigest(c riskTierRequest) (string, error) {
 	return digestBytes(canonical), nil
 }
 
-// generateUnitManifests derives and writes every enabled unit's manifest.
-// The write is skipped when the content is current, so the lane-frequent
-// `make composition` never churns source-tree mtimes.
-func generateUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) error {
+// derivedManifest is one unit's declaration as this generator read it, paired
+// with the bytes that go next to the unit. Both halves travel together because
+// two consumers need different ones — the file on disk needs the encoding, and
+// the composed SPA registry needs the declaration — and reading the
+// declaration twice is how the manifest and the registry would come to
+// disagree about the same unit.
+type derivedManifest struct {
+	Unit     extensionUnit
+	Manifest unitManifest
+	Encoded  []byte
+}
+
+// deriveUnitManifests reads every enabled unit's declaration, once. Both the
+// generate lane (which writes them) and the verify lane (which holds the tree
+// against them) go through here, so neither can drift into a second reading.
+func deriveUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) ([]derivedManifest, error) {
 	vocab, err := publishedVocabulary(root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	byUnit := verbsByUnit(verbs)
 	jobsByUnit := jobDeclarationsByUnit(jobDecls)
+	derived := make([]derivedManifest, 0, len(units))
 	for _, u := range units {
-		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
+		m, err := readUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
 		if err != nil {
-			return err
+			return nil, err
 		}
-		path := filepath.Join(u.Dir, unitManifestFile)
-		if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, encoded) { // #nosec G304 -- a path this generator derives from the tree it is reading
+		encoded, err := encodeUnitManifest(m)
+		if err != nil {
+			return nil, err
+		}
+		derived = append(derived, derivedManifest{Unit: u, Manifest: m, Encoded: encoded})
+	}
+	return derived, nil
+}
+
+// unitSecretScope is the one scope a unit's secrets ask for, or "" when it
+// declares none. readSecrets has already refused a unit that spans both, so
+// the first entry answers for all of them.
+//
+// It is what the SPA's settings placement derives from: a `user` secret is one
+// member's own credential and belongs on their personal Connections page, a
+// `workspace` secret is the installation's and belongs under Integrations, and
+// a unit with neither has nothing for either page to offer.
+func unitSecretScope(m unitManifest) string {
+	if len(m.Secrets) == 0 {
+		return ""
+	}
+	return m.Secrets[0].Scope
+}
+
+// generateUnitManifests writes every enabled unit's manifest. The write is
+// skipped when the content is current, so the lane-frequent `make composition`
+// never churns source-tree mtimes.
+func generateUnitManifests(derived []derivedManifest) error {
+	for _, d := range derived {
+		path := filepath.Join(d.Unit.Dir, unitManifestFile)
+		if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, d.Encoded) { // #nosec G304 -- a path this generator derives from the tree it is reading
 			continue
 		}
-		if err := writeFileAtomic(u.Dir, path, encoded); err != nil {
+		if err := writeFileAtomic(d.Unit.Dir, path, d.Encoded); err != nil {
 			return err
 		}
 	}
@@ -282,24 +324,14 @@ func jobDeclarationsByUnit(decls []extension.JobDeclaration) map[string][]extens
 // derivation, or a foreign encoder fails here even when the semantic
 // content agrees (the composition.json input row only pins the digest;
 // THIS is the gate that ties the digest back to the declaration).
-func verifyUnitManifests(root string, units []extensionUnit, verbs []declaredVerb, jobDecls []extension.JobDeclaration) error {
-	vocab, err := publishedVocabulary(root)
-	if err != nil {
-		return err
-	}
-	byUnit := verbsByUnit(verbs)
-	jobsByUnit := jobDeclarationsByUnit(jobDecls)
-	for _, u := range units {
-		encoded, err := deriveUnitManifest(u, vocab, byUnit[u.Name], jobsByUnit[u.Name])
+func verifyUnitManifests(derived []derivedManifest) error {
+	for _, d := range derived {
+		onDisk, err := os.ReadFile(filepath.Join(d.Unit.Dir, unitManifestFile)) // #nosec G304 -- a path this generator derives from the tree it is reading
 		if err != nil {
-			return err
+			return fmt.Errorf("extensions/%s/%s: %w — run 'make gen'", d.Unit.Name, unitManifestFile, err)
 		}
-		onDisk, err := os.ReadFile(filepath.Join(u.Dir, unitManifestFile))
-		if err != nil {
-			return fmt.Errorf("extensions/%s/%s: %w — run 'make gen'", u.Name, unitManifestFile, err)
-		}
-		if !bytes.Equal(onDisk, encoded) {
-			return fmt.Errorf("extensions/%s/%s differs from its derivation — run 'make gen'", u.Name, unitManifestFile)
+		if !bytes.Equal(onDisk, d.Encoded) {
+			return fmt.Errorf("extensions/%s/%s differs from its derivation — run 'make gen'", d.Unit.Name, unitManifestFile)
 		}
 	}
 	return nil

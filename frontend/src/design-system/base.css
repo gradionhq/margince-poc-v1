@@ -127,6 +127,26 @@
   background: var(--bgHover);
   color: var(--textPrimary);
 }
+/* A button that TOGGLES has to show which way it is set. `aria-pressed` is the
+   fact — it is already on every toggle in the tree — but nothing drew it, so a
+   selected relationship-graph node announced itself as pressed and looked
+   exactly like its unpressed neighbours, on a panel whose whole point is that
+   selecting a node drives the detail below it. The accent pairing is the one
+   the list surface already uses for a pressed chip (`.lt-chip.active`), so a
+   set toggle reads the same wherever it is drawn.
+
+   Scoped to the ghost variant: primary and danger carry a fill already, and a
+   pressed state has to differ from the resting one rather than replace a
+   stronger signal with a weaker. */
+.btn-ghost[aria-pressed="true"] {
+  border-color: var(--accentMed);
+  background: var(--accentLight);
+  color: var(--accent);
+}
+.btn-ghost[aria-pressed="true"]:hover {
+  background: var(--accentMed);
+  color: var(--accent);
+}
 .btn-sm {
   padding: 6px 11px;
   font-size: 12.5px;

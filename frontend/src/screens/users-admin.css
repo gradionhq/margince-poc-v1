@@ -37,8 +37,9 @@
 
 /* A roster row runs full-bleed against the panel's own edges, the way every
    other list inside a Panel does — it keeps <li> semantics rather than becoming
-   a PanelRow <div>, so the look is spelled here instead. The header above the
-   first row already draws its line, so the row does not draw a second. */
+   a PanelRow <div>, so the look is spelled here instead. PanelRow's shape
+   EXACTLY, reset included: the band above the roster draws the seam, so the
+   first row must not draw a second hairline a pixel under it. */
 .users-row {
   display: flex;
   flex-wrap: wrap;
@@ -48,9 +49,13 @@
   border-top: 1px solid var(--borderSubtle);
 }
 
-/* The section's own description sits on the panel's padding above the rows, and
-   pays for no bottom interval of its own — the first row's own top border is
-   the line that separates them. */
+.users-row:first-child {
+  border-top: 0;
+}
+
+/* The section's own description sits on the panel's padding above the rows. The
+   line that separates it from them is the seam panel.css draws between two
+   adjacent bodies; this only trims the interval it sits on. */
 .users-intro {
   padding-bottom: var(--space-4);
 }
@@ -67,7 +72,7 @@
 }
 
 .users-roster > :not(.users-list) {
-  padding: 0 var(--space-5) var(--space-5);
+  padding: var(--space-5);
 }
 
 /* Let a long name/email shrink and wrap instead of forcing the row wider than

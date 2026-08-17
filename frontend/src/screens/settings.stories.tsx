@@ -149,6 +149,36 @@ export const PassportRevokeConfirm: Story = {
   },
 };
 
+// The mint DRAWER, which is where the create form lives now. It used to be a
+// row inside the card — a label, a name field, five scope ticks and the submit
+// on one flex line with one gap value between all eight — so nothing said where
+// the field ended and the choices began.
+export const PassportMintDrawer: Story = {
+  name: "Mint a passport",
+  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Mint passport" }),
+    );
+  },
+};
+
+// The same drawer in dark, because the fieldset's legend, the checkbox rows and
+// the recessed token plate are three surfaces whose separation is carried by
+// tokens that move between themes.
+export const PassportMintDrawerDark: Story = {
+  name: "Mint a passport — dark",
+  globals: { theme: "dark" },
+  render: tab("agents", { "GET /me": me(), "GET /passports": passports }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Mint passport" }),
+    );
+  },
+};
+
 // The governed tool console renders the inventory unfiltered by default,
 // then dims the send_email row once the read-only "Scout" passport (whose
 // only granted scope is "read") is selected — its required "send" scope

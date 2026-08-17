@@ -5,8 +5,8 @@
 
 /* EVERY settings page's vertical rhythm, owned in one place.
    `.wrap > .card + .card` (app/shell.css) is the shell's default and it matches a
-   card FOLLOWING a card. After the eleven-entry merge most settings pages are no
-   longer stacks of cards — General holds a `<form>`, a `<section>` and a Card;
+   card FOLLOWING a card. Since the entries were merged, most settings pages are
+   no longer stacks of cards — General holds a `<form>`, a `<section>` and a Card;
    People holds two flex wrappers; Data model holds a block, a card and two
    heading-plus-table pairs — so that rule silently missed and the gap between two
    unrelated surfaces was ZERO. Two hairlines touching read as one card.
@@ -100,22 +100,11 @@
   flex-wrap: wrap;
 }
 
-/* PassportCard. The mint form is a label, a name field, five scope ticks and
-   the button, on as few lines as the width allows. */
-.passport-mint {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-.passport-mint .input {
-  width: auto;
-}
-.passport-mint-error {
-  margin-top: var(--space-2);
-  color: var(--danger);
-}
-/* The always-mounted live region the minted token lands in. It has no box of
+/* PassportCard. The mint FORM is a drawer now — the design system's Field,
+   fieldset and form-stack draw it, so this sheet declares nothing for it. What
+   is left is the token the drawer hands back.
+
+   The always-mounted live region the minted token lands in. It has no box of
    its own — the plate inside it is the surface — and no focus ring, because
    focus arrives here programmatically rather than by tabbing to it. */
 .passport-token:focus {
@@ -214,11 +203,6 @@
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
   gap: var(--space-3);
   margin-top: var(--space-2);
-}
-.audit-filter {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
 }
 .audit-row {
   display: flex;

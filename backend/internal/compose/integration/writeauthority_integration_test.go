@@ -341,9 +341,9 @@ func TestAReadShareOfADealCannotEditItsOffer(t *testing.T) {
 		 VALUES ($1, $2, $3, 'Shared Deal', $4, $5, 'manual', 'human:x')`, e.Rep3, pipeline, stage)
 	offer := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO offer (id, workspace_id, deal_id, offer_number, currency, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'EUR', 'manual', 'human:fixture')`,
-		offer, e.WS, deal, "AN-"+offer.String()); err != nil {
+		`INSERT INTO offer (id, deal_id, offer_number, currency, source, captured_by)
+		 VALUES ($1, $2, $3, 'EUR', 'manual', 'human:fixture')`,
+		offer, deal, "AN-"+offer.String()); err != nil {
 		t.Fatalf("seeding the offer: %v", err)
 	}
 

@@ -74,8 +74,15 @@ env template is [`.env.template`](../.env.template). The essentials:
 | `MARGINCE_AI_ROUTING` | api, worker | path to a mounted `ai-routing.yaml` — enables the AI lanes (plus the bound provider's BYOK key, e.g. `GEMINI_API_KEY`) |
 | `MARGINCE_PUBLIC_BASE_URL` | api, worker | canonical external base URL (buyer-facing links / marketing mail) |
 
-Do **not** set `MARGINCE_ENV=dev` in a deployed environment — it enables dev-only
-trust switches.
+Do **not** set `MARGINCE_ENV=dev` in a deployed environment. It decides two
+things about LICENSING and nothing else: which authorities are honoured
+(`dev`/`test` additionally accept our non-production licensers), and whether the
+installation may run unlicensed at all — with none configured, `cmd/api` and
+`cmd/worker` refuse to boot unless the environment says non-production (see
+[configuration.md](reference/configuration.md#license)).
+
+It no longer enables the data reset; that is `operations.allow_data_reset`,
+below.
 
 ### First-boot bootstrap config
 
@@ -83,7 +90,13 @@ On the first boot against an empty database the api bootstraps the organization 
 admin from the file `MARGINCE_CONFIG` points to. Mount your own `margince.yaml`
 (see [`config/margince.example.yaml`](../config/margince.example.yaml)) at that
 path and set `MARGINCE_ADMIN_PASSWORD`. A missing config file just boots an
-existing installation. Likewise mount an `ai-routing.yaml`
+existing installation.
+
+**The example ships with `operations:` commented out, and mounting it as-is
+keeps it that way.** Uncommenting `operations.allow_data_reset` arms
+`POST /v1/admin/reset-data`, which purges this installation's tenant data back
+to its first-boot state and renders the "Reset data" button to every admin seat.
+A deployed installation leaves it off. Likewise mount an `ai-routing.yaml`
 ([`config/ai-routing.example.yaml`](../config/ai-routing.example.yaml)) and point
 `MARGINCE_AI_ROUTING` at it to enable AI.
 

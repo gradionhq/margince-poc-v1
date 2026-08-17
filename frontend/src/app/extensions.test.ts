@@ -6,6 +6,7 @@ import {
   extensionRbacObject,
   findExtension,
   isExtensionRbacObject,
+  unitsForSecretScope,
 } from "./extensions";
 import { parseHash } from "./router";
 
@@ -28,6 +29,7 @@ import { parseHash } from "./router";
 
 const NOTES: ExtensionDescriptor = {
   name: "notes",
+  secretScope: "workspace",
   verbs: [
     {
       operationId: "notesList",
@@ -115,5 +117,56 @@ describe("the composed extension registry", () => {
     expect(isExtensionRbacObject("ext_notes_note")).toBe(true);
     expect(isExtensionRbacObject("deal")).toBe(false);
     expect(isExtensionRbacObject("ext_")).toBe(false);
+  });
+});
+
+// Where a unit is OFFERED, which is the whole of the placement rule the rail
+// group used to stand in for. The scope is the manifest's own, so these
+// fixtures are the shape the generator emits (see the note above COMPOSED).
+describe("placing a unit by its declared secret scope", () => {
+  const DISPACT: ExtensionDescriptor = {
+    name: "dispact-connector",
+    secretScope: "user",
+    verbs: [],
+  };
+  // A unit declaring no secret: yogi and de in the shipped tree.
+  const YOGI: ExtensionDescriptor = {
+    name: "yogi",
+    secretScope: "",
+    verbs: [],
+  };
+  const REGISTRY = [DISPACT, NOTES, YOGI];
+
+  it("offers a user-scoped unit on the personal page only", () => {
+    expect(unitsForSecretScope("user", REGISTRY).map((u) => u.name)).toEqual([
+      "dispact-connector",
+    ]);
+  });
+
+  it("offers a workspace-scoped unit on the organization page only", () => {
+    expect(
+      unitsForSecretScope("workspace", REGISTRY).map((u) => u.name),
+    ).toEqual(["notes"]);
+  });
+
+  // The case a tie-break would have got wrong in both directions: a unit with
+  // no credential has nothing for either page to manage, so it appears on
+  // NEITHER rather than defaulting onto one of them. Asserted as an absence
+  // from both lists, because a rule that only ever ran on one page would pass
+  // a test that checked the other.
+  it("offers a unit with no secret on neither page", () => {
+    const offered = [
+      ...unitsForSecretScope("user", REGISTRY),
+      ...unitsForSecretScope("workspace", REGISTRY),
+    ].map((u) => u.name);
+    expect(offered).not.toContain("yogi");
+  });
+
+  it("offers nothing at all against the vanilla registry", () => {
+    // No argument: the live composed registry, which is empty in this lane and
+    // in every core developer's checkout. A card built on this renders nothing
+    // rather than a heading over an empty list.
+    expect(unitsForSecretScope("user")).toEqual([]);
+    expect(unitsForSecretScope("workspace")).toEqual([]);
   });
 });

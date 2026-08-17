@@ -122,7 +122,7 @@
   justify-content: center;
 }
 /* One box, two controls: the ring is on the wrapper (`:focus-within`) and
-   suppressed on the bare input, the way `.auth-shell` does it — a leading field
+   suppressed on the bare input, the way `.field-shell` does it — a leading field
    and a trailing action inside one outline rather than beside it.
    Capped deliberately narrower than the promise sentence above it: a field that
    spans the column reads as a form, and one question should read as one

@@ -1245,7 +1245,7 @@ describe("company view — naming the buying committee", () => {
       await screen.findByRole("button", { name: "People" }),
     );
 
-    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    await screen.findByRole("link", { name: "Christian Hagemeyer" });
     expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
   });
 });
@@ -1378,8 +1378,20 @@ describe("company view — a recorded role reaches the screen", () => {
     // because that state comes from the record, not from the 360.
     render(<PeopleCard view={withOneOpenDeal} writable={false} />);
 
-    await screen.findByRole("button", { name: "Christian Hagemeyer" });
+    await screen.findByRole("link", { name: "Christian Hagemeyer" });
     expect(screen.queryByRole("button", { name: "Set role" })).toBeNull();
+  });
+
+  it("opens the person's own record from the row", async () => {
+    // An href, not a click handler: a rep reading an account opens three
+    // contacts in three tabs, and a handler answers the middle click by doing
+    // nothing at all.
+    render(<PeopleCard view={withOneOpenDeal} writable={false} />);
+
+    const link = await screen.findByRole("link", {
+      name: "Christian Hagemeyer",
+    });
+    expect(link.getAttribute("href")).toBe("#/contacts/p-1");
   });
 
   it("offers it on an account that does", async () => {

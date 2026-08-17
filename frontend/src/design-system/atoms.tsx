@@ -1,6 +1,5 @@
 import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
 import {
-  type ButtonHTMLAttributes,
   type ComponentPropsWithRef,
   type CSSProperties,
   type ElementType,
@@ -32,7 +31,12 @@ export function Button({
   reasonId,
   disabled,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  // `ComponentPropsWithRef`, not the bare attribute set — the same reason
+  // `TextInput` takes it: a caller that has to move focus to this control, or
+  // restore it here after a dialog its own mutation removed the opener of,
+  // needs the node. React 19 passes `ref` as an ordinary prop to a function
+  // component, so this costs nothing but the type.
+}: ComponentPropsWithRef<"button"> & {
   variant?: ButtonVariant;
   small?: boolean;
   /**
@@ -317,6 +321,12 @@ export type FieldControl = Readonly<{
   id: string;
   required?: boolean;
   "aria-describedby"?: string;
+  /**
+   * Whether the value currently in the control was refused. Set from `error`,
+   * so a caller that spreads the control whole announces the refusal from the
+   * control itself rather than only printing it underneath.
+   */
+  "aria-invalid"?: boolean;
 }>;
 
 /**
@@ -343,7 +353,12 @@ export type FieldControl = Readonly<{
  */
 export function Field({
   label,
+  labelEnd,
   hint,
+  hintLive,
+  error,
+  icon,
+  trailing,
   required,
   className,
   children,
@@ -352,7 +367,52 @@ export function Field({
   // read from somewhere carries its provenance in the label row — a confidence
   // meter and a source chip beside the name.
   label: ReactNode;
+  /**
+   * What sits at the far end of the label's own line — the "Forgot?" link
+   * beside a password, a unit beside an amount. It belongs to the label ROW
+   * rather than to the label, so it is not swallowed into the control's
+   * accessible name.
+   */
+  labelEnd?: ReactNode;
   hint?: string;
+  /**
+   * Announce the hint when it CHANGES, not only when focus reaches the field.
+   *
+   * Off by default, because a rule that is always true is a description and a
+   * description read on every focus is noise. On for a hint that appears in
+   * response to something the reader just did — the caps-lock warning under a
+   * password is the case this exists for, and the reason is in its timing: caps
+   * lock gets pressed while typing, so a warning a reader only hears if they
+   * leave the field and come back has arrived after the password it was about.
+   */
+  hintLive?: boolean;
+  /**
+   * Why the value in this field was refused.
+   *
+   * A separate slot from `hint` because the two say different things and were
+   * being spelled the same way: the password forms put "too short" and "the
+   * passwords do not match" through `hint`, so a refusal rendered in the same
+   * meta-grey as neutral helper text, and on one screen in the same grey as the
+   * SUCCESS line four elements above it. This one announces, marks the control
+   * `aria-invalid`, and reads in the danger tone — and the hint stays visible
+   * beside it, because what the field wants is still true while it is wrong.
+   */
+  error?: string;
+  /**
+   * A leading affordance INSIDE the control's outline — a mail glyph on an
+   * address field. Decorative: the label names the field.
+   */
+  icon?: ReactNode;
+  /**
+   * A control inside the outline at the trailing end — the password reveal.
+   *
+   * This is what `auth.tsx` forked its own `Field` for. `.input-icon` could
+   * carry a leading glyph and nothing else, so a button that has to sit inside
+   * the focus ring had no way to get there, and a second field component grew
+   * on the sign-in screens with its own label size, its own gap and its own
+   * hint that was never wired to `aria-describedby`.
+   */
+  trailing?: ReactNode;
   required?: boolean;
   // Layout the surrounding form owns — a width, a grid span, a screen's own
   // field modifier. It lands on the wrapper, which is the only element a
@@ -362,15 +422,63 @@ export function Field({
 }>) {
   const id = useId();
   const hintId = hint ? `${id}-hint` : undefined;
+  const errorId = error ? `${id}-error` : undefined;
+  // Both, when both are on screen. A field that is refused AND still carrying
+  // its rule has two things to say, and naming only one of them in
+  // `aria-describedby` picks which sighted and non-sighted readers get.
+  const describedBy = [errorId, hintId].filter(Boolean).join(" ") || undefined;
+  const control = children({
+    id,
+    required,
+    "aria-describedby": describedBy,
+    "aria-invalid": error ? true : undefined,
+  });
   return (
     <div className={["field", className ?? ""].filter(Boolean).join(" ")}>
-      <label className="t-label" htmlFor={id}>
-        {label}
-        {required && <span aria-hidden> *</span>}
-      </label>
-      {children({ id, required, "aria-describedby": hintId })}
+      {labelEnd ? (
+        <span className="field-label-row">
+          <label className="t-label" htmlFor={id}>
+            {label}
+            {required && <span aria-hidden> *</span>}
+          </label>
+          {labelEnd}
+        </span>
+      ) : (
+        <label className="t-label" htmlFor={id}>
+          {label}
+          {required && <span aria-hidden> *</span>}
+        </label>
+      )}
+      {/* The shell exists ONLY when something has to sit inside the outline. A
+          field with neither affordance emits exactly the markup it always did,
+          which is what keeps the two hundred existing call sites unchanged —
+          the border and the focus ring stay on the input there, and move to the
+          shell only where an icon or a control would otherwise sit beside the
+          outline rather than within it. */}
+      {icon || trailing ? (
+        <span className="field-shell">
+          {icon && (
+            <span className="field-shell-icon" aria-hidden>
+              {icon}
+            </span>
+          )}
+          {control}
+          {trailing}
+        </span>
+      ) : (
+        control
+      )}
+      {error && (
+        <p className="field-error" id={errorId} role="alert">
+          {error}
+        </p>
+      )}
       {hint && (
-        <p className="t-caption" id={hintId}>
+        <p
+          className="t-caption"
+          id={hintId}
+          role={hintLive ? "status" : undefined}
+        >
           {hint}
         </p>
       )}

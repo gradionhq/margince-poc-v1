@@ -96,12 +96,20 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 	// closed 404 default. schemaPool may be nil (no --schema-dsn configured);
 	// the reset still succeeds, only the cf_* column finalize is skipped.
 	//
-	// ONE posture read serves the endpoint, the machinery behind it and /me's
-	// non_production field, so the three can never disagree about which one is
-	// live.
-	env := runtimeenv.Parse(config.FromOS("MARGINCE_ENV"))
+	// ONE read of the switch serves the endpoint, the machinery behind it and
+	// the /me field that offers the action, so the three can never disagree
+	// about whether the reset is live. It is stated by the deployment rather
+	// than inferred from MARGINCE_ENV, which is still read here for the posture
+	// itself — a different question, and no longer a destructive one.
+	env := runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
+	allowDataReset := deployCfg.Operations.AllowDataReset
+	// Said out loud at boot because each role reads its own --config: an api
+	// armed beside a worker that was not given the file purges the workspace and
+	// leaves that worker's caches resident until it restarts. A line in each log
+	// makes the disagreement visible instead of silent.
+	logger.Info("data reset", "armed", allowDataReset)
 	opts := []compose.Option{
-		compose.WithDataReset(schemaPool, deployCfg.Seeds, env),
+		compose.WithDataReset(schemaPool, deployCfg.Seeds, allowDataReset),
 		// The same seeds reach the ADR-0105 claim route, so an installation
 		// provisioned by claim lays down the module defaults this file asks
 		// for rather than the built-in ones. Always applied, including the
@@ -109,15 +117,14 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 		// on both provisioning paths, which is the behaviour to preserve.
 		compose.WithBootstrapSeeds(deployCfg.Seeds),
 	}
-	reset, err := newResetLane(env, pool, rdb, logger)
+	reset, err := newResetLane(allowDataReset, pool, rdb, logger)
 	if err != nil {
 		return nil, nil, err
 	}
 	opts = append(opts, reset.opts...)
-	// /me's non_production field is the SAME posture: the client
-	// hides the "Reset data" action it would otherwise render for an
-	// endpoint that answers 404 in production.
-	opts = append(opts, compose.WithNonProduction(env))
+	// /me carries both facts, from two options, because they are two facts: the
+	// deployment posture, and whether the reset exists here at all.
+	opts = append(opts, compose.WithNonProduction(env), compose.WithDataResetAvailable(allowDataReset))
 	// Gate 1: the connector's whole route group — /mcp, the authorization
 	// server and both discovery documents — exists only when the deployment
 	// declared it. The boot check in bindInstallation already proved the

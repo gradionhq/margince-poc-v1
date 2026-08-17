@@ -322,3 +322,28 @@
   --danger: #f87171;
   --dangerBg: rgba(248, 113, 113, 0.16);
 }
+
+/* A finger is not a pointer, and a 40px control under one is a control you
+ * miss. The height floor rises wherever the primary input is coarse — a phone,
+ * a tablet, a touchscreen laptop — which is where SC 2.5.5's 44×44 was actually
+ * aimed; AA's own SC 2.5.8 asks 24×24, and 40px clears that on a mouse with
+ * room to spare.
+ *
+ * Raised on the TOKEN, so the button, the field, the select's trigger and the
+ * password reveal all grow together instead of one surface remembering and the
+ * next forgetting. The sign-in screens used to hold their own 46px for exactly
+ * this reason, and they were the only fields in the product that did — every
+ * other form was 40px on a phone as much as on a desk.
+ *
+ * `pointer: coarse` rather than a width breakpoint, because the question is
+ * what is touching the screen, not how wide it is. AFTER both palettes on
+ * purpose: neither themes it, and a media query opened INSIDE :root ends that
+ * block early and strands every token below it — which is exactly how this
+ * rule got written the first time, and what the shape test now refuses.
+ */
+@media (pointer: coarse) {
+  :root {
+    --control-h: 44px;
+    --control-h-sm: 36px;
+  }
+}

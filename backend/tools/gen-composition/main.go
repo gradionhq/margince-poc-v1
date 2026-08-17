@@ -136,21 +136,17 @@ func generate(root string) error {
 	if err := stubMatchesVanilla(root); err != nil {
 		return err
 	}
-	units, err := scanExtensions(root)
-	if err != nil {
-		return err
-	}
-	// composedFiles FIRST: the manifests are derived from the merged contracts
-	// it produces, so the composition has to exist before a manifest can be
+	// The manifests are derived from the merged contracts, so composedFiles
+	// produces both: the composition has to exist before a manifest can be
 	// written. This is the same ordering `make gen` applies one level up.
-	files, verbs, jobDecls, err := composedFiles(root)
+	composed, err := composedFiles(root)
 	if err != nil {
 		return err
 	}
-	if err := generateUnitManifests(root, units, verbs, jobDecls); err != nil {
+	if err := generateUnitManifests(composed.Manifests); err != nil {
 		return err
 	}
-	for rel, content := range files {
+	for rel, content := range composed.Files {
 		path := filepath.Join(outRoot, filepath.FromSlash(rel))
 		// 0o755 rather than gosec's 0o750: this is generated build output under
 		// build/composition/, and the container lanes that vendor this repo read it
@@ -165,7 +161,7 @@ func generate(root string) error {
 	if err := materializeWorkSum(root, outRoot); err != nil {
 		return err
 	}
-	m, err := currentManifest(root, files)
+	m, err := currentManifest(root, composed.Files)
 	if err != nil {
 		return err
 	}
@@ -239,18 +235,14 @@ func verifyOutputs(root string, recorded manifest) error {
 	if recorded.Schema != 1 {
 		return fmt.Errorf("%s carries schema %d, this tool writes schema 1 — run 'make gen'", manifestFile, recorded.Schema)
 	}
-	units, err := scanExtensions(root)
+	composed, err := composedFiles(root)
 	if err != nil {
 		return err
 	}
-	files, verbs, jobDecls, err := composedFiles(root)
-	if err != nil {
+	if err := verifyUnitManifests(composed.Manifests); err != nil {
 		return err
 	}
-	if err := verifyUnitManifests(root, units, verbs, jobDecls); err != nil {
-		return err
-	}
-	current, err := currentManifest(root, files)
+	current, err := currentManifest(root, composed.Files)
 	if err != nil {
 		return err
 	}

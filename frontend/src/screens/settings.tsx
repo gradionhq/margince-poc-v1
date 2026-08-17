@@ -22,12 +22,20 @@ import {
   Webhook,
   Wrench,
 } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsAdminRole } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import { setTheme, THEMES, useTheme } from "../app/theme";
@@ -38,6 +46,7 @@ import {
   Checkbox,
   EmptyState,
   Field,
+  Modal,
   SectionHeader,
   SegmentedControl,
   Skeleton,
@@ -88,6 +97,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
+import { ExtensionUnitsCard } from "./extension-units";
 import { ImportCard } from "./import";
 import { InstallationSettingsCard } from "./installation-settings";
 import { ProviderCard } from "./integrations-provider";
@@ -134,11 +144,16 @@ import "./settings.css";
 // takes; and the operational verbs that were hiding beside the field editor — a
 // reindex, job health, the danger zone — became a place of their own.
 //
-// One of those merges was later UNDONE, which is why the count is not eleven:
-// connectors and the overlay both answer "what are we connected to" and were
-// merged on that reading, but the question has two different owners — see the
-// split below. The thirteenth is newer and additive: Capture activity answers
-// what those connections DID, which no existing entry could say.
+// One of those merges was later UNDONE: connectors and the overlay both answer
+// "what are we connected to" and were merged on that reading, but the question
+// has two different owners — see the split below. Capture activity is newer and
+// additive: it answers what those connections DID, which no existing entry
+// could say.
+//
+// No sentence here counts the entries. Three of them used to, and by the time
+// anyone looked they said eleven, twelve and thirteen for a register holding
+// fourteen — a number in prose beside a list is a second source of truth that
+// nothing updates and no test can check. The list below is the count.
 //
 // Two groups: "you" (per-user, every member) and "org" (organization config).
 // Every org entry carries its OWN predicate — the grant the cards on it actually
@@ -161,8 +176,8 @@ import "./settings.css";
 // one entry belonging to both. Split by WHOSE thing each surface is, they both get
 // an honest predicate, and the ungated special case is gone rather than moved.
 //
-// Width is NOT an entry's business. Every page takes the whole column, so the
-// twelve of them line up with each other and with the rest of the app: a reader
+// Width is NOT an entry's business. Every page takes the whole column, so they
+// line up with each other and with the rest of the app: a reader
 // moving between two settings pages sees the content start and end where the
 // last one did. A per-page measure buys a nicer form column at the cost of the
 // page appearing to change size as you navigate, and of a knob each new entry
@@ -298,6 +313,12 @@ function ConnectionsTab() {
           proposals live in the approvals inbox. This shows what the import
           bought — which accounts the network reaches. */}
       <LinkedInReachCard />
+      {/* Last, and only when the installation composed a unit whose credential
+          is the member's OWN — that is what a `user`-scoped secret is, and it
+          is the same thing every card above it holds. A unit is offered here
+          rather than from the rail because enabling one adds something to
+          configure, not a destination. */}
+      <ExtensionUnitsCard scope="user" />
     </>
   );
 }
@@ -321,6 +342,12 @@ function IntegrationsTab() {
           OverlayCard renders its connect form and the rest stays quiet. */}
       <OverlayCard />
       <MirrorUserMapCard />
+      {/* The other half of the units split: a unit whose secret is
+          `workspace`-scoped holds the INSTALLATION's credential, like the four
+          cards above it, so it is offered here and not on a member's own
+          Connections page. Which page a unit lands on is its manifest's
+          decision, never this file's. */}
+      <ExtensionUnitsCard scope="workspace" />
     </>
   );
 }
@@ -483,7 +510,16 @@ export function useSettingsEntryVisibility(
     // here, so an entry this narrow would strand whoever follows it on the Account
     // fallback — the overlay read every seeded role holds is what keeps that link
     // honest, and it is a live grant rather than an exemption.
-    integrations: webhook || overlay,
+    //
+    // The composed units are the third card, and they open the entry on their
+    // own PRESENCE rather than on a grant: this page is the only place a
+    // workspace-scoped unit is offered at all — it has no rail row and the
+    // palette never carried one — so a role holding neither read would lose the
+    // unit itself, not merely the two cards above it. Presence is the honest
+    // predicate because the card asks for no grant; the unit's own screen is
+    // what refuses, on the object it declares.
+    integrations:
+      webhook || overlay || unitsForSecretScope("workspace").length > 0,
     // Everything that defines the shape a record takes: the field editor, the
     // pipeline designer, the product list, the offer templates. Any one of their
     // reads opens the page; the authoring controls inside each ask for their own
@@ -586,9 +622,9 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // card and settings pages are no longer stacks of cards: the merge left several
   // holding a `<form>`, a `<section>`, a flex wrapper or a bare heading-plus-table.
   // Where the rule missed, the gap was ZERO and two surfaces read as one. Owning
-  // it once is the difference between twelve pages that space correctly and
-  // twelve that each have to remember to. Width is owned the same way and is the
-  // same for all twelve, so there is nothing here to branch on.
+  // it once is the difference between every page spacing correctly and every
+  // page having to remember to. Width is owned the same way and is the same for
+  // all of them, so there is nothing here to branch on.
   return (
     <div className="wrap">
       <ResumeConnectBanner />
@@ -886,13 +922,15 @@ function PassportCard() {
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["read", "draft"]));
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [minting, setMinting] = useState(false);
   const revokingRow = useRef<HTMLElement | null>(null);
   // Where the minted token lands. It is a live region that is ALWAYS mounted
-  // rather than one that appears with the token in it: a region inserted at the
-  // same moment as its content is not reliably announced, and this token is
-  // shown exactly once in its life.
+  // for the drawer's whole life rather than one that appears with the token in
+  // it: a region inserted at the same moment as its content is not reliably
+  // announced, and this token is shown exactly once in its life.
   const tokenRegion = useRef<HTMLDivElement | null>(null);
-  const labelId = useId();
+  const mintTitleId = useId();
+  const mintScopeHintId = useId();
 
   // Metadata only — the wire schema carries no token (PassportSummary),
   // so this list cannot re-disclose one.
@@ -962,73 +1000,46 @@ function PassportCard() {
     }
   }, [minted]);
 
+  // Closing resets the whole attempt, so re-opening starts clean rather than
+  // showing the previous mint's token or its refusal. The scope defaults come
+  // back with it — the drawer is not a form somebody left half-filled, it is a
+  // new passport each time.
+  const closeMint = useCallback(() => {
+    // Refused while the request is outstanding, and this is about losing a
+    // credential rather than about tidiness. `mint.reset()` detaches the
+    // observer; it does not cancel the POST. A drawer closed mid-flight
+    // therefore still creates a passport on the server, and its token — shown
+    // exactly once, never re-served — goes with the drawer. There is no way
+    // back: the list carries metadata only.
+    if (mint.isPending) {
+      return;
+    }
+    setMinting(false);
+    setLabel("");
+    setScopes(new Set(["read", "draft"]));
+    mint.reset();
+  }, [mint]);
+
   return (
+    // The card LISTS what exists; minting is a drawer. It used to be one flex
+    // row holding a label, a name field, five scope ticks and the submit — eight
+    // controls on one line with a single 8px gap between all of them, so nothing
+    // said where the field ended and the choices began. A form that wide is not
+    // a row in a settings card; it is a form, and the product already has the
+    // surface for one.
     <Panel
       title={t("settings.passports")}
+      titleAction={
+        <Button small variant="primary" onClick={() => setMinting(true)}>
+          {t("settings.mint")}
+        </Button>
+      }
       footer={t("settings.passportsLendHint")}
     >
       <PanelBody>
         <p className="t-small settings-panel-sub">
           {t("settings.passportsSub")}
         </p>
-        <div className="passport-mint">
-          <span className="t-label" id={labelId}>
-            {t("settings.passportLabel")}
-          </span>
-          <TextInput
-            aria-labelledby={labelId}
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-          />
-          {PASSPORT_SCOPES.map((scope) => (
-            <Checkbox
-              key={scope}
-              className="t-caption"
-              checked={scopes.has(scope)}
-              onChange={(event) => {
-                const next = new Set(scopes);
-                if (event.target.checked) {
-                  next.add(scope);
-                } else {
-                  next.delete(scope);
-                }
-                setScopes(next);
-              }}
-              label={t(scopeLabelKey(scope))}
-            />
-          ))}
-          <Button
-            small
-            variant="primary"
-            disabled={scopes.size === 0 || mint.isPending}
-            onClick={() => mint.mutate()}
-          >
-            {t("settings.mint")}
-          </Button>
-        </div>
-        {/* The whole point of the mutation, and until now it simply appeared:
-            no live region, no focus. It is announced AND focused, because it is
-            shown once and never again — a reader who misses it has lost the
-            credential. tabIndex -1 makes it a focus target without joining
-            anybody's Tab order. */}
-        <div
-          className="passport-token"
-          ref={tokenRegion}
-          tabIndex={-1}
-          role="status"
-        >
-          {mint.isSuccess && (
-            <PanelPlate>
-              <p className="t-label">{t("settings.tokenOnce")}</p>
-              <p className="t-mono passport-token-value">{mint.data.token}</p>
-            </PanelPlate>
-          )}
-        </div>
-        {mint.isError && (
-          <p className="t-caption passport-mint-error">
-            {problemMessageOf(mint.error, t)}
-          </p>
-        )}
       </PanelBody>
       {/* Only what this human MINTED. A row carrying a connection was issued by
           the token exchange to a client — it belongs to ConnectedAgentsCard,
@@ -1057,6 +1068,125 @@ function PassportCard() {
             ))
         }
       </QueryGate>
+      <Modal
+        open={minting}
+        onClose={closeMint}
+        labelledBy={mintTitleId}
+        placement="right"
+      >
+        <h2 className="t-h2" id={mintTitleId}>
+          {t("settings.mint")}
+        </h2>
+        {/* The token region is mounted for the whole life of the drawer rather
+            than appearing with the token in it: a live region inserted at the
+            same moment as its content is not reliably announced, and this token
+            is shown exactly once. */}
+        <div
+          className="passport-token"
+          ref={tokenRegion}
+          tabIndex={-1}
+          role="status"
+        >
+          {mint.isSuccess && (
+            <PanelPlate>
+              <p className="t-label">{t("settings.tokenOnce")}</p>
+              <p className="t-mono passport-token-value">{mint.data.token}</p>
+            </PanelPlate>
+          )}
+        </div>
+        {mint.isSuccess ? (
+          // The drawer does NOT close itself on success. Closing would take the
+          // one and only sight of the credential with it, and a reader who was
+          // still reading has no way back — the list carries metadata and the
+          // server will not re-disclose a token.
+          <div className="form-actions">
+            <Button variant="primary" onClick={closeMint}>
+              {t("settings.mintDone")}
+            </Button>
+          </div>
+        ) : (
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (scopes.size > 0 && !mint.isPending) mint.mutate();
+            }}
+          >
+            <Field label={t("settings.passportLabel")}>
+              {(control) => (
+                <TextInput
+                  {...control}
+                  value={label}
+                  onChange={(event) => setLabel(event.target.value)}
+                />
+              )}
+            </Field>
+            {/* A fieldset with a legend, which is what five checkboxes that
+                belong together ARE. Loose siblings beside a text input said
+                nothing about what they were choices FOR, and the accessible
+                group had no name at all. `.field-multiselect` is the house
+                spelling — `create.tsx` has used it for exactly this since it
+                was written. */}
+            <fieldset
+              className="field-multiselect"
+              aria-describedby={mintScopeHintId}
+            >
+              <legend className="t-label">
+                {t("settings.passportScopes")}
+              </legend>
+              <p id={mintScopeHintId} className="t-caption">
+                {t("settings.passportScopesHint")}
+              </p>
+              {PASSPORT_SCOPES.map((scope) => (
+                <Checkbox
+                  key={scope}
+                  className="t-label"
+                  checked={scopes.has(scope)}
+                  onChange={(event) => {
+                    const next = new Set(scopes);
+                    if (event.target.checked) {
+                      next.add(scope);
+                    } else {
+                      next.delete(scope);
+                    }
+                    setScopes(next);
+                  }}
+                  label={t(scopeLabelKey(scope))}
+                />
+              ))}
+            </fieldset>
+            {/* Beside the button that produced it, in the danger tone. It used
+                to render two blocks below, past the token region, as a caption
+                with no live role — so a refused mint announced nothing and sat
+                where nothing had been pressed. */}
+            {mint.isError && (
+              <Callout tone="danger" live="alert">
+                {problemMessageOf(mint.error, t)}
+              </Callout>
+            )}
+            <div className="form-actions">
+              <Button disabled={mint.isPending} onClick={closeMint}>
+                {t("settings.mintCancel")}
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={scopes.size === 0 || mint.isPending}
+                // A passport with no scope is a credential that can do nothing,
+                // so the button says why it is refused rather than sitting pale
+                // with nothing to offer.
+                reason={
+                  scopes.size === 0
+                    ? t("settings.passportScopesRequired")
+                    : undefined
+                }
+              >
+                {mint.isPending ? t("settings.minting") : t("settings.mint")}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
       <ConfirmModal
         open={confirmId != null}
         onClose={() => {
@@ -1287,13 +1417,14 @@ function ToolRow({
   );
 }
 
-// The danger-zone reset action: wipes a non-production installation back to
-// its first-boot state. Double-gated client-side — the admin role AND the
-// server-driven `non_production` posture on /me (never VITE_UI_PREVIEW_RESET,
-// which is the unrelated password-reset link) — so the affordance is invisible
-// on a production install even to an admin; the server enforces both the
-// same way and 404s the endpoint outright in production regardless of what
-// this card renders. This is admin-ONLY, and narrower than the Maintenance entry
+// The danger-zone reset action: wipes the installation back to its first-boot
+// state. Double-gated client-side — the admin role AND the server-driven
+// `data_reset_available` flag on /me (never VITE_UI_PREVIEW_RESET, which is the
+// unrelated password-reset link) — so the affordance is invisible unless the
+// deployment armed the capability; the server gates the endpoint on that same
+// value and 404s it otherwise, regardless of what this card renders.
+//
+// This is admin-ONLY, and narrower than the Maintenance entry
 // that hosts it — that entry opens on the embedding_reindex read, so an ops seat
 // reaches it for the search index and simply finds no reset control. The
 // server's auth.RequireAdmin on /admin/reset-data admits only the literal
@@ -1346,7 +1477,7 @@ function ResetDataCard() {
     },
   });
 
-  if (!isAdmin || !me.data?.non_production) {
+  if (!isAdmin || !me.data?.data_reset_available) {
     return null;
   }
 
@@ -1980,10 +2111,13 @@ const UNFILTERED_AUDIT_LOG: AuditLogFilters = {
   to: "",
 };
 
-// The six filters, declared once. Naming them here keeps the accessible wiring
-// identical across the row: each control is named by the `t-label` span beside
-// it via aria-labelledby, because a real <label> per control would wrap every
-// field onto its own line and the row is what makes six filters scannable.
+// The six filters, declared once, so the accessible wiring is identical across
+// the row. Each is a `Field` — a real <label> with `htmlFor`, so clicking the
+// words focuses the control. It used to be a `t-label` span pointed at by
+// aria-labelledby, on the reasoning that a real label would wrap every field
+// onto its own line; that is not what happens. `.field` IS a flex column, and
+// the grid around it decides the layout either way, so the span bought nothing
+// and cost the click target.
 const AUDIT_LOG_FILTER_FIELDS: readonly Readonly<{
   key: keyof AuditLogFilters;
   labelKey: MessageKey;
@@ -2046,31 +2180,26 @@ function AuditLogFilterFields({
   onChange: (next: AuditLogFilters) => void;
 }>) {
   const t = useT();
-  const filterId = useId();
   return (
     // Six narrow filters read as a grid of labelled cells rather than one long
     // row: in a row each control took the width of the card and the six of them
     // stacked into a page-tall form, which is the shape of something to fill in
     // rather than something to narrow a list with.
     <div className="audit-filters">
-      {AUDIT_LOG_FILTER_FIELDS.map((field) => {
-        const labelId = `${filterId}-${field.key}`;
-        return (
-          <div key={field.key} className="audit-filter">
-            <span className="t-label" id={labelId}>
-              {t(field.labelKey)}
-            </span>
+      {AUDIT_LOG_FILTER_FIELDS.map((field) => (
+        <Field key={field.key} label={t(field.labelKey)}>
+          {(control) => (
             <TextInput
+              {...control}
               type={field.date ? "date" : undefined}
-              aria-labelledby={labelId}
               value={filters[field.key]}
               onChange={(event) =>
                 onChange({ ...filters, [field.key]: event.target.value })
               }
             />
-          </div>
-        );
-      })}
+          )}
+        </Field>
+      ))}
     </div>
   );
 }

@@ -464,7 +464,20 @@ up)
   fi
   if [[ ! -f "$deploy_cfg" ]]; then
     cp config/margince.example.yaml "$deploy_cfg"
-    echo "dev: seeded $deploy_cfg from config/margince.example.yaml — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
+    # The destructive switch is armed HERE, not in the example, because the
+    # example is the file a deployment is told to mount. A production
+    # installation that copied it verbatim must not thereby arm a purge of its
+    # own tenant data — which is the same "inferred consent" this switch exists
+    # to end, and it would be worse in a file than in an env var operators are
+    # warned about.
+    cat >>"$deploy_cfg" <<'DEVOPS'
+
+# Added by `make dev` — a dev stack wants the Reset data button. Delete this to
+# take it away; a real deployment never has it.
+operations:
+  allow_data_reset: true
+DEVOPS
+    echo "dev: seeded $deploy_cfg from config/margince.example.yaml (+ operations.allow_data_reset for dev) — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
   fi
   # Report which deployment config the api + worker are using, and its AI
   # posture — mirrors the ai-routing line above so both configs are visible.

@@ -9,14 +9,12 @@
    used to stack are its scope row, its table body and two Disclosures — so the
    inter-card rhythm this file used to own belongs to the panel's own padding.
    What is left here is the parts the design system has no primitive for: the
-   builder's form layout, the field cell, the type chip and the audit list. */
+   builder's form layout, the field cell, the type chip and the audit list.
 
-/* The three panel bodies read as three bands, so the seams are drawn rather
-   than implied by whitespace alone — the table has to end somewhere visible
-   before the Disclosures that follow it. */
-.cf-screen > .panel-body + .panel-body {
-  border-top: 1px solid var(--borderSubtle);
-}
+   The three bodies read as three bands, and the seam between two of them is
+   panel.css's — a card seam is full-bleed and this sheet does not draw one.
+   Each band's content sits on the body's own padding, the table included, so a
+   rule inside the table can only ever read as the table's own. */
 
 /* The scope row: what this section is, then which object it is showing. */
 .cf-scope {
@@ -24,12 +22,6 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-3);
-}
-
-/* The table runs to the panel's own edges; the padding above and below it
-   stays so it never touches the band it sits between. */
-.cf-tablebody {
-  padding-inline: 0;
 }
 
 /* The two Disclosures, and the read-only posture that stands in for the first

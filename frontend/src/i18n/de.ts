@@ -85,8 +85,6 @@ export const de = {
   "nav.group.records": "Datensätze",
   "nav.group.work": "Arbeit",
   "nav.group.intelligence": "Auswertung",
-  "nav.group.units": "Einheiten",
-  "nav.units.entry": "Einheit",
   "nav.dedupe": "Duplikate",
   "nav.offers": "Angebot",
   "nav.share": "Freigabe",
@@ -1971,6 +1969,14 @@ export const de = {
     "Diese kannst du verleihen. Verbindet sich ein MCP-Client, fragt er, welchen du übergibst — die Verbindung trägt danach genau die Scopes dieses Passports.",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
+  "settings.minting": "Wird ausgestellt…",
+  "settings.mintCancel": "Abbrechen",
+  "settings.mintDone": "Fertig",
+  "settings.passportScopes": "Was dieser Agent darf",
+  "settings.passportScopesHint":
+    "Mindestens eins auswählen. Ein Agent darf nie mehr als Sie selbst.",
+  "settings.passportScopesRequired":
+    "Wählen Sie mindestens eine Sache aus, die dieser Agent tun darf.",
   "agents.connected": "Verbundene Agenten",
   "agents.connectedSub":
     "MCP-Clients mit eigenem Credential, abgeleitet aus einem Passport, den du verliehen hast",
@@ -2656,6 +2662,16 @@ export const de = {
     "Zuletzt aktualisiert vor {duration} — kein aktueller Fortschritt.",
 
   // Connected inboxes (Einstellungen → Verbindungen).
+  // Die Einheiten dieser Installation, auf der Einstellungsseite, die bereits
+  // die Art von Zugangsdaten trägt, mit der die jeweilige Einheit konfiguriert
+  // wird.
+  "extUnits.user.title": "Deine weiteren Konten",
+  "extUnits.user.sub":
+    "Konten, die diese Installation in deinem Namen verbinden kann. Jedes gehört dir allein — niemand sonst sieht es, und ein Trennen betrifft nur dich.",
+  "extUnits.workspace.title": "Erweiterungen der Installation",
+  "extUnits.workspace.sub":
+    "Erweiterungen, die diese Installation mit einem gemeinsamen Zugang betreibt. Was du hier einstellst, gilt für alle.",
+
   "connectors.title": "Verbundene Postfächer",
   "connectors.sub":
     "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
@@ -4011,7 +4027,7 @@ export const de = {
   "license.meter.label": "{used} von {granted} Sitzplätzen belegt",
   "license.over.title": "Sie überschreiten Ihre Sitzplatzgrenze",
   "license.over.body":
-    "{used} Sitzplätze sind belegt, die Lizenz gewährt {granted}. Es wird nichts blockiert und niemand verliert den Zugang — geben Sie einen Sitzplatz frei oder erhöhen Sie die Grenze.",
+    "{used} Sitzplätze sind belegt, die Lizenz gewährt {granted}. Niemand verliert den Zugang und kein Sitzplatz wird entzogen — aber es kann kein neues Mitglied eingeladen werden, solange die Grenze überschritten ist. Deaktivieren Sie ein Mitglied oder erhöhen Sie die Grenze.",
   "license.holder.title": "Lizenziert für",
   "license.holder.org": "Organisation",
   "license.holder.contact": "Kontakt",
@@ -4026,7 +4042,7 @@ export const de = {
   "license.renewal.body":
     "Die Lizenz läuft am {expiry} ab. Vor diesem Datum ändert sich nichts.",
   "license.counting":
-    "Volle Sitzplätze, die nicht deaktiviert sind, Agenten eingeschlossen. Lesende Sitzplätze sind unbegrenzt und werden nie gezählt.",
+    "Volle Sitzplätze, die weder deaktiviert noch gesperrt sind, Agenten eingeschlossen. Lesende Sitzplätze sind unbegrenzt und werden nie gezählt. Gegen diese Zahl wird ein neues Mitglied zugelassen.",
   "settings.group.you": "Persönlich",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",

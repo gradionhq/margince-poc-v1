@@ -14585,8 +14585,10 @@ type LicenseEntitlement struct {
 	// grant carrying no seat count — which is not a grant of zero.
 	SeatsGranted *int `json:"seats_granted,omitempty"`
 
-	// SeatsUsed Full seats in use: not deactivated. Read seats are unlimited and never counted
-	// (A62/ADR-0047).
+	// SeatsUsed Full seats in use: every one the installation has not withdrawn — neither
+	// deactivated nor suspended — agent seats included. Read seats are unlimited and
+	// never counted (A62/ADR-0047). This is the number a seat creation is refused
+	// against, so the meter and the ceiling can never disagree.
 	SeatsUsed int `json:"seats_used"`
 
 	// State Whether a license was verified, none was configured, or one was refused. A client
@@ -14768,7 +14770,11 @@ type MeResponse struct {
 	// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
 	Authorization *Authorization `json:"authorization,omitempty"`
 
-	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
+	// DataResetAvailable True when this installation armed `operations.allow_data_reset` in its deployment file. It is the SAME value `POST /admin/reset-data` gates on, so a client never renders an action for a route that would answer 404. Absent or false means the capability does not exist here — the compiled default in every posture, dev included.
+	DataResetAvailable *bool `json:"data_reset_available,omitempty"`
+
+	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV=dev|test). DEPRECATED as the gate for the "Reset data" action — read `data_reset_available` instead. A deployment being non-production is not consent to purge its tenant data, and inferring one from the other is why a `staging` installation full of real internal users could be wiped through the API.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	NonProduction bool `json:"non_production"`
 
 	// Passport Always null. This endpoint is reachable only by a human session: a passport bearer is admitted as an agent principal and never binds the session identity this operation reads, so an agent receives 401 here rather than a passport claim. The field is retained because removing a response property breaks published clients; a client MUST NOT branch on it. An agent's own scopes are what the MCP surface advertises in tools/list, which is the honest place to ask.
@@ -14799,7 +14805,7 @@ type MeResponse struct {
 	// User A seat — human or first-party agent. Mirrors `app_user`.
 	User User `json:"user"`
 
-	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
+	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the "Reset data" action — the exact string that endpoint validates.
 	WorkspaceName string `json:"workspace_name"`
 }
 
@@ -30097,7 +30103,7 @@ type ServerInterface interface {
 	// What the background system is holding, and whose work failed.
 	// (GET /admin/job-health)
 	GetJobHealth(w http.ResponseWriter, r *http.Request)
-	// Reset a non-production installation to its first-boot state.
+	// Reset an installation that armed the capability to its first-boot state.
 	// (POST /admin/reset-data)
 	ResetData(w http.ResponseWriter, r *http.Request)
 	// The governed tool surface (registry metadata) for the operator UI.
@@ -31315,7 +31321,7 @@ func (_ Unimplemented) GetJobHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Reset a non-production installation to its first-boot state.
+// Reset an installation that armed the capability to its first-boot state.
 // (POST /admin/reset-data)
 func (_ Unimplemented) ResetData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)

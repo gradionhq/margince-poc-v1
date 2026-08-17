@@ -29,6 +29,41 @@ This repo is public — never put private spec paths or local machine paths
 in an issue. Team-internal issue tracking beyond this repo: see the spec
 repo's `tooling/delivery-board.md`.
 
+**Label every issue you file.** Unlabeled means untriaged, so an unlabeled
+issue lies about your own finding. Exactly one `priority:` and exactly one
+`area:`, always:
+
+- `priority: critical` — data loss, a reachable security/privacy breach,
+  `main`/CI red, or unusable on a default install. `high` — a real user or
+  operator hits it on a live path, or it blocks another workstream.
+  `normal` — real but narrow, guarded or latent; hygiene; polish.
+  `low` — a want, not a defect, or it needs a decision first.
+  Priority is severity, never schedule: a milestone carries the schedule, so
+  never demote a real defect because it is not this week's work.
+- `area:` (one, where the fix lives) — `agents-mcp` `ai-models` `authz`
+  `capture` `ci-tests` `contract-api` `deals` `extensions` `finance`
+  `frontend` `overlay` `platform` `privacy` `records` `reports`. A doc that is
+  wrong about a subsystem takes that subsystem's area.
+- `status: needs-decision` when a human must rule before it is workable;
+  `status: spec-change` when contract-first (P3) puts the spec change first.
+  A `spec-change` issue stays open HERE, linked to the upstream change, as the
+  implementation follow-up — the label sequences the work, it does not hand it
+  away.
+- Provenance, additive: `bug`, `enhancement`, `security`, `capability-gap`
+  (missing capability, not a defect), `fast-track-debt` (shipped fast, gap
+  recorded deliberately). These say why the issue exists — keep them.
+
+**`security` is not a way to report a vulnerability.** This repo is public.
+Per [SECURITY.md](SECURITY.md) an exploitable weakness goes to a private
+GitHub Security Advisory, never a public issue or PR. The label is for
+hardening with no live exploit; if you can write the reproduction — a
+cross-tenant read, a row-scope/RBAC escape, an agent-governance bypass, a
+forged or still-binding revoked credential, a mutation skipping the audit or
+outbox row, injection, SSRF — it belongs in an advisory.
+
+Check for an existing parent tracker (`gh issue list --label "area: <x>"`)
+and attach yours as a sub-issue rather than adding another sibling.
+
 ## Build / test / seed
 
 All Go code lives under `backend/` (one Go module,

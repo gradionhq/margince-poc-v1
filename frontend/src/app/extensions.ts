@@ -53,21 +53,61 @@ export type ExtensionScreenRegistry = Readonly<
  * namespace token everywhere else in the tier (tables, roles, job kinds,
  * `/v1/ext/<name>` routes); this is its hash-route spelling.
  *
- * REACHABLE FROM THE NAV, as the last group. `nav.ts` keeps `NAV_GROUPS` as the
- * canonical 10-item list whose order `shell.test.tsx` pins, and appends a
- * "Units" group built from the composed set — after the product's own groups,
- * and only when the installation composed something. The vanilla tree composes
- * none, which is why that pinned order needed no revising.
+ * NOT REACHABLE FROM THE RAIL. `nav.ts` keeps `NAV_GROUPS` as the canonical
+ * 10-item list whose order `shell.test.tsx` pins, and an installation cannot
+ * add an eleventh: enabling a unit is not the product growing a destination.
+ * A unit is OFFERED in Settings instead, on the page that already holds the
+ * kind of credential it is configured with — see `unitsForSecretScope` below
+ * and `screens/extension-units.tsx`.
  *
  * `RAIL_LESS_SCREENS` was reviewed with it and is unchanged: a unit's screen
- * wants the rail like any other destination. What it does NOT get is a badge or
- * a phone-bar slot — both are the product's judgement about what deserves a
- * person's attention, and it cannot make one for a surface it did not write.
+ * wants the rail like any other destination, and `nav.ts` marks Settings
+ * current while it is open. What it does NOT get is a badge or a phone-bar
+ * slot — both are the product's judgement about what deserves a person's
+ * attention, and it cannot make one for a surface it did not write.
  */
 export const EXTENSION_SCREEN = "ext";
 
 /** The composed registry itself, for a caller that needs the whole set. */
 export const composedExtensions: readonly ExtensionDescriptor[] = extensions;
+
+/**
+ * The two secret scopes a unit's settings entry can be placed by.
+ *
+ * The descriptor's own field is wider — it also carries "" for a unit that
+ * declares no secret — and that third value is deliberately not something a
+ * caller can ask for. Asking for it would mean asking for the units with
+ * nothing to configure, which is not a page this product has.
+ */
+export type UnitSecretScope = "user" | "workspace";
+
+/**
+ * The units whose credential lives in `scope`, in the registry's order.
+ *
+ * This is the whole of the placement rule, and it is the manifest's own
+ * vocabulary rather than a second one invented here: a `user` secret is one
+ * member's own credential at a provider, so its unit belongs on the personal
+ * Connections page; a `workspace` secret is the installation's, so its unit
+ * belongs under Integrations beside the other credentials an operator curates.
+ * Both settings pages already carry exactly that meaning, which is why the
+ * declared scope is enough and no unit names a destination.
+ *
+ * A unit declaring no secret is in neither list, and that is not a gap: a
+ * settings entry offers something to manage, and a unit holding no credential
+ * has nothing to offer either page. Its screen stays reachable at
+ * `#/ext/<unit>` for anyone holding the link.
+ *
+ * The registry is an argument, defaulting to the composed one, for the reason
+ * every function in this file takes it: the vanilla registry is empty by
+ * construction, so a filter reading the module binding directly could only
+ * ever be exercised on its empty case.
+ */
+export function unitsForSecretScope(
+  scope: UnitSecretScope,
+  registry: readonly ExtensionDescriptor[] = extensions,
+): readonly ExtensionDescriptor[] {
+  return registry.filter((unit) => unit.secretScope === scope);
+}
 
 /**
  * The unit `name` addresses, or null when this installation composed none.

@@ -122,6 +122,19 @@ func (e *SearchEnv) Seed(t *testing.T, sql string, args ...any) ids.UUID {
 	return id
 }
 
+// SeedID is Seed for a table that no longer has a workspace to bind: it mints
+// the id and nothing else. ADR-0091 §8 phase D is removing the column table by
+// table, so the set of fixtures needing this form only grows — and when the last
+// table loses it, this becomes the only form and Seed goes.
+func (e *SearchEnv) SeedID(t *testing.T, sql string, args ...any) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := e.Owner.Exec(context.Background(), sql, append([]any{id}, args...)...); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	return id
+}
+
 // searchObjects is the record vocabulary this fixture's principals reach. Named
 // once because the read and write grant sets must cover the same objects — if
 // they drifted, a suite comparing a reader against a writer would be comparing

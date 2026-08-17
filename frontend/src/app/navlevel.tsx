@@ -226,13 +226,10 @@ function NavLevelRow({
   onSelect: (entry: NavLevelEntry) => void;
 }>) {
   const t = useT();
-  // The entry's OWN label when it has one: a composed unit is named by the
-  // installation, so its row has no message key to translate. This is the row
-  // the primary level renders, which makes it the site that matters — the
-  // label feeds the row text, the aria-label and the collapsed-rail tooltip
-  // below, and a fallback missing here shows every unit as the literal word
-  // "Unit".
-  const label = entry.label ?? t(entry.labelKey);
+  // One label, feeding the row text, the aria-label and the collapsed-rail
+  // tooltip below — the three read the same string, so a row can never
+  // announce one name and show another.
+  const label = t(entry.labelKey);
   const active = level.activeId === entry.id;
   const key = navTipKey(level, entry.id);
   return (
@@ -356,16 +353,12 @@ function NavLevelBack({
   );
 }
 
-// What a level is CALLED: its own literal when the entry that opened it was
-// named by the installation, its message key otherwise, and nothing when it is
-// the primary level (the navigation landmark names that one).
+// What a level is CALLED: its message key, and nothing when it is the primary
+// level (the navigation landmark names that one).
 function levelTitle(
   level: NavTrailLevel,
   t: (key: MessageKey) => string,
 ): string {
-  if (level.title) {
-    return level.title;
-  }
   return level.titleKey ? t(level.titleKey) : "";
 }
 

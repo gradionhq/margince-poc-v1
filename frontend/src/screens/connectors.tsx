@@ -151,12 +151,18 @@ function ConnectorAddPanel({
   addable,
   pending,
   notConfigured501,
+  connectError,
   onConnect,
   onImap,
 }: Readonly<{
   addable: Provider[];
   pending: boolean;
   notConfigured501: Provider | null;
+  // Why the last connect started from THESE buttons failed, or null. It renders
+  // inside this block, under the strip that produced it: a reason reported in a
+  // section of its own — below a rule, above an unrelated heading — names no
+  // button at all, and the reader has to guess which press it answers.
+  connectError: string | null;
   onConnect: (provider: Provider) => void;
   onImap: () => void;
 }>) {
@@ -186,10 +192,15 @@ function ConnectorAddPanel({
         )}
       </div>
       {notConfigured501 && (
-        <Callout tone="danger" live="alert">
+        <Callout tone="danger" live="alert" className="connector-add-note">
           {t("connectors.providerNotConfigured", {
             provider: t(providerLabel[notConfigured501]),
           })}
+        </Callout>
+      )}
+      {connectError && (
+        <Callout tone="danger" live="alert" className="connector-add-note">
+          {connectError}
         </Callout>
       )}
     </>
@@ -374,9 +385,133 @@ function TelegramConnectorPanel() {
   );
 }
 
-export function ConnectorsCard() {
+type ConnectFailure = {
+  provider: Provider | undefined;
+  message: string;
+} | null;
+
+// Which strip of buttons owes the reader the reason a connect failed. One
+// mutation drives two of them — the add block's provider picks and a roster
+// row's Reconnect — so a single shared error region could only ever sit under
+// one, which is how the reason ended up in a band of its own naming no button
+// at all. A provider is either already on the roster or still addable, never
+// both, so the mutation's own variable answers it: the strip offering that
+// provider carries the message and every other strip stays silent.
+function failureOwnedBy(
+  failure: ConnectFailure,
+  owner: readonly Provider[],
+): string | null {
+  if (!failure?.provider || !owner.includes(failure.provider)) {
+    return null;
+  }
+  return failure.message;
+}
+
+// One mail connection, as a full-bleed hairline row on the panel's own ground
+// — not a second bordered card nested inside the first one. Split out of
+// ConnectorsCard for the same reason ConnectorAddPanel and OAuthOutcomeNote
+// were: the row is where most of this card's branching lives, and it does not
+// belong on the card function's complexity budget.
+function ConnectorRow({
+  conn,
+  connectPending,
+  connectError,
+  onReconnect,
+  onImapReconnect,
+  onDisconnect,
+}: Readonly<{
+  conn: CaptureConnection;
+  connectPending: boolean;
+  // Why the reconnect pressed on THIS row failed, or null — reported here,
+  // under the button that produced it, rather than in a band of its own.
+  connectError: string | null;
+  onReconnect: () => void;
+  onImapReconnect: () => void;
+  onDisconnect: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
+  const at = (iso: string) => formatDateTime(iso, locale, "Europe/Berlin");
+  const needsReconnect =
+    conn.status === "reauth_required" || missingSendGrant(conn);
+  return (
+    <PanelRow className="connector-row">
+      <span className="connector-id">
+        <Mail aria-hidden />
+        <span>
+          <strong>{t(providerLabel[conn.provider])}</strong>
+          {conn.account_label && (
+            <span className="t-small connector-account">
+              {conn.account_label}
+            </span>
+          )}
+          <span className="t-small connector-synced">
+            {conn.last_synced_at
+              ? t("connectors.lastSynced", { at: at(conn.last_synced_at) })
+              : t("connectors.neverSynced")}
+          </span>
+          {conn.next_sync_due_at && (
+            <span className="t-small connector-synced">
+              {t("connectors.nextCheck", { at: at(conn.next_sync_due_at) })}
+            </span>
+          )}
+          <span className="t-small connector-synced">
+            {conn.watch_expires_at
+              ? t("connectors.pushRenewal", { at: at(conn.watch_expires_at) })
+              : t("connectors.polled")}
+          </span>
+          {(conn.status === "error" || conn.status === "reauth_required") && (
+            <span className="t-small connector-error">
+              {t(errorClassKey(conn.last_sync_error_class))}
+            </span>
+          )}
+          {/* Named here rather than at send time: the composer's 422 arrives
+              after the rep has written the mail, and it can only be cleared
+              from this card. */}
+          {missingSendGrant(conn) && (
+            <span className="t-small">{t("connectors.reconnectToSend")}</span>
+          )}
+        </span>
+      </span>
+      <span className="connector-actions">
+        <Badge tone={statusTone(conn.status)}>
+          {t(statusLabel(conn.status))}
+        </Badge>
+        {missingSendGrant(conn) && (
+          <Badge tone="warn">{t("connectors.cannotSend")}</Badge>
+        )}
+        {needsReconnect &&
+          (OAUTH_PROVIDERS.has(conn.provider) ? (
+            <Button small disabled={connectPending} onClick={onReconnect}>
+              <RefreshCw aria-hidden /> {t("connectors.reconnect")}
+            </Button>
+          ) : (
+            <Button small onClick={onImapReconnect}>
+              <RefreshCw aria-hidden /> {t("connectors.reconnect")}
+            </Button>
+          ))}
+        <Button small variant="ghost" onClick={onDisconnect}>
+          {t("connectors.disconnect")}
+        </Button>
+      </span>
+      {connectError && (
+        <div className="connector-row-note">
+          <Callout tone="danger" live="alert">
+            {connectError}
+          </Callout>
+        </div>
+      )}
+      {conn.status === "connected" && (
+        <div className="connector-backfill">
+          <BackfillPanel provider={conn.provider} initial={conn.backfill} />
+        </div>
+      )}
+    </PanelRow>
+  );
+}
+
+export function ConnectorsCard() {
+  const t = useT();
   const qc = useQueryClient();
   const [pendingDisconnect, setPendingDisconnect] = useState<Provider | null>(
     null,
@@ -456,11 +591,20 @@ export function ConnectorsCard() {
 
   const present = new Set(rows.map((r) => r.provider));
   const addable = ALL_PROVIDERS.filter((p) => !present.has(p));
+
+  const connectFailure = connect.isError
+    ? {
+        provider: connect.variables,
+        message: problemMessageOf(connect.error, t),
+      }
+    : null;
+
   const addPanel = (
     <ConnectorAddPanel
       addable={addable}
       pending={connect.isPending}
       notConfigured501={notConfigured501}
+      connectError={failureOwnedBy(connectFailure, addable)}
       onConnect={(p) => connect.mutate(p)}
       onImap={() => {
         // A stale "X isn't configured" note from an earlier OAuth attempt
@@ -502,121 +646,24 @@ export function ConnectorsCard() {
       </PanelBody>
       {!notConfigured &&
         rows.map((conn) => (
-          // A full-bleed hairline row on the panel's own ground, not a second
-          // bordered card nested inside the first one.
-          <PanelRow key={conn.id} className="connector-row">
-            <span className="connector-id">
-              <Mail aria-hidden />
-              <span>
-                <strong>{t(providerLabel[conn.provider])}</strong>
-                {conn.account_label && (
-                  <span className="t-small connector-account">
-                    {conn.account_label}
-                  </span>
-                )}
-                <span className="t-small connector-synced">
-                  {conn.last_synced_at
-                    ? t("connectors.lastSynced", {
-                        at: formatDateTime(
-                          conn.last_synced_at,
-                          locale,
-                          "Europe/Berlin",
-                        ),
-                      })
-                    : t("connectors.neverSynced")}
-                </span>
-                {conn.next_sync_due_at && (
-                  <span className="t-small connector-synced">
-                    {t("connectors.nextCheck", {
-                      at: formatDateTime(
-                        conn.next_sync_due_at,
-                        locale,
-                        "Europe/Berlin",
-                      ),
-                    })}
-                  </span>
-                )}
-                <span className="t-small connector-synced">
-                  {conn.watch_expires_at
-                    ? t("connectors.pushRenewal", {
-                        at: formatDateTime(
-                          conn.watch_expires_at,
-                          locale,
-                          "Europe/Berlin",
-                        ),
-                      })
-                    : t("connectors.polled")}
-                </span>
-                {(conn.status === "error" ||
-                  conn.status === "reauth_required") && (
-                  <span className="t-small" style={{ color: "var(--danger)" }}>
-                    {t(errorClassKey(conn.last_sync_error_class))}
-                  </span>
-                )}
-                {/* Named here rather than at send time: the composer's 422
-                      arrives after the rep has written the mail, and it can
-                      only be cleared from this card. */}
-                {missingSendGrant(conn) && (
-                  <span className="t-small">
-                    {t("connectors.reconnectToSend")}
-                  </span>
-                )}
-              </span>
-            </span>
-            <span className="connector-actions">
-              <Badge tone={statusTone(conn.status)}>
-                {t(statusLabel(conn.status))}
-              </Badge>
-              {missingSendGrant(conn) && (
-                <Badge tone="warn">{t("connectors.cannotSend")}</Badge>
-              )}
-              {(conn.status === "reauth_required" || missingSendGrant(conn)) &&
-                (OAUTH_PROVIDERS.has(conn.provider) ? (
-                  <Button
-                    small
-                    disabled={connect.isPending}
-                    onClick={() => connect.mutate(conn.provider)}
-                  >
-                    <RefreshCw aria-hidden /> {t("connectors.reconnect")}
-                  </Button>
-                ) : (
-                  <Button small onClick={() => setImapConnectOpen(true)}>
-                    <RefreshCw aria-hidden /> {t("connectors.reconnect")}
-                  </Button>
-                ))}
-              <Button
-                small
-                variant="ghost"
-                onClick={() => setPendingDisconnect(conn.provider)}
-              >
-                {t("connectors.disconnect")}
-              </Button>
-            </span>
-            {conn.status === "connected" && (
-              <div className="connector-backfill">
-                <BackfillPanel
-                  provider={conn.provider}
-                  initial={conn.backfill}
-                />
-              </div>
-            )}
-          </PanelRow>
+          <ConnectorRow
+            key={conn.id}
+            conn={conn}
+            connectPending={connect.isPending}
+            connectError={failureOwnedBy(connectFailure, [conn.provider])}
+            onReconnect={() => connect.mutate(conn.provider)}
+            onImapReconnect={() => setImapConnectOpen(true)}
+            onDisconnect={() => setPendingDisconnect(conn.provider)}
+          />
         ))}
       {!notConfigured &&
         rows.length > 0 &&
         (addable.length > 0 || notConfigured501) && (
-          <PanelBody className="connector-add">
+          <PanelBody>
             <SectionHeader title={t("connectors.addConnection")} level={3} />
             {addPanel}
           </PanelBody>
         )}
-      {connect.isError && (
-        <PanelBody>
-          <Callout tone="danger" live="alert">
-            {problemMessageOf(connect.error, t)}
-          </Callout>
-        </PanelBody>
-      )}
       <ConfirmModal
         open={pendingDisconnect !== null}
         onClose={() => setPendingDisconnect(null)}
@@ -641,7 +688,7 @@ export function ConnectorsCard() {
         onClose={() => setImapConnectOpen(false)}
         onConnected={() => setImapConnectOpen(false)}
       />
-      <PanelBody className="connector-add">
+      <PanelBody>
         <SectionHeader
           title={t("connectors.telegramTitle")}
           sub={t("connectors.telegramSub")}

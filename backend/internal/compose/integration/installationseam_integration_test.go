@@ -26,8 +26,8 @@ import (
 func baseCurrencyOnUSD(t *testing.T, e *Env) {
 	t.Helper()
 	e.WsExec(t, `UPDATE setting SET value = '"USD"'::jsonb WHERE key = 'installation.base_currency'`)
-	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		VALUES ($1, 'EUR', 'USD', '1.1000000000', CURRENT_DATE - 1)`, e.WS)
+	e.WsExec(t, `INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
+		VALUES ('EUR', 'USD', '1.1000000000', CURRENT_DATE - 1)`)
 }
 
 // Closing a EUR deal freezes the EUR→USD rate. The identity rate 1 is what a

@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button, Field, Modal, TextInput } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import { statusLabel, statusTone } from "./connector-status";
@@ -176,13 +177,9 @@ export function TelegramConnectForm({
             )}
           </Field>
           {errorMessage && (
-            <p
-              role="alert"
-              className="t-caption"
-              style={{ color: "var(--danger)" }}
-            >
+            <Callout tone="danger" live="alert">
               {errorMessage}
-            </p>
+            </Callout>
           )}
           <div className="actions">
             <Button

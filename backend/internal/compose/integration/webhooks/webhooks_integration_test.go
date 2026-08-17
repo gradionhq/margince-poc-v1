@@ -656,9 +656,9 @@ func (we *webhookEnv) seedProduct(t *testing.T, name string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	we.execInWorkspace(t,
-		`INSERT INTO product (id, workspace_id, name, unit_price_minor, currency, source, captured_by)
-		 VALUES ($1, $2, $3, 1000, 'USD', 'manual', 'human:x')`,
-		id, we.wsID, name)
+		`INSERT INTO product (id, name, unit_price_minor, currency, source, captured_by)
+		 VALUES ($1, $2, 1000, 'USD', 'manual', 'human:x')`,
+		id, name)
 	return id
 }
 

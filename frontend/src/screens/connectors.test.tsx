@@ -275,6 +275,16 @@ describe("the connected-inboxes card", () => {
       expect(requestsTo(calls, "/connect", "POST").length).toBe(1),
     );
     expect(await screen.findByText(/connect failed/)).toBeTruthy();
+    // Announced, and attached to the button that produced it: the reason
+    // renders inside the same roster row as the Reconnect that was pressed,
+    // never in a band of its own under an unrelated heading.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/connect failed/);
+    const row = screen
+      .getByRole("button", { name: /Reconnect/ })
+      .closest(".panel-row");
+    expect(row).not.toBeNull();
+    expect(row?.contains(alert)).toBe(true);
   });
 
   it("disconnects only after an explicit confirm", async () => {
@@ -484,7 +494,10 @@ describe("add a connection", () => {
     stubApi([gmailConnected]);
     render(<ConnectorsCard />);
     await screen.findByText("Add a connection");
-    const add = screen.getByText("Add a connection").closest(".connector-add");
+    // The block is scoped by the panel section its heading leads: the seam
+    // between two sections is the panel's own adjacency rule now, so the block
+    // no longer carries a screen class of its own to name it by.
+    const add = screen.getByText("Add a connection").closest(".panel-body");
     expect(add).not.toBeNull();
     const panel = add as HTMLElement;
     expect(within(panel).queryByRole("button", { name: "Gmail" })).toBeNull();
@@ -523,6 +536,24 @@ describe("add a connection", () => {
     expect(
       await screen.findByText("Microsoft isn't configured in this deployment."),
     ).toBeTruthy();
+  });
+
+  it("reports a refused connect directly under the buttons that produced it", async () => {
+    stubApi([gmailConnected], { connect: { status: 502 } });
+    render(<ConnectorsCard />);
+    await screen.findByText("Add a connection");
+    await userEvent.click(screen.getByRole("button", { name: "Microsoft" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/connect failed/);
+    // Inside the same block as the picks, and immediately after the strip of
+    // them — not in a section of its own between the roster and an unrelated
+    // heading, where nothing says which press it answers.
+    const block = screen.getByText("Add a connection").closest(".panel-body");
+    expect(block?.contains(alert)).toBe(true);
+    expect(alert.previousElementSibling?.className).toContain(
+      "connector-add-actions",
+    );
   });
 
   it("hides the footer when all four providers are connected", async () => {

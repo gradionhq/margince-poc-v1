@@ -149,14 +149,20 @@ type liveEntity struct {
 func (s *Store) liveEntitiesOf(ctx context.Context, entityType string, src pendingSource) ([]liveEntity, error) {
 	var items []liveEntity
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		// Scoped by the query itself: tenant isolation used to bound this scan
-		// to one workspace, so a re-embed pass now has to say so or it rebuilds
-		// the whole installation's index under every workspace it is given
-		// (ADR-0091 §8 phase A).
+		// Scoped by the query itself, and conditionally: tenant isolation used
+		// to bound this scan, so a re-embed pass has to say so or it rebuilds
+		// the whole installation's index under every workspace it is given.
+		// The condition is pendingSource.tenantScoped's — phase D has reached
+		// some of these tables and not others, and one templated statement
+		// cannot spell a predicate for a column half of them no longer have.
+		scope := ""
+		if src.tenantScoped {
+			scope = `
+			   AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+		}
 		sql := fmt.Sprintf(`SELECT t.id, %s FROM %s t
-			 WHERE t.archived_at IS NULL
-			   AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
-			src.text, src.table)
+			 WHERE t.archived_at IS NULL%s`,
+			src.text, src.table, scope)
 		rows, err := tx.Query(ctx, sql)
 		if err != nil {
 			return fmt.Errorf("search: selecting live %s rows: %w", entityType, err)

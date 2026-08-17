@@ -16,7 +16,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // resetDrainWindow bounds how long a reset waits for running jobs before it
@@ -79,16 +78,16 @@ type resetLane struct {
 	serverFlush func(ids.UUID)
 }
 
-// newResetLane assembles the lane, or nothing at all in production. The
-// endpoint's 404 there is the contract; a production process that holds no
-// queue-pausing, stream-deleting machinery at all is the stronger guarantee
-// behind it. env is the posture its caller already read for the endpoint
-// itself — one read, so the two cannot disagree about which one is live.
+// newResetLane assembles the lane, or nothing at all when the installation did
+// not arm the reset. The endpoint's 404 is the contract; a process that holds
+// no queue-pausing, stream-deleting machinery at all is the stronger guarantee
+// behind it. allowed is the same switch its caller already read for the
+// endpoint itself — one read, so the two cannot disagree about which is live.
 //
 // rdb is this role's shared Redis handle (sharedRedisClient): the reset purges
 // the bus and announces itself over that one connection, never a new one.
-func newResetLane(env runtimeenv.Environment, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) (*resetLane, error) {
-	if !env.IsNonProduction() {
+func newResetLane(allowed bool, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) (*resetLane, error) {
+	if !allowed {
 		return &resetLane{}, nil
 	}
 	// Insert-only, like every other River client this role builds: the reset

@@ -248,6 +248,73 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
     expect(violations, violations.join("\n")).toEqual([]);
   });
 
+  // One spelling of the button. `Button` (design-system/atoms.tsx) is what
+  // emits `btn` — a `className` that spells the base class itself is a
+  // hand-rolled copy of it, and a copy is frozen at the day it was written: the
+  // width floor, the focus ring, the icon sizing and the shared control height
+  // all landed on Button and reached none of the ten copies this gate was
+  // written to clear.
+  //
+  // The rule is deliberately narrow so it states its own exception. It matches
+  // the `btn` BASE token only — a `.btn-*` modifier in a STYLESHEET is how the
+  // variants are declared, and a component class that merely ends in `btn`
+  // (`iconbtn`, `lt-btn`) is a different control. And it matches every element
+  // EXCEPT an anchor: `Button` renders a `<button>`, so a link that looks like
+  // a button (screens/client.tsx's "create a lead" href) has no component to
+  // reach for and is legitimately styled by hand.
+  it("renders every button through Button — no hand-rolled btn classes", () => {
+    const violations: string[] = [];
+    for (const file of files) {
+      // atoms.tsx is Button's own file: it is where `btn` is minted.
+      if (!file.endsWith(".tsx") || file.endsWith("design-system/atoms.tsx")) {
+        continue;
+      }
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.ES2022,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      const visit = (node: ts.Node) => {
+        if (ts.isJsxAttribute(node) && node.name.getText() === "className") {
+          const element = node.parent.parent;
+          const tag = element.tagName.getText();
+          // Every literal fragment the className can evaluate to, so a
+          // conditional or an interpolated class list is read too.
+          const fragments: string[] = [];
+          const collect = (child: ts.Node) => {
+            if (
+              ts.isStringLiteral(child) ||
+              ts.isTemplateLiteralToken(child) ||
+              ts.isJsxText(child)
+            ) {
+              fragments.push(child.text);
+            }
+            ts.forEachChild(child, collect);
+          };
+          if (node.initializer) {
+            collect(node.initializer);
+          }
+          const handRolled = fragments.some((fragment) =>
+            fragment.split(/\s+/).includes("btn"),
+          );
+          if (handRolled && tag !== "a") {
+            const { line } = source.getLineAndCharacterOfPosition(
+              node.getStart(),
+            );
+            violations.push(
+              `${relative(frontendRoot, file)}:${line + 1} <${tag}> spells the btn class by hand — import Button from design-system/atoms`,
+            );
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+
   it("keeps literal colours in tokens.css only — everything else reads a token", () => {
     const literalColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch)\(/;
     for (const file of files) {

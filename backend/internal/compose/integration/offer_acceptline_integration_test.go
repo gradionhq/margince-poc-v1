@@ -51,10 +51,10 @@ func stageLine(t *testing.T, e *Env, offerID crmcontracts.Id, position int) ids.
 	t.Helper()
 	lineID := ids.NewV7()
 	e.WsExec(t, `
-		INSERT INTO offer_line_item (id, workspace_id, offer_id, position, description,
+		INSERT INTO offer_line_item (id, offer_id, position, description,
 		                             quantity, unit_price_minor, tax_rate, proposal_state)
-		VALUES ($1, $2, $3, $4, 'AI-proposed support', 2, 5000, 19.00, 'staged')`,
-		lineID, e.WS, ids.UUID(offerID), position)
+		VALUES ($1, $2, $3, 'AI-proposed support', 2, 5000, 19.00, 'staged')`,
+		lineID, ids.UUID(offerID), position)
 	return lineID
 }
 

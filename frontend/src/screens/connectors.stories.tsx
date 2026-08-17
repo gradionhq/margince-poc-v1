@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { ConnectorsCard } from "./connectors";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -172,6 +173,50 @@ export const EmptyStateAllProviders: Story = {
 
 export const OneConnectedWithFooter: Story = {
   render: cardStory([gmailConnected]),
+};
+
+// A refused connect reports itself under the buttons that produced it, not in
+// a band of its own further down the card. One `connect` mutation serves both
+// strips, so both placements are worth seeing: the add block's provider picks,
+// and a roster row's Reconnect.
+function connectFailureStory(connections: CaptureConnection[], path: string) {
+  return () => {
+    installFetchStub({
+      "GET /connectors": () => jsonResponse({ data: connections }),
+      [`POST /connectors/${path}/connect`]: () =>
+        jsonResponse(
+          { title: "Bad Gateway", detail: "The provider did not answer." },
+          502,
+        ),
+    });
+    return (
+      <StoryProviders>
+        <ConnectorsCard />
+      </StoryProviders>
+    );
+  };
+}
+
+export const AddConnectionFailed: Story = {
+  render: connectFailureStory([gmailConnected], "graph"),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Microsoft" }),
+    );
+    await canvas.findByRole("alert");
+  },
+};
+
+export const ReconnectFailed: Story = {
+  render: connectFailureStory([gcalReauth], "gcal"),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /Reconnect/ }),
+    );
+    await canvas.findByRole("alert");
+  },
 };
 
 export const LoadFailed: Story = {

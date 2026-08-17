@@ -414,14 +414,15 @@ paths:
       operationId: resetData
       security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
       x-agent-access: human-only
-      summary: Reset a non-production installation to its first-boot state.
+      summary: Reset an installation that armed the capability to its first-boot state.
       description: >
-        Non-production only. Wipes workspace domain + seeded-config data back to the
-        bootstrapped state, preserving the organization and users so login still works,
-        then re-seeds module defaults. Also clears the job queue, the event bus, the
+        Served only where the deployment set `operations.allow_data_reset`; the compiled
+        default is false in every posture. Wipes workspace domain + seeded-config data back
+        to the bootstrapped state, preserving the organization and users so login still
+        works, then re-seeds module defaults. Also clears the job queue, the event bus, the
         Redis counters and the object bytes — not only table rows. Requires the
-        organization name as a typed confirmation. In production this endpoint does
-        not exist (404).
+        organization name as a typed confirmation. `GET /me` reports the same value as
+        `data_reset_available`, so a client never offers what this would refuse.
       requestBody:
         required: true
         content:
@@ -480,9 +481,10 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '404':
           description: >
-            The endpoint is unavailable in this environment — production, or an
-            unset/unknown MARGINCE_ENV. It is served only under a non-production
-            posture; the body is the standard problem document.
+            This installation did not arm `operations.allow_data_reset`, so the operation
+            does not exist here. Checked before authentication, so it is a 404 rather than
+            a 403 for every caller — the answer discloses nothing about who asked. The body
+            is the standard problem document.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -6663,21 +6665,24 @@ paths:
         the process runs, so this reports what the installation last resolved rather than
         asking anything.
 
-        `state` is the posture: `valid` (a license the module honored), `absent` (none
-        configured — a supported state that runs), or `rejected` (one the module refused; an
-        installation in that state does not serve, so a client never sees it from a live
-        server).
+        `state` is the posture: `valid` (a license the module honored), `absent` (no license
+        configured, which only a non-production installation may run as), or `rejected` (one
+        the module refused). A serving process boots on a license or does not boot, so a client
+        reading this from a live server sees `valid` — or `absent` on a development
+        installation.
 
         `seats_granted` is ABSENT when there is no seat cap to report — no license, or one
         whose grant carries no seat count. That is not the same as a grant of zero seats, and a
         client that renders a missing value as `0` would tell an admin their license permits
-        nobody. `seats_used` counts full seats that are not deactivated; read seats are
-        unlimited and never metered (A62/ADR-0047).
+        nobody. `seats_used` counts every full seat the installation has not withdrawn —
+        neither deactivated nor suspended; read seats are unlimited and never metered
+        (A62/ADR-0047).
 
         `over_limit` is the server's own verdict on the pair, so a client cannot arrive at a
-        different answer than the one the installation acts on. Being over the limit is
-        reported, never enforced here: the workspace keeps working, which is P7's
-        warning-then-grace rather than a silent mid-month lockout.
+        different answer than the one the installation acts on. Nobody is ever demoted or
+        evicted by it and no session ends — what an exhausted entitlement stops is the NEXT
+        full seat, refused at `POST /users` and at reactivation with `seat_limit_reached`.
+        That is P7's warning-then-refusal rather than a silent mid-month lockout.
 
         Admin/ops-only, read included: a seat meter is the installation's commercial standing,
         and a rep reads their own seat elsewhere (UC-ADMIN-03 F1). Governed by the `license`
@@ -8468,7 +8473,18 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
+        '403':
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `permission_denied` (the caller is not an admin), or
+            `seat_limit_reached` — every full seat this installation's license grants is in
+            use. An invited member is a full seat, so no member is created; the `detail`
+            carries the granted and used counts, and an admin resolves it by deactivating a
+            member or licensing more seats. Nothing about it clears on its own, so a client
+            must not retry it.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '404':
           description: >-
             Not found, with the reason distinguished by the problem `code`:
@@ -8585,7 +8601,17 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/User' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
+        '403':
+          description: >-
+            Refused, with the reason distinguished by the problem `code`:
+            `permission_denied` (the caller is not an admin), or
+            `seat_limit_reached` — a deactivated member counts against nothing, so returning
+            a FULL seat to active takes one exactly as an invite does, and every seat this
+            installation's license grants is in use. The member stays deactivated. A read
+            seat is never refused here: read seats are unlimited and never counted.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
           description: >-
@@ -12947,8 +12973,10 @@ components:
           type: integer
           minimum: 0
           description: |
-            Full seats in use: not deactivated. Read seats are unlimited and never counted
-            (A62/ADR-0047).
+            Full seats in use: every one the installation has not withdrawn — neither
+            deactivated nor suspended — agent seats included. Read seats are unlimited and
+            never counted (A62/ADR-0047). This is the number a seat creation is refused
+            against, so the meter and the ceiling can never disagree.
         over_limit:
           type: boolean
           description: |
@@ -19513,13 +19541,25 @@ components:
           type: string
           description: >
             The installation's organization name (the installation.name setting). Shown as the
-            typed-confirmation target of the non-production "Reset data" action —
+            typed-confirmation target of the "Reset data" action —
             the exact string that endpoint validates.
         non_production:
           type: boolean
           description: >
-            True when the installation runs a non-production posture
-            (MARGINCE_ENV). Gates the client-side "Reset data" action.
+            True when the installation runs a non-production posture (MARGINCE_ENV=dev|test).
+            DEPRECATED as the gate for the "Reset data" action — read `data_reset_available`
+            instead. A deployment being non-production is not consent to purge its tenant
+            data, and inferring one from the other is why a `staging` installation full of
+            real internal users could be wiped through the API.
+          deprecated: true
+        data_reset_available:
+          type: boolean
+          description: >
+            True when this installation armed `operations.allow_data_reset` in its deployment
+            file. It is the SAME value `POST /admin/reset-data` gates on, so a client never
+            renders an action for a route that would answer 404. Absent or false means the
+            capability does not exist here — the compiled default in every posture, dev
+            included.
         admin_password_link:
           type: boolean
           description: >

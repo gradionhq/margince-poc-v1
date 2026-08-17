@@ -31,25 +31,70 @@ func New() extension.Extension {
 // operator resolves (see extension.SecretsRequest) — the reader derives
 // its key and scope, sorted by key so the encoding does not depend on
 // declaration order.
+//
+// Two keys in ONE scope, run once per scope: a unit declaring both is refused
+// (see TestSecretsSpanningBothScopesIsRejected), so the only way to pin both
+// published spellings is to derive a unit for each.
 func TestSecretsDeriveIntoManifest(t *testing.T) {
+	for _, tc := range []struct{ constant, wire string }{
+		{"extension.SecretScopeUser", "user"},
+		{"extension.SecretScopeWorkspace", "workspace"},
+	} {
+		t.Run(tc.wire, func(t *testing.T) {
+			src := secretsUnitSource(
+				"\t\t\t{Key: \"signing\", Scope: " + tc.constant + "},\n" +
+					"\t\t\t{Key: \"api_token\", Scope: " + tc.constant + "},\n")
+			derived, err := deriveSynthetic(t, "x", src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := string(derived)
+			for _, want := range []string{
+				`"key": "api_token"`, `"key": "signing"`, `"scope": "` + tc.wire + `"`,
+			} {
+				if !strings.Contains(s, want) {
+					t.Errorf("derived manifest misses %s:\n%s", want, s)
+				}
+			}
+			if strings.Index(s, "api_token") > strings.Index(s, "signing") {
+				t.Fatalf("secrets are not sorted by key:\n%s", s)
+			}
+		})
+	}
+}
+
+// TestSecretsSpanningBothScopesIsRejected: a unit's settings entry is placed
+// by the ONE scope its secrets ask for — a `user` secret is a member's own
+// credential and belongs on their Connections page, a `workspace` secret is
+// the installation's and belongs under Integrations. A unit holding both has
+// no answer, and either tie-break would hide half of it from whoever holds the
+// other half, so the declaration is refused instead.
+func TestSecretsSpanningBothScopesIsRejected(t *testing.T) {
 	src := secretsUnitSource(
 		"\t\t\t{Key: \"signing\", Scope: extension.SecretScopeWorkspace},\n" +
 			"\t\t\t{Key: \"api_token\", Scope: extension.SecretScopeUser},\n")
-	derived, err := deriveSynthetic(t, "x", src)
-	if err != nil {
-		t.Fatal(err)
+	_, err := deriveSynthetic(t, "x", src)
+	if err == nil || !strings.Contains(err.Error(), "a unit declares ONE scope") {
+		t.Fatalf("err = %v, want the mixed-scope refusal", err)
 	}
-	s := string(derived)
-	for _, want := range []string{
-		`"key": "api_token"`, `"scope": "user"`,
-		`"key": "signing"`, `"scope": "workspace"`,
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("derived manifest misses %s:\n%s", want, s)
+	// The message has to name BOTH keys: an author reading only the second one
+	// cannot tell which declaration it disagrees with.
+	for _, want := range []string{`"api_token"`, `"signing"`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %s: %v", want, err)
 		}
 	}
-	if strings.Index(s, "api_token") > strings.Index(s, "signing") {
-		t.Fatalf("secrets are not sorted by key:\n%s", s)
+}
+
+// A unit declaring several secrets in ONE scope is ordinary and must still
+// derive — the guard above rejects the mix, not the plural.
+func TestSeveralSecretsInOneScopeAreAccepted(t *testing.T) {
+	src := secretsUnitSource(
+		"\t\t\t{Key: \"signing\", Scope: extension.SecretScopeUser},\n" +
+			"\t\t\t{Key: \"api_token\", Scope: extension.SecretScopeUser},\n" +
+			"\t\t\t{Key: \"refresh\", Scope: extension.SecretScopeUser},\n")
+	if _, err := deriveSynthetic(t, "x", src); err != nil {
+		t.Fatalf("three user-scoped secrets must derive: %v", err)
 	}
 }
 

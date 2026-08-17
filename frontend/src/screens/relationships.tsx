@@ -26,6 +26,7 @@ import { problemMessageOf, QueryGate, throwProblem } from "./common";
 import type { CreateField } from "./create";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
+import "./candidatepicker.css";
 
 // The Relationships tab (P-5): the one surface a person/company 360 renders
 // its relationship edges through (employment, deal stakeholder, partner-of,
@@ -423,15 +424,13 @@ function AddRelationshipAction({
           <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
             {candidates.map((candidate) => (
               <li key={candidate.id}>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
+                <Button
+                  className="candidate-option"
                   aria-pressed={target?.id === candidate.id}
                   onClick={() => setTarget(candidate)}
-                  style={{ width: "100%", textAlign: "left" }}
                 >
                   {candidate.name}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>

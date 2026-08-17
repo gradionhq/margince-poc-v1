@@ -191,9 +191,8 @@ function renderSubjectList(
         const already = grantedSubjectIds.has(candidate.id);
         return (
           <li key={candidate.id}>
-            <button
-              type="button"
-              className="btn btn-ghost share-subject-row"
+            <Button
+              className="share-subject-row"
               disabled={already}
               aria-pressed={selected?.id === candidate.id}
               onClick={() => onPick(candidate)}
@@ -205,7 +204,7 @@ function renderSubjectList(
               <span className="share-subject-note">
                 {already ? t("share.alreadyGranted") : candidate.note}
               </span>
-            </button>
+            </Button>
           </li>
         );
       })}

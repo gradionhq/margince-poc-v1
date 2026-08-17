@@ -59,12 +59,18 @@ bootstrap_admin:
 # its entitlement like any other. A file reference, never an inline value: the
 # token is a credential and this file is not.
 #
-# Omitted, the installation runs unlicensed, which is what every dev and CI
-# process here does. Configured and REFUSED, the api and the worker both refuse
-# to boot — a license that is present and unhonored is an operator mistake, not a
+# Omitted, a PRODUCTION installation refuses to boot: it serves on a license or
+# it does not serve, and MARGINCE_ENV is fail-closed, so an installation that
+# names no posture is production. A dev or CI process runs unlicensed by saying
+# so (MARGINCE_ENV=dev), which is what every lane in this repository does.
+# Configured and REFUSED, the api and the worker both refuse to boot in every
+# posture — a license that is present and unhonored is an operator mistake, not a
 # downgrade to choose silently. MARGINCE_LICENSE overrides the file when it holds
 # a non-empty value; exporting it empty falls through to the file rather than
 # switching the installation off.
+#
+# What the license grants is also enforced: once every licensed full seat is in
+# use, inviting a member is refused. Nobody already working loses anything.
 # license:
 #   token_file: config/margince-license
 
@@ -157,3 +163,22 @@ mcp:
 # company data. Stages include the prior stage: off < read < tasks < onboarding.
 company_context:
   rollout: onboarding
+
+# Ops kill switches (OPS-CFG-9): capabilities this installation turns on
+# deliberately, in the file the deployment reviews. The whole section is
+# COMMENTED OUT, and that is the shipped posture — every switch is off unless an
+# operator writes it, so a deployment that mounts this file as-is arms nothing.
+#
+# `make dev` appends the dev arming to its own copy (config/margince.yaml) when
+# it seeds it, which is why a dev stack has the Reset data button and this file
+# still does not.
+#
+# operations:
+#   # Arms POST /v1/admin/reset-data, the lanes behind it, and the "Reset data"
+#   # action /me offers. It PURGES this installation's tenant data back to its
+#   # first-boot state.
+#   #
+#   # Not derived from MARGINCE_ENV: a deployment being called dev or staging is
+#   # not consent to erase what is in it. Not a `setting` row either — an admin
+#   # must not be able to arm their own tenant's purge through the API.
+#   allow_data_reset: true

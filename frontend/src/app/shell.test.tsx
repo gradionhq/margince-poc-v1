@@ -164,7 +164,13 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     expect(active[0].getAttribute("aria-label")).toBe("Pipeline");
   });
 
-  it("marks nothing active on a non-rail screen", () => {
+  // Settings is a DOOR rather than one of the ten destinations, so none of the
+  // level's rows can carry it — and with no section mounted there is no tab row
+  // to carry it either. The door itself answers, which is what keeps the
+  // document's "exactly ONE current page" true rather than silent. (In the app
+  // a settings route mounts SettingsRail, which supplies the section, and the
+  // reader's own tab row is current instead — the case below it.)
+  it("marks the Settings door current on a settings route with no section", () => {
     render(
       <WorkspaceRail
         route={{ screen: "settings" }}
@@ -174,7 +180,45 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     const active = screen
       .getAllByRole("link")
       .filter((link) => link.getAttribute("aria-current") === "page");
-    expect(active).toHaveLength(0);
+    expect(active).toHaveLength(1);
+    expect(active[0].getAttribute("aria-label")).toBe("Settings");
+  });
+
+  // A composed unit's screen has no row in the rail — it is offered from
+  // Settings — so the Settings door is what says where the reader is. This is a
+  // RENDER assertion on purpose: the route→activeId half is a string that
+  // resolves to a rendered element or to nothing at all, and a data-level test
+  // reads identically either way. It read identically for a whole release once
+  // already, which is why this one exists.
+  it("marks the Settings door current on a composed unit's screen", () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "ext", id: "dispact-connector" }}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    const active = screen
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "page");
+    expect(active).toHaveLength(1);
+    expect(active[0].getAttribute("aria-label")).toBe("Settings");
+  });
+
+  // The other direction, and the one a wrong predicate breaks silently: a
+  // destination that HAS a row keeps it, and the door does not claim a second
+  // current page beside it.
+  it("leaves the Settings door quiet on a destination that has its own row", () => {
+    render(
+      <WorkspaceRail
+        route={{ screen: "reports" }}
+        onOpenSearch={ignoreSearch}
+      />,
+    );
+    const active = screen
+      .getAllByRole("link")
+      .filter((link) => link.getAttribute("aria-current") === "page");
+    expect(active).toHaveLength(1);
+    expect(active[0].getAttribute("aria-label")).toBe("Reports");
   });
 
   it("renders count badges only for provided positive counts", () => {
@@ -396,10 +440,12 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     expect(levelLabels()).toEqual(CANONICAL_ORDER);
   });
 
-  // The door is a way in, not a place: standing inside the section the level is
-  // on screen carrying the reader's own entry, and the document must offer
-  // exactly one current page. A door that claimed it would be the second.
-  it("never lets the Settings door claim the current page", () => {
+  // The door yields to the level whenever the level can answer: standing inside
+  // the section, the reader's own entry is on screen and current, and a door
+  // claiming the page beside it would be the second claim. It speaks only where
+  // no row can (the two cases above) — one current page either way, which is
+  // the invariant the door is silent for, not silence itself.
+  it("yields the current-page claim to the reader's own settings entry", () => {
     render(
       <WorkspaceRail
         route={{ screen: "settings", id: "account" }}

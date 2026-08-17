@@ -5,16 +5,24 @@
  * right in both themes, and a literal colour is the one thing that cannot be.
  */
 
+/* No margin of its own. The body is a `form-stack` now, so ONE gap separates
+ * every block in this card; before, the intervals down the card read
+ * 0 / 12 / 8 / 0 / 0 because three blocks paid their own margin and three paid
+ * nothing — which is how the Load-more button ended up butted against the last
+ * row with no separation at all. */
 .capture-activity__scope-note {
   color: var(--textMeta);
   font-size: var(--fs-sm);
-  margin: var(--space-3) 0;
 }
 
+/* A ruled list, not a stack of separated cards. The gap was 8px and every row
+ * drew a `border-bottom`, so each hairline floated in the middle of the space
+ * between two rows instead of dividing them — and the last row drew one with
+ * nothing under it, because there was no `:last-child` reset. A rule that
+ * divides has to touch what it divides. */
 .capture-activity__list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   list-style: none;
   margin: 0;
   padding: 0;
@@ -24,8 +32,11 @@
  * It folds to a stack rather than scrolling sideways: this is a settings
  * surface inside a column, and a horizontally scrolling list of one's own mail
  * is a worse answer than a taller one. */
-.capture-activity__row {
-  border-bottom: 1px solid var(--borderSubtle);
+/* `border-top` with the first row exempt, which is `PanelRow`'s shape and the
+ * house spelling: N rows draw N-1 rules, and the list cannot end on a hairline
+ * pointing at nothing. */
+.capture-activity__row + .capture-activity__row {
+  border-top: 1px solid var(--borderSubtle);
 }
 
 .capture-activity__when,
@@ -80,30 +91,20 @@
 
 /* The funnel slots are filters. A pressed button rather than a Switch: a
  * Switch IS the action it names, and narrowing a list is not an action on the
- * data — it changes what this reader is looking at and nothing else. */
-.capture-activity__funnel-slot {
-  all: unset;
-  cursor: pointer;
-  display: block;
-}
-
-.capture-activity__funnel-slot:focus-visible {
-  border-radius: var(--r-md);
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.capture-activity__funnel-slot[aria-pressed="true"] {
-  background: var(--bgHover);
-  border-radius: var(--r-md);
-  box-shadow: inset 0 0 0 1px var(--accent);
-}
+ * data — it changes what this reader is looking at and nothing else.
+ *
+ * Nothing left to declare. StatStrip owns a slot that is a control now: the
+ * button's own chrome, the reset that reaches the card inside it, the pressed
+ * fill and the focus ring all live in statstrip.css beside the plate's other
+ * chrome. This used to be `all: unset` plus a pressed state and a focus ring,
+ * and the `all: unset` tied `.stat-strip > *` on specificity — so which of them
+ * drew the slot was decided by stylesheet import order rather than by intent,
+ * and the pressed fill was repainted by the StatCard's own background anyway. */
 
 /* Both numbers, so a filtered view can never be read as the whole window. */
 .capture-activity__count {
   color: var(--textMeta);
   font-size: var(--fs-sm);
-  margin: var(--space-2) 0;
 }
 
 /* The row is one button carrying the grid, so the whole row is the target and

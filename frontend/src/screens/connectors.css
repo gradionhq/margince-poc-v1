@@ -59,29 +59,41 @@
 .connector-synced {
   color: var(--textSecondary);
 }
-.connector-actions {
+/* The row's own failure sentence. A class rather than an inline style, so the
+   danger tone is named in a stylesheet like every other colour in the tree. */
+.connector-error {
+  color: var(--danger);
+}
+/* The verbs on a roster row and the provider picks under "Add a connection"
+   are ONE row shape, declared once — two strips of buttons that disagreed
+   about alignment (one centred, one left to the flex default) drew the same
+   thing two different ways.
+
+   The buttons keep their own widths on purpose. `small` is the rung that
+   deliberately drops `.btn`'s 6rem floor (design-system/base.css says why: it
+   lives in dense rows, where a floor is what breaks the layout), and a shared
+   minimum only aligns buttons that are STACKED. Side by side, every label
+   longer than the floor still sets its own width, so a floor here would widen
+   "Gmail" toward "Google Calendar" without ever making the two ends line up. */
+.connector-actions,
+.connector-add-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-/* Forces the mounted BackfillPanel onto its own line below the row's id +
-   actions (the row itself is flex-wrap: wrap; a 100%-width child can't share
-   a line with its siblings so it wraps). */
-.connector-backfill {
+/* A note that belongs to the row above it: the BackfillPanel, and the reason a
+   reconnect from this row failed. The row is flex-wrap: wrap, so a 100%-basis
+   child cannot share a line with its siblings and drops below them. */
+.connector-backfill,
+.connector-row-note {
   flex-basis: 100%;
   min-width: 0;
   margin-top: var(--space-2);
 }
 
-/* "Add a connection", and the Telegram section under it: two blocks that read
-   as additions to the roster above rather than as part of it. Each sits on the
-   panel's own body padding and is fenced off by a rule at its top. */
-.connector-add {
-  border-top: 1px solid var(--borderSubtle);
-}
-.connector-add-actions {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+/* A failure reported directly under the buttons that produced it still needs
+   to read as a separate thing from them, not as a fifth item in the strip. */
+.connector-add-note {
+  margin-top: var(--space-3);
 }

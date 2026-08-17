@@ -125,9 +125,9 @@
   flex-direction: column;
   /* Centred, and the whole column with it: the heading, the sentence under it,
      the divider, the switcher and the fine print all read down one centre line.
-     The FIELDS are the exception and stay left (see `.auth-field` and
-     `.auth-input`): a label centred over a line of typing points at nothing, and
-     a centred value is not how anyone reads what they typed. */
+     The FIELDS are the exception and stay left (see `.auth-fields`): a label
+     centred over a line of typing points at nothing, and a centred value is not
+     how anyone reads what they typed. */
   align-items: center;
   text-align: center;
   gap: var(--space-6);
@@ -244,7 +244,13 @@
   flex: none;
   width: 100%;
   min-width: 0;
-  min-height: 46px;
+  /* The same box as the fields under it. This was 46px, chosen to match the
+     field shell this surface used to draw for itself; both read the shared
+     control height now, so the provider buttons and the address field below
+     them are one column of controls rather than two sizes of one. The touch
+     floor still applies — it is on the token, and it rises for a coarse
+     pointer. */
+  min-height: var(--control-h);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -326,146 +332,29 @@
   background: var(--borderSubtle);
 }
 
+/* The field-to-field rhythm, and nothing else: the fields themselves are the
+   design system's (`Field` in atoms.tsx — label row, shell, hint and refusal).
+   This surface used to carry its own copy of all of that, which is how the
+   sign-in screens ended up with a label size, a gap and a hint the rest of the
+   product had never heard of.
+
+   --space-3, the same 12px `.form-stack` gives every other form in the product:
+   the surface is not a different kind of form, and at 8px its fields sat tighter
+   than the ones behind the sign-in. */
 .auth-fields {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
   margin-top: var(--space-6);
+  /* Left, inside a centred column: a field is read from its left edge — the
+     label, the caret, the value it holds. The heading, the sentence under it and
+     the switcher stay on the column's centre line. */
+  text-align: left;
 }
 /* When the federated block is present it already carries the divider's spacing,
    so the fields must not add a second gap on top of it. */
 .auth-or + .auth-fields {
   margin-top: var(--space-4);
-}
-.auth-field {
-  display: flex;
-  flex-direction: column;
-  /* The label belongs to the control directly under it, and at 8px it read as a
-     line of its own floating between two fields. */
-  gap: var(--space-1);
-  /* Left, inside a centred column: a field is read from its left edge — the
-     label, the caret, the value it holds. */
-  text-align: left;
-}
-/* ONE height for the row, whatever is in it. The label is 11.5px and the
-   "Forgot password?" link beside it is 12.5px, so on a baseline row the two
-   fields' label rows measured differently and the second field sat a pixel or two
-   off the first. A shared line-height fixes the row's height, and centring the
-   items in it keeps the link optically level with the label. */
-.auth-label-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  line-height: 18px;
-}
-.auth-label-row > * {
-  line-height: inherit;
-}
-/* --textMeta, not --textTertiary: tokens.css names --textMeta "the canonical AA
-   small-text role — all 11-13px meta/caption text reads it", and a 11px uppercase
-   label was reading the decorative tier instead. Caught by the axe sweep the
-   moment the login screen was finally in it. */
-.auth-field label {
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--textMeta);
-}
-.auth-field .auth-hint {
-  font-size: 11.5px;
-  color: var(--textMeta);
-}
-/* The border and the focus ring are on the SHELL, so a leading icon and the
-   reveal control sit inside one outline instead of beside it. `:focus-within`
-   rather than `:focus` is what makes that work: the input is a child now.
-
-   This is not a third icon-in-field pattern. `.input-icon` (atoms.css) puts an
-   absolutely positioned svg over an input that still owns its own border, which
-   can carry a leading icon and nothing else — it cannot hold a trailing control
-   inside the same ring, and the reveal button needs the shell's full height to
-   meet the 44px floor. The shell REPLACES `.auth-password-row` +
-   `.auth-input-reveal`, so this surface ends with one pattern where it had two. */
-.auth-shell {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  /* §6.5 / §12: 44px is the target floor, and it is a floor rather than a
-     rounded-up number — a 40px control fails the same check on a phone. 46 sits
-     just over it, matching the provider buttons above so the column reads as one
-     set of controls. */
-  min-height: 46px;
-  /* No right padding: the reveal control claims the full inner height so its
-     target meets the 44px floor rather than being a 24px icon with air around
-     it. The input carries its own right padding instead. */
-  padding: 0 0 0 13px;
-  /* --borderControl, not --borderStrong. The shell's fill equals the pane's fill
-     (--bgElevated both), so this border is the ONLY thing that says "you can type
-     here" — and at --borderStrong it measured 1.45:1, well under the 3:1 WCAG
-     1.4.11 asks of a control boundary. A field a low-vision user cannot find is
-     not a styling nit. */
-  border: 1px solid var(--borderControl);
-  border-radius: var(--r-md);
-  background: var(--bgElevated);
-  transition:
-    border-color 0.15s,
-    box-shadow 0.15s;
-}
-.auth-shell:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accentLight);
-}
-.auth-shell-icon {
-  display: flex;
-  flex: none;
-  color: var(--textMeta);
-}
-.auth-shell-icon svg {
-  width: 16px;
-  height: 16px;
-}
-.auth-input {
-  flex: 1;
-  min-width: 0;
-  /* The shell owns the box now: no border, no radius, no background. */
-  border: 0;
-  padding: 11px 13px 11px 0;
-  font-family: var(--f-body);
-  font-size: 15px;
-  text-align: left;
-  color: var(--textPrimary);
-  background: none;
-  outline: 0;
-}
-.auth-input::placeholder {
-  color: var(--textMeta);
-}
-.auth-reveal {
-  flex: none;
-  width: 44px;
-  align-self: stretch;
-  display: grid;
-  place-items: center;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-  color: var(--textMeta);
-  /* Follows the shell's own corner rather than floating a smaller radius
-     inside it. */
-  border-radius: 0 var(--r-md) var(--r-md) 0;
-}
-.auth-reveal svg {
-  width: 18px;
-  height: 18px;
-}
-.auth-reveal:hover,
-.auth-reveal[aria-pressed="true"] {
-  color: var(--textPrimary);
-}
-.auth-reveal:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -3px;
 }
 .auth-actions {
   margin-top: var(--space-3);
@@ -840,7 +729,8 @@
   font-size: 11px;
   color: var(--textMeta);
 }
-/* --borderControl, and for the same reason `.auth-shell` reads it: this chip's
+/* --borderControl, and for the same reason a field's outline reads a visible
+   token: this chip's
    fill is one step off the pane it sits on (--bgCard over --bgElevated measures
    1.10:1 in both themes), so the border is the only thing that makes it a chip at
    all. --borderSubtle cannot carry that — it measures 1.24:1 against the pane and
@@ -1074,10 +964,6 @@
   }
   .auth-footer {
     margin-top: 0;
-  }
-  .auth-input {
-    /* 16px or iOS zooms the page on focus (§6.5). */
-    font-size: 16px;
   }
   /*
    * PHONE ONLY: the surface is the task. Nothing else.

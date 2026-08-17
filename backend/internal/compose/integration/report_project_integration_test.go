@@ -30,8 +30,8 @@ func (e *SearchEnv) seedProjects(t *testing.T, phase string, owner *ids.UUID, n 
 	orgID = e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
 		VALUES ($1, $2, 'Project Org', 'manual', 'human:x')`)
 	for i := 0; i < n; i++ {
-		e.Seed(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, phase, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, 'manual', 'human:x')`,
+		e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, phase, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`,
 			fmt.Sprintf("%s Rollout %d", phase, i), orgID, owner, phase)
 	}
 	return orgID
@@ -119,8 +119,8 @@ func TestAdHocProjectReportCountsUnderRowScope(t *testing.T) {
 
 	// The rep's own project is counted — the empty answer above is scope, not
 	// a plan that never matches.
-	e.Seed(t, `INSERT INTO project (id, workspace_id, name, organization_id, owner_id, phase, source, captured_by)
-		VALUES ($1, $2, 'Own Rollout', $3, $4, 'pursuing', 'manual', 'human:x')`, orgID, e.Rep1)
+	e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, phase, source, captured_by)
+		VALUES ($1, 'Own Rollout', $2, $3, 'pursuing', 'manual', 'human:x')`, orgID, e.Rep1)
 	res, err = provider.RunReport(e.projectReader(&e.Rep1, &e.Team1, principal.RowScopeTeam), datasource.ReportPlan{
 		Entity: datasource.EntityProject, GroupBy: []string{"phase"},
 	})

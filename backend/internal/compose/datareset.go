@@ -31,7 +31,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // objectWorkspace names the installation's own row. It is one string doing the
@@ -65,11 +64,11 @@ type resetDataResponse struct {
 // configured — the reset itself still succeeds, only the DDL cleanup is
 // skipped). log defaults to slog.Default() when nil.
 type dataResetHandlers struct {
-	pool       *pgxpool.Pool
-	schemaPool *pgxpool.Pool
-	seeds      deployconfig.Seeds
-	env        runtimeenv.Environment
-	log        *slog.Logger
+	pool             *pgxpool.Pool
+	schemaPool       *pgxpool.Pool
+	seeds            deployconfig.Seeds
+	dataResetAllowed bool
+	log              *slog.Logger
 
 	// runtime POINTS AT the Server's own field rather than copying it, so
 	// WithResetRuntime and WithDataReset may be applied in either order — see
@@ -408,14 +407,15 @@ func (h dataResetHandlers) purgeSealedCredentials(ctx context.Context, wsID ids.
 	return nil
 }
 
-// ResetData wipes a non-production installation to its first-boot state.
-// Gate order, fail-closed: environment first (production has no such
-// endpoint, checked before any auth so a misconfigured deployment never
-// leaks that the operation exists) → human-only (an agent never wipes
-// tenant data) → admin-only → the typed confirmation run enforces.
+// ResetData wipes an installation that has ARMED the capability back to its
+// first-boot state. Gate order, fail-closed: the switch first (an installation
+// that did not arm it has no such endpoint, checked before any auth so a
+// misconfigured deployment never leaks that the operation exists) → human-only
+// (an agent never wipes tenant data) → admin-only → the typed confirmation run
+// enforces.
 func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.pool == nil || !h.env.IsNonProduction() {
+	if h.pool == nil || !h.dataResetAllowed {
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}

@@ -525,7 +525,7 @@ place keeps the api reading a password file that is no longer written. Use
 
 | Var | Used by | Meaning |
 |---|---|---|
-| `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev`, `staging`, or `test` yield a non-production posture; unset, `production`, or any unrecognized value ⇒ production, which disables every dev-only destructive switch (today: the admin data-reset endpoint below). The Makefile exports `dev`; production must not set it. |
+| `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev` or `test` yield a non-production posture; unset, `production`, `staging`, or any unrecognized value ⇒ production. It decides two **licensing** questions and nothing else: which issuers the installation honours, and whether it may run unlicensed at all (a production role refuses to boot with no license). No destructive capability keys off it. `staging` was retired deliberately: a staging installation carries real internal users, so it takes the production posture. The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
 | `MARGINCE_TEST_BLOBSTORE_ENDPOINT`, `MARGINCE_TEST_BLOBSTORE_ACCESS_KEY`, `MARGINCE_TEST_BLOBSTORE_SECRET_KEY`, `MARGINCE_TEST_BLOBSTORE_BUCKET` | integration tests | the object store the blobstore lane runs against; exported by the Makefile at the `make db-up` MinIO, on its own `margince-test` bucket. The endpoint being unset **fails** the lane rather than skipping it — a skipped storage gate reads exactly like a passing one. |
@@ -538,12 +538,27 @@ place keeps the api reading a password file that is no longer written. Use
 | `MARGINCE_SEED_PASSWORD` | `tools/seed-demo` | the password the demo seeder signs in with, so a credential never lands in a shell history or a make target. Equivalent to its `-password` flag. |
 | `MARGINCE_SEED_DSN` | `tools/seed-demo` | owner DSN for the two things the demo seeder cannot do over the API: create a team (read-only on the contract) and set a seat's password (no endpoint accepts one under 12 characters). Equivalent to its `-dsn` flag; unset skips both phases rather than failing, because the rest of the seed is useful without them. |
 
-### `POST /v1/admin/reset-data` — non-production data reset
+### `POST /v1/admin/reset-data` — the armed data reset
 
-Gated on the `MARGINCE_ENV` posture above. In production the operation does
-not exist: the environment check runs **before** auth, so a misconfigured
-production deployment 404s rather than leaking that the endpoint exists (never
-a 403). In a non-production posture:
+Gated on `operations.allow_data_reset` in `margince.yaml`, whose compiled
+default is **false in every posture, dev included**. An installation that did
+not arm it has no such operation: the switch is checked **before** auth, so a
+deployment that never asked for it 404s rather than leaking that the endpoint
+exists (never a 403).
+
+It is deliberately not a `setting` row and not inferred from `MARGINCE_ENV`.
+An admin who could arm it through the API could arm the purge of their own
+tenant's data; and a deployment labelled `staging` — real internal users, real
+records — is not thereby consenting to be wiped. The same value is what `/me`
+reports as `data_reset_available`, so a client never renders an action the
+server would refuse.
+
+```yaml
+operations:
+  allow_data_reset: true   # dev/test only; omit or false everywhere else
+```
+
+Once armed:
 
 1. **Human-only** (`auth.RequireHuman`) — an agent/passport principal is
    rejected, 403.
@@ -674,8 +689,8 @@ object purge is the exception: it cannot join that transaction and so runs
 with the rows already wiped and some stored bytes still present. Re-running
 the reset is again the recovery.
 
-`GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
-show the action only where it will work: Admin settings → *data* tab → Danger
+`GET /v1/me`'s `data_reset_available` field carries the same switch the endpoint
+gates on, so the SPA shows the action only where it will work: Admin settings → *data* tab → Danger
 zone → *Reset data*, which prompts the operator to type the organization name
 before calling the endpoint — the server is the sole validator of that string,
 the client-side prompt is only UX.
@@ -733,9 +748,18 @@ Three postures, and what each one does at boot:
 
 | posture | boot | reported as |
 |---|---|---|
-| **no token configured** | boots, with a warning naming the bundled module | `margince_license_posture{state="absent"} 1` |
+| **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev` or `test` | `margince_license_posture{state="absent"} 1` |
 | **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
 | **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
+
+**A production installation serves on a license or it does not serve.** The
+posture decides it, and `MARGINCE_ENV` is fail-closed, so an installation that
+names nothing is production and is held to a license. The refusal names both
+ways out — configure the token, or name the installation non-production — because
+the operator reading it is either licensed and missing the reference, or running
+a development installation that never said so. A refused license refuses the
+boot in *every* posture: naming yourself non-production is how you say you have
+no license, not a way to run one the module has judged.
 
 A refusal covers an untrusted signature, the wrong issuer, expiry past the grace
 period the module carries, and no grant for this product at this generation. A
@@ -753,14 +777,26 @@ variable) each time, so a license renewed in place takes effect within a day
 without a restart. Anything that is not a verdict — an unreadable token, a module
 that failed to run — leaves the posture the process last resolved and is logged
 as itself: none of those is evidence about the license, and degrading on one would
-report a refusal that no license caused. Enforcement of the granted seat count is
-not implemented yet (issue #1190).
+report a refusal that no license caused.
+
+**The granted seat count is enforced where a seat comes into use.** Once every
+licensed full seat is taken, inviting a member and reactivating a deactivated
+full seat are refused with `403 seat_limit_reached`, carrying the granted and
+used counts. Nothing already in use is touched: no seat is demoted, no session
+ends, and a license that lapses mid-month refuses the NEXT seat rather than
+taking away the ones people are working in (P7). Read seats are unlimited and
+never counted; a suspended or deactivated seat frees its own, so an admin at the
+ceiling can make room. A license carrying no seat count caps nothing, and so
+does an unlicensed development installation — the ceiling is read live, so a
+license renewed in place raises it on the next re-check without a restart. The
+number an admin is refused against is the number the entitlement screen and
+`margince_license_seats` report: one count, one statement.
 
 **Which authority a license must come from.** A production installation honors
 exactly one: `margince-license-authority`. That is not redundant with the bundled
 keyset — our non-production licensers sign with keys that keyset carries, so the
 issuer is the only thing that keeps a license minted for a test from licensing a
-customer. An installation running with `MARGINCE_ENV` set to `dev`, `staging` or
+customer. An installation running with `MARGINCE_ENV` set to `dev` or
 `test` also honors `margince-license-authority-test` and
 `margince-license-authority-dev`, which is how a developer runs the product on a
 test license. `MARGINCE_ENV` is fail-closed: unset or unrecognized is production,

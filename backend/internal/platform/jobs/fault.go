@@ -119,6 +119,7 @@ var vocabulary = []struct {
 	{apperrors.ErrIncumbentBudgetExhausted, "the incumbent CRM's API budget is spent; the poller will catch up"},
 	{apperrors.ErrRequiresApproval, "this action needs human approval and was staged rather than executed"},
 	{apperrors.ErrSeatTierInsufficient, "the granting seat's tier does not admit this action"},
+	{apperrors.ErrSeatLimitReached, "the installation's licensed full seats are all in use, so no seat was created"},
 	{apperrors.ErrScopeExceeded, "the passport's scope does not cover this action"},
 	{apperrors.ErrApprovalTokenInvalid, "the approval token was invalid or already spent"},
 	{apperrors.ErrModeNotOverlay, "this workspace is no longer in overlay mode"},

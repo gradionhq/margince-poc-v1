@@ -7,12 +7,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
-import {
-  Button,
-  SectionHeader,
-  SegmentedControl,
-  StatCard,
-} from "../design-system/atoms";
+import { Button, SegmentedControl, StatCard } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { StatStrip } from "../design-system/statstrip";
 import { SurfaceState } from "../design-system/surfacestate";
@@ -112,12 +107,20 @@ export function CaptureActivityTab() {
   const [scope, setScope] = useState<Scope>("mine");
 
   return (
-    <Panel>
-      <SectionHeader
-        title={t("captureActivity.title")}
-        sub={t("captureActivity.sub")}
-      />
-      <PanelBody>
+    // `title` on the Panel, not a SectionHeader nested inside it. Nested, the
+    // heading landed as a direct child of `.panel` — which has zero padding —
+    // so the card's own name sat flush against its left border while everything
+    // under it was indented by PanelBody's 20px, and the panel drew no header
+    // band and no rule at all. It also rendered at 15px/600 through
+    // `.section-header h2` where every other settings card reads
+    // `--fs-sm`/`fw-medium` through `.panel-head h2`: this was the one card in
+    // the product whose title was a different size from the thirteen beside it.
+    <Panel title={t("captureActivity.title")}>
+      <PanelBody className="form-stack">
+        {/* The description belongs in the body, which is where the other ten
+            settings cards put theirs — Panel's header band holds the title
+            alone, by design. */}
+        <p className="t-small settings-panel-sub">{t("captureActivity.sub")}</p>
         {canReadWorkspace && (
           <SegmentedControl<Scope>
             label={t("captureActivity.scope.label")}

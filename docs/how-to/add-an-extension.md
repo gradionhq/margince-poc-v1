@@ -370,6 +370,25 @@ key for a route the NAV rail deliberately does not carry. So your screen's top
 `<SectionHeader …  level={1} />` IS the page's heading, and every header under it stays at the default
 `2`. Leave the top one at the default and your page ships with no heading for a reader to jump to.
 
+**Where your screen is offered is your `Secrets` scope, and nothing you declare for the UI.** Your
+screen lives at `#/ext/<name>`, and the rail does not carry it: enabling a unit gives an installation
+something to CONFIGURE, not an eleventh destination beside Pipeline and Reports. It is listed in
+Settings instead, on the page that already holds the kind of credential you asked for —
+
+| Your declaration | Where the unit is listed | What the page means |
+|---|---|---|
+| `Scope: extension.SecretScopeUser` | Settings → Connections | one member's own account somewhere; nobody else sees it |
+| `Scope: extension.SecretScopeWorkspace` | Settings → Integrations | the installation's shared credential, curated by an operator |
+| no `Secrets` at all | nowhere | nothing to manage, so nothing to list; `#/ext/<name>` still routes |
+
+Two consequences worth knowing before you declare. **A unit declares ONE scope** — secrets spanning
+both are refused at `make gen`, because a unit that is half a person's own account and half the
+installation's has no honest page, and either tie-break hides one half from whoever holds the other.
+Split the unit if you genuinely need both. And **the settings row is not a permission**: it carries no
+grant of its own, exactly as the rail row it replaced did not. Your screen still gates itself on the
+object it declares, and Settings → Integrations is additionally gated on the grants its own cards ask
+for.
+
 The four design-system gates (`ds-purity`, `icon-lint`, `ds-spacing`, `native-controls`) sweep your
 unit exactly as they sweep core.
 

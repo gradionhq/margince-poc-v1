@@ -165,12 +165,22 @@
   overflow-wrap: anywhere;
 }
 
+/* A table's rules are drawn under each cell and inset by the cell's own padding
+ * — that is a table's internal rhythm, and it is deliberately not the card seam,
+ * which runs full-bleed. */
 .ext-matrix th,
 .ext-matrix td {
   border-bottom: 1px solid var(--borderSubtle);
   padding: var(--space-2);
   text-align: left;
   font-size: var(--fs-sm);
+}
+
+/* The last row has nothing under it to be ruled off from, so it does not end the
+ * matrix on a hairline that separates it from the card's own padding. */
+.ext-matrix tbody tr:last-child th,
+.ext-matrix tbody tr:last-child td {
+  border-bottom: 0;
 }
 
 .ext-matrix thead th {

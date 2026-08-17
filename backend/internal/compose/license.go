@@ -31,12 +31,18 @@ import (
 // watcher that holds it. The caller starts the watcher's re-check loop and
 // wires its posture into whatever reports it.
 //
-// It refuses a boot whose configured license the bundled module will not honor,
-// and reports — never refuses — an installation that configured none. The
-// asymmetry is the whole posture: an unlicensed installation is a supported
-// state that every development and CI process here runs in, while a license
-// that is present and refused is an operator mistake nobody downstream can
-// distinguish from a deliberate downgrade.
+// A serving role boots on a license or it does not boot. Three postures refuse
+// it — a license the bundled module will not honor, a module that could not run
+// at all, and, in production, no license configured — and the third is the one
+// the deployment posture decides: an installation that names itself
+// non-production through MARGINCE_ENV keeps running unlicensed, which is how
+// every development, test and CI process in this repository boots. MARGINCE_ENV
+// is fail-closed, so an installation that names nothing is production and is
+// held to a license.
+//
+// Both serving roles ask this question, and neither serves without an answer: an
+// api that refuses to boot beside a worker that shrugs would be a licensing
+// posture nobody could describe.
 func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config, env runtimeenv.Environment, lookup config.Lookup) (*licensecheck.Watcher, error) {
 	// The SOURCE is handed over, not a token: the watcher re-reads it, so a
 	// license the operator renews in place takes effect on the next re-check
@@ -48,8 +54,28 @@ func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Confi
 		return nil, fmt.Errorf("%w — correct or remove license.token_file (or %s) and start again",
 			err, deployconfig.LicenseTokenEnvVar)
 	}
+	if err := refuseUnlicensedProduction(watcher.Posture(), env); err != nil {
+		return nil, err
+	}
 	logLicensePosture(ctx, log, watcher.Posture(), cfg.License.TokenOrigin(lookup))
 	return watcher, nil
+}
+
+// refuseUnlicensedProduction stops a production boot that configured no license.
+//
+// The error says both halves, because the operator reading it is in one of two
+// situations that look identical from here: the installation is licensed and
+// lost its token reference in a redeploy, or it is a development installation
+// that never named itself one. Naming only the license would send the second
+// operator looking for a token they were never issued.
+func refuseUnlicensedProduction(posture licensecheck.Posture, env runtimeenv.Environment) error {
+	if posture.State != licensecheck.StateAbsent || env.IsNonProduction() {
+		return nil
+	}
+	return fmt.Errorf("no license is configured and this installation is production: "+
+		"point license.token_file (or %s) at the license token issued for this installation, "+
+		"or, if this is a development or test installation, set %s=%s",
+		deployconfig.LicenseTokenEnvVar, runtimeenv.EnvVar, runtimeenv.Development)
 }
 
 // logLicensePosture writes the one boot line an operator greps for. The module
@@ -69,20 +95,22 @@ func logLicensePosture(ctx context.Context, log *slog.Logger, posture licenseche
 		attrs = append(attrs, "seats", seats)
 	}
 	if posture.State == licensecheck.StateAbsent {
-		// A warning, not an error: it boots, and it is meant to be noticed. An
-		// installation nobody licensed is fine; one that lost its license
-		// reference in a redeploy looks exactly the same from here, and only the
-		// operator can tell which this is.
-		log.WarnContext(ctx, "no license configured; the installation is running unlicensed", attrs...)
+		// Only a non-production installation reaches this line — production
+		// refused the boot above — and it is a warning rather than an info
+		// because the posture is worth noticing in a log that gets read: an
+		// installation running unlicensed is entitled to nothing, so nothing it
+		// does here proves what a licensed installation would do.
+		log.WarnContext(ctx, "no license configured; this non-production installation is running unlicensed", attrs...)
 		return
 	}
 	log.InfoContext(ctx, "license verified", attrs...)
 }
 
-// WithLicensePosture wires the resolved posture into this role's /metrics. The
-// function is read at scrape time rather than the value being copied in, so an
-// exposition reports what the watcher last resolved instead of what the process
-// booted with.
+// WithLicensePosture wires the resolved posture into everything this role does
+// with it: the /metrics section, the entitlement surface, and the ceiling seat
+// creation is held to. The function is read at scrape and call time rather than
+// the value being copied in, so each of them reports and enforces what the
+// watcher last resolved instead of what the process booted with.
 func WithLicensePosture(posture func() licensecheck.Posture) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.licensePosture = posture
@@ -96,6 +124,13 @@ func WithLicensePosture(posture func() licensecheck.Posture) Option {
 			seats:   identity.NewSeatUsage(InstallationDB(pool)),
 			posture: posture,
 		}
+		// The same posture reaches identity's seat writer as a ceiling, from the
+		// same call: a role that reports what a license grants must not be able to
+		// show an admin a number it does not hold them to. The posture is read at
+		// CALL time, so a license renewed in place raises the ceiling on the next
+		// re-check and one that lapses lowers it, without a restart — and nothing
+		// here touches a seat already in use, only the next one.
+		s.authHandlers = s.WithSeatCeiling(func() (int, bool) { return posture().Seats() })
 	}
 }
 
