@@ -10,6 +10,8 @@ import {
   Badge,
   Button,
   Card,
+  type Fact,
+  FactList,
   Field,
   SectionHeader,
   TextInput,
@@ -438,6 +440,31 @@ function ConnectionState({
 }) {
   const t = useT();
   const parked = connection.status === "reauth_required";
+  // Rows the reader scans, assembled as an array so an absent fact is dropped
+  // rather than drawn empty.
+  const facts: Fact[] = [
+    {
+      key: "readto",
+      term: t("extDispactConnector.connection.readTo"),
+      value: connection.high_water_mark,
+    },
+  ];
+  if (connection.backfill_before) {
+    // Only when there IS a gap: a member who saw "catching up" on every screen
+    // would learn to ignore it.
+    facts.push({
+      key: "catchingup",
+      term: t("extDispactConnector.connection.catchingUp"),
+      value: connection.backfill_before,
+    });
+  }
+  if (connection.last_polled_at) {
+    facts.push({
+      key: "polled",
+      term: t("extDispactConnector.connection.lastPolled"),
+      value: formatDateTime(connection.last_polled_at, locale, zone),
+    });
+  }
   return (
     <>
       <p>
@@ -452,24 +479,7 @@ function ConnectionState({
         )}{" "}
         {connection.account_label}
       </p>
-      <dl>
-        <dt>{t("extDispactConnector.connection.readTo")}</dt>
-        <dd>{connection.high_water_mark}</dd>
-        {connection.backfill_before ? (
-          <>
-            {/* Shown only when there IS a gap, because a member seeing
-                "catching up" on every screen would learn to ignore it. */}
-            <dt>{t("extDispactConnector.connection.catchingUp")}</dt>
-            <dd>{connection.backfill_before}</dd>
-          </>
-        ) : null}
-        {connection.last_polled_at ? (
-          <>
-            <dt>{t("extDispactConnector.connection.lastPolled")}</dt>
-            <dd>{formatDateTime(connection.last_polled_at, locale, zone)}</dd>
-          </>
-        ) : null}
-      </dl>
+      <FactList numeric facts={facts} />
       {connection.last_error_class ? (
         <p>{t(`extDispactConnector.error.${connection.last_error_class}`)}</p>
       ) : null}

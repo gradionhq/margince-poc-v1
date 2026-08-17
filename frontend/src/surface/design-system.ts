@@ -59,3 +59,17 @@ export {
 // extensions/*/frontend exactly as it does in core, and a unit left with only
 // TextInput has to accept free text where the contract declares an enum.
 export { Select, type SelectOption } from "../design-system/select";
+// FactList, because a unit screen has NO other way to draw a label→value pair.
+//
+// No extension ships a stylesheet — nothing in extensions/*/frontend imports
+// CSS and the bundler gives a unit no place to put any — so a unit that writes
+// its own `<dl>` gets the browser's 40px `dd` indent and no alignment at all.
+// Both unit screens that describe a connection did exactly that, and both
+// rendered as an unspaced stack of terms and values. That is not a mistake
+// either author made; it is the surface publishing the controls to collect
+// input and none of the ones to present a record back.
+//
+// It is the read-only half of what those screens need, which is why this is the
+// primitive that gets published rather than FieldGrid: a unit describing what it
+// connected is not editing it.
+export { FactList, type Fact } from "../design-system/factlist";

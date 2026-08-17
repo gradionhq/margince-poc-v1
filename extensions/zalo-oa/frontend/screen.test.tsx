@@ -296,10 +296,27 @@ describe("the Zalo Official Account screen", () => {
 
     renderScreen();
     const label = await screen.findByText("Requests per check");
-    expect(label.nextElementSibling?.textContent).toBe("90");
-    // Ahead of the package, which was the first row before it.
-    const terms = [...label.parentElement!.querySelectorAll("dt")].map((dt) => dt.textContent);
+    // Against the ceiling, not bare: the number alone answers "how many" and not
+    // "how much headroom", which is the question somebody raising it has.
+    expect(label.nextElementSibling?.textContent).toContain("90 / 200");
+    // And FIRST, ahead of the package.
+    const list = label.closest("dl");
+    const terms = [...(list?.querySelectorAll("dt") ?? [])].map((dt) => dt.textContent);
     expect(terms[0]).toBe("Requests per check");
+    expect(terms).toContain("Package");
+  });
+
+  // The limit that really binds is Zalo's own per-account one, which appears in
+  // no response header — so the card says so where the ceiling is read, rather
+  // than letting an operator raise it believing the range is the whole story.
+  it("says the provider publishes no per-account limit", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-oa/status": () => CONNECTED,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    expect(await screen.findByText(/does not publish a per-account limit/)).toBeTruthy();
   });
 
   // The two parked states send an administrator to different places, and one of

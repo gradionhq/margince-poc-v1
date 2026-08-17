@@ -4,6 +4,8 @@ import {
   Badge,
   Button,
   Card,
+  type Fact,
+  FactList,
   Field,
   SectionHeader,
   TextInput,
@@ -46,6 +48,17 @@ const CONNECTION_OBJECT = "ext_zalo_oa_connection";
  * most.
  */
 const STATUS_POLL_MS = 20_000;
+
+/**
+ * The highest request budget a connection may carry, so the card can show the
+ * setting against the range it may be chosen from rather than as a bare number.
+ *
+ * It duplicates the bound the contract declares (`poll_request_budget.maximum`)
+ * and the column's own CHECK, because a generated client carries a schema's
+ * types and not its numeric limits. The three move together; there is no third
+ * place.
+ */
+const MAX_REQUEST_BUDGET = 200;
 
 type Connection = {
   id: string;
@@ -334,6 +347,58 @@ function ConnectionState({
 }) {
   const t = useT();
   const working = connection.status === "connected";
+  // Rows the reader scans, assembled as an array so an absent fact is DROPPED
+  // rather than drawn empty: a blank value claims we know the answer and it is
+  // nothing, which is a different statement from not knowing it.
+  const facts: Fact[] = [
+    {
+      key: "budget",
+      // FIRST, and unconditionally: it is the one number here that governs how
+      // much of a busy account each check keeps up with, and a ceiling nobody
+      // can read is a ceiling nobody can choose.
+      term: t("extZaloOa.connection.requestBudget"),
+      // Against the ceiling it may be set to, because the bare number answers
+      // "how many" and not "how much headroom is left", which is the question
+      // somebody raising it actually has.
+      value: `${connection.poll_request_budget} / ${MAX_REQUEST_BUDGET}`,
+      // And the honest qualifier: the limit that really binds is Zalo's own
+      // per-account one, which appears in NO response header and can only be
+      // hit. Raising this number is not free of that.
+      note: t("extZaloOa.connection.requestBudgetNote"),
+    },
+  ];
+  if (connection.package_name) {
+    facts.push({
+      key: "package",
+      term: t("extZaloOa.connection.package"),
+      value: connection.package_valid_through
+        ? `${connection.package_name} — ${connection.package_valid_through}`
+        : connection.package_name,
+    });
+  }
+  if (connection.last_polled_at) {
+    facts.push({
+      key: "polled",
+      term: t("extZaloOa.connection.lastPolled"),
+      value: formatDateTime(connection.last_polled_at, locale, zone),
+    });
+  }
+  if (connection.access_token_expires_at) {
+    facts.push({
+      key: "renews",
+      term: t("extZaloOa.connection.renewsBy"),
+      value: formatDateTime(connection.access_token_expires_at, locale, zone),
+    });
+  }
+  if (connection.backfill_before) {
+    // Only when there IS a gap: an administrator who saw "catching up" on every
+    // screen would learn to ignore it.
+    facts.push({
+      key: "catchingup",
+      term: t("extZaloOa.connection.catchingUp"),
+      value: formatDateTime(new Date(connection.backfill_before).toISOString(), locale, zone),
+    });
+  }
   return (
     <>
       <p>
@@ -344,43 +409,7 @@ function ConnectionState({
         )}{" "}
         {connection.account_label}
       </p>
-      <dl>
-        {/* FIRST, and unconditionally: it is the one number here that governs how
-            much of a busy account each check can keep up with, and Zalo publishes
-            no per-account rate limit in any response header — so a ceiling nobody
-            can read is a ceiling nobody can choose. */}
-        <dt>{t("extZaloOa.connection.requestBudget")}</dt>
-        <dd>{connection.poll_request_budget}</dd>
-        {connection.package_name ? (
-          <>
-            <dt>{t("extZaloOa.connection.package")}</dt>
-            <dd>
-              {connection.package_name}
-              {connection.package_valid_through ? ` — ${connection.package_valid_through}` : ""}
-            </dd>
-          </>
-        ) : null}
-        {connection.last_polled_at ? (
-          <>
-            <dt>{t("extZaloOa.connection.lastPolled")}</dt>
-            <dd>{formatDateTime(connection.last_polled_at, locale, zone)}</dd>
-          </>
-        ) : null}
-        {connection.access_token_expires_at ? (
-          <>
-            <dt>{t("extZaloOa.connection.renewsBy")}</dt>
-            <dd>{formatDateTime(connection.access_token_expires_at, locale, zone)}</dd>
-          </>
-        ) : null}
-        {connection.backfill_before ? (
-          <>
-            {/* Shown only when there IS a gap, because an administrator seeing
-                "catching up" on every screen would learn to ignore it. */}
-            <dt>{t("extZaloOa.connection.catchingUp")}</dt>
-            <dd>{formatDateTime(new Date(connection.backfill_before).toISOString(), locale, zone)}</dd>
-          </>
-        ) : null}
-      </dl>
+      <FactList numeric facts={facts} />
       {connection.last_error_class ? (
         <p>{t(`extZaloOa.error.${connection.last_error_class}`)}</p>
       ) : null}
