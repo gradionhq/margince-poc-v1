@@ -61,7 +61,12 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
 import { usePendingApprovals } from "./inbox.queries";
-import { type ListQuery, type ListState, ListTable } from "./listquery";
+import {
+  LIST_PAGE_SIZES,
+  type ListQuery,
+  type ListState,
+  ListTable,
+} from "./listquery";
 import { LogActivity } from "./logactivity";
 import { DealCoverageCard } from "./network";
 import { activityTimeline } from "./people";
@@ -737,6 +742,10 @@ export function DealsScreen({
     sort: "",
     includeArchived: false,
     filters: {},
+    // The deal list reads its own fixed page (the board is capped at 100 and
+    // documented as such), so this is the shape's default rather than a dial
+    // the footer offers.
+    perPage: LIST_PAGE_SIZES[0],
   });
   const effectivePipeline: Pipeline | undefined =
     pipelinesQuery.data?.find((p) => p.id === pipelineId) ??

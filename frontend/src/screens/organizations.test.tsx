@@ -643,6 +643,62 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
   });
 });
 
+describe("CompaniesScreen — list dials reach the server (P-14)", () => {
+  it("asks the server to re-sort instead of reordering the rows it holds", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole("button", { name: "Sort by Company" }));
+
+    // The rows the browser holds are one page of a keyset walk, so a sort that
+    // only reordered them would rank a slice and present it as the whole list.
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            url.includes("sort=display_name") && !url.includes("cursor="),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("narrows to one lifecycle stage through the server", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole("button", { name: "Customers" }));
+
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("lifecycle=customer"))).toBe(true),
+    );
+  });
+
+  it("requests the page size the reader picked", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("limit=25"))).toBe(true),
+    );
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Rows per page" }),
+      "50 per page",
+    );
+
+    // Fetched and rendered are the same number. They were not: the screen
+    // asked for 50 and drew 25, and said so — "1-25 of 50 loaded so far".
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("limit=50"))).toBe(true),
+    );
+  });
+});
+
 describe("CompaniesScreen — rich create (P-15)", () => {
   it("posts display_name + size_band + domains + source:manual on submit", async () => {
     const user = userEvent.setup();
