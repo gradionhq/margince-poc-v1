@@ -260,8 +260,8 @@ func giveTheCachedRowToAnotherReader(t *testing.T, e *apptest.AppEnv, orgID stri
 		`UPDATE org_growth_fit
 		    SET user_id = $1,
 		        payload = jsonb_set(payload, '{band}', to_jsonb($2::text))
-		  WHERE workspace_id = $3 AND organization_id = $4 AND user_id = $5`,
-		other, otherReadersBand, workspaceID, orgID, acting)
+		  WHERE organization_id = $3 AND user_id = $4`,
+		other, otherReadersBand, orgID, acting)
 	if err != nil {
 		t.Fatalf("hand the cached row to the other reader: %v", err)
 	}

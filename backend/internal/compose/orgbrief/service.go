@@ -29,7 +29,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -325,15 +324,15 @@ func (s *Service) save(ctx context.Context, userID ids.UserID, orgID ids.Organiz
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO org_brief (workspace_id, user_id, organization_id, fingerprint,
+			INSERT INTO org_brief (user_id, organization_id, fingerprint,
 			                       generated_at, generated_by, payload)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			ON CONFLICT (user_id, organization_id) DO UPDATE
 			SET fingerprint = EXCLUDED.fingerprint,
 			    generated_at = EXCLUDED.generated_at,
 			    generated_by = EXCLUDED.generated_by,
 			    payload = EXCLUDED.payload`,
-			storekit.MustWorkspace(ctx), userID, orgID, brief.Fingerprint,
+			userID, orgID, brief.Fingerprint,
 			brief.GeneratedAt, brief.GeneratedBy, payload)
 		return err
 	})

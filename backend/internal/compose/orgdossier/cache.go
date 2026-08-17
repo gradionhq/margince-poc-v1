@@ -22,7 +22,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -48,9 +47,9 @@ var dossierCache = readerCache{
 		SELECT fingerprint, generated_at, generated_by, payload FROM org_dossier
 		 WHERE user_id = $1 AND organization_id = $2`,
 	upsertOne: `
-		INSERT INTO org_dossier (workspace_id, user_id, organization_id, fingerprint,
+		INSERT INTO org_dossier (user_id, organization_id, fingerprint,
 		                         generated_at, generated_by, payload)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id, organization_id) DO UPDATE
 		SET fingerprint = EXCLUDED.fingerprint,
 		    generated_at = EXCLUDED.generated_at,
@@ -63,9 +62,9 @@ var growthFitCache = readerCache{
 		SELECT fingerprint, generated_at, generated_by, payload FROM org_growth_fit
 		 WHERE user_id = $1 AND organization_id = $2`,
 	upsertOne: `
-		INSERT INTO org_growth_fit (workspace_id, user_id, organization_id, fingerprint,
+		INSERT INTO org_growth_fit (user_id, organization_id, fingerprint,
 		                            generated_at, generated_by, payload)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (user_id, organization_id) DO UPDATE
 		SET fingerprint = EXCLUDED.fingerprint,
 		    generated_at = EXCLUDED.generated_at,
@@ -100,7 +99,7 @@ func (c readerCache) save(ctx context.Context, pool *pgxpool.Pool,
 ) error {
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, c.upsertOne,
-			storekit.MustWorkspace(ctx), userID, orgID, written.Fingerprint,
+			userID, orgID, written.Fingerprint,
 			written.GeneratedAt, written.GeneratedBy, written.Payload); err != nil {
 			return fmt.Errorf("cache the assembly: %w", err)
 		}
