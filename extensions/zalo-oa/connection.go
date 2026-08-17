@@ -207,10 +207,15 @@ func disconnect(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 	// survives a failure here the poll keeps running against a token the operator
 	// asked to withdraw, which is the one ordering that leaves authority behind.
 	//
-	// EVERY key, not just the token: a UAT found the app secret surviving a
-	// disconnect, against this function's own comment. forgetCredential is the one
-	// place that list lives, so the two cannot drift apart again.
+	// BOTH SCOPES. forgetCredential takes the administrator's sealed pair; the
+	// installation's app secret is not theirs and is withdrawn here, because a
+	// disconnect is the act that ends the installation's use of the app. A UAT
+	// found the secret surviving this, against the operation's own comment.
 	if err := forgetCredential(ctx, rt, extension.UserID(existing.AuthorizedBy)); err != nil {
+		return nil, err
+	}
+	if err := rt.Secrets().Delete(ctx, appSecretKey); err != nil &&
+		!errors.Is(err, extension.ErrSecretNotFound) {
 		return nil, err
 	}
 	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {

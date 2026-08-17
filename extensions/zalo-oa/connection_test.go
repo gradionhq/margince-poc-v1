@@ -68,11 +68,13 @@ func TestConnectingBindsTheAccountAndTheCredentialToTheCaller(t *testing.T) {
 	if grants.rotations != 1 {
 		t.Fatalf("the token endpoint was reached %d times, want exactly once", grants.rotations)
 	}
-	// Both keys under the caller, because a unit declares one scope.
-	for _, key := range []string{tokenKey, appSecretKey} {
-		if _, sealed := rt.secrets.stored["user/"+adminUserID+"/"+key]; !sealed {
-			t.Fatalf("%q was not sealed under the connecting administrator", key)
-		}
+	// The pair under the CALLER, the app secret under the INSTALLATION — the split
+	// the declaration's two scopes describe.
+	if _, sealed := rt.secrets.stored["user/"+adminUserID+"/"+tokenKey]; !sealed {
+		t.Fatal("the token pair was not sealed under the connecting administrator")
+	}
+	if _, sealed := rt.secrets.stored["workspace//"+appSecretKey]; !sealed {
+		t.Fatal("the app secret was not sealed at installation scope")
 	}
 }
 
@@ -321,7 +323,7 @@ func TestDisconnectingRemovesEveryCredentialWhoeverCallsIt(t *testing.T) {
 	rt := newRuntime()
 	rt.caller = extension.Caller{Type: extension.CallerHuman, UserID: "11111111-2222-3333-4444-555555555555"}
 	seal(t, rt, livePair(at(20*time.Hour)))
-	if err := rt.secrets.PutUser(t.Context(), adminUserID, appSecretKey, []byte("s")); err != nil {
+	if err := rt.secrets.Put(t.Context(), appSecretKey, []byte("s")); err != nil {
 		t.Fatalf("depositing the app secret: %v", err)
 	}
 	rt.tx.singleRows = [][]any{
@@ -338,12 +340,13 @@ func TestDisconnectingRemovesEveryCredentialWhoeverCallsIt(t *testing.T) {
 	}](t, answer).Disconnected {
 		t.Fatal("nothing was reported as disconnected")
 	}
-	// EVERY key. A UAT found the app secret surviving a disconnect, against the
-	// operation's own comment.
-	for _, key := range []string{tokenKey, appSecretKey} {
-		if _, still := rt.secrets.stored["user/"+adminUserID+"/"+key]; still {
-			t.Fatalf("%q survived the disconnect, and the ingress port reads a deposit as live consent", key)
-		}
+	// EVERY key, in BOTH scopes. A UAT found the app secret surviving a
+	// disconnect, against the operation's own comment.
+	if _, still := rt.secrets.stored["user/"+adminUserID+"/"+tokenKey]; still {
+		t.Fatal("the token pair survived the disconnect, and the ingress port reads a deposit as live consent")
+	}
+	if _, still := rt.secrets.stored["workspace//"+appSecretKey]; still {
+		t.Fatal("the installation's app secret survived the disconnect")
 	}
 	if !published(rt, eventDisconnected) {
 		t.Fatalf("the disconnect announced %v", verbs(rt))
@@ -533,7 +536,7 @@ func TestAResumeKeepsTheAppSecretThatCanActuallyRenewTheHeldPair(t *testing.T) {
 	rt := newRuntime()
 	// What an earlier connect left: a usable pair, and the app secret that renews it.
 	seal(t, rt, renewedPair())
-	if err := rt.secrets.PutUser(t.Context(), adminUserID, appSecretKey, []byte("the-secret-that-works")); err != nil {
+	if err := rt.secrets.Put(t.Context(), appSecretKey, []byte("the-secret-that-works")); err != nil {
 		t.Fatalf("depositing the app secret: %v", err)
 	}
 	existing := connectionRow(statusConnected, nil, cursor{})
@@ -545,7 +548,7 @@ func TestAResumeKeepsTheAppSecretThatCanActuallyRenewTheHeldPair(t *testing.T) {
 	if _, err := connectVia(t.Context(), rt, connectArgs(), newZaloFake(t).dial(), grants, frozen(at(0))); err != nil {
 		t.Fatalf("a resumable connect was refused: %v", err)
 	}
-	held := rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey]
+	held := rt.secrets.stored["workspace//"+appSecretKey]
 	if string(held) != "the-secret-that-works" {
 		t.Fatalf("the app secret on deposit is %q; a resume must keep the one that can renew the pair it resumed", held)
 	}

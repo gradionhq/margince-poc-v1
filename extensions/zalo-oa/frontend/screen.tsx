@@ -125,6 +125,10 @@ function ConnectionCard() {
   const [appSecret, setAppSecret] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [refreshToken, setRefreshToken] = useState("");
+  // Whether the deposit form is open over a connection that already exists. It
+  // is shut by default, because an empty credential form under a working
+  // connection reads as "nothing is set up" — which is the one thing it is not.
+  const [replacing, setReplacing] = useState(false);
 
   const connect = useMutation({
     mutationFn: async () => {
@@ -152,6 +156,7 @@ function ConnectionCard() {
       setRefreshToken("");
       await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
+    onSuccess: () => setReplacing(false),
   });
 
   const disconnect = useMutation({
@@ -166,6 +171,7 @@ function ConnectionCard() {
       // that now says "not connected" describes an attempt nobody can act on any
       // more.
       connect.reset();
+      setReplacing(false);
       await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
   });
@@ -178,6 +184,7 @@ function ConnectionCard() {
     );
   }
 
+  const connected = status.data?.connection !== undefined;
   const ready =
     appID.trim() !== "" &&
     appSecret.trim() !== "" &&
@@ -201,9 +208,26 @@ function ConnectionCard() {
         )}
       </QueryStates>
 
-      {canConnect ? (
+      {/* A connection that exists is DESCRIBED, not re-offered. The deposit form
+          is drawn only when there is nothing connected or somebody has asked to
+          replace what is — four empty credential boxes under a live connection
+          say "not set up", and the credentials they would collect are single-use,
+          so an accidental submit costs a real token. */}
+      {canConnect && connected && !replacing ? (
         <>
-          <SectionHeader title={t("extZaloOa.connect.title")} sub={t("extZaloOa.connect.sub")} />
+          <p>{t("extZaloOa.connect.stored")}</p>
+          <Button variant="ghost" onClick={() => setReplacing(true)}>
+            {t("extZaloOa.connect.replace")}
+          </Button>
+        </>
+      ) : null}
+
+      {canConnect && (!connected || replacing) ? (
+        <>
+          <SectionHeader
+            title={t(replacing ? "extZaloOa.connect.replaceTitle" : "extZaloOa.connect.title")}
+            sub={t("extZaloOa.connect.sub")}
+          />
           <Field label={t("extZaloOa.connect.appId")}>
             {(control) => (
               <TextInput
@@ -244,8 +268,13 @@ function ConnectionCard() {
             )}
           </Field>
           <Button disabled={!ready || connect.isPending} onClick={() => connect.mutate()}>
-            {t("extZaloOa.connect.submit")}
+            {t(replacing ? "extZaloOa.connect.replaceSubmit" : "extZaloOa.connect.submit")}
           </Button>
+          {replacing ? (
+            <Button variant="ghost" onClick={() => setReplacing(false)}>
+              {t("extZaloOa.connect.cancel")}
+            </Button>
+          ) : null}
           {/* role="alert", because a mutation failure appears AFTER the press that
               caused it: a screen reader that is not on this element announces
               nothing, and the administrator is left believing the account
@@ -264,7 +293,7 @@ function ConnectionCard() {
         </>
       ) : null}
 
-      {canDisconnect && status.data?.connection ? (
+      {canDisconnect && connected ? (
         <>
           <Button
             variant="danger"

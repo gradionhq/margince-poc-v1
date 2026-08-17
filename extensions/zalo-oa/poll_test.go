@@ -27,7 +27,7 @@ func connectedRuntime(t *testing.T, from cursor) *fakeRuntime {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(20*time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{connectionRow(statusConnected, nil, from)}
 	return rt
 }
@@ -252,7 +252,7 @@ func TestATickThatLosesTheRenewalLeaseReportsNoFailure(t *testing.T) {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(-time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{connectionRow(statusConnected, nil, cursor{})}
 	rt.tx.noRows = map[int]bool{2: true}
 	fake := newZaloFake(t)
@@ -494,5 +494,60 @@ func TestATransientFailureIsRecordedAsWellAsWritten(t *testing.T) {
 	}
 	if !published(rt, eventPolled) {
 		t.Fatalf("the failure was written to the row and announced to nobody; the events were %v", verbs(rt))
+	}
+}
+
+// A MESSAGE THIS INSTALLATION SENT IS NOT CAPTURED BACK. The core wrote it as an
+// activity when the rep staged it, and the provider's walk includes the account's
+// own outbound — so without this one real message lands on a timeline twice, with
+// nothing to say which row is the duplicate.
+//
+// It is DECIDED ABOUT rather than skipped: the cursor moves past it exactly as it
+// moves past a landed record, or the walk would meet it again forever.
+func TestAMessageThisInstallationSentIsNotCapturedBack(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 900})
+	rt.tx.singleRows = append(rt.tx.singleRows, connectionRow(statusConnected, nil, cursor{floor: 1002}))
+	// The marker lookup answers that the outbound message is ours.
+	rt.tx.queryRows = [][]any{{"ours-1"}}
+	fake := newZaloFake(t)
+	fake.chatPages = [][]map[string]any{{
+		message("ours-1", 1002, srcOAToUser, "the reply the CRM staged"),
+		message("theirs-1", 1001, srcUserToOA, "what the customer said"),
+	}}
+
+	if err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
+		t.Fatalf("pollConnection: %v", err)
+	}
+	landed := map[string]bool{}
+	for _, rec := range rt.ingested {
+		landed[rec.Key] = true
+	}
+	if landed[fixtureOAID+":ours-1"] {
+		t.Fatal("a message this installation sent was captured back, so it is on the timeline twice")
+	}
+	if !landed[fixtureOAID+":theirs-1"] {
+		t.Fatalf("the customer's own message was not landed: %v", landed)
+	}
+	// And the cursor still moved past the suppressed one.
+	_, args := rt.tx.statementMentioning(t, "high_water_mark = $2")
+	if args[1] != int64(1002) {
+		t.Fatalf("the floor was written as %v, want it past the message that was suppressed", args[1])
+	}
+}
+
+// The marker lookup asks only about OUTBOUND ids: only a message the account sent
+// can be one this installation sent, so an inbound page costs no query at all.
+func TestOnlyOutboundIdsAreAskedAbout(t *testing.T) {
+	msgs := []chatMessage{
+		{MessageID: "in-1", Src: srcUserToOA},
+		{MessageID: "out-1", Src: srcOAToUser},
+		{MessageID: "", Src: srcOAToUser},
+	}
+	got := outboundIDs(msgs)
+	if len(got) != 1 || got[0] != "out-1" {
+		t.Fatalf("outboundIDs = %v, want only the outbound message that has an id", got)
+	}
+	if len(outboundIDs(nil)) != 0 {
+		t.Fatal("an empty page asked about something")
 	}
 }

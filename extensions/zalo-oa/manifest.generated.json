@@ -71,7 +71,7 @@
   "secrets": [
     {
       "key": "app-secret",
-      "scope": "user"
+      "scope": "workspace"
     },
     {
       "key": "oa-token",

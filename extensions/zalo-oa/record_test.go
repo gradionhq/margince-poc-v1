@@ -268,3 +268,34 @@ func TestALinkMessageCarriesItsURLsWhicheverShapeTheyArriveIn(t *testing.T) {
 		t.Fatalf("Body = %q, want it to still name the type", rec.Activity.Body)
 	}
 }
+
+// A `nosupport` message is the provider DECLINING TO HAND OVER the content, not
+// a type this unit failed to render — measured on a live account, where it was
+// the majority of rows, and where such a row carries no `message`, no `url`, no
+// `thumb`, no `links` and no `location`.
+//
+// So it reads as words a person understands rather than as the provider's own
+// token: `[nosupport]` on a CRM timeline reads as a bug in this connector.
+func TestAMessageWhoseContentTheProviderWithheldSaysSoInWords(t *testing.T) {
+	msg := inboundMessage()
+	msg.Type, msg.Message = "nosupport", ""
+
+	rec, err := recordFor(msg, fixtureOAID)
+	if err != nil {
+		t.Fatalf("recordFor: %v", err)
+	}
+	if strings.Contains(rec.Activity.Body, "nosupport") {
+		t.Fatalf("Body = %q, want words rather than the provider's own token", rec.Activity.Body)
+	}
+	if rec.Activity.Body == "" {
+		t.Fatal("a withheld message landed with an empty body, which reads as a message that said nothing")
+	}
+	// It is still a message that HAPPENED: the parties, the direction and the
+	// time are all recorded, and only the content is missing.
+	if rec.Counterparty.ChannelIdentity.ChannelUserID == "" {
+		t.Fatal("a withheld message lost its counterparty")
+	}
+	if rec.Activity.Direction != extension.DirectionInbound {
+		t.Fatalf("Direction = %q, want it preserved", rec.Activity.Direction)
+	}
+}

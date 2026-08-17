@@ -221,7 +221,7 @@ func keepCredentials(ctx context.Context, rt extension.Runtime, admin extension.
 	pasted pastedGrant, renewed tokenPair, resumed bool,
 ) error {
 	if !resumed {
-		if err := rt.Secrets().PutUser(ctx, admin, appSecretKey, []byte(pasted.appSecret)); err != nil {
+		if err := rt.Secrets().Put(ctx, appSecretKey, []byte(pasted.appSecret)); err != nil {
 			return err
 		}
 	}

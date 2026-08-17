@@ -112,7 +112,15 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 			return noteFailure(ctx, rt, current, err)
 		}
 	}
-	return saveCursor(ctx, rt, current, label, at)
+	if err := saveCursor(ctx, rt, current, label, at); err != nil {
+		return err
+	}
+	// The markers are swept on the tick because the only thing that makes one
+	// worth keeping is a walk that might still read the message it names, and the
+	// walk is here. A sweep that fails is not this tick's outcome: the records
+	// landed, the cursor moved, and a marker kept too long suppresses nothing that
+	// the provider can still serve.
+	return forgetOldSentMarkers(ctx, rt)
 }
 
 // fillGap walks the unread region under the newest messages.
@@ -201,14 +209,40 @@ func credentialOutcome(ctx context.Context, rt extension.Runtime, conn connectio
 // caller writes no cursor at all when this returns an error.
 func landAll(ctx context.Context, rt extension.Runtime, msgs []chatMessage, conn connection) (int64, error) {
 	sort.Slice(msgs, func(i, j int) bool { return msgs[i].Time < msgs[j].Time })
+	ours, err := sentByThisInstallation(ctx, rt, conn.OAID, outboundIDs(msgs))
+	if err != nil {
+		return 0, err
+	}
 	var decidedTo int64
 	for _, msg := range msgs {
+		if ours[msg.MessageID] {
+			// A message this installation SENT. The core wrote it as an activity
+			// when the rep staged it, so capturing it back would put one real
+			// message on a timeline twice with nothing to say which row is the
+			// duplicate. It is DECIDED ABOUT rather than skipped — the cursor
+			// moves past it exactly as it moves past a landed record, or the walk
+			// would meet it again forever.
+			decidedTo = msg.Time
+			continue
+		}
 		if err := landOne(ctx, rt, msg, conn); err != nil {
 			return decidedTo, err
 		}
 		decidedTo = msg.Time
 	}
 	return decidedTo, nil
+}
+
+// outboundIDs are the ids worth asking about: only a message the ACCOUNT sent can
+// be one this installation sent, so an inbound page costs no query at all.
+func outboundIDs(msgs []chatMessage) []string {
+	ids := make([]string, 0, len(msgs))
+	for _, msg := range msgs {
+		if !msg.inbound() && msg.MessageID != "" {
+			ids = append(ids, msg.MessageID)
+		}
+	}
+	return ids
 }
 
 // landOne hands one message to the core, and separates the two failures that

@@ -240,6 +240,35 @@ describe("the Zalo Official Account screen", () => {
     expect(screen.queryByText(/leaked_by_the_server/)).toBeNull();
   });
 
+  // A connection that exists is DESCRIBED, not re-offered. Four empty credential
+  // boxes under a live connection say "not set up", and the credentials they
+  // collect are single-use — an accidental submit costs a real token.
+  it("does not re-offer the deposit form under a live connection", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-oa/status": () => CONNECTED,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await screen.findByText("Connected");
+    expect(screen.queryByLabelText("Refresh token")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Replace the credentials" })).toBeTruthy();
+  });
+
+  it("opens the form again when somebody asks to replace what is stored", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-oa/status": () => CONNECTED,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await screen.findByText("Connected");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Replace the credentials" }));
+    expect(screen.getByLabelText("Refresh token")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Replace" })).toBeTruthy();
+  });
+
   it("shows which account is connected and what package it is on", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/zalo-oa/status": () => CONNECTED,

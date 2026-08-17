@@ -81,6 +81,17 @@ func sendVia(ctx context.Context, rt extension.Runtime, msg extension.OutboundMe
 	if err != nil {
 		return extension.Receipt{}, transmissionRefusal(err)
 	}
+	// REMEMBERED, so the poll does not read this back as a second copy of a
+	// message the core has already written. See sentmessage.go for why the walk
+	// makes that necessary.
+	//
+	// A failure here is NOT the send's failure: the message is at the recipient
+	// and the receipt is owed to the core, which would otherwise retry a delivery
+	// that already arrived. What is lost is the marker, and what that costs is one
+	// duplicate on a timeline — visible, and survivable, which the alternative is
+	// not.
+	//craft:ignore swallowed-errors the message is already at the recipient, so reporting this would have the core retry a delivery that arrived — a customer messaged twice, against the one duplicate timeline row a lost marker costs
+	_ = rememberSent(ctx, rt, conn.OAID, sentID)
 	return extension.Receipt{ProviderMessageID: sentID}, nil
 }
 

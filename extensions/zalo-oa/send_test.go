@@ -39,7 +39,7 @@ func sendableRuntime(t *testing.T) *fakeRuntime {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(20*time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{connectionRow(statusConnected, nil, cursor{})}
 	return rt
 }
@@ -309,7 +309,7 @@ func TestASendRenewsTheCredentialOnTheWayThrough(t *testing.T) {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(-time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusConnected, nil, cursor{}),
@@ -331,5 +331,48 @@ func TestASendRenewsTheCredentialOnTheWayThrough(t *testing.T) {
 	}
 	if onDeposit.AccessToken != "access-2" {
 		t.Fatalf("the credential on deposit is %q; a send must keep what it renewed", onDeposit.AccessToken)
+	}
+}
+
+// A SENT MESSAGE IS REMEMBERED, so the poll does not read it back as a second
+// copy of one the core has already written.
+//
+// The provider's walk is global and includes the account's own outbound, so
+// every reply staged through the timeline comes back on the next tick — and the
+// core writes that reply with no provider id, so the two rows cannot meet on a
+// natural key.
+func TestASentMessageIsRememberedSoTheWalkDoesNotCaptureItBack(t *testing.T) {
+	rt := sendableRuntime(t)
+	fake := newZaloFake(t)
+
+	if _, err := sendVia(t.Context(), rt, outbound(fixtureOAID+":user-1", "xin chào"),
+		fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
+		t.Fatalf("sendVia: %v", err)
+	}
+	sql, args := rt.tx.statementMentioning(t, "DO NOTHING")
+	if !strings.Contains(sql, sentTable) {
+		t.Fatalf("the marker was not written to this unit's own table: %s", sql)
+	}
+	if args[0] != fixtureOAID || args[1] != "sent-1" {
+		t.Fatalf("the marker recorded %v, want this account and the provider's own message id", args)
+	}
+}
+
+// A send that returned NO id records nothing, and that is the honest outcome:
+// there is no key to suppress on. Inventing one would suppress a real message
+// that happened to be read at the same moment.
+func TestASendWithNoProviderIdRemembersNothing(t *testing.T) {
+	rt := sendableRuntime(t)
+	fake := newZaloFake(t)
+	fake.sentID = " "
+
+	if _, err := sendVia(t.Context(), rt, outbound(fixtureOAID+":user-1", "xin chào"),
+		fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
+		t.Fatalf("sendVia: %v", err)
+	}
+	for _, sql := range rt.tx.statements {
+		if strings.Contains(sql, "DO NOTHING") {
+			t.Fatalf("a marker was written for a send that returned no id: %s", sql)
+		}
 	}
 }

@@ -167,6 +167,19 @@ func bodyFor(msg chatMessage) string {
 	if kind == "" || kind == typeText {
 		return text
 	}
+	if kind == typeWithheld {
+		// MEASURED, on a live account: a `nosupport` row carries no `message`, no
+		// `url`, no `thumb`, no `links` and no `location` — only the parties, the
+		// time and an id. It is not a message type this unit failed to render; it
+		// is the provider declining to hand the content over on this API at all,
+		// and on the account this was measured against it was the MAJORITY of
+		// rows.
+		//
+		// What lands is therefore a message a person can see happened and cannot
+		// read, said in those words rather than as the provider's own token. The
+		// original row is kept as evidence either way.
+		return withheldBody
+	}
 	parts := []string{"[" + kind + "]"}
 	for _, extra := range []string{text, strings.TrimSpace(msg.Description), strings.TrimSpace(msg.URL), locationOf(msg)} {
 		if extra != "" {
@@ -208,6 +221,17 @@ func linkURL(raw json.RawMessage) string {
 
 // typeText is the only message type whose body is simply its text.
 const typeText = "text"
+
+// typeWithheld is the type this API answers for a message whose content it will
+// not render, and withheldBody is what a reader sees instead.
+//
+// It is deliberately not the provider's own token: `[nosupport]` on a CRM
+// timeline reads as a bug in this connector, and what it actually means is that
+// the conversation happened and Zalo did not hand over what was said.
+const (
+	typeWithheld = "nosupport"
+	withheldBody = "(Zalo did not provide the content of this message)"
+)
 
 // locationOf renders a shared location.
 //

@@ -101,23 +101,21 @@ func unsealTokens(ctx context.Context, rt extension.Runtime, admin extension.Use
 	return pair, nil
 }
 
-// forgetCredential removes EVERYTHING sealed for one administrator: the token
-// pair, and the app secret that renews it.
+// forgetCredential removes the token pair sealed for one administrator.
 //
-// Both, because both are theirs — the app secret sits at user scope for the
-// reason the declaration gives — and because leaving either behind is a
-// credential on deposit for a connection that no longer exists. The ingress port
-// reads a deposit as live consent, so a stray one is a standing authority rather
-// than a stray blob.
+// It takes THEIR key and not the installation's app secret, and the split is the
+// scopes': the pair is that human's grant, and withdrawing it is what ends the
+// authority the ingress port reads from it. The app secret belongs to the
+// installation and outlives any one administrator, so a superseded one must not
+// take it with them — disconnect removes it separately, because that is the act
+// that ends the installation's use of the app.
 //
 // A key that holds nothing is not an error here — this is the withdrawal path,
 // and "it was already gone" is the outcome asked for.
 func forgetCredential(ctx context.Context, rt extension.Runtime, admin extension.UserID) error {
-	for _, key := range []string{tokenKey, appSecretKey} {
-		if err := rt.Secrets().DeleteUser(ctx, admin, key); err != nil &&
-			!errors.Is(err, extension.ErrSecretNotFound) {
-			return err
-		}
+	if err := rt.Secrets().DeleteUser(ctx, admin, tokenKey); err != nil &&
+		!errors.Is(err, extension.ErrSecretNotFound) {
+		return err
 	}
 	return nil
 }
@@ -153,7 +151,7 @@ func usableToken(ctx context.Context, rt extension.Runtime, grants grantExchange
 	// rotation needs that this side can be missing, and discovering that while
 	// holding the lease would shut the renewal for the lease's whole length over
 	// a fault that has nothing to do with the provider.
-	appSecret, err := rt.Secrets().GetUser(ctx, admin, appSecretKey)
+	appSecret, err := rt.Secrets().Get(ctx, appSecretKey)
 	if err != nil {
 		if errors.Is(err, extension.ErrSecretNotFound) {
 			return tokenPair{}, conn, fmt.Errorf("%w: this installation has no app secret on deposit, so the credential cannot be renewed", errCredentialGone)

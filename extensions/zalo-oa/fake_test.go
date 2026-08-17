@@ -198,6 +198,8 @@ type fakeTx struct {
 	// which every handler here treats as "there is no such row" rather than as a
 	// failure.
 	noRows map[int]bool
+	// queryRows is what the next Query hands back, one entry per row.
+	queryRows [][]any
 
 	err      error
 	failFrom int
@@ -250,7 +252,9 @@ func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Ro
 	if err := t.failure(); err != nil {
 		return nil, err
 	}
-	return &fakeRows{}, nil
+	rows := &fakeRows{rows: t.queryRows}
+	t.queryRows = nil
+	return rows, nil
 }
 
 func (t *fakeTx) QueryRow(_ context.Context, sql string, args ...any) extension.Row {
@@ -285,12 +289,23 @@ func (r fakeRow) Scan(dest ...any) error {
 	return scanInto(dest, r.values)
 }
 
-type fakeRows struct{ closed bool }
+type fakeRows struct {
+	rows   [][]any
+	cursor int
+	closed bool
+}
 
-func (r *fakeRows) Next() bool        { return false }
-func (r *fakeRows) Scan(...any) error { return nil }
-func (r *fakeRows) Close()            { r.closed = true }
-func (r *fakeRows) Err() error        { return nil }
+func (r *fakeRows) Next() bool {
+	if r.cursor >= len(r.rows) {
+		return false
+	}
+	r.cursor++
+	return true
+}
+
+func (r *fakeRows) Scan(dest ...any) error { return scanInto(dest, r.rows[r.cursor-1]) }
+func (r *fakeRows) Close()                 { r.closed = true }
+func (r *fakeRows) Err() error             { return nil }
 
 // scanInto copies scripted values into a handler's scan destinations. It knows
 // only the types this unit's projection actually scans; a new column type is a
@@ -445,6 +460,10 @@ type zaloFake struct {
 	chatPages [][]map[string]any
 	// sent is every message the send endpoint accepted.
 	sent []map[string]any
+	// sentID is the provider message id the send answers with. Empty means the
+	// fake keeps its default; a blank-but-set value is how a test scripts an
+	// accepted send that named no id.
+	sentID string
 	// calls counts each path, so a test can say what was and was not asked.
 	calls map[string]int
 }
@@ -499,8 +518,12 @@ func (z *zaloFake) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		z.sent = append(z.sent, body)
+		id := "sent-1"
+		if z.sentID != "" {
+			id = strings.TrimSpace(z.sentID)
+		}
 		z.answer(w, map[string]any{"error": 0, "message": "Success", "data": map[string]any{
-			"message_id": "sent-1", "sent_time": "1786689951020",
+			"message_id": id, "sent_time": "1786689951020",
 		}})
 	default:
 		// What the real host answers for a path it does not serve: a 200 whose

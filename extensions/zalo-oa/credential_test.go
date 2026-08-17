@@ -126,7 +126,7 @@ func TestAUsableTokenIsSpentWithoutRenewingIt(t *testing.T) {
 func TestOnlyOneCallerEverSpendsTheRefreshToken(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	// A REPLACEMENT WITH DISTINCT VALUES, so the assertion below can tell a caller
 	// that read the renewal from one that read the original. The same fixture with
 	// the same strings on both sides would pass against an implementation that
@@ -174,7 +174,7 @@ func TestOnlyOneCallerEverSpendsTheRefreshToken(t *testing.T) {
 func TestACallerHoldingAStalePairDoesNotSpendItAfterSomebodyElseRenewed(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusConnected, nil, cursor{}),
@@ -207,7 +207,7 @@ func TestACallerHoldingAStalePairDoesNotSpendItAfterSomebodyElseRenewed(t *testi
 func TestACallerThatLosesTheLeaseNeverReachesTheTokenEndpoint(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	grants := &fakeGrants{rotated: livePair(at(25 * time.Hour))}
 	// What a conditional UPDATE answers when its predicate does not match, which
 	// is what another caller holding the lease looks like from here.
@@ -228,7 +228,7 @@ func TestACallerThatLosesTheLeaseNeverReachesTheTokenEndpoint(t *testing.T) {
 func TestTheReplacementIsKeptBeforeAnythingElseHappens(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	renewed := tokenPair{AccessToken: "access-2", RefreshToken: "refresh-2", ExpiresAt: at(25 * time.Hour)}
 	grants := &fakeGrants{rotated: renewed}
 	rt.tx.singleRows = [][]any{
@@ -264,7 +264,7 @@ func TestTheReplacementIsKeptBeforeAnythingElseHappens(t *testing.T) {
 func TestARotationThatCouldNotBeKeptParksInsteadOfRetrying(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusReauth, nil, cursor{}),
@@ -297,7 +297,7 @@ func TestARotationThatCouldNotBeKeptParksInsteadOfRetrying(t *testing.T) {
 func TestARotationWithNoAnswerParksWithTheUncertaintyNamed(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusReauth, nil, cursor{}),
@@ -320,7 +320,7 @@ func TestARotationWithNoAnswerParksWithTheUncertaintyNamed(t *testing.T) {
 func TestARefusedRefreshTokenParksAsACredentialProblem(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusReauth, nil, cursor{}),
@@ -343,7 +343,7 @@ func TestARefusedRefreshTokenParksAsACredentialProblem(t *testing.T) {
 func TestAnUnreachableProviderReleasesTheLeaseInsteadOfParking(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
-	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusConnected, nil, cursor{}),
@@ -386,17 +386,20 @@ func TestAMissingAppSecretIsFoundBeforeTheLeaseIsClaimed(t *testing.T) {
 func TestWithdrawingACredentialTakesEverythingSealedForThatAdmin(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(20*time.Hour)))
-	if err := rt.secrets.PutUser(t.Context(), adminUserID, appSecretKey, []byte("s")); err != nil {
+	if err := rt.secrets.Put(t.Context(), appSecretKey, []byte("s")); err != nil {
 		t.Fatalf("depositing the app secret: %v", err)
 	}
 
 	if err := forgetCredential(t.Context(), rt, adminUserID); err != nil {
 		t.Fatalf("forgetCredential: %v", err)
 	}
-	for _, key := range []string{tokenKey, appSecretKey} {
-		if _, still := rt.secrets.stored["user/"+adminUserID+"/"+key]; still {
-			t.Fatalf("%q is still on deposit after the credential was withdrawn", key)
-		}
+	if _, still := rt.secrets.stored["user/"+adminUserID+"/"+tokenKey]; still {
+		t.Fatal("the administrator's pair is still on deposit after it was withdrawn")
+	}
+	// The INSTALLATION's app secret stays: it is not theirs, and a superseded
+	// administrator must not take the app with them.
+	if _, still := rt.secrets.stored["workspace//"+appSecretKey]; !still {
+		t.Fatal("withdrawing one administrator's credential took the installation's app secret with it")
 	}
 	// And again, over nothing at all.
 	if err := forgetCredential(t.Context(), rt, adminUserID); err != nil {

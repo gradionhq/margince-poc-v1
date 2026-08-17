@@ -96,14 +96,13 @@ func TestTheCredentialIsDeclaredAtUserScopeSoAnIngestCanBeConsentedTo(t *testing
 		t.Fatalf("%q is declared at %q scope; it must be user-scoped or no ingest this unit makes can be consented to",
 			tokenKey, scopes[tokenKey])
 	}
-	// EVERY key at one scope, because the composition generator refuses a unit
-	// whose secrets span both — its settings placement is derived from that
-	// scope, and a mixed unit has no single answer. The cost is named on the
-	// declaration.
-	for key, scope := range scopes {
-		if scope != extension.SecretScopeUser {
-			t.Fatalf("%q is declared at %q scope; a unit declares one scope, and this unit's is user", key, scope)
-		}
+	// THE APP SECRET IS THE INSTALLATION'S, and its scope is what places this unit
+	// under Settings → Integrations rather than beside a member's personal
+	// accounts on Connections — the honest page for one Official Account that
+	// serves a whole workspace and that every rep replies through.
+	if scopes[appSecretKey] != extension.SecretScopeWorkspace {
+		t.Fatalf("%q is declared at %q scope; one developer app serves every account an operator connects, and its scope is what files this unit as an installation integration",
+			appSecretKey, scopes[appSecretKey])
 	}
 }
 

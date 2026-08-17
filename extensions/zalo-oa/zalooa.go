@@ -93,25 +93,24 @@ func New() extension.Extension {
 			{Name: "zalo_oa_status", Handle: status},
 			{Name: "zalo_oa_disconnect", Handle: disconnect},
 		},
-		// Both keys at USER scope, under the administrator who connected the
-		// account — and the token's scope is the load-bearing one: it is the
+		// Two keys in the two scopes, and which is which is the whole custody
+		// argument above.
+		//
+		// The TOKEN is user-scoped under the administrator who connected the
+		// account, and that scope is load-bearing rather than chosen: it is the
 		// deposit the ingress port reads as that human's consent to be acted for,
 		// so a workspace-scoped token would be refused on every record this unit
 		// ever tried to land.
 		//
-		// The APP SECRET sits beside it rather than at workspace scope, which is
-		// where it would otherwise belong: one developer app serves every account
-		// an operator connects, so it describes the installation and not the
-		// person. It is here because a unit declares ONE scope — the composition
-		// generator refuses a unit whose secrets span both, since a unit's
-		// settings placement is derived from that scope and a mixed unit has no
-		// single answer. The cost is real and worth naming: this unit is offered
-		// under Connections, beside a member's own personal accounts, when one
-		// Official Account in fact serves the whole workspace and every rep
-		// replies through it.
+		// The APP SECRET is the installation's own — one developer app serves
+		// every account an operator connects, so it describes the installation and
+		// not the person, and every renewal spends it. It is also what places this
+		// unit under Settings → Integrations rather than beside a member's
+		// personal accounts on Connections, which is the honest page for one
+		// Official Account that serves a whole workspace.
 		Secrets: []extension.SecretsRequest{
 			{Key: "oa-token", Scope: extension.SecretScopeUser},
-			{Key: "app-secret", Scope: extension.SecretScopeUser},
+			{Key: "app-secret", Scope: extension.SecretScopeWorkspace},
 		},
 		// The transport this unit supplies (ADR-0107/A158). A message it carries
 		// lands as kind `message` with `zalo_oa` on the provider column — the
@@ -152,8 +151,6 @@ const (
 	// apart. See credential.go.
 	tokenKey = "oa-token"
 	// appSecretKey holds the developer app's secret, which every renewal spends.
-	// It is deposited under the same administrator as the token; see the
-	// declaration for why it is not workspace-scoped.
 	appSecretKey = "app-secret"
 )
 
