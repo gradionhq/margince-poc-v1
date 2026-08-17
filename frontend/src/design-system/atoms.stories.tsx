@@ -71,6 +71,23 @@ export const Buttons: Story = {
           <Button variant="danger">Delete</Button>
         </div>
       </div>
+      {/* The text affordance, beside a real Button so the thing it must not
+          out-shout is in the same picture. Its focus ring is a SOLID outline,
+          not the low-alpha shadow the filled controls use: with no fill of its
+          own there is nothing for that ring to read against, and on an
+          elevated surface it disappears. Tab through this row to see it. */}
+      <div style={stack}>
+        <span className="t-label">The secondary text affordance</span>
+        <div style={row}>
+          <Button variant="primary">Save changes</Button>
+          <a className="link-button" href="#link-button-story">
+            Download the signed PDF
+          </a>
+          <button type="button" className="link-button">
+            View existing
+          </button>
+        </div>
+      </div>
       <div style={stack}>
         <span className="t-label">Variants, small</span>
         <div style={row}>
@@ -151,23 +168,6 @@ export const Buttons: Story = {
           </Button>
           <button type="button" className="iconbtn" aria-label="Remove">
             <Trash2 aria-hidden />
-          </button>
-        </div>
-      </div>
-      {/* The text affordance, beside a real Button so the thing it must not
-          out-shout is in the same picture. Its focus ring is a SOLID outline,
-          not the low-alpha shadow the filled controls use: with no fill of its
-          own there is nothing for that ring to read against, and on an
-          elevated surface it disappears. Tab through this row to see it. */}
-      <div style={stack}>
-        <span className="t-label">The secondary text affordance</span>
-        <div style={row}>
-          <Button variant="primary">Save changes</Button>
-          <a className="link-button" href="#link-button-story">
-            Download the signed PDF
-          </a>
-          <button type="button" className="link-button">
-            View existing
           </button>
         </div>
       </div>
