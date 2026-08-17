@@ -63,8 +63,8 @@ func transcriptSubject(t *testing.T, e *integration.Env) (ids.PersonID, ids.UUID
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 		VALUES ($1, $2, 'person', $3)`, e.WS, activityID, person)
 	e.WsExec(t, `
-		INSERT INTO transcript_read (id, workspace_id, activity_id, status, line_count, requested_by, started_at, finished_at)
-		VALUES ($1, $2, $3, 'done', 2, 'human:seed', now(), now())`, ids.NewV7(), e.WS, activityID)
+		INSERT INTO transcript_read (id, activity_id, status, line_count, requested_by, started_at, finished_at)
+		VALUES ($1, $2, 'done', 2, 'human:seed', now(), now())`, ids.NewV7(), activityID)
 
 	return ids.From[ids.PersonKind](person), activityID, stageProposalQuoting(t, e, activityID, quotedTranscriptLine)
 }
@@ -233,8 +233,8 @@ func TestRetentionErasingATranscriptEmptiesTheProposalQuotingIt(t *testing.T) {
 	overAge := seedTranscript(t, e, quotedTranscriptLine)
 	e.WsExec(t, `UPDATE activity SET occurred_at = now() - interval '400 days' WHERE id = $1`, overAge)
 	e.WsExec(t, `
-		INSERT INTO transcript_read (id, workspace_id, activity_id, status, line_count, requested_by, started_at, finished_at)
-		VALUES ($1, $2, $3, 'done', 1, 'human:seed', now(), now())`, ids.NewV7(), e.WS, overAge)
+		INSERT INTO transcript_read (id, activity_id, status, line_count, requested_by, started_at, finished_at)
+		VALUES ($1, $2, 'done', 1, 'human:seed', now(), now())`, ids.NewV7(), overAge)
 	approvalID := stageProposalQuoting(t, e, overAge, quotedTranscriptLine)
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))

@@ -52,7 +52,7 @@ type AttachmentInput struct {
 	ContractID *ids.UUID
 }
 
-const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
+const attachmentColumns = `at.id, at.entity_type, at.entity_id, at.filename,
 	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at,
 	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id,
 	at.contract_id`
@@ -149,11 +149,11 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 			account = &rollUp
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
+			INSERT INTO attachment (id, entity_type, entity_id, filename,
 				content_type, byte_size, storage_key, checksum, source, captured_by,
 				organization_id, contract_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+			id, in.EntityType, in.EntityID, in.Filename,
 			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
 			account, in.ContractID); err != nil {
 			return err
@@ -356,7 +356,7 @@ func readAttachment(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.A
 func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	var (
 		att         crmcontracts.Attachment
-		aid, wsID   ids.UUID
+		aid         ids.UUID
 		entityType  string
 		entityID    ids.UUID
 		contentType *string
@@ -369,7 +369,7 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		orgID       *ids.UUID
 		contractID  *ids.UUID
 	)
-	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
+	if err := row.Scan(&aid, &entityType, &entityID, &att.Filename,
 		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt,
 		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID, &contractID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

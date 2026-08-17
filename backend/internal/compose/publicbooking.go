@@ -13,11 +13,13 @@ package compose
 // attribution as actor_type=system) then works unchanged.
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
@@ -45,7 +47,7 @@ func newPublicBookingLimiters() publicBookingLimiters {
 	}
 }
 
-func publicBooking(store *activities.Store, limits publicBookingLimiters) func(http.Handler) http.Handler {
+func publicBooking(store *activities.Store, svc *identity.Service, limits publicBookingLimiters) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !strings.HasPrefix(r.URL.Path, publicBookingPrefix) {
@@ -66,14 +68,24 @@ func publicBooking(store *activities.Store, limits publicBookingLimiters) func(h
 				return
 			}
 
-			page, err := store.ResolveBookingPage(r.Context(), slug)
-			if err != nil {
+			if _, err := store.ResolveBookingPage(r.Context(), slug); err != nil {
 				// Unknown and revoked slugs read identically as absent.
 				httperr.Write(w, r, err)
 				return
 			}
 
-			ctx := principal.WithWorkspaceID(r.Context(), page.WorkspaceID.UUID)
+			// The installation resolves itself. The slug used to carry the
+			// workspace, which meant an anonymous caller chose the tenant its
+			// own request would run in; there is one installation now, and
+			// asking it directly is both the only answer and the safer shape.
+			// A failure here is a deployment fault, not a bad slug, so it must
+			// not read as one.
+			wsID, err := svc.InstallationWorkspace(r.Context())
+			if err != nil {
+				httperr.Write(w, r, fmt.Errorf("public booking: resolving the installation: %w", err))
+				return
+			}
+			ctx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
 			ctx = principal.WithActor(ctx, principal.Principal{
 				Type: principal.PrincipalSystem,
 				ID:   "system:public_booking",

@@ -233,9 +233,9 @@ func TestTheDatabaseRefusesASecondRowForTheSameProviderPart(t *testing.T) {
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO attachment (
-				workspace_id, entity_type, entity_id, filename, storage_key,
+				entity_type, entity_id, filename, storage_key,
 				source, captured_by, external_source_id, external_part_id)
-			VALUES (current_setting('app.workspace_id')::uuid, 'activity', $1, 'contract.pdf',
+			VALUES ('activity', $1, 'contract.pdf',
 			        'some/other/key', 'imap', 'connector:imap', $2, $3)`,
 			activityOf(ctx, t, db, "imap:msg-racing-pulls-"+tag),
 			"imap:msg-racing-pulls-"+tag, *stored[0].partID)

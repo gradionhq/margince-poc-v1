@@ -166,11 +166,11 @@ func insertCapturedAttachment(
 ) error {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO attachment (
-			id, workspace_id, entity_type, entity_id, filename, content_type,
+			id, entity_type, entity_id, filename, content_type,
 			byte_size, storage_key, checksum, source, captured_by,
 			category, organization_id, activity_id,
 			external_source_id, external_part_id, declared_type)
-		VALUES ($1, current_setting('app.workspace_id')::uuid, 'activity', $2, $3, $4,
+		VALUES ($1, 'activity', $2, $3, $4,
 		        $5, $6, $7, $8, $9,
 		        'email_attachment', $10, $2,
 		        $11, $12, $13)

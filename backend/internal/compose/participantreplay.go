@@ -235,8 +235,8 @@ func decodeStoredOriginal(payload []byte) ([]byte, error) {
 // selects it again.
 func markReplayed(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, outcome string) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO activity_participant_replay (workspace_id, activity_id, outcome)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
+		INSERT INTO activity_participant_replay (activity_id, outcome)
+		VALUES ($1, $2)
 		ON CONFLICT (activity_id) DO NOTHING`,
 		activityID, outcome); err != nil {
 		return fmt.Errorf("compose: recording that an activity's participants were replayed: %w", err)

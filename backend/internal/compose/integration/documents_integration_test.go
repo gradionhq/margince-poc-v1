@@ -37,10 +37,10 @@ func seedDocument(
 	// type per parameter, and using the id as both a uuid and a string leaves it
 	// with two.
 	e.WsExec(t, `
-		INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key,
+		INSERT INTO attachment (id, entity_type, entity_id, filename, storage_key,
 		                        source, captured_by, category, organization_id, pinned)
-		VALUES ($1, $2, $3, $4, $5, $6, 'upload', 'human:test', $7, $8, $9)`,
-		id, e.WS, parentType, parent, name, "k/"+id.String(), category, org, pinned)
+		VALUES ($1, $2, $3, $4, $5, 'upload', 'human:test', $6, $7, $8)`,
+		id, parentType, parent, name, "k/"+id.String(), category, org, pinned)
 	return id
 }
 
