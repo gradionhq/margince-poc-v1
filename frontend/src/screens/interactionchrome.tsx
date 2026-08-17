@@ -78,6 +78,8 @@ export function useInteractionLabel(): (
         return t("person.memory.channelCall");
       case "note":
         return t("person.memory.channelNote");
+      case "task":
+        return t("person.memory.channelTask");
       case "message":
         // A message the contract says must name a transport, arriving without
         // one. Naming it plainly is the honest read; inventing a transport for

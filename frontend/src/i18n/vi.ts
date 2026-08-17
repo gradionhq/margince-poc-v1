@@ -4937,6 +4937,7 @@ export const vi = {
   "person.memory.channelCall": "Cuộc gọi",
   "person.memory.channelNote": "Ghi chú",
   "person.memory.channelMessage": "Tin nhắn",
+  "person.memory.channelTask": "Công việc",
   "person.memory.replied": "Đã hồi đáp",
   "person.memory.unanswered": "Chưa hồi đáp",
 

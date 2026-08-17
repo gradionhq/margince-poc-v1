@@ -4966,6 +4966,7 @@ export const de = {
   "person.memory.channelCall": "Anruf",
   "person.memory.channelNote": "Notiz",
   "person.memory.channelMessage": "Nachricht",
+  "person.memory.channelTask": "Aufgabe",
   "person.memory.replied": "Beantwortet",
   "person.memory.unanswered": "Unbeantwortet",
 

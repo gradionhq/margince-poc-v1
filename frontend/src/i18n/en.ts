@@ -4964,6 +4964,7 @@ export const en = {
   "person.memory.channelCall": "Call",
   "person.memory.channelNote": "Note",
   "person.memory.channelMessage": "Message",
+  "person.memory.channelTask": "Task",
   "person.memory.replied": "Replied",
   "person.memory.unanswered": "Unanswered",
 
