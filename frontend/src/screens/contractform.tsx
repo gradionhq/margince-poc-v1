@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -239,7 +239,12 @@ export function ContractForm({
         )}
       </Field>
 
-      <SignedFileField file={file} onPick={setFile} />
+      <SignedFileField
+        orgId={orgId}
+        contractID={contract?.id}
+        file={file}
+        onPick={setFile}
+      />
 
       {save.error && (
         <p className="t-caption" role="alert">
@@ -290,19 +295,52 @@ function draftOf(contract: Contract | undefined): ContractDraft {
 }
 
 /**
- * SignedFileField takes the signed agreement by drag-and-drop or by clicking.
+ * SignedFileField shows the paper already on file and takes a new one by
+ * drag-and-drop or by clicking.
  *
- * BOTH, not one: dropping is what a reader reaches for with a PDF already in
- * front of them, and clicking is what works from a keyboard and on a phone. A
- * drop zone with no real input behind it is unreachable for anyone not using a
- * mouse, which is why the input is present and merely made invisible.
+ * IT LISTS WHAT IS ALREADY THERE, because a form that only offers an upload
+ * says, to anyone reading it, that there is nothing yet. Somebody opening an
+ * agreement to check its terms wants the signed PDF, and the edit form is where
+ * they land when they click the row — so a filed document that can only be
+ * reached from somewhere else is a document they will conclude does not exist.
+ *
+ * The picker takes BOTH gestures, not one: dropping is what a reader reaches
+ * for with a PDF already in front of them, and clicking is what works from a
+ * keyboard and on a phone. A drop zone with no real input behind it is
+ * unreachable for anyone not using a mouse, which is why the input is present
+ * and merely made invisible.
  */
 function SignedFileField({
+  orgId,
+  contractID,
   file,
   onPick,
-}: Readonly<{ file?: File; onPick: (file: File) => void }>) {
+}: Readonly<{
+  orgId: string;
+  contractID?: string;
+  file?: File;
+  onPick: (file: File) => void;
+}>) {
   const t = useT();
   const [over, setOver] = useState(false);
+  // A contract being CREATED has no id and therefore no paper — asking would be
+  // a request for the documents of an agreement that does not exist yet.
+  const filed = useQuery({
+    queryKey: ["contractPaper", orgId, contractID],
+    enabled: Boolean(contractID),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/documents", {
+        params: {
+          path: { id: orgId },
+          query: { contract_id: contractID },
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data?.data ?? [];
+    },
+  });
 
   const take = (dropped: FileList | null) => {
     const first = dropped?.[0];
@@ -311,37 +349,65 @@ function SignedFileField({
     }
   };
 
+  const onFile = filed.data ?? [];
+
   return (
     <Field label={t("contracts.form.file")} hint={t("contracts.form.fileHint")}>
       {(props) => (
-        // A LABEL, not a div: it owns the real file input, so a click or a
-        // keypress anywhere in the zone opens the picker without a handler
-        // faking it, and a screen reader announces one control rather than an
-        // interactive box of unknown purpose. Dropping is the mouse affordance
-        // layered on top of that, not a replacement for it.
-        <label
-          className={over ? "dropzone dragover" : "dropzone"}
-          onDragOver={(e: DragEvent<HTMLLabelElement>) => {
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e: DragEvent<HTMLLabelElement>) => {
-            e.preventDefault();
-            setOver(false);
-            take(e.dataTransfer.files);
-          }}
-        >
-          <input
-            {...props}
-            type="file"
-            className="dropzone-input"
-            onChange={(e) => take(e.target.files)}
-          />
-          <span className="dropzone-label">
-            {file ? file.name : t("contracts.form.fileEmpty")}
-          </span>
-        </label>
+        <>
+          {/* Each filed document, downloadable by name. A failed read renders
+              nothing rather than an error: the terms above are what the reader
+              came for, and a document problem reported here would read as
+              doubt about the agreement itself. */}
+          {onFile.map((doc) => (
+            <a
+              key={doc.id}
+              className="co-rowlink"
+              href={`/v1/attachments/${doc.id}`}
+              download={doc.filename}
+            >
+              {doc.title || doc.filename}
+            </a>
+          ))}
+          {/* A LABEL, not a div: it owns the real file input, so a click or a
+              keypress anywhere in the zone opens the picker without a handler
+              faking it, and a screen reader announces one control rather than
+              an interactive box of unknown purpose. Dropping is the mouse
+              affordance layered on top of that, not a replacement for it. */}
+          <label
+            className={over ? "dropzone dragover" : "dropzone"}
+            onDragOver={(e: DragEvent<HTMLLabelElement>) => {
+              e.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e: DragEvent<HTMLLabelElement>) => {
+              e.preventDefault();
+              setOver(false);
+              take(e.dataTransfer.files);
+            }}
+          >
+            <input
+              {...props}
+              type="file"
+              className="dropzone-input"
+              onChange={(e) => take(e.target.files)}
+            />
+            <span className="dropzone-label">
+              {/* The label says ADD when paper is already filed: an agreement
+                  can carry an amendment beside its original, and "no file yet"
+                  over a list of files is a contradiction the reader has to
+                  resolve. */}
+              {file
+                ? file.name
+                : t(
+                    onFile.length > 0
+                      ? "contracts.form.fileAdd"
+                      : "contracts.form.fileEmpty",
+                  )}
+            </span>
+          </label>
+        </>
       )}
     </Field>
   );

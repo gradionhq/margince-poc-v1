@@ -870,6 +870,7 @@ export const en = {
   "contracts.form.fileHint":
     "Drop the signed PDF here, or click to choose one. It is filed against this contract and appears in the account's documents.",
   "contracts.form.fileEmpty": "Drop a file here or click to choose",
+  "contracts.form.fileAdd": "Drop another file here or click to choose",
   "contracts.perYear": "{amount} / year",
   "contracts.state.title": "Under contract · {count} active",
   "contracts.state.none": "No contract on record",
