@@ -855,6 +855,7 @@ export const de = {
   "contracts.form.fileHint":
     "Das unterschriebene PDF hier ablegen oder klicken, um eines auszuw\u00e4hlen. Es wird diesem Vertrag zugeordnet und erscheint bei den Dokumenten des Kontos.",
   "contracts.form.fileEmpty": "Datei hier ablegen oder klicken",
+  "contracts.form.fileAdd": "Weitere Datei hier ablegen oder klicken",
   "contracts.perYear": "{amount} / Jahr",
   "contracts.state.title": "Unter Vertrag · {count} aktiv",
   "contracts.state.none": "Kein Vertrag hinterlegt",

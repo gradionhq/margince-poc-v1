@@ -1,11 +1,27 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type DragEvent, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { Select } from "../design-system/select";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
-import { throwProblem } from "./common";
+import { ProblemError, throwProblem } from "./common";
+// The drop zone needs BOTH sheets, and neither was imported here.
+//
+// `.dropzone` — the dashed box, its padding and its dragover state — lives in
+// onboarding.css, where the first drop zone was built; `.dropzone-input` and
+// `.dropzone-label`, which hide the real file input and draw the text over it,
+// live in company360.css. This form loaded neither and looked right only
+// because the company page pulls both in elsewhere in the bundle. Rendered on
+// its own — a story, or a route that opens the modal directly — it showed the
+// browser's raw "Choose File" control and no box at all.
+//
+// Split across two screen sheets is not where this belongs; it is a
+// design-system control with two homes. Filed rather than moved here, because
+// moving it is a design-system change with its own review surface.
+import "./company360.css";
+import "./onboarding.css";
 
 // Recording an agreement.
 //
@@ -98,6 +114,11 @@ export function ContractForm({
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
       queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
       queryClient.invalidateQueries({ queryKey: ["orgDocuments", orgId] });
+      // The paper list this form and the contract row BOTH read. Without it an
+      // upload lands on the server and neither surface shows it: the row keeps
+      // the pre-upload list, and reopening the form serves the same stale cache
+      // while it refetches behind.
+      queryClient.invalidateQueries({ queryKey: ["contractPaper", orgId] });
       onClose();
     },
   });
@@ -239,7 +260,12 @@ export function ContractForm({
         )}
       </Field>
 
-      <SignedFileField file={file} onPick={setFile} />
+      <SignedFileField
+        orgId={orgId}
+        contractID={contract?.id}
+        file={file}
+        onPick={setFile}
+      />
 
       {save.error && (
         <p className="t-caption" role="alert">
@@ -290,19 +316,105 @@ function draftOf(contract: Contract | undefined): ContractDraft {
 }
 
 /**
- * SignedFileField takes the signed agreement by drag-and-drop or by clicking.
+ * paperState is what the field KNOWS about an agreement's documents.
  *
- * BOTH, not one: dropping is what a reader reaches for with a PDF already in
- * front of them, and clicking is what works from a keyboard and on a phone. A
- * drop zone with no real input behind it is unreachable for anyone not using a
- * mouse, which is why the input is present and merely made invisible.
+ * The four not-ready cases are kept apart because each is a different sentence
+ * to the reader, and collapsing them into an empty list makes the field claim
+ * "no paper on file" three times over when it has no idea. A contract being
+ * created is the one honest empty: it cannot have documents yet.
+ *
+ * A 403 is WITHHELD, not failed. Reading documents carries its own grant, so a
+ * reader without it must be told the answer is being kept from them rather than
+ * offered a retry that will refuse again exactly the same way.
  */
-function SignedFileField({
+export function paperState(
+  hasContract: boolean,
+  query: { isPending: boolean; isError: boolean; error: unknown },
+  count: number,
+): SectionState {
+  if (!hasContract) {
+    return "empty";
+  }
+  if (query.isPending) {
+    return "loading";
+  }
+  if (query.isError) {
+    return problemStatus(query.error) === 403 ? "withheld" : "failed";
+  }
+  return count === 0 ? "empty" : "ready";
+}
+
+// The HTTP status out of a thrown RFC-7807 body, or 0 when the failure carried
+// none (a dropped connection throws no problem document at all).
+function problemStatus(err: unknown): number {
+  // `typeof null === "object"`, so the null check is not redundant: without it
+  // a ProblemError carrying a null body throws while deciding how to report a
+  // failure, turning a handled error into an unhandled one.
+  if (!(err instanceof ProblemError) || !err.problem) {
+    return 0;
+  }
+  if (typeof err.problem !== "object") {
+    return 0;
+  }
+  const body = err.problem as Record<string, unknown>;
+  return typeof body.status === "number" ? body.status : 0;
+}
+
+/**
+ * SignedFileField shows the paper already on file and takes a new one by
+ * drag-and-drop or by clicking.
+ *
+ * IT LISTS WHAT IS ALREADY THERE, because a form that only offers an upload
+ * says, to anyone reading it, that there is nothing yet. Somebody opening an
+ * agreement to check its terms wants the signed PDF, and the edit form is where
+ * they land when they click the row — so a filed document that can only be
+ * reached from somewhere else is a document they will conclude does not exist.
+ *
+ * AND IT NEVER SAYS THAT WHEN IT DOES NOT KNOW. A read still in flight, one
+ * that failed, and one a grant refused are each a state where the answer is
+ * unknown — and rendering a bare drop zone in any of them makes the same false
+ * claim this field exists to stop, just later and more convincingly. Reading
+ * documents needs its own grant, so a reader who cannot have them is told they
+ * are withheld rather than shown an empty field about a contract that has
+ * paper.
+ *
+ * The picker takes BOTH gestures, not one: dropping is what a reader reaches
+ * for with a PDF already in front of them, and clicking is what works from a
+ * keyboard and on a phone. A drop zone with no real input behind it is
+ * unreachable for anyone not using a mouse, which is why the input is present
+ * and merely made invisible.
+ */
+export function SignedFileField({
+  orgId,
+  contractID,
   file,
   onPick,
-}: Readonly<{ file?: File; onPick: (file: File) => void }>) {
+}: Readonly<{
+  orgId: string;
+  contractID?: string;
+  file?: File;
+  onPick: (file: File) => void;
+}>) {
   const t = useT();
   const [over, setOver] = useState(false);
+  // A contract being CREATED has no id and therefore no paper — asking would be
+  // a request for the documents of an agreement that does not exist yet.
+  const filed = useQuery({
+    queryKey: ["contractPaper", orgId, contractID],
+    enabled: Boolean(contractID),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/documents", {
+        params: {
+          path: { id: orgId },
+          query: { contract_id: contractID },
+        },
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data?.data ?? [];
+    },
+  });
 
   const take = (dropped: FileList | null) => {
     const first = dropped?.[0];
@@ -311,37 +423,91 @@ function SignedFileField({
     }
   };
 
+  const onFile = filed.data ?? [];
+  const state = paperState(Boolean(contractID), filed, onFile.length);
+  // A drop zone always shows: uploading does not depend on being able to READ
+  // what is already filed, and withholding the only way to attach paper would
+  // punish the reader for a grant they do not have. What changes is whether
+  // anything above it claims to be the full picture.
+  const known = state === "ready" || state === "empty";
+
   return (
     <Field label={t("contracts.form.file")} hint={t("contracts.form.fileHint")}>
       {(props) => (
-        // A LABEL, not a div: it owns the real file input, so a click or a
-        // keypress anywhere in the zone opens the picker without a handler
-        // faking it, and a screen reader announces one control rather than an
-        // interactive box of unknown purpose. Dropping is the mouse affordance
-        // layered on top of that, not a replacement for it.
-        <label
-          className={over ? "dropzone dragover" : "dropzone"}
-          onDragOver={(e: DragEvent<HTMLLabelElement>) => {
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e: DragEvent<HTMLLabelElement>) => {
-            e.preventDefault();
-            setOver(false);
-            take(e.dataTransfer.files);
-          }}
-        >
-          <input
-            {...props}
-            type="file"
-            className="dropzone-input"
-            onChange={(e) => take(e.target.files)}
-          />
-          <span className="dropzone-label">
-            {file ? file.name : t("contracts.form.fileEmpty")}
-          </span>
-        </label>
+        <>
+          {/* Each filed document, downloadable by name — and when the answer
+              is not known, the reason instead. `empty` renders nothing here
+              because the drop zone below already says the field is waiting for
+              a file; two sentences saying the same absence is noise. */}
+          {known ? (
+            onFile.map((doc) => (
+              // `.link-button`, not the row link: a row title is a link
+              // because of where it sits, but in a form a plain-coloured line
+              // reads as a value somebody typed. This one has to look like the
+              // download it is.
+              <a
+                key={doc.id}
+                className="link-button"
+                href={`/v1/attachments/${doc.id}`}
+                download={doc.filename}
+              >
+                {doc.title || doc.filename}
+              </a>
+            ))
+          ) : (
+            <SurfaceState
+              state={state}
+              emptyLabel=""
+              detail={
+                state === "failed"
+                  ? { onRetry: () => void filed.refetch() }
+                  : {}
+              }
+            >
+              {null}
+            </SurfaceState>
+          )}
+          {/* A LABEL, not a div: it owns the real file input, so a click or a
+              keypress anywhere in the zone opens the picker without a handler
+              faking it, and a screen reader announces one control rather than
+              an interactive box of unknown purpose. Dropping is the mouse
+              affordance layered on top of that, not a replacement for it. */}
+          <label
+            className={over ? "dropzone dragover" : "dropzone"}
+            onDragOver={(e: DragEvent<HTMLLabelElement>) => {
+              e.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(e: DragEvent<HTMLLabelElement>) => {
+              e.preventDefault();
+              setOver(false);
+              take(e.dataTransfer.files);
+            }}
+          >
+            <input
+              {...props}
+              type="file"
+              className="dropzone-input"
+              onChange={(e) => take(e.target.files)}
+            />
+            <span className="dropzone-label">
+              {/* The label says ADD whenever this field is not asserting that
+                  nothing is filed — either because paper IS filed (an
+                  agreement can carry an amendment beside its original) or
+                  because the read did not come back, where "drop a file here"
+                  would quietly restate the absence the panel above just
+                  declined to claim. */}
+              {file
+                ? file.name
+                : t(
+                    onFile.length > 0 || !known
+                      ? "contracts.form.fileAdd"
+                      : "contracts.form.fileEmpty",
+                  )}
+            </span>
+          </label>
+        </>
       )}
     </Field>
   );
