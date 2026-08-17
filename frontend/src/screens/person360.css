@@ -894,3 +894,10 @@
 .person-pulse-facts {
   margin-top: var(--space-3);
 }
+
+/* The one move the thin-record surface offers, spaced off the sentence that
+   explains why it is the move. It carried an inline `marginTop` before, which
+   is a spacing decision hidden where no stylesheet can see it. */
+.thin-log-first {
+  margin-top: var(--space-3);
+}

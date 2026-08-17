@@ -1,6 +1,7 @@
 import { ArrowRight, ChevronRight } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { useT } from "../i18n";
+import { Button } from "./atoms";
 import "./trust.css";
 
 // The Margince trust primitives (B-EP09.3a, design-language §4): the
@@ -269,23 +270,15 @@ export function ApprovalGate({
   const t = useT();
   return (
     <div className="approval-gate">
-      <button
-        type="button"
-        className="btn btn-primary btn-sm"
-        onClick={onAccept}
-      >
+      <Button variant="primary" small onClick={onAccept}>
         {t("trust.accept")}
-      </button>
-      <button type="button" className="btn btn-ghost btn-sm" onClick={onEdit}>
+      </Button>
+      <Button small onClick={onEdit}>
         {t("trust.edit")}
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={onDismiss}
-      >
+      </Button>
+      <Button small onClick={onDismiss}>
         {t("trust.dismiss")}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -386,9 +379,9 @@ export function StagedProposal({
               setState({ phase: "editing", draft: event.target.value })
             }
           />
-          <button type="submit" className="btn btn-primary btn-sm">
+          <Button type="submit" variant="primary" small>
             {t("trust.save")}
-          </button>
+          </Button>
         </form>
       ) : (
         <ApprovalGate

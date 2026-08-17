@@ -134,11 +134,16 @@ import "./settings.css";
 // takes; and the operational verbs that were hiding beside the field editor — a
 // reindex, job health, the danger zone — became a place of their own.
 //
-// One of those merges was later UNDONE, which is why the count is not eleven:
-// connectors and the overlay both answer "what are we connected to" and were
-// merged on that reading, but the question has two different owners — see the
-// split below. The thirteenth is newer and additive: Capture activity answers
-// what those connections DID, which no existing entry could say.
+// One of those merges was later UNDONE: connectors and the overlay both answer
+// "what are we connected to" and were merged on that reading, but the question
+// has two different owners — see the split below. Capture activity is newer and
+// additive: it answers what those connections DID, which no existing entry
+// could say.
+//
+// No sentence here counts the entries. Three of them used to, and by the time
+// anyone looked they said eleven, twelve and thirteen for a register holding
+// fourteen — a number in prose beside a list is a second source of truth that
+// nothing updates and no test can check. The list below is the count.
 //
 // Two groups: "you" (per-user, every member) and "org" (organization config).
 // Every org entry carries its OWN predicate — the grant the cards on it actually
@@ -161,8 +166,8 @@ import "./settings.css";
 // one entry belonging to both. Split by WHOSE thing each surface is, they both get
 // an honest predicate, and the ungated special case is gone rather than moved.
 //
-// Width is NOT an entry's business. Every page takes the whole column, so the
-// twelve of them line up with each other and with the rest of the app: a reader
+// Width is NOT an entry's business. Every page takes the whole column, so they
+// line up with each other and with the rest of the app: a reader
 // moving between two settings pages sees the content start and end where the
 // last one did. A per-page measure buys a nicer form column at the cost of the
 // page appearing to change size as you navigate, and of a knob each new entry
@@ -586,9 +591,9 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   // card and settings pages are no longer stacks of cards: the merge left several
   // holding a `<form>`, a `<section>`, a flex wrapper or a bare heading-plus-table.
   // Where the rule missed, the gap was ZERO and two surfaces read as one. Owning
-  // it once is the difference between twelve pages that space correctly and
-  // twelve that each have to remember to. Width is owned the same way and is the
-  // same for all twelve, so there is nothing here to branch on.
+  // it once is the difference between every page spacing correctly and every
+  // page having to remember to. Width is owned the same way and is the same for
+  // all of them, so there is nothing here to branch on.
   return (
     <div className="wrap">
       <ResumeConnectBanner />

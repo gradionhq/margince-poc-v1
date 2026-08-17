@@ -7,6 +7,7 @@ import { navigate, type Route } from "../app/router";
 import { Button, Modal, SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, useSorMode } from "./common";
+import "./candidatepicker.css";
 
 // The shared "Merge into…" affordance (P-2): a human direct call that folds
 // this record (the source, A) into a picked survivor (B) — A is archived
@@ -146,15 +147,13 @@ export function MergeAction<Survivor extends { id: string }>({
         <ul style={{ listStyle: "none", margin: "8px 0", padding: 0 }}>
           {candidates.map((candidate) => (
             <li key={candidate.id}>
-              <button
-                type="button"
-                className="btn btn-ghost"
+              <Button
+                className="candidate-option"
                 aria-pressed={target?.id === candidate.id}
                 onClick={() => setTarget(candidate)}
-                style={{ width: "100%", textAlign: "left" }}
               >
                 {candidate.name}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>

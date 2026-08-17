@@ -1,0 +1,15 @@
+/* The candidate row of a search→pick affordance: a full-bleed Button whose
+   label is a record name, so it reads as a row rather than as a chip centred in
+   its own list.
+
+   One sheet for two screens on purpose. MergeAction (screens/merge.tsx) and
+   AddRelationshipAction (screens/relationships.tsx) are the two copies of the
+   pattern RecordPicker (design-system/recordpicker.tsx) extracted and neither
+   has migrated onto yet; both carried this rule inline, byte-identically, where
+   no stylesheet could see it. Naming it once means the two cannot drift apart
+   while they wait. When they migrate they take `.recordpicker-option` with
+   them and this file goes. */
+.candidate-option {
+  width: 100%;
+  text-align: left;
+}

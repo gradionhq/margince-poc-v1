@@ -1,6 +1,5 @@
 import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
 import {
-  type ButtonHTMLAttributes,
   type ComponentPropsWithRef,
   type CSSProperties,
   type ElementType,
@@ -32,7 +31,12 @@ export function Button({
   reasonId,
   disabled,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  // `ComponentPropsWithRef`, not the bare attribute set — the same reason
+  // `TextInput` takes it: a caller that has to move focus to this control, or
+  // restore it here after a dialog its own mutation removed the opener of,
+  // needs the node. React 19 passes `ref` as an ordinary prop to a function
+  // component, so this costs nothing but the type.
+}: ComponentPropsWithRef<"button"> & {
   variant?: ButtonVariant;
   small?: boolean;
   /**

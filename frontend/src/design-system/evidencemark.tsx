@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { Button } from "./atoms";
 import type { ConfidenceLevel, Provenance } from "./trust";
 import { ProvenanceTag } from "./trust";
 import "./evidencemark.css";
@@ -149,16 +150,15 @@ export function EvidenceMark({
           )}
           {source.at && <p className="evmark-at">{source.at}</p>}
           {onOpenHistory && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
+            <Button
+              small
               onClick={() => {
                 setOpen(false);
                 onOpenHistory();
               }}
             >
               {historyLabel ?? t("evidence.fullHistory")}
-            </button>
+            </Button>
           )}
         </section>
       )}
