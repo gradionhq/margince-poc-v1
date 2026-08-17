@@ -99,12 +99,83 @@ func reachesPastAnother(claim pageFactsPerson, quote, name, role string, claims 
 			return true
 		}
 		// Declared as sharing the label, so the reply must not give them a
-		// different one.
-		if normalizeEvidence(strings.TrimSpace(other.R)) != roleNorm {
+		// different one — but "the same label" is not "the same string". A
+		// German imprint names its whole board under one heading and gives the
+		// chair his fuller title in the same breath:
+		//
+		//	Vorstand: Mark Lohweber (Vorstandsvorsitzender), Benedikt
+		//	Bonnmann, Kristina Gerwert, Michael Knopp, Andreas Prenneis
+		//
+		// All five are correctly attributed, and Vorstandsvorsitzender differs
+		// from Vorstand exactly because the page said so. Demanding equality
+		// reads that precision as a contradiction and drops the chair; it cost
+		// adesso.de its whole board on a re-crawl.
+		if !sameOfficerLabel(normalizeEvidence(strings.TrimSpace(other.R)), roleNorm) {
 			return true
 		}
 	}
 	return false
+}
+
+// sameOfficerLabel answers whether two titles are the same label, one of them
+// possibly carrying a distinction the page itself drew.
+//
+// Vorstand and Vorstandsvorsitzender are the board and its chair: one contains
+// the other, and the longer is the shorter plus a qualifier. Geschäftsführer
+// and Prokurist share no stem and stay a contradiction, which is the case this
+// gate exists for.
+//
+// The test is a shared PREFIX, not bare containment, and the difference is
+// load-bearing: "geschäftsführer" is a substring of "geschäftsführerin", so
+// containment alone would let a Prokurist claim a Geschäftsführerin's title
+// through a feminine ending. A qualifier extends the label to the right —
+// Vorstand → Vorstandsvorsitzender — which a prefix test catches and a
+// suffix difference does not.
+//
+// A prefix rather than a list of known titles, because the titles are whatever
+// the page prints, in whatever language: Vorstand/Vorstandsvorsitzender,
+// Partner/Partner & Managing Director. A list would be a German-shaped guess
+// at every other country's paperwork.
+func sameOfficerLabel(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if a == "" || b == "" {
+		return false
+	}
+	long, short := a, b
+	if len(short) > len(long) {
+		long, short = short, long
+	}
+	if !strings.HasPrefix(long, short) {
+		return false
+	}
+	// The extension has to BE a qualifier, not the rest of a longer word.
+	// Vorstand→Vorstandsvorsitzender is the board's chair; geschäftsführer→
+	// geschäftsführerin is the same job in the feminine, and a claim resting
+	// on that difference is a misattribution rather than a distinction.
+	return isOfficerQualifier(long[len(short):])
+}
+
+// isOfficerQualifier reports whether what a longer title adds to a shorter one
+// reads as a further distinction rather than an inflection. German compounds
+// it directly (Vorstand + svorsitzender) or spaces it (Partner + " & Managing
+// Director"); a feminine ending is neither, and is the case that must not pass.
+func isOfficerQualifier(extra string) bool {
+	if extra == "" {
+		return true
+	}
+	// Gendered endings, the one shape that is the SAME job rather than a
+	// bigger one. Checked before anything else because "in" is short enough
+	// to look like a compound joiner.
+	for _, ending := range []string{"in", "innen", "e", "er"} {
+		if extra == ending {
+			return false
+		}
+	}
+	// A qualifier is a word of its own, or a compound long enough to be one.
+	// "svorsitzender" is 13 characters; no inflection reaches that.
+	return strings.HasPrefix(extra, " ") || len(extra) >= 6
 }
 
 // declaredCompanions is the set of names the model says its quote reaches
