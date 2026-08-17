@@ -8,7 +8,7 @@ import {
   StickyNote,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { splitEmailBody } from "../format/emailtext";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -94,10 +94,19 @@ export type BoardDeal = {
 export type BoardColumn = {
   stage: string;
   label: string;
-  probabilityPct: number;
-  rawMinor: number;
-  weightedMinor: number;
-  currency: string;
+  /**
+   * The money header, and the reason it is optional rather than zeroed.
+   *
+   * A board whose columns carry no money — leads by status, where a column has
+   * a count and nothing else — would otherwise have to pass `0` for each of
+   * these, and a zero total reads as "this stage is worth nothing" rather than
+   * "this board is not about money". `variant: "plain"` omits the figures
+   * entirely; these four are then unread.
+   */
+  probabilityPct?: number;
+  rawMinor?: number;
+  weightedMinor?: number;
+  currency?: string;
   deals: BoardDeal[];
   /**
    * The stage's true deal count, independent of how many `deals` (cards)
@@ -178,8 +187,26 @@ export function PipelineBoard({
   columnExtras,
   cardDragHandlers,
   columnDropHandlers,
+  variant = "deal",
+  renderCard,
 }: Readonly<{
   columns: BoardColumn[];
+  /**
+   * What the column header states. "deal" reads the money — the stage total,
+   * its probability and the weighted figure. "plain" states the count alone,
+   * for a board whose columns are not worth an amount: leads by status, where
+   * a zero total would read as an empty stage rather than an absent question.
+   *
+   * A variant rather than a second board, because the columns, the drag
+   * targets and the CSS are the same board — only the header differs, and two
+   * copies of a drop target is how one of them stops working.
+   */
+  variant?: "deal" | "plain";
+  /**
+   * The card, when the caller's rows are not deals. Absent renders `DealCard`,
+   * which is what every existing caller wants and gets without changing.
+   */
+  renderCard?: (deal: BoardDeal, column: BoardColumn) => ReactNode;
   onOpen?: (deal: BoardDeal) => void;
   columnExtras?: (column: BoardColumn) => ReactNode;
   cardDragHandlers?: (
@@ -209,7 +236,9 @@ export function PipelineBoard({
         >
           <div className="board-col-head">
             <span className="stage">{column.label}</span>
-            <span className="prob">{column.probabilityPct}%</span>
+            {variant === "deal" && (
+              <span className="prob">{column.probabilityPct}%</span>
+            )}
           </div>
           {/* The stage's total is the figure being scanned down the board, so it
               leads with the deal count beside it; the weighted figure is its own
@@ -217,9 +246,13 @@ export function PipelineBoard({
               underneath rather than competing on the line. */}
           <div className="board-col-sub">
             <span className="board-col-total">
-              {!column.sumHidden && (
+              {variant === "deal" && !column.sumHidden && (
                 <span className="board-col-money">
-                  {formatMoney(column.rawMinor, column.currency, locale)}
+                  {formatMoney(
+                    column.rawMinor ?? 0,
+                    column.currency ?? "EUR",
+                    locale,
+                  )}
                 </span>
               )}
               <span>
@@ -228,26 +261,30 @@ export function PipelineBoard({
                 })}
               </span>
             </span>
-            {!column.sumHidden && (
+            {variant === "deal" && !column.sumHidden && (
               <span className="board-col-weighted">
                 {t("board.weighted", {
                   value: formatMoney(
-                    column.weightedMinor,
-                    column.currency,
+                    column.weightedMinor ?? 0,
+                    column.currency ?? "EUR",
                     locale,
                   ),
                 })}
               </span>
             )}
           </div>
-          {column.deals.map((deal) => (
-            <DealCard
-              key={deal.id}
-              deal={deal}
-              onOpen={onOpen}
-              dragHandlers={cardDragHandlers?.(deal, column)}
-            />
-          ))}
+          {column.deals.map((deal) =>
+            renderCard ? (
+              <Fragment key={deal.id}>{renderCard(deal, column)}</Fragment>
+            ) : (
+              <DealCard
+                key={deal.id}
+                deal={deal}
+                onOpen={onOpen}
+                dragHandlers={cardDragHandlers?.(deal, column)}
+              />
+            ),
+          )}
           {columnExtras?.(column)}
         </section>
       ))}

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -15,7 +15,12 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
-import { RecordView } from "../design-system/composed";
+import {
+  type BoardColumn,
+  type BoardDeal,
+  PipelineBoard,
+  RecordView,
+} from "../design-system/composed";
 import type { ListChip } from "../design-system/listtable";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
@@ -296,6 +301,191 @@ async function createLead(
   return data;
 }
 
+/**
+ * The two columns a lead can be dragged between.
+ *
+ * Only the LIVE statuses. `promoted` and `disqualified` are terminal and
+ * reachable only through their own audited verbs — a board column for either
+ * would offer a drag that ends in a 422, and worse, would imply a lead can be
+ * promoted by moving a card, which is the one thing ADR-0008's trigger set
+ * exists to prevent.
+ */
+const LEAD_BOARD_STAGES = [
+  { stage: "new", label: "lead.statusNew" },
+  { stage: "working", label: "lead.statusWorking" },
+] as const;
+
+/** A lead as the board's card reads it. */
+function LeadCard({
+  lead,
+  onOpen,
+  dragHandlers,
+}: Readonly<{
+  lead: Lead;
+  onOpen: (lead: Lead) => void;
+  dragHandlers?: {
+    draggable: true;
+    onDragStart: (event: React.DragEvent) => void;
+  };
+}>) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className="deal-card"
+      data-lead={lead.id}
+      onClick={() => onOpen(lead)}
+      {...dragHandlers}
+    >
+      <span className="deal-name">
+        {lead.full_name ?? lead.email ?? t("nav.leads")}
+      </span>
+      {lead.company_name && (
+        <span className="deal-org">
+          <span className="deal-org-name">{lead.company_name}</span>
+        </span>
+      )}
+      <span className="deal-meta">
+        <Badge tone={scoreTone(lead.score)}>
+          {t("lead.score")}: {lead.score}
+        </Badge>
+        {lead.title && <span>{lead.title}</span>}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * LeadBoard is the triage surface: the live leads, in the two columns they can
+ * actually move between, dragged from one to the other.
+ *
+ * It renders the rows the LIST already fetched rather than asking again, so a
+ * reader's filters and search narrow the board exactly as they narrow the
+ * table — a board that ignored the filter bar above it would be a second,
+ * silently different answer to the same question.
+ */
+function LeadBoard({
+  rows,
+  onMoved,
+}: Readonly<{ rows: Lead[]; onMoved: () => void }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const dragging = useRef<string | null>(null);
+  const lastDragEnd = useRef(0);
+
+  const move = useMutation({
+    // The lead's version rides the variables, not a closure: the card that
+    // carried it belongs to the committed render, so it cannot be stale.
+    mutationFn: async (moved: {
+      id: string;
+      // Optional exactly as the contract has it. ifMatch omits the header when
+      // it is absent, which is the honest behaviour: a row the server did not
+      // version is one this client cannot make a concurrency claim about.
+      version?: number;
+      // The two the contract accepts. `promoted` and `disqualified` are
+      // reachable only through their own verbs, and typing the board's write
+      // this way is what stops a third column being added without noticing.
+      status: "new" | "working";
+    }) => {
+      const { data, error } = await api.PATCH("/leads/{id}", {
+        params: { path: { id: moved.id }, ...ifMatch(moved.version) },
+        body: { status: moved.status },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      onMoved();
+    },
+  });
+
+  const columns: BoardColumn[] = LEAD_BOARD_STAGES.map((stage) => {
+    const held = rows.filter((lead) => lead.status === stage.stage);
+    return {
+      stage: stage.stage,
+      label: t(stage.label),
+      count: held.length,
+      // The board's card type is the deal's, so each lead rides as one and the
+      // renderCard hook reads it back out of `leadsById` below. Only `id` is
+      // ever read off this object.
+      deals: held.map((lead) => ({ id: lead.id, name: "" }) as BoardDeal),
+    };
+  });
+  const leadsById = new Map(rows.map((lead) => [lead.id, lead]));
+
+  return (
+    <>
+      {move.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {problemMessageOf(move.error, t)}
+        </p>
+      )}
+      <PipelineBoard
+        variant="plain"
+        columns={columns}
+        renderCard={(card) => {
+          const lead = leadsById.get(card.id);
+          if (!lead) {
+            return null;
+          }
+          return (
+            <LeadCard
+              lead={lead}
+              onOpen={(opened) => {
+                // A drag ends in a click the browser also reports; opening the
+                // record on it would navigate away from the board every time a
+                // card was moved.
+                if (Date.now() - lastDragEnd.current > 250) {
+                  navigate({ screen: "leads", id: opened.id });
+                }
+              }}
+              dragHandlers={{
+                draggable: true,
+                onDragStart: (event) => {
+                  dragging.current = lead.id;
+                  event.dataTransfer.setData("text/plain", lead.id);
+                },
+              }}
+            />
+          );
+        }}
+        columnDropHandlers={(column) => ({
+          onDragOver: (event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement).classList.add("droptarget");
+          },
+          onDragLeave: (event) => {
+            (event.currentTarget as HTMLElement).classList.remove("droptarget");
+          },
+          onDrop: (event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement).classList.remove("droptarget");
+            const id =
+              event.dataTransfer.getData("text/plain") || dragging.current;
+            dragging.current = null;
+            lastDragEnd.current = Date.now();
+            const lead = id ? leadsById.get(id) : undefined;
+            // A card dropped on the column it already sits in is not a move.
+            const target = LEAD_BOARD_STAGES.find(
+              (stage) => stage.stage === column.stage,
+            );
+            if (lead && target && lead.status !== target.stage) {
+              move.mutate({
+                id: lead.id,
+                version: lead.version,
+                status: target.stage,
+              });
+            }
+          },
+        })}
+      />
+    </>
+  );
+}
+
 export function LeadsScreen() {
   const ownerChips = useLeadOwnerChips();
   const t = useT();
@@ -306,99 +496,120 @@ export function LeadsScreen() {
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
+  // The board writes status, which the mirror refuses (a lead's lifecycle is
+  // not a field write-back), so overlay gets the table and no toggle.
+  const overlay = useSorMode() === "overlay";
+  const [view, setView] = useState<"table" | "board">("table");
 
   return (
     <div className="wrap lead-surface">
-      <ListTable
-        state={state}
-        unit="unit.leads"
-        caption="lead.segregated"
-        action={
-          <CreateAction
-            label={t("create.lead")}
-            invalidate="leads"
-            screen="leads"
-            create={(values) => createLead(values, cf.toBody(values), t)}
-            resolveExisting={(_code, id) => ({ screen: "leads", id })}
-            fields={[...leadCreateFields, ...cf.formFields]}
+      {!overlay && (
+        <div style={{ marginBottom: "var(--space-3)" }}>
+          <SegmentedControl
+            options={["table", "board"] as const}
+            value={view}
+            onChange={setView}
+            labels={{
+              table: t("deals.viewTable"),
+              board: t("deals.viewBoard"),
+            }}
           />
-        }
-        columns={[
-          {
-            key: "name",
-            header: t("people.name"),
-            cell: (lead: Lead) => {
-              const terminal = terminalBadge(lead.status);
-              return (
-                <span>
-                  <strong>{lead.full_name ?? lead.email ?? ""}</strong>
-                  {lead.company_name && (
-                    <span className="t-caption"> · {lead.company_name}</span>
-                  )}
-                  {terminal && (
-                    <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
-                  )}
-                </span>
-              );
+        </div>
+      )}
+      {view === "board" && !overlay ? (
+        <LeadBoard rows={state.rows} onMoved={() => state.refetch()} />
+      ) : (
+        <ListTable
+          state={state}
+          unit="unit.leads"
+          caption="lead.segregated"
+          action={
+            <CreateAction
+              label={t("create.lead")}
+              invalidate="leads"
+              screen="leads"
+              create={(values) => createLead(values, cf.toBody(values), t)}
+              resolveExisting={(_code, id) => ({ screen: "leads", id })}
+              fields={[...leadCreateFields, ...cf.formFields]}
+            />
+          }
+          columns={[
+            {
+              key: "name",
+              header: t("people.name"),
+              cell: (lead: Lead) => {
+                const terminal = terminalBadge(lead.status);
+                return (
+                  <span>
+                    <strong>{lead.full_name ?? lead.email ?? ""}</strong>
+                    {lead.company_name && (
+                      <span className="t-caption"> · {lead.company_name}</span>
+                    )}
+                    {terminal && (
+                      <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
+                    )}
+                  </span>
+                );
+              },
+              fixed: true,
             },
-            fixed: true,
-          },
-          {
-            key: "score",
-            header: t("lead.score"),
-            cell: (lead: Lead) => (
-              <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
-            ),
-            sort: "score",
-            numeric: true,
-          },
-          {
-            key: "status",
-            header: t("lead.status"),
-            cell: (lead: Lead) => <StatusBadge status={lead.status} />,
-          },
-          {
-            key: "provenance",
-            header: t("people.capturedBy"),
-            cell: (lead: Lead) => (
-              <ProvenanceTag
-                provenance={provenanceOf(lead.captured_by, viewerId)}
-              />
-            ),
-          },
-        ]}
-        rowKey={(lead) => lead.id}
-        rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
-        chips={[
-          {
-            key: "status",
-            label: "lead.filterStatus",
-            allLabel: "lead.filterStatusAll",
-            options: leadStatusFilterOptions.map((option) => ({ ...option })),
-          },
-          {
-            key: "min_score",
-            label: "lead.filterScore",
-            allLabel: "lead.filterScoreAll",
-            options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
-          },
-        ]}
-        // Owner is a DATA chip: its options are people, read at runtime.
-        // Deliberately not the shared `useOwnerChips` dial, which also offers
-        // team and unassigned options spelled `owner_team_id`/`unassigned` —
-        // parameters listLeads does not take, so those choices would 422
-        // rather than narrow the list.
-        dataChips={ownerChips}
-        views={[
-          { label: "list.viewAll", sort: "-created_at" },
-          { label: "list.viewHighestScore", sort: "-score" },
-          {
-            label: "list.viewHot",
-            sort: "-score",
-            filters: { min_score: "80" },
-          },
-        ]}
-      />
+            {
+              key: "score",
+              header: t("lead.score"),
+              cell: (lead: Lead) => (
+                <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
+              ),
+              sort: "score",
+              numeric: true,
+            },
+            {
+              key: "status",
+              header: t("lead.status"),
+              cell: (lead: Lead) => <StatusBadge status={lead.status} />,
+            },
+            {
+              key: "provenance",
+              header: t("people.capturedBy"),
+              cell: (lead: Lead) => (
+                <ProvenanceTag
+                  provenance={provenanceOf(lead.captured_by, viewerId)}
+                />
+              ),
+            },
+          ]}
+          rowKey={(lead) => lead.id}
+          rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
+          chips={[
+            {
+              key: "status",
+              label: "lead.filterStatus",
+              allLabel: "lead.filterStatusAll",
+              options: leadStatusFilterOptions.map((option) => ({ ...option })),
+            },
+            {
+              key: "min_score",
+              label: "lead.filterScore",
+              allLabel: "lead.filterScoreAll",
+              options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
+            },
+          ]}
+          // Owner is a DATA chip: its options are people, read at runtime.
+          // Deliberately not the shared `useOwnerChips` dial, which also offers
+          // team and unassigned options spelled `owner_team_id`/`unassigned` —
+          // parameters listLeads does not take, so those choices would 422
+          // rather than narrow the list.
+          dataChips={ownerChips}
+          views={[
+            { label: "list.viewAll", sort: "-created_at" },
+            { label: "list.viewHighestScore", sort: "-score" },
+            {
+              label: "list.viewHot",
+              sort: "-score",
+              filters: { min_score: "80" },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
