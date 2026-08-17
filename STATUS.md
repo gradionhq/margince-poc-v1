@@ -878,6 +878,31 @@ webhooks, agents, privacy. Configuration and machinery rather than records,
 which is why the stakes were low, but low is not none and a reader should not
 have to infer it from migration numbers.
 
+### Where phase D stands: 66 tables
+
+Merged since the gate: briefs (#1486), capture (#1491), overlay (#1510,
+fork-owned so it lands in `migrations/custom/`), ai + migration (#1525, split
+across both namespaces because the importer is fork-owned). 103 → 66.
+
+**What is left, and the shape of each:**
+
+| group | tables | note |
+|---|---|---|
+| deals — the spine | `deal`, `pipeline`, `stage`, `deal_stage_history`, `deal_forecast_history` | ~97 sites. The most-referenced table after `person`; take it alone |
+| deals — quoting & delivery | `offer`, `offer_line_item`, `offer_template`, `product`, `project`, `project_phase_history`, `fx_rate` | ~31 sites, and the natural next slice |
+| people | `person` and its satellites, `organization` and its, `lead`, `relationship`, `partner`, `dedupe_candidate`, `site_read`, `conversation_claim` | ~20 tables, the largest group |
+| identity | `app_user`, `session`, `role`, `role_assignment`, `team`, `team_membership`, `passport`, `oauth_*`, `auth_token`, `record_grant`, `extension_secret`, `onboarding_wizard_state` | `app_user` is what `MustWorkspace` ultimately hangs on |
+| activities | `activity`, `activity_link`, `activity_participant`, `activity_participant_replay`, `attachment`, `booking_page`, `scheduled_send`, `transcript_read` | |
+| search | `embedding`, `graph_interaction_edge` | entangled with the re-embed fan-out — do the run-lifecycle collapse first |
+| the rest | `idempotency_key`, `field_provenance`, `user_record_view`, `suggestion_dismissal`, `person_moment_dismissal`, `signal_thread_scan`, `linkedin_*`, `mirror_*` leftovers | |
+| **last** | `audit_log`, `system_log` | the append-only ledgers, by the decision recorded above |
+
+**Slice by ownership, not by convenience.** Two of the four merged slices had to
+be split or moved mid-flight because a table turned out to be fork-owned
+(`migrations/custom/`, ADR-0017): overlay entirely, the importer half of the AI
+slice. Check `grep -rl "CREATE TABLE.*<name>" migrations/` before writing the
+migration, not after `migrate up` refuses.
+
 **Three of the four fan-out modules are collapsed** — webhooks (#1255), agents
 (#1283) and privacy (#1337) — each landing its module's phase D columns in the
 same PR, because the suites proving the fan-out asserted isolation between two
