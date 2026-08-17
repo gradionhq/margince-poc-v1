@@ -32,7 +32,7 @@ async function fetchProductsPage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: 50,
+        limit: query.perPage,
         ...query.filters,
       },
     },

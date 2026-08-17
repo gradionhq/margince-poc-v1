@@ -653,26 +653,43 @@ describe("pagination", () => {
     expect(screen.queryByText(data[0].name)).toBeNull();
   });
 
-  it("changing rows-per-page resets to page 1", async () => {
+  it("reports a new rows-per-page to the caller instead of re-slicing rows itself", async () => {
     const data = testRows(60);
+    const onPerPage = vi.fn();
     render(
       <ListTable
         rows={data}
         columns={columns}
         rowKey={(row) => row.id}
         unit="rows"
+        perPage={25}
+        onPerPage={onPerPage}
       />,
     );
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "2" }));
     await pickOption(
       user,
       screen.getByRole("combobox", { name: "Rows per page" }),
       "50 per page",
     );
-    expect(screen.getByText(data[0].name)).toBeTruthy();
-    const dataRows = screen.getAllByRole("row").slice(1);
-    expect(dataRows).toHaveLength(50);
+    // The page size is the SERVER's page size: the table reports the choice and
+    // the caller re-asks with it. A table that resliced its buffer here is what
+    // made a list say "1-25 of 50 loaded so far".
+    expect(onPerPage).toHaveBeenCalledWith(50);
+  });
+
+  it("leaves the rows-per-page picker inert when the caller offers no handler", () => {
+    render(
+      <ListTable
+        rows={testRows(60)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Rows per page" }),
+    ).toHaveProperty("disabled", true);
   });
 
   it("disables Next on the last loaded page when hasMore is false, and enables it (calling onLoadMore) when hasMore is true", async () => {

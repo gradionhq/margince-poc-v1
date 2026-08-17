@@ -502,7 +502,7 @@ async function fetchPartnersPage(
       query: {
         sort: query.sort || undefined,
         cursor: cursor || undefined,
-        limit: 50,
+        limit: query.perPage,
         partner_role: asPartnerRole(query.filters.partner_role ?? ""),
         cert_status: asCertStatus(query.filters.cert_status ?? ""),
       },

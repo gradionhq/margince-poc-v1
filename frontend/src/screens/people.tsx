@@ -9,7 +9,8 @@ import { Badge, SegmentedControl } from "../design-system/atoms";
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { emailSummaryText } from "../format/emailtext";
-import { useT } from "../i18n";
+import { formatDateAbbrev } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
@@ -20,6 +21,7 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
+import { RECORD_ZONE } from "./company360";
 import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
 import { RecordContextPanel } from "./context";
@@ -27,6 +29,7 @@ import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
+import { OwnerName } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import {
   type ListPage,
@@ -74,7 +77,7 @@ async function fetchPeoplePage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: 50,
+        limit: query.perPage,
         ...query.filters,
       },
     },
@@ -456,6 +459,9 @@ export function activityTimeline(
 
 export function ContactsScreen() {
   const t = useT();
+  const { locale } = useLocale();
+  // Offered only once /me has answered: a chip whose value is still "" reads
+  // as "clear this filter", so a half-built owner dial narrows nothing.
   const viewerId = useViewerId();
   const cf = useObjectCustomFields("person");
   const state = useListQuery<Person>({
@@ -511,19 +517,54 @@ export function ContactsScreen() {
             ),
           },
           {
-            key: "provenance",
-            header: t("people.capturedBy"),
+            key: "owner",
+            header: t("list.owner"),
             cell: (person: Person) => (
-              <ProvenanceTag
-                provenance={provenanceOf(person.captured_by, viewerId)}
+              <OwnerName
+                ownerId={person.owner_id}
+                unowned={t("list.unowned")}
               />
             ),
+            sort: "owner_id",
+          },
+          {
+            key: "created",
+            header: t("list.created"),
+            cell: (person: Person) => (
+              <span className="t-caption">
+                {person.created_at
+                  ? formatDateAbbrev(person.created_at, locale, RECORD_ZONE)
+                  : ""}
+              </span>
+            ),
+            sort: "created_at",
           },
         ]}
         rowKey={(person) => person.id}
         rowRoute={(person) => ({ screen: "contacts", id: person.id })}
+        chips={
+          viewerId
+            ? [
+                {
+                  key: "owner_id",
+                  label: "list.filterOwnerMe",
+                  allLabel: "list.filterOwnerAll",
+                  options: [{ value: viewerId, label: "list.filterOwnerMe" }],
+                },
+              ]
+            : []
+        }
         views={[
           { label: "list.viewAll", sort: "-created_at" },
+          ...(viewerId
+            ? [
+                {
+                  label: "list.viewMine" as const,
+                  sort: "-created_at",
+                  filters: { owner_id: viewerId },
+                },
+              ]
+            : []),
           { label: "list.viewAZ", sort: "full_name" },
         ]}
       />

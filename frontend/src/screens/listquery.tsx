@@ -39,7 +39,17 @@ export type ListQuery = {
   sort: string;
   includeArchived: boolean;
   filters: Record<string, string>;
+  /**
+   * Rows per page, chosen by the reader in the table footer and sent to the
+   * server as the page limit. One number: the table renders exactly the page
+   * the server answered, so "25 of 50 loaded so far" — a count that reads as
+   * two different page sizes in one screen — cannot happen.
+   */
+  perPage: number;
 };
+
+/** The page sizes the footer offers; the first is the default. */
+export const LIST_PAGE_SIZES = [25, 50, 100] as const;
 
 export type ListPage<Row> = {
   data: Row[];
@@ -66,6 +76,7 @@ export function useListQuery<Row>({
   key,
   fetchPage,
   initialSort,
+  initialFilters,
 }: Readonly<{
   key: string;
   fetchPage: (
@@ -73,6 +84,12 @@ export function useListQuery<Row>({
     cursor: string | null,
   ) => Promise<ListPage<Row>>;
   initialSort?: string;
+  /**
+   * Filters the list opens on. Read once, when the state is seeded: a filter
+   * that only becomes known later (the viewer's own id, say) must arrive
+   * through setQuery instead, because this initialiser never runs again.
+   */
+  initialFilters?: Readonly<Record<string, string>>;
 }>) {
   // In overlay mode the incumbent mirror refuses sort/filter dials (422), so
   // list reads must carry neither: seed an empty sort (ListTable hides the
@@ -82,7 +99,12 @@ export function useListQuery<Row>({
     q: "",
     sort: overlay ? "" : (initialSort ?? ""),
     includeArchived: false,
-    filters: {},
+    // Overlay withholds filters for the same reason it withholds sort: the
+    // incumbent mirror answers 422 to both. A screen that opens on a narrowed
+    // list opens unnarrowed there rather than sending a dial the mirror
+    // refuses.
+    filters: overlay ? {} : (initialFilters ?? {}),
+    perPage: LIST_PAGE_SIZES[0],
   });
   const infinite = useInfiniteQuery({
     queryKey: [key, query],
@@ -296,6 +318,11 @@ export function ListTable<Row>({
       // the one dial that behaves identically in both modes.
       hasMore={state.hasMore}
       onLoadMore={state.loadMore}
+      // The page size is part of the server query, not a second slice on top
+      // of it: changing it re-asks the server, which is why it lives in the
+      // ListQuery the fetchers read their `limit` from.
+      perPage={query.perPage}
+      onPerPage={(next) => setQuery((prev) => ({ ...prev, perPage: next }))}
       // The unit key names the table for the widths it remembers.
       widthsKey={unit}
       pending={isPending}

@@ -73,7 +73,12 @@ export type ListColumn<Row> = {
  * page it has no rows for until enough cursor pages had been walked — a size
  * the server cannot serve is not a size worth offering.
  */
-const PAGE_SIZES = [25, 50] as const;
+/**
+ * Page sizes the footer offers. The table does NOT slice rows to this — it is
+ * the size the caller asks the SERVER for, so the page rendered is the page
+ * that was fetched.
+ */
+const PAGE_SIZES = [25, 50, 100] as const;
 
 /** Narrow enough to tuck a column away, wide enough to still read a header. */
 const MIN_COLUMN_WIDTH = 72;
@@ -196,6 +201,8 @@ export function ListTable<Row>({
   footer,
   hasMore = false,
   onLoadMore,
+  perPage = PAGE_SIZES[0],
+  onPerPage,
   pending = false,
   problem,
   widthsKey,
@@ -256,6 +263,18 @@ export function ListTable<Row>({
   hasMore?: boolean;
   onLoadMore?: () => void;
   /**
+   * Rows per page. This is the size the CALLER asked the server for, so the
+   * table renders whole fetched pages rather than re-slicing them: one number
+   * decides both what is fetched and what is shown.
+   */
+  perPage?: number;
+  /**
+   * The reader picked a different page size; re-ask the server with it. A
+   * table with no handler keeps the footer's picker inert rather than
+   * pretending a size the caller will never fetch.
+   */
+  onPerPage?: (next: number) => void;
+  /**
    * The rows are still loading. The surface keeps its header and controls and
    * puts placeholders in the body: the primary action and the dials belong to
    * the screen, not to the response, and a create button that disappears while
@@ -290,7 +309,6 @@ export function ListTable<Row>({
     setWidths(next);
   };
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState<number>(PAGE_SIZES[0]);
   const scroller = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLTableElement>(null);
   // The frozen column only casts a shadow once columns have actually slid under
@@ -303,6 +321,11 @@ export function ListTable<Row>({
   // dismiss is one a keyboard reader is stuck inside.
   useCloseOnEscape(columnsOpen ? "columns" : null, () => setColumnsOpen(false));
 
+  // Each fetched page is one rendered page. The rows the caller holds are whole
+  // server pages (keyset, `perPage` per request), so slicing them again by a
+  // second, unrelated page size is what made a list say "1-25 of 50 loaded so
+  // far" — two page sizes in one screen, and a pager whose numbers counted the
+  // buffer rather than the list.
   const lastPage = Math.max(1, Math.ceil(rows.length / perPage));
   const current = Math.min(page, lastPage);
   const from = (current - 1) * perPage;
@@ -546,7 +569,7 @@ export function ListTable<Row>({
             hasMore={hasMore}
             perPage={perPage}
             onGoto={goto}
-            onPerPage={setPerPage}
+            onPerPage={onPerPage}
           />
         </>
       }
@@ -952,7 +975,7 @@ function Pager({
   hasMore: boolean;
   perPage: number;
   onGoto: (to: number) => void;
-  onPerPage: (next: number) => void;
+  onPerPage?: (next: number) => void;
 }>) {
   const t = useT();
   return (
@@ -990,7 +1013,8 @@ function Pager({
         <Select
           aria-label={t("table.rowsPerPage")}
           value={String(perPage)}
-          onChange={(next) => onPerPage(Number(next))}
+          disabled={!onPerPage}
+          onChange={(next) => onPerPage?.(Number(next))}
           options={PAGE_SIZES.map((size) => ({
             value: String(size),
             label: t("table.perPage", { count: size }),

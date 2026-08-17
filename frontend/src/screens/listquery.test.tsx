@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ProblemError } from "./common";
 import {
@@ -368,6 +369,33 @@ describe("removing an applied filter", () => {
       expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(
         "status",
       ),
+    );
+  });
+});
+
+describe("useListQuery — the page size is part of the server query", () => {
+  it("hands every fetcher the page size the reader picked", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<ListTableHarness fetchPage={fetchPage} />);
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+    expect(fetchPage.mock.calls[0]?.[0].perPage).toBe(25);
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Rows per page" }),
+      "50 per page",
+    );
+
+    // Every screen reads its `limit` off this one value. A fetcher that kept a
+    // literal instead would render a page size the server never returned.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].perPage).toBe(50),
     );
   });
 });

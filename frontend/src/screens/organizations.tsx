@@ -31,9 +31,12 @@ import {
   AutonomyDot,
   ConfidenceMeter,
   EvidenceChip,
-  ProvenanceTag,
 } from "../design-system/trust";
-import { formatDateTime, formatMoney } from "../format/format";
+import {
+  formatDateAbbrev,
+  formatDateTime,
+  formatMoney,
+} from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -97,6 +100,7 @@ import {
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
+import { OwnerName } from "./entityref";
 import {
   EvidenceVerdict,
   factClaim,
@@ -179,7 +183,7 @@ async function fetchOrganizationsPage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: 50,
+        limit: query.perPage,
         ...query.filters,
       },
     },
@@ -530,13 +534,18 @@ async function createCompany(
 
 export function CompaniesScreen() {
   const t = useT();
-  const viewerId = useViewerId();
+  const { locale } = useLocale();
   const cf = useObjectCustomFields("organization");
   const state = useListQuery<Organization>({
     key: "organizations",
     initialSort: "-created_at",
     fetchPage: fetchOrganizationsPage,
   });
+  // The owner dials name the reader, so they are offered only once /me has
+  // answered. A chip whose value is still "" reads as "clear this filter" to
+  // the table, so offering "My companies" mid-load would quietly narrow
+  // nothing — the same reason the deal list builds its owner chip this way.
+  const viewerId = useViewerId();
 
   return (
     <div className="wrap">
@@ -616,19 +625,80 @@ export function CompaniesScreen() {
               ) : null,
           },
           {
-            key: "provenance",
-            header: t("people.capturedBy"),
+            key: "owner",
+            header: t("list.owner"),
             cell: (org: Organization) => (
-              <ProvenanceTag
-                provenance={provenanceOf(org.captured_by, viewerId)}
-              />
+              <OwnerName ownerId={org.owner_id} unowned={t("list.unowned")} />
             ),
+            sort: "owner_id",
+          },
+          {
+            key: "created",
+            header: t("list.created"),
+            cell: (org: Organization) => (
+              <span className="t-caption">
+                {org.created_at
+                  ? formatDateAbbrev(org.created_at, locale, RECORD_ZONE)
+                  : ""}
+              </span>
+            ),
+            sort: "created_at",
           },
         ]}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
+        chips={[
+          {
+            key: "lifecycle",
+            label: "org.lifecycle",
+            allLabel: "org.filterLifecycleAll",
+            options: LIFECYCLE_OPTIONS.filter(
+              (value) => value !== "unknown",
+            ).map((value) => ({ value, label: LIFECYCLE_LABELS[value] })),
+          },
+          {
+            key: "relationship_type",
+            label: "org.relationshipTypes",
+            allLabel: "org.filterRelTypeAll",
+            options: RELATIONSHIP_TYPE_OPTIONS.map((value) => ({
+              value,
+              label: RELATIONSHIP_TYPE_LABELS[value],
+            })),
+          },
+          ...(viewerId
+            ? [
+                {
+                  key: "owner_id",
+                  label: "list.filterOwnerMe" as const,
+                  allLabel: "list.filterOwnerAll" as const,
+                  options: [
+                    { value: viewerId, label: "list.filterOwnerMe" as const },
+                  ],
+                },
+              ]
+            : []),
+        ]}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
+          ...(viewerId
+            ? [
+                {
+                  label: "list.viewMine" as const,
+                  sort: "-created_at",
+                  filters: { owner_id: viewerId },
+                },
+              ]
+            : []),
+          {
+            label: "list.viewCustomers",
+            sort: "display_name",
+            filters: { lifecycle: "customer" },
+          },
+          {
+            label: "list.viewProspects",
+            sort: "display_name",
+            filters: { lifecycle: "prospect" },
+          },
           { label: "list.viewAZ", sort: "display_name" },
         ]}
       />
