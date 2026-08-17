@@ -11,7 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ListView } from "../design-system/listsurface";
+import type { ListChip, ListView } from "../design-system/listsurface";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ProblemError } from "./common";
@@ -114,6 +114,7 @@ function ListTableHarness({
   action,
   views,
   dataViews,
+  dataChips,
 }: Readonly<{
   fetchPage: (
     query: ListQuery,
@@ -123,6 +124,7 @@ function ListTableHarness({
   action?: ReactNode;
   views?: readonly ViewSpec[];
   dataViews?: readonly ListView[];
+  dataChips?: readonly ListChip[];
 }>) {
   const state = useListQuery<Row>({
     key: "list-table-harness",
@@ -143,6 +145,7 @@ function ListTableHarness({
       ]}
       rowKey={(row) => row.id}
       chips={chips}
+      dataChips={dataChips}
       views={views}
       dataViews={dataViews}
       action={action}
@@ -529,5 +532,50 @@ describe("paging a filtered list", () => {
 
     await waitFor(() => expect(screen.getByText("Row 50")).toBeTruthy());
     expect(screen.queryByText("Row 0")).toBeNull();
+  });
+});
+
+describe("a data-driven chip narrows the list", () => {
+  it("sends the parameter its option names, not the chip's own key", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        // The owner dial is a dataChip: it names the viewer's teams, which are
+        // server strings rather than message keys.
+        dataChips={[
+          {
+            key: "owner",
+            label: "Owner",
+            allLabel: "Any owner",
+            options: [
+              { value: "owner_id:u-1", label: "My records" },
+              { value: "unassigned:true", label: "Unassigned" },
+            ],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Unassigned" }));
+
+    // `unassigned=true`, not `owner=unassigned:true`. The server ignores a
+    // parameter it does not know, so the wrong spelling answers the WHOLE list
+    // with 200 OK — a filter that reads as working and is not.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true"),
+    );
+    expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(
+      "owner",
+    );
   });
 });

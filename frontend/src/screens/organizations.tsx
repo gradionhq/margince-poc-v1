@@ -629,6 +629,24 @@ export function CompaniesScreen() {
               ) : null,
           },
           {
+            key: "relationship",
+            header: t("org.relationshipTypes"),
+            // A filter with no column to read it back on is a list that cannot
+            // say why a row matched. Multi-valued on purpose (ADR-0079/A124):
+            // an account can be a partner AND a customer, and showing only the
+            // first would make the second look untrue.
+            cell: (org: Organization) =>
+              org.relationship_types?.length ? (
+                <span className="row-wrap">
+                  {org.relationship_types.map((type) => (
+                    <Badge key={type}>
+                      {t(RELATIONSHIP_TYPE_LABELS[type])}
+                    </Badge>
+                  ))}
+                </span>
+              ) : null,
+          },
+          {
             key: "owner",
             header: t("list.owner"),
             cell: (org: Organization) => (

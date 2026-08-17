@@ -239,13 +239,23 @@ export function ListTable<Row>({
   // `chips` cannot be the key — screens declare it as an inline array literal,
   // which is a fresh reference each render. The option values are what
   // chosenFor actually reads, and they are strings.
-  const chipOptionKey = chips
+  // EVERY chip on the surface, declared and data-driven alike. The owner dial
+  // is a dataChip because it names the viewer's teams at runtime, and code that
+  // asks "which chips are there" must see it: reading `chips` alone is what
+  // made picking Unassigned send `owner=unassigned:true` — the chip's key with
+  // the raw option value — instead of `unassigned=true`, so the server ignored
+  // an unknown parameter and answered the whole list.
+  const allChips: readonly ListChip[] = [
+    ...chips.map((chip) => translateChip(chip, t)),
+    ...dataChips,
+  ];
+  const chipOptionKey = allChips
     .flatMap((chip) => chip.options.map((option) => option.value))
     .join("\u0000");
   const filterKey = JSON.stringify(query.filters);
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
   const chosen = useMemo(
-    () => chosenFor(chips, query.filters),
+    () => chosenFor(allChips, query.filters),
     [chipOptionKey, filterKey],
   );
 
@@ -294,7 +304,7 @@ export function ListTable<Row>({
       // refuses if asked two at once). Clearing such a chip has to drop
       // whichever parameter is currently set, not the chip's own key, which
       // names no parameter at all.
-      const alternatives = chips
+      const alternatives = allChips
         .flatMap((chip) => chip.options.map((option) => option.value))
         .filter((candidate) => candidate.includes(":"))
         .map((candidate) => candidate.slice(0, candidate.indexOf(":")));
@@ -346,11 +356,7 @@ export function ListTable<Row>({
               onChange: (next) => setQuery((prev) => ({ ...prev, sort: next })),
             }
       }
-      chips={
-        overlay
-          ? []
-          : [...chips.map((chip) => translateChip(chip, t)), ...dataChips]
-      }
+      chips={overlay ? [] : allChips}
       chosen={chosen}
       onChipChange={setFilter}
       // A view tab whose preset the mirror would refuse is a tab that lights up
@@ -514,7 +520,10 @@ export function useOwnerChips(): readonly ListChip[] {
  * filter that did not take.
  */
 function chosenFor(
-  chips: readonly FilterSpec[],
+  // Takes the option VALUES, so it reads a declared chip and a data-driven one
+  // the same way — the two differ only in where their labels came from, and a
+  // reader of this function never looks at a label.
+  chips: readonly ListChip[],
   filters: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const chosen = { ...filters };
