@@ -870,9 +870,8 @@ each provider carries is a property of its **wire**, and is fixed in the adapter
 
 | provider | carries |
 |---|---|
-| `gemini`, `openai` | `image/*` and `application/pdf` — both wires take a document part natively |
-| `anthropic` | `image/*`. The Messages API has a document block too, but which models accept one varies per model, and this adapter cannot see which model a binding named |
-| `ollama` | `image/*`, as the chat API's per-message `images` array. A non-vision model pulled into the binding fails at the runner, visibly |
+| `anthropic`, `gemini`, `openai` | `image/*` and `application/pdf` — all three wires take a document part natively. On Anthropic that is the Messages API's `document` block, which every active model accepts and which needs no beta header |
+| `ollama` | `image/*`, as the chat API's per-message `images` array — that wire has no document part at all. A non-vision model pulled into the binding fails at the runner, visibly |
 | `openai_compatible`, `vllm` | whatever the binding declares — see `input:` below |
 | `fake` | `image/*` and `application/pdf` (the offline stub mirrors the native wires) |
 

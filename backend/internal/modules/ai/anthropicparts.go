@@ -5,7 +5,7 @@ package ai
 
 // The Messages API's message body, which is two JSON shapes wearing one name: a
 // bare string for an ordinary turn, an ordered array of typed blocks once the
-// turn carries an image.
+// turn carries an attachment.
 //
 // Both shapes are spelled here for the same reason the OpenAI-compatible wire
 // spells both (openaicompatparts.go): a text-only call must keep marshalling to
@@ -26,8 +26,13 @@ import (
 const (
 	anthropicBlockText  = "text"
 	anthropicBlockImage = "image"
-	// The two spellings an image block's source takes: bytes the request
-	// carries, or a URL the API fetches for itself.
+	// A PDF is its own block type on this wire rather than an image with a
+	// different media type: the API paginates a document and an image has no
+	// pages, so the two are not one part kind spelled twice.
+	anthropicBlockDocument = "document"
+	// The two spellings an attachment block's source takes, the same pair for
+	// either block type: bytes the request carries, or a URL the API fetches
+	// for itself.
 	anthropicSourceBase64 = "base64"
 	anthropicSourceURL    = "url"
 )
@@ -56,15 +61,19 @@ func (c anthropicContent) MarshalJSON() ([]byte, error) {
 // anthropicBlock is one block of a multi-block turn. Text and Source are
 // mutually exclusive and Type says which is set, so both are omitempty.
 type anthropicBlock struct {
-	Type   string                `json:"type"` // "text" | "image"
-	Text   string                `json:"text,omitempty"`
-	Source *anthropicImageSource `json:"source,omitempty"`
+	Type   string           `json:"type"` // "text" | "image" | "document"
+	Text   string           `json:"text,omitempty"`
+	Source *anthropicSource `json:"source,omitempty"`
 }
 
-// anthropicImageSource is the image block's source, in either of the two
+// anthropicSource is an attachment block's source, in either of the two
 // spellings the API accepts: inline base64 with its media type, or a URL the
 // API fetches. MediaType/Data belong to the first, URL to the second.
-type anthropicImageSource struct {
+//
+// One type for both block kinds because the API spells them identically —
+// splitting it would be two structs that must never diverge, which is a harder
+// invariant to hold than the one shape it would be documenting.
+type anthropicSource struct {
 	Type      string `json:"type"` // "base64" | "url"
 	MediaType string `json:"media_type,omitempty"`
 	Data      string `json:"data,omitempty"`
@@ -102,19 +111,25 @@ func anthropicMessages(msgs []model.Message, atts []model.Attachment) []anthropi
 		target.Content.Blocks = append(target.Content.Blocks, anthropicBlock{Type: anthropicBlockText, Text: target.Content.Text})
 	}
 	for _, a := range atts {
-		target.Content.Blocks = append(target.Content.Blocks, anthropicImageBlock(a))
+		target.Content.Blocks = append(target.Content.Blocks, anthropicAttachmentBlock(a))
 	}
 	return out
 }
 
-// anthropicImageBlock maps one attachment to an image block. Only images reach
-// it: carriage is gated against this binding's own list, which is carriesImages
-// or a narrowing of it, and neither admits anything else.
-func anthropicImageBlock(a model.Attachment) anthropicBlock {
-	if a.URI != "" {
-		return anthropicBlock{Type: anthropicBlockImage, Source: &anthropicImageSource{Type: anthropicSourceURL, URL: a.URI}}
+// anthropicAttachmentBlock maps one attachment to the block kind its media type
+// takes. Only an image or a PDF reaches it: carriage is gated against this
+// binding's own list, which is carriesImagesAndPDF or a narrowing of it, and
+// that admits nothing else — so `isImage` picks between the two kinds rather
+// than deciding whether the attachment may be sent at all.
+func anthropicAttachmentBlock(a model.Attachment) anthropicBlock {
+	kind := anthropicBlockDocument
+	if isImage(a.MIME) {
+		kind = anthropicBlockImage
 	}
-	return anthropicBlock{Type: anthropicBlockImage, Source: &anthropicImageSource{
+	if a.URI != "" {
+		return anthropicBlock{Type: kind, Source: &anthropicSource{Type: anthropicSourceURL, URL: a.URI}}
+	}
+	return anthropicBlock{Type: kind, Source: &anthropicSource{
 		Type:      anthropicSourceBase64,
 		MediaType: a.MIME,
 		Data:      base64.StdEncoding.EncodeToString(a.Bytes),
@@ -126,13 +141,14 @@ func anthropicImageBlock(a model.Attachment) anthropicBlock {
 // this wire cannot express.
 //
 // A URI attachment is a URL or a provider file handle. Anthropic fetches an
-// https URL itself, so that half maps. A handle would be its Files API
+// https URL itself — for a document as for an image, the same `source.type:
+// "url"` — so that half maps. A handle would be its Files API
 // (`source.type: "file"`), which the endpoint serves only to a request carrying
 // the Files beta header this adapter does not send — so a handle is refused
 // rather than mapped to a block the vendor would reject for a reason that names
 // the wrong thing.
 func anthropicRefuseAttachments(atts []model.Attachment, declared []string) error {
-	if err := refuseNarrowedAttachments("anthropic", atts, declared, carriesImages); err != nil {
+	if err := refuseNarrowedAttachments("anthropic", atts, declared, carriesImagesAndPDF); err != nil {
 		return err
 	}
 	for _, a := range atts {

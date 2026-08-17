@@ -133,6 +133,56 @@ func TestAnthropicImageURIBecomesAURLSource(t *testing.T) {
 	}
 }
 
+// A PDF takes the API's own document block, not an image block wearing a
+// different media type. The distinction is the whole mapping: the vendor
+// paginates a document and would reject the same bytes announced as an image,
+// so a block kind picked off the media type is what makes the document lane
+// real rather than an image lane with a wider carriage list.
+func TestAnthropicPDFBecomesADocumentBlockNotAnImageOne(t *testing.T) {
+	for name, tc := range map[string]struct {
+		att   model.Attachment
+		check func(*testing.T, *anthropicSource)
+	}{
+		"inline bytes": {
+			att: model.Attachment{MIME: "application/pdf", Bytes: []byte("%PDF")},
+			check: func(t *testing.T, src *anthropicSource) {
+				t.Helper()
+				if src.Type != "base64" || src.MediaType != "application/pdf" || src.Data != "JVBERg==" {
+					t.Errorf("inline bytes must become a base64 document source, got %+v", src)
+				}
+			},
+		},
+		"fetchable url": {
+			att: model.Attachment{MIME: "application/pdf", URI: "https://files.example/a.pdf"},
+			check: func(t *testing.T, src *anthropicSource) {
+				t.Helper()
+				if src.Type != "url" || src.URL != "https://files.example/a.pdf" {
+					t.Errorf("a URI attachment must ride as a url source, got %+v", src)
+				}
+				if src.Data != "" || src.MediaType != "" {
+					t.Errorf("a url source carries neither data nor a media type, got %+v", src)
+				}
+			},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			msgs := anthropicMessages([]model.Message{{Role: roleUser, Content: "read this"}},
+				[]model.Attachment{tc.att})
+			blocks := msgs[0].Content.Blocks
+			if len(blocks) != 2 {
+				t.Fatalf("want the turn's text plus the document, got %d blocks", len(blocks))
+			}
+			if blocks[1].Type != "document" {
+				t.Fatalf("a PDF must ride the document block, got type %q", blocks[1].Type)
+			}
+			if blocks[1].Source == nil {
+				t.Fatal("a document block must carry a source")
+			}
+			tc.check(t, blocks[1].Source)
+		})
+	}
+}
+
 // Attachments belong to a user turn. A request whose messages hold none — the
 // system prompt travels elsewhere on this wire — gets one created rather than
 // the image being hung off an assistant turn.
@@ -150,7 +200,7 @@ func TestAnthropicAttachmentWithNoUserTurnGetsOne(t *testing.T) {
 // A URI this wire cannot resolve is refused as a carriage failure, not mapped to
 // a url source the vendor would reject for a reason naming the wrong thing.
 func TestAnthropicRefusesAnAttachmentURIItCannotResolve(t *testing.T) {
-	err := anthropicRefuseAttachments([]model.Attachment{{MIME: "image/png", URI: "file-abc123"}}, carriesImages)
+	err := anthropicRefuseAttachments([]model.Attachment{{MIME: "image/png", URI: "file-abc123"}}, carriesImagesAndPDF)
 	if !errors.Is(err, model.ErrAttachmentUnsupported) {
 		t.Fatalf("a file handle must be refused as unsupported carriage, got %v", err)
 	}
@@ -161,7 +211,7 @@ func TestAnthropicRefusesAnAttachmentURIItCannotResolve(t *testing.T) {
 	}
 	if err := anthropicRefuseAttachments([]model.Attachment{
 		{MIME: "image/png", URI: "https://files.example/a.png"},
-	}, carriesImages); err != nil {
+	}, carriesImagesAndPDF); err != nil {
 		t.Errorf("an https url is fetchable and must be carried, got %v", err)
 	}
 }

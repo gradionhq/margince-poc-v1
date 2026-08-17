@@ -113,7 +113,7 @@ func SelectBrain(cfg ProviderConfig, keys config.Lookup) (model.Client, error) {
 			baseURL:         defaulted(cfg.BaseURL, defaultAnthropicBaseURL),
 			apiKey:          key,
 			defaultModel:    cfg.Model,
-			attachmentMIMEs: narrowedCarriage(carriesImages, cfg.Input),
+			attachmentMIMEs: narrowedCarriage(carriesImagesAndPDF, cfg.Input),
 		}, nil
 	case providerOllama:
 		return &ollamaClient{

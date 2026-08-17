@@ -138,15 +138,16 @@ func (c *openAICompatClient) Embed(ctx context.Context, req model.EmbedRequest) 
 // site, so "this wire is text-only" reads as a decision instead of an omission.
 var carriesNothing []string
 
-// carriesImagesAndPDF is the carriage declaration shared by the two adapters
-// whose wires take document parts natively.
+// carriesImagesAndPDF is the carriage declaration shared by the adapters whose
+// wires take document parts natively.
 var carriesImagesAndPDF = []string{"image/*", "application/pdf"}
 
 // carriesImages is the declaration of an adapter whose wire takes images and
-// nothing else. Anthropic and Ollama both spell an image part uniformly — one
-// `image` block, one `images` array — while a PDF is model-dependent on the
-// first wire and absent from the second, so the honest declaration stops at
-// images rather than claiming a document lane one bound model may not serve.
+// nothing else: the Ollama chat API, which spells an image as an entry in a
+// per-message `images` array and has no document part at all. Not a narrowing
+// of carriesImagesAndPDF but a different wire — there is no document lane here
+// to give a binding, which is why `input: [text, image]` on an ollama binding
+// buys nothing and takes nothing away.
 var carriesImages = []string{"image/*"}
 
 // DocumentMIMEs is every media type some adapter in this build carries as an
