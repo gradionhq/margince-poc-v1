@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Lock, Mail, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import {
   AttainmentRing,
@@ -25,6 +25,7 @@ import {
   TextInput,
 } from "./atoms";
 import { AvatarStack } from "./avatarstack";
+import { usePasswordReveal } from "./passwordreveal";
 import { Select } from "./select";
 
 // Stories are the render surface the change-scoped fe-uat capture gate drives
@@ -306,6 +307,97 @@ function FieldsRow() {
             {...control}
             rows={3}
             defaultValue="Renewal terms agreed on the call."
+          />
+        )}
+      </Field>
+    </div>
+  );
+}
+
+// The three slots a field grew for the sign-in screens, which had forked their
+// own field component to get them. A leading glyph and a trailing control both
+// sit INSIDE one outline — that is the whole point, and the reason a second
+// component existed: `.input-icon` could carry a glyph on the left and nothing
+// on the right, so a reveal button had no way into the ring.
+//
+// The refusal is the other half. `error` is its own slot rather than a message
+// pushed through `hint`, because the two say different things and were being
+// spelled identically: a refused password rendered in the same meta-grey as the
+// rule it broke, and on the change-password card in the same grey as the
+// success line four elements above it.
+export const FieldStates: Story = {
+  name: "Fields — affordances and refusal",
+  render: () => <FieldStatesColumn />,
+};
+
+function FieldStatesColumn() {
+  const reveal = usePasswordReveal({
+    show: "Show password",
+    hide: "Hide password",
+  });
+  const revealShort = usePasswordReveal({
+    show: "Show password",
+    hide: "Hide password",
+  });
+  return (
+    <div className="form-stack" style={{ maxWidth: "22rem" }}>
+      <Field label="Work address" icon={<Mail aria-hidden />}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="email"
+            defaultValue="ops@example.com"
+            autoComplete="username"
+          />
+        )}
+      </Field>
+      <Field
+        label="Password"
+        icon={<Lock aria-hidden />}
+        labelEnd={
+          <button type="button" className="link-button">
+            Forgot?
+          </button>
+        }
+        hint="At least 12 characters."
+        trailing={reveal.trailing}
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            type={reveal.type}
+            defaultValue="correct horse battery"
+            autoComplete="current-password"
+          />
+        )}
+      </Field>
+      <Field
+        label="New password"
+        required
+        error="Too short. Use at least 12 characters."
+        trailing={revealShort.trailing}
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            type={revealShort.type}
+            defaultValue="short"
+            autoComplete="new-password"
+          />
+        )}
+      </Field>
+      <Field
+        label="Confirm"
+        required
+        error="These two don't match."
+        hint="Both fields have to say the same thing."
+      >
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            defaultValue="something else"
+            autoComplete="new-password"
           />
         )}
       </Field>

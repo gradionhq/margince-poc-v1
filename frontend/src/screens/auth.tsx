@@ -1,14 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Eye, EyeOff, Lock, Mail } from "lucide-react";
-import {
-  type FormEvent,
-  Fragment,
-  type ReactNode,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { Lock, Mail } from "lucide-react";
+import { type FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -19,7 +11,8 @@ import {
 } from "../app/ui-preview";
 import wordmarkDark from "../assets/wordmark-dark.png";
 import wordmarkWhite from "../assets/wordmark-white.png";
-import { Button } from "../design-system/atoms";
+import { Button, Field, TextInput } from "../design-system/atoms";
+import { usePasswordReveal } from "../design-system/passwordreveal";
 import {
   ProviderMark,
   providerBrandName,
@@ -28,6 +21,7 @@ import { LOCALES, localeNameKey, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase } from "./auth-core";
 import { problemMessageOf, throwProblem } from "./common";
+import { isTooShort, MIN_PASSWORD } from "./passwordrule";
 import "./auth.css";
 
 // The default unauthenticated screen is LOGIN, not setup or signup
@@ -570,12 +564,13 @@ function LoginForm({
   onForgot: () => void;
 }>) {
   const t = useT();
-  const emailId = useId();
-  const passwordId = useId();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
+  const reveal = usePasswordReveal({
+    show: t("auth.showPassword"),
+    hide: t("auth.hidePassword"),
+  });
   const emailRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -648,34 +643,39 @@ function LoginForm({
         unavailable={unavailableProviders}
         onSelect={startFederatedSignIn}
       />
+      {/* Visible labels, which is a deliberate divergence from the reference
+          artifact: it names its fields with a placeholder and an aria-label, and
+          a placeholder is not a label — it vanishes the moment the field has
+          content (WCAG 3.3.2), and ADR-0076 Decision 6 binds §12's WCAG list
+          unamended. Where the picture and §12 disagree, §12 wins. */}
       <div className="auth-fields">
-        <Field id={emailId} label={t("auth.email")} icon={<Mail aria-hidden />}>
-          <input
-            id={emailId}
-            ref={emailRef}
-            className="auth-input"
-            type="email"
-            required
-            /* A stable `name`, because `id` here cannot be one: useId() derives
-               its value from the component's position in the tree, and this
-               tree changes with the notice and the provider block. Chrome
-               autofills from the autocomplete token alone, but Firefox and
-               several password managers fall back to name/id to match a SAVED
-               credential to a rendered field — with neither stable, they have
-               nothing to match on. */
-            name="email"
-            autoComplete="username"
-            inputMode="email"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder={t("auth.emailPlaceholder")}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
+        <Field label={t("auth.email")} icon={<Mail aria-hidden />}>
+          {(control) => (
+            <TextInput
+              {...control}
+              ref={emailRef}
+              type="email"
+              required
+              /* A stable `name`, because `id` here cannot be one: Field mints
+                 its id with useId(), which derives from the component's
+                 position in the tree, and this tree changes with the notice and
+                 the provider block. Chrome autofills from the autocomplete
+                 token alone, but Firefox and several password managers fall
+                 back to name/id to match a SAVED credential to a rendered field
+                 — with neither stable, they have nothing to match on. */
+              name="email"
+              autoComplete="username"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder={t("auth.emailPlaceholder")}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          )}
         </Field>
         <Field
-          id={passwordId}
           label={t("auth.password")}
           icon={<Lock aria-hidden />}
           labelEnd={
@@ -686,29 +686,30 @@ function LoginForm({
             ) : undefined
           }
           hint={capsLock ? t("auth.capsLock") : undefined}
-          trailing={
-            <PasswordReveal
-              shown={showPassword}
-              onToggle={() => setShowPassword((shown) => !shown)}
-            />
-          }
+          // Announced when it appears, not only when focus arrives: caps lock
+          // is pressed WHILE typing, and a warning a reader hears only if they
+          // leave the field and come back has arrived after the password it was
+          // about.
+          hintLive
+          trailing={reveal.trailing}
         >
-          <input
-            id={passwordId}
-            className="auth-input"
-            type={showPassword ? "text" : "password"}
-            required
-            name="password"
-            autoComplete="current-password"
-            autoCapitalize="none"
-            spellCheck={false}
-            placeholder={t("auth.passwordPlaceholder")}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            onKeyUp={(event) =>
-              setCapsLock(event.getModifierState?.("CapsLock") ?? false)
-            }
-          />
+          {(control) => (
+            <TextInput
+              {...control}
+              type={reveal.type}
+              required
+              name="password"
+              autoComplete="current-password"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder={t("auth.passwordPlaceholder")}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyUp={(event) =>
+                setCapsLock(event.getModifierState?.("CapsLock") ?? false)
+              }
+            />
+          )}
         </Field>
       </div>
       {login.isError && (
@@ -728,44 +729,11 @@ function LoginForm({
   );
 }
 
-/**
- * The reveal control. EVERY password field on this surface carries one, and the
- * new-password field has the stronger claim on it: a mistyped credential on
- * sign-in is refused by the server in one round trip, while a mistyped NEW
- * password simply becomes the password — a 12-character minimum with no confirm
- * field to disagree with it. Reading back what you are about to be locked out by
- * is the point.
- *
- * One button with `aria-pressed` rather than two: the name says which way it will
- * go, the state says where it is. `title` as well as `aria-label` because the
- * control is an icon and a sighted mouse user gets no name otherwise.
- */
-function PasswordReveal({
-  shown,
-  onToggle,
-}: Readonly<{ shown: boolean; onToggle: () => void }>) {
-  const t = useT();
-  const label = t(shown ? "auth.hidePassword" : "auth.showPassword");
-  return (
-    <button
-      type="button"
-      className="auth-reveal"
-      aria-pressed={shown}
-      aria-label={label}
-      title={label}
-      onClick={onToggle}
-    >
-      {shown ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-    </button>
-  );
-}
-
 function ForgotForm({
   onSent,
   onBack,
 }: Readonly<{ onSent: (email: string) => void; onBack: () => void }>) {
   const t = useT();
-  const emailId = useId();
   const [email, setEmail] = useState("");
 
   const request = useMutation({
@@ -796,25 +764,26 @@ function ForgotForm({
         {/* Same icon as the sign-in card's email field. Without it the text
             starts 22px further left than on the screen the user just came from,
             and the two cards stop looking like one surface. */}
-        <Field id={emailId} label={t("auth.email")} icon={<Mail aria-hidden />}>
-          <input
-            id={emailId}
-            className="auth-input"
-            type="email"
-            required
-            name="email"
-            /* "email", not "username": this form never accepts a password, and
-               labelling it username invites a manager to treat it as a sign-in
-               field and offer to fill a credential that has nowhere to go. */
-            autoComplete="email"
-            inputMode="email"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder={t("auth.emailPlaceholder")}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
+        <Field label={t("auth.email")} icon={<Mail aria-hidden />}>
+          {(control) => (
+            <TextInput
+              {...control}
+              type="email"
+              required
+              name="email"
+              /* "email", not "username": this form never accepts a password, and
+                 labelling it username invites a manager to treat it as a sign-in
+                 field and offer to fill a credential that has nowhere to go. */
+              autoComplete="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder={t("auth.emailPlaceholder")}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          )}
         </Field>
       </div>
       {request.isError && (
@@ -835,8 +804,6 @@ function ForgotForm({
     </form>
   );
 }
-
-const MIN_PASSWORD = 12;
 
 /*
  * Why a reset failure has to be classified at all.
@@ -897,9 +864,11 @@ function ResetForm({
   selfServiceAvailable: boolean;
 }>) {
   const t = useT();
-  const passwordId = useId();
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const reveal = usePasswordReveal({
+    show: t("auth.showPassword"),
+    hide: t("auth.hidePassword"),
+  });
 
   const reset = useMutation({
     mutationFn: async () => {
@@ -924,7 +893,11 @@ function ResetForm({
   const failure =
     reset.error instanceof ResetError ? reset.error.failure : "server";
 
-  const ready = password.length >= MIN_PASSWORD;
+  // Code points, through the shared rule, so this screen and the change-password
+  // card agree on what a character is: `password.length` counts UTF-16 units, so
+  // a password carrying an emoji cleared the floor here and was refused there.
+  const tooShort = isTooShort(password);
+  const ready = password !== "" && !tooShort;
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (ready && !reset.isPending) {
@@ -938,30 +911,29 @@ function ResetForm({
       <p className="card-sub">{t("auth.resetSub")}</p>
       <div className="auth-fields">
         <Field
-          id={passwordId}
           label={t("auth.newPassword")}
           icon={<Lock aria-hidden />}
-          hint={t("auth.passwordHint")}
-          trailing={
-            <PasswordReveal
-              shown={showPassword}
-              onToggle={() => setShowPassword((shown) => !shown)}
-            />
-          }
+          error={tooShort ? t("password.tooShort") : undefined}
+          // The rule, until the rule is being broken — at which point the
+          // refusal restates it in the danger tone and a second grey copy of the
+          // same sentence underneath is noise.
+          hint={tooShort ? undefined : t("auth.passwordHint")}
+          trailing={reveal.trailing}
         >
-          <input
-            id={passwordId}
-            className="auth-input"
-            type={showPassword ? "text" : "password"}
-            required
-            minLength={MIN_PASSWORD}
-            name="new-password"
-            autoComplete="new-password"
-            autoCapitalize="none"
-            spellCheck={false}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
+          {(control) => (
+            <TextInput
+              {...control}
+              type={reveal.type}
+              required
+              minLength={MIN_PASSWORD}
+              name="new-password"
+              autoComplete="new-password"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          )}
         </Field>
       </div>
       {reset.isError && (
@@ -1021,59 +993,6 @@ function Notice({
         </Button>
       </div>
     </section>
-  );
-}
-
-export function Field({
-  id,
-  label,
-  labelEnd,
-  hint,
-  icon,
-  trailing,
-  children,
-}: Readonly<{
-  id: string;
-  label: string;
-  labelEnd?: ReactNode;
-  hint?: string;
-  /** Leading affordance inside the shell. Decorative: the label names the field. */
-  icon?: ReactNode;
-  /** In-shell control, e.g. the password reveal. */
-  trailing?: ReactNode;
-  children: ReactNode;
-}>) {
-  // The <label> names only the label text, so the input's accessible name is
-  // exactly the label — the hint is a sibling below the shell, not part of it.
-  //
-  // The visible label STAYS, and that is a deliberate divergence from the
-  // reference artifact, which labels its fields with a placeholder and an
-  // aria-label. A placeholder is not a label: it vanishes the moment the field
-  // has content, which is WCAG 3.3.2, and ADR-0076 Decision 6 binds §12's WCAG
-  // list unamended. Where the picture and §12 disagree, §12 wins.
-  return (
-    <div className="auth-field">
-      <div className="auth-label-row">
-        <label htmlFor={id}>{label}</label>
-        {labelEnd}
-      </div>
-      {/* The border and the focus ring live on the shell, not the input, so the
-          leading icon sits inside the outline rather than beside it. */}
-      <div className="auth-shell">
-        {icon && (
-          <span className="auth-shell-icon" aria-hidden>
-            {icon}
-          </span>
-        )}
-        {children}
-        {trailing}
-      </div>
-      {hint && (
-        <span className="auth-hint" role="status">
-          {hint}
-        </span>
-      )}
-    </div>
   );
 }
 
