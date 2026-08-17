@@ -45,7 +45,7 @@ func TestWithDataResetWiresTheComposedPool(t *testing.T) {
 	if s.dataResetHandlers.pool != composed {
 		t.Fatal("WithDataReset did not wire the composed app-role pool")
 	}
-	if !s.dataResetHandlers.allowed {
+	if !s.allowed {
 		t.Fatal("WithDataReset did not carry the armed switch to the handler")
 	}
 }
@@ -56,7 +56,7 @@ func TestWithDataResetWiresTheComposedPool(t *testing.T) {
 func TestWithDataResetUnarmedIsClosed(t *testing.T) {
 	var s Server
 	WithDataReset(nil, deployconfig.Seeds{}, false)(&s, &pgxpool.Pool{})
-	if s.dataResetHandlers.allowed {
+	if s.allowed {
 		t.Fatal("an installation that did not arm the reset got an armed handler")
 	}
 }
