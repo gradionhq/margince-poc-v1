@@ -32,20 +32,34 @@ func scannableGoFile(name string) bool {
 	return !strings.HasSuffix(name, "_test.go")
 }
 
+// deriveUnitManifest reads one unit's declaration and encodes it, which is
+// what the file next to the unit holds. A caller that also needs the
+// declaration ITSELF — the composed SPA registry does, for the secret scope
+// its settings placement derives from — reads it through readUnitManifest and
+// encodes the same value, so the bytes on disk and the data the composition
+// reasons over cannot come from two different parses of one declaration.
 func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb, jobDecls []extension.JobDeclaration) ([]byte, error) {
+	m, err := readUnitManifest(u, vocab, verbs, jobDecls)
+	if err != nil {
+		return nil, err
+	}
+	return encodeUnitManifest(m)
+}
+
+func readUnitManifest(u extensionUnit, vocab map[string]string, verbs []declaredVerb, jobDecls []extension.JobDeclaration) (unitManifest, error) {
 	fset := token.NewFileSet()
 	// ParseComments, because one of the declarations this reader has to judge
 	// lives in a comment: //go:embed binds a pattern to the var beneath it, and
 	// the Migrations field is checked against exactly that binding.
 	pkgs, err := parseDirByPackage(fset, u.Dir, parser.SkipObjectResolution|parser.ParseComments)
 	if err != nil {
-		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
+		return unitManifest{}, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
 	if len(pkgs) != 1 {
-		return nil, fmt.Errorf("extensions/%s: the unit root must hold exactly one package, found %d", u.Name, len(pkgs))
+		return unitManifest{}, fmt.Errorf("extensions/%s: the unit root must hold exactly one package, found %d", u.Name, len(pkgs))
 	}
 	if err := rejectLiveInitializers(pkgs, fset); err != nil {
-		return nil, fmt.Errorf("extensions/%s: %w", u.Name, err)
+		return unitManifest{}, fmt.Errorf("extensions/%s: %w", u.Name, err)
 	}
 	r := &unitReader{
 		fset:            fset,
@@ -57,7 +71,7 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declar
 	}
 	newFn, newFile, count := findNew(pkgs)
 	if count == 0 {
-		return nil, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
+		return unitManifest{}, fmt.Errorf("extensions/%s: no New() in the unit root package — the declaration constructor is required", u.Name)
 	}
 	if count > 1 {
 		// The scan is platform-independent (build tags/GOOS are not
@@ -66,16 +80,16 @@ func deriveUnitManifest(u extensionUnit, vocab map[string]string, verbs []declar
 		// platform-independent inert data, and picking one of several
 		// (unordered map iteration) would make the committed manifest
 		// nondeterministic. Declare exactly one New().
-		return nil, fmt.Errorf("extensions/%s: multiple New() constructors in the unit root — declare exactly one; an extension declaration is platform-independent, so a build-tag/GOOS-split New() is unsupported", u.Name)
+		return unitManifest{}, fmt.Errorf("extensions/%s: multiple New() constructors in the unit root — declare exactly one; an extension declaration is platform-independent, so a build-tag/GOOS-split New() is unsupported", u.Name)
 	}
 	m, err := r.readExtension(newFn, newFile)
 	if err != nil {
-		return nil, err
+		return unitManifest{}, err
 	}
 	if m.Name != u.Name {
-		return nil, fmt.Errorf("extensions/%s: New() declares name %q — the directory name IS the unit name", u.Name, m.Name)
+		return unitManifest{}, fmt.Errorf("extensions/%s: New() declares name %q — the directory name IS the unit name", u.Name, m.Name)
 	}
-	return encodeUnitManifest(m)
+	return m, nil
 }
 
 func findNew(pkgs map[string][]*ast.File) (fn *ast.FuncDecl, file *ast.File, count int) {

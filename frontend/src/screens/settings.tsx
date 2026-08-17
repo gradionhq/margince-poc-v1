@@ -28,6 +28,7 @@ import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsAdminRole } from "../app/capability";
 import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
 import { setTheme, THEMES, useTheme } from "../app/theme";
@@ -88,6 +89,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
+import { ExtensionUnitsCard } from "./extension-units";
 import { ImportCard } from "./import";
 import { InstallationSettingsCard } from "./installation-settings";
 import { ProviderCard } from "./integrations-provider";
@@ -298,6 +300,12 @@ function ConnectionsTab() {
           proposals live in the approvals inbox. This shows what the import
           bought — which accounts the network reaches. */}
       <LinkedInReachCard />
+      {/* Last, and only when the installation composed a unit whose credential
+          is the member's OWN — that is what a `user`-scoped secret is, and it
+          is the same thing every card above it holds. A unit is offered here
+          rather than from the rail because enabling one adds something to
+          configure, not a destination. */}
+      <ExtensionUnitsCard scope="user" />
     </>
   );
 }
@@ -321,6 +329,12 @@ function IntegrationsTab() {
           OverlayCard renders its connect form and the rest stays quiet. */}
       <OverlayCard />
       <MirrorUserMapCard />
+      {/* The other half of the units split: a unit whose secret is
+          `workspace`-scoped holds the INSTALLATION's credential, like the four
+          cards above it, so it is offered here and not on a member's own
+          Connections page. Which page a unit lands on is its manifest's
+          decision, never this file's. */}
+      <ExtensionUnitsCard scope="workspace" />
     </>
   );
 }
@@ -483,7 +497,16 @@ export function useSettingsEntryVisibility(
     // here, so an entry this narrow would strand whoever follows it on the Account
     // fallback — the overlay read every seeded role holds is what keeps that link
     // honest, and it is a live grant rather than an exemption.
-    integrations: webhook || overlay,
+    //
+    // The composed units are the third card, and they open the entry on their
+    // own PRESENCE rather than on a grant: this page is the only place a
+    // workspace-scoped unit is offered at all — it has no rail row and the
+    // palette never carried one — so a role holding neither read would lose the
+    // unit itself, not merely the two cards above it. Presence is the honest
+    // predicate because the card asks for no grant; the unit's own screen is
+    // what refuses, on the object it declares.
+    integrations:
+      webhook || overlay || unitsForSecretScope("workspace").length > 0,
     // Everything that defines the shape a record takes: the field editor, the
     // pipeline designer, the product list, the offer templates. Any one of their
     // reads opens the page; the authoring controls inside each ask for their own

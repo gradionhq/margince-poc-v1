@@ -22,6 +22,14 @@ func (r *unitReader) readSecrets(expr ast.Expr, file *ast.File) ([]secretsReques
 	ext := importAlias(file, extensionPkgPath)
 	out := make([]secretsRequest, 0, len(lit.Elts))
 	seen := map[string]bool{}
+	// The scope the first entry asked for, and the key that asked. Every later
+	// entry must agree: a unit's secret scope is what the SPA derives its
+	// settings placement from (unitSecretScope), and a unit holding both an
+	// installation credential and a per-member one has no answer to "whose
+	// settings page is this". Refused here rather than resolved by a
+	// tie-break, because either tie-break hides half the unit from whoever
+	// holds the other half.
+	var scope, scopedBy string
 	for _, elt := range lit.Elts {
 		sr, err := r.readSecret(elt, ext)
 		if err != nil {
@@ -30,6 +38,12 @@ func (r *unitReader) readSecrets(expr ast.Expr, file *ast.File) ([]secretsReques
 		dedupe := sr.Scope + "/" + sr.Key
 		if seen[dedupe] {
 			return nil, r.errAt(elt, "secret %q declared twice in scope %q", sr.Key, sr.Scope)
+		}
+		if scope != "" && sr.Scope != scope {
+			return nil, r.errAt(elt, "secret %q requests scope %q but %q already requested %q — a unit declares ONE scope, because its settings entry derives from it; split the unit, or move the secret into the scope the other one uses", sr.Key, sr.Scope, scopedBy, scope)
+		}
+		if scope == "" {
+			scope, scopedBy = sr.Scope, sr.Key
 		}
 		seen[dedupe] = true
 		out = append(out, sr)

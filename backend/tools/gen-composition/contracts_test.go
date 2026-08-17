@@ -184,12 +184,12 @@ func TestComposedFilesEmitsEveryContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	files, _, _, err := composedFiles(root)
+	composed, err := composedFiles(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, base := range composedContractBases {
-		if _, ok := files["api/"+base]; !ok {
+		if _, ok := composed.Files["api/"+base]; !ok {
 			t.Errorf("the composition does not emit api/%s", base)
 		}
 	}

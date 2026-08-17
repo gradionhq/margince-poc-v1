@@ -94,8 +94,6 @@ export const vi = {
   "nav.group.records": "Dữ liệu",
   "nav.group.work": "Công việc",
   "nav.group.intelligence": "Phân tích",
-  "nav.group.units": "Đơn vị",
-  "nav.units.entry": "Đơn vị",
   "nav.dedupe": "Trùng lặp",
   "nav.offers": "Báo giá",
   "nav.share": "Chia sẻ",
@@ -2610,6 +2608,15 @@ export const vi = {
 
   // Connected inboxes (Settings → Integrations): the "manage in Settings"
   // surface the onboarding copy promises.
+  // Các đơn vị bản cài đặt này ghép vào, đặt trên trang cài đặt vốn đã giữ đúng
+  // loại thông tin đăng nhập mà đơn vị đó dùng để cấu hình.
+  "extUnits.user.title": "Tài khoản khác của bạn",
+  "extUnits.user.sub":
+    "Những tài khoản bản cài đặt này có thể kết nối thay bạn. Mỗi tài khoản chỉ thuộc về bạn — không ai khác nhìn thấy, và ngắt kết nối chỉ ảnh hưởng tới bạn.",
+  "extUnits.workspace.title": "Tiện ích của bản cài đặt",
+  "extUnits.workspace.sub":
+    "Những tiện ích bản cài đặt này chạy bằng một thông tin đăng nhập dùng chung. Thiết lập ở đây áp dụng cho mọi người.",
+
   "connectors.title": "Hộp thư đã kết nối",
   "connectors.sub":
     "Các hộp thư đang thu thập vào CRM của bạn. Cần thì ngắt kết nối hộp nào cũng được — bản ghi đã thu thập vẫn giữ nguyên.",
