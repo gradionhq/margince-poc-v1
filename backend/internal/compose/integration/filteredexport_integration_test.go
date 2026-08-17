@@ -313,3 +313,145 @@ func TestFilteredExportHTTPEndToEnd(t *testing.T) {
 		t.Fatalf("out-of-vocabulary filter → %d, want 422", status)
 	}
 }
+
+// Export by SAVED VIEW and by LIST — the two sources that resolve their
+// predicate from stored state rather than from the request body.
+//
+// Both were unexercised: nothing reached SavedViewFilterSource or
+// ListFilterSource at all, so the guarantee #693 is about — one vocabulary
+// across what a filter may say, what it selects, and what an export contains —
+// held for the object path and was untested for the other two ways in.
+//
+// Each source's refusals are here too, because they are the interesting half:
+// a static list has explicit members rather than a filter, and a view may carry
+// no filter state at all. Both name their own wire field and answer 422.
+func TestFilteredExportFromASavedViewAndFromAList(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{
+		"email": "ada@example.com", "password": "correct-horse-battery",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("login → %d", status)
+	}
+
+	commitFilter := apptest.AnyMap{"field": "forecast_category", "op": "eq", "value": "commit"}
+
+	var view struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/views", apptest.AnyMap{
+		"resource": "deals", "name": "Commit deals",
+		"query": apptest.AnyMap{"filter": commitFilter},
+	}, nil, &view); status != http.StatusCreated {
+		t.Fatalf("create saved view → %d, want 201", status)
+	}
+
+	var dynamic struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/lists", apptest.AnyMap{
+		"name": "Commit segment", "entity_type": "deal", "list_type": "dynamic",
+		"definition": commitFilter,
+	}, nil, &dynamic); status != http.StatusCreated {
+		t.Fatalf("create dynamic list → %d, want 201", status)
+	}
+
+	var static struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/lists", apptest.AnyMap{
+		"name": "Hand-picked deals", "entity_type": "deal", "list_type": "static",
+	}, nil, &static); status != http.StatusCreated {
+		t.Fatalf("create static list → %d, want 201", status)
+	}
+
+	var viewless struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/views", apptest.AnyMap{
+		"resource": "deals", "name": "Columns only",
+		"query": apptest.AnyMap{"columns": []any{"name"}},
+	}, nil, &viewless); status != http.StatusCreated {
+		t.Fatalf("create filterless view → %d, want 201", status)
+	}
+
+	// Both stored sources export. No deal matches, so the honest answer is a
+	// header row — the same shape the object path gives for an empty slice,
+	// which is what "one engine" has to mean here.
+	for _, c := range []struct {
+		name string
+		body apptest.AnyMap
+	}{
+		{"by view_id", apptest.AnyMap{"view_id": view.ID, "format": "csv"}},
+		{"by list_id", apptest.AnyMap{"list_id": dynamic.ID, "format": "csv"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			rows := exportCSV(t, e, c.body)
+			if len(rows) != 1 {
+				t.Fatalf("got %d rows, want a header row only", len(rows))
+			}
+		})
+	}
+
+	// The refusals, each naming the field the caller actually sent.
+	for _, c := range []struct {
+		name  string
+		body  apptest.AnyMap
+		field string
+	}{
+		{"a static list has members, not a filter", apptest.AnyMap{"list_id": static.ID, "format": "csv"}, "list_id"},
+		{"a view carrying no filter state", apptest.AnyMap{"view_id": viewless.ID, "format": "csv"}, "view_id"},
+		{"a view_id that is not a uuid", apptest.AnyMap{"view_id": "not-a-uuid", "format": "csv"}, "view_id"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The per-field breakdown rides `details.errors` (httperr's
+			// fieldDetails), not the problem's top level.
+			var problem struct {
+				Details struct {
+					Errors []struct {
+						Field string `json:"field"`
+					} `json:"errors"`
+				} `json:"details"`
+			}
+			if status := e.Call(t, "POST", "/v1/exports", c.body, nil, &problem); status != http.StatusUnprocessableEntity {
+				t.Fatalf("→ %d, want 422", status)
+			}
+			if got := problem.Details.Errors; len(got) != 1 || got[0].Field != c.field {
+				t.Errorf("field errors = %v, want exactly one naming %q", got, c.field)
+			}
+		})
+	}
+}
+
+// exportCSV posts an export and parses the CSV body, failing the test on any
+// non-200 or unparseable response.
+func exportCSV(t *testing.T, e *apptest.AppEnv, body apptest.AnyMap) [][]string {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest("POST", e.TS.URL+"/v1/exports", bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Workspace-Slug", e.Slug)
+	resp, err := e.Client.Do(req)
+	if err != nil {
+		t.Fatalf("export request: %v", err)
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("closing body: %v", err)
+		}
+	}()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("export → %d, want 200", resp.StatusCode)
+	}
+	records, err := csv.NewReader(resp.Body).ReadAll()
+	if err != nil {
+		t.Fatalf("response is not valid CSV: %v", err)
+	}
+	return records
+}
