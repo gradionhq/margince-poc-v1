@@ -35,19 +35,6 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.rail .acctavatar {
-  width: 28px;
-  height: 28px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: var(--r-full);
-  background: var(--accent);
-  color: var(--textOnAccentControl);
-  font-size: var(--fs-eyebrow);
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.02em;
-}
 /* Two lines in a box that is narrower than either of them can be: both clip
    themselves, and `min-width: 0` is what lets them — a flex item's floor is its
    content width until it is told otherwise, and without it the row grows instead

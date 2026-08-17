@@ -1,6 +1,7 @@
 import { ChevronsUpDown, LogOut, UserRound } from "lucide-react";
 import { useCallback, useId, useRef, useState } from "react";
 import type { components } from "../api/schema";
+import { Avatar } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { useLogout, useMe } from "../screens/common";
 import { usePopoverDismiss } from "./popover";
@@ -232,9 +233,25 @@ export function AccountMenu({ collapsed }: Readonly<{ collapsed: boolean }>) {
         title={collapsed && identity.spoken ? identity.spoken : undefined}
         onClick={() => setOpen((current) => !current)}
       >
-        <span className="acctavatar">
-          {identity.initials ?? <UserRound size={15} aria-hidden />}
-        </span>
+        {identity.label ? (
+          // The one chip, from the design system. This was a hand-rolled
+          // `.acctavatar` with its own initials rule, its own type size and a
+          // flat accent fill, so the signed-in reader had one colour here and a
+          // different one on their own account settings page. The tint is keyed
+          // on the address rather than the display name, so it survives a
+          // rename and matches every other chip drawn for the same person.
+          <Avatar
+            identity={identity.email || undefined}
+            name={identity.label}
+          />
+        ) : (
+          // The session has not resolved yet. The chip keeps its box so the row
+          // does not jump when the name arrives, and shows a person glyph
+          // rather than an empty circle or initials of a name nobody has.
+          <span className="avatar avatar-sm" aria-hidden>
+            <UserRound size={15} />
+          </span>
+        )}
         <TriggerLines
           identity={identity}
           collapsed={collapsed}

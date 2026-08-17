@@ -798,7 +798,7 @@ function ContactRow({
   return (
     <>
       <span className="co-person-avatar">
-        <Avatar name={contact.full_name} tinted />
+        <Avatar name={contact.full_name} />
       </span>
       <span className="co-person-body">
         <button

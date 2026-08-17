@@ -7,13 +7,21 @@
   white-space: nowrap;
   align-items: center;
 }
+/* The ring is a shadow rather than a border so it costs the chip no size: a
+ * 2px border made a stacked face 32px while the identical unstacked chip beside
+ * it stayed 28px, and the two then sat on different centre lines in the same
+ * row. A shadow paints in the same place and takes no layout box. */
 .avatar-stack-item {
   display: block;
   border-radius: var(--r-full);
-  border: 2px solid var(--bgElevated);
+  box-shadow: 0 0 0 2px var(--bgElevated);
 }
+/* Half the previous pull, because the ring stopped costing the chip 4px of its
+   own: the overlap has to be read against how much of each face is left
+   showing, not against the number, and -8px on a 28px chip left 20px where
+   -8px on the old 32px chip left 24px. */
 .avatar-stack-item + .avatar-stack-item {
-  margin-left: calc(var(--space-2) * -1);
+  margin-left: calc(var(--space-1) * -1);
 }
 .avatar-stack-more {
   margin-left: var(--space-2);

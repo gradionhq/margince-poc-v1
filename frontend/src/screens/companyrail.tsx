@@ -319,7 +319,7 @@ function PersonRow({ contact }: Readonly<{ contact: Contact }>) {
   const colleagues = contact.routes?.top ?? [];
   return (
     <>
-      <Avatar name={contact.full_name} tinted />
+      <Avatar name={contact.full_name} />
       <span className="co-person-id">
         <span className="co-person-name">{contact.full_name}</span>
         {/* The same fallback the tab makes, because a rail that disagreed
