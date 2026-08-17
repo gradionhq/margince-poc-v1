@@ -7,7 +7,7 @@
 // packs bring their own third namespace. Apply order is always core, then
 // custom, then packs.
 //
-// core/ carries two version shapes. Everything through 0284 is the
+// core/ carries two version shapes. Everything through 0292 is the
 // four-digit sequence it started with, closed rather than renamed because
 // renaming a version a database already recorded strands that database.
 // Those versions are zero-padded, so each sorts below every ten-digit

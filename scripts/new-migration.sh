@@ -11,7 +11,7 @@
 # still sorts in the order the migrations were written, which is the order
 # pgmigrate applies them.
 #
-# THE 4-DIGIT SEQUENCE 0001-0284 IS CLOSED, NOT RENAMED. A version already
+# THE 4-DIGIT SEQUENCE 0001-0292 IS CLOSED, NOT RENAMED. A version already
 # recorded in a database's schema_migrations_core cannot be renamed without
 # stranding that database — dbmigrate.assertLedgerMatches refuses to continue,
 # by design, because the migration in that slot would otherwise be skipped as

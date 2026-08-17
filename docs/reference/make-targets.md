@@ -90,7 +90,7 @@ root gates (each is a small script; all merge-blocking):
 | `check-gates` | The meta-gate lane: the waiver census, the obligations derived from the migrations and the contract, and the walk-scope proofs. A dev-loop convenience — deliberately **not** a `check-backend` prerequisite, since `make -C backend check` already runs these tests uncached |
 | `tools` / `tools-go` | Install every gate binary at its pinned version (fresh-machine bootstrap) |
 | `migrate-up` / `migrate-down` | Alias for `migrate` / roll back the last migration(s) (`STEPS=n`) |
-| `migrate-create` | `make migrate-create NAME=add_renewal_risk` — scaffold a core `.up.sql`/`.down.sql` pair named for the current unix second. The clock, not the next number in a sequence: two branches open at once pick the same number and `main` stops loading once both merge. The four-digit `0001`–`0284` sequence is closed; ten-digit stamps sort above it |
+| `migrate-create` | `make migrate-create NAME=add_renewal_risk` — scaffold a core `.up.sql`/`.down.sql` pair named for the current unix second. The clock, not the next number in a sequence: two branches open at once pick the same number and `main` stops loading once both merge. The four-digit `0001`–`0292` sequence is closed; ten-digit stamps sort above it |
 | `run` | `go run ./cmd/api` on `:8080` — no db-up/migrate first |
 | `seed-reset` / `seed-dev-db` | Wipe the demo workspace / apply the API-less dev SQL seed |
 | `psql` / `redis-cli` | Open a shell on the dev database (owner role) / dev Redis |

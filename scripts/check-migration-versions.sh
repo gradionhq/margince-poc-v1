@@ -40,7 +40,7 @@
 # The namespace list is derived from the tree (backend/migrations/*/), not
 # hand-maintained, so a third namespace is gated the day it appears. Every
 # shape in the tree works: custom's YYYYMMDDHHMMSS stamp, core's unix seconds,
-# and core's closed 0001-0284 sequence — which the ten-digit stamps sort above
+# and core's closed 0001-0292 sequence — which the ten-digit stamps sort above
 # — all compare as strings, the same ordering pgmigrate itself applies.
 #
 # Usage: check-migration-versions.sh [base-ref]   (default: origin/main)

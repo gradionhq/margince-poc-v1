@@ -23,7 +23,7 @@ import (
 // in a sequence is the name two branches off the same main both pick, a clock
 // reading collides only between two branches stamped in the same second, and
 // check-migration-versions.sh catches that against the base.
-const closedSequenceEnd = "0284"
+const closedSequenceEnd = "0292"
 
 // stampSlack is how far ahead of the machine running this test a stamp may sit
 // before the name is a skewed clock rather than a migration. It absorbs a

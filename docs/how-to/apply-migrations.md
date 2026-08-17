@@ -60,7 +60,7 @@ Follow this checklist — several obligations are enforced by fitness tests, so 
    mandatory (the runner rejects a missing `.down.sql`). The version is the clock, not the next
    number in a sequence: two branches open at once pick the same *number* and `main` stops loading
    the moment both merge, which is how core `0240` and then `0248` were each claimed twice. The
-   four-digit sequence `0001`–`0284` is closed, not renamed — those versions are recorded in every
+   four-digit sequence `0001`–`0292` is closed, not renamed — those versions are recorded in every
    database that applied them, and renaming one strands that database.
    **Never edit a shipped core migration** — additive migrations only; extend a `CHECK` vocabulary
    with a new migration rather than rewriting the old one. (The runner is
