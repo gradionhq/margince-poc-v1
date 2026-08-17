@@ -43,10 +43,19 @@
   font-family: var(--f-body);
   font-weight: 600;
   font-size: 13.5px;
-  border: 0;
+  /* Transparent rather than absent, so the ghost variant RECOLOURS a border
+     every variant already reserves space for. When only the ghost declared one,
+     border-box added its 2px to that variant alone and every [Cancel][Save] pair
+     in the product was 2px uneven. */
+  border: 1px solid transparent;
   cursor: pointer;
   border-radius: var(--r-sm);
   padding: 9px 14px;
+  /* Pinned rather than inherited: the control's height is derived from it, and
+     an inherited line-height makes that height a property of whatever the button
+     happens to sit inside. */
+  line-height: 1.25;
+  min-block-size: var(--control-h);
   transition: 0.15s;
   display: inline-flex;
   align-items: center;
@@ -56,9 +65,40 @@
      against the left edge of a wide control, which reads as a row of text that
      happens to be inside a button rather than as the button's own label. */
   justify-content: center;
+  /* A short label still has to read as a button. "No", "Add" and "Save"
+     shrink-wrapped to 46/55/62px, so a dialog footer was a row of ragged pills
+     and a label that changes on click ("Save" → "Saving…") physically jumped.
+     The floor applies at the default size only: the small rung lives in table
+     rows and toolbars, where a 96px minimum is what would break the layout. An
+     icon-only control opts out through .btn-icon, which is square by intent. */
+  min-inline-size: 6rem;
   gap: 7px;
   white-space: nowrap;
   text-decoration: none;
+}
+/* Every button in the product had NO focus style: no rule here, none in
+   app.css, none in tokens.css or brand.css, so a keyboard reader got whatever
+   the engine drew by default and one screen file had patched its own chips
+   locally. An outline rather than a box-shadow, because a button sits on the
+   page ground, on a card and on an accent fill, and only an outline is legible
+   on all three. */
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* An icon a caller drops into a button arrives from lucide at its own default
+   of 24px, which is taller than the 13.5px label beside it — 31 call sites
+   shipped that way because Button has no icon slot to size one through. The
+   size belongs to the control, not to the call site: a button knows how big its
+   own icon is, and a `size=` prop per caller is the drift. */
+.btn svg {
+  inline-size: 16px;
+  block-size: 16px;
+  flex: none;
+}
+.btn-sm svg {
+  inline-size: 14px;
+  block-size: 14px;
 }
 .btn-primary {
   background: var(--accent);
@@ -81,7 +121,7 @@
 .btn-ghost {
   background: transparent;
   color: var(--textMeta);
-  border: 1px solid var(--borderSubtle);
+  border-color: var(--borderSubtle);
 }
 .btn-ghost:hover {
   background: var(--bgHover);
@@ -90,12 +130,72 @@
 .btn-sm {
   padding: 6px 11px;
   font-size: 12.5px;
+  min-block-size: var(--control-h-sm);
+  min-inline-size: 0;
+}
+/* A button whose whole label is its icon. Square by intent, so the width floor
+   that keeps a short WORD readable does not apply — there is no word to keep
+   readable, and the icon carries the meaning through the accessible name the
+   caller must still supply. */
+.btn-icon {
+  inline-size: var(--control-h);
+  min-inline-size: 0;
+  padding-inline: 0;
+}
+.btn-icon.btn-sm {
+  inline-size: var(--control-h-sm);
 }
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
   filter: none;
+}
+/* The refused button and the sentence explaining it, stacked. Button has
+   rendered this wrapper since `reason` existed, but no rule ever declared it,
+   so the explanation sat inline beside the control it belongs under. */
+.btn-with-reason {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+/* A bare icon affordance that is NOT a .btn: no fill, no border, no label —
+   the verb a row offers where a full button would be louder than the row it
+   sits in. It lived only as `.askfab-head .iconbtn` in the shell's own sheet,
+   so the four call sites outside that FAB rendered a preflight-reset native
+   button: no padding, no hover, no focus ring, and no hit target at all. */
+.iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--control-h-sm);
+  min-block-size: var(--control-h-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--textMeta);
+  cursor: pointer;
+  transition: 0.15s;
+}
+.iconbtn svg {
+  inline-size: 16px;
+  block-size: 16px;
+  flex: none;
+}
+.iconbtn:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.iconbtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.iconbtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .t-small {

@@ -1966,14 +1966,11 @@
   border-color: var(--ai);
   box-shadow: 0 0 0 3px var(--aiLight);
 }
+/* The send verb is square and stretches to the composer's own row height; the
+   square, the padding and the icon's size come from .btn-icon in the design
+   system now, so only the stretch is this composer's business. */
 .mw-composer .btn {
-  width: 44px;
   align-self: stretch;
-  justify-content: center;
-  padding: 0;
-}
-.mw-composer .btn svg {
-  width: 16px;
 }
 .mw-composer > small {
   grid-column: 1 / -1;

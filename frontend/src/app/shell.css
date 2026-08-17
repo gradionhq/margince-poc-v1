@@ -1082,9 +1082,13 @@
   align-items: center;
   justify-content: space-between;
 }
+/* The FAB's header band is 28px of chrome, so its verbs sit below the shared
+   .iconbtn floor. Stated as min-* because that floor is stated that way. */
 .askfab-head .iconbtn {
   width: 28px;
   height: 28px;
+  min-inline-size: 28px;
+  min-block-size: 28px;
   display: grid;
   place-items: center;
   border: 0;

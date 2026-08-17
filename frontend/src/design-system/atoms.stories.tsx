@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 import {
   AttainmentRing,
@@ -51,15 +52,107 @@ const stack: CSSProperties = {
   gap: "1rem",
 };
 
+// Every axis of the button on one screen, because each of the four defects this
+// story was rewritten to expose was invisible while the variants were reviewed
+// one at a time: a ghost 2px taller than the primary beside it, an icon at
+// lucide's 24px default next to a 13.5px label, a two-letter label shrunk to a
+// pill nobody reads as a button, and no focus ring at all. The rows below are
+// the comparisons that make each of those visible in one look — same-row height,
+// same-row icon size, same-row width floor.
 export const Buttons: Story = {
   render: () => (
-    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-      <Button variant="primary">Save</Button>
-      <Button variant="ghost">Cancel</Button>
-      <Button variant="danger">Delete</Button>
-      <Button variant="primary" small>
-        Small
-      </Button>
+    <div style={stack}>
+      <div style={stack}>
+        <span className="t-label">Variants, default size</span>
+        <div style={row}>
+          <Button variant="primary">Save</Button>
+          <Button variant="ghost">Cancel</Button>
+          <Button variant="danger">Delete</Button>
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">Variants, small</span>
+        <div style={row}>
+          <Button variant="primary" small>
+            Save
+          </Button>
+          <Button variant="ghost" small>
+            Cancel
+          </Button>
+          <Button variant="danger" small>
+            Delete
+          </Button>
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">With an icon</span>
+        <div style={row}>
+          <Button variant="primary">
+            <Plus aria-hidden />
+            Add person
+          </Button>
+          <Button variant="ghost">
+            <RefreshCw aria-hidden />
+            Reconnect
+          </Button>
+          <Button variant="ghost" small>
+            <RefreshCw aria-hidden />
+            Reconnect
+          </Button>
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          Icon only — square, and named for a reader
+        </span>
+        <div style={row}>
+          <Button variant="primary" iconOnly aria-label="Add person">
+            <Plus aria-hidden />
+          </Button>
+          <Button variant="ghost" iconOnly aria-label="Reconnect">
+            <RefreshCw aria-hidden />
+          </Button>
+          <Button variant="ghost" iconOnly small aria-label="Reconnect">
+            <RefreshCw aria-hidden />
+          </Button>
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">Short labels keep the width floor</span>
+        <div style={row}>
+          <Button variant="ghost">No</Button>
+          <Button variant="primary">Yes</Button>
+          <Button variant="ghost">Add</Button>
+          <Button variant="primary">Save</Button>
+          <Button variant="ghost">Disconnect this inbox</Button>
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">Beside a field, which is the same box</span>
+        <div style={row}>
+          <TextInput
+            defaultValue="ops@example.com"
+            style={{ inlineSize: "16rem" }}
+          />
+          <Button variant="primary">Invite</Button>
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          Refused, disabled, and the icon affordance
+        </span>
+        <div style={row}>
+          <Button variant="primary" reason="Connect an inbox first.">
+            Send
+          </Button>
+          <Button variant="ghost" disabled>
+            Cancel
+          </Button>
+          <button type="button" className="iconbtn" aria-label="Remove">
+            <Trash2 aria-hidden />
+          </button>
+        </div>
+      </div>
     </div>
   ),
 };

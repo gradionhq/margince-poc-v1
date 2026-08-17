@@ -371,6 +371,7 @@ function WebsiteWorkbench(
             />
             <Button
               variant="primary"
+              iconOnly
               aria-label={t("ob.ai.send")}
               disabled={
                 !conversation.draft.trim() || conversation.send.isPending
