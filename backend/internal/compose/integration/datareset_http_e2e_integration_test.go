@@ -23,7 +23,7 @@ import (
 func TestResetDataOverHTTP(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t,
 		compose.WithDataReset(nil, deployconfig.Seeds{}, true),
-		compose.WithNonProduction(true),
+		compose.WithNonProduction(runtimeenv.Development, true),
 	)
 	apptest.BootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
 

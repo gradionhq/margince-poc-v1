@@ -22,7 +22,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // TestSweepWorkspaceDataClearsDomainKeepsIdentity is the reset engine's core
@@ -161,7 +160,7 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 		pool:       e.Pool,
 		schemaPool: nil,
 		seeds:      deployconfig.Seeds{},
-		env:        runtimeenv.Development,
+		allowed:    true,
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
@@ -221,11 +220,11 @@ func TestResetDataAuditEvidenceCarriesTheSameCacheKeyTallyAsTheResponse(t *testi
 	}
 
 	h := dataResetHandlers{
-		pool:   e.Pool,
-		seeds:  deployconfig.Seeds{},
-		env:    runtimeenv.Development,
-		budget: meter,
-		log:    slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:    e.Pool,
+		seeds:   deployconfig.Seeds{},
+		allowed: true,
+		budget:  meter,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 
 	counts, err := h.run(ctx, "Authz")
@@ -348,10 +347,10 @@ func TestResetReturnsAnOverlayWorkspaceToNativeMode(t *testing.T) {
 	e.WsExec(t, `UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`, e.WS)
 
 	h := dataResetHandlers{
-		pool:  e.Pool,
-		seeds: deployconfig.Seeds{},
-		env:   runtimeenv.Development,
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:    e.Pool,
+		seeds:   deployconfig.Seeds{},
+		allowed: true,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if _, err := h.run(ctx, "Authz"); err != nil {
 		t.Fatalf("run: %v", err)
@@ -393,10 +392,10 @@ func TestResetRestoresWorkspaceLevelSettings(t *testing.T) {
 		UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = 'hubspot' WHERE id = $1`, e.WS)
 
 	h := dataResetHandlers{
-		pool:  e.Pool,
-		seeds: deployconfig.Seeds{},
-		env:   runtimeenv.Development,
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:    e.Pool,
+		seeds:   deployconfig.Seeds{},
+		allowed: true,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if _, err := h.run(ctx, "Authz"); err != nil {
 		t.Fatalf("run: %v", err)
@@ -434,10 +433,10 @@ func TestResetRestoresSettingRowsButKeepsTheInstallationsIdentity(t *testing.T) 
 		ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`)
 
 	h := dataResetHandlers{
-		pool:  e.Pool,
-		seeds: deployconfig.Seeds{},
-		env:   runtimeenv.Development,
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:    e.Pool,
+		seeds:   deployconfig.Seeds{},
+		allowed: true,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	// Confirmed with the SETTING's name, not the workspace column's. This test
 	// is the one place the two deliberately differ, and the confirmation
@@ -477,10 +476,10 @@ func TestResetLeavesANativeWorkspaceAlone(t *testing.T) {
 	ctx := e.Admin()
 
 	h := dataResetHandlers{
-		pool:  e.Pool,
-		seeds: deployconfig.Seeds{},
-		env:   runtimeenv.Development,
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:    e.Pool,
+		seeds:   deployconfig.Seeds{},
+		allowed: true,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if _, err := h.run(ctx, "Authz"); err != nil {
 		t.Fatalf("run: %v", err)
@@ -519,11 +518,11 @@ func TestResetPurgesTheSealedCredentialsItsSweepOrphans(t *testing.T) {
 		VALUES ($1, 'hubspot', 'eu', 'active', $2)`, ids.NewV7(), string(mine))
 
 	h := dataResetHandlers{
-		pool:  e.Pool,
-		seeds: deployconfig.Seeds{},
-		env:   runtimeenv.Development,
-		log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-		vault: vault,
+		pool:    e.Pool,
+		seeds:   deployconfig.Seeds{},
+		allowed: true,
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		vault:   vault,
 	}
 	if _, err := h.run(ctx, "Authz"); err != nil {
 		t.Fatalf("run: %v", err)

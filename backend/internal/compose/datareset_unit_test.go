@@ -8,6 +8,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -56,5 +58,36 @@ func TestWithDataResetUnarmedIsClosed(t *testing.T) {
 	WithDataReset(nil, deployconfig.Seeds{}, false)(&s, &pgxpool.Pool{})
 	if s.dataResetHandlers.allowed {
 		t.Fatal("an installation that did not arm the reset got an armed handler")
+	}
+}
+
+// TestResetDataRefusesUnlessArmed drives the handler itself, not the wiring.
+//
+// The switch is checked BEFORE any auth, so an installation that did not arm
+// the reset answers 404 to everyone — the endpoint does not exist there, and a
+// caller cannot learn it might. That ordering is what the second case pins: the
+// same unauthenticated request against an ARMED installation gets an auth
+// refusal instead, which is only reachable once the switch has let it past.
+func TestResetDataRefusesUnlessArmed(t *testing.T) {
+	// A non-nil pool so the refusal is attributable to the switch alone; it is
+	// never dialed, because the gate returns before any query.
+	armedLike := func(allowed bool) dataResetHandlers {
+		return dataResetHandlers{
+			pool:    &pgxpool.Pool{},
+			allowed: allowed,
+			log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		}
+	}
+
+	unarmed := httptest.NewRecorder()
+	armedLike(false).ResetData(unarmed, httptest.NewRequest(http.MethodPost, "/v1/admin/reset-data", nil))
+	if unarmed.Code != http.StatusNotFound {
+		t.Fatalf("an installation that did not arm the reset answered %d, want 404", unarmed.Code)
+	}
+
+	armed := httptest.NewRecorder()
+	armedLike(true).ResetData(armed, httptest.NewRequest(http.MethodPost, "/v1/admin/reset-data", nil))
+	if armed.Code == http.StatusNotFound {
+		t.Fatal("an armed installation still answered 404, so the switch gates nothing")
 	}
 }

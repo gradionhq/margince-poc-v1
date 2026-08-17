@@ -163,3 +163,21 @@ mcp:
 # company data. Stages include the prior stage: off < read < tasks < onboarding.
 company_context:
   rollout: onboarding
+
+# Ops kill switches (OPS-CFG-9): capabilities this installation turns on
+# deliberately, in the file the deployment reviews. Omit the section entirely
+# and every switch is off, which is the intended posture for anything that
+# serves real users.
+operations:
+  # Arms POST /v1/admin/reset-data, the lanes behind it, and the "Reset data"
+  # action /me offers. It PURGES this installation's tenant data back to its
+  # first-boot state.
+  #
+  # Not derived from MARGINCE_ENV: a deployment being called dev or staging is
+  # not consent to erase what is in it. Not a `setting` row either — an admin
+  # must not be able to arm their own tenant's purge through the API.
+  #
+  # TRUE here because this file is the DEV configuration and a dev stack wants
+  # the button. A real deployment omits the whole section: the compiled default
+  # is false, so an installation that says nothing has no such endpoint.
+  allow_data_reset: true
