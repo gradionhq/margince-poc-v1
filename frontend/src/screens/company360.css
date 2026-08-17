@@ -283,6 +283,15 @@
   color: var(--textMeta);
 }
 
+/* Collected citations START their own row under the prose instead of trailing a
+   sentence, so they drop the inline gap that separates a chip from the words
+   before it. Kept, it indents the first chip against the paragraph above it,
+   and two left edges that nearly agree read as a mistake rather than a
+   hierarchy. */
+.co-brief-sources > .co-brief-cites {
+  margin-inline-start: 0;
+}
+
 /* "Worth doing next": the overview's lead panel. The tint that makes it read
    as the one card asking for a move is Panel's own tone="accent" now — this
    class no longer reaches into .panel-head or .panel-foot, and what is left of
