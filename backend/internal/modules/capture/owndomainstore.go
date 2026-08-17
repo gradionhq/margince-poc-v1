@@ -133,8 +133,8 @@ func (s *OwnDomainStore) Add(ctx context.Context, raw string) (OwnDomain, error)
 			return fmt.Errorf("capture: reading the domain's prior state: %w", err)
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'admin', true)
+			INSERT INTO workspace_email_domain (domain, source, verified)
+			VALUES ($1, 'admin', true)
 			ON CONFLICT (domain)
 			  DO UPDATE SET source = 'admin', verified = true
 			RETURNING domain, source, verified, created_at`, domain).
@@ -170,16 +170,10 @@ func (s *OwnDomainStore) Remove(ctx context.Context, raw string) error {
 		return nil
 	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		// The workspace predicate is the statement's own. Tenant isolation used
-		// to supply it, so this DELETE reached exactly one workspace's row
-		// without saying so; with RLS retired (ADR-0091 §8 phase A) an unscoped
-		// delete removes the domain from EVERY installation that registered it.
-		// The binding is read where the insert above reads it — from the
-		// transaction, not from ctx.
+		// The domain IS the key now (ADR-0091 §8 phase D): one installation, one
+		// list, and the unique index the insert above conflicts on says the same.
 		tag, err := tx.Exec(ctx,
-			`DELETE FROM workspace_email_domain
-			  WHERE domain = $1
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, domain)
+			`DELETE FROM workspace_email_domain WHERE domain = $1`, domain)
 		if err != nil {
 			return fmt.Errorf("capture: removing own domain: %w", err)
 		}

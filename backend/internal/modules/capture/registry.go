@@ -335,8 +335,8 @@ func seedDomainOfAddressTx(ctx context.Context, tx pgx.Tx, address string) error
 	// the answer down would mean a domain that stopped being ours went on
 	// suppressing mail forever.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'mailbox', false)
+		INSERT INTO workspace_email_domain (domain, source, verified)
+		VALUES ($1, 'mailbox', false)
 		ON CONFLICT (domain) DO NOTHING`, domain); err != nil {
 		return fmt.Errorf("capture: seeding workspace email domain: %w", err)
 	}

@@ -162,52 +162,12 @@ func TestConnectIsLiveOnCommitWithAZeroCursor(t *testing.T) {
 	}
 }
 
-// The bot-scoped unique index is deliberately GLOBAL, not per-workspace: only one
-// getUpdates consumer may hold a bot, so a second workspace connecting the same
-// bot would not split the traffic, it would race the first for it.
-func TestConnectRefusesTheSameBotInASecondWorkspace(t *testing.T) {
-	api := newFakeTelegram()
-	token, _ := api.withNewBot("shared_bot")
-	first := newChannelFixture(t, api)
-	second := newChannelFixture(t, api)
-
-	if _, err := first.store.Connect(first.ctx, capture.ConnectRequest{
-		Provider: capture.ProviderTelegram, BotToken: token,
-	}); err != nil {
-		t.Fatalf("the first workspace's connect must succeed: %v", err)
-	}
-
-	_, err := second.store.Connect(second.ctx, capture.ConnectRequest{
-		Provider: capture.ProviderTelegram, BotToken: token,
-	})
-	if !errors.Is(err, apperrors.ErrConflict) {
-		t.Fatalf("the second workspace's connect: got %v, want ErrConflict", err)
-	}
-	// And it must NOT read as the workspace rule: the remedy differs — pick
-	// another bot, rather than disconnect the one this workspace already has.
-	if errors.Is(err, capture.ErrChannelWorkspaceBotAlreadyBound) {
-		t.Errorf("got %v, which tells the admin to disconnect a binding this workspace does not have", err)
-	}
-	if n := second.rowCount(t); n != 0 {
-		t.Errorf("the losing workspace kept %d row(s)", n)
-	}
-	// The loser sealed a token on its way to the insert; it must be destroyed,
-	// because a lost race is the one failure that proves no row persisted to name it.
-	sealed := second.vault.mintedRefs()
-	if len(sealed) != 1 {
-		t.Fatalf("the losing connect sealed %d secret(s), want just the bot token", len(sealed))
-	}
-	if _, err := second.vault.Get(second.ctx, second.workspaceKey(), sealed[0]); err == nil {
-		t.Error("the losing connect left a sealed secret behind, referenced by no row and collected by no sweep")
-	}
-}
-
-// One live bot per WORKSPACE (F22). Two live bindings make every outbound reply
-// ambiguous and the send resolver refuses rather than guessing, so a second
-// binding would not add a channel — it would take away the ability to reply on
-// either. The refusal has to say WHICH rule it lost to: the remedy is to
-// disconnect what is already bound, not to try another bot.
-func TestConnectRefusesASecondBotInTheSameWorkspace(t *testing.T) {
+// One live bot per installation (F22). Two live bindings make every outbound
+// reply ambiguous and the send resolver refuses rather than guessing, so a
+// second binding would not add a channel — it would take away the ability to
+// reply on either. The refusal has to name the remedy: disconnect what is
+// already bound, rather than try another bot.
+func TestConnectRefusesASecondBot(t *testing.T) {
 	api := newFakeTelegram()
 	firstToken, _ := api.withNewBot("first_bot")
 	secondToken, _ := api.withNewBot("second_bot")

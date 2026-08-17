@@ -71,8 +71,8 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 			return err
 		}
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at)
-			SELECT id, workspace_id, now() + interval '1 hour' FROM capture_connection WHERE id = $1
+			INSERT INTO capture_sync_state (connection_id, next_sync_at)
+			SELECT id, now() + interval '1 hour' FROM capture_connection WHERE id = $1
 			RETURNING next_sync_at`,
 			connID).Scan(&seededNext)
 	})

@@ -43,15 +43,15 @@ func telegramIngestFixture(t *testing.T, e *integration.Env) (connID, rawID ids.
 	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO channel_connection
-				(id, workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
-			VALUES ($1, $2, 'telegram', '42', 'acme_bot', 'cred-ref', 'connected', $3)`,
-			connID, e.WS, e.Rep1); err != nil {
+				(id, provider, channel_id, channel_label, credential_ref, status, connected_by)
+			VALUES ($1, 'telegram', '42', 'acme_bot', 'cred-ref', 'connected', $2)`,
+			connID, e.Rep1); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO raw_capture (id, workspace_id, source_system, source_id, payload)
-			VALUES ($1, $2, 'telegram', '100', $3)`,
-			rawID, e.WS, []byte(telegramIngestUpdateJSON))
+			INSERT INTO raw_capture (id, source_system, source_id, payload)
+			VALUES ($1, 'telegram', '100', $2)`,
+			rawID, []byte(telegramIngestUpdateJSON))
 		return err
 	})
 	if err != nil {
@@ -194,9 +194,9 @@ func TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity(t *testing.T) {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO raw_capture (id, workspace_id, source_system, source_id, payload)
-			VALUES ($1, $2, 'telegram', '200', $3)`,
-			rawID, e.WS, []byte(telegramIngestKickedJSON))
+			INSERT INTO raw_capture (id, source_system, source_id, payload)
+			VALUES ($1, 'telegram', '200', $2)`,
+			rawID, []byte(telegramIngestKickedJSON))
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the raw membership update: %v", err)
@@ -250,9 +250,9 @@ func TestIngestWorkerCapturesNothingFromAGroupChat(t *testing.T) {
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO raw_capture (id, workspace_id, source_system, source_id, payload)
-			VALUES ($1, $2, 'telegram', '300', $3)`,
-			rawID, e.WS, []byte(telegramIngestGroupJSON))
+			INSERT INTO raw_capture (id, source_system, source_id, payload)
+			VALUES ($1, 'telegram', '300', $2)`,
+			rawID, []byte(telegramIngestGroupJSON))
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the raw group-chat update: %v", err)

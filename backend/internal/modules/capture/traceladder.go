@@ -146,7 +146,6 @@ func (s *TraceStore) anchorByTraceID(ctx context.Context, tx pgx.Tx, id, caller 
 		SELECT source_system, source_id, user_id, connector, activity_id
 		  FROM capture_trace
 		 WHERE id = $1
-		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		   AND (user_id = $2 OR ($3 AND user_id IS NULL))`, id, caller, shared).
 		Scan(&a.sourceSystem, &a.sourceID, &owner, &a.connector, &a.activityID)
 	if owner != nil {
@@ -173,7 +172,6 @@ func (s *TraceStore) anchorByActivityID(ctx context.Context, tx pgx.Tx, activity
 		SELECT source_system, source_id, user_id, connector, activity_id
 		  FROM capture_trace
 		 WHERE activity_id = $1
-		   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		   AND user_id = $2
 		 ORDER BY occurred_at
 		 LIMIT 1`, activityID, caller).
@@ -201,8 +199,7 @@ func (s *TraceStore) readRungs(ctx context.Context, tx pgx.Tx, a traceAnchor) ([
 	rows, err := tx.Query(ctx, `
 		SELECT `+traceRowColumns+`
 		  FROM capture_trace t`+resolutionJoin+`
-		 WHERE t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND t.source_system = $1 AND t.source_id = $2
+		 WHERE t.source_system = $1 AND t.source_id = $2
 		   AND t.user_id IS NOT DISTINCT FROM $3
 		 ORDER BY t.occurred_at, t.id`, a.sourceSystem, a.sourceID, nullableID(a.userID))
 	if err != nil {

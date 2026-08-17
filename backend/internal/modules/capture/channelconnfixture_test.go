@@ -59,11 +59,9 @@ func newFakeTelegram() *fakeTelegram {
 	return &fakeTelegram{bots: map[string]telegram.Bot{}}
 }
 
-// nextBotID hands out a bot id unique within the test binary. It has to be
-// unique because uq_channel_connection_bot is GLOBAL by design: two tests
-// reusing one bot id would collide across their workspaces exactly as two
-// installations sharing a bot would, and the second would fail for a reason
-// that has nothing to do with what it is testing.
+// nextBotID hands out a bot id unique within the test binary, so that a test
+// asserting something about ITS bot is never answered by a row another test
+// left behind — these suites share one database.
 var nextBotID atomic.Int64
 
 // withNewBot registers a fresh bot Telegram accepts and returns its token and
@@ -338,7 +336,7 @@ func (f *channelFixture) rowCount(t *testing.T) int {
 	owner, _ := setupCaptureDB(t)
 	var n int
 	if err := owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM channel_connection WHERE workspace_id = $1`, f.ws).Scan(&n); err != nil {
+		`SELECT count(*) FROM channel_connection`).Scan(&n); err != nil {
 		t.Fatalf("counting channel_connection rows: %v", err)
 	}
 	return n

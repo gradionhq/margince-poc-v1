@@ -196,15 +196,14 @@ func Trace(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) error {
 		return payloadErr
 	}
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO capture_trace (workspace_id, user_id, connector, source_system, source_id,
+		INSERT INTO capture_trace (user_id, connector, source_system, source_id,
 		                           stage, outcome, reason, activity_id, counterparty, subject)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10)
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), $8, $9, $10)
 		-- The conflict target SPELLS the index's expression, COALESCE and all: a
 		-- bare column list does not match an expression index, and Postgres
 		-- answers that with an error on every insert -- which, on the capture
 		-- transaction, would fail every capture in the deployment.
-		ON CONFLICT (workspace_id, COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid),
+		ON CONFLICT (COALESCE(user_id, '00000000-0000-0000-0000-000000000000'::uuid),
 		             source_system, source_id, stage, outcome) DO NOTHING`,
 		nullableID(in.UserID), in.Connector, in.SourceSystem,
 		traceSourceID(in.SourceID, in.ChannelIdentity),

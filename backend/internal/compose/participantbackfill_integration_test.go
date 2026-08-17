@@ -59,8 +59,8 @@ func seedConnection(t *testing.T, e *integration.Env, user ids.UUID) {
 	t.Helper()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO capture_connection (workspace_id, user_id, provider, status, credential_ref)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'gmail', 'connected', 'vault:test')
+			INSERT INTO capture_connection (user_id, provider, status, credential_ref)
+			VALUES ($1, 'gmail', 'connected', 'vault:test')
 			ON CONFLICT DO NOTHING`, user)
 		return err
 	}); err != nil {

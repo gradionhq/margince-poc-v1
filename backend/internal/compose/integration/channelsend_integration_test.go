@@ -176,9 +176,9 @@ func (c *channelSendEnv) connectBot(t *testing.T) {
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO channel_connection
-				(workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
-			VALUES ($1, 'telegram', '8100', '@fablebot', 'vault:token', 'connected', $2)`,
-			c.ws, c.user)
+				(provider, channel_id, channel_label, credential_ref, status, connected_by)
+			VALUES ('telegram', '8100', '@fablebot', 'vault:token', 'connected', $1)`,
+			c.user)
 		return err
 	}); err != nil {
 		t.Fatalf("connecting the workspace bot: %v", err)

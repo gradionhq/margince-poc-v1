@@ -47,8 +47,8 @@ func BumpDueByMailbox(ctx context.Context, pool *pgxpool.Pool, provider, email s
 			// Upsert, not update: a connection that has never synced has no
 			// sidecar row yet — a push for it must still land.
 			rows, err := tx.Query(ctx, `
-				INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at)
-				SELECT c.id, c.workspace_id, now()
+				INSERT INTO capture_sync_state (connection_id, next_sync_at)
+				SELECT c.id, now()
 				FROM capture_connection c
 				WHERE c.provider = $1
 				  AND c.status IN ('connected','error')

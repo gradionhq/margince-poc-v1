@@ -230,8 +230,7 @@ func (s *TraceStore) readPage(ctx context.Context, tx pgx.Tx, scope traceScope,
 func traceWhere(scope traceScope, addArg func(any) int) string {
 	funnel := addArg(pipelinetrace.StageStrings(pipelinetrace.FunnelStages()))
 	return fmt.Sprintf(
-		`t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND t.occurred_at > now() - make_interval(hours => %d)
+		`t.occurred_at > now() - make_interval(hours => %d)
 		   AND t.stage = ANY($%d)
 		   AND %s`, TraceWindowHours, funnel, scope.predicate(addArg))
 }
@@ -313,12 +312,11 @@ const traceRowColumns = `t.id, t.stage, t.connector, t.outcome, coalesce(t.reaso
 // disposition cannot join that list and leave this join behind.
 const resolutionJoin = `
 		  LEFT JOIN activity a
-		         ON a.id = t.activity_id AND a.workspace_id = t.workspace_id
+		         ON a.id = t.activity_id
 		  LEFT JOIN LATERAL (
 		         SELECT status, kind, resolved_at
 		           FROM capture_pending_counterparty
-		          WHERE workspace_id = t.workspace_id
-		            AND email = a.counterparty_email
+		          WHERE email = a.counterparty_email
 		            AND (a.channel_provider IS NULL
 		                 OR (t.user_id IS NOT NULL
 		                     AND t.outcome IN ('deferred', 'suppressed')))

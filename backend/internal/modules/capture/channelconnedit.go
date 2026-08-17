@@ -226,7 +226,7 @@ func (s *ChannelStore) readChannelRow(ctx context.Context, id ids.UUID) (channel
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `SELECT `+channelConnectionColumns+`, credential_ref
 			 FROM channel_connection WHERE id = $1 AND archived_at IS NULL`, id)
-		return row.Scan(&out.ID, &out.WorkspaceID, &out.Provider, &out.ChannelID, &out.ChannelLabel,
+		return row.Scan(&out.ID, &out.Provider, &out.ChannelID, &out.ChannelLabel,
 			&out.Status, &out.Version, &out.CreatedAt, &out.UpdatedAt, &credentialRef)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

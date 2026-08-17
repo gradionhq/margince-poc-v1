@@ -128,14 +128,10 @@ func traceIDFor(t *testing.T, e *Env, sourceID string) ids.UUID {
 	t.Helper()
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	var id ids.UUID
-	// The workspace predicate is spelled even though the fixture seeds one
-	// tenant: there is no RLS on this table (0217), so a read here that omits
-	// it is the shape that gets copied into a suite which seeds two.
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT id FROM capture_trace
 			 WHERE source_id = $1
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			 ORDER BY occurred_at LIMIT 1`, sourceID).Scan(&id)
 	}); err != nil {
 		t.Fatalf("reading back the trace id for %s: %v", sourceID, err)

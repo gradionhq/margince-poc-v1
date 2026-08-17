@@ -153,8 +153,8 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (Budg
 		// the WHERE on DO UPDATE makes an over-cap increment a no-op that
 		// RETURNS nothing, so the reservation is atomic.
 		err := tx.QueryRow(ctx, `
-			INSERT INTO capture_auto_enrich_budget (workspace_id, budget_date, enqueued)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, (now() AT TIME ZONE 'UTC')::date, 1)
+			INSERT INTO capture_auto_enrich_budget (budget_date, enqueued)
+			VALUES ((now() AT TIME ZONE 'UTC')::date, 1)
 			ON CONFLICT (budget_date)
 			DO UPDATE SET enqueued = capture_auto_enrich_budget.enqueued + 1
 			WHERE capture_auto_enrich_budget.enqueued < $1
@@ -203,8 +203,7 @@ func (s *AutoEnrichStore) ReleaseBudget(ctx context.Context, slot BudgetSlot) er
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_auto_enrich_budget
 			   SET enqueued = enqueued - 1
-			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND budget_date = $1
+			 WHERE budget_date = $1
 			   AND enqueued > 0`, slot.Day)
 		return err
 	})
@@ -226,9 +225,8 @@ func (s *AutoEnrichStore) MarkQueued(ctx context.Context, orgID ids.Organization
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO capture_auto_enrich_state
-			  (organization_id, workspace_id, attempts, last_attempt_at, next_attempt_at, last_outcome)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 1, now(),
-			        now() + make_interval(secs => $2), 'queued')
+			  (organization_id, attempts, last_attempt_at, next_attempt_at, last_outcome)
+			VALUES ($1, 1, now(), now() + make_interval(secs => $2), 'queued')
 			ON CONFLICT (organization_id) DO UPDATE SET
 			  attempts = capture_auto_enrich_state.attempts + 1,
 			  last_attempt_at = now(),

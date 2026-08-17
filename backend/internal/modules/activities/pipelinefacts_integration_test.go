@@ -118,8 +118,8 @@ func (e *factsEnv) seed(t *testing.T, row capturedRow) ids.UUID {
 		id, e.ws, row.kind, capturedBy, email, row.archived)
 	if row.undecidedSender {
 		e.exec(t, `
-			INSERT INTO capture_pending_counterparty (id, workspace_id, owner_id, email, status, activity_id)
-			VALUES ($1, $2, $3, $4, 'pending', $5)`, ids.NewV7(), e.ws, e.user, email, id)
+			INSERT INTO capture_pending_counterparty (id, owner_id, email, status, activity_id)
+			VALUES ($1, $2, $3, 'pending', $4)`, ids.NewV7(), e.user, email, id)
 	}
 	if row.withPerson {
 		person := ids.NewV7()

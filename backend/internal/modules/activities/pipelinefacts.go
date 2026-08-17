@@ -46,8 +46,7 @@ const ClassifyBacklogPredicate = `capture_label IS NULL
 	  AND archived_at IS NULL
 	  AND NOT EXISTS (
 	    SELECT 1 FROM capture_pending_counterparty p
-	     WHERE p.workspace_id = activity.workspace_id
-	       AND p.email = activity.counterparty_email
+	     WHERE p.email = activity.counterparty_email
 	       AND p.status IN ('pending', 'unsure'))`
 
 // PipelineFacts is one activity's contribution to its own pipeline ladder.
@@ -106,8 +105,7 @@ func (s *Store) ReadPipelineFacts(ctx context.Context, id ids.UUID) (PipelineFac
 			  captured_by,
 			  archived_at IS NOT NULL,
 			  EXISTS (SELECT 1 FROM capture_pending_counterparty p
-			           WHERE p.workspace_id = activity.workspace_id
-			             AND p.email = activity.counterparty_email
+			           WHERE p.email = activity.counterparty_email
 			             AND p.status = ANY($2)),
 			  (`+ClassifyBacklogPredicate+`)
 			FROM activity

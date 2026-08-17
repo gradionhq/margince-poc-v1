@@ -186,11 +186,11 @@ func (s *FreemailDomainStore) Add(ctx context.Context, domain, kind string) (Fre
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO capture_freemail_domain (workspace_id, domain, kind, created_by)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO capture_freemail_domain (domain, kind, created_by)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (domain) DO UPDATE SET kind = EXCLUDED.kind
 			RETURNING id, domain, kind, created_at`,
-			storekit.MustWorkspace(ctx), base, kind, freemailEntryAuthor(ctx)).
+			base, kind, freemailEntryAuthor(ctx)).
 			Scan(&out.ID, &out.Domain, &out.Kind, &out.CreatedAt); err != nil {
 			return err
 		}

@@ -525,8 +525,8 @@ func registerOwnDomain(t *testing.T, e *extRuntimeEnv, domain string) {
 	t.Helper()
 	owner := integration.OwnerConn(t)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO workspace_email_domain (workspace_id, domain, verified)
-		 VALUES ($1, $2, true)`, e.WS, domain); err != nil {
+		`INSERT INTO workspace_email_domain (domain, verified)
+		 VALUES ($1, true)`, domain); err != nil {
 		t.Fatalf("registering %s as an own domain: %v", domain, err)
 	}
 }

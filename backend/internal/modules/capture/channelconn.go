@@ -77,7 +77,7 @@ const (
 
 // channelConnectionColumns is the read shape, spelled once so every scan
 // agrees with every select.
-const channelConnectionColumns = `id, workspace_id, provider, channel_id, channel_label, status, version, created_at, updated_at`
+const channelConnectionColumns = `id, provider, channel_id, channel_label, status, version, created_at, updated_at`
 
 // ChannelConnection is one channel binding as read back. No vault ref rides this
 // shape: the bot token lives sealed in the vault, addressed by a ref no caller
@@ -85,10 +85,9 @@ const channelConnectionColumns = `id, workspace_id, provider, channel_id, channe
 // leave it out, and the poller reads it through its own narrow shape
 // (ChannelPollTarget).
 type ChannelConnection struct {
-	ID          ids.UUID
-	WorkspaceID ids.UUID
-	Provider    string
-	ChannelID   string
+	ID        ids.UUID
+	Provider  string
+	ChannelID string
 	// ChannelLabel is the bot's @username — display only. A bot's username is
 	// mutable and re-assignable, so it identifies nothing; ChannelID (the
 	// bot's global numeric id) is the key.
@@ -108,15 +107,14 @@ type ConnectRequest struct {
 	BotToken string
 }
 
-// ErrChannelWorkspaceBotAlreadyBound reports that this workspace already holds a
-// live bot. It is a DIFFERENT refusal from the bot already being bound somewhere:
-// the remedy is to disconnect the existing binding, not to pick another bot.
+// ErrChannelWorkspaceBotAlreadyBound reports that this installation already
+// holds a live bot, and so the remedy is to disconnect that binding.
 //
-// Only one live bot per workspace is permitted, because every outbound reply
-// resolves the workspace's bot and the send path refuses to guess between two —
-// so a second binding would not add a channel, it would take away the ability to
+// Only one live bot is permitted, because every outbound reply resolves the
+// installation's bot and the send path refuses to guess between two — so a
+// second binding would not add a channel, it would take away the ability to
 // reply on either.
-var ErrChannelWorkspaceBotAlreadyBound = errors.New("capture: this workspace already has a live channel connection")
+var ErrChannelWorkspaceBotAlreadyBound = errors.New("capture: this installation already has a live channel connection")
 
 // ErrChannelWiringIncomplete reports that this deployment composed no credential
 // custodian, so a bot token can neither be sealed nor destroyed. It is a
@@ -233,23 +231,27 @@ func (s *ChannelStore) Connect(ctx context.Context, req ConnectRequest) (Channel
 	return row, nil
 }
 
-// channelUniquenessRefusal names WHICH uniqueness rule a connect or a
-// replacement lost to, because the two send an operator to do different things:
-// one says pick a different bot, the other says disconnect the bot this workspace
-// already has. Answering both as "this bot is already connected" leaves an admin
-// hunting for a binding of a bot they have never used.
+// channelUniquenessRefusal answers the ONE live-row uniqueness rule a connect or
+// a replacement can lose to: uq_channel_connection_ws permits a single live
+// binding per provider, so the remedy is always to disconnect what is bound —
+// never to pick a different bot. The refusal says so, because "already
+// connected" would send an admin looking for a binding of a bot they have never
+// used.
+//
+// It still takes the constraint name rather than assuming: any OTHER unique
+// index this table grows must not be answered as if it were this rule.
 func channelUniquenessRefusal(constraint string) error {
 	if constraint == channelWorkspaceUniqueIndex {
-		return fmt.Errorf("another bot is already connected to this workspace; disconnect it first: %w",
+		return fmt.Errorf("another bot is already connected to this installation; disconnect it first: %w",
 			ErrChannelWorkspaceBotAlreadyBound)
 	}
 	return fmt.Errorf("this bot is already connected: %w", apperrors.ErrConflict)
 }
 
 // channelWorkspaceUniqueIndex is the partial unique index that permits ONE live
-// bot per workspace (0151). Named here because the refusal above branches on it,
-// and a rename in the migration must break this compile-time-invisible link
-// loudly — which the connect suite's two distinct refusals are what enforce.
+// bot per installation (0151). Named here because the refusal above branches on
+// it, and a rename in the migration must break this compile-time-invisible link
+// loudly — which the connect suite's refusal assertion is what enforces.
 const channelWorkspaceUniqueIndex = "uq_channel_connection_ws"
 
 // requireConnectWiring refuses a connect this deployment cannot honestly
@@ -309,8 +311,8 @@ func (s *ChannelStore) insertConnected(ctx context.Context, bot telegram.Bot, cr
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		out, err = scanChannelConnection(tx.QueryRow(ctx, `
 			INSERT INTO channel_connection
-			  (workspace_id, provider, channel_id, channel_label, credential_ref, status, poll_offset, connected_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, 0, $6)
+			  (provider, channel_id, channel_label, credential_ref, status, poll_offset, connected_by)
+			VALUES ($1, $2, $3, $4, $5, 0, $6)
 			RETURNING `+channelConnectionColumns,
 			ProviderTelegram, channelIDOf(bot), bot.Username,
 			string(credentialRef), channelStatusConnected, connectedBy))
@@ -366,7 +368,7 @@ func channelAuditImage(channelID, label, status string) map[string]any {
 
 func scanChannelConnection(r pgx.Row) (ChannelConnection, error) {
 	var c ChannelConnection
-	err := r.Scan(&c.ID, &c.WorkspaceID, &c.Provider, &c.ChannelID, &c.ChannelLabel,
+	err := r.Scan(&c.ID, &c.Provider, &c.ChannelID, &c.ChannelLabel,
 		&c.Status, &c.Version, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }

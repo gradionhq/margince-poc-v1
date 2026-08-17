@@ -796,6 +796,25 @@ names the table, not every file in the module — and re-read the row STRUCT and
 its scanner, which is where a dropped select column turns into "number of field
 descriptions must equal number of destinations" at runtime.
 
+**Grep for the table, then read the whole file — not for both on one line.**
+The capture slice's first pass grepped for lines carrying the table name AND
+`workspace_id`, which is most write sites and almost no read sites: an aliased
+predicate (`WHERE t.workspace_id = …`, `r.workspace_id = a.workspace_id`) sits
+lines below the `FROM`, and a multi-line INSERT puts the column list on its own
+line. Eight production sites hid there, including two whole-module reads in
+sibling packages. The reliable sweep is two steps — `grep -l` the table, then
+`grep -n workspace_id` inside each file it names.
+
+**An index that outlives its reason goes quiet, it does not go red.**
+`channel_connection` carried two live-row unique rules: one live bot per
+provider, and one live binding per bot. The second existed to stop a SECOND
+WORKSPACE grabbing a bot another was polling; once there is one installation
+the first is strictly stronger, so the bot rule can never fire — and the store
+branches on WHICH constraint refused a connect to tell an admin what to do.
+Dropped in the same migration. Look for this wherever a uniqueness rule reads
+"…across tenants": phase D can leave it subsumed rather than wrong, and a
+subsumed rule is invisible until the branch above it picks the wrong message.
+
 **A reset stopped covering the tables that lost the column, and nothing said
 so.** `compose/datasweep.go` derived its targets from the presence of a
 `workspace_id` column — a proxy for "holds this tenant's data" that phase D is

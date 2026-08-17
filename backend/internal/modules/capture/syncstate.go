@@ -19,7 +19,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -87,40 +86,26 @@ func backoffDelay(consecutiveFailures int) time.Duration {
 	return time.Duration(float64(d) * jitter)
 }
 
-// syncStateWorkspace names the workspace the sidecar row belongs to; the
-// scheduling calls only run under the fleet walk's per-workspace ctx.
-func syncStateWorkspace(ctx context.Context) (ids.UUID, error) {
-	ws, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return ids.Nil, errors.New("capture: sync-state recording outside workspace context")
-	}
-	return ws, nil
-}
-
 // recordSyncSuccess resets the ladder, paces the next sync one interval out,
 // and — the auto-recovery path — flips a degraded connection back to
 // connected. One success heals everything.
 func (r *Registry) recordSyncSuccess(ctx context.Context, connectionID ids.UUID) error {
-	ws, err := syncStateWorkspace(ctx)
-	if err != nil {
-		return err
-	}
 	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		now := r.now()
 		// The interval is a DELAY the database applies to its own clock; the
 		// two last_*_at columns record when this process observed the sync and
 		// stay on its clock, which is the one that observed it.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at,
+			INSERT INTO capture_sync_state (connection_id, next_sync_at,
 			                                consecutive_failures, last_synced_at, last_success_at, last_error_class)
-			VALUES ($1, $2, now() + make_interval(secs => $3), 0, $4, $4, NULL)
+			VALUES ($1, now() + make_interval(secs => $2), 0, $3, $3, NULL)
 			ON CONFLICT (connection_id) DO UPDATE SET
-			  next_sync_at = now() + make_interval(secs => $3),
+			  next_sync_at = now() + make_interval(secs => $2),
 			  consecutive_failures = 0,
 			  last_synced_at = EXCLUDED.last_synced_at,
 			  last_success_at = EXCLUDED.last_success_at,
 			  last_error_class = NULL`,
-			connectionID, ws, r.syncInterval.Seconds(), now); err != nil {
+			connectionID, r.syncInterval.Seconds(), now); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
@@ -143,24 +128,20 @@ func (r *Registry) recordSyncSuccess(ctx context.Context, connectionID ids.UUID)
 // a degraded connection has to be able to write its verdict.
 func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID, syncErr error) error {
 	class := classifySyncError(syncErr)
-	ws, err := syncStateWorkspace(ctx)
-	if err != nil {
-		return err
-	}
 	return r.db.Tx(ctx, func(tx pgx.Tx) error {
 		now := r.now()
 
 		var failures int
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO capture_sync_state (connection_id, workspace_id, next_sync_at,
+			INSERT INTO capture_sync_state (connection_id, next_sync_at,
 			                                consecutive_failures, last_synced_at, last_error_class)
-			VALUES ($1, $2, now() + make_interval(secs => $3), 1, $4, $5)
+			VALUES ($1, now() + make_interval(secs => $2), 1, $3, $4)
 			ON CONFLICT (connection_id) DO UPDATE SET
 			  consecutive_failures = capture_sync_state.consecutive_failures + 1,
 			  last_synced_at = EXCLUDED.last_synced_at,
 			  last_error_class = EXCLUDED.last_error_class
 			RETURNING consecutive_failures`,
-			connectionID, ws, backoffDelay(0).Seconds(), now, string(class)).Scan(&failures); err != nil {
+			connectionID, backoffDelay(0).Seconds(), now, string(class)).Scan(&failures); err != nil {
 			return err
 		}
 

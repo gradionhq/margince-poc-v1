@@ -137,13 +137,13 @@ func (e *estEnv) seedUser(t *testing.T, ws ids.UUID) ids.UserID {
 
 // seedConnection inserts a connected capture_connection for (provider, user) and
 // returns its id.
-func (e *estEnv) seedConnection(t *testing.T, ws ids.UUID, user ids.UserID, provider string) ids.UUID {
+func (e *estEnv) seedConnection(t *testing.T, user ids.UserID, provider string) ids.UUID {
 	t.Helper()
 	connID := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO capture_connection (id, workspace_id, provider, user_id, scopes, status)
-		VALUES ($1, $2, $3, $4, '{}', 'connected')`,
-		connID, ws, provider, user.UUID); err != nil {
+		INSERT INTO capture_connection (id, provider, user_id, scopes, status)
+		VALUES ($1, $2, $3, '{}', 'connected')`,
+		connID, provider, user.UUID); err != nil {
 		t.Fatal(err)
 	}
 	return connID
@@ -151,13 +151,13 @@ func (e *estEnv) seedConnection(t *testing.T, ws ids.UUID, user ids.UserID, prov
 
 // seedBackfill inserts a completed capture_backfill run — the connection's
 // representative yields.
-func (e *estEnv) seedBackfill(t *testing.T, ws, connID ids.UUID, windowMonths int, scanned, captured, people, orgs int) {
+func (e *estEnv) seedBackfill(t *testing.T, connID ids.UUID, windowMonths int, scanned, captured, people, orgs int) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO capture_backfill (workspace_id, connection_id, window_months, after_date, status,
+		INSERT INTO capture_backfill (connection_id, window_months, after_date, status,
 		  scanned, captured, people_created, organizations_created, started_at, completed_at)
-		VALUES ($1, $2, $3, $4, 'done', $5, $6, $7, $8, now(), now())`,
-		ws, connID, windowMonths, rateDay, scanned, captured, people, orgs); err != nil {
+		VALUES ($1, $2, $3, 'done', $4, $5, $6, $7, now(), now())`,
+		connID, windowMonths, rateDay, scanned, captured, people, orgs); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -221,8 +221,8 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 80, 10, 2)
+	connID := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, connID, 6, 100, 80, 10, 2)
 
 	// Rates: cloud + embed priced, local a real $0.
 	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
@@ -277,8 +277,8 @@ func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 80, 0, 0) // people/orgs 0: the run minted no counterparty
+	connID := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, connID, 6, 100, 80, 0, 0) // people/orgs 0: the run minted no counterparty
 
 	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
 	e.insertRate(t, ws, "embed-model", 500_000, 0)
@@ -318,8 +318,8 @@ func TestEstimatorExcludesRatelessModelAndFlagsHeuristic(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 100, 0, 0)
+	connID := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, connID, 6, 100, 100, 0, 0)
 
 	// local-model priced; cloud-model deliberately UNrated.
 	e.insertRate(t, ws, "local-model", 1_000_000, 0)
@@ -363,8 +363,8 @@ func TestEstimatorCountsMeteringFailedRows(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 100, 0, 0)
+	connID := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, connID, 6, 100, 100, 0, 0)
 
 	e.insertRate(t, ws, "cloud-model", 1_000_000, 0)
 	e.insertCall(t, ws, callRow{task: ai.TaskCaptureClassify, tier: ai.TierCheapCloud, provider: ai.ProviderFake, model: "cloud-model", tokensIn: 2_000_000, tokensOut: 0, errorSentinel: "metering_failed"})
@@ -398,8 +398,8 @@ func TestEstimatorEnrichMeteringFailedRetryDoesNotInflateDenominator(t *testing.
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 100, 50, 0) // people_created=50 → observed enrich ratio
+	connID := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, connID, 6, 100, 100, 50, 0) // people_created=50 → observed enrich ratio
 
 	// ONLY cloud-model is rated: enrich (served on cheap_cloud) prices; classify's
 	// and embeddings' floor heads (local-model, embed-model) stay unrated → $0.
@@ -435,8 +435,8 @@ func TestEstimatorRepricesSinceUnboundSlice(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 100, 0, 0)
+	connID := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, connID, 6, 100, 100, 0, 0)
 
 	// The router binds cheap_cloud → cloud-model (rated) and local → local-model
 	// ($0). The served slice ran on old-cloud-model, now departed.
@@ -466,7 +466,7 @@ func TestEstimatorNoHistoryUsesFloor(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
-	e.seedConnection(t, ws, user, "gmail")
+	e.seedConnection(t, user, "gmail")
 	// Rate the floor's classify head (local-model) so the floor prices honestly.
 	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 
@@ -490,9 +490,9 @@ func TestEstimatorConnectionScopedYields(t *testing.T) {
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
 
-	gmailConn := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, gmailConn, 12, 1000, 900, 200, 50) // a rich yield on gmail
-	e.seedConnection(t, ws, user, "imap")                    // imap has NO completed run
+	gmailConn := e.seedConnection(t, user, "gmail")
+	e.seedBackfill(t, gmailConn, 12, 1000, 900, 200, 50) // a rich yield on gmail
+	e.seedConnection(t, user, "imap")                    // imap has NO completed run
 
 	e.insertRate(t, ws, "local-model", 1_000_000, 0)
 

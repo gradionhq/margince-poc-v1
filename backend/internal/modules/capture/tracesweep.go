@@ -37,8 +37,7 @@ func (s *TraceStore) SweepOlderThan(ctx context.Context, window time.Duration) (
 				DELETE FROM capture_trace
 				 WHERE ctid IN (
 				   SELECT ctid FROM capture_trace
-				    WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-				      AND occurred_at < now() - $1::interval
+				    WHERE occurred_at < now() - $1::interval
 				    LIMIT $2)`, window.String(), traceSweepBatch)
 			if err != nil {
 				return fmt.Errorf("capture: sweeping the trace: %w", err)

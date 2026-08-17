@@ -5,68 +5,20 @@
 
 package capture_test
 
-// Two workspaces, because one cannot fail.
+// The trace window's JOIN to the disposition ledger, and its page.
 //
-// There is no RLS behind this table since 0217: the store's own predicates ARE
-// the isolation, and a fixture with a single tenant cannot tell a query that
-// spells them from one that forgot. The join to the disposition ledger is the
-// case that matters — it keys on an ADDRESS, and an address is not unique
-// across tenants, so an unscoped join answers with another installation's
-// verdict about the same person.
+// The join keys on an ADDRESS, and one address can carry several ledger rows —
+// a sender judged noise and later judged real. A plain join fans those out and
+// reports one message once per historical verdict, which also breaks the page's
+// own LIMIT and its cursor. That is what these hold.
 
 import (
-	"context"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
-
-// secondWorkspace seeds a neighbour tenant and returns a handle bound to it.
-func secondWorkspace(ctx context.Context, t *testing.T) (context.Context, *database.DB) {
-	t.Helper()
-	owner, pool := setupCaptureDB(t)
-	ws := ids.NewV7()
-	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace (id, slug) VALUES ($1, $2)`, ws, "neighbour-"+ws.String()); err != nil {
-		t.Fatalf("seeding the neighbour workspace: %v", err)
-	}
-	return principal.WithWorkspaceID(ctx, ws), database.BindTo(pool, ids.From[ids.WorkspaceKind](ws))
-}
-
-func TestAnotherWorkspacesVerdictNeverReachesThisOne(t *testing.T) {
-	ctx, ws, db, store := traceReadWorkspace(t)
-	me := ids.NewV7()
-	mine := memberContext(ctx, ws, me)
-	const shared = "info@vendor.test" // an address both tenants correspond with
-
-	// Mine: a deferred message from that sender, with NO answer yet.
-	seedDeferredMessage(mine, t, db, me, "tenancy-mine", shared, false)
-
-	// The neighbour: the same address, judged and resolved.
-	neighbourCtx, neighbourDB := secondWorkspace(context.Background(), t)
-	neighbour := ids.NewV7()
-	seedDeferredMessage(neighbourCtx, t, neighbourDB, neighbour, "tenancy-theirs", shared, true)
-
-	window, err := store.ListMine(mine, nil, nil)
-	if err != nil {
-		t.Fatalf("ListMine: %v", err)
-	}
-	if len(window.Entries) != 1 {
-		t.Fatalf("entries = %d, want 1 — only this workspace's row", len(window.Entries))
-	}
-	// The neighbour's ledger row must not answer for my sender. Unscoped, the
-	// join matches on the address alone and reports THEIR verdict as mine.
-	if got := window.Entries[0].Resolution; got != nil {
-		t.Errorf("resolution = %+v, want none — that answer belongs to another workspace", got)
-	}
-	if window.Funnel["deferred"] != 1 {
-		t.Errorf("funnel[deferred] = %d, want 1 — the funnel counts this tenant's rows only", window.Funnel["deferred"])
-	}
-}
 
 // One sender with several resolved rows must not multiply their messages.
 // The ledger keeps a row per address per state, so a plain join fans out and the
@@ -84,8 +36,8 @@ func TestASendersHistoryDoesNotMultiplyTheirMessages(t *testing.T) {
 	if err := db.Tx(mine, func(tx pgx.Tx) error {
 		_, err := tx.Exec(mine, `
 			INSERT INTO capture_pending_counterparty
-			       (workspace_id, email, domain, activity_id, owner_id, status, kind, resolved_at)
-			SELECT workspace_id, email, domain, activity_id, owner_id, 'noise', 'spam', now() - interval '2 hours'
+			       (email, domain, activity_id, owner_id, status, kind, resolved_at)
+			SELECT email, domain, activity_id, owner_id, 'noise', 'spam', now() - interval '2 hours'
 			  FROM capture_pending_counterparty WHERE email = $1`, sender)
 		return err
 	}); err != nil {

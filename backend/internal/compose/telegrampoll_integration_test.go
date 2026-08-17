@@ -61,7 +61,7 @@ func TestAPollPersistsTheBatchAndAdvancesTheCursor(t *testing.T) {
 	}
 	conn := connectTestTelegramBot(t, e, vault, api, 92000001, "batch_bot")
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestTheCursorSurvivesACrashBeforeCommit(t *testing.T) {
 	conn := connectTestTelegramBot(t, e, vault, api, 92000002, "crash_bot")
 
 	crash := errors.New("injected: the enqueue fails inside the poller's own transaction")
-	err := runOnePoll(t, newTestPollWorker(e, vault, api, &fakeInserter{err: crash}), conn)
+	err := runOnePoll(t, newTestPollWorker(e, vault, api, &fakeInserter{err: crash}), e.WS, conn)
 	if !errors.Is(err, crash) {
 		t.Fatalf("the crashing poll returned %v, want the injected failure — a swallowed one would look like a successful poll", err)
 	}
@@ -124,7 +124,7 @@ func TestTheCursorSurvivesACrashBeforeCommit(t *testing.T) {
 	}
 
 	// The re-poll: the identical batch arrives again and folds to one row each.
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the re-poll: %v", err)
 	}
 	for _, updateID := range []int64{6201, 6202} {
@@ -166,7 +166,7 @@ func TestAPollPersistsNothingForAnErasedSubject(t *testing.T) {
 	conn := connectTestTelegramBot(t, e, vault, api, 92000003, "erased_bot")
 	suppressChannelAccount(t, e, "780301")
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll: %v", err)
 	}
 
@@ -205,7 +205,7 @@ func TestAPollPersistsNothingForAGroupChat(t *testing.T) {
 	}
 	conn := connectTestTelegramBot(t, e, vault, api, 92000004, "group_bot")
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll: %v", err)
 	}
 
@@ -243,7 +243,7 @@ func TestAPollDropsAPoisonUpdateAndAdvancesPastIt(t *testing.T) {
 	}
 	conn := connectTestTelegramBot(t, e, vault, api, 92000005, "poison_bot")
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll: %v", err)
 	}
 
@@ -287,7 +287,7 @@ func TestAReplacementDuringAPollDoesNotInheritTheOutgoingBotsCursor(t *testing.T
 		replaceTestTelegramBot(t, e, vault, conn.ID, incomingBotID, "incoming_poll_bot")
 	}
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll that finished after the swap: %v", err)
 	}
 
@@ -321,7 +321,7 @@ func TestAdvancingTheCursorDoesNotLookLikeAReplacedBinding(t *testing.T) {
 	conn := connectTestTelegramBot(t, e, vault, api, 92000006, "fence_bot")
 	before := telegramConnectionVersion(t, e, conn)
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll: %v", err)
 	}
 	if offset := telegramStoredPollOffset(t, e, conn); offset != 6602 {
@@ -357,7 +357,7 @@ func TestAReplacementStillBumpsTheVersionOnAPolledConnection(t *testing.T) {
 	}
 	conn := connectTestTelegramBot(t, e, vault, api, 92000011, "polled_then_swapped")
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the arranging poll: %v", err)
 	}
 	if offset := telegramStoredPollOffset(t, e, conn); offset == 0 {

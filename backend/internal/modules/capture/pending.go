@@ -218,10 +218,9 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (strin
 	// silently waits out the skew before anything claims it.
 	_, err = tx.Exec(ctx, `
 		INSERT INTO capture_pending_counterparty
-		  (workspace_id, email, domain, display_name, activity_id, owner_id, status,
+		  (email, domain, display_name, activity_id, owner_id, status,
 		   disposition_reason, next_attempt_at)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''),
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''),
 		        CASE WHEN $8::boolean THEN now() END)
 		ON CONFLICT `+conflict+`
 		DO NOTHING`,

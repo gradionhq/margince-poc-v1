@@ -82,8 +82,8 @@ func (r *Registry) BuildDigests(ctx context.Context, digestDate time.Time) error
 				return fmt.Errorf("capture: encoding digest: %w", err)
 			}
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO capture_digest (workspace_id, user_id, digest_date, payload)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
+				INSERT INTO capture_digest (user_id, digest_date, payload)
+				VALUES ($1, $2, $3)
 				ON CONFLICT (user_id, digest_date) DO UPDATE SET payload = EXCLUDED.payload`,
 				userID, day, raw); err != nil {
 				return fmt.Errorf("capture: storing digest: %w", err)

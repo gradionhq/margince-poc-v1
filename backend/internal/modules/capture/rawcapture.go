@@ -46,8 +46,8 @@ type RawRecord struct {
 func InsertRawCaptureTx(ctx context.Context, tx pgx.Tx, rec RawRecord) (ids.UUID, error) {
 	var id ids.UUID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
+		INSERT INTO raw_capture (source_system, source_id, payload)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (source_system, source_id) DO UPDATE
 		SET payload = EXCLUDED.payload, received_at = now()
 		RETURNING id`,

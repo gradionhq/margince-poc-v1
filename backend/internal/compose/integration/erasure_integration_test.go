@@ -77,8 +77,8 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-			 VALUES (`+wsClause+`, 'gmail', 'msg-1', jsonb_build_object('from', $1::text, 'body', 'quarterly numbers'))`,
+			`INSERT INTO raw_capture (source_system, source_id, payload)
+			 VALUES ('gmail', 'msg-1', jsonb_build_object('from', $1::text, 'body', 'quarterly numbers'))`,
 			subjectEmail); err != nil {
 			return err
 		}

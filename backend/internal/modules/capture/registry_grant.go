@@ -226,8 +226,7 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	var priorRef, priorStatus, priorLabel *string
 	if err := tx.QueryRow(ctx, `
 		SELECT credential_ref, status, account_label FROM capture_connection
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND user_id = $1 AND provider = $2
+		 WHERE user_id = $1 AND provider = $2
 		   FOR UPDATE`,
 		in.userID, in.provider).Scan(&priorRef, &priorStatus, &priorLabel); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ids.Nil, nil, err
@@ -238,7 +237,7 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	// The generation bump fences every cycle still out at the provider: a sync or
 	// backfill page holding the old generation commits nothing onto a row now
 	// pointing at another mailbox. And the watermark goes: the row is keyed on
-	// (workspace, user, provider), so a second account authorized over the first
+	// (user, provider), so a second account authorized over the first
 	// lands on the SAME row, and the previous mailbox's cursor would tell the new
 	// one to resume from a point it has never reached — silently skipping
 	// everything before it.
@@ -251,8 +250,8 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	rebound := rebindsAccount(priorLabel, in.accountLabel)
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label, provider_scopes)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5, $6)
+		INSERT INTO capture_connection (provider, user_id, scopes, credential_ref, status, account_label, provider_scopes)
+		VALUES ($1, $2, $3, $4, 'connected', $5, $6)
 		ON CONFLICT (user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
 		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
