@@ -7,12 +7,21 @@ import { Select } from "../design-system/select";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import { ProblemError, throwProblem } from "./common";
-// The dropzone classes live here. Imported explicitly rather than relied on:
-// this form worked only because the company page happened to load the sheet
-// first, so rendering it anywhere else — a story, a route that opens the modal
-// directly — showed the browser's raw "Choose File" control instead of the
-// styled drop zone.
+// The drop zone needs BOTH sheets, and neither was imported here.
+//
+// `.dropzone` — the dashed box, its padding and its dragover state — lives in
+// onboarding.css, where the first drop zone was built; `.dropzone-input` and
+// `.dropzone-label`, which hide the real file input and draw the text over it,
+// live in company360.css. This form loaded neither and looked right only
+// because the company page pulls both in elsewhere in the bundle. Rendered on
+// its own — a story, or a route that opens the modal directly — it showed the
+// browser's raw "Choose File" control and no box at all.
+//
+// Split across two screen sheets is not where this belongs; it is a
+// design-system control with two homes. Filed rather than moved here, because
+// moving it is a design-system change with its own review surface.
 import "./company360.css";
+import "./onboarding.css";
 
 // Recording an agreement.
 //
@@ -105,6 +114,11 @@ export function ContractForm({
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
       queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
       queryClient.invalidateQueries({ queryKey: ["orgDocuments", orgId] });
+      // The paper list this form and the contract row BOTH read. Without it an
+      // upload lands on the server and neither surface shows it: the row keeps
+      // the pre-upload list, and reopening the form serves the same stale cache
+      // while it refetches behind.
+      queryClient.invalidateQueries({ queryKey: ["contractPaper", orgId] });
       onClose();
     },
   });
@@ -333,7 +347,13 @@ export function paperState(
 // The HTTP status out of a thrown RFC-7807 body, or 0 when the failure carried
 // none (a dropped connection throws no problem document at all).
 function problemStatus(err: unknown): number {
-  if (!(err instanceof ProblemError) || typeof err.problem !== "object") {
+  // `typeof null === "object"`, so the null check is not redundant: without it
+  // a ProblemError carrying a null body throws while deciding how to report a
+  // failure, turning a handled error into an unhandled one.
+  if (!(err instanceof ProblemError) || !err.problem) {
+    return 0;
+  }
+  if (typeof err.problem !== "object") {
     return 0;
   }
   const body = err.problem as Record<string, unknown>;

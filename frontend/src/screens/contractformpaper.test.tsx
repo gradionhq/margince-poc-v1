@@ -115,6 +115,15 @@ describe("paperState", () => {
         0,
       ),
     ).toBe("failed");
+    // `typeof null === "object"`, so a null body reaches the property read.
+    // Deciding how to REPORT a failure must not itself throw.
+    expect(
+      paperState(
+        true,
+        { isPending: false, isError: true, error: new ProblemError(null) },
+        0,
+      ),
+    ).toBe("failed");
   });
 
   it("is ready once documents are actually in hand", () => {
