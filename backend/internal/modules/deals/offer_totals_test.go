@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"net/http"
 	"testing"
 
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr/faulttest"
 )
 
 // The B-E03.18 golden cases: line_net = round(qty × unit_price ×
@@ -88,24 +90,28 @@ func TestLineTotalsRefusesFiguresOutsideTheMoneyRange(t *testing.T) {
 		name       string
 		line       OfferLineInput
 		wantFigure string
+		wantFields []string
 	}{
 		{
 			name: "quantity times price wraps int64 into a negative net",
 			// 9e9 × 1e11 = 9e20, past int64's 9.22e18 ceiling.
 			line:       OfferLineInput{Quantity: "99999999999.000", UnitPriceMinor: 9_000_000_000, DiscountPct: "0.00", TaxRate: "0.00"},
 			wantFigure: "line_net_minor",
+			wantFields: []string{"quantity", "unit_price_minor"},
 		},
 		{
 			name: "a rate the numeric(5,2) column accepts takes the tax past the ceiling",
 			// net = MaxInt64 fits; net × 999.99 % does not.
 			line:       OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "999.99"},
 			wantFigure: "line_tax_minor",
+			wantFields: []string{"quantity", "unit_price_minor", "tax_rate"},
 		},
 		{
 			name: "net plus tax leaves the range both halves fit",
 			// net = MaxInt64, tax = 19 % of it; each is representable, the sum is not.
 			line:       OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "19.00"},
 			wantFigure: "line_total_minor",
+			wantFields: []string{"quantity", "unit_price_minor"},
 		},
 	}
 	for _, tc := range cases {
@@ -121,7 +127,7 @@ func TestLineTotalsRefusesFiguresOutsideTheMoneyRange(t *testing.T) {
 			if rangeErr.Figure != tc.wantFigure {
 				t.Fatalf("refusal names figure %q, want %q", rangeErr.Figure, tc.wantFigure)
 			}
-			assertMoneyRangeIsClientFault(t, err)
+			assertMoneyRangeIsClientFault(t, err, tc.wantFields...)
 		})
 	}
 }
@@ -164,28 +170,31 @@ func TestOfferTotalsRefuseASumOutsideTheMoneyRange(t *testing.T) {
 	if rangeErr.Figure != "net_minor" {
 		t.Fatalf("refusal names figure %q, want %q", rangeErr.Figure, "net_minor")
 	}
-	assertMoneyRangeIsClientFault(t, err)
+	assertMoneyRangeIsClientFault(t, err, "line_items")
 }
 
-// assertMoneyRangeIsClientFault checks the refusal carries its own 422
-// verdict: it must name at least one input with the contract's machine
-// code, or the same defect answers as an internal fault off the REST path.
-func assertMoneyRangeIsClientFault(t *testing.T, err error) {
+// assertMoneyRangeIsClientFault checks what a CALLER observes, not which
+// type carried it: the refusal must classify as 422 naming the inputs to
+// lower, with the contract's machine code. Asserting the carrier instead
+// would pass even if the wire answer were an internal fault — which is
+// what every surface reports for an error outside the taxonomy.
+func assertMoneyRangeIsClientFault(t *testing.T, err error, fields ...string) {
 	t.Helper()
-	var faults apperrors.FieldFaults
-	if !errors.As(err, &faults) {
-		t.Fatalf("refusal does not implement FieldFaults: %v", err)
+	for _, field := range fields {
+		faulttest.AssertNamesField(t, err, field)
 	}
-	refusals := faults.FieldFaults()
-	if len(refusals) == 0 {
-		t.Fatal("refusal names no input, so the caller is told nothing to lower")
+	fault, ok := httperr.Classify(err)
+	if !ok {
+		return // AssertNamesField has already failed the test on this
 	}
-	for _, r := range refusals {
-		if r.Field == "" {
-			t.Errorf("refusal entry names no field: %+v", r)
-		}
-		if r.Code != "money_out_of_range" {
-			t.Errorf("refusal entry code = %q, want %q", r.Code, "money_out_of_range")
+	if fault.Status != http.StatusUnprocessableEntity {
+		t.Errorf("an unrepresentable money figure answered status %d, want exactly 422 — the body is "+
+			"well-formed and the caller lowers a value they supplied", fault.Status)
+	}
+	for _, refusal := range fault.Fields {
+		if refusal.Code != "money_out_of_range" {
+			t.Errorf("refusal for %s carries code %q, want %q — the code is what a client branches on",
+				refusal.Field, refusal.Code, "money_out_of_range")
 		}
 	}
 }
