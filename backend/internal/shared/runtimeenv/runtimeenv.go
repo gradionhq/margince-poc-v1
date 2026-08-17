@@ -4,10 +4,11 @@
 // Package runtimeenv reads the deployment posture from MARGINCE_ENV. It is
 // fail-closed by construction: unset or anything unrecognized is Production.
 //
-// The posture selects which LICENSE ISSUERS an installation honours — a
-// production one trusts only the production authority, so a token minted by the
-// test or dev licenser can never license a customer. That is the whole of what
-// it decides.
+// What it decides is LICENSING, in two ways. Which issuers an installation
+// honours — a production one trusts only the production authority, so a token
+// minted by the test or dev licenser can never license a customer. And whether
+// running unlicensed is permitted at all: a production role refuses to boot
+// without a license, a non-production one does not.
 //
 // It used to decide one more thing, and should not have: whether the admin
 // data-reset endpoint existed. Purging an installation's tenant data is not
@@ -51,8 +52,9 @@ func Parse(s string) Environment {
 }
 
 // IsNonProduction reports whether this installation may honour the dev and test
-// license authorities in addition to the production one. It gates nothing
-// destructive: see the package comment.
+// license authorities in addition to the production one, and may run with no
+// license at all. Both consumers are in the licensing path; it gates nothing
+// destructive — see the package comment.
 func (e Environment) IsNonProduction() bool {
 	return e == Development || e == Test
 }
