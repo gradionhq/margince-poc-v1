@@ -92,10 +92,17 @@ export function FileDropzone({
               take(event.dataTransfer.files);
             }}
           />
-          {/* Visible text only. The input announces its own value, so marking
-              this aria-hidden keeps a screen reader from hearing the filename
-              twice while a sighted reader still sees it. */}
-          <span aria-hidden className={file ? "fdz-label chosen" : "fdz-label"}>
+          {/* A live region, and it has to be: the input's value is cleared
+              after every pick (see above), so the control itself announces "no
+              file chosen" whatever is actually held. This text is the only
+              place the choice is stated, so it must reach a screen reader — and
+              as a status rather than as part of the control's name, which would
+              rename the control on every pick. `polite` because a file the
+              reader just chose is a confirmation, not an interruption. */}
+          <span
+            aria-live="polite"
+            className={file ? "fdz-label chosen" : "fdz-label"}
+          >
             {file ? file.name : emptyLabel}
           </span>
         </div>

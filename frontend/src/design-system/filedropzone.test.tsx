@@ -74,9 +74,10 @@ describe("choosing a file", () => {
 
     expect(zone().className).not.toContain("dragover");
     fireEvent.dragOver(target(), { dataTransfer: { files: [] } });
-    // Without this the page gives no sign it is a target at all, which is the
-    // state the old screen-local copy shipped in: the class was toggled and no
-    // stylesheet defined it.
+    // The CLASS is all this can prove: jsdom loads no stylesheet, so whether
+    // anything is drawn for it is the story's job, not this one's. The old
+    // screen-local copy toggled the same class with no rule behind it anywhere,
+    // and a test at this level could not have told the difference.
     expect(zone().className).toContain("dragover");
 
     fireEvent.dragLeave(target());

@@ -13,16 +13,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
-// What these prove: the ceiling a body rides is decided by its KIND, and a
-// multipart route's own cap is reachable.
+// What these prove: the middleware applies the ceiling its caller answers, and
+// answers the tight one whenever nobody said otherwise.
 //
-// The bug they exist for shipped silently. Every body rode the 1 MiB JSON
-// ceiling, so all three multipart routes — attachments at 25 MiB, the CSV
-// import at 10, the LinkedIn export at 8 — had caps that never ran, and each
-// went on refusing with a sentence naming a limit nothing enforced. Nothing
-// failed: the constants were right, the `MaxBytesReader` calls were right, and
-// a handler cannot widen a body the middleware already bounded. Only the
-// effective ceiling was wrong, and only a request can see that.
+// Only a request can observe an effective ceiling. A handler's own
+// MaxBytesReader cannot widen a body this middleware already bounded, so a
+// declared cap above its ceiling is a cap that never runs — and nothing in the
+// tree can see that, because the constant, the wrap and the message are all
+// individually correct.
 
 // readTo is a handler that drains the body and reports how far it got, which is
 // the only place the effective ceiling is observable.
@@ -49,10 +47,14 @@ func post(contentType string, size int) *http.Request {
 	return req
 }
 
+// wide is a BodyCeiling that grants the multipart bound to everything, standing
+// in for a composition that declared this route an upload route.
+func wide(*http.Request) int64 { return httperr.MaxMultipartBodyBytes }
+
 func TestLimitBodiesCapsJSONAtTheJSONCeiling(t *testing.T) {
 	var read int
 	rec := httptest.NewRecorder()
-	LimitBodies(readTo(t, &read)).ServeHTTP(rec,
+	LimitBodies(nil, readTo(t, &read)).ServeHTTP(rec,
 		post("application/json", httperr.MaxBodyBytes+1024))
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
@@ -63,29 +65,29 @@ func TestLimitBodiesCapsJSONAtTheJSONCeiling(t *testing.T) {
 	}
 }
 
-func TestLimitBodiesLetsAMultipartBodyPastTheJSONCeiling(t *testing.T) {
+func TestLimitBodiesGrantsTheCeilingItsCallerAnswers(t *testing.T) {
 	// The size that matters: over the JSON ceiling, under the multipart one.
-	// This is the case every multipart route was refusing.
+	// This is the case every upload route was refusing.
 	size := httperr.MaxBodyBytes * 4
 	var read int
 	rec := httptest.NewRecorder()
-	LimitBodies(readTo(t, &read)).ServeHTTP(rec,
+	LimitBodies(wide, readTo(t, &read)).ServeHTTP(rec,
 		post("multipart/form-data; boundary=abc123", size))
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("a %d-byte multipart body was refused: status %d — the "+
-			"multipart ceiling is not being applied", size, rec.Code)
+		t.Fatalf("a %d-byte body was refused: status %d — the ceiling the "+
+			"caller answered is not being applied", size, rec.Code)
 	}
 	if read != size {
 		t.Fatalf("multipart body truncated: handler saw %d of %d bytes", read, size)
 	}
 }
 
-func TestLimitBodiesStillCapsMultipart(t *testing.T) {
-	// Not an exemption. A multipart body is bounded too, one ceiling up.
+func TestLimitBodiesStillCapsAWidenedRoute(t *testing.T) {
+	// Not an exemption. A widened body is bounded too, one ceiling up.
 	var read int
 	rec := httptest.NewRecorder()
-	LimitBodies(readTo(t, &read)).ServeHTTP(rec,
+	LimitBodies(wide, readTo(t, &read)).ServeHTTP(rec,
 		post("multipart/form-data; boundary=abc123", httperr.MaxMultipartBodyBytes+1024))
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
@@ -97,52 +99,15 @@ func TestLimitBodiesStillCapsMultipart(t *testing.T) {
 	}
 }
 
-func TestMultipartCeilingClearsEveryDeclaredRouteCap(t *testing.T) {
-	// The invariant, not the call site: a route may TIGHTEN below the ceiling
-	// and may not exceed it, because a cap above the ceiling is a cap that never
-	// runs. The numbers are duplicated here on purpose — the point is to fail
-	// when one of them moves above the ceiling, which reading it from the
-	// constant would hide.
-	for _, route := range []struct {
-		name string
-		cap  int64
-	}{
-		{"attachment upload (handlers_attachment.go)", 25 << 20},
-		{"CSV import source (csvimport.go)", 10 << 20},
-		{"LinkedIn export (handlers_linkedin.go)", 8 << 20},
-	} {
-		if route.cap > httperr.MaxMultipartBodyBytes {
-			t.Errorf("%s declares %d bytes, above the %d-byte multipart ceiling — "+
-				"that cap can never run, and its refusal names a limit nothing enforces",
-				route.name, route.cap, httperr.MaxMultipartBodyBytes)
-		}
-	}
-}
+func TestAMountThatDeclaredNoCeilingGetsTheTightOne(t *testing.T) {
+	// A nil BodyCeiling is the safe reading, not an open door: a mount that has
+	// not thought about which of its routes carry files has none that do.
+	var read int
+	rec := httptest.NewRecorder()
+	LimitBodies(nil, readTo(t, &read)).ServeHTTP(rec,
+		post("multipart/form-data; boundary=abc123", httperr.MaxBodyBytes+1024))
 
-func TestBodyCeilingReadsTheMediaTypeNotTheWholeHeader(t *testing.T) {
-	// A real multipart header carries its boundary after the media type, and the
-	// casing is the sender's choice. Both have to land on the multipart ceiling
-	// or the fix only works for a header nobody sends.
-	for _, header := range []string{
-		"multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW",
-		"Multipart/Form-Data; boundary=abc",
-		"multipart/form-data",
-	} {
-		if got := bodyCeiling(post(header, 0)); got != httperr.MaxMultipartBodyBytes {
-			t.Errorf("Content-Type %q rode ceiling %d, want the multipart ceiling %d",
-				header, got, httperr.MaxMultipartBodyBytes)
-		}
-	}
-	// Everything else is JSON-shaped as far as this bound is concerned, including
-	// an absent header and a type that merely mentions multipart later.
-	for _, header := range []string{
-		"", "application/json", "text/plain",
-		"application/x-www-form-urlencoded",
-		"application/json; note=multipart/form-data",
-	} {
-		if got := bodyCeiling(post(header, 0)); got != httperr.MaxBodyBytes {
-			t.Errorf("Content-Type %q rode ceiling %d, want the JSON ceiling %d",
-				header, got, httperr.MaxBodyBytes)
-		}
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("an undeclared mount widened on the sender's word: status %d", rec.Code)
 	}
 }

@@ -49,13 +49,6 @@
   cursor: pointer;
 }
 
-/* Inert to the pointer, so dragging across it does not read as leaving the
- * zone. Without this the highlight flickers off and on as the cursor crosses
- * the text — dragleave fires on the move from parent to child. */
-.fdz > * {
-  pointer-events: none;
-}
-
 .fdz-label {
   color: var(--textSecondary);
   font-size: var(--fs-sm);

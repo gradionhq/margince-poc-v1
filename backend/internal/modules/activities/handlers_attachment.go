@@ -19,27 +19,23 @@ import (
 // maxAttachmentBytes caps one upload, so a client cannot exhaust memory
 // streaming a too-large file.
 //
-// It IS the chassis ceiling rather than a number of its own, because this is
-// the widest multipart route and a route cannot widen what the chassis already
-// bounded. Written as its own 25 MiB literal it silently became dead the moment
-// the chassis bound every body at 1 MiB, and the refusal below went on naming a
-// limit nothing enforced (issue 1542). Two constants that must agree are one
-// constant.
+// It IS the chassis ceiling rather than a number of its own: this is the widest
+// route that carries a file, and a route cannot widen what the chassis already
+// bounded, so a separate literal here could only ever be equal or dead. Two
+// constants that must agree are one constant.
 const maxAttachmentBytes = httperr.MaxMultipartBodyBytes
 
 // UploadAttachment stores an uploaded file against an entity. Multipart is
 // parsed here (the JSON decoder cannot carry bytes); the store owns the
 // RBAC gate, provenance, and the write shape.
 func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
+	// Equal to the ceiling the chassis already applied, and kept anyway: it is
+	// what makes this handler correct when mounted without that middleware, and
+	// it is what the waiver below points at.
 	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes)
 	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so total parse size is capped; the arg only sets the in-memory/spill threshold.
 	if err := r.ParseMultipartForm(maxAttachmentBytes); err != nil {
-		// The limit is NAMED. A refusal that says only "within the size limit"
-		// leaves the one actionable fact out, and the reader's next move is to
-		// guess at a smaller file.
-		httperr.Write(w, r, httperr.Validation("file", "invalid_multipart",
-			fmt.Sprintf("the request must be multipart/form-data no larger than %d MB",
-				maxAttachmentBytes>>20)))
+		httperr.WriteMultipartRefusal(w, r, err, maxAttachmentBytes)
 		return
 	}
 	entityType := r.FormValue("entity_type")

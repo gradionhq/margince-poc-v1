@@ -65,7 +65,13 @@ type Submission = {
 // The bytes go up as multipart because the endpoint takes a file part and the
 // generated client only serializes JSON. Everything else about the request —
 // the cookie, the problem-document shape of a refusal — is unchanged.
-async function uploadFile(submitted: Submission): Promise<string> {
+//
+// Returns the stored document's id, or undefined when the server accepted the
+// bytes and the response body could not be read. Those are different facts and
+// the caller needs both: the second one is a stored document whose id we do not
+// know, so its metadata cannot be written — but reporting it as a failed upload
+// would be a lie about a file that is on the record.
+async function uploadFile(submitted: Submission): Promise<string | undefined> {
   const body = new FormData();
   body.append("entity_type", submitted.parent.entityType);
   body.append("entity_id", submitted.parent.entityId);
@@ -79,8 +85,12 @@ async function uploadFile(submitted: Submission): Promise<string> {
     const payload = await response.json().catch(() => undefined);
     throwProblem(payload);
   }
-  const stored: Attachment = await response.json();
-  return stored.id;
+  // Not thrown. Past the status check the bytes are stored, and nothing a
+  // failed parse tells us changes that.
+  const stored: Attachment | undefined = await response
+    .json()
+    .catch(() => undefined);
+  return stored?.id;
 }
 
 // Only what the reader actually chose is sent. A PATCH that also wrote the
@@ -173,6 +183,12 @@ export function AddDocumentDialog({
       const patch = metadataFor(submitted);
       if (Object.keys(patch).length === 0) {
         return { filed: true };
+      }
+      if (id === undefined) {
+        // Stored, but we never learned which row — so there is nothing to
+        // address the metadata request to. Partial, for the same reason a
+        // refused PATCH is partial: the document exists either way.
+        return { filed: false };
       }
       // EVERY way the second call can fail is a partial success, not a
       // failure — a refusal, a dropped connection, a parse error alike. Once

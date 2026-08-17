@@ -27,22 +27,21 @@ import (
 // amplification on the cheapest endpoints.
 const MaxBodyBytes = 1 << 20
 
-// MaxMultipartBodyBytes bounds a multipart/form-data body (25 MiB), which
-// carries FILES and so cannot live under the JSON ceiling.
+// MaxMultipartBodyBytes bounds a body that carries FILES (25 MB), which cannot
+// live under the JSON ceiling.
 //
-// It is a SECOND ceiling rather than an exemption. A handler wrapping its own
-// `http.MaxBytesReader` around a body the chassis already bounded cannot widen
-// it — the inner reader still enforces itself — so an exemption is the only
-// shape in which a per-route cap works, and an exempt route is an unbounded
-// one the day somebody forgets its cap. Every multipart route therefore rides
-// this ceiling and may only TIGHTEN below it (the CSV import at 10 MiB, the
-// LinkedIn export at 8 MiB); the attachment upload is the widest, so it IS
-// this number rather than a copy of it.
+// A SECOND ceiling, never an exemption: an exempt route is an unbounded one the
+// day somebody forgets its own cap, and a handler cannot supply that cap itself
+// because its `http.MaxBytesReader` can only tighten a body the chassis already
+// bounded, never widen it. A route may therefore only tighten below this — and
+// WHICH routes ride it is decided where routes are known, not here.
 //
-// 1 MiB governed both for a while, which made all three declared caps dead
-// and their refusals name limits nothing enforced (issue 1542). That is what
-// `TestLimitBodies*` exists to keep from coming back.
-const MaxMultipartBodyBytes = 25 << 20
+// Decimal MB rather than MiB so that every surface stating the limit — the
+// server's refusal, the upload form's hint — states the number this actually
+// is. 25 << 20 reads as "25 MB" in a sentence while admitting 26.2 million
+// bytes, and a reader whose 25.5 MB file is refused has been told the wrong
+// thing by 4.8%.
+const MaxMultipartBodyBytes = 25_000_000
 
 // Decode parses the request body, answering the validation problem shape
 // on malformed JSON. The body is size-capped and must contain exactly

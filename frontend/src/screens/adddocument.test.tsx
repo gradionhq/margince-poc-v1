@@ -7,6 +7,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Button } from "../design-system/atoms";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AddDocumentDialog } from "./adddocument";
@@ -167,9 +168,7 @@ function Hosted() {
   const [open, setOpen] = useState(true);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
-        reopen
-      </button>
+      <Button onClick={() => setOpen(true)}>reopen</Button>
       <AddDocumentDialog
         orgId="o-1"
         open={open}

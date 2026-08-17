@@ -378,7 +378,8 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	// they share its singleton cache and its clock.
 	mux := operationalMux(srv, pool, log, identitySvc, api)
 
-	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
+	return httpserver.RecoverPanics(log,
+		httpserver.LimitBodies(bodyCeiling, httpserver.SecureHeaders(mux)))
 }
 
 // newServer assembles the module handler sets. Every cross-module edge is
