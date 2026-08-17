@@ -1,4 +1,4 @@
--- 0274: let a capture connection name the offline demo provider.
+-- 0282: let a capture connection name the offline demo provider.
 --
 -- The demo has companies, deals, contracts and invoices and an empty inbox.
 -- Every other record type is seeded through the product's own API; captured
