@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -17,10 +17,12 @@ import {
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import type { ListChip } from "../design-system/listtable";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
-import { useT } from "../i18n";
+import { formatDateAbbrev } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
@@ -39,7 +41,7 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef, useRoster } from "./entityref";
-import { RecordHistoryTab } from "./history";
+import { RecordHistoryTab, useRecordHistory } from "./history";
 import {
   type ListPage,
   type ListQuery,
@@ -1018,6 +1020,96 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
   );
 }
 
+/** What the promotion did, read from the promote audit row it wrote. */
+type PromotionRecord = {
+  outcome?: string;
+  trigger?: string;
+  evidenceNote?: string;
+};
+
+/**
+ * usePromotionRecord reads the promotion off the lead's audit trail.
+ *
+ * The outcome, trigger and evidence are not columns on `lead` — the write
+ * shape puts them in the `promote` audit row, which is the honest source:
+ * re-deriving "did this merge?" from today's data would answer about the
+ * records as they are now, not about what actually happened.
+ *
+ * Only a promoted lead has a promotion to describe, so the read is disabled on
+ * every other one rather than fetching a history nothing renders.
+ */
+function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
+  const history = useRecordHistory("lead", id, promoted);
+  const entries = history.data?.pages.flatMap((page) => page.data ?? []) ?? [];
+  const after = (entries.find((entry) => entry.action === "promote")?.after ??
+    {}) as Record<string, unknown>;
+  const str = (key: string) =>
+    typeof after[key] === "string" ? (after[key] as string) : undefined;
+  return {
+    outcome: str("dedupe_outcome"),
+    trigger: str("trigger"),
+    evidenceNote: str("evidence_note"),
+  };
+}
+
+/**
+ * PromotedLeadPanel is what a promoted lead's page is FOR (ADR-0119/A170).
+ *
+ * The page used to redirect to the person, which told the reader the lead had
+ * ceased to exist — untrue of a record this product keeps, audits and can
+ * reverse (ADR-0008 §4). It also left the reversal that ADR promises with no
+ * surface to be started from, and hid whether promotion merged into a contact
+ * we already knew or created a new one. That distinction is the difference
+ * between "my prospect is now a contact" and "my prospect was already someone
+ * we knew".
+ */
+function PromotedLeadPanel({
+  lead,
+  promotion,
+}: Readonly<{ lead: Lead; promotion: PromotionRecord }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const merged = promotion.outcome === "merged";
+  const triggerLabel = PROMOTE_TRIGGERS.find(
+    (option) => option.value === promotion.trigger,
+  )?.label;
+  return (
+    <Panel title={t("lead.promotedTitle")}>
+      <PanelBody>
+        <p className="t-body">
+          {merged ? t("lead.promotedMerged") : t("lead.promotedCreated")}
+        </p>
+        <p className="t-body" style={{ marginTop: "var(--space-2)" }}>
+          <EntityRef kind="person" id={lead.promoted_person_id} />
+        </p>
+        {lead.promoted_at && (
+          <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+            {t("lead.promotedAt")}{" "}
+            {formatDateAbbrev(
+              lead.promoted_at,
+              locale,
+              // The reader's own zone, the same one the shell stamps this
+              // page's timeline rows in — a lead carries no location of its
+              // own to prefer over where the reader is.
+              Intl.DateTimeFormat().resolvedOptions().timeZone,
+            )}
+          </p>
+        )}
+        {triggerLabel && (
+          <p className="t-caption">
+            {t("lead.promotedTrigger")} {t(triggerLabel)}
+          </p>
+        )}
+        {promotion.evidenceNote && (
+          <p className="t-caption">
+            {t("lead.promotedEvidence")} {promotion.evidenceNote}
+          </p>
+        )}
+      </PanelBody>
+    </Panel>
+  );
+}
+
 const LEAD_TABS = ["overview", "history"] as const;
 type LeadTab = (typeof LEAD_TABS)[number];
 
@@ -1030,6 +1122,7 @@ type LeadTab = (typeof LEAD_TABS)[number];
 function LeadOverviewPane({
   lead,
   id,
+  promotion,
   headingId,
   terminalReasonId,
   promoteOpen,
@@ -1045,6 +1138,7 @@ function LeadOverviewPane({
 }: Readonly<{
   lead: Lead;
   id: string;
+  promotion: PromotionRecord;
   headingId: string;
   terminalReasonId: string;
   promoteOpen: boolean;
@@ -1141,6 +1235,11 @@ function LeadOverviewPane({
           Hiding the whole body left the page blank below the tab bar, which
           reads as a broken render rather than a closed lead. The controls
           inside it are individually disabled by their own state. */}
+      {/* A promoted lead's page leads with what the promotion did — the
+          reader arrived asking whether this became a contact, and which one. */}
+      {lead.promoted_person_id && (
+        <PromotedLeadPanel lead={lead} promotion={promotion} />
+      )}
       {/* Working the lead (ADR-0118/A169): a note or a task about the
           prospect, in the one composer the person and deal pages use. Absent
           on a terminal lead, whose record is closed, and in overlay, where
@@ -1350,16 +1449,15 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
       ? problemMessageOf(promote.error, t)
       : null;
 
-  // A promoted lead IS the person it became — the record moved, so the page
-  // follows it (ADR-0108 §1). Until now this only happened as the tail of a
-  // promote you had just performed, so revisiting or deep-linking a promoted
-  // lead landed on a read-only husk of a record that exists elsewhere.
-  const promotedPersonId = leadQuery.data?.promoted_person_id;
-  useEffect(() => {
-    if (promotedPersonId) {
-      navigate({ screen: "contacts", id: promotedPersonId });
-    }
-  }, [promotedPersonId]);
+  // A promoted lead keeps its page (ADR-0119/A170). It no longer redirects to
+  // the person: the redirect said the lead had ceased to exist, which is untrue
+  // of a record this product keeps, audits and can reverse — and it left the
+  // reversal with nowhere to start from. The page reads the promotion off its
+  // own audit row and says what happened.
+  const promotion = usePromotionRecord(
+    id,
+    Boolean(leadQuery.data?.promoted_person_id),
+  );
 
   return (
     <div className="wrap lead-surface">
@@ -1430,6 +1528,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
               <LeadOverviewPane
                 lead={lead}
                 id={id}
+                promotion={promotion}
                 headingId={headingId}
                 terminalReasonId={terminalReasonId}
                 promoteOpen={promoteOpen}

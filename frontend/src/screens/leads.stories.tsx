@@ -138,8 +138,7 @@ export const LeadScoreExplained: Story = {
 };
 
 // A disqualified lead keeps its controls, DISABLED with the reason — hiding
-// them hid the fact the reader needed (STATE-4a). A promoted lead never
-// reaches this page; it redirects to the person it became.
+// them hid the fact the reader needed (STATE-4a).
 export const LeadDisqualified: Story = {
   render: () => {
     installFetchStub({
@@ -148,6 +147,56 @@ export const LeadDisqualified: Story = {
           ...lead,
           status: "disqualified",
           archived_at: "2026-07-13T00:00:00Z",
+        }),
+      "GET /leads/l-1/score": () =>
+        jsonResponse({ score: 72, explained: false }),
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u-9", display_name: "Me" },
+          roles: ["rep"],
+          teams: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <LeadScreen id="l-1" />
+      </StoryProviders>
+    );
+  },
+};
+
+// A PROMOTED lead keeps its page too (ADR-0119/A170), and leads with what the
+// promotion did: which contact it became, and whether it merged into one we
+// already knew or created a new one. The outcome is read from the promote
+// audit row, so the story stubs that read as well as the lead itself.
+export const LeadPromotedAfterMerge: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /leads/l-1": () =>
+        jsonResponse({
+          ...lead,
+          status: "promoted",
+          promoted_person_id: "p-42",
+          promoted_at: "2026-06-20T08:00:00Z",
+          archived_at: "2026-06-20T08:00:00Z",
+        }),
+      "GET /records/lead/l-1/history": () =>
+        jsonResponse({
+          data: [
+            {
+              id: "a-1",
+              actor_type: "human",
+              actor_id: "human:u-9",
+              action: "promote",
+              occurred_at: "2026-06-20T08:00:00Z",
+              after: {
+                dedupe_outcome: "merged",
+                trigger: "inbound_reply",
+                evidence_note: "Replied asking for a quote.",
+              },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
         }),
       "GET /leads/l-1/score": () =>
         jsonResponse({ score: 72, explained: false }),

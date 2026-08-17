@@ -217,27 +217,63 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-9"));
   });
 
-  it("a promoted lead redirects to the person it became", async () => {
-    // The record moved, so the page follows it (ADR-0108 §1). Before this,
-    // the redirect only fired as the tail of a promote you had just done, so
-    // revisiting or deep-linking a promoted lead landed on a read-only husk
-    // of a record that lives elsewhere.
-    stubFetch(async () =>
-      jsonResponse({
-        ...lead,
-        status: "promoted",
-        promoted_person_id: "p-42",
-        archived_at: "2026-06-20T08:00:00Z",
-      }),
-    );
+  it("a promoted lead keeps its page and says what the promotion did", async () => {
+    // AC-leaddetail-5 (ADR-0119/A170). The page used to redirect here, which
+    // told the reader the lead had ceased to exist — untrue of a record this
+    // product keeps, audits and can reverse — and left the reversal with
+    // nowhere to start from. It also hid whether promotion merged into a
+    // contact we already knew or created a new one.
+    const promoted = {
+      ...lead,
+      status: "promoted",
+      promoted_person_id: "p-42",
+      promoted_at: "2026-06-20T08:00:00Z",
+      archived_at: "2026-06-20T08:00:00Z",
+    };
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "a-1",
+              actor_type: "human",
+              actor_id: "human:u-9",
+              action: "promote",
+              occurred_at: "2026-06-20T08:00:00Z",
+              after: {
+                dedupe_outcome: "merged",
+                trigger: "inbound_reply",
+                evidence_note: "Replied asking for a quote.",
+              },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse(promoted);
+    });
     render(<LeadScreen id="l-1" />);
-    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-42"));
+
+    // It stays on the lead's own page.
+    expect(await screen.findByText("Promoted to a contact")).toBeTruthy();
+    expect(window.location.hash).not.toBe("#/contacts/p-42");
+    // And it names WHICH outcome, which is the whole reason a rep opens it.
+    // Awaited: the outcome comes from the audit read, a second request that
+    // lands after the lead itself.
+    expect(
+      await screen.findByText(
+        "This lead merged into a contact we already knew — no duplicate was created.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Inbound reply/)).toBeTruthy();
+    expect(screen.getByText(/Replied asking for a quote\./)).toBeTruthy();
   });
 
   it("promote is disabled for an ineligible lead, and the button says why", async () => {
     // A LIVE lead with no email: ineligible, but still on screen. A promoted
-    // lead would redirect to the person it became, so it cannot stand in for
-    // "ineligible" any more (ADR-0108 §1).
+    // lead is terminal and carries no promote control at all, so it cannot
+    // stand in for "ineligible" (ADR-0119/A170).
     stubFetch(async () => jsonResponse({ ...lead, email: null }));
     render(<LeadScreen id="l-1" />);
     const button = await screen.findByRole("button", {

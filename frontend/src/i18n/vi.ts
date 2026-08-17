@@ -1284,6 +1284,14 @@ export const vi = {
   "lead.filterScoreWarm": "Từ 60",
   "lead.filterScoreCool": "Từ 40",
   "person.fromLead": "Từ khách hàng tiềm năng",
+  "lead.promotedTitle": "Đã chuyển thành liên hệ",
+  "lead.promotedMerged":
+    "Khách hàng tiềm năng này đã được gộp vào một liên hệ đã biết — không tạo bản trùng.",
+  "lead.promotedCreated":
+    "Khách hàng tiềm năng này đã trở thành một liên hệ mới.",
+  "lead.promotedAt": "Đã chuyển",
+  "lead.promotedTrigger": "Tác nhân:",
+  "lead.promotedEvidence": "Bằng chứng:",
   "lead.statusNew": "Mới",
   "lead.statusWorking": "Đang xử lý",
   "lead.statusPromoted": "Đã chuyển đổi",

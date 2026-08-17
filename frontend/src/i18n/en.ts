@@ -1292,6 +1292,13 @@ export const en = {
   "lead.filterScoreWarm": "60 and up",
   "lead.filterScoreCool": "40 and up",
   "person.fromLead": "From lead",
+  "lead.promotedTitle": "Promoted to a contact",
+  "lead.promotedMerged":
+    "This lead merged into a contact we already knew — no duplicate was created.",
+  "lead.promotedCreated": "This lead became a new contact.",
+  "lead.promotedAt": "Promoted",
+  "lead.promotedTrigger": "Trigger:",
+  "lead.promotedEvidence": "Evidence:",
   "lead.statusNew": "New",
   "lead.statusWorking": "Working",
   "lead.statusPromoted": "Promoted",
