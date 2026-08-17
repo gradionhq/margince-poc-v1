@@ -294,7 +294,7 @@ func TestAC_TG_5_MailGatesAreNoOpsForAChannelRecord(t *testing.T) {
 	// find if anything asks it about a record with no domain.
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
-			`INSERT INTO workspace_email_domain (workspace_id, domain) VALUES ($1, 'own-house.test')`, c.ws)
+			`INSERT INTO workspace_email_domain (domain) VALUES ('own-house.test')`)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the internal mail domain: %v", err)

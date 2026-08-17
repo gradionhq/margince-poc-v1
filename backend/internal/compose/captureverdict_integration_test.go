@@ -267,9 +267,9 @@ func seedMail(t *testing.T, e *integration.Env, from, subject string, bulkAttest
 		// redaction test asserts zero raw_capture rows where zero always
 		// existed — a test that cannot fail.
 		_, err = tx.Exec(context.Background(), `
-			INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-			VALUES ($1, 'gmail', $2, '{"headers":"…","body":"the message body"}'::jsonb)`,
-			e.WS, "vrd-"+id.String())
+			INSERT INTO raw_capture (source_system, source_id, payload)
+			VALUES ('gmail', $1, '{"headers":"…","body":"the message body"}'::jsonb)`,
+			"vrd-"+id.String())
 		return err
 	})
 	if err != nil {
@@ -286,9 +286,9 @@ func seedPendingDisposition(t *testing.T, e *integration.Env, email, domain stri
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO capture_pending_counterparty
-			  (id, workspace_id, email, domain, display_name, activity_id, owner_id, status, next_attempt_at)
-			VALUES ($1, $2, $3, $4, 'Sender Name', $5, $6, 'pending', now())`,
-			id, e.WS, email, domain, activityID, e.Rep1)
+			  (id, email, domain, display_name, activity_id, owner_id, status, next_attempt_at)
+			VALUES ($1, $2, $3, 'Sender Name', $4, $5, 'pending', now())`,
+			id, email, domain, activityID, e.Rep1)
 		return err
 	})
 	if err != nil {
@@ -462,8 +462,7 @@ func rawCaptureRows(t *testing.T, e *integration.Env, activityID ids.UUID) int {
 	t.Helper()
 	return countIn(t, e, `
 		SELECT count(*) FROM raw_capture r JOIN activity a
-		    ON a.workspace_id = r.workspace_id
-		   AND a.source_system = r.source_system AND a.source_id = r.source_id
+		    ON a.source_system = r.source_system AND a.source_id = r.source_id
 		 WHERE a.id = $1`, activityID)
 }
 

@@ -88,7 +88,7 @@ func TestATokenReplacementBetweenPollAndIngestKeepsThePollingBotsKeys(t *testing
 	}
 	conn := connectTestTelegramBot(t, e, vault, api, 91000006, "bot_before_swap")
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the arranging poll: %v", err)
 	}
 	enqueued := telegramEnqueuedRawIDs(t, e, conn.ID.String())

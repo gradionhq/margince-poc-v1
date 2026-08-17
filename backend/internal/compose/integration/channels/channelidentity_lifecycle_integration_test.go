@@ -217,8 +217,8 @@ func TestArchivingAPersonArchivesTheChannelIdentity(t *testing.T) {
 func seedTelegramMessageRaw(t *testing.T, e *integration.Env, sourceID string, messageID int64, senderID, text string) {
 	t.Helper()
 	e.WsExec(t, `
-		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'telegram', $1,
+		INSERT INTO raw_capture (source_system, source_id, payload)
+		VALUES ('telegram', $1,
 		  jsonb_build_object('update_id', $2::bigint,
 		    'message', jsonb_build_object(
 		      'message_id', $2::bigint,
@@ -244,8 +244,8 @@ func seedTelegramMessageRaw(t *testing.T, e *integration.Env, sourceID string, m
 func seedTelegramMembershipRaw(t *testing.T, e *integration.Env, sourceID string, updateID int64, senderID, status string) {
 	t.Helper()
 	e.WsExec(t, `
-		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'telegram', $1,
+		INSERT INTO raw_capture (source_system, source_id, payload)
+		VALUES ('telegram', $1,
 		  jsonb_build_object('update_id', $2::bigint,
 		    'my_chat_member', jsonb_build_object(
 		      'chat', jsonb_build_object('id', $3::bigint, 'type', 'private', 'username', 'seed'),

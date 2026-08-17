@@ -196,10 +196,15 @@ func TestBackfillMigratesLegacyAuthRowOntoTheVault(t *testing.T) {
 
 	// A legacy row: a connected connection whose credential still lives in the
 	// auth bytea column, no vault ref yet.
-	connID := e.Seed(t, `
-		INSERT INTO capture_connection (id, workspace_id, provider, user_id, scopes, status, auth)
-		VALUES ($1, $2, 'graph', $3, $4, 'connected', $5)`,
-		e.Rep1, []string{string(principal.ScopeRead)}, []byte("granted-token"))
+	// Written straight through the owner rather than through e.Seed: that helper
+	// binds a workspace, and this table no longer has one to bind.
+	connID := ids.NewV7()
+	if _, err := e.Owner.Exec(context.Background(), `
+		INSERT INTO capture_connection (id, provider, user_id, scopes, status, auth)
+		VALUES ($1, 'graph', $2, $3, 'connected', $4)`,
+		connID, e.Rep1, []string{string(principal.ScopeRead)}, []byte("granted-token")); err != nil {
+		t.Fatalf("seeding the legacy connection: %v", err)
+	}
 
 	migrated, err := registry.BackfillCredentials(context.Background())
 	if err != nil {

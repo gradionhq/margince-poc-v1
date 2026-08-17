@@ -79,7 +79,7 @@ type WatchResult struct {
 // cannot name its account simply does not implement this.
 //
 // The label is never an identifier: nothing routes, authorizes or deduplicates
-// on it. capture_connection is keyed (workspace_id, user_id, provider).
+// on it. capture_connection is keyed (user_id, provider).
 type AccountLabeler interface {
 	AccountLabel(auth Auth) (string, error)
 }

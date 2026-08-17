@@ -27,11 +27,11 @@ func TestErasureReachesTheCaptureTracePayloads(t *testing.T) {
 	// subject, one from somebody else. A purge that took both would be as wrong
 	// as one that took neither.
 	e.WsExec(t, `
-		INSERT INTO capture_trace (workspace_id, user_id, connector, source_system, source_id,
+		INSERT INTO capture_trace (user_id, connector, source_system, source_id,
 		                           stage, outcome, counterparty, subject)
-		VALUES ($1, NULL, 'gmail', 'gmail', 'erasure-subject', 'tier_ladder', 'captured', $2, 'Quarterly numbers'),
-		       ($1, NULL, 'gmail', 'gmail', 'erasure-control', 'tier_ladder', 'captured', 'someone@else.test', 'Unrelated')`,
-		e.WS, subjectEmail)
+		VALUES (NULL, 'gmail', 'gmail', 'erasure-subject', 'tier_ladder', 'captured', $1, 'Quarterly numbers'),
+		       (NULL, 'gmail', 'gmail', 'erasure-control', 'tier_ladder', 'captured', 'someone@else.test', 'Unrelated')`,
+		subjectEmail)
 
 	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), personID, "test"); err != nil {
 		t.Fatal(err)

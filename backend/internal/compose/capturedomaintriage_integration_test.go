@@ -281,8 +281,8 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 	}
 	yesterday := capture.BudgetSlot{Day: todaySlot.Day.AddDate(0, 0, -1), Reserved: true}
 	e.WsExec(t, `
-		INSERT INTO capture_auto_enrich_budget (workspace_id, budget_date, enqueued)
-		VALUES ($1, $2, 1)`, e.WS, yesterday.Day)
+		INSERT INTO capture_auto_enrich_budget (budget_date, enqueued)
+		VALUES ($1, 1)`, yesterday.Day)
 
 	// Today has a reservation of its own — the slot that must survive.
 	if _, err := store.ReserveBudget(e.Admin(), 3); err != nil {

@@ -60,7 +60,7 @@ func TestAPollWhoseTokenIsRefusedParksTheConnection(t *testing.T) {
 		t.Fatal("a freshly connected bot is not in the due-scan, so this test could not observe it leaving")
 	}
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the refused poll returned %v, want nil — River retrying a token Telegram will never accept is a loop nothing breaks", err)
 	}
 
@@ -100,7 +100,7 @@ func TestAConflictThatSurvivesTheWebhookClearParksTheConnection(t *testing.T) {
 	conn := connectTestTelegramBot(t, e, vault, api, 92000008, "contested_bot")
 	clearsAfterConnect := api.deleteWebhooks
 
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the contested poll returned %v, want nil — River retrying a bot another consumer holds is a loop nothing breaks", err)
 	}
 
@@ -134,7 +134,7 @@ func TestAConflictAWebhookClearRepairsLeavesTheConnectionLive(t *testing.T) {
 	// re-registering, or an operator doing it by hand.
 	api.webhookRegistered = true
 
-	err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn)
+	err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn)
 	if err == nil {
 		t.Fatal("the conflict was swallowed — a poll that collected nothing must not report success")
 	}
@@ -149,7 +149,7 @@ func TestAConflictAWebhookClearRepairsLeavesTheConnectionLive(t *testing.T) {
 		t.Fatal("the connection left the due-scan, so nothing would ever poll it again")
 	}
 	// And the retry actually works now, which is the proof the clear repaired it.
-	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), conn); err != nil {
+	if err := runOnePoll(t, newTestPollWorker(e, vault, api, ambientPollInserter(t, e)), e.WS, conn); err != nil {
 		t.Fatalf("the poll after the clear: %v", err)
 	}
 	if n := rawCaptureCount(t, e, conn, 7101); n != 1 {

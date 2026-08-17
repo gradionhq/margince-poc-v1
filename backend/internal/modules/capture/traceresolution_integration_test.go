@@ -112,9 +112,8 @@ func seedRecord(ctx context.Context, t *testing.T, db *database.DB,
 		if rec.Ledger {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO capture_pending_counterparty
-				       (workspace_id, email, domain, activity_id, owner_id, status, kind, resolved_at)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-				        $1, 'client.io', $2, $3, $4, 'person', now())`,
+				       (email, domain, activity_id, owner_id, status, kind, resolved_at)
+				VALUES ($1, 'client.io', $2, $3, $4, 'person', now())`,
 				sender, activityID, owner, rec.verdict()); err != nil {
 				return err
 			}

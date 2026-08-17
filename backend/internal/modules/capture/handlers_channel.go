@@ -168,7 +168,7 @@ func writeChannelErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusConflict,
 			Code:   "channel_workspace_already_bound",
-			Detail: "Another bot is already connected to this workspace. Disconnect it first, or replace its token to point it at a different bot.",
+			Detail: "Another bot is already connected. Disconnect it first, or replace its token to point it at a different bot.",
 		})
 	case errors.Is(err, ErrChannelWiringIncomplete):
 		httperr.Write(w, r, &httperr.DetailedError{

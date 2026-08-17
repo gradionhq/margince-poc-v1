@@ -195,14 +195,10 @@ func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Re
 	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	wsUUID, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		t.Fatal("connectFixtureConnection: ctx carries no workspace")
-	}
 	var status string
 	var ref *string
 	var auth []byte
-	if err := queryConnectionRow(ctx, t, ids.From[ids.WorkspaceKind](wsUUID), &status, &ref, &auth); err != nil {
+	if err := queryConnectionRow(ctx, t, &status, &ref, &auth); err != nil {
 		t.Fatalf("reading back the connection Connect wrote: %v", err)
 	}
 	if ref == nil {
@@ -216,12 +212,12 @@ func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Re
 // RLS on purpose, since the test asserts what the row actually holds, not
 // what one workspace's policy exposes. "gmail" is the only provider any
 // fixture in this file connects.
-func queryConnectionRow(ctx context.Context, t *testing.T, ws ids.WorkspaceID, status *string, credentialRef **string, auth *[]byte) error {
+func queryConnectionRow(ctx context.Context, t *testing.T, status *string, credentialRef **string, auth *[]byte) error {
 	t.Helper()
 	owner, _ := setupCaptureDB(t)
 	return owner.QueryRow(ctx,
-		`SELECT status, credential_ref, auth FROM capture_connection WHERE workspace_id = $1 AND provider = 'gmail'`,
-		ws.UUID).Scan(status, credentialRef, auth)
+		`SELECT status, credential_ref, auth FROM capture_connection WHERE provider = 'gmail'`).
+		Scan(status, credentialRef, auth)
 }
 
 // Disconnecting must not leave a live credential behind: the row stops being
@@ -246,7 +242,7 @@ func TestDisconnectDeletesTheStoredCredential(t *testing.T) {
 	var status string
 	var credentialRef *string
 	var authBytes []byte
-	if err := queryConnectionRow(ctx, t, ws, &status, &credentialRef, &authBytes); err != nil {
+	if err := queryConnectionRow(ctx, t, &status, &credentialRef, &authBytes); err != nil {
 		t.Fatalf("reading the row back: %v", err)
 	}
 	if status != "disconnected" {
@@ -302,13 +298,13 @@ func TestConnectRecordsTheAccountLabel(t *testing.T) {
 // column, credential_ref is NULL. Registry.Connect always vault-seals, so a
 // legacy row can only be produced directly against the DB — this is the
 // fixture's own precondition, not the code under test.
-func insertLegacyConnection(ctx context.Context, t *testing.T, ws ids.WorkspaceID, userID ids.UserID, provider string, authBytes []byte) {
+func insertLegacyConnection(ctx context.Context, t *testing.T, userID ids.UserID, provider string, authBytes []byte) {
 	t.Helper()
 	owner, _ := setupCaptureDB(t)
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO capture_connection (workspace_id, provider, user_id, status, auth)
-		VALUES ($1, $2, $3, 'connected', $4)`,
-		ws.UUID, provider, userID.UUID, authBytes); err != nil {
+		INSERT INTO capture_connection (provider, user_id, status, auth)
+		VALUES ($1, $2, 'connected', $3)`,
+		provider, userID.UUID, authBytes); err != nil {
 		t.Fatalf("inserting the legacy connection fixture: %v", err)
 	}
 }
@@ -318,9 +314,9 @@ func insertLegacyConnection(ctx context.Context, t *testing.T, ws ids.WorkspaceI
 // survive disconnect: a credential_ref-only predicate matches no such row,
 // leaving it connected with the secret still in auth column forever.
 func TestDisconnectErasesALegacyAuthOnlyRow(t *testing.T) {
-	ctx, reg, _, ws := newCaptureRegistryFixture(t)
+	ctx, reg, _, _ := newCaptureRegistryFixture(t)
 	actor, _ := principal.Actor(ctx)
-	insertLegacyConnection(ctx, t, ws, ids.From[ids.UserKind](actor.UserID), "gmail", []byte("legacy-refresh-token"))
+	insertLegacyConnection(ctx, t, ids.From[ids.UserKind](actor.UserID), "gmail", []byte("legacy-refresh-token"))
 
 	if err := reg.Disconnect(ctx, "gmail"); err != nil {
 		t.Fatalf("Disconnect: %v", err)
@@ -329,7 +325,7 @@ func TestDisconnectErasesALegacyAuthOnlyRow(t *testing.T) {
 	var status string
 	var credentialRef *string
 	var authBytes []byte
-	if err := queryConnectionRow(ctx, t, ws, &status, &credentialRef, &authBytes); err != nil {
+	if err := queryConnectionRow(ctx, t, &status, &credentialRef, &authBytes); err != nil {
 		t.Fatalf("reading the row back: %v", err)
 	}
 	if status != "disconnected" {
@@ -367,7 +363,7 @@ func TestReconnectDeletesThePriorSecret(t *testing.T) {
 	var status string
 	var secondRef *string
 	var authBytes []byte
-	if err := queryConnectionRow(ctx, t, ws, &status, &secondRef, &authBytes); err != nil {
+	if err := queryConnectionRow(ctx, t, &status, &secondRef, &authBytes); err != nil {
 		t.Fatalf("reading the row back: %v", err)
 	}
 	if secondRef == nil {
@@ -403,7 +399,7 @@ func TestDisconnectCompletesEvenWhenTheVaultDeleteFails(t *testing.T) {
 	var status string
 	var credentialRef *string
 	var authBytes []byte
-	if err := queryConnectionRow(ctx, t, ws, &status, &credentialRef, &authBytes); err != nil {
+	if err := queryConnectionRow(ctx, t, &status, &credentialRef, &authBytes); err != nil {
 		t.Fatalf("reading the row back: %v", err)
 	}
 	if status != "disconnected" {
@@ -445,7 +441,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 		t.Fatalf("concurrent reconnect: %v", err)
 	}
 	var secondRef *string
-	if err := queryConnectionRow(ctx, t, ws, new(string), &secondRef, new([]byte)); err != nil {
+	if err := queryConnectionRow(ctx, t, new(string), &secondRef, new([]byte)); err != nil {
 		t.Fatalf("reading the reconnected row: %v", err)
 	}
 	if secondRef == nil || keyvault.Ref(*secondRef) == firstRef {
@@ -459,7 +455,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 
 	var status string
 	var finalRef *string
-	if err := queryConnectionRow(ctx, t, ws, &status, &finalRef, new([]byte)); err != nil {
+	if err := queryConnectionRow(ctx, t, &status, &finalRef, new([]byte)); err != nil {
 		t.Fatalf("reading the final row: %v", err)
 	}
 	if status != "connected" {

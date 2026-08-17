@@ -118,7 +118,7 @@ func telegramAnySubjectSuppressed(ctx context.Context, tx pgx.Tx, accounts []str
 
 // telegramRawSourceID is raw_capture's dedupe key for one polled update.
 // update_id is a PER-BOT sequence, so the key MUST carry the bot:
-// raw_capture_source_unique is (workspace_id, source_system, source_id) and
+// raw_capture_source_unique is (source_system, source_id) and
 // InsertRawCaptureTx's ON CONFLICT overwrites the stored payload, so a bare
 // update_id would let the bot a workspace was REPLACED onto land on the outgoing
 // bot's row and destroy the only copy of a message already captured —

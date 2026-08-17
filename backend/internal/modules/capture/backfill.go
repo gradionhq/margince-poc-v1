@@ -197,8 +197,8 @@ func (r *Registry) StartBackfill(ctx context.Context, provider string, userID id
 		}
 		after := r.now().AddDate(0, -windowMonths, 0)
 		err = tx.QueryRow(ctx, `
-			INSERT INTO capture_backfill (workspace_id, connection_id, window_months, after_date, total_estimate, status, started_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, NULLIF($4, 0), 'queued', now())
+			INSERT INTO capture_backfill (connection_id, window_months, after_date, total_estimate, status, started_at)
+			VALUES ($1, $2, $3, NULLIF($4, 0), 'queued', now())
 			RETURNING id`, connID, windowMonths, after, estimate).Scan(&run.ID)
 		if err != nil {
 			if storekit.IsUniqueViolation(err) {

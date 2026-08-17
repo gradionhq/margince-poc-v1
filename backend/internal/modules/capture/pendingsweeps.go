@@ -329,8 +329,7 @@ func (s *PendingStore) NoiseMailToRedact(ctx context.Context, window time.Durati
 		AND (a.subject IS NOT NULL OR a.body IS NOT NULL OR a.raw IS NOT NULL
 		     OR EXISTS (
 		       SELECT 1 FROM raw_capture r
-		        WHERE r.workspace_id = a.workspace_id
-		          AND r.source_system = a.source_system AND r.source_id = a.source_id))`, limit)
+		        WHERE r.source_system = a.source_system AND r.source_id = a.source_id))`, limit)
 }
 
 // NoiseMailForTx is NoiseMailToHide for ONE address on the caller's transaction
@@ -386,7 +385,6 @@ func (s *PendingStore) PurgeRawCaptureTx(ctx context.Context, tx pgx.Tx, activit
 		DELETE FROM raw_capture r
 		 USING activity a
 		 WHERE a.id = ANY($1)
-		   AND r.workspace_id = a.workspace_id
 		   AND r.source_system = a.source_system AND r.source_id = a.source_id`, activityIDs); err != nil {
 		return fmt.Errorf("capture: purging the redacted mail's provider originals: %w", err)
 	}

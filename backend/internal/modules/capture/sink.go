@@ -232,8 +232,8 @@ func storeRawCapture(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRec
 		payload = encoded
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
+		INSERT INTO raw_capture (source_system, source_id, payload)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (source_system, source_id) DO NOTHING`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, payload); err != nil {
 		return fmt.Errorf("capture: raw store: %w", err)

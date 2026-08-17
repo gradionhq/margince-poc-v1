@@ -45,8 +45,8 @@ func seedReplayableMail(t *testing.T, e *integration.Env, sourceID, raw string) 
 		VALUES ($1, $2, 'email', 'Q3 terms', '2026-08-01T09:00:00Z', 'inbound',
 		        'gmail', '`+sourceID+`', 'gmail:`+sourceID+`', 'connector:gmail')`, e.WS)
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO raw_capture (workspace_id, source_system, source_id, payload)
-		VALUES ($1, 'gmail', $2, to_jsonb($3::text))`, e.WS, sourceID, raw); err != nil {
+		INSERT INTO raw_capture (source_system, source_id, payload)
+		VALUES ('gmail', $1, to_jsonb($2::text))`, sourceID, raw); err != nil {
 		t.Fatalf("seeding the stored original: %v", err)
 	}
 	return id
@@ -135,10 +135,14 @@ func TestReplayRecordsUnreadableRatherThanFailingTheBatch(t *testing.T) {
 	good := seedReplayableMail(t, e, "msg-readable", ccMessage)
 
 	// A connection makes the mailbox known, so the parse is actually attempted.
-	integration.SeedRow(t, owner, `INSERT INTO capture_connection
-		(id, workspace_id, provider, user_id, scopes, status, auth, account_label)
-		VALUES ($1, $2, 'gmail', '`+e.Rep1.String()+`', '{}', 'connected', ''::bytea,
-		        'owner@myco.example')`, e.WS)
+	// Written straight through the owner rather than integration.SeedRow: that
+	// helper binds a workspace, and this table no longer has one to bind.
+	if _, err := owner.Exec(context.Background(), `INSERT INTO capture_connection
+		(id, provider, user_id, scopes, status, auth, account_label)
+		VALUES ($1, 'gmail', $2, '{}', 'connected', ''::bytea, 'owner@myco.example')`,
+		ids.NewV7(), e.Rep1); err != nil {
+		t.Fatalf("seeding the mailbox connection: %v", err)
+	}
 
 	settled, err := replayParticipantsBatch(replayCtx(e), e.Pool, 10, slog.Default())
 	if err != nil {

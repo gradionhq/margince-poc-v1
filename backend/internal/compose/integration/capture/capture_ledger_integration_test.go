@@ -176,10 +176,10 @@ func fillLedgerToCeiling(t *testing.T, e *integration.SearchEnv, activityID, own
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO capture_pending_counterparty
-			  (workspace_id, email, domain, activity_id, owner_id, status, next_attempt_at)
-			SELECT $1, 'filler' || g || '@flood.example', 'flood.example', $2, $3, 'pending', now()
-			  FROM generate_series(1, $4) g`,
-			e.WS, activityID, ownerID, capturemod.PendingDeferralCap-live)
+			  (email, domain, activity_id, owner_id, status, next_attempt_at)
+			SELECT 'filler' || g || '@flood.example', 'flood.example', $1, $2, 'pending', now()
+			  FROM generate_series(1, $3) g`,
+			activityID, ownerID, capturemod.PendingDeferralCap-live)
 		return err
 	})
 	if err != nil {
@@ -246,10 +246,10 @@ func fillDomainToShare(t *testing.T, e *integration.SearchEnv, domain string, ac
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO capture_pending_counterparty
-			  (workspace_id, email, domain, activity_id, owner_id, status, next_attempt_at)
-			SELECT $1, 'domfill' || g || '@' || $5, $5, $2, $3, 'pending', now()
-			  FROM generate_series(1, $4) g`,
-			e.WS, activityID, ownerID, capturemod.PendingDeferralDomainCap-live, domain)
+			  (email, domain, activity_id, owner_id, status, next_attempt_at)
+			SELECT 'domfill' || g || '@' || $4, $4, $1, $2, 'pending', now()
+			  FROM generate_series(1, $3) g`,
+			activityID, ownerID, capturemod.PendingDeferralDomainCap-live, domain)
 		return err
 	})
 	if err != nil {

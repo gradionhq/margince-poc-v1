@@ -126,7 +126,7 @@ func TestChannelSenderForResolvesTheWorkspacesBotToken(t *testing.T) {
 	var connections int
 	owner, _ := setupCaptureDB(t)
 	if err := owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM capture_connection WHERE workspace_id = $1`, f.ws).Scan(&connections); err != nil {
+		`SELECT count(*) FROM capture_connection`).Scan(&connections); err != nil {
 		t.Fatal(err)
 	}
 	if connections != 0 {
@@ -205,9 +205,9 @@ func TestASecondLiveBindingCannotBeCreatedForTheResolveToGuessBetween(t *testing
 	owner, _ := setupCaptureDB(t)
 	_, err := owner.Exec(context.Background(), `
 		INSERT INTO channel_connection
-		  (workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
-		SELECT workspace_id, provider, channel_id || '9', channel_label, credential_ref, status, connected_by
-		  FROM channel_connection WHERE workspace_id = $1 AND archived_at IS NULL`, f.ws)
+		  (provider, channel_id, channel_label, credential_ref, status, connected_by)
+		SELECT provider, channel_id || '9', channel_label, credential_ref, status, connected_by
+		  FROM channel_connection WHERE archived_at IS NULL`)
 	if err == nil {
 		t.Fatal("a second live binding was written for this workspace — every reply would then be ambiguous and the resolver would refuse to send at all")
 	}
@@ -290,25 +290,5 @@ func TestASendRefusesAfterItsBotWasReplaced(t *testing.T) {
 	}
 	if len(provider.sent) != 1 {
 		t.Fatalf("the provider saw %d message(s), want the one sent through the replacement", len(provider.sent))
-	}
-}
-
-// The resolve's own workspace predicate scopes it: another workspace's live
-// binding is not this workspace's sender, whatever the global bot index says.
-func TestChannelSenderForDoesNotReachAnotherWorkspacesBinding(t *testing.T) {
-	api := newFakeTelegram()
-	bound := newChannelFixture(t, api)
-	connectChannel(t, bound, "otherworkspacebot")
-
-	unbound := newChannelFixture(t, api)
-	reg := channelSendRegistry(t, unbound, &channelSendConnector{})
-	if _, _, err := reg.ChannelSenderFor(unbound.ctx, capture.ProviderTelegram); !errors.Is(err, capture.ErrNoConnection) {
-		t.Fatalf("ChannelSenderFor across workspaces = %v, want ErrNoConnection", err)
-	}
-	// The other workspace still resolves its own, so the isolation is a scope
-	// and not a broken lookup.
-	boundReg := channelSendRegistry(t, bound, &channelSendConnector{})
-	if _, auth, err := boundReg.ChannelSenderFor(bound.ctx, capture.ProviderTelegram); err != nil || len(auth) == 0 {
-		t.Fatalf("the owning workspace resolved (%v, %d bytes of credential)", err, len(auth))
 	}
 }

@@ -319,8 +319,8 @@ func TestAnUnverifiedOwnDomainSuppressesNothing(t *testing.T) {
 	ctx, db := bootstrapInternalMailWorkspace(t)
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO workspace_email_domain (workspace_id, domain, source, verified)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'acme.com', 'mailbox', false)`)
+			INSERT INTO workspace_email_domain (domain, source, verified)
+			VALUES ('acme.com', 'mailbox', false)`)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding an unverified domain: %v", err)

@@ -117,13 +117,22 @@ func DueChannelConnections(ctx context.Context, pool *pgxpool.Pool, provider str
 func LoadChannelPollTarget(ctx context.Context, pool *pgxpool.Pool, provider string, id ids.UUID) (ChannelPollTarget, error) {
 	var out ChannelPollTarget
 	var credentialRef string
+	// The workspace comes from the ctx the caller already established from the
+	// job's args, not from the row: the poll runs bound to a tenant before it
+	// asks which connection to poll, so reading it back would only re-state what
+	// the transaction is already scoped to.
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return ChannelPollTarget{}, errors.New("capture: loading a channel poll target outside workspace context")
+	}
+	out.WorkspaceID = ws
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT id, workspace_id, channel_id, credential_ref, poll_offset
+			SELECT id, channel_id, credential_ref, poll_offset
 			  FROM channel_connection
 			 WHERE id = $1 AND provider = $2 AND status = $3 AND archived_at IS NULL`,
 			id, provider, channelStatusConnected).
-			Scan(&out.ID, &out.WorkspaceID, &out.ChannelID, &credentialRef, &out.PollOffset)
+			Scan(&out.ID, &out.ChannelID, &credentialRef, &out.PollOffset)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ChannelPollTarget{}, apperrors.ErrNotFound

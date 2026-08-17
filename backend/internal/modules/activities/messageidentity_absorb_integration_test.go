@@ -141,9 +141,9 @@ func (e *sendEnv) queueCounterpartyReview(t *testing.T, activityID ids.ActivityI
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO capture_pending_counterparty
-		  (id, workspace_id, email, domain, activity_id, owner_id, status, next_attempt_at)
-		VALUES ($1, $2, 'buyer@example.test', 'example.test', $3, $4, 'pending', now())`,
-		id, e.ws, activityID, e.rep); err != nil {
+		  (id, email, domain, activity_id, owner_id, status, next_attempt_at)
+		VALUES ($1, 'buyer@example.test', 'example.test', $2, $3, 'pending', now())`,
+		id, activityID, e.rep); err != nil {
 		t.Fatalf("queuing the counterparty review: %v", err)
 	}
 	return id

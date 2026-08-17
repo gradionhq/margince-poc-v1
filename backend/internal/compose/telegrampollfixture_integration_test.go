@@ -202,11 +202,14 @@ func ambientPollInserter(t *testing.T, e *integration.Env) telegramEnqueuer {
 // *rivertype.JobRow, so a job built without one panics the moment the worker
 // reads any River-side field, and a fixture that only ever drove the happy path
 // would not find out.
-func runOnePoll(t *testing.T, worker *telegramPollWorker, conn capture.ChannelConnection) error {
+// The workspace is passed in rather than read off the connection: the binding
+// no longer carries one (ADR-0091 §8 phase D), and the args are what the
+// dispatcher stamps from its own scan.
+func runOnePoll(t *testing.T, worker *telegramPollWorker, ws ids.UUID, conn capture.ChannelConnection) error {
 	t.Helper()
 	return worker.Work(context.Background(), &river.Job[TelegramPollArgs]{
 		JobRow: &rivertype.JobRow{Kind: TelegramPollArgs{}.Kind(), Attempt: 1},
-		Args:   TelegramPollArgs{Workspace: conn.WorkspaceID, ConnectionID: conn.ID.String()},
+		Args:   TelegramPollArgs{Workspace: ws, ConnectionID: conn.ID.String()},
 	})
 }
 

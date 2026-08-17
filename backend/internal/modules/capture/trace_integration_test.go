@@ -55,14 +55,8 @@ func traceRows(ctx context.Context, t *testing.T, db *database.DB, sourceID stri
 	t.Helper()
 	var n int
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
-		// The workspace predicate is spelled here for the same reason the store
-		// spells it: there is no RLS behind this table, so a query without one
-		// counts other workspaces' rows — and in a package whose tests share a
-		// database, that means counting another test's.
 		return tx.QueryRow(ctx, `
-			SELECT count(*) FROM capture_trace
-			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND source_id = $1`, sourceID).Scan(&n)
+			SELECT count(*) FROM capture_trace WHERE source_id = $1`, sourceID).Scan(&n)
 	}); err != nil {
 		t.Fatalf("counting traces: %v", err)
 	}
@@ -141,11 +135,11 @@ func TestWorkspaceOwnedRowsCarryNoMemberAndStillDedupe(t *testing.T) {
 	var userID *ids.UUID
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx,
-			`SELECT count(*) FROM capture_trace WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND connector = 'telegram'`).Scan(&rows); err != nil {
+			`SELECT count(*) FROM capture_trace WHERE connector = 'telegram'`).Scan(&rows); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx,
-			`SELECT user_id FROM capture_trace WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND connector = 'telegram'`).Scan(&userID)
+			`SELECT user_id FROM capture_trace WHERE connector = 'telegram'`).Scan(&userID)
 	}); err != nil {
 		t.Fatalf("reading the workspace row: %v", err)
 	}
@@ -171,7 +165,7 @@ func TestAChannelAccountIdIsHashedNeverStored(t *testing.T) {
 	var stored string
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT source_id FROM capture_trace WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND connector = 'telegram'`).Scan(&stored)
+			`SELECT source_id FROM capture_trace WHERE connector = 'telegram'`).Scan(&stored)
 	}); err != nil {
 		t.Fatalf("reading the stored key: %v", err)
 	}
@@ -192,7 +186,7 @@ func TestAMailMessageIdIsKept(t *testing.T) {
 	var stored string
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT source_id FROM capture_trace WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND connector = 'gmail'`).Scan(&stored)
+			`SELECT source_id FROM capture_trace WHERE connector = 'gmail'`).Scan(&stored)
 	}); err != nil {
 		t.Fatalf("reading the stored key: %v", err)
 	}

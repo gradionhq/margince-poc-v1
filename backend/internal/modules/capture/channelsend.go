@@ -207,15 +207,12 @@ func (r *Registry) liveChannelBinding(ctx context.Context, provider string) (cha
 func (r *Registry) liveChannelBindings(ctx context.Context, provider string) ([]channelBinding, error) {
 	var bindings []channelBinding
 	err := r.db.Tx(ctx, func(tx pgx.Tx) error {
-		// The workspace predicate is the query's own. Tenant isolation used to
-		// supply it, so this read saw one installation's bindings without
-		// saying so; with RLS retired (ADR-0091 §8 phase A) an unscoped read
-		// resolves another installation's bot and the send then fails on a
-		// credential it was never entitled to unseal.
+		// Every live binding of this provider, which uq_channel_connection_ws
+		// permits exactly one of — the caller below is what refuses to guess if
+		// that ever stops being true.
 		rows, err := tx.Query(ctx, `
 			SELECT id, version, credential_ref FROM channel_connection
-			 WHERE provider = $1 AND status = $2 AND archived_at IS NULL
-			   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			 WHERE provider = $1 AND status = $2 AND archived_at IS NULL`,
 			provider, channelStatusConnected)
 		if err != nil {
 			return err

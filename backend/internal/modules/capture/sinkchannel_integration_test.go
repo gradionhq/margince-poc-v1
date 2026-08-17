@@ -75,8 +75,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	// The workspace's own mail domain, so the T0 colleagues gate has something
 	// to find if anything ever asks it about a record with no domain.
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO workspace_email_domain (workspace_id, domain) VALUES ($1, 'own-house.test')`,
-		ws); err != nil {
+		`INSERT INTO workspace_email_domain (domain) VALUES ('own-house.test')`); err != nil {
 		t.Fatalf("seeding the internal mail domain: %v", err)
 	}
 
@@ -136,7 +135,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	// a channel sender could only ever be a verdict about nobody.
 	var dispositions int
 	if err := owner.QueryRow(ctx,
-		`SELECT count(*) FROM capture_pending_counterparty WHERE workspace_id = $1`, ws).Scan(&dispositions); err != nil {
+		`SELECT count(*) FROM capture_pending_counterparty`).Scan(&dispositions); err != nil {
 		t.Fatalf("counting dispositions: %v", err)
 	}
 	if dispositions != 0 {
@@ -155,7 +154,7 @@ func TestChannelRecordSkipsEveryMailDomainGate(t *testing.T) {
 	// linked and answered conversation is waiting on a verdict.
 	var outcomes []string
 	traceRows, err := owner.Query(ctx,
-		`SELECT outcome FROM capture_trace WHERE workspace_id = $1 ORDER BY outcome`, ws)
+		`SELECT outcome FROM capture_trace ORDER BY outcome`)
 	if err != nil {
 		t.Fatalf("reading the pipeline trace: %v", err)
 	}
