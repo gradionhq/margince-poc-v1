@@ -29,25 +29,46 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
 // databaseClock is the only sanctioned start point for a scheduling value. A
 // delay is added to it (`now() + make_interval(secs => $1)`), which is why the
-// assignment check is a prefix test and not equality.
+// checks are prefix tests and not equality.
 const databaseClock = "now()"
 
-// RequireDatabaseClock reports every write of column in dir's package sources
-// whose value does not come from the database clock, and fails a run that found
-// no write at all.
+// unscheduled is the other value a scheduling column legitimately holds: no
+// deadline at all. It involves no clock, so it is outside the rule rather than
+// an exception to it.
+const unscheduled = "NULL"
+
+// DatabaseClock is one package's obligation for one scheduling column: every
+// write of Column, in the Go sources under Dir, takes its value from the
+// database's clock.
+type DatabaseClock struct {
+	// Dir is the package directory to read, usually "." — the package whose
+	// tableownership entry names the table this column belongs to.
+	Dir string
+	// Column is the scheduling column under the rule.
+	Column string
+	// Exempt ratifies FILES whose writes of Column are legitimately not derived
+	// from any clock of ours — an expiry the granting human chose, a deadline a
+	// provider returned. Keyed by base name, each carrying what the exception
+	// costs; a waiver matching nothing is reported as stale.
+	Exempt *Waivers[string]
+}
+
+// Require reports every write of the column whose value does not come from the
+// database clock, and fails a run that found no write at all.
 //
 // The column has two write spellings and both are read: an assignment
 // (`SET` / `DO UPDATE SET`), and a position in an INSERT column list.
-func RequireDatabaseClock(t testing.TB, dir, column string) {
+func (c DatabaseClock) Require(t testing.TB) {
 	t.Helper()
 	subjects := 0
-	for _, file := range packageSourceFiles(t, dir) {
+	for _, file := range packageSourceFiles(t, c.Dir) {
 		text := sqlOf(t, file)
 		name := filepath.Base(file)
 
@@ -55,27 +76,103 @@ func RequireDatabaseClock(t testing.TB, dir, column string) {
 		// the database clock — `$1` (a Go timestamp) and `EXCLUDED.<column>`
 		// (whatever the INSERT proposed, which may itself have been bound) both
 		// fail.
-		for _, rhs := range assignmentsTo(text, column) {
+		for _, rhs := range assignmentsTo(text, c.Column) {
 			subjects++
-			if !strings.HasPrefix(rhs, databaseClock) {
+			if !c.accepts(t, name, rhs) {
 				t.Errorf("%s: `%s = %s` schedules from something other than the database clock — "+
 					"the due-scan compares this column against Postgres now(), so the value must start at now()",
-					name, column, rhs)
+					name, c.Column, rhs)
 			}
 		}
 
 		// The INSERT form, whose value is positional. A fresh row's schedule is
 		// either the bare clock or the clock plus a delay; a bound timestamp is
 		// the same cross-clock write one statement over.
-		for _, value := range insertedValuesFor(text, column) {
+		for _, value := range insertedValuesFor(text, c.Column) {
 			subjects++
-			if !strings.HasPrefix(value, databaseClock) {
+			if !c.accepts(t, name, value) {
 				t.Errorf("%s: INSERT writes %s as `%s`, want a value starting at the database clock `%s`",
-					name, column, value, databaseClock)
+					name, c.Column, value, databaseClock)
 			}
 		}
 	}
-	requireSubjects(t, dir, column, subjects)
+	requireSubjects(t, c.Dir, c.Column, subjects)
+}
+
+// accepts reports whether one written value satisfies the rule, or its file is
+// ratified as writing a deadline that is nobody's clock of ours.
+func (c DatabaseClock) accepts(t testing.TB, file, value string) bool {
+	t.Helper()
+	if databaseClocked(value) {
+		return true
+	}
+	return c.Exempt.Waived(t, file)
+}
+
+// clampFunctions are the SQL functions this rule sees through. Each PICKS one
+// of its arguments rather than computing a value of its own, so a clamp is
+// database-clocked exactly when everything it may pick is —
+// `least(now() + $1::interval, expires_at)` bounds an idle window by an
+// absolute one, and both terms are the database's.
+var clampFunctions = []string{"least", "greatest", "coalesce"}
+
+// databaseClocked reports whether a written value can only have come from the
+// database's own clock or from what the row already held.
+//
+// Four shapes qualify. `now()` and anything built on it is the rule itself. A
+// NULL writes no deadline at all, so no clock is involved. A bare column
+// forwards a value the database already stores — the sibling column's own
+// obligation, not this write's. And a clamp qualifies when every argument does.
+func databaseClocked(value string) bool {
+	v := strings.TrimSpace(value)
+	if strings.HasPrefix(v, databaseClock) || v == unscheduled {
+		return true
+	}
+	if args, ok := clampArguments(v); ok {
+		for _, arg := range args {
+			if !databaseClocked(arg) {
+				return false
+			}
+		}
+		return true
+	}
+	return storedColumn(v)
+}
+
+// clampArguments returns the arguments of a clamp call, or false for anything
+// else — including a call to some other function, whose result this rule cannot
+// reason about.
+func clampArguments(value string) ([]string, bool) {
+	name, rest, ok := strings.Cut(value, "(")
+	if !ok || !slices.Contains(clampFunctions, strings.ToLower(strings.TrimSpace(name))) {
+		return nil, false
+	}
+	group, tail, ok := parenGroup("(" + rest)
+	if !ok || strings.TrimSpace(tail) != "" {
+		return nil, false
+	}
+	return splitTopLevel(group), true
+}
+
+// storedColumn reports whether value is a plain column reference — a value the
+// row already holds, forwarded.
+//
+// `EXCLUDED.x` is deliberately NOT one. It forwards whatever the INSERT
+// proposed, which may itself have been bound from the app process, so accepting
+// it would let any conflict clause launder a cross-clock write.
+func storedColumn(value string) bool {
+	if value == "" || strings.HasPrefix(strings.ToLower(value), "excluded.") {
+		return false
+	}
+	for i := range len(value) {
+		c := value[i]
+		identifier := c == '_' || c == '.' ||
+			(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+		if !identifier {
+			return false
+		}
+	}
+	return true
 }
 
 // requireSubjects fails a gate that examined nothing. The checks are keyed on a
@@ -139,20 +236,57 @@ func sqlOf(t testing.TB, file string) string {
 	return strings.Join(literals, "\n")
 }
 
-// assignmentsTo returns the right-hand side of every `column = ...` in text,
-// read to the end of its line. The repo writes one assignment per line inside
-// its SQL literals, so the line IS the expression; a trailing comma from the SET
-// list is not part of it.
+// assignmentsTo returns the right-hand side of every `column = ...` in text.
+// The expression ends at the SET list's next top-level comma — not at the end
+// of the line, because a line may carry several assignments (`next_attempt_at =
+// NULL, claimed_until = NULL`) and reading to its end would judge the gated
+// column on its neighbours' text. Commas nested in parentheses stay part of the
+// expression, so `least(now() + $1::interval, expires_at)` is read whole.
+//
+// The name is matched on a WORD boundary, not as a substring. Deadline columns
+// share suffixes — `idle_expires_at` ends in `expires_at`, `metadata_expires_at`
+// and `watch_expires_at` likewise — so a substring match reports a sibling
+// column's write under the gated column's name, and the reader who goes to fix
+// it finds a line that was already correct.
 func assignmentsTo(text, column string) []string {
 	var found []string
 	for _, line := range strings.Split(text, "\n") {
-		_, rhs, ok := strings.Cut(line, column+" = ")
-		if !ok {
+		before, rhs, ok := strings.Cut(line, column+" = ")
+		if !ok || endsInIdentifier(before) {
 			continue
 		}
-		found = append(found, strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(rhs), ",")))
+		found = append(found, endOfExpression(splitTopLevel(rhs)[0]))
 	}
 	return found
+}
+
+// clauseKeywords end a SET item as surely as a comma does. The tree writes its
+// SQL one clause per line, so these matter only for a statement written on one
+// — but there the difference is between reading an expression and reading an
+// expression plus the rest of the statement, and the second is reported as a
+// finding against a line that was already correct.
+var clauseKeywords = []string{" WHERE ", " RETURNING ", " FROM ", " ON CONFLICT "}
+
+// endOfExpression trims a written value at the first clause keyword after it.
+func endOfExpression(value string) string {
+	for _, keyword := range clauseKeywords {
+		if cut, _, found := strings.Cut(value, keyword); found {
+			value = cut
+		}
+	}
+	return strings.TrimSpace(value)
+}
+
+// endsInIdentifier reports whether text ends in a character SQL would read as
+// part of the name that follows it — which is what makes a match a suffix of a
+// longer column rather than the column itself.
+func endsInIdentifier(text string) bool {
+	if text == "" {
+		return false
+	}
+	c := text[len(text)-1]
+	return c == '_' || c == '.' ||
+		(c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
 }
 
 // insertedValuesFor returns the VALUES item matching column for every
