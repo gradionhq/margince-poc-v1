@@ -26,13 +26,22 @@ type ButtonVariant = "primary" | "ghost" | "danger";
 export function Button({
   variant = "ghost",
   small,
+  iconOnly,
   className,
   reason,
   reasonId,
+  disabled,
   ...rest
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
   small?: boolean;
+  /**
+   * This button's whole label IS its icon, so it drops the width floor that
+   * keeps a short word readable and becomes square. The caller still owes it an
+   * accessible name — `aria-label` or a visually-hidden child — because a
+   * glyph announces as nothing.
+   */
+  iconOnly?: boolean;
   /**
    * Why this action is unavailable. Passing it DISABLES the button and points
    * the control at the explanation with `aria-describedby` — a `title` on a
@@ -59,20 +68,28 @@ export function Button({
     "btn",
     `btn-${variant}`,
     small ? "btn-sm" : "",
+    iconOnly ? "btn-icon" : "",
     className ?? "",
   ]
     .filter(Boolean)
     .join(" ");
   const refused = reason !== undefined || reasonId !== undefined;
+  // `disabled` and `aria-describedby` are computed here and must survive the
+  // caller's props, so both are destructured out of `rest` (disabled above,
+  // aria-describedby below) rather than sitting where a later spread could
+  // overwrite them: a `disabled={false}` passed alongside `reason` would
+  // otherwise re-enable a control the reason contract promises is refused, and
+  // silently drop the description pointing at the sentence that says why.
+  const { "aria-describedby": callerDescribedBy, ...attrs } = rest;
+  const describedBy =
+    reasonId ?? (reason === undefined ? callerDescribedBy : ownReasonId);
   const button = (
     <button
       type="button"
+      {...attrs}
       className={classes}
-      disabled={rest.disabled || refused}
-      aria-describedby={
-        reasonId ?? (reason === undefined ? undefined : ownReasonId)
-      }
-      {...rest}
+      disabled={disabled || refused}
+      aria-describedby={describedBy}
     />
   );
   if (reason === undefined) {

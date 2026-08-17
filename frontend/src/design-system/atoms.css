@@ -616,14 +616,22 @@
   color: var(--textMeta);
 }
 
+/* The horizontal padding is 11px rather than the button's 14px on purpose: a
+   field's text starts at its own left edge and a button's label is centred, so
+   matching the two numbers would put the field's first character further in
+   than it should be. The HEIGHT is shared, through --control-h — a field and
+   the button that submits it are the same box on screen, and before the floor
+   existed they computed 40.25px and 38.25px independently. */
 .input {
   font-family: var(--f-body);
   font-size: 13.5px;
+  line-height: 1.25;
   color: var(--textPrimary);
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
   padding: 9px 11px;
+  min-block-size: var(--control-h);
   width: 100%;
   outline: none;
   transition: 0.15s;
@@ -725,9 +733,15 @@
   align-items: center;
   gap: 4px;
 }
+/* Deliberately below the .iconbtn floor: this toggle sits INSIDE a line of
+   running figures, and a 32px control there would set the line's height. The
+   min-* pair is what holds that, since a bare width/height loses to the floor
+   the shared class declares. */
 .explain-toggle {
   width: 22px;
   height: 22px;
+  min-inline-size: 22px;
+  min-block-size: 22px;
   display: grid;
   place-items: center;
   border: 0;

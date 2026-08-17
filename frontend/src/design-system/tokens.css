@@ -115,6 +115,20 @@
   --r-lg: 20px;
   --r-full: 9999px;
 
+  /* The height of an interactive control, in its two sizes. A button, a text
+     input and the select's trigger are the same box on screen, and until this
+     existed each computed its own number out of padding and line-height: the
+     input landed on 40.25px, the primary button on 38.25px and the ghost button
+     on 40.25px because its 1px border was added rather than absorbed. A
+     [Cancel][Save] pair was therefore never the same height, and a button beside
+     a field never sat on the field's own line. The value is a floor rather than
+     a fixed height, so a control whose label wraps grows instead of clipping —
+     nothing here assumes a one-line label. 40px also clears the 24px AA target
+     of WCAG 2.5.8 with room, and the small rung stays a deliberate step below it
+     for dense rows rather than drifting to whatever its padding produced. */
+  --control-h: 40px;
+  --control-h-sm: 32px;
+
   /* Vertical-rhythm scale — the 4/8/12/16/24 rungs the screens were already
    * reaching for ad-hoc (inconsistently spelled 10/12/14/16 before this).
    * Layout rhythm, not part of the §2 Ledger-Green colour identity; a

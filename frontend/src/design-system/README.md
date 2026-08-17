@@ -26,7 +26,8 @@ arrive through props, translated by the caller with `t()`.
 
 | Primitive | For | File | Story |
 |---|---|---|---|
-| `Button` | The one button: `primary` / `ghost` / `danger`, `small` | `atoms.tsx` | ✅ |
+| **`Button`** | **The one button: `primary` / `ghost` / `danger`, `small`, `iconOnly`. It owns its GEOMETRY, which is why none of it arrives as a prop: the height is `--control-h`, shared with `TextInput` and the `Select` trigger so a button beside a field sits on the field's line; an icon child is sized by the button (16px, 14px small) rather than by a `size=` at the call site, because lucide's own default is 24px and 31 call sites shipped that way; and a labelled button carries a width floor so "No" and "Add" still read as buttons. `iconOnly` is the one opt-out — square, no floor, and the caller still owes it an accessible name. `reason` / `reasonId` refuse it and say why, and the caller cannot defeat either by passing `disabled` or an `aria-describedby` of its own** | `atoms.tsx` | ✅ |
+| `.iconbtn` | A bare icon affordance that is NOT a `Button`: no fill, no border, no label — the verb a row offers where a full button would out-shout the row. A class rather than a component, because it is chrome a row applies to its own `<button>`; it carries the `--control-h-sm` hit target, the hover, and the focus ring | `base.css` | via `Atoms → Buttons` |
 | `Badge` | A status pill in the six tones | `atoms.tsx` | ✅ |
 | `Avatar` | A person's or company's chip: monogram, optional logo, optional per-name tint | `atoms.tsx` | ✅ |
 | `AvatarStack` | A group of people as overlapping monograms, folding past `max` into a "+N" chip rather than running the row wide. Expects a non-empty list: every caller guards `people.length > 0` before rendering it, so there is no "0 people" state to draw | `avatarstack.tsx` | ✅ |
