@@ -37,13 +37,31 @@ BEGIN
     RETURN OLD;
   END IF;
 
-  -- The stamp never changes once written. Clearing it or moving it to another
-  -- class both count.
+  -- The stamp never changes once written — the class OR the timestamp that
+  -- says when it was earned. Leaving the timestamp mutable would let a writer
+  -- keep the class and move the date, which is the same rewriting of history
+  -- with an extra step: the qualifying moment is what a supervisory authority
+  -- would be shown.
   IF OLD.retention_class IS NOT NULL
-     AND (NEW.retention_class IS DISTINCT FROM OLD.retention_class) THEN
-    RAISE EXCEPTION 'activity % carries retention class %, which is stamped once and never re-derived', OLD.id, OLD.retention_class
+     AND (NEW.retention_class IS DISTINCT FROM OLD.retention_class
+          OR NEW.retention_class_at IS DISTINCT FROM OLD.retention_class_at) THEN
+    RAISE EXCEPTION 'activity % carries retention class % earned at %, which is stamped once and never re-derived', OLD.id, OLD.retention_class, OLD.retention_class_at
       USING ERRCODE = 'check_violation',
             CONSTRAINT = 'activity_retention_class_monotonic';
+  END IF;
+
+  -- A restriction must be substantiated at the moment it is written. The CHECK
+  -- on the table can only see the row's own columns, so it can require a class
+  -- and no more; the evidence lives in another table and this is the only
+  -- place that can look. A restriction with nothing behind it is an assertion
+  -- the controller cannot support when asked, which is the one situation this
+  -- whole mechanism exists to avoid.
+  IF OLD.restricted_at IS NULL AND NEW.restricted_at IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM activity_retention_evidence e
+                      WHERE e.activity_id = NEW.id) THEN
+    RAISE EXCEPTION 'activity % cannot be restricted with no retention evidence recording what qualified it', NEW.id
+      USING ERRCODE = 'check_violation',
+            CONSTRAINT = 'activity_restriction_needs_evidence';
   END IF;
 
   -- A restricted row admits exactly one write: the one that lifts the
@@ -103,10 +121,13 @@ CREATE TABLE activity_retention_evidence (
   -- is what still answers afterwards.
   CONSTRAINT are_derived_names_its_deal CHECK (
     basis = 'controller_pin'
-    OR (deal_name IS NOT NULL AND decided_by IS NULL AND reason IS NULL)),
+    OR (deal_name IS NOT NULL
+        AND decided_by IS NULL AND decided_by_name IS NULL AND reason IS NULL)),
+  -- Non-empty, not merely present: '' passes IS NOT NULL and is exactly as
+  -- unaccountable as a null when somebody asks who decided and why.
   CONSTRAINT are_pin_is_attributed CHECK (
     basis <> 'controller_pin'
-    OR (decided_by_name IS NOT NULL AND reason IS NOT NULL)),
+    OR (length(btrim(decided_by_name)) > 0 AND length(btrim(reason)) > 0)),
   -- An id always carries its name. The reverse is deliberately allowed: a
   -- deleted deal leaves the frozen name behind with no id to point at.
   CONSTRAINT are_deal_name_with_id CHECK (deal_id IS NULL OR deal_name IS NOT NULL)
@@ -116,7 +137,71 @@ CREATE TABLE activity_retention_evidence (
 -- by being won and by carrying a sent offer, and those are two facts rather
 -- than a duplicate. Controller pins are excluded — a record may be pinned,
 -- released and pinned again, and each decision is its own row.
+--
+-- NULLS NOT DISTINCT is load-bearing. deal_id goes null when the deal is
+-- deleted, and Postgres's default treats every null as distinct from every
+-- other — so without this, a record whose deal is gone accepts unlimited
+-- identical evidence rows, and the restricted-records list names the same
+-- transaction over and over.
 CREATE UNIQUE INDEX uq_activity_retention_evidence
-  ON activity_retention_evidence (activity_id, deal_id, basis)
+  ON activity_retention_evidence (activity_id, deal_id, deal_name, basis)
+  NULLS NOT DISTINCT
   WHERE basis <> 'controller_pin';
+
+-- The FK columns are both ON DELETE SET NULL, so deleting a deal or a user has
+-- to find the rows pointing at it. Without these it scans the whole table.
+CREATE INDEX idx_are_deal ON activity_retention_evidence (deal_id) WHERE deal_id IS NOT NULL;
+CREATE INDEX idx_are_decided_by ON activity_retention_evidence (decided_by) WHERE decided_by IS NOT NULL;
 CREATE INDEX idx_are_activity ON activity_retention_evidence (activity_id);
+
+-- Evidence is frozen, and that has to be enforced rather than asserted in a
+-- comment. The runtime role holds UPDATE and DELETE on this table by default
+-- (migration 0015), so without a guard the deal name, the basis and the
+-- qualifying moment can all be rewritten — and the one audience this table
+-- exists for is a supervisory authority asking the controller to substantiate
+-- a retention claim. Evidence somebody can edit after the fact substantiates
+-- nothing.
+--
+-- Two writes stay legal, and only two. A deal delete must be able to null
+-- deal_id (the FK is ON DELETE SET NULL, and the frozen deal_name is what
+-- answers afterwards); the same for decided_by when a user row goes. Every
+-- other column is immutable, and a row is deleted only with the activity it
+-- belongs to, through the CASCADE.
+CREATE OR REPLACE FUNCTION activity_retention_evidence_is_frozen() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+  -- A row goes only with the activity it substantiates, through the CASCADE.
+  -- A direct delete is refused. The two are distinguishable because the
+  -- CASCADE has already removed the parent by the time this fires, so the
+  -- activity is gone exactly when the delete is legitimate.
+  IF TG_OP = 'DELETE' THEN
+    IF EXISTS (SELECT 1 FROM activity a WHERE a.id = OLD.activity_id) THEN
+      RAISE EXCEPTION 'retention evidence % is frozen and is removed only with the activity it substantiates', OLD.id
+        USING ERRCODE = 'check_violation',
+              CONSTRAINT = 'activity_retention_evidence_frozen';
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  IF NEW.activity_id     IS DISTINCT FROM OLD.activity_id
+     OR NEW.basis        IS DISTINCT FROM OLD.basis
+     OR NEW.qualified_at IS DISTINCT FROM OLD.qualified_at
+     OR NEW.deal_name    IS DISTINCT FROM OLD.deal_name
+     OR NEW.decided_by_name IS DISTINCT FROM OLD.decided_by_name
+     OR NEW.reason       IS DISTINCT FROM OLD.reason
+     OR NEW.created_at   IS DISTINCT FROM OLD.created_at
+     -- The reference may be CLEARED by its FK, never repointed.
+     OR (NEW.deal_id IS NOT NULL AND NEW.deal_id IS DISTINCT FROM OLD.deal_id)
+     OR (NEW.decided_by IS NOT NULL AND NEW.decided_by IS DISTINCT FROM OLD.decided_by) THEN
+    RAISE EXCEPTION 'retention evidence % is frozen at the moment it qualified and may not be rewritten', OLD.id
+      USING ERRCODE = 'check_violation',
+            CONSTRAINT = 'activity_retention_evidence_frozen';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER activity_retention_evidence_is_frozen
+  BEFORE UPDATE OR DELETE ON activity_retention_evidence
+  FOR EACH ROW EXECUTE FUNCTION activity_retention_evidence_is_frozen();
