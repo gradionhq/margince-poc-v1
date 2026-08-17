@@ -854,6 +854,8 @@ export const vi = {
     "K\u00e9o th\u1ea3 PDF \u0111\u00e3 k\u00fd v\u00e0o \u0111\u00e2y, ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn. T\u00e0i li\u1ec7u \u0111\u01b0\u1ee3c g\u1eafn v\u1edbi h\u1ee3p \u0111\u1ed3ng n\u00e0y v\u00e0 hi\u1ec7n trong t\u00e0i li\u1ec7u c\u1ee7a kh\u00e1ch h\u00e0ng.",
   "contracts.form.fileEmpty":
     "K\u00e9o th\u1ea3 t\u1ec7p v\u00e0o \u0111\u00e2y ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn",
+  "contracts.form.fileAdd":
+    "K\u00e9o th\u1ea3 t\u1ec7p kh\u00e1c v\u00e0o \u0111\u00e2y ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn",
   "contracts.perYear": "{amount} / n\u0103m",
   "contracts.state.title": "Đang có hợp đồng · {count} hiệu lực",
   "contracts.state.none": "Chưa có hợp đồng nào",
