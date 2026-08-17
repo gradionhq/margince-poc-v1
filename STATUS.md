@@ -903,6 +903,14 @@ be split or moved mid-flight because a table turned out to be fork-owned
 slice. Check `grep -rl "CREATE TABLE.*<name>" migrations/` before writing the
 migration, not after `migrate up` refuses.
 
+**Sweep `backend/tools/` too — it is a second Go module and `go build ./...`
+never compiles it.** The capture slice swept `internal/`, `extensions/`,
+`fixtures/`, `scripts/` and `cmd/`, and missed `tools/seed-demo`, which writes
+`capture_connection` directly; seeding a fresh installation then failed on the
+column that had just been dropped (#1528 repaired it). Nothing in the gates
+catches this — the tools module compiles on its own, and no lane seeds a demo —
+so it has to be in the grep.
+
 **Three of the four fan-out modules are collapsed** — webhooks (#1255), agents
 (#1283) and privacy (#1337) — each landing its module's phase D columns in the
 same PR, because the suites proving the fan-out asserted isolation between two
