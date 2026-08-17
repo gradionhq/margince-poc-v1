@@ -63,6 +63,15 @@ var preservedResetTables = map[string]bool{
 	"activity_kind": true, "channel_provider": true,
 	// in-flight delivery: drained by the outbox pass, not deleted under it
 	"event_outbox": true,
+	// The retention floor's evidence (A165, migration 0289). Preserved from the
+	// sweep's own DELETE because a direct one is REFUSED outright: the row goes
+	// only with the activity it substantiates, through the FK's CASCADE, and
+	// its guard tells the two apart by whether the parent is already gone.
+	// Sweeping it directly would abort the reset transaction on the first row.
+	//
+	// It is still cleared by a reset — `activity` is swept, and the cascade takes
+	// the evidence with it. Preserved here means "not a target", never "kept".
+	"activity_retention_evidence": true,
 }
 
 // providerCredentialRefs collects the sealed API keys the provider

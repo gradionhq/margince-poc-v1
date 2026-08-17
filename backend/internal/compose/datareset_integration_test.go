@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget/budgettest"
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -287,7 +288,31 @@ func TestDropResetCustomFieldColumns(t *testing.T) {
 // and is not added to preservedResetTables, it would either abort the sweep at
 // runtime or be wiped against its guard's intent. This turns that silent
 // runtime hazard into a test failure that forces a conscious classification.
+// deleteGuardedSweepTargets are the sweep targets whose DELETE-firing trigger
+// does NOT protect the table as a whole, and why sweeping them is still safe.
+//
+// The gate below cannot tell the two shapes apart from the catalog alone. An
+// append-only ledger refuses every delete, and belongs in preservedResetTables.
+// A row-conditional hold refuses deletes for SOME rows and is not a protected
+// store — preserving it would exempt a table the reset exists to clear. So the
+// second shape is classified here, with what the reset owes it.
+var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
+	// Not a protected table: the guard refuses a DELETE only while a row carries
+	// `restricted_at`, which is a statutory hold on that one record. Preserving
+	// `activity` would leave every conversation behind on a reset whose whole
+	// purpose is to clear them.
+	//
+	// Nothing can set `restricted_at` today — the trigger requires evidence in
+	// activity_retention_evidence first, and no writer for that table exists yet
+	// (#1557) — so the sweep cannot currently meet a held row. When that writer
+	// lands, the reset must LIFT the restrictions it is entitled to clear before
+	// deleting, or the sweep aborts on the first held activity. This entry is
+	// that obligation, not a record of one already met.
+	"activity": "a row-conditional statutory hold, not a protected store: preserving it would leave every activity behind on a reset meant to clear them, and no writer can set the restriction yet (#1557) — when one lands the reset must lift before it sweeps",
+})
+
 func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
+	defer deleteGuardedSweepTargets.AssertAllMatched(t)
 	e := integration.Setup(t)
 	ctx := e.Admin()
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
@@ -318,8 +343,8 @@ func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {
 			if err := rows.Scan(&table, &trigger); err != nil {
 				return err
 			}
-			if targetSet[table] {
-				t.Errorf("sweep target %q carries DELETE-firing trigger %q — a protected/append-only table must be listed in preservedResetTables, not swept", table, trigger)
+			if targetSet[table] && !deleteGuardedSweepTargets.Waived(t, table) {
+				t.Errorf("sweep target %q carries DELETE-firing trigger %q — an append-only or otherwise protected table belongs in preservedResetTables; a row-conditional guard belongs in deleteGuardedSweepTargets, with what the reset owes it", table, trigger)
 			}
 		}
 		return rows.Err()
