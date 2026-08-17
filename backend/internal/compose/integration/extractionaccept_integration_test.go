@@ -397,7 +397,7 @@ func TestAcceptAttachmentExtractionEditedAcceptRequiresActivityGrant(t *testing.
 // write one document's values onto another document's deal.
 func TestAcceptAttachmentExtractionRefusesAReadingOfAnotherDocument(t *testing.T) {
 	a := setupExtractionAccept(t)
-	h := activities.NewHandlers(a.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(a.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	other := uploadDealAttachment(a.Admin(), t, h, a.deal, "other.pdf", []byte("other bytes"))
 	elsewhere := seedExtractionReading(a.Admin(), t, a.Env, ids.UUID(other.Id), acceptExtractionFields())
 
