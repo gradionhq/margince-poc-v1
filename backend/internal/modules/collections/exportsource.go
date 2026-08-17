@@ -56,8 +56,11 @@ func (s *Store) SavedViewFilterSource(ctx context.Context, id ids.SavedViewID) (
 			Reason: fmt.Sprintf("a %s view has no filterable export engine", view.Resource),
 		}
 	}
-	rawFilter, ok := view.Query["filter"]
-	if !ok {
+	// A nil filter is how a client spells "cleared", which is the same thing as
+	// absent and reads better as such — the create-time gate treats the two
+	// alike, so this refusal has to as well or one of them says the wrong thing.
+	rawFilter, ok := view.Query[viewFilterKey]
+	if !ok || rawFilter == nil {
 		return FilterSource{}, &BadInputError{
 			Field:  "view_id",
 			Reason: "this saved view carries no filter state to export",
@@ -70,9 +73,12 @@ func (s *Store) SavedViewFilterSource(ctx context.Context, id ids.SavedViewID) (
 			Reason: "this saved view's filter state is not a filter tree",
 		}
 	}
+	// A stored tree that no longer decodes is an invariant break, not the
+	// caller's error: it was compiled before it was stored, and this caller
+	// sent only an id. Same story evaluateSegment tells for a list.
 	pred, err := predicateFromDefinition(filterMap)
 	if err != nil {
-		return FilterSource{}, err
+		return FilterSource{}, fmt.Errorf("stored filter state for saved view %s: %w", id, err)
 	}
 	return FilterSource{Resource: resource, Predicate: pred}, nil
 }
@@ -95,7 +101,7 @@ func (s *Store) ListFilterSource(ctx context.Context, id ids.ListID) (FilterSour
 	}
 	pred, err := predicateFromDefinition(list.Definition)
 	if err != nil {
-		return FilterSource{}, err
+		return FilterSource{}, fmt.Errorf("stored definition for list %s: %w", id, err)
 	}
 	return FilterSource{Resource: list.EntityType, Predicate: pred}, nil
 }
