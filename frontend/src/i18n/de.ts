@@ -1936,6 +1936,14 @@ export const de = {
     "Diese kannst du verleihen. Verbindet sich ein MCP-Client, fragt er, welchen du übergibst — die Verbindung trägt danach genau die Scopes dieses Passports.",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
+  "settings.minting": "Wird ausgestellt…",
+  "settings.mintCancel": "Abbrechen",
+  "settings.mintDone": "Fertig",
+  "settings.passportScopes": "Was dieser Agent darf",
+  "settings.passportScopesHint":
+    "Mindestens eins auswählen. Ein Agent darf nie mehr als Sie selbst.",
+  "settings.passportScopesRequired":
+    "Wählen Sie mindestens eine Sache aus, die dieser Agent tun darf.",
   "agents.connected": "Verbundene Agenten",
   "agents.connectedSub":
     "MCP-Clients mit eigenem Credential, abgeleitet aus einem Passport, den du verliehen hast",

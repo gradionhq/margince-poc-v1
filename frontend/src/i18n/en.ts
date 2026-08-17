@@ -1936,6 +1936,14 @@ export const en = {
     "These are yours to lend. Connect an MCP client and it asks which one to hand over — the connection then carries exactly that passport's scopes.",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
+  "settings.minting": "Minting…",
+  "settings.mintCancel": "Cancel",
+  "settings.mintDone": "Done",
+  "settings.passportScopes": "What this agent may do",
+  "settings.passportScopesHint":
+    "Pick at least one. An agent can never do more than you can.",
+  "settings.passportScopesRequired":
+    "Pick at least one thing this agent may do.",
   "agents.connected": "Connected agents",
   "agents.connectedSub":
     "MCP clients holding their own credential, derived from a passport you lent",
