@@ -233,7 +233,16 @@ export const Avatars: Story = {
             size="md"
             src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b7a53'/%3E%3C/svg%3E"
           />
-          <Avatar name="Northwind Handel" size="md" src="/does-not-resolve" />
+          {/* A data URI that is a well-formed URL and not a decodable image, so
+              the failure this story is about happens in the DECODER. A path
+              that 404s would exercise the same fallback, but it also puts a
+              failed request in the console, and the capture gate reads a failed
+              request as a story that did not render clean. */}
+          <Avatar
+            name="Northwind Handel"
+            size="md"
+            src="data:image/png;base64,AAAA"
+          />
         </div>
       </div>
       <div style={stack}>
