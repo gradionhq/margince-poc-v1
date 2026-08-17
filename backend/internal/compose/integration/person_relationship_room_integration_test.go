@@ -47,8 +47,12 @@ var roomFixedNow = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 // exactly 6.9 days old on 2026-08-17 — one hour under the seven-day rule the
 // gone-quiet rung applies, which is the day the suite began failing with nothing
 // changed but the date.
-func roomAgo(d time.Duration) time.Time   { return roomFixedNow.Add(-d) }
-func roomAhead(d time.Duration) time.Time { return roomFixedNow.Add(d) }
+func roomAgo(d time.Duration) time.Time { return roomFixedNow.Add(-d) }
+
+// roomTomorrow is a day after the frozen now: comfortably inside the 72-hour
+// horizon the meeting-prep rung applies, and stated as a value because every
+// fixture that wants a booked meeting wants the same one.
+var roomTomorrow = roomFixedNow.Add(24 * time.Hour)
 
 // roomPerms is a bounded rep holding every grant the person page asks for. The
 // scope must be team-level: an unbounded admin short-circuits the row-scope

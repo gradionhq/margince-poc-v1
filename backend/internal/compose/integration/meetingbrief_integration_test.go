@@ -46,7 +46,7 @@ func TestMeetingBriefRefusesACallerWithNoActivityGrant(t *testing.T) {
 	meeting := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'meeting', 'Expansion review', $3,
-		        'manual', 'human:x')`, e.WS, roomAhead(24*time.Hour))
+		        'manual', 'human:x')`, e.WS, roomTomorrow)
 	LinkActivity(t, owner, e.WS, meeting, "person", mine)
 
 	perms := roomPerms
@@ -73,7 +73,7 @@ func TestMeetingBriefRefusesACallerWithNoPersonGrant(t *testing.T) {
 	meeting := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'meeting', 'Expansion review', $3,
-		        'manual', 'human:x')`, e.WS, roomAhead(24*time.Hour))
+		        'manual', 'human:x')`, e.WS, roomTomorrow)
 	LinkActivity(t, owner, e.WS, meeting, "person", mine)
 
 	perms := roomPerms
@@ -101,7 +101,7 @@ func TestMeetingBriefRefusesAMeetingItCannotReach(t *testing.T) {
 	meeting := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'meeting', 'Their review', $3,
-		        'manual', 'human:x')`, e.WS, roomAhead(24*time.Hour))
+		        'manual', 'human:x')`, e.WS, roomTomorrow)
 	LinkActivity(t, owner, e.WS, meeting, "person", theirs)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
@@ -129,7 +129,7 @@ func TestMeetingBriefDoesNotReportALastTouchTheCallerCannotRead(t *testing.T) {
 	meeting := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'meeting', 'Expansion review', $3,
-		        'manual', 'human:x')`, e.WS, roomAhead(24*time.Hour))
+		        'manual', 'human:x')`, e.WS, roomTomorrow)
 	LinkActivity(t, owner, e.WS, meeting, "person", attendee)
 	seatInRoom(t, owner, e.WS, meeting, attendee)
 
