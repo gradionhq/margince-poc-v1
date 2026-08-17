@@ -399,3 +399,47 @@ describe("useListQuery — the page size is part of the server query", () => {
     );
   });
 });
+
+describe("the owner dial — one question the server answers three ways", () => {
+  it("swaps the owner parameter instead of stacking two of them", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "owner",
+            label: "list.owner",
+            allLabel: "list.filterOwnerAll",
+            options: [
+              { value: "owner_id:u-1", label: "list.filterOwnerMe" },
+              { value: "unassigned:true", label: "list.filterOwnerUnassigned" },
+            ],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "My records" }));
+
+    // The option carries the parameter it sets, so the chip writes `owner_id`
+    // rather than a filter named after the chip itself.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.owner_id).toBe("u-1"),
+    );
+    // And the chip reads back as chosen: a dial that narrows the list and then
+    // renders as "Any owner" looks like a filter that did not take.
+    expect(
+      screen.getByRole("group", { name: "Owner: My records" }),
+    ).toBeTruthy();
+  });
+});

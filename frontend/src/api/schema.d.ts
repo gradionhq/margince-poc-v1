@@ -18027,6 +18027,19 @@ export interface operations {
                 ai_written?: components["parameters"]["AiWritten"];
                 /** @description Filter to a single owner. */
                 owner_id?: string;
+                /**
+                 * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+                 *     a team the caller cannot see returns their own visible rows filtered to nothing, not a
+                 *     wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+                 *     and rows reached by a record grant (AAD-ROLE-2).
+                 */
+                owner_team_id?: string;
+                /**
+                 * @description `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+                 *     (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+                 *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+                 */
+                unassigned?: boolean;
                 /** @description Full-text query over name/title (tsvector). */
                 q?: string;
                 /** @description Filter by tag name. */
@@ -19026,6 +19039,19 @@ export interface operations {
                 lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
                 /** @description Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both. */
                 relationship_type?: "customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other";
+                /**
+                 * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+                 *     a team the caller cannot see returns their own visible rows filtered to nothing, not a
+                 *     wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+                 *     and rows reached by a record grant (AAD-ROLE-2).
+                 */
+                owner_team_id?: string;
+                /**
+                 * @description `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+                 *     (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+                 *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+                 */
+                unassigned?: boolean;
                 q?: string;
             };
             header?: never;

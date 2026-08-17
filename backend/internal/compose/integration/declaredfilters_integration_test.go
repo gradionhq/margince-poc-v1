@@ -315,3 +315,67 @@ func TestTheOwnerDialsRefuseEachOther(t *testing.T) {
 		}
 	}
 }
+
+// teamScopedRep is a rep at RowScopeTeam — the tier AAD-ROLE-2 gives Rep and
+// Manager. The owner filters are only safe if they narrow WITHIN this; an
+// unbounded admin cannot show that, because there is nothing left to narrow.
+func teamScopedRep(e *Env, user ids.UUID, teams []ids.UUID) context.Context {
+	return e.As(user, teams, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"person":       {Read: true},
+			"organization": {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	})
+}
+
+func TestTheTeamFilterCannotReachAnotherTeamsRows(t *testing.T) {
+	e := Setup(t)
+	// Rep1+Rep2 share Team1; Rep3 sits in Team2.
+	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+	outsider := e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
+
+	rep := teamScopedRep(e, e.Rep1, []ids.UUID{e.Team1})
+	other := ids.From[ids.TeamKind](e.Team2)
+	page, _, err := e.People.ListPeople(rep, people.ListPeopleInput{OwnerTeamID: &other})
+	if err != nil {
+		t.Fatalf("listing another team's rows: %v", err)
+	}
+	// Naming a team the caller cannot see filters THEIR OWN visible rows to
+	// nothing. It must never reach that team's records: the filter is ANDed
+	// onto the row-scope predicate, so it can only ever subtract.
+	for _, person := range page {
+		if ids.UUID(person.Id) == outsider {
+			t.Fatal("owner_team_id reached a row outside the caller's row scope — the filter widened authorization")
+		}
+	}
+	if len(page) != 0 {
+		t.Fatalf("owner_team_id=<other team> returned %d rows, want none", len(page))
+	}
+}
+
+func TestTheOrganizationListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
+	e := Setup(t)
+	held := e.SeedOrg(t, "Owned By Rep1", &e.Rep1)
+	e.SeedOrg(t, "Owned By Rep3", &e.Rep3)
+	unowned := e.SeedOrg(t, "Owned By Nobody", nil)
+
+	team := ids.From[ids.TeamKind](e.Team1)
+	page, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{OwnerTeamID: &team})
+	if err != nil {
+		t.Fatalf("listing organizations by owner team: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != held {
+		t.Fatalf("owner_team_id returned %d organizations, want only the one Team1 owns", len(page))
+	}
+
+	yes := true
+	queue, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{Unassigned: &yes})
+	if err != nil {
+		t.Fatalf("listing the unowned organizations: %v", err)
+	}
+	if len(queue) != 1 || ids.UUID(queue[0].Id) != unowned {
+		t.Fatalf("unassigned=true returned %d organizations, want only the unowned one", len(queue))
+	}
+}

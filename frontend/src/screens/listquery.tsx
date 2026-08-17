@@ -16,7 +16,7 @@ import {
 } from "../design-system/listtable";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, useSorMode } from "./common";
+import { problemMessageOf, useMe, useSorMode } from "./common";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -253,8 +253,26 @@ export function ListTable<Row>({
   const setFilter = (key: string, value: string) =>
     setQuery((prev) => {
       const filters = { ...prev.filters };
+      // A chip whose options each name a DIFFERENT query parameter carries the
+      // parameter in the value, as `param:value` (the owner dial: mine, my
+      // team's, unowned — one question the server answers three ways, and
+      // refuses if asked two at once). Clearing such a chip has to drop
+      // whichever parameter is currently set, not the chip's own key, which
+      // names no parameter at all.
+      const alternatives = chips
+        .flatMap((chip) => chip.options.map((option) => option.value))
+        .filter((candidate) => candidate.includes(":"))
+        .map((candidate) => candidate.slice(0, candidate.indexOf(":")));
+      for (const param of alternatives) {
+        delete filters[param];
+      }
       if (value) {
-        filters[key] = value;
+        const split = value.indexOf(":");
+        if (split > 0 && alternatives.includes(value.slice(0, split))) {
+          filters[value.slice(0, split)] = value.slice(split + 1);
+        } else {
+          filters[key] = value;
+        }
       } else {
         delete filters[key];
       }
@@ -298,7 +316,7 @@ export function ListTable<Row>({
           ? []
           : [...chips.map((chip) => translateChip(chip, t)), ...dataChips]
       }
-      chosen={query.filters}
+      chosen={chosenFor(chips, query.filters)}
       onChipChange={setFilter}
       // A view tab whose preset the mirror would refuse is a tab that lights up
       // and does nothing, so overlay mode shows none — the same reason its
@@ -360,4 +378,80 @@ function matchesView(spec: ViewSpec, query: ListQuery): boolean {
     wanted.length === applied.length &&
     wanted.every(([key, value]) => query.filters[key] === value)
   );
+}
+
+/**
+ * The owner dials every record list offers: mine, my team's, and the unowned
+ * queue.
+ *
+ * One chip rather than three, because they answer ONE question — whose rows —
+ * and the server refuses two of them at once (they name different sets, so a
+ * pair can only ever match nothing). A single-select chip makes that refusal
+ * unreachable from the UI instead of something the reader discovers as a 422.
+ *
+ * Built only once /me has answered. A chip option whose value is still "" reads
+ * as "clear this filter" to the table, so a half-built dial would quietly
+ * narrow nothing while looking armed.
+ *
+ * "My team" is the union of the viewer's teams when they belong to exactly one,
+ * which is the ordinary case. With several, the dial is withheld rather than
+ * guessing which one the reader meant — the wire takes one team id, and picking
+ * for them would answer a question they did not ask.
+ */
+export function useOwnerChips(): readonly FilterSpec[] {
+  const me = useMe();
+  const viewerId = me.data?.user.id;
+  if (!viewerId) {
+    return [];
+  }
+  const teams = me.data?.teams ?? [];
+  return [
+    {
+      key: "owner",
+      label: "list.owner",
+      allLabel: "list.filterOwnerAll",
+      options: [
+        { value: `owner_id:${viewerId}`, label: "list.filterOwnerMe" },
+        ...(teams.length === 1
+          ? [
+              {
+                value: `owner_team_id:${teams[0]}`,
+                label: "list.filterOwnerTeam" as const,
+              },
+            ]
+          : []),
+        { value: "unassigned:true", label: "list.filterOwnerUnassigned" },
+      ],
+    },
+  ];
+}
+
+/**
+ * What each chip currently shows, given the filters actually in the query.
+ *
+ * A normal chip stores its value under its own key and needs no translation. A
+ * chip whose options each name a different query parameter (`param:value` —
+ * the owner dial) stores the value under the PARAMETER, so its selected option
+ * has to be read back from whichever parameter is set. Without this the dial
+ * narrows the list correctly and then renders as "Any owner", which reads as a
+ * filter that did not take.
+ */
+function chosenFor(
+  chips: readonly FilterSpec[],
+  filters: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const chosen = { ...filters };
+  for (const chip of chips) {
+    for (const option of chip.options) {
+      const split = option.value.indexOf(":");
+      if (split <= 0) {
+        continue;
+      }
+      const param = option.value.slice(0, split);
+      if (filters[param] === option.value.slice(split + 1)) {
+        chosen[chip.key] = option.value;
+      }
+    }
+  }
+  return chosen;
 }

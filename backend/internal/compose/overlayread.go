@@ -46,7 +46,11 @@ const (
 	// unowned queue there is theirs, not this workspace's. Refused rather than
 	// forwarded, because a filter the mirror cannot honour would answer the
 	// unfiltered list and read as a filtered one.
-	paramOwnerTeamID    = "owner_team_id"
+	paramOwnerTeamID = "owner_team_id"
+	// Refused only when it asks for something. `unassigned=false` asks for no
+	// narrowing at all, which the native path treats as a no-op — refusing it
+	// would 422 a request that answers 200 natively, for a dial the caller
+	// effectively did not set.
 	paramUnassigned     = "unassigned"
 	paramPipelineID     = "pipeline_id"
 	paramStageID        = "stage_id"
@@ -211,7 +215,7 @@ func (s Server) ListPeople(w http.ResponseWriter, r *http.Request, params crmcon
 			{paramSort, params.Sort != nil},
 			{paramOwnerID, params.OwnerId != nil},
 			{paramOwnerTeamID, params.OwnerTeamId != nil},
-			{paramUnassigned, params.Unassigned != nil},
+			{paramUnassigned, params.Unassigned != nil && *params.Unassigned},
 			{paramTag, params.Tag != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},
@@ -236,7 +240,7 @@ func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params
 			{paramSort, params.Sort != nil},
 			{paramOwnerID, params.OwnerId != nil},
 			{paramOwnerTeamID, params.OwnerTeamId != nil},
-			{paramUnassigned, params.Unassigned != nil},
+			{paramUnassigned, params.Unassigned != nil && *params.Unassigned},
 			{"domain", params.Domain != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},
