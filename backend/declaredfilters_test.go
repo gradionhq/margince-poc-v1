@@ -278,7 +278,7 @@ func TestTheDeclaredFilterCensusReadsTheGeneratedShape(t *testing.T) {
 	}
 	// The person list declares exactly these, and the three paging components
 	// it also declares are not among them.
-	want := "ai_written,captured_by_kind,include_archived,owner_id,q,tag"
+	want := "ai_written,captured_by_kind,include_archived,owner_id,owner_team_id,q,tag,unassigned"
 	if got := strings.Join(wire, ","); got != want {
 		t.Errorf("listPeople's narrowing parameters = %q, want %q", got, want)
 	}

@@ -123,9 +123,17 @@ func listPage[T any](ctx context.Context, s *Store, sortSpec *string, limitIn *i
 type listFilters struct {
 	IncludeArchived bool
 	OwnerID         *ids.UserID
-	Query           *string
-	Cursor          *string
-	CustomFilters   map[string]string
+	// OwnerTeamID narrows to the rows owned by that team's members. It is ANDed
+	// onto the caller's row-scope clause and never replaces it, so naming a team
+	// the caller cannot see filters their own visible rows to nothing rather
+	// than reaching the team's.
+	OwnerTeamID *ids.TeamID
+	// Unassigned selects the unowned queue. Unassigned rows are visible at every
+	// row scope, so this names a subset of what the caller already sees.
+	Unassigned    *bool
+	Query         *string
+	Cursor        *string
+	CustomFilters map[string]string
 	// CapturedByKind filters on WHO created the row, matched against the
 	// captured_by prefix. `agent` is the review list for the records an AI
 	// created (ADR-0075/A121 §3a). capturedByKindClause checks it against the
@@ -263,8 +271,12 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	if !f.IncludeArchived {
 		where = append(where, "archived_at IS NULL")
 	}
-	if f.OwnerID != nil {
-		where = append(where, storekit.SQLf("owner_id = $%d", arg(*f.OwnerID)))
+	ownership, err := f.ownershipClause(arg)
+	if err != nil {
+		return nil, err
+	}
+	if ownership != "" {
+		where = append(where, ownership)
 	}
 	clause, ok, err := capturedByKindClause(f.CapturedByKind, arg)
 	if err != nil {
@@ -292,6 +304,43 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 		where = append(where, clause)
 	}
 	return where, nil
+}
+
+// ownershipClause spells the three owner dials as ONE predicate, because they
+// answer one question — whose rows — and a caller who sends two of them has
+// asked for two different answers. Combining them is refused rather than
+// silently resolved: `owner_id` AND `unassigned=true` can only ever match
+// nothing, and an empty page is indistinguishable from an honest one.
+//
+// Every clause here NARROWS. The caller's row-scope predicate is already in the
+// WHERE chain (auth.ScopeClauseFor, added before these), so a team id the
+// caller cannot see filters their own visible rows down to nothing instead of
+// reaching that team's — the filter cannot widen what authorization admitted.
+func (f listFilters) ownershipClause(arg func(any) int) (string, error) {
+	unassigned := f.Unassigned != nil && *f.Unassigned
+	named := 0
+	for _, set := range []bool{f.OwnerID != nil, f.OwnerTeamID != nil, unassigned} {
+		if set {
+			named++
+		}
+	}
+	if named > 1 {
+		return "", httperr.Validation("owner_id", "conflicting_filters",
+			"owner_id, owner_team_id and unassigned each name a different set of rows; send one")
+	}
+	switch {
+	case f.OwnerID != nil:
+		return storekit.SQLf("owner_id = $%d", arg(*f.OwnerID)), nil
+	case f.OwnerTeamID != nil:
+		return storekit.SQLf(
+			"owner_id IN (SELECT tm.user_id FROM team_membership tm WHERE tm.team_id = $%d)",
+			arg(*f.OwnerTeamID)), nil
+	case unassigned:
+		return "owner_id IS NULL", nil
+	}
+	// `unassigned=false` is not "only owned rows": the reader asked to stop
+	// narrowing, and the honest answer to that is the unnarrowed list.
+	return "", nil
 }
 
 // capturedByKindArg maps the optional provenance parameter onto the store

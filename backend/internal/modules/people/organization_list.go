@@ -38,6 +38,11 @@ type ListOrganizationsInput struct {
 	Limit         *int
 	Query         *string
 	OwnerID       *ids.UserID
+	// OwnerTeamID narrows to a team's rows; Unassigned to the unowned queue.
+	// Both narrow the caller's row scope and never widen it — see
+	// listFilters.ownershipClause, which also refuses two of them at once.
+	OwnerTeamID *ids.TeamID
+	Unassigned  *bool
 	// Classification is RETIRED with the column (ADR-0079/A124) and reaches no
 	// wire parameter; Lifecycle and RelationshipType replace it.
 	Classification   *string
@@ -131,6 +136,8 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		AiWritten:       in.AiWritten,
 		entity:          organizationEntity,
 		OwnerID:         in.OwnerID,
+		OwnerTeamID:     in.OwnerTeamID,
+		Unassigned:      in.Unassigned,
 		Query:           in.Query,
 		Cursor:          in.Cursor,
 		CustomFilters:   in.CustomFilters,

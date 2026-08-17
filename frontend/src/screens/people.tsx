@@ -36,6 +36,7 @@ import {
   type ListQuery,
   ListTable,
   useListQuery,
+  useOwnerChips,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { MergeAction } from "./merge";
@@ -463,6 +464,7 @@ export function ContactsScreen() {
   // Offered only once /me has answered: a chip whose value is still "" reads
   // as "clear this filter", so a half-built owner dial narrows nothing.
   const viewerId = useViewerId();
+  const ownerChips = useOwnerChips();
   const cf = useObjectCustomFields("person");
   const state = useListQuery<Person>({
     key: "people",
@@ -542,18 +544,7 @@ export function ContactsScreen() {
         ]}
         rowKey={(person) => person.id}
         rowRoute={(person) => ({ screen: "contacts", id: person.id })}
-        chips={
-          viewerId
-            ? [
-                {
-                  key: "owner_id",
-                  label: "list.filterOwnerMe",
-                  allLabel: "list.filterOwnerAll",
-                  options: [{ value: viewerId, label: "list.filterOwnerMe" }],
-                },
-              ]
-            : []
-        }
+        chips={ownerChips}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
           ...(viewerId

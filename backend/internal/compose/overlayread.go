@@ -39,8 +39,19 @@ import (
 // below — named once so each refusal spells the contract's own query
 // vocabulary identically.
 const (
-	paramSort           = "sort"
-	paramOwnerID        = "owner_id"
+	paramSort    = "sort"
+	paramOwnerID = "owner_id"
+	// Ownership in the mirror is the incumbent's, and their teams are not ours:
+	// a team id names a margince team the mirror has never heard of, and the
+	// unowned queue there is theirs, not this workspace's. Refused rather than
+	// forwarded, because a filter the mirror cannot honour would answer the
+	// unfiltered list and read as a filtered one.
+	paramOwnerTeamID = "owner_team_id"
+	// Refused only when it asks for something. `unassigned=false` asks for no
+	// narrowing at all, which the native path treats as a no-op — refusing it
+	// would 422 a request that answers 200 natively, for a dial the caller
+	// effectively did not set.
+	paramUnassigned     = "unassigned"
 	paramPipelineID     = "pipeline_id"
 	paramStageID        = "stage_id"
 	paramOrganizationID = "organization_id"
@@ -203,6 +214,8 @@ func (s Server) ListPeople(w http.ResponseWriter, r *http.Request, params crmcon
 		[]overlayParam{
 			{paramSort, params.Sort != nil},
 			{paramOwnerID, params.OwnerId != nil},
+			{paramOwnerTeamID, params.OwnerTeamId != nil},
+			{paramUnassigned, params.Unassigned != nil && *params.Unassigned},
 			{paramTag, params.Tag != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},
@@ -226,6 +239,8 @@ func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params
 		[]overlayParam{
 			{paramSort, params.Sort != nil},
 			{paramOwnerID, params.OwnerId != nil},
+			{paramOwnerTeamID, params.OwnerTeamId != nil},
+			{paramUnassigned, params.Unassigned != nil && *params.Unassigned},
 			{"domain", params.Domain != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},

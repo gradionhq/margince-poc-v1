@@ -115,6 +115,7 @@ import {
   type ListQuery,
   ListTable,
   useListQuery,
+  useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
@@ -546,6 +547,7 @@ export function CompaniesScreen() {
   // the table, so offering "My companies" mid-load would quietly narrow
   // nothing — the same reason the deal list builds its owner chip this way.
   const viewerId = useViewerId();
+  const ownerChips = useOwnerChips();
 
   return (
     <div className="wrap">
@@ -665,18 +667,7 @@ export function CompaniesScreen() {
               label: RELATIONSHIP_TYPE_LABELS[value],
             })),
           },
-          ...(viewerId
-            ? [
-                {
-                  key: "owner_id",
-                  label: "list.filterOwnerMe" as const,
-                  allLabel: "list.filterOwnerAll" as const,
-                  options: [
-                    { value: viewerId, label: "list.filterOwnerMe" as const },
-                  ],
-                },
-              ]
-            : []),
+          ...ownerChips,
         ]}
         views={[
           { label: "list.viewAll", sort: "-created_at" },

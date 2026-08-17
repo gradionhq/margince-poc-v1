@@ -44,13 +44,17 @@ const activityLinkEntityTypeEnum = `["person","organization","deal","lead","proj
 var listRecordFilters = map[string][]listFilter{
 	"person": {
 		{Name: "owner_id", Type: "string"},
+		{Name: "owner_team_id", Type: "string"},
 		{Name: "tag", Type: "string"},
+		{Name: "unassigned", Type: "boolean"},
 	},
 	"organization": {
 		{Name: "domain", Type: "string"},
 		{Name: "lifecycle", Type: "string", Enum: []string{"unknown", "target", "prospect", "opportunity", "customer", "former_customer", "disqualified"}},
 		{Name: "owner_id", Type: "string"},
+		{Name: "owner_team_id", Type: "string"},
 		{Name: "relationship_type", Type: "string", Enum: []string{"customer", "partner", "supplier", "investor", "portfolio_company", "competitor", "other"}},
+		{Name: "unassigned", Type: "boolean"},
 	},
 	"deal": {
 		{Name: "organization_id", Type: "string"},
