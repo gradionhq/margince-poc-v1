@@ -1,5 +1,8 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
@@ -9,7 +12,7 @@ import { FileDropzone } from "../design-system/filedropzone";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 
 // Adding a document to an account, from the account.
 //
@@ -95,7 +98,15 @@ function metadataFor(submitted: Submission) {
   return patch;
 }
 
-/** The deals this document could be filed against, newest first. */
+// How many deals the picker offers. A Select is a list, not a search, and one
+// carrying every deal an old account ever had is not a control anybody can use.
+// The cap is therefore deliberate — and it is a real limit: an account past it
+// cannot file a document against its oldest deals from here. Issue 1536 tracks
+// giving this a searchable picker, which is the shape that removes the cap
+// rather than raising it.
+const DEAL_CHOICES = 50;
+
+/** The deals this document could be filed against, in the API's own order. */
 function useAccountDeals(orgId: string, open: boolean) {
   return useQuery({
     queryKey: ["dealsForOrg", orgId],
@@ -104,7 +115,7 @@ function useAccountDeals(orgId: string, open: boolean) {
     enabled: open,
     queryFn: async () => {
       const { data, error } = await api.GET("/deals", {
-        params: { query: { organization_id: orgId, limit: 50 } },
+        params: { query: { organization_id: orgId, limit: DEAL_CHOICES } },
       });
       if (error) {
         throwProblem(error);
@@ -131,15 +142,27 @@ export function AddDocumentDialog({
   // state: the upload succeeded, and the row exists.
   const [partial, setPartial] = useState(false);
 
+  // Read at the moment the request lands, not captured when it was sent. The
+  // mutation's callbacks close over the render that pressed the button, where
+  // the dialog was open by definition — so a plain `open` here would always be
+  // true and the guard below would never fire.
+  const openNow = useRef(open);
+  openNow.current = open;
+
   const deals = useAccountDeals(orgId, open);
   const parent = parseParent(choice, orgId);
   const canWriteOrg = useCanWrite("organization", "update");
   const canWriteDeal = useCanWrite("deal", "update");
   const permitted = parent.entityType === "deal" ? canWriteDeal : canWriteOrg;
 
-  const close = () => {
-    setPartial(false);
-    onClose();
+  // Emptying the form is separate from closing it, because the two happen at
+  // different moments: every close empties, and the partial-failure path
+  // empties the file without closing.
+  const clearDraft = () => {
+    setChoice(THIS_COMPANY);
+    setCategory("other");
+    setTitle("");
+    setFile(undefined);
   };
 
   // Everything the request needs arrives as a variable. A mutationFn closing
@@ -151,13 +174,21 @@ export function AddDocumentDialog({
       if (Object.keys(patch).length === 0) {
         return { filed: true };
       }
-      const { error } = await api.PATCH("/attachments/{id}/metadata", {
-        params: { path: { id } },
-        body: patch,
-      });
-      // Deliberately not thrown: the file is stored either way, and the caller
-      // needs to tell those two outcomes apart.
-      return { filed: !error };
+      // EVERY way the second call can fail is a partial success, not a
+      // failure — a refusal, a dropped connection, a parse error alike. Once
+      // the bytes are stored, the only wrong answer is the one that tells the
+      // reader nothing was. Catching is what covers the thrown half: an
+      // openapi-fetch rejection never reaches `error`, and left uncaught it
+      // would surface as "Nothing was stored" over a document that is.
+      try {
+        const { error } = await api.PATCH("/attachments/{id}/metadata", {
+          params: { path: { id } },
+          body: patch,
+        });
+        return { filed: !error };
+      } catch {
+        return { filed: false };
+      }
     },
     onSuccess: async (result) => {
       await queryClient.invalidateQueries({
@@ -167,20 +198,39 @@ export function AddDocumentDialog({
         queryKey: ["organization360", orgId],
       });
       if (result.filed) {
-        close();
+        closeAndClear();
         return;
       }
-      // Kept open, with the file cleared: the document is on the record, so
+      // Guarded on the dialog still being open. React Query runs a mutation to
+      // completion whoever started it, so a reader who closed mid-flight would
+      // otherwise be met on their NEXT visit by a warning about an upload from
+      // the previous one, with nothing on screen it refers to.
+      if (!openNow.current) {
+        return;
+      }
+      // Kept open, with the draft cleared: the document is on the record, so
       // offering the same upload again would file it twice.
-      setFile(undefined);
+      clearDraft();
       setPartial(true);
     },
   });
 
-  const refusal = uploadRefusal(file, permitted);
+  // Closing empties the form. The dialog is MOUNTED for the life of the card —
+  // Modal renders nothing while shut, it does not unmount its children — so
+  // anything left here is what the next opening starts with. That is a hazard
+  // rather than untidiness: a file still in the field is one a later, unrelated
+  // upload would silently send a second copy of.
+  function closeAndClear() {
+    clearDraft();
+    setPartial(false);
+    upload.reset();
+    onClose();
+  }
+
+  const refusal = uploadRefusal(file, permitted, upload.isPending);
 
   return (
-    <Modal open={open} onClose={close} labelledBy={titleId}>
+    <Modal open={open} onClose={closeAndClear} labelledBy={titleId}>
       <h2 id={titleId}>{t("docs.add.title")}</h2>
 
       {partial && (
@@ -190,7 +240,11 @@ export function AddDocumentDialog({
       )}
       {upload.isError && (
         <Callout tone="danger" live="alert" title={t("docs.add.failedTitle")}>
-          {t("docs.add.failed")}
+          {/* The SERVER's own sentence when it gave one. An oversize file and a
+              permission denial are different problems with different next
+              moves, and one fixed "try again" is wrong advice for the second
+              and hides the size limit in the first. */}
+          {problemMessageOf(upload.error, t, t("docs.add.failed"))}
         </Callout>
       )}
       {deals.isError && (
@@ -249,7 +303,7 @@ export function AddDocumentDialog({
       />
 
       <div className="actions">
-        <Button onClick={close}>{t("docs.add.cancel")}</Button>
+        <Button onClick={closeAndClear}>{t("docs.add.cancel")}</Button>
         <Button
           variant="primary"
           reason={refusal ? t(refusal) : undefined}
@@ -265,16 +319,26 @@ export function AddDocumentDialog({
 }
 
 // Why the upload cannot be offered, in the order the reader can act on: a
-// missing file is theirs to fix, a missing grant is not.
+// missing file is theirs to fix, a missing grant is not, and an upload already
+// in flight is neither — it is the same press arriving twice.
+//
+// The in-flight case is a REFUSAL and not merely a label change, because the
+// request it would repeat has already left: a second press lands a second copy
+// of the document on the record, and nothing downstream can tell that from two
+// deliberate uploads of the same file.
 function uploadRefusal(
   file: File | undefined,
   permitted: boolean,
+  pending: boolean,
 ): MessageKey | null {
   if (!permitted) {
     return "docs.add.errRefused";
   }
   if (!file) {
     return "docs.add.errNoFile";
+  }
+  if (pending) {
+    return "docs.add.errInFlight";
   }
   return null;
 }

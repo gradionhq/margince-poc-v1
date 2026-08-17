@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -77,9 +77,14 @@ function contractsState(
 
 export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
+  // `useCan` for the READ — the grant alone decides what may be shown. The two
+  // below gate MUTATING controls, so they take the seat as well: the server
+  // clamps the licensing seat on the HTTP method, before RBAC runs, and a read
+  // seat holding a full contract grant would otherwise be offered an Add and an
+  // Archive whose every press is refused.
   const mayRead = useCan("contract", "read");
-  const mayWrite = useCan("contract", "update");
-  const mayArchive = useCan("contract", "delete");
+  const mayWrite = useCanWrite("contract", "update");
+  const mayArchive = useCanWrite("contract", "delete");
   const [activeOnly, setActiveOnly] = useState(false);
   // `editing` carries the contract being corrected; undefined means the form is
   // adding a new one. One form serves both, because "record what we agreed" and

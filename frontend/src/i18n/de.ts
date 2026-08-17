@@ -1737,12 +1737,13 @@ export const de = {
   "docs.add.errNoFile": "Wählen Sie eine Datei zum Hochladen.",
   "docs.add.errRefused":
     "Sie dürfen zu diesem Datensatz keine Dokumente hinzufügen.",
+  "docs.add.errInFlight": "Dieses Dokument wird noch hochgeladen.",
   "docs.add.failedTitle": "Der Upload ist fehlgeschlagen",
   "docs.add.failed":
     "Es wurde nichts gespeichert. Versuchen Sie es erneut oder wählen Sie eine andere Datei.",
   "docs.add.partialTitle": "Hochgeladen, aber nicht eingeordnet",
   "docs.add.partial":
-    "Die Datei liegt am Datensatz. Kategorie und Titel wurden nicht gespeichert — setzen Sie sie in der Zeile des Dokuments.",
+    "Die Datei liegt am Datensatz und steht unten in der Liste. Nur Kategorie und Titel wurden nicht gespeichert, sie ist daher unter Sonstiges abgelegt.",
   "docs.add.dealsFailed":
     "Die Deals dieses Accounts konnten nicht geladen werden; das Dokument kann daher nur der Firma zugeordnet werden.",
 

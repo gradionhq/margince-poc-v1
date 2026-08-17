@@ -1727,11 +1727,12 @@ export const vi = {
   "docs.add.uploading": "Đang tải lên…",
   "docs.add.errNoFile": "Hãy chọn một tệp để tải lên.",
   "docs.add.errRefused": "Bạn không được thêm tài liệu vào bản ghi này.",
+  "docs.add.errInFlight": "Tài liệu này vẫn đang được tải lên.",
   "docs.add.failedTitle": "Tải lên không thành công",
   "docs.add.failed": "Chưa lưu được gì. Hãy thử lại, hoặc chọn tệp khác.",
   "docs.add.partialTitle": "Đã tải lên, nhưng chưa xếp loại",
   "docs.add.partial":
-    "Tệp đã nằm trên bản ghi. Phân loại và tiêu đề chưa được lưu — hãy đặt lại từ chính dòng của tài liệu.",
+    "Tệp đã nằm trên bản ghi và có trong danh sách bên dưới. Chỉ phân loại và tiêu đề là chưa lưu được, nên tệp đang xếp ở mục Khác.",
   "docs.add.dealsFailed":
     "Không tải được danh sách thương vụ của tài khoản này, nên tài liệu chỉ có thể gắn với công ty.",
 

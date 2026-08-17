@@ -6,9 +6,9 @@
  * mouse. `visibility: hidden` or `display: none` would take it out of the tab
  * order, which is the usual way this pattern locks out the keyboard.
  *
- * The class prefix is `fdz`, not `dropzone`: two unrelated global `.dropzone`
- * rulesets already exist in the screen sheets, and a primitive that any screen
- * may import cannot depend on which of them loaded last. */
+ * The class prefix is `fdz`, not `dropzone`: a global `.dropzone` ruleset
+ * already exists in a screen sheet (onboarding.css), and a primitive that any
+ * screen may import cannot depend on which of them loaded last. */
 
 .fdz {
   position: relative;
@@ -49,9 +49,21 @@
   cursor: pointer;
 }
 
+/* Inert to the pointer, so dragging across it does not read as leaving the
+ * zone. Without this the highlight flickers off and on as the cursor crosses
+ * the text — dragleave fires on the move from parent to child. */
+.fdz > * {
+  pointer-events: none;
+}
+
 .fdz-label {
   color: var(--textSecondary);
   font-size: var(--fs-sm);
+  /* Inert to the pointer — this text only, never the input stretched beside
+   * it, which is the whole control. `dragleave` fires on the move from one
+   * element to a sibling, so a cursor crossing this text would otherwise
+   * flicker the highlight off and straight back on. */
+  pointer-events: none;
 }
 
 /* A chosen file is the answer to the question the zone asked, so it stops

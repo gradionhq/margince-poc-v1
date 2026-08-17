@@ -1,7 +1,11 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
@@ -14,6 +18,7 @@ import { AddDocumentDialog } from "./adddocument";
 
 afterEach(() => {
   cleanup();
+  shared = undefined;
   vi.unstubAllGlobals();
 });
 
@@ -55,7 +60,17 @@ type Recorded = { url: string; method: string; body: unknown };
  */
 function stubApi(
   me: unknown,
-  options: { uploadStatus?: number; metadataStatus?: number } = {},
+  options: {
+    uploadStatus?: number;
+    uploadDetail?: string;
+    metadataStatus?: number;
+    // Rejects instead of answering — a dropped connection, not a refusal.
+    metadataThrows?: boolean;
+    uploadThrows?: boolean;
+    // Resolves the upload only once the test lets it, so the in-flight window
+    // is a state the test can act in rather than a race it has to win.
+    holdUpload?: Promise<void>;
+  } = {},
 ) {
   const calls: Recorded[] = [];
   const json = (payload: unknown, status = 200) =>
@@ -84,16 +99,32 @@ function stubApi(
         return json({ data: [DEAL], page: { next_cursor: null } });
       }
       if (url.includes("/metadata")) {
+        if (options.metadataThrows) {
+          throw new TypeError("Failed to fetch");
+        }
         const status = options.metadataStatus ?? 200;
         return status === 200
           ? json({ id: "att-1" })
           : json({ title: "Forbidden", status }, status);
       }
       if (url.includes("/v1/attachments")) {
+        if (options.uploadThrows) {
+          throw new TypeError("Failed to fetch");
+        }
+        if (options.holdUpload) {
+          await options.holdUpload;
+        }
         const status = options.uploadStatus ?? 201;
         return status === 201
           ? json({ id: "att-1", filename: "order_form.txt" }, 201)
-          : json({ title: "Forbidden", status }, status);
+          : json(
+              {
+                title: "Unprocessable",
+                status,
+                detail: options.uploadDetail,
+              },
+              status,
+            );
       }
       return json({ data: [], page: { next_cursor: null } });
     }),
@@ -101,17 +132,66 @@ function stubApi(
   return calls;
 }
 
-function show(onClose = () => {}) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={client}>
+const client = () =>
+  new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+let shared: QueryClient | undefined;
+
+/** The dialog under one stable client, so a rerender is a reopen and not a
+ * fresh mount — which is the only way the state-between-opens rule can be
+ * tested at all. */
+function dialog(open: boolean, onClose = () => {}) {
+  shared ??= client();
+  return (
+    <QueryClientProvider client={shared}>
       <LocaleProvider initial="en">
-        <AddDocumentDialog orgId="o-1" open onClose={onClose} />
+        <AddDocumentDialog orgId="o-1" open={open} onClose={onClose} />
+      </LocaleProvider>
+    </QueryClientProvider>
+  );
+}
+
+function renderDialog(open: boolean, onClose = () => {}) {
+  shared = client();
+  return render(dialog(open, onClose));
+}
+
+/**
+ * The dialog as its real caller holds it: a parent owning the open flag, which
+ * the dialog's own Cancel closes through `onClose`.
+ *
+ * Rerendering with `open={false}` by hand would not do — that skips the
+ * dialog's close path entirely, and the close path is what the test is about.
+ */
+function Hosted() {
+  const [open, setOpen] = useState(true);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        reopen
+      </button>
+      <AddDocumentDialog
+        orgId="o-1"
+        open={open}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  );
+}
+
+function renderHosted() {
+  shared = client();
+  return render(
+    <QueryClientProvider client={shared}>
+      <LocaleProvider initial="en">
+        <Hosted />
       </LocaleProvider>
     </QueryClientProvider>,
   );
+}
+
+function show(onClose = () => {}) {
+  return renderDialog(true, onClose);
 }
 
 function orderForm() {
@@ -120,11 +200,16 @@ function orderForm() {
   });
 }
 
-/** The multipart body the dialog sent, as plain fields. */
-function uploadedForm(calls: Recorded[]): FormData {
-  const upload = calls.find(
+/** Every multipart upload the dialog sent. Its LENGTH is the duplicate check. */
+function uploads(calls: Recorded[]): Recorded[] {
+  return calls.filter(
     (call) => call.method === "POST" && call.url.includes("/v1/attachments"),
   );
+}
+
+/** The multipart body the dialog sent, as plain fields. */
+function uploadedForm(calls: Recorded[]): FormData {
+  const upload = uploads(calls)[0];
   if (!(upload?.body instanceof FormData)) {
     throw new Error("no multipart upload was sent");
   }
@@ -249,14 +334,17 @@ describe("adding a document from the account", () => {
     ).toBeTruthy();
   });
 
-  it("reports a failed upload as nothing stored, which is a different sentence", async () => {
+  it("reports an upload that never landed as nothing stored, which is a different sentence", async () => {
     const user = userEvent.setup();
-    stubApi(FULL_SEAT, { uploadStatus: 403 });
+    stubApi(FULL_SEAT, { uploadThrows: true });
     show();
 
     await user.upload(screen.getByLabelText(/File/), orderForm());
     await pressUpload(user);
 
+    // A connection that dropped before the POST carries no problem document,
+    // so this is the one case the dialog's own sentence is the best available.
+    // It must not be confused with the partial, where the bytes DID land.
     expect(await screen.findByText(/Nothing was stored/)).toBeTruthy();
     expect(screen.queryByText(/Uploaded, but not filed/)).toBeNull();
   });
@@ -286,9 +374,9 @@ describe("adding a document from the account", () => {
     );
     // The seat is clamped by the server on the METHOD, before RBAC — a grant
     // alone is not permission to write, and the button must not pretend it is.
-    expect(
-      screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
-    ).toBe(true);
+    // Pressed anyway, because a disabled attribute a test never exercises is a
+    // claim about markup rather than about behaviour.
+    await user.click(screen.getByRole("button", { name: "Upload" }));
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
@@ -312,5 +400,120 @@ describe("adding a document from the account", () => {
     show();
 
     expect(await screen.findByText(/deals could not be loaded/)).toBeTruthy();
+  });
+
+  it("refuses a second press while the first upload is still in flight", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const calls = stubApi(FULL_SEAT, { holdUpload: held });
+    show();
+
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+
+    // The refusal has to be on the CONTROL, not only in its label: a button
+    // that merely reads "Uploading…" still fires, and the second press puts a
+    // second copy of the document on an audited record.
+    const submit = await screen.findByRole("button", { name: /Uploading/ });
+    expect(submit.hasAttribute("disabled")).toBe(true);
+    await user.click(submit);
+
+    release?.();
+    await waitFor(() => expect(uploads(calls)).toHaveLength(1));
+  });
+
+  it("starts empty on the next opening, so the file just filed cannot be filed again", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT);
+    const view = renderDialog(true);
+
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+    await waitFor(() => expect(uploads(calls)).toHaveLength(1));
+
+    // The dialog is never unmounted — Modal renders null while shut — so a
+    // reopen shows whatever the last visit left behind.
+    view.rerender(dialog(false));
+    view.rerender(dialog(true));
+
+    expect(
+      await screen.findByText("Drop the file here, or click to choose one"),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upload" })).toBeTruthy();
+    expect(await screen.findByText("Choose a file to upload.")).toBeTruthy();
+  });
+
+  it("does not greet the next visit with a warning about the last one", async () => {
+    const user = userEvent.setup();
+    let release: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    stubApi(FULL_SEAT, { holdUpload: held, metadataThrows: true });
+    renderHosted();
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: /Category/ }),
+      "Contract",
+    );
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+
+    // Closed while the request is still out. React Query runs a mutation to
+    // completion whoever started it, so the half-failure lands with nobody
+    // watching.
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    release?.();
+    await waitFor(() =>
+      expect(screen.queryByText("Add a document")).toBeNull(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "reopen" }));
+    expect(
+      await screen.findByText("Drop the file here, or click to choose one"),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Uploaded, but not filed/)).toBeNull();
+  });
+
+  it("calls a thrown metadata request a partial success, because the bytes are already stored", async () => {
+    const user = userEvent.setup();
+    stubApi(FULL_SEAT, { metadataThrows: true });
+    show();
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: /Category/ }),
+      "Contract",
+    );
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+
+    // A dropped connection after a successful POST rejects rather than
+    // returning a problem document. Reported as a failure it would read
+    // "Nothing was stored" over a document that is.
+    expect(await screen.findByText(/Uploaded, but not filed/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing was stored/)).toBeNull();
+  });
+
+  it("says what the server said when it refused, rather than one fixed sentence", async () => {
+    const user = userEvent.setup();
+    stubApi(FULL_SEAT, {
+      uploadStatus: 422,
+      uploadDetail: "the file exceeds the 26214400-byte limit",
+    });
+    show();
+
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+
+    // "Try again, or choose another file" is wrong advice for an oversize file
+    // and for a denial alike; the server's own detail is the actionable half.
+    expect(
+      await screen.findByText(/exceeds the 26214400-byte limit/),
+    ).toBeTruthy();
   });
 });

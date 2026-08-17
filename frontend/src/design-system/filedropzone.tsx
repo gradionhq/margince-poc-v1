@@ -13,11 +13,12 @@ import "./filedropzone.css";
 // silently excludes everyone not holding a mouse, which is the usual way this
 // pattern ships.
 //
-// So the input is the control and the zone is chrome around it: a transparent
-// file input stretched across the whole area (see filedropzone.css) means a
-// click anywhere lands on the input itself, with no handler forwarding it and
-// nothing to keep in sync. The drag handlers are the only behaviour this
-// component adds, and they add an affordance rather than replacing one.
+// So there is exactly ONE control here: a transparent file input stretched
+// across the whole area (see filedropzone.css). A click anywhere lands on the
+// input itself, with no handler forwarding it and nothing to keep in sync; the
+// drag handlers sit on that same input rather than on the box around it, so
+// nothing in this component is interactive except the control that owns the
+// value. Everything else — the border, the state text — is inert chrome.
 
 /**
  * A labelled control for picking one file.
@@ -32,7 +33,6 @@ export function FileDropzone({
   hint,
   emptyLabel,
   file,
-  accept,
   onPick,
 }: Readonly<{
   label: string;
@@ -41,7 +41,6 @@ export function FileDropzone({
   // only the caller knows what kind of file it is asking for.
   emptyLabel: string;
   file?: File;
-  accept?: string;
   onPick: (file: File) => void;
 }>) {
   const [over, setOver] = useState(false);
@@ -56,36 +55,50 @@ export function FileDropzone({
   return (
     <Field label={label} hint={hint}>
       {(control) => (
-        // A LABEL, not a div: it owns the file input it wraps, so the zone is
-        // part of a control rather than an interactive box of unknown purpose,
-        // and the drag handlers decorate something a screen reader can already
-        // announce. A div here would need a role invented for it.
-        <label
-          className={over ? "fdz dragover" : "fdz"}
-          onDragOver={(event: DragEvent<HTMLLabelElement>) => {
-            // Without this the browser navigates to the dropped file, which
-            // loses both the file and the form the reader had filled in.
-            event.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(event: DragEvent<HTMLLabelElement>) => {
-            event.preventDefault();
-            setOver(false);
-            take(event.dataTransfer.files);
-          }}
-        >
+        // An inert div. The zone is not a second label and not a widget: the
+        // input stretched across it is the only control here, and `Field` has
+        // already labelled that input by id. A <label> wrapper would name the
+        // input a SECOND time and fold the chosen filename into its accessible
+        // name, so the control would announce as "File order_form.txt" — the
+        // value baked into the name, changing every time a file is picked.
+        <div className={over ? "fdz dragover" : "fdz"}>
           <input
             {...control}
             type="file"
-            accept={accept}
             className="fdz-input"
-            onChange={(event) => take(event.target.files)}
+            // Cleared after every pick. A browser fires no change event when
+            // the SAME path is chosen again, and choosing it again is the
+            // natural next move after a caller clears the field — which is
+            // exactly what the add-document dialog does when an upload half
+            // fails. Without this the second pick is silently inert.
+            onChange={(event) => {
+              const chosen = event.target.files;
+              take(chosen);
+              event.target.value = "";
+            }}
+            // The drag handlers live on the INPUT, which covers the whole zone,
+            // so they need no role invented for them and the drop lands on the
+            // control that owns the value.
+            onDragOver={(event: DragEvent<HTMLInputElement>) => {
+              // Without this the browser navigates to the dropped file, which
+              // loses both the file and the form the reader had filled in.
+              event.preventDefault();
+              setOver(true);
+            }}
+            onDragLeave={() => setOver(false)}
+            onDrop={(event: DragEvent<HTMLInputElement>) => {
+              event.preventDefault();
+              setOver(false);
+              take(event.dataTransfer.files);
+            }}
           />
-          <span className={file ? "fdz-label chosen" : "fdz-label"}>
+          {/* Visible text only. The input announces its own value, so marking
+              this aria-hidden keeps a screen reader from hearing the filename
+              twice while a sighted reader still sees it. */}
+          <span aria-hidden className={file ? "fdz-label chosen" : "fdz-label"}>
             {file ? file.name : emptyLabel}
           </span>
-        </label>
+        </div>
       )}
     </Field>
   );

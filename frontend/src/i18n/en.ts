@@ -1735,11 +1735,12 @@ export const en = {
   "docs.add.uploading": "Uploading…",
   "docs.add.errNoFile": "Choose a file to upload.",
   "docs.add.errRefused": "You may not add documents to this record.",
+  "docs.add.errInFlight": "This document is still uploading.",
   "docs.add.failedTitle": "The upload did not go through",
   "docs.add.failed": "Nothing was stored. Try again, or choose another file.",
   "docs.add.partialTitle": "Uploaded, but not filed",
   "docs.add.partial":
-    "The file is on the record. Its category and title were not saved — set them from the document's own row.",
+    "The file is on the record and listed below. Only its category and title were not saved, so it is filed under Other.",
   "docs.add.dealsFailed":
     "This account's deals could not be loaded, so the document can only be filed against the company.",
 
