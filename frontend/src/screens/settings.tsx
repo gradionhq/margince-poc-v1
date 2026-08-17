@@ -1417,13 +1417,14 @@ function ToolRow({
   );
 }
 
-// The danger-zone reset action: wipes a non-production installation back to
-// its first-boot state. Double-gated client-side — the admin role AND the
-// server-driven `non_production` posture on /me (never VITE_UI_PREVIEW_RESET,
-// which is the unrelated password-reset link) — so the affordance is invisible
-// on a production install even to an admin; the server enforces both the
-// same way and 404s the endpoint outright in production regardless of what
-// this card renders. This is admin-ONLY, and narrower than the Maintenance entry
+// The danger-zone reset action: wipes the installation back to its first-boot
+// state. Double-gated client-side — the admin role AND the server-driven
+// `data_reset_available` flag on /me (never VITE_UI_PREVIEW_RESET, which is the
+// unrelated password-reset link) — so the affordance is invisible unless the
+// deployment armed the capability; the server gates the endpoint on that same
+// value and 404s it otherwise, regardless of what this card renders.
+//
+// This is admin-ONLY, and narrower than the Maintenance entry
 // that hosts it — that entry opens on the embedding_reindex read, so an ops seat
 // reaches it for the search index and simply finds no reset control. The
 // server's auth.RequireAdmin on /admin/reset-data admits only the literal
@@ -1476,7 +1477,7 @@ function ResetDataCard() {
     },
   });
 
-  if (!isAdmin || !me.data?.non_production) {
+  if (!isAdmin || !me.data?.data_reset_available) {
     return null;
   }
 

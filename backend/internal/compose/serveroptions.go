@@ -333,18 +333,22 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	}
 }
 
-// WithDataReset wires the non-production admin data-reset endpoint
-// (POST /v1/admin/reset-data): the sweep runs through the composed app-role
-// pool (the one every option receives, as WithSchemaPool takes it), while
-// schemaPool (may be nil) is the owner-privileged pool that finalizes cf_*
-// column drops — nil skips that finalize step, the reset itself still
-// succeeds. Absent this option, or outside a non-production posture, the
-// endpoint answers 404 (dataResetHandlers' zero value has a nil pool, the
-// same closed default).
-func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, env runtimeenv.Environment) Option {
+// WithDataReset wires the admin data-reset endpoint (POST /v1/admin/reset-data):
+// the sweep runs through the composed app-role pool (the one every option
+// receives, as WithSchemaPool takes it), while schemaPool (may be nil) is the
+// owner-privileged pool that finalizes cf_* column drops — nil skips that
+// finalize step, the reset itself still succeeds. Absent this option, or with
+// allowed=false, the endpoint answers 404 (dataResetHandlers' zero value has a
+// nil pool and a false flag, the same closed default).
+//
+// allowed is operations.allow_data_reset, stated by the deployment. It used to
+// be inferred from MARGINCE_ENV, which meant an installation labelled `staging`
+// — real internal users — could have its tenant data purged because a label
+// said it was not production.
+func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, allowed bool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.dataResetHandlers = dataResetHandlers{
-			pool: pool, schemaPool: schemaPool, seeds: seeds, env: env, log: s.log,
+			pool: pool, schemaPool: schemaPool, seeds: seeds, dataResetAllowed: allowed, log: s.log,
 			// A pointer into the Server, so WithResetRuntime may be applied
 			// before or after this option (see Server.resetRuntime). The meter
 			// is likewise the ONE shared instance WithOverlayMeter rebinds; the
@@ -376,16 +380,25 @@ func WithResetRuntime(rt ResetRuntime) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.resetRuntime = rt }
 }
 
-// WithNonProduction surfaces the SAME deployment posture WithDataReset
-// gates the endpoint on, onto /me's non_production field (the client
-// signal for showing/hiding the "Reset data" action) — mirrors WithSorMode,
-// which surfaces the datasource dispatch's mode the same way. Absent this
-// option, /me reports production (Handlers' zero value), the fail-closed
-// default that hides the action rather than risk exposing it under an
-// unwired role.
+// WithNonProduction surfaces the deployment posture onto /me's non_production
+// field. Absent this option /me reports production, the fail-closed default.
 func WithNonProduction(env runtimeenv.Environment) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.authHandlers = s.WithNonProduction(env.IsNonProduction())
+	}
+}
+
+// WithDataResetAvailable surfaces onto /me the same switch WithDataReset gates
+// the endpoint on, so the action a client renders and the route it would call
+// cannot disagree.
+//
+// Its own option rather than an argument to the posture above, because the two
+// are independent facts and this whole capability exists to stop them
+// travelling together. Absent it /me reports unavailable, which hides the
+// action rather than offering one the server would refuse.
+func WithDataResetAvailable(allowed bool) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithDataResetAvailable(allowed)
 	}
 }
 

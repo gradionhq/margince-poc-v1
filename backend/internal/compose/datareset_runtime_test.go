@@ -18,7 +18,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // runPhase drives the runtime phase over a handler set with no injected
@@ -327,7 +326,7 @@ func TestResetRuntimeReachesTheHandlerInEitherOptionOrder(t *testing.T) {
 	runtime := WithResetRuntime(ResetRuntime{
 		PurgeQueue: func(context.Context, ids.UUID) (int, error) { return purged, nil },
 	})
-	reset := WithDataReset(nil, deployconfig.Seeds{}, runtimeenv.Development)
+	reset := WithDataReset(nil, deployconfig.Seeds{}, true)
 
 	for _, order := range []struct {
 		name string
@@ -360,7 +359,7 @@ func TestResetRuntimeReachesTheHandlerInEitherOptionOrder(t *testing.T) {
 func TestTheDataResetReachesTheObjectStoreInEitherOptionOrder(t *testing.T) {
 	store := blobstore.NewMemory()
 	blob := WithBlobstore(store)
-	reset := WithDataReset(nil, deployconfig.Seeds{}, runtimeenv.Development)
+	reset := WithDataReset(nil, deployconfig.Seeds{}, true)
 
 	for _, order := range []struct {
 		name string

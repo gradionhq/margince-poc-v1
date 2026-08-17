@@ -15,7 +15,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 func TestNewResetRuntimeWiresEverySurface(t *testing.T) {
@@ -45,20 +44,23 @@ func TestResetDrainWindowIsPositive(t *testing.T) {
 	}
 }
 
-// TestNoResetLaneInProduction: the endpoint's own 404 is the contract, and a
-// production process that holds no queue-pausing, stream-deleting machinery at
-// all is the guarantee behind it. Nil dependencies prove nothing was
-// constructed — anything that reached the pool or the bus would fail here.
-func TestNoResetLaneInProduction(t *testing.T) {
-	lane, err := newResetLane(runtimeenv.Production, nil, nil, discardLogger())
+// TestNoResetLaneWhenTheResetIsNotArmed: the endpoint's own 404 is the
+// contract, and a process that holds no queue-pausing, stream-deleting
+// machinery at all is the guarantee behind it. Nil dependencies prove nothing
+// was constructed — anything that reached the pool or the bus would fail here.
+//
+// Unarmed is the DEFAULT, in every posture including dev: the capability is
+// stated by the deployment, never inferred from what it is called.
+func TestNoResetLaneWhenTheResetIsNotArmed(t *testing.T) {
+	lane, err := newResetLane(false, nil, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("newResetLane: %v", err)
 	}
 	if len(lane.opts) != 0 {
-		t.Errorf("production lane contributes %d compose options; it must contribute none", len(lane.opts))
+		t.Errorf("an unarmed lane contributes %d compose options; it must contribute none", len(lane.opts))
 	}
 	// Nothing to listen with either: a lane that subscribed would hold a bus
-	// connection a production process never asked for.
+	// connection this process never asked for.
 	lane.listen(t.Context(), nil)
 }
 
@@ -67,7 +69,7 @@ func TestNoResetLaneInProduction(t *testing.T) {
 // reset must reach it too), and Server.FlushResetCaches is reachable only
 // while the options run — compose.New returns an http.Handler.
 func TestResetLaneCapturesTheComposedServersOwnFlush(t *testing.T) {
-	lane, err := newResetLane(runtimeenv.Development, nil, nil, discardLogger())
+	lane, err := newResetLane(true, nil, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("newResetLane: %v", err)
 	}

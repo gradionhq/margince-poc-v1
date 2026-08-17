@@ -187,8 +187,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a non-production installation to its first-boot state.
-         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         * Reset an installation that armed the capability to its first-boot state.
+         * @description Served only where the deployment set `operations.allow_data_reset`; the compiled default is false in every posture. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. `GET /me` reports the same value as `data_reset_available`, so a client never offers what this would refuse.
          */
         post: operations["resetData"];
         delete?: never;
@@ -14301,10 +14301,15 @@ export interface components {
         };
         MeResponse: {
             user: components["schemas"]["User"];
-            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
+            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the "Reset data" action — the exact string that endpoint validates. */
             workspace_name: string;
-            /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
+            /**
+             * @deprecated
+             * @description True when the installation runs a non-production posture (MARGINCE_ENV=dev|test). DEPRECATED as the gate for the "Reset data" action — read `data_reset_available` instead. A deployment being non-production is not consent to purge its tenant data, and inferring one from the other is why a `staging` installation full of real internal users could be wiped through the API.
+             */
             non_production: boolean;
+            /** @description True when this installation armed `operations.allow_data_reset` in its deployment file. It is the SAME value `POST /admin/reset-data` gates on, so a client never renders an action for a route that would answer 404. Absent or false means the capability does not exist here — the compiled default in every posture, dev included. */
+            data_reset_available?: boolean;
             /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
             admin_password_link: boolean;
             /** @description Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact. */
@@ -17789,7 +17794,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The endpoint is unavailable in this environment — production, or an unset/unknown MARGINCE_ENV. It is served only under a non-production posture; the body is the standard problem document. */
+            /** @description This installation did not arm `operations.allow_data_reset`, so the operation does not exist here. Checked before authentication, so it is a 404 rather than a 403 for every caller — the answer discloses nothing about who asked. The body is the standard problem document. */
             404: {
                 headers: {
                     [name: string]: unknown;
