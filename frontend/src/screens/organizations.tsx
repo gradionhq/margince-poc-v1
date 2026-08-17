@@ -2413,7 +2413,10 @@ function CompanyRecordBody({
       {!overlay && tab === "documents" && (
         <>
           {/* The agreements come first: contract paper is what a reader opens
-              this tab for, and the library beneath it is everything else. */}
+              this tab for, and the library beneath it is everything else —
+              literally everything else, since the library withholds the paper
+              already read on an agreement's own row. Two panels, and no file on
+              both of them. */}
           <CompanyContractsCard orgId={org.id} />
           <CompanyDocumentsCard orgId={org.id} />
         </>

@@ -857,7 +857,6 @@ export const en = {
   "contracts.form.errTermOrder": "A term cannot end before it starts.",
   "contracts.add": "Add a contract",
   "contracts.rowMenu": "Contract actions",
-  "contracts.paper": "Signed PDF",
   "contracts.edit": "Edit",
   "contracts.archive": "Archive",
   "contracts.archive.title": "Archive this contract?",
@@ -1710,6 +1709,13 @@ export const en = {
   "docs.title": "Documents",
   "docs.empty": "No documents on this account yet.",
   "docs.noneInCategory": "No documents of that kind on this account.",
+  "docs.allOnAgreements":
+    "Every document here is filed against an agreement above.",
+  "docs.allSuperseded":
+    "Only superseded documents are left here. Show them to read the history.",
+  "docs.superseded.show": "Superseded ({count})",
+  "docs.reading.show": "Read this document",
+  "docs.reading.hide": "Hide the reading",
   "docs.pinned": "Pinned",
 
   // The staged-document-reading panel (RD-AC-N-2/-3). Three states that must

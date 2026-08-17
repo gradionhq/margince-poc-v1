@@ -1,6 +1,12 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -116,6 +122,74 @@ describe("the account's document library", () => {
     show(<CompanyDocumentsCard orgId="o-1" />);
     expect(
       await screen.findByText("No documents on this account yet."),
+    ).toBeTruthy();
+  });
+
+  it("leaves a document filed against an agreement to that agreement", async () => {
+    // The contracts card above renders this file on the row for the agreement
+    // it covers. Listing it here as well made one signed PDF read as two
+    // documents on a single tab.
+    stub([
+      ...DOCS,
+      {
+        ...DOCS[0],
+        id: "d-4",
+        title: "Framework agreement 2026",
+        filename: "GR-2026-0092.pdf",
+        contract_id: "c-1",
+      },
+    ]);
+    show(<CompanyDocumentsCard orgId="o-1" />);
+    await screen.findByText("Framework agreement — signed");
+    expect(screen.queryByText("Framework agreement 2026")).toBeNull();
+  });
+
+  it("says why the library is empty when every file belongs to an agreement", async () => {
+    stub([{ ...DOCS[0], contract_id: "c-1" }]);
+    show(<CompanyDocumentsCard orgId="o-1" />);
+    // "No documents on this account yet" would be a lie about an account that
+    // has one: the file is upstairs, and the copy has to say so.
+    expect(
+      await screen.findByText(
+        "Every document here is filed against an agreement above.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("keeps replaced versions out of the list until they are asked for", async () => {
+    stub([
+      ...DOCS,
+      {
+        ...DOCS[1],
+        id: "d-5",
+        filename: "scan_0001_v0.pdf",
+        doc_state: "superseded",
+      },
+    ]);
+    show(<CompanyDocumentsCard orgId="o-1" />);
+    await screen.findByText("Framework agreement — signed");
+    // Three uploads of one document are one document to a rep. The history is
+    // reachable, not gone: the toggle names how much of it there is.
+    expect(screen.queryByText("scan_0001_v0.pdf")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Superseded (1)" }));
+    expect(await screen.findByText("scan_0001_v0.pdf")).toBeTruthy();
+  });
+
+  it("opens a document's staged reading only when a reader asks for it", async () => {
+    stub([{ ...DOCS[1], entity_type: "deal", entity_id: "dl-1" }]);
+    show(<CompanyDocumentsCard orgId="o-1" />);
+    // Each reading panel asks the server for its own document on mount, so a
+    // list that opened them all fired one request per deal file and buried the
+    // filenames the reader came for.
+    const toggle = await screen.findByRole("button", {
+      name: "Read this document",
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(toggle);
+    expect(
+      await screen.findByRole("button", { name: "Hide the reading" }),
     ).toBeTruthy();
   });
 

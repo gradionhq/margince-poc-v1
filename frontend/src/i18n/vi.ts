@@ -839,7 +839,6 @@ export const vi = {
     "K\u1ef3 h\u1ea1n kh\u00f4ng th\u1ec3 k\u1ebft th\u00fac tr\u01b0\u1edbc khi b\u1eaft \u0111\u1ea7u.",
   "contracts.add": "Th\u00eam h\u1ee3p \u0111\u1ed3ng",
   "contracts.rowMenu": "Thao t\u00e1c h\u1ee3p \u0111\u1ed3ng",
-  "contracts.paper": "PDF \u0111\u00e3 k\u00fd",
   "contracts.edit": "S\u1eeda",
   "contracts.archive": "L\u01b0u tr\u1eef",
   "contracts.archive.title":
@@ -1702,6 +1701,13 @@ export const vi = {
   "docs.title": "Tài liệu",
   "docs.empty": "Chưa có tài liệu nào cho tài khoản này.",
   "docs.noneInCategory": "Không có tài liệu loại đó cho tài khoản này.",
+  "docs.allOnAgreements":
+    "Mọi tài liệu ở đây đều đã được gắn vào một hợp đồng bên trên.",
+  "docs.allSuperseded":
+    "Ở đây chỉ còn tài liệu đã thay thế. Hiện chúng để xem lịch sử.",
+  "docs.superseded.show": "Đã thay thế ({count})",
+  "docs.reading.show": "Đọc tài liệu này",
+  "docs.reading.hide": "Ẩn phần đọc",
   "docs.pinned": "Đã ghim",
 
   // Bảng đọc tài liệu đã lưu (RD-AC-N-2/-3). Ba trạng thái phải tách bạch cả

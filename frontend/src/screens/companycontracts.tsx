@@ -297,12 +297,17 @@ function ContractRow({
  * A contract with no paper renders NOTHING, not an error and not an empty
  * word. Recording what was agreed and filing the PDF are separate acts, and a
  * commercial record entered from an invoice is complete without a file.
+ *
+ * Each link is NAMED BY ITS FILE, not by a generic word for paper. This row is
+ * the only place the file is read — the account's library below deliberately
+ * leaves agreement paper to the agreement — so an amendment filed beside a
+ * signed original has to be tellable from it, and two identical links are two
+ * coin flips.
  */
 function ContractPaper({
   contractId,
   orgId,
 }: Readonly<{ contractId: string; orgId: string }>) {
-  const t = useT();
   const query = useQuery({
     queryKey: ["contractPaper", orgId, contractId],
     queryFn: async () => {
@@ -335,7 +340,10 @@ function ContractPaper({
           href={`/v1/attachments/${file.id}`}
           download={file.filename}
         >
-          {t("contracts.paper")}
+          {/* The filename, not the title: a paper's title is very often the
+              agreement's own title, and a link repeating the row it sits on
+              names nothing. */}
+          {file.filename}
         </a>
       ))}
     </>

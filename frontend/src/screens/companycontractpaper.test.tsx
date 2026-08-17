@@ -99,15 +99,39 @@ function show(ui: ReactNode) {
 }
 
 describe("a contract's signed paper", () => {
-  it("offers the PDF filed against that agreement", async () => {
+  it("offers the PDF filed against that agreement, named by its file", async () => {
     stub({ "c-1": [PAPER] });
     show(<CompanyContractsCard orgId="o-1" />);
 
-    const link = await screen.findByRole("link", { name: "Signed PDF" });
+    // The FILENAME is the link text. This row is the only place the paper is
+    // read — the library below leaves agreement paper to its agreement — so a
+    // generic word for "paper" would leave two files on one agreement as two
+    // identical links.
+    const link = await screen.findByRole("link", { name: "GR-2026-0092.pdf" });
     expect(link.getAttribute("href")).toBe("/v1/attachments/a-1");
     // The saved file keeps the name it was uploaded under, not the display
     // title the agreement carries.
     expect(link.getAttribute("download")).toBe("GR-2026-0092.pdf");
+  });
+
+  it("tells two files on one agreement apart", async () => {
+    stub({
+      "c-1": [
+        PAPER,
+        { ...PAPER, id: "a-2", filename: "GR-2026-0092-annex-a.pdf" },
+      ],
+    });
+    show(<CompanyContractsCard orgId="o-1" />);
+
+    // The signed original and its annex differ by one word in the filename and
+    // by nothing else on the row. A reader who cannot tell them apart before
+    // clicking has been handed a coin flip.
+    expect(
+      await screen.findByRole("link", { name: "GR-2026-0092.pdf" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "GR-2026-0092-annex-a.pdf" }),
+    ).toBeTruthy();
   });
 
   it("says nothing at all when an agreement has no paper on file", async () => {
@@ -119,7 +143,7 @@ describe("a contract's signed paper", () => {
     // commercial record entered from an invoice is complete without a file, so
     // an empty word here would report a gap that is not one.
     await waitFor(() => {
-      expect(screen.queryByRole("link", { name: "Signed PDF" })).toBeNull();
+      expect(screen.queryByRole("link")).toBeNull();
     });
   });
 });
