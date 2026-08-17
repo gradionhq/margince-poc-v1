@@ -296,10 +296,20 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// written. Every later read of the run record (GetTranscriptRead,
 	// LatestTranscriptRead, ReadTranscript) re-probes the same way rather than
 	// trusting the stored pointer.
-	"transcript_read.activity_id":           "client-supplied and gated: every path resolves the activity through readActivity's ActivityScopeClause walk, so an unseeable transcript is ErrNotFound rather than a readable run record",
-	"finance_customer_link.organization_id": "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
-	"finance_invoice.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
-	"finance_payment.organization_id":       "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	"transcript_read.activity_id": "client-supplied and gated: every path resolves the activity through readActivity's ActivityScopeClause walk, so an unseeable transcript is ErrNotFound rather than a readable run record",
+	// The retention floor's evidence (A165, migration 0289). Both columns are
+	// SERVER-DERIVED and neither has a writer yet — the table shipped ahead of
+	// the pass that fills it (#1557). activity_id is the record being held, and
+	// the row exists only because that record qualified; deal_id is the
+	// transaction that qualified it, resolved from the deal the activity is
+	// already linked to rather than from anything a caller sends. When the
+	// writer lands it must derive both from rows the actor could already see —
+	// this entry is the obligation, not a record of one already met.
+	"activity_retention_evidence.activity_id": "schema only, no writer yet (#1557): the evidence is written by the qualifying pass from the activity it substantiates, never from a request body — when that pass lands, the activity it names must be one the actor could already see",
+	"activity_retention_evidence.deal_id":     "schema only, no writer yet (#1557): the qualifying transaction is resolved from the activity's own link, not supplied — and it is ON DELETE SET NULL beside a frozen deal_name, so the evidence answers after the deal is gone",
+	"finance_customer_link.organization_id":   "schema only, no writer yet (#725): the mapping write does not exist, and when it lands it must put the named company through auth.EnsureLinkTarget — this entry is the obligation, not a record of one already met",
+	"finance_invoice.organization_id":         "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
+	"finance_payment.organization_id":         "schema only, no writer yet (#725): the sync pass does not exist, and when it lands it must resolve the organization from the customer link rather than from any request body",
 })
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
