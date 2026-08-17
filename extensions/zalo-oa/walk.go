@@ -139,6 +139,16 @@ type walkResult struct {
 	// stoppedAtPage is the page a truncated walk did not get past, kept as the
 	// resume hint.
 	stoppedAtPage int
+	// pagesRead is how many requests this walk actually spent, which is what the
+	// second walk of a tick has left to spend.
+	//
+	// It is COUNTED rather than inferred from the messages collected. The two are
+	// not the same number: a backfill pages through the region above the gap
+	// without collecting any of it, and a walk that stops on the clock collects
+	// nothing at all — so a count derived from the items would report a page spent
+	// where none was, or none where two were, and the tick would spend past the
+	// ceiling on the row.
+	pagesRead int
 }
 
 // walkChats pages backwards until it passes the stop point, runs out of feed, or
@@ -172,6 +182,9 @@ func walkChats(ctx context.Context, api *client, spec walkSpec) (walkResult, err
 		if err != nil {
 			return walkResult{}, err
 		}
+		// Counted on the request rather than on its answer: a page that came back
+		// empty still cost the call.
+		result.pagesRead++
 		for _, row := range fetched {
 			if row.Time < spec.stopBelow {
 				// Past the stop point: everything from here down has been
@@ -279,12 +292,6 @@ func resumePage(at cursor, arrivedSince int) int {
 		return 0
 	}
 	return page
-}
-
-// pagesSpent reports how many pages a walk of n collected messages cost, which
-// is what the second walk of a tick has left to spend.
-func pagesSpent(collected int) int {
-	return collected/maxChatPage + 1
 }
 
 // maxOf is the larger of two timestamps.

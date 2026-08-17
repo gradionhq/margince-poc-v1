@@ -110,7 +110,7 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 
 	// Whatever budget the forward walk left goes to the backlog. Nothing is spent
 	// on it when there is none, and a first poll never has one.
-	if spent := pagesSpent(len(forward.items)); at.unread() && spent < budget {
+	if spent := forward.pagesRead; at.unread() && spent < budget {
 		at, err = fillGap(ctx, rt, api, current, at, len(forward.items), budget-spent)
 		if err != nil {
 			return noteFailure(ctx, rt, current, err)

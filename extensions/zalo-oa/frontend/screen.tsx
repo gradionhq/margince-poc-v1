@@ -1,5 +1,16 @@
-import { api, problemMessageOf, QueryStates, throwProblem } from "@margince/frontend/api";
-import { formatDateTime, useCan, useCanWrite, useLocale, useT } from "@margince/frontend/app";
+import {
+  api,
+  problemMessageOf,
+  QueryStates,
+  throwProblem,
+} from "@margince/frontend/api";
+import {
+  formatDateTime,
+  useCan,
+  useCanWrite,
+  useLocale,
+  useT,
+} from "@margince/frontend/app";
 import {
   Badge,
   Button,
@@ -53,10 +64,16 @@ const STATUS_POLL_MS = 20_000;
  * The highest request budget a connection may carry, so the card can show the
  * setting against the range it may be chosen from rather than as a bare number.
  *
- * It duplicates the bound the contract declares (`poll_request_budget.maximum`)
- * and the column's own CHECK, because a generated client carries a schema's
- * types and not its numeric limits. The three move together; there is no third
- * place.
+ * It duplicates a bound written in three other places — the column's CHECK and
+ * the contract's `poll_request_budget.maximum`, which appears twice because the
+ * connection object is spelled member for member in the connect and status
+ * responses — because a generated client carries a schema's types and not its
+ * numeric limits.
+ *
+ * What keeps the four honest is not this comment: `budgetbounds_test.go` reads
+ * the migration, both contract copies and this constant and fails when any of
+ * them has moved alone. Without it, a raised ceiling would leave the card telling
+ * an operator a range the database refuses, with every other gate green.
  */
 const MAX_REQUEST_BUDGET = 200;
 
@@ -78,6 +95,19 @@ type Connection = {
   poll_request_budget: number;
 };
 
+/**
+ * What an administrator brings back from the browser authorization: the app's own
+ * pair and the token pair it produced, already trimmed. It is a type rather than
+ * four arguments because they are one deposit — a connect that carried three of
+ * them would seal half a credential.
+ */
+type Deposit = {
+  appID: string;
+  appSecret: string;
+  accessToken: string;
+  refreshToken: string;
+};
+
 const STATUS_KEY = ["ext", "zalo-oa", "status"];
 
 export default function ZaloOaScreen() {
@@ -86,7 +116,11 @@ export default function ZaloOaScreen() {
     <div className="wrap narrow">
       {/* level 1: the app shell yields the page's name to a composed unit, so
           the screen's own top header IS the page's h1. */}
-      <SectionHeader title={t("extZaloOa.title")} sub={t("extZaloOa.sub")} level={1} />
+      <SectionHeader
+        title={t("extZaloOa.title")}
+        sub={t("extZaloOa.sub")}
+        level={1}
+      />
       <ConnectionCard />
     </div>
   );
@@ -116,7 +150,10 @@ function useConnectionStatus(enabled: boolean) {
       if (typeof data?.connected !== "boolean") {
         throw new Error("the connection status carried no `connected` field");
       }
-      return { connected: data.connected, connection: data.connection as Connection | undefined };
+      return {
+        connected: data.connected,
+        connection: data.connection as Connection | undefined,
+      };
     },
   });
 }
@@ -135,39 +172,29 @@ function ConnectionCard() {
   const canConnect = useCanWrite(CONNECTION_OBJECT, "update");
   const canDisconnect = useCanWrite(CONNECTION_OBJECT, "delete");
   const status = useConnectionStatus(canRead);
-  const [appID, setAppID] = useState("");
-  const [appSecret, setAppSecret] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [refreshToken, setRefreshToken] = useState("");
   // Whether the deposit form is open over a connection that already exists. It
   // is shut by default, because an empty credential form under a working
   // connection reads as "nothing is set up" — which is the one thing it is not.
   const [replacing, setReplacing] = useState(false);
 
   const connect = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (deposit: Deposit) => {
       const { error, response } = await api.PUT("/ext/zalo-oa/connect", {
         body: {
-          app_id: appID.trim(),
-          app_secret: appSecret.trim(),
-          access_token: accessToken.trim(),
-          refresh_token: refreshToken.trim(),
+          app_id: deposit.appID,
+          app_secret: deposit.appSecret,
+          access_token: deposit.accessToken,
+          refresh_token: deposit.refreshToken,
         },
       });
       if (error || !response.ok) {
         throwProblem(error);
       }
     },
-    // Every credential is cleared whatever happened, so none is left sitting in a
-    // form field on an unattended screen — and the refresh token especially, since
-    // it is single-use and the one on screen is spent the moment this succeeds.
     // The screen re-reads rather than asserting a rollback it cannot know about:
     // a response lost on the way back leaves an account connected while the
     // client sees an error.
     onSettled: async () => {
-      setAppSecret("");
-      setAccessToken("");
-      setRefreshToken("");
       await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
     onSuccess: () => setReplacing(false),
@@ -203,22 +230,24 @@ function ConnectionCard() {
   // paragraph that explains what is stored and the button that replaces it are
   // one offer, so they cannot disagree about being drawn.
   const offersReplace = canConnect && connected && !replacing;
-  const ready =
-    appID.trim() !== "" &&
-    appSecret.trim() !== "" &&
-    accessToken.trim() !== "" &&
-    refreshToken.trim() !== "";
 
   return (
     <Card>
-      <SectionHeader title={t("extZaloOa.connection.title")} sub={t("extZaloOa.connection.sub")} />
+      <SectionHeader
+        title={t("extZaloOa.connection.title")}
+        sub={t("extZaloOa.connection.sub")}
+      />
       {/* Through the query gate, not off `status.data` directly: data is
           undefined both while the read is in flight and when it failed, and
           rendering either as "not connected" states something about the
           installation that the read did not establish. */}
       <QueryStates query={status}>
         {status.data?.connection ? (
-          <ConnectionState connection={status.data.connection} locale={locale} zone={zone} />
+          <ConnectionState
+            connection={status.data.connection}
+            locale={locale}
+            zone={zone}
+          />
         ) : (
           <p>
             <Badge tone="warn">{t("extZaloOa.connection.absent")}</Badge>
@@ -236,105 +265,23 @@ function ConnectionCard() {
       ) : null}
 
       {canConnect && (!connected || replacing) ? (
-        <>
-          <SectionHeader
-            title={t(replacing ? "extZaloOa.connect.replaceTitle" : "extZaloOa.connect.title")}
-            sub={t("extZaloOa.connect.sub")}
-          />
-          <Field label={t("extZaloOa.connect.appId")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                value={appID}
-                onChange={(event) => setAppID(event.target.value)}
-              />
-            )}
-          </Field>
-          <Field label={t("extZaloOa.connect.appSecret")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                type="password"
-                value={appSecret}
-                onChange={(event) => setAppSecret(event.target.value)}
-              />
-            )}
-          </Field>
-          <Field label={t("extZaloOa.connect.accessToken")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                type="password"
-                value={accessToken}
-                onChange={(event) => setAccessToken(event.target.value)}
-              />
-            )}
-          </Field>
-          <Field label={t("extZaloOa.connect.refreshToken")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                type="password"
-                value={refreshToken}
-                onChange={(event) => setRefreshToken(event.target.value)}
-              />
-            )}
-          </Field>
-          <div className="form-actions">
-            {replacing ? (
-              <Button variant="ghost" onClick={() => setReplacing(false)}>
-                {t("extZaloOa.connect.cancel")}
-              </Button>
-            ) : null}
-            <Button disabled={!ready || connect.isPending} onClick={() => connect.mutate()}>
-              {t(replacing ? "extZaloOa.connect.replaceSubmit" : "extZaloOa.connect.submit")}
-            </Button>
-          </div>
-          {/* role="alert", because a mutation failure appears AFTER the press that
-              caused it: a screen reader that is not on this element announces
-              nothing, and the administrator is left believing the account
-              connected.
-
-              The SERVER'S OWN SENTENCE, with this card's copy only as the
-              fallback for a failure nobody phrased for a reader. Every refusal
-              worth acting on here — the package, the free console toggle, an
-              expired access token, a refresh token already spent — is a
-              distinction the server drew and a static string would throw away. */}
-          {connect.isError ? (
-            <p role="alert">
-              {problemMessageOf(connect.error, t, t("extZaloOa.connect.failed"))}
-            </p>
-          ) : null}
-        </>
+        <CredentialForm
+          replacing={replacing}
+          pending={connect.isPending}
+          failure={connect.isError ? connect.error : undefined}
+          onSubmit={(deposit) => connect.mutate(deposit)}
+          onCancel={() => setReplacing(false)}
+        />
       ) : null}
 
-      {/* ONE action row rather than two adjacent card children: the verbs belong
-          together, and `.card-actions` is what puts the air above them and the
-          gap between them. Drawn only when this seat holds at least one of them,
-          because an empty row is space with nothing in it. */}
-      {connected && (offersReplace || canDisconnect) ? (
-        <div className="card-actions">
-          {offersReplace ? (
-            <Button variant="ghost" onClick={() => setReplacing(true)}>
-              {t("extZaloOa.connect.replace")}
-            </Button>
-          ) : null}
-          {canDisconnect ? (
-            <Button
-              variant="danger"
-              disabled={disconnect.isPending}
-              onClick={() => disconnect.mutate()}
-            >
-              {t("extZaloOa.connection.disconnect")}
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-      {connected && disconnect.isError ? (
-        <p role="alert" className="co-error">
-          {problemMessageOf(disconnect.error, t, t("extZaloOa.connection.disconnectFailed"))}
-        </p>
-      ) : null}
+      <ConnectionActions
+        offersReplace={offersReplace}
+        offersDisconnect={connected && canDisconnect}
+        disconnecting={disconnect.isPending}
+        failure={disconnect.isError ? disconnect.error : undefined}
+        onReplace={() => setReplacing(true)}
+        onDisconnect={() => disconnect.mutate()}
+      />
     </Card>
   );
 }
@@ -408,7 +355,11 @@ function ConnectionState({
     facts.push({
       key: "catchingup",
       term: t("extZaloOa.connection.catchingUp"),
-      value: formatDateTime(new Date(connection.backfill_before).toISOString(), locale, zone),
+      value: formatDateTime(
+        new Date(connection.backfill_before).toISOString(),
+        locale,
+        zone,
+      ),
     });
   }
   return (
@@ -424,6 +375,200 @@ function ConnectionState({
       <FactList numeric facts={facts} />
       {connection.last_error_class ? (
         <p>{t(`extZaloOa.error.${connection.last_error_class}`)}</p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The four credentials, and the row that submits them.
+ *
+ * It owns the values rather than the card, because the card's job is to describe
+ * a connection and this one's is to collect a credential — and holding both put
+ * the card over the complexity the lint gate admits, which was the honest signal
+ * that they are two jobs.
+ *
+ * EVERY SECRET IS CLEARED THE MOMENT IT IS SUBMITTED, whatever comes back. The
+ * refresh token especially: it is single-use, so the one on screen is spent the
+ * instant the request lands, and a spent token left in a field on an unattended
+ * screen is a credential nobody can use and anybody can read. The App ID stays,
+ * because it is not a secret and retyping it after a refused attempt is friction
+ * with nothing behind it.
+ */
+function CredentialForm({
+  replacing,
+  pending,
+  failure,
+  onSubmit,
+  onCancel,
+}: {
+  replacing: boolean;
+  pending: boolean;
+  failure?: unknown;
+  onSubmit: (deposit: Deposit) => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const [appID, setAppID] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
+  const ready =
+    appID.trim() !== "" &&
+    appSecret.trim() !== "" &&
+    accessToken.trim() !== "" &&
+    refreshToken.trim() !== "";
+
+  const submit = () => {
+    onSubmit({
+      appID: appID.trim(),
+      appSecret: appSecret.trim(),
+      accessToken: accessToken.trim(),
+      refreshToken: refreshToken.trim(),
+    });
+    setAppSecret("");
+    setAccessToken("");
+    setRefreshToken("");
+  };
+
+  return (
+    <>
+      <SectionHeader
+        title={t(
+          replacing
+            ? "extZaloOa.connect.replaceTitle"
+            : "extZaloOa.connect.title",
+        )}
+        sub={t("extZaloOa.connect.sub")}
+      />
+      <Field label={t("extZaloOa.connect.appId")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={appID}
+            onChange={(event) => setAppID(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label={t("extZaloOa.connect.appSecret")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            value={appSecret}
+            onChange={(event) => setAppSecret(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label={t("extZaloOa.connect.accessToken")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            value={accessToken}
+            onChange={(event) => setAccessToken(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field label={t("extZaloOa.connect.refreshToken")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            type="password"
+            value={refreshToken}
+            onChange={(event) => setRefreshToken(event.target.value)}
+          />
+        )}
+      </Field>
+      <div className="form-actions">
+        {replacing ? (
+          <Button variant="ghost" onClick={onCancel}>
+            {t("extZaloOa.connect.cancel")}
+          </Button>
+        ) : null}
+        <Button disabled={!ready || pending} onClick={submit}>
+          {t(
+            replacing
+              ? "extZaloOa.connect.replaceSubmit"
+              : "extZaloOa.connect.submit",
+          )}
+        </Button>
+      </div>
+      {/* role="alert", because a mutation failure appears AFTER the press that
+          caused it: a screen reader that is not on this element announces
+          nothing, and the administrator is left believing the account connected.
+
+          The SERVER'S OWN SENTENCE, with this card's copy only as the fallback
+          for a failure nobody phrased for a reader. Every refusal worth acting on
+          here — the package, the free console toggle, an expired access token, a
+          refresh token already spent — is a distinction the server drew and a
+          static string would throw away. */}
+      {failure !== undefined ? (
+        <p role="alert" className="co-error">
+          {problemMessageOf(failure, t, t("extZaloOa.connect.failed"))}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The verbs a live connection offers, as ONE row.
+ *
+ * They were two adjacent card children drawn from two separate grant checks,
+ * which is why they could not be spaced as a pair: `.card-actions` is what puts
+ * the air above them and the gap between them, and a row cannot space children
+ * that are not in it.
+ *
+ * It draws nothing at all when the seat holds neither verb — an empty action row
+ * is space with nothing in it, and the air above it would read as a missing
+ * control rather than as an absent one.
+ */
+function ConnectionActions({
+  offersReplace,
+  offersDisconnect,
+  disconnecting,
+  failure,
+  onReplace,
+  onDisconnect,
+}: {
+  offersReplace: boolean;
+  offersDisconnect: boolean;
+  disconnecting: boolean;
+  failure?: unknown;
+  onReplace: () => void;
+  onDisconnect: () => void;
+}) {
+  const t = useT();
+  if (!offersReplace && !offersDisconnect) {
+    return null;
+  }
+  return (
+    <>
+      <div className="card-actions">
+        {offersReplace ? (
+          <Button variant="ghost" onClick={onReplace}>
+            {t("extZaloOa.connect.replace")}
+          </Button>
+        ) : null}
+        {offersDisconnect ? (
+          <Button
+            variant="danger"
+            disabled={disconnecting}
+            onClick={onDisconnect}
+          >
+            {t("extZaloOa.connection.disconnect")}
+          </Button>
+        ) : null}
+      </div>
+      {failure !== undefined ? (
+        <p role="alert" className="co-error">
+          {problemMessageOf(
+            failure,
+            t,
+            t("extZaloOa.connection.disconnectFailed"),
+          )}
+        </p>
       ) : null}
     </>
   );
