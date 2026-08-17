@@ -228,21 +228,7 @@ export function ListTable<Row>({
     })),
     ...dataViews,
   ];
-  // Which tab the reader actually pressed, remembered only while it still
-  // describes the list. Two views can ask for the SAME sort and filters — a
-  // saved "German customers" that narrows exactly as the built-in Customers
-  // preset does — and deriving the highlight from the query alone lights the
-  // first of them, so the reader's own view never highlights when they pick it.
-  const [picked, setPicked] = useState<number | null>(null);
-  const matched = allViews.findIndex((spec) => matchesView(spec, query));
-  // The pressed tab wins only while the query still matches it; the moment a
-  // sort or filter moves away, the highlight falls back to whatever the query
-  // now describes, which is the property that made this derived in the first
-  // place.
-  const view =
-    picked !== null && allViews[picked] && matchesView(allViews[picked], query)
-      ? picked
-      : matched;
+  const [view, setPicked] = useActiveView(allViews, query);
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -400,6 +386,31 @@ function translateChip(chip: FilterSpec, t: Translate): ListChip {
 
 function translateView(spec: ViewSpec, t: Translate): ListView {
   return { label: t(spec.label), sort: spec.sort, filters: spec.filters };
+}
+
+/**
+ * Which view tab is lit, and the setter the table reports a press to.
+ *
+ * The highlight is DERIVED from the query, so a reader who edits a filter is no
+ * longer claimed to be looking at the preset they started from. But two views
+ * can ask for the same sort and filters — a saved "German customers" that
+ * narrows exactly as the built-in Customers preset does — and a purely derived
+ * highlight lights the first match, so the reader's own view never lights when
+ * they pick it.
+ *
+ * The pressed tab therefore wins, but only while it still describes the list.
+ * The moment the query moves away it stops matching and the highlight falls
+ * back to whatever the query now describes.
+ */
+function useActiveView(
+  views: readonly ListView[],
+  query: ListQuery,
+): [number, (index: number) => void] {
+  const [picked, setPicked] = useState<number | null>(null);
+  const matched = views.findIndex((spec) => matchesView(spec, query));
+  const pinned = picked !== null && views[picked];
+  const view = pinned && matchesView(views[picked], query) ? picked : matched;
+  return [view, setPicked];
 }
 
 /**
