@@ -7,7 +7,8 @@ import (
 	"cmp"
 	"errors"
 	"flag"
-	"os"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // ownerDSN resolves which credential migrates: an explicit --dsn, else
@@ -19,7 +20,7 @@ import (
 // resort because an installation may run everything under one
 // sufficiently-privileged credential.
 func ownerDSN(flagValue string) string {
-	return cmp.Or(flagValue, os.Getenv("MARGINCE_OWNER_DSN"), os.Getenv("MARGINCE_DSN"))
+	return cmp.Or(flagValue, config.FromOS("MARGINCE_OWNER_DSN"), config.FromOS("MARGINCE_DSN"))
 }
 
 // resolveDSN returns the DSN to migrate with, or an error naming every way to

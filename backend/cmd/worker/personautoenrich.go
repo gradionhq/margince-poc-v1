@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/websearchhttp"
 )
 
@@ -43,7 +44,7 @@ func startPersonAutoEnrich(
 	// Search is optional by design (ADR-0081): a deployment that binds no
 	// provider fills from the employer's own pages and skips discovery,
 	// which is the sovereign posture rather than a degraded one.
-	searchClient, searchConfigured := websearchhttp.FromEnv(time.Now)
+	searchClient, searchConfigured := websearchhttp.FromEnv(time.Now, config.FromOS)
 	enricher := compose.NewPersonAutoEnrich(pool, people.NewStore(compose.InstallationDB(pool)), approvals.NewService(compose.InstallationDB(pool)), searchClient, logger)
 	if searchConfigured {
 		_, _ = fmt.Fprintln(stdout, "worker filling contacts from their employer's pages and public search results")

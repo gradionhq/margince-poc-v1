@@ -15,6 +15,10 @@
 #                       budgettest, the integration harness) read MARGINCE_TEST_*
 #                       to find the cluster they were pointed at; they ARE the
 #                       composition root of that lane
+#   - platform/config   the seam itself: the ONE os.Getenv the product holds, so
+#                       that every package below the root can take a Lookup
+#                       instead of reaching for the environment. Exempting it is
+#                       what makes the rule satisfiable at all
 #   - platform/cliflags the flag-to-environment binder itself. It reads the
 #                       environment on behalf of a composition root that asked
 #                       it to, which is the mechanism this rule presumes, not a
@@ -48,6 +52,7 @@ ENV_READ='(^|[^[:alnum:]_.])os\.(Getenv|LookupEnv|Environ)\('
 report=""
 while IFS= read -r file; do
     case "$file" in
+        backend/internal/platform/config/*) continue ;;
         backend/internal/platform/cliflags/*) continue ;;
     esac
     tagged_integration "$file" && continue

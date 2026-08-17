@@ -20,12 +20,15 @@ import (
 // there now (the wire's own set, narrowed by any `input:`), so a hand-built
 // client would be a second, differently-configured production that proves
 // nothing about the one that ships.
+// testOpenAIKey is the BYOK key this suite supplies, named so a case can assert
+// the client sent THIS key rather than any key at all.
+const testOpenAIKey = "sk"
+
 func newOpenAIForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
-	t.Setenv("OPENAI_API_KEY", "sk")
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client, err := SelectBrain(ProviderConfig{Provider: providerOpenAI, BaseURL: srv.URL, Model: "gpt-x"})
+	client, err := SelectBrain(ProviderConfig{Provider: providerOpenAI, BaseURL: srv.URL, Model: "gpt-x"}, cloudKeyFor("openai", testOpenAIKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,8 +208,7 @@ func TestOpenAIEmbedReturnsVectors(t *testing.T) {
 }
 
 func TestOpenAIReportsNotLocalOnly(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "k")
-	client, err := SelectBrain(ProviderConfig{Provider: "openai", Model: "gpt-x"})
+	client, err := SelectBrain(ProviderConfig{Provider: "openai", Model: "gpt-x"}, allCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,8 +218,7 @@ func TestOpenAIReportsNotLocalOnly(t *testing.T) {
 }
 
 func TestOpenAIFailsClosedWithoutKey(t *testing.T) {
-	clearCloudKeyEnv(t)
-	if _, err := SelectBrain(ProviderConfig{Provider: "openai"}); err == nil || !strings.Contains(err.Error(), "api key") {
+	if _, err := SelectBrain(ProviderConfig{Provider: "openai"}, noCloudKeys()); err == nil || !strings.Contains(err.Error(), "api key") {
 		t.Fatalf("openai without a key must fail closed, got %v", err)
 	}
 }

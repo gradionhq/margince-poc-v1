@@ -28,8 +28,6 @@ func writeFixture(t *testing.T, w http.ResponseWriter, body string) {
 }
 
 func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
-	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k") // openai_compatible reads its key from env
-	t.Setenv("ANTHROPIC_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeFixture(t, w, `{"choices":[{"message":{"content":"ok"}}]}`)
 	}))
@@ -59,7 +57,7 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	for name, tc := range mustRefuse {
 		for _, mime := range tc.mimes {
 			t.Run(name+"/"+mime, func(t *testing.T) {
-				client, err := SelectBrain(tc.cfg)
+				client, err := SelectBrain(tc.cfg, allCloudKeys())
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -80,7 +78,6 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 // "accepted" is only proved by the part arriving on the wire — a call that
 // dropped it would look identical from the caller's side.
 func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "k")
 	var sent []byte
 	var readErr error
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -115,7 +112,7 @@ func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(tc.cfg)
+			client, err := SelectBrain(tc.cfg, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -140,13 +137,12 @@ func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
 // caller picks its lane off Caps(), so a provider advertising more than its gate
 // admits sends the caller down a lane that cannot work.
 func TestAnthropicAndOllamaAdvertiseTheImagesTheyCarry(t *testing.T) {
-	t.Setenv("ANTHROPIC_API_KEY", "k")
 	for name, cfg := range map[string]ProviderConfig{
 		"anthropic": {Provider: "anthropic", Model: "m"},
 		"ollama":    {Provider: "ollama", Model: "m"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(cfg)
+			client, err := SelectBrain(cfg, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -162,7 +158,6 @@ func TestAnthropicAndOllamaAdvertiseTheImagesTheyCarry(t *testing.T) {
 // the two arms — the wire, the adapter and the code are identical, so a bug that
 // let the declaration decide nothing would leave the rejection arm above passing.
 func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
-	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
 	// The body is read, not discarded: "accepted" only means the gate let the
 	// call through, and a request that then dropped the attachment would look
 	// exactly the same from here. Asserting the part reached the wire is what
@@ -184,7 +179,7 @@ func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 	}
 	for name, cfg := range declaresImages {
 		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(cfg)
+			client, err := SelectBrain(cfg, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -238,7 +233,6 @@ func TestDeclaredImageCarriageAcceptsImagesAndStillRejectsPDFs(t *testing.T) {
 // Caps() and the send-time gate must be the same list, or a binding advertises
 // carriage its own wire refuses and a caller picks a lane that cannot work.
 func TestDeclaredCarriageIsWhatCapsAdvertises(t *testing.T) {
-	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
 	for name, tc := range map[string]struct {
 		input []string
 		want  []string
@@ -250,7 +244,7 @@ func TestDeclaredCarriageIsWhatCapsAdvertises(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			client, err := SelectBrain(ProviderConfig{
 				Provider: "openai_compatible", BaseURL: "https://example.invalid", Model: "m", Input: tc.input,
-			})
+			}, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -264,12 +258,11 @@ func TestDeclaredCarriageIsWhatCapsAdvertises(t *testing.T) {
 // An attachment must carry exactly one of inline bytes or a URI; both-set or
 // neither-set is a malformed part the gate rejects (spec's Bytes XOR URI).
 func TestAttachmentBytesXorURIEnforced(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		writeFixture(t, w, `{"id":"r","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}))
 	defer srv.Close()
-	client, err := SelectBrain(ProviderConfig{Provider: "openai", BaseURL: srv.URL, Model: "m"})
+	client, err := SelectBrain(ProviderConfig{Provider: "openai", BaseURL: srv.URL, Model: "m"}, allCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -291,8 +284,6 @@ func TestAttachmentBytesXorURIEnforced(t *testing.T) {
 // the rejection fitness test above so "who can ingest this document" stays an
 // honest, tested routing input (spec §3.8).
 func TestNativeCloudProvidersCarryPDFAttachments(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "k")
-	t.Setenv("GEMINI_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.URL.Path, ":generateContent") {
 			writeFixture(t, w, `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)
@@ -309,7 +300,7 @@ func TestNativeCloudProvidersCarryPDFAttachments(t *testing.T) {
 	}
 	for name, cfg := range canCarryPDF {
 		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(cfg)
+			client, err := SelectBrain(cfg, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}

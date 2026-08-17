@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -92,7 +93,7 @@ func Run(ctx context.Context, cfg RunnerConfig, log *slog.Logger) ([]Record, err
 		return nil, err
 	}
 
-	baseCfg, err := ai.LoadRoutingFile(cfg.RoutingPath)
+	baseCfg, err := ai.LoadRoutingFile(cfg.RoutingPath, config.FromOS)
 	if err != nil {
 		return nil, fmt.Errorf("aicert: runner: %w", err)
 	}

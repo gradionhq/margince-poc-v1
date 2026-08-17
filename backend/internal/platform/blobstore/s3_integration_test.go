@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -62,12 +63,15 @@ func TestFromEnvConfiguredConnects(t *testing.T) {
 	if endpoint == "" {
 		t.Fatal("MARGINCE_TEST_BLOBSTORE_ENDPOINT not set — run `make db-up` (integration tests fail loudly, they never skip)")
 	}
-	t.Setenv("MARGINCE_BLOBSTORE_ENDPOINT", endpoint)
-	t.Setenv("MARGINCE_BLOBSTORE_ACCESS_KEY", os.Getenv("MARGINCE_TEST_BLOBSTORE_ACCESS_KEY"))
-	t.Setenv("MARGINCE_BLOBSTORE_SECRET_KEY", os.Getenv("MARGINCE_TEST_BLOBSTORE_SECRET_KEY"))
-	t.Setenv("MARGINCE_BLOBSTORE_BUCKET", os.Getenv("MARGINCE_TEST_BLOBSTORE_BUCKET"))
-
-	store, configured, err := blobstore.FromEnv(t.Context())
+	// The suite's own MARGINCE_TEST_BLOBSTORE_* values are handed straight to
+	// the package as the settings it would otherwise read, so the test no longer
+	// rewrites the process environment to steer the code under it.
+	store, configured, err := blobstore.FromEnv(t.Context(), config.Static(map[string]string{
+		blobstore.EnvEndpoint:  endpoint,
+		blobstore.EnvAccessKey: os.Getenv("MARGINCE_TEST_BLOBSTORE_ACCESS_KEY"),
+		blobstore.EnvSecretKey: os.Getenv("MARGINCE_TEST_BLOBSTORE_SECRET_KEY"),
+		blobstore.EnvBucket:    os.Getenv("MARGINCE_TEST_BLOBSTORE_BUCKET"),
+	}))
 	if err != nil {
 		t.Fatalf("FromEnv: %v", err)
 	}

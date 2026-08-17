@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -340,7 +341,7 @@ func passwordResetOptions(deployCfg deployconfig.Config, publicBaseURL string, s
 // erase-path object purge) only when an object store is configured; without
 // one the endpoints answer 501 rather than nil-deref at request time.
 func blobstoreOptions(ctx context.Context, stdout io.Writer) ([]compose.Option, error) {
-	blob, configured, err := blobstore.FromEnv(ctx)
+	blob, configured, err := blobstore.FromEnv(ctx, config.FromOS)
 	if err != nil {
 		return nil, fmt.Errorf("api: blobstore: %w", err)
 	}

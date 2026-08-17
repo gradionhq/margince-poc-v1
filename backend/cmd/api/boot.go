@@ -14,7 +14,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/agentquota"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
@@ -66,7 +66,7 @@ func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, lo
 	// The deployment posture decides which license authorities are honored: a
 	// production installation accepts one, and only a non-production one also
 	// runs on a license minted for a test.
-	license, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(os.Getenv("MARGINCE_ENV")))
+	license, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar)), config.FromOS)
 	if err != nil {
 		return deployconfig.Config{}, nil, err
 	}
@@ -99,7 +99,7 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 	// ONE posture read serves the endpoint, the machinery behind it and /me's
 	// non_production field, so the three can never disagree about which one is
 	// live.
-	env := runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))
+	env := runtimeenv.Parse(config.FromOS("MARGINCE_ENV"))
 	opts := []compose.Option{
 		compose.WithDataReset(schemaPool, deployCfg.Seeds, env),
 		// The same seeds reach the ADR-0105 claim route, so an installation

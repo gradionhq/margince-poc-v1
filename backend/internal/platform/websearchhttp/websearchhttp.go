@@ -21,11 +21,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/websearch"
 )
 
@@ -175,6 +175,12 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 	return out, nil
 }
 
+// EnvBraveAPIKey is the vendor's own conventional name rather than a
+// namespaced one: an operator already exporting it for another tool needs no
+// extra wiring. It is a secret, so it arrives through the environment layer and
+// never a flag, whose usage text every binary prints.
+const EnvBraveAPIKey = "BRAVE_SEARCH_API_KEY"
+
 // FromEnv binds whichever provider the deployment configured, or Disabled
 // when it configured none.
 //
@@ -185,13 +191,10 @@ func (b *Brave) Search(ctx context.Context, q websearch.Query) ([]websearch.Resu
 // Absence is a valid, supported answer here — the same posture ADR-0020 gives
 // model keys. A deployment that wants no external egress simply sets nothing,
 // and every consumer degrades honestly instead of erroring at request time.
-// tell a bound provider from Disabled, or it would branch on which one it got
-// instead of on the ErrNoProvider the port defines.
 //
-//nolint:ireturn // the seam IS the return type: a caller must not be able to
 //nolint:ireturn // the seam is the return type — see the doc comment above
-func FromEnv(now func() time.Time) (websearch.Client, bool) {
-	if key := strings.TrimSpace(os.Getenv("BRAVE_SEARCH_API_KEY")); key != "" {
+func FromEnv(now func() time.Time, env config.Lookup) (websearch.Client, bool) {
+	if key := strings.TrimSpace(env(EnvBraveAPIKey)); key != "" {
 		return NewBrave(key, now), true
 	}
 	return Disabled{}, false

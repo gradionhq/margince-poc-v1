@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // LicenseTokenEnvVar overrides license.token_file when it is set. It is the
@@ -42,8 +44,8 @@ const TokenLimit = 64 << 10
 // typed the path wrong would otherwise get a workspace that silently believes it
 // has no entitlement — which is exactly the failure the file's strict decoding
 // (an unknown key is a boot error) exists to prevent everywhere else.
-func (l License) Token() (string, error) {
-	if token := strings.TrimSpace(os.Getenv(LicenseTokenEnvVar)); token != "" {
+func (l License) Token(lookup config.Lookup) (string, error) {
+	if token := strings.TrimSpace(lookup(LicenseTokenEnvVar)); token != "" {
 		return token, nil
 	}
 	if l.TokenFile == "" {
@@ -72,14 +74,23 @@ func (l License) Token() (string, error) {
 	return token, nil
 }
 
+// TokenSource binds a lookup to Token, giving the license watcher something it
+// can call repeatedly. The watcher re-reads on every check so a license the
+// operator renews in place takes effect without a restart — which means the
+// environment has to travel WITH the source rather than being sampled once at
+// wiring time, or a token rotated in the environment would never be seen.
+func (l License) TokenSource(lookup config.Lookup) func() (string, error) {
+	return func() (string, error) { return l.Token(lookup) }
+}
+
 // TokenOrigin names where Token would take a token from, for the boot log.
 //
 // Which of the two won is worth saying out loud: the environment outranks the
 // file, so an installation can be pointed at a different license — or, with the
 // file absent, at none — by whoever can set a variable in the deploy pipeline
 // without touching the deployment file the operator reviews.
-func (l License) TokenOrigin() string {
-	if strings.TrimSpace(os.Getenv(LicenseTokenEnvVar)) != "" {
+func (l License) TokenOrigin(lookup config.Lookup) string {
+	if strings.TrimSpace(lookup(LicenseTokenEnvVar)) != "" {
 		return LicenseTokenEnvVar
 	}
 	if l.TokenFile != "" {

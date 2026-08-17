@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // unlicensedEnvironment makes the environment say what a test about the FILE
@@ -17,10 +19,10 @@ import (
 // test below for a reason that has nothing to do with the code. Empty rather
 // than unset because that is the state Token treats as no license, and it is
 // the one a container that declares the variable without filling it produces.
-// (t.Setenv forbids t.Parallel, which is why no test here runs parallel.)
+// The environment arrives as a parameter, so no case here mutates process state
+// to steer the code it is testing.
 func unlicensedEnvironment(t *testing.T) {
 	t.Helper()
-	t.Setenv(LicenseTokenEnvVar, "")
 }
 
 func TestLicenseTokenReadsTheFileReference(t *testing.T) {
@@ -30,7 +32,7 @@ func TestLicenseTokenReadsTheFileReference(t *testing.T) {
 	if err := os.WriteFile(path, []byte("a.token.value\n"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
-	got, err := License{TokenFile: path}.Token()
+	got, err := License{TokenFile: path}.Token(config.Static(map[string]string{LicenseTokenEnvVar: ""}))
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
@@ -44,8 +46,7 @@ func TestLicenseTokenEnvironmentOverridesTheFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("from.the.file"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
-	t.Setenv(LicenseTokenEnvVar, " from.the.environment ")
-	got, err := License{TokenFile: path}.Token()
+	got, err := License{TokenFile: path}.Token(config.Static(map[string]string{LicenseTokenEnvVar: " from.the.environment "}))
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
@@ -62,8 +63,7 @@ func TestLicenseTokenIgnoresAnEmptyEnvironmentValue(t *testing.T) {
 	if err := os.WriteFile(path, []byte("from.the.file"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
-	t.Setenv(LicenseTokenEnvVar, "   ")
-	got, err := License{TokenFile: path}.Token()
+	got, err := License{TokenFile: path}.Token(config.Static(map[string]string{LicenseTokenEnvVar: "   "}))
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestLicenseTokenIgnoresAnEmptyEnvironmentValue(t *testing.T) {
 
 func TestLicenseTokenIsEmptyForAnUnlicensedInstallation(t *testing.T) {
 	unlicensedEnvironment(t)
-	got, err := License{}.Token()
+	got, err := License{}.Token(config.Static(nil))
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestLicenseTokenIsEmptyForAnUnlicensedInstallation(t *testing.T) {
 // hand the operator a workspace that quietly believes it has no entitlement.
 func TestLicenseTokenRefusesAnUnreadableFileRatherThanReadingAsUnlicensed(t *testing.T) {
 	unlicensedEnvironment(t)
-	_, err := License{TokenFile: filepath.Join(t.TempDir(), "typo")}.Token()
+	_, err := License{TokenFile: filepath.Join(t.TempDir(), "typo")}.Token(config.Static(nil))
 	if err == nil {
 		t.Fatal("Token accepted a token_file that does not exist")
 	}
@@ -102,7 +102,7 @@ func TestLicenseTokenRefusesAnEmptyFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("\n"), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
-	_, err := License{TokenFile: path}.Token()
+	_, err := License{TokenFile: path}.Token(config.Static(nil))
 	if err == nil {
 		t.Fatal("Token accepted an empty token_file")
 	}
@@ -136,7 +136,7 @@ func TestLicenseTokenRefusesAFileTooLargeToBeALicense(t *testing.T) {
 	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), TokenLimit+1), 0o600); err != nil {
 		t.Fatalf("write oversized file: %v", err)
 	}
-	_, err := License{TokenFile: path}.Token()
+	_, err := License{TokenFile: path}.Token(config.Static(nil))
 	if err == nil {
 		t.Fatal("Token read a file too large to be a license token")
 	}
@@ -153,7 +153,7 @@ func TestLicenseTokenAcceptsAFileAtTheLimit(t *testing.T) {
 	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), TokenLimit), 0o600); err != nil {
 		t.Fatalf("write token file: %v", err)
 	}
-	got, err := License{TokenFile: path}.Token()
+	got, err := License{TokenFile: path}.Token(config.Static(nil))
 	if err != nil {
 		t.Fatalf("Token: %v", err)
 	}
@@ -177,8 +177,7 @@ func TestTokenOriginNamesTheSourceThatWins(t *testing.T) {
 		{name: "an empty variable does not win", env: "  ", license: License{TokenFile: "/etc/margince/license"}, want: "license.token_file"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(LicenseTokenEnvVar, tc.env)
-			if got := tc.license.TokenOrigin(); got != tc.want {
+			if got := tc.license.TokenOrigin(config.Static(map[string]string{LicenseTokenEnvVar: tc.env})); got != tc.want {
 				t.Errorf("TokenOrigin() = %q, want %q", got, tc.want)
 			}
 		})

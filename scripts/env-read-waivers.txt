@@ -10,9 +10,8 @@
 # undoes, which is why they are frozen rather than moved now.
 #
 # Format: <frozen-read-count> <path>
-1 backend/internal/compose/providerselect.go
-1 backend/internal/modules/ai/selectbrain.go
-6 backend/internal/platform/blobstore/env.go
-2 backend/internal/platform/deployconfig/license.go
-1 backend/internal/platform/keyvault/local.go
-1 backend/internal/platform/websearchhttp/websearchhttp.go
+#
+# EMPTY, and that is the finished state. #1252 built the seam
+# (backend/internal/platform/config) and every package below the composition
+# root now takes a config.Lookup, so the rule covers the whole tree with nothing
+# excused. A new line here would be a regression, not a backlog entry.

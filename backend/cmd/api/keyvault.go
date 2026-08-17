@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
@@ -25,7 +26,7 @@ import (
 // connection. A key that is set but malformed is a boot error
 // (keyvault.FromEnv), never a silent fallback to something weaker.
 func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit int) ([]compose.Option, error) {
-	vault, configured, err := keyvault.FromEnv(pool)
+	vault, configured, err := keyvault.FromEnv(pool, config.FromOS)
 	if err != nil {
 		return nil, fmt.Errorf("api: keyvault: %w", err)
 	}
@@ -62,7 +63,7 @@ func keyvaultOptions(pool *pgxpool.Pool, stdout io.Writer, overlayBackfillLimit 
 // commits its submit job in the run row's transaction and the worker role
 // executes it.
 func providerOption(pool *pgxpool.Pool, vault keyvault.Vault, stdout io.Writer) ([]compose.Option, error) {
-	registry, configured, err := compose.ProviderRegistryFromEnv(time.Now)
+	registry, configured, err := compose.ProviderRegistryFromEnv(time.Now, config.FromOS)
 	if err != nil {
 		return nil, fmt.Errorf("api: %w", err)
 	}

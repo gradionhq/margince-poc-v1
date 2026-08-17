@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 func TestPriceCall(t *testing.T) {
@@ -118,7 +120,7 @@ func TestSeedModelRatesPricesEveryBindingTheShippedExamplesName(t *testing.T) {
 		priced[r.Provider+"/"+r.ModelID] = true
 	}
 	for _, path := range exampleRoutingFiles(t) {
-		cfg, err := LoadRoutingFile(path)
+		cfg, err := LoadRoutingFile(path, config.Static(nil))
 		if err != nil {
 			t.Fatalf("%s no longer parses: %v", path, err)
 		}

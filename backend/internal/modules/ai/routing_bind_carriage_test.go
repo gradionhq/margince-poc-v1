@@ -16,7 +16,6 @@ import (
 // editing the config and restarting, is the experience this test exists to
 // prevent someone from shipping.
 func TestDeclaringInputOnOneRungOfATwoRungLadderCarriesNothing(t *testing.T) {
-	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
 	// rate_extract's ladder is {premium, cheap_cloud} — two rungs, so both must
 	// agree before a caller may be told a document can go to this task.
 	const twoRung = TaskRateExtract
@@ -35,7 +34,7 @@ func TestDeclaringInputOnOneRungOfATwoRungLadderCarriesNothing(t *testing.T) {
 				ProviderConfig: ProviderConfig{Provider: providerOpenAICompatible, BaseURL: "https://x", Model: "e"},
 				Dimensions:     defaultEmbedDimensions,
 			},
-		}
+		}.WithKeys(allCloudKeys())
 	}
 
 	t.Run("one rung declared is not enough", func(t *testing.T) {

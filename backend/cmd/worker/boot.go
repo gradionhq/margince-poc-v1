@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/webhooks"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
@@ -155,9 +155,9 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startProjectionLanes(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
-	startResetLane(laneCtx, runtimeenv.Parse(os.Getenv("MARGINCE_ENV")), rdb, modelPath, lanes.background, logger)
+	startResetLane(laneCtx, runtimeenv.Parse(config.FromOS("MARGINCE_ENV")), rdb, modelPath, lanes.background, logger)
 
-	blob, blobConfigured, err := blobstore.FromEnv(ctx)
+	blob, blobConfigured, err := blobstore.FromEnv(ctx, config.FromOS)
 	if err != nil {
 		return lanes, fmt.Errorf("worker: blobstore: %w", err)
 	}
@@ -168,7 +168,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// The adapter registry the provider-run lanes execute through, read from
 	// the same variable cmd/api reads: the role that queues a run and the
 	// role that executes it must agree about who they are calling.
-	providers, providersConfigured, err := compose.ProviderRegistryFromEnv(time.Now)
+	providers, providersConfigured, err := compose.ProviderRegistryFromEnv(time.Now, config.FromOS)
 	if err != nil {
 		return lanes, fmt.Errorf("worker: %w", err)
 	}
@@ -183,7 +183,7 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// need: an adapter to call and the vault that unseals its credential.
 	// keyvault.FromEnv is resolved here rather than passed down because this
 	// is the first lane in this role that needs it.
-	providerVault, vaultConfigured, err := keyvault.FromEnv(pool)
+	providerVault, vaultConfigured, err := keyvault.FromEnv(pool, config.FromOS)
 	if err != nil {
 		return lanes, fmt.Errorf("worker: keyvault: %w", err)
 	}
@@ -316,7 +316,7 @@ func startRunnerLane(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 	// the workspace's own vaulted incumbent token; wire the FromEnv
 	// vault-backed resolver so an autonomous run can write back (nil vault
 	// → clean errNoWriteIncumbent, never a crash).
-	runnerVault, _, rverr := keyvault.FromEnv(pool)
+	runnerVault, _, rverr := keyvault.FromEnv(pool, config.FromOS)
 	if rverr != nil {
 		return rverr
 	}
@@ -413,7 +413,7 @@ func relayUntilSignal(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool,
 // (keyvault.FromEnv); a mid-backfill failure is logged and non-fatal — capture
 // keeps resolving from the auth column and the next boot retries.
 func backfillConnectorCredentials(ctx context.Context, pool *pgxpool.Pool, stdout io.Writer, logger *slog.Logger) error {
-	vault, configured, err := keyvault.FromEnv(pool)
+	vault, configured, err := keyvault.FromEnv(pool, config.FromOS)
 	if err != nil {
 		return fmt.Errorf("worker: keyvault: %w", err)
 	}

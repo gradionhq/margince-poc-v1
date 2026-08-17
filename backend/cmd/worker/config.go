@@ -11,12 +11,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"strconv"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
@@ -126,7 +126,7 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	// rather than in each flag's default because `flag` echoes a non-empty default
 	// in its usage output, and these values are DSNs, signing keys, OAuth client
 	// secrets and bearer tokens — see internal/platform/cliflags.
-	env.Apply(fs, os.Getenv)
+	env.Apply(fs, config.FromOS)
 	if cfg.dsn == "" {
 		return workerConfig{}, errors.New("worker: --dsn or MARGINCE_DSN required")
 	}
@@ -219,7 +219,7 @@ func validateSchedulerIntervals(cfg workerConfig) error {
 // env sets the cap. An unset env leaves limit untouched; a set-but-invalid
 // env (non-integer or negative) is a boot error, never a silent default.
 func overlayBackfillLimitFromEnv(limit *int) error {
-	v := os.Getenv("MARGINCE_OVERLAY_BACKFILL_LIMIT")
+	v := config.FromOS("MARGINCE_OVERLAY_BACKFILL_LIMIT")
 	if v == "" || *limit != 0 {
 		return nil
 	}
@@ -235,7 +235,7 @@ func overlayBackfillLimitFromEnv(limit *int) error {
 // environment variable; a set-but-unparseable value is a boot error,
 // never a silent fallback.
 func envIntOr(key string, fallback int) (int, error) {
-	v := os.Getenv(key)
+	v := config.FromOS(key)
 	if v == "" {
 		return fallback, nil
 	}
@@ -266,7 +266,7 @@ func fxBootstrapCurrencies(configured []string) []string {
 }
 
 func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
-	v := os.Getenv(key)
+	v := config.FromOS(key)
 	if v == "" {
 		return fallback, nil
 	}

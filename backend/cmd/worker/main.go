@@ -30,6 +30,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
@@ -69,7 +70,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// refuses to boot on. The RUNNING posture is the api's to watch: it is the
 	// role that serves it, and two roles re-resolving one calendar answer would
 	// report the same lapse twice.
-	if _, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(os.Getenv("MARGINCE_ENV"))); err != nil {
+	if _, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar)), config.FromOS); err != nil {
 		return err
 	}
 

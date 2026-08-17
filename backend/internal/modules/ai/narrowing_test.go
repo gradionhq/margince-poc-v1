@@ -19,8 +19,6 @@ import (
 // out of an egressing model while keeping that model for text. `profile:` is
 // all-or-nothing for the deployment, so this is the only per-tier way to say it.
 func TestADeclarationNarrowsANativeProvidersCarriage(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "k")
-	t.Setenv("ANTHROPIC_API_KEY", "k")
 	for name, tc := range map[string]struct {
 		cfg  ProviderConfig
 		want []string
@@ -50,7 +48,7 @@ func TestADeclarationNarrowsANativeProvidersCarriage(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(tc.cfg)
+			client, err := SelectBrain(tc.cfg, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -65,7 +63,6 @@ func TestADeclarationNarrowsANativeProvidersCarriage(t *testing.T) {
 // send-time gate reads the SAME narrowed list, so a document handed to a
 // narrowed tier is refused rather than quietly egressed.
 func TestANarrowedBindingRefusesWhatItNoLongerAdvertises(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "k")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`)); err != nil {
 			t.Errorf("writing the fixture response: %v", err)
@@ -75,7 +72,7 @@ func TestANarrowedBindingRefusesWhatItNoLongerAdvertises(t *testing.T) {
 
 	narrowed, err := SelectBrain(ProviderConfig{
 		Provider: providerGemini, BaseURL: srv.URL, Model: "m", Input: []string{"text", "image"},
-	})
+	}, allCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +142,7 @@ func capsFor(t *testing.T, provider string, input []string) []string {
 	if provider == providerOpenAICompatible {
 		cfg.BaseURL = "https://example.invalid" // the one provider that requires it
 	}
-	client, err := SelectBrain(cfg)
+	client, err := SelectBrain(cfg, allCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,6 +188,7 @@ embeddings: {provider: fake, model: e}
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg = cfg.WithKeys(allCloudKeys())
 	fake := NewFakeClient()
 	if _, err := NewLocalRouter(cfg, WithFakeClient(fake)); err != nil {
 		t.Fatal(err)
@@ -213,7 +211,6 @@ embeddings: {provider: fake, model: e}
 // keeping scans off one model gets no lane the budget guardrail could demote
 // them onto.
 func TestNarrowingOneRungNarrowsTheWholeTask(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "k")
 	cfg, err := ParseRouting([]byte(`
 profile: eu_hosted
 tiers:
@@ -224,6 +221,7 @@ embeddings: {provider: gemini, model: e}
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg = cfg.WithKeys(allCloudKeys())
 	router, err := NewRouter(cfg, nil, nil, nil, false, nil)
 	if err != nil {
 		t.Fatal(err)

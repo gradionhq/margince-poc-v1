@@ -6,10 +6,10 @@ package ai
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -94,7 +94,9 @@ var knownProviders = []string{ProviderFake, providerAnthropic, providerOllama, p
 // SelectBrain turns one binding into a Client (interfaces.md §4):
 // "offline fake ↔ API key ↔ local, one line" — swapping providers is a
 // config change, never a code change.
-func SelectBrain(cfg ProviderConfig) (model.Client, error) {
+//
+//nolint:ireturn // one call returns whichever of seven adapters the binding names; the port interface IS the return type
+func SelectBrain(cfg ProviderConfig, keys config.Lookup) (model.Client, error) {
 	switch cfg.Provider {
 	case ProviderFake:
 		// The stub narrows like any other adapter: `input:` on a fake binding
@@ -102,7 +104,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 		// and an offline test of the narrowing needs a client that honours it.
 		return NewFakeClient().carrying(narrowedCarriage(carriesImagesAndPDF, cfg.Input)), nil
 	case providerAnthropic:
-		key := cloudKey(providerAnthropic)
+		key := cloudKey(providerAnthropic, keys)
 		if key == "" {
 			return nil, byokKeyRequired(providerAnthropic)
 		}
@@ -130,7 +132,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			attachmentMIMEs: carriageFor(cfg.Input),
 		}, nil
 	case providerOpenAICompatible:
-		key := cloudKey(providerOpenAICompatible)
+		key := cloudKey(providerOpenAICompatible, keys)
 		if key == "" {
 			return nil, byokKeyRequired(providerOpenAICompatible)
 		}
@@ -146,7 +148,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			attachmentMIMEs: carriageFor(cfg.Input),
 		}, nil
 	case providerOpenAI:
-		key := cloudKey(providerOpenAI)
+		key := cloudKey(providerOpenAI, keys)
 		if key == "" {
 			return nil, byokKeyRequired(providerOpenAI)
 		}
@@ -158,7 +160,7 @@ func SelectBrain(cfg ProviderConfig) (model.Client, error) {
 			attachmentMIMEs: narrowedCarriage(carriesImagesAndPDF, cfg.Input),
 		}, nil
 	case providerGemini:
-		key := cloudKey(providerGemini)
+		key := cloudKey(providerGemini, keys)
 		if key == "" {
 			return nil, byokKeyRequired(providerGemini)
 		}
@@ -199,9 +201,12 @@ var cloudKeyEnv = map[string]string{
 
 // cloudKey returns the BYOK key for a cloud provider from its conventional
 // environment variable, or "" when unset (the caller fails closed).
-func cloudKey(provider string) string {
+func cloudKey(provider string, keys config.Lookup) string {
+	if keys == nil {
+		return ""
+	}
 	if env := cloudKeyEnv[provider]; env != "" {
-		return os.Getenv(env)
+		return keys(env)
 	}
 	return ""
 }
