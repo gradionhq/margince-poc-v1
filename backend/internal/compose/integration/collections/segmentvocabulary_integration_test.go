@@ -470,6 +470,16 @@ func TestFilteredExportOfASegmentMatchesItsMembership(t *testing.T) {
 	}
 }
 
+// setOf renders a generated enum's members as the comparable set its authority
+// is compared against — one spelling for every enum this file checks.
+func setOf[T ~string](members ...T) map[string]bool {
+	out := make(map[string]bool, len(members))
+	for _, m := range members {
+		out[string(m)] = true
+	}
+	return out
+}
+
 // checkLiteralRe pulls a quoted literal out of a rendered Postgres CHECK
 // constraint (pg_get_constraintdef quotes each value, whether it renders
 // as `IN (...)` or the normalized `= ANY (ARRAY[...])`); a double-quoted
@@ -510,24 +520,23 @@ func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
 		t.Fatalf("taggable's CHECK admits %v, want %v", got, want)
 	}
 
-	// The generated enum, against the same authority. A value the database
-	// stores and the API returns must be one the contract declares, or a
-	// generated client meets a value its own type system says cannot exist.
-	declared := map[string]bool{}
-	for _, member := range []crmcontracts.TaggableEntityType{
-		crmcontracts.TaggableEntityTypePerson,
-		crmcontracts.TaggableEntityTypeOrganization,
-		crmcontracts.TaggableEntityTypeDeal,
-		crmcontracts.TaggableEntityTypeLead,
-		crmcontracts.TaggableEntityTypeProject,
+	// Every generated enum over the SAME vocabulary, against that authority.
+	// Fixing one spelling and leaving its siblings is how this diverged in the
+	// first place: migration 0131 widened four CHECKs to five and the contract
+	// caught up on one of them, so the API accepted, stored and returned a
+	// project list, list member and tag while three enums said it could not
+	// exist. Each of these casts back unchecked at its wire edge (wireTaggable,
+	// wireList, wireMember), so a value the CHECK admits reaches a client
+	// whether or not the enum declares it.
+	for name, declared := range map[string]map[string]bool{
+		"Taggable.entity_type":   setOf(crmcontracts.TaggableEntityTypePerson, crmcontracts.TaggableEntityTypeOrganization, crmcontracts.TaggableEntityTypeDeal, crmcontracts.TaggableEntityTypeLead, crmcontracts.TaggableEntityTypeProject),
+		"ApplyTagRequest":        setOf(crmcontracts.ApplyTagRequestEntityTypePerson, crmcontracts.ApplyTagRequestEntityTypeOrganization, crmcontracts.ApplyTagRequestEntityTypeDeal, crmcontracts.ApplyTagRequestEntityTypeLead, crmcontracts.ApplyTagRequestEntityTypeProject),
+		"List.entity_type":       setOf(crmcontracts.ListEntityTypePerson, crmcontracts.ListEntityTypeOrganization, crmcontracts.ListEntityTypeDeal, crmcontracts.ListEntityTypeLead, crmcontracts.ListEntityTypeProject),
+		"ListMember.entity_type": setOf(crmcontracts.ListMemberEntityTypePerson, crmcontracts.ListMemberEntityTypeOrganization, crmcontracts.ListMemberEntityTypeDeal, crmcontracts.ListMemberEntityTypeLead, crmcontracts.ListMemberEntityTypeProject),
 	} {
-		if !member.Valid() {
-			t.Errorf("TaggableEntityType %q is named here but not admitted by its own Valid()", member)
+		if !maps.Equal(declared, got) {
+			t.Errorf("%s declares %v, the CHECK admits %v", name, declared, got)
 		}
-		declared[string(member)] = true
-	}
-	if !maps.Equal(declared, got) {
-		t.Errorf("the contract enum declares %v, the CHECK admits %v", declared, got)
 	}
 
 	// collections exports no accessor for its private taggable set, so

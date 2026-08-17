@@ -4102,7 +4102,7 @@ paths:
                     type: object
                     required: [entity_type, entity_id]
                     properties:
-                      entity_type: { type: string, enum: [person, organization, deal, lead] }
+                      entity_type: { type: string, enum: [person, organization, deal, lead, project] }
                       entity_id:   { type: string, format: uuid }
                 consent: { $ref: '#/components/schemas/CaptureConsent' }
       responses:
@@ -4917,7 +4917,7 @@ paths:
       parameters:
         - name: entity_type
           in: query
-          schema: { type: string, enum: [person, organization, deal, lead] }
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
         - $ref: '#/components/parameters/IncludeArchived'
       responses:
         '200':
@@ -18194,7 +18194,7 @@ components:
             type: object
             required: [entity_type, entity_id]
             properties:
-              entity_type: { type: string, enum: [person, organization, deal, lead] }
+              entity_type: { type: string, enum: [person, organization, deal, lead, project] }
               entity_id: { type: string, format: uuid }
         source: { type: string }
         raw: { type: [object, 'null'], additionalProperties: true }
@@ -19165,7 +19165,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         list_type: { type: string, enum: [static, dynamic], default: static }
         definition: { type: [object, 'null'], additionalProperties: true, description: Dynamic — validated query plan; static — null. }
         owner_id: { type: [string, 'null'], format: uuid }
@@ -19179,7 +19179,7 @@ components:
       required: [name, entity_type]
       properties:
         name: { type: string }
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         list_type: { type: string, enum: [static, dynamic], default: static }
         definition: { type: [object, 'null'], additionalProperties: true }
         owner_id: { type: [string, 'null'], format: uuid }
@@ -19191,7 +19191,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         list_id: { type: string, format: uuid }
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
         added_by: { type: string }
         created_at: { type: string, format: date-time }
@@ -19200,7 +19200,7 @@ components:
       type: object
       required: [entity_type, entity_id]
       properties:
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
 
     ListListResponse:
@@ -19320,7 +19320,7 @@ components:
       properties:
         object:
           type: string
-          enum: [person, organization, deal, lead]
+          enum: [person, organization, deal, lead, project]
           description: The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
         filter:
           type: object

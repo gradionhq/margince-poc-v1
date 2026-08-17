@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 110.0 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 28932 |
+| Approx. wire tokens | 28939 |
 | Largest tool | `run_report` (4.5 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -64,7 +64,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
-| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 3.0 KB |
+| [`book_meeting`](#book_meeting) | Book a meeting |  |  | 3.1 KB |
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.6 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.3 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.7 KB |
@@ -76,7 +76,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_channel_providers`](#list_channel_providers) | List messaging transports | yes |  | 2.0 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
-| [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
+| [`log_activity`](#log_activity) | Log an activity |  |  | 3.4 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
 | [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
@@ -1183,7 +1183,8 @@ Hold a slot in the host's calendar and record the meeting against the people, ac
               "person",
               "organization",
               "deal",
-              "lead"
+              "lead",
+              "project"
             ],
             "type": "string"
           }
@@ -3165,7 +3166,8 @@ Record something that happened — a call, a meeting, a note, a message — on t
               "person",
               "organization",
               "deal",
-              "lead"
+              "lead",
+              "project"
             ],
             "type": "string"
           }
@@ -6348,7 +6350,8 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
               "person",
               "organization",
               "deal",
-              "lead"
+              "lead",
+              "project"
             ],
             "type": "string"
           }
