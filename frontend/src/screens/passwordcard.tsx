@@ -1,9 +1,12 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { Button, Field } from "../design-system/atoms";
+import { Button, Field, TextInput } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { usePasswordReveal } from "../design-system/passwordreveal";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
+import { isTooShort } from "./passwordrule";
 
 // Changing your own password, from the account settings page.
 //
@@ -21,9 +24,6 @@ import { problemMessageOf, throwProblem } from "./common";
 type ChangeFields = { current: string; next: string; confirm: string };
 
 const EMPTY: ChangeFields = { current: "", next: "", confirm: "" };
-
-/** The floor the server applies, restated so the form can say it first. */
-const MIN_PASSWORD = 12;
 
 export function ChangePasswordCard({
   onChanged,
@@ -84,8 +84,18 @@ export function ChangePasswordCard({
   const set = (key: keyof ChangeFields) => (value: string) =>
     setFields((current) => ({ ...current, [key]: value }));
 
-  const tooShort =
-    fields.next.length > 0 && [...fields.next].length < MIN_PASSWORD;
+  // One per field, because they toggle independently: a reader checking what
+  // they typed in the confirm box has no reason to expose the new password
+  // above it at the same time.
+  const revealLabels = {
+    show: t("auth.showPassword"),
+    hide: t("auth.hidePassword"),
+  };
+  const current = usePasswordReveal(revealLabels);
+  const next = usePasswordReveal(revealLabels);
+  const confirm = usePasswordReveal(revealLabels);
+
+  const tooShort = isTooShort(fields.next);
   const mismatch = fields.confirm.length > 0 && fields.confirm !== fields.next;
   const ready =
     fields.current !== "" &&
@@ -95,75 +105,111 @@ export function ChangePasswordCard({
 
   return (
     <Panel title={t("password.title")}>
-      <PanelBody>
-        <p className="t-small">{t("password.body")}</p>
-        {done && (
-          <p className="t-small" role="status">
-            {t("password.done")}
-          </p>
-        )}
-        {change.isError && (
-          <p className="t-small" role="alert">
-            {problemMessageOf(change.error, t, t("password.errorGeneric"))}
-          </p>
-        )}
-        <Field label={t("password.current")} required>
-          {(control) => (
-            <input
-              {...control}
-              type="password"
-              name="current-password"
-              autoComplete="current-password"
-              value={fields.current}
-              onChange={(event) => set("current")(event.target.value)}
-            />
+      {/* A real form, so Enter submits it. Three password fields that could only
+          be committed by reaching for the button is not how anyone types a
+          credential, and the button carried no `type` at all — Button defaults
+          to `type="button"`, so even inside a form it would not have. */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (ready && !change.isPending) change.mutate(fields);
+        }}
+      >
+        <PanelBody className="form-stack">
+          <p className="t-small settings-panel-sub">{t("password.body")}</p>
+          {/* The outcome is a Callout in its own tone, not a grey line. Both
+              halves used to be `.t-small` — `--textMeta` — so a refused change
+              and a successful one were the same colour, one element apart, and
+              the only thing telling them apart was reading the sentence. */}
+          {done && (
+            <Callout tone="success" live="status">
+              {t("password.done")}
+            </Callout>
           )}
-        </Field>
-        <Field
-          label={t("password.next")}
-          required
-          hint={tooShort ? t("password.tooShort") : t("password.hint")}
-        >
-          {(control) => (
-            <input
-              {...control}
-              type="password"
-              name="new-password"
-              autoComplete="new-password"
-              value={fields.next}
-              onChange={(event) => set("next")(event.target.value)}
-            />
+          {change.isError && (
+            <Callout tone="danger" live="alert">
+              {problemMessageOf(change.error, t, t("password.errorGeneric"))}
+            </Callout>
           )}
-        </Field>
-        <Field
-          label={t("password.confirm")}
-          required
-          hint={mismatch ? t("password.mismatch") : undefined}
-        >
-          {(control) => (
-            <input
-              {...control}
-              type="password"
-              name="confirm-password"
-              autoComplete="new-password"
-              value={fields.confirm}
-              onChange={(event) => set("confirm")(event.target.value)}
-            />
-          )}
-        </Field>
-        {/* Said before the button is pressed, not after: the change ends every
-            session including this one, so the next thing that happens is a
-            sign-in screen. A person who is not told that reads it as being
-            kicked out. */}
-        <p className="t-small">{t("password.signsYouOut")}</p>
-        <Button
-          variant="primary"
-          disabled={!ready || change.isPending}
-          onClick={() => change.mutate(fields)}
-        >
-          {change.isPending ? t("password.changing") : t("password.submit")}
-        </Button>
-      </PanelBody>
+          {/* Every password field carries a reveal, this one included. A
+              mistyped CURRENT password is the cheapest of the three to
+              diagnose — the server refuses it in one round trip — but being
+              refused without being able to see what you typed is how a reader
+              concludes they have forgotten a password they know. */}
+          <Field
+            label={t("password.current")}
+            required
+            trailing={current.trailing}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                type={current.type}
+                name="current-password"
+                autoComplete="current-password"
+                value={fields.current}
+                onChange={(event) => set("current")(event.target.value)}
+              />
+            )}
+          </Field>
+          {/* The new pair has the strongest claim on it: a mistyped current
+              password is refused, while a mistyped NEW one simply becomes the
+              password — with a twelve-character floor and a confirm field that
+              agreed with it. */}
+          <Field
+            label={t("password.next")}
+            required
+            error={tooShort ? t("password.tooShort") : undefined}
+            // The rule, until the rule is being broken — at which point the
+            // refusal restates it in the danger tone and a second grey copy of
+            // the same sentence underneath is noise.
+            hint={tooShort ? undefined : t("password.hint")}
+            trailing={next.trailing}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                type={next.type}
+                name="new-password"
+                autoComplete="new-password"
+                value={fields.next}
+                onChange={(event) => set("next")(event.target.value)}
+              />
+            )}
+          </Field>
+          <Field
+            label={t("password.confirm")}
+            required
+            error={mismatch ? t("password.mismatch") : undefined}
+            trailing={confirm.trailing}
+          >
+            {(control) => (
+              <TextInput
+                {...control}
+                type={confirm.type}
+                name="confirm-password"
+                autoComplete="new-password"
+                value={fields.confirm}
+                onChange={(event) => set("confirm")(event.target.value)}
+              />
+            )}
+          </Field>
+          {/* Said before the button is pressed, not after: the change ends every
+              session including this one, so the next thing that happens is a
+              sign-in screen. A person who is not told that reads it as being
+              kicked out. */}
+          <p className="t-small">{t("password.signsYouOut")}</p>
+          <div className="form-actions">
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!ready || change.isPending}
+            >
+              {change.isPending ? t("password.changing") : t("password.submit")}
+            </Button>
+          </div>
+        </PanelBody>
+      </form>
     </Panel>
   );
 }

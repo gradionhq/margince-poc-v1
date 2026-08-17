@@ -675,6 +675,97 @@
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
+/* iOS Safari zooms the page whenever a focused input's text is under 16px, and
+   the field is 13.5px — so on an iPhone every form in this product jerked the
+   viewport on focus. The sign-in screens were the only surface that ever fixed
+   it, in their own sheet, for their own fork of the field; declared here it
+   reaches every input instead of one screen's. Only below the width where a
+   phone is what is holding the page: at desk widths 13.5px is the size the rest
+   of the type scale is set against. */
+@media (max-width: 35rem) {
+  .input {
+    font-size: 16px;
+  }
+}
+
+/* The field's OUTLINE, moved off the input, for the fields that have something
+   sitting inside it — a leading glyph, or a control at the trailing end like
+   the password reveal. The input then draws no boundary of its own and the
+   affordances sit within one ring rather than beside it. */
+.field-shell {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: 11px;
+  min-block-size: var(--control-h);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  transition: 0.15s;
+}
+.field-shell:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+/* A refused field says so in its boundary as well as in its words — but never
+   ONLY in its boundary: the sentence under it carries the meaning, and this is
+   the second signal, not the first.
+
+   Keyed on `aria-invalid` rather than on a class, because the attribute is the
+   fact and Field already puts it on the control. A class would have said the
+   same thing twice and only reached the fields that happen to draw a shell —
+   which is how the first pass shipped a red boundary on a refused password and
+   none at all on the refused confirm field directly under it. */
+.input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.input[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px var(--dangerBg);
+}
+.field-shell:has([aria-invalid="true"]) {
+  border-color: var(--danger);
+}
+.field-shell:has([aria-invalid="true"]):focus-within {
+  box-shadow: 0 0 0 3px var(--dangerBg);
+}
+/* Inside the shell the input is only the text: the shell owns the fill, the
+   boundary, the radius, the focus ring and the horizontal padding. */
+.field-shell > .input {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  background: none;
+  border-radius: 0;
+  padding-inline: 0;
+  box-shadow: none;
+}
+.field-shell > .input:focus {
+  box-shadow: none;
+}
+.field-shell-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--textMeta);
+}
+.field-shell-icon svg {
+  inline-size: 15px;
+  block-size: 15px;
+}
+/* The label and whatever sits at the far end of its line — a "Forgot?" link
+   beside a password label. */
+.field-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+/* A refusal is not a caption. It reads in the danger tone at the caption's
+   size, under the control it belongs to and above the rule that still applies. */
+.field-error {
+  font-size: 12.5px;
+  color: var(--danger);
+  font-weight: var(--fw-medium);
+}
 /* No `select.input` rule: there is no native dropdown in this product. The
    Margince select's trigger is a button that reads `.input` for the same field
    surface and owns its own layout in select.css. */

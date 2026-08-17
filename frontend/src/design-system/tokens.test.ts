@@ -80,6 +80,60 @@ function parseBlock(css: string, selector: string): Record<string, string> {
   return props;
 }
 
+// A media query opened INSIDE :root ends the block early, and every token
+// declared below it is stranded in that query — present on the devices the
+// query matches and simply absent everywhere else. Nothing else in the tree can
+// see it: the property is still declared, so check-space-tokens is satisfied;
+// the file still balances, so the formatter is; jsdom resolves no custom
+// properties, so no unit test is; and the type checker never reads CSS. The
+// only symptom is a page whose spacing, type scale and fonts quietly vanish —
+// which is how a `@media (pointer: coarse)` block written to raise the control
+// height took the whole --space-* scale down with it, and how the sign-in
+// screen's wordmark ended up sitting on top of its own heading.
+describe("the token block's shape", () => {
+  it("closes :root before any media query opens", () => {
+    const rootStart = tokensCss.indexOf(":root {");
+    expect(rootStart).toBeGreaterThanOrEqual(0);
+    let depth = 0;
+    for (let i = rootStart; i < tokensCss.length; i += 1) {
+      const char = tokensCss[i];
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        // The block closed cleanly with no @media seen inside it.
+        if (depth === 0) return;
+      }
+      if (depth > 0 && tokensCss.startsWith("@media", i)) {
+        const line = tokensCss.slice(0, i).split("\n").length;
+        throw new Error(
+          `tokens.css:${line} opens a @media inside :root. Every token declared ` +
+            `after it is stranded in that query. Put the override AFTER the ` +
+            `:root block closes.`,
+        );
+      }
+    }
+    throw new Error("tokens.css: the :root block never closes");
+  });
+
+  // The scale the whole product measures itself in has to be in the block every
+  // document gets, not in one a device may not match.
+  it("declares the layout and type scales unconditionally", () => {
+    const light = parseBlock(tokensCss, ":root");
+    for (const name of [
+      "--space-1",
+      "--space-6",
+      "--space-16",
+      "--control-h",
+      "--control-h-sm",
+      "--fs-body",
+      "--f-body",
+      "--phoneNavClearance",
+    ]) {
+      expect(light[name], `${name} missing from :root`).toBeTruthy();
+    }
+  });
+});
+
 describe("Ledger-Green token layer (B-EP09.1)", () => {
   const light = parseBlock(tokensCss, ":root");
 

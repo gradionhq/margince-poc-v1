@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { Button } from "../design-system/atoms";
+import { Button, Field, TextInput } from "../design-system/atoms";
+import { usePasswordReveal } from "../design-system/passwordreveal";
 import { useT } from "../i18n";
-import { Field, usePageTitle, Wordmark } from "./auth";
+import { usePageTitle, Wordmark } from "./auth";
 import { AuthExperience } from "./auth-core";
+import { isTooShort } from "./passwordrule";
 import "./auth.css";
 
 // The first-run claim (ADR-0105). An installation whose deployment file names no
@@ -64,9 +66,6 @@ const EMPTY: ClaimFields = {
   setupToken: "",
 };
 
-/** The floor the server applies, restated so the form can say it before submitting. */
-const MIN_PASSWORD = 12;
-
 export function SetupClaimScreen({
   onClaimed,
 }: Readonly<{ onClaimed: () => void }>) {
@@ -75,6 +74,12 @@ export function SetupClaimScreen({
   const [fields, setFields] = useState<ClaimFields>(EMPTY);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // The root credential is typed once with no confirm field to disagree with
+  // it, so reading it back is the only check there is.
+  const reveal = usePasswordReveal({
+    show: t("auth.showPassword"),
+    hide: t("auth.hidePassword"),
+  });
 
   const set = (key: keyof ClaimFields) => (value: string) =>
     setFields((current) => ({ ...current, [key]: value }));
@@ -130,9 +135,7 @@ export function SetupClaimScreen({
     }
   }
 
-  const passwordShort =
-    fields.adminPassword.length > 0 &&
-    [...fields.adminPassword].length < MIN_PASSWORD;
+  const passwordShort = isTooShort(fields.adminPassword);
   const complete =
     fields.setupToken.trim() !== "" &&
     fields.organizationName.trim() !== "" &&
@@ -153,78 +156,79 @@ export function SetupClaimScreen({
           </p>
         )}
         <div className="auth-fields">
-          <Field
-            id="setup-token"
-            label={t("setup.token")}
-            hint={t("setup.tokenHint")}
-          >
-            <input
-              id="setup-token"
-              className="auth-input"
-              name="setup-token"
-              required
-              autoComplete="off"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              value={fields.setupToken}
-              onChange={(event) => set("setupToken")(event.target.value)}
-            />
+          <Field label={t("setup.token")} required hint={t("setup.tokenHint")}>
+            {(control) => (
+              <TextInput
+                {...control}
+                name="setup-token"
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={fields.setupToken}
+                onChange={(event) => set("setupToken")(event.target.value)}
+              />
+            )}
           </Field>
-          <Field id="setup-org" label={t("setup.organization")}>
-            <input
-              id="setup-org"
-              className="auth-input"
-              name="organization"
-              required
-              value={fields.organizationName}
-              onChange={(event) => set("organizationName")(event.target.value)}
-            />
+          <Field label={t("setup.organization")} required>
+            {(control) => (
+              <TextInput
+                {...control}
+                name="organization"
+                value={fields.organizationName}
+                onChange={(event) =>
+                  set("organizationName")(event.target.value)
+                }
+              />
+            )}
           </Field>
-          <Field id="setup-admin-name" label={t("setup.adminName")}>
-            <input
-              id="setup-admin-name"
-              className="auth-input"
-              name="admin-name"
-              required
-              autoComplete="name"
-              value={fields.adminName}
-              onChange={(event) => set("adminName")(event.target.value)}
-            />
+          <Field label={t("setup.adminName")} required>
+            {(control) => (
+              <TextInput
+                {...control}
+                name="admin-name"
+                autoComplete="name"
+                value={fields.adminName}
+                onChange={(event) => set("adminName")(event.target.value)}
+              />
+            )}
           </Field>
-          <Field id="setup-admin-email" label={t("setup.adminEmail")}>
-            <input
-              id="setup-admin-email"
-              className="auth-input"
-              type="email"
-              name="admin-email"
-              required
-              autoComplete="username"
-              inputMode="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              value={fields.adminEmail}
-              onChange={(event) => set("adminEmail")(event.target.value)}
-            />
+          <Field label={t("setup.adminEmail")} required>
+            {(control) => (
+              <TextInput
+                {...control}
+                type="email"
+                name="admin-email"
+                autoComplete="username"
+                inputMode="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={fields.adminEmail}
+                onChange={(event) => set("adminEmail")(event.target.value)}
+              />
+            )}
           </Field>
           <Field
-            id="setup-admin-password"
             label={t("setup.adminPassword")}
-            hint={
-              passwordShort ? t("setup.passwordShort") : t("setup.passwordHint")
-            }
+            required
+            error={passwordShort ? t("setup.passwordShort") : undefined}
+            // The rule, until the rule is being broken — at which point the
+            // refusal restates it in the danger tone and a second grey copy of
+            // the same sentence underneath is noise.
+            hint={passwordShort ? undefined : t("setup.passwordHint")}
+            trailing={reveal.trailing}
           >
-            <input
-              id="setup-admin-password"
-              className="auth-input"
-              type="password"
-              name="admin-password"
-              required
-              autoComplete="new-password"
-              value={fields.adminPassword}
-              onChange={(event) => set("adminPassword")(event.target.value)}
-            />
+            {(control) => (
+              <TextInput
+                {...control}
+                type={reveal.type}
+                name="admin-password"
+                autoComplete="new-password"
+                value={fields.adminPassword}
+                onChange={(event) => set("adminPassword")(event.target.value)}
+              />
+            )}
           </Field>
         </div>
         <p className="card-sub">{t("setup.rootWarning")}</p>

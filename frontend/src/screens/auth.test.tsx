@@ -627,9 +627,9 @@ async function expectEveryPasswordFieldRevealable() {
   ];
   expect(fields.length).toBeGreaterThan(0);
   for (const input of fields) {
-    const field = input.closest(".auth-field");
+    const field = input.closest(".field");
     expect(field, input.name).toBeTruthy();
-    const reveal = field?.querySelector<HTMLButtonElement>(".auth-reveal");
+    const reveal = field?.querySelector<HTMLButtonElement>(".field-reveal");
     expect(reveal, input.name).toBeTruthy();
     expect(input.type, input.name).toBe("password");
     expect(reveal?.getAttribute("aria-label")).toBe("Show password");

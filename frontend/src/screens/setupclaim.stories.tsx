@@ -88,9 +88,11 @@ export const Ready: Story = {
 };
 
 /**
- * A password below the floor. The hint replaces the ordinary one and the button
- * stays disabled — the refusal happens here rather than as a 422 after a round
- * trip the person has already waited for.
+ * A password below the floor. The refusal takes the field's `error` slot — the
+ * danger tone and an `aria-invalid` outline, where it used to ride the same grey
+ * `hint` as the neutral rule it replaced — and the button stays disabled, so the
+ * refusal happens here rather than as a 422 after a round trip the person has
+ * already waited for.
  */
 export const PasswordTooShort: Story = {
   play: async ({ canvasElement }) => {

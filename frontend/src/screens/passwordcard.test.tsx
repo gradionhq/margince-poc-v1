@@ -76,7 +76,16 @@ describe("ChangePasswordCard", () => {
     await user.type(screen.getByLabelText(/confirm new password/i), "short");
 
     expect(submitButton()).toBeDisabled();
-    expect(screen.getByText(/at least 12 characters/i)).toBeInTheDocument();
+    // The refusal is announced and reads in the danger tone — not in the same
+    // meta-grey as the neutral hint it replaces, and not in the same grey as
+    // the success line this card shows in the very same slot.
+    const refusal = screen.getByRole("alert");
+    expect(refusal).toHaveTextContent(/at least 12 characters/i);
+    expect(refusal).toHaveClass("field-error");
+    expect(screen.getByLabelText(/^new password/i)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
