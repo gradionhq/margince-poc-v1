@@ -118,28 +118,56 @@ export function Badge({
 }
 
 // AVATAR_TONES are the monogram backgrounds, all token-driven. The colour
-// is picked from the name, not stored, so the same record looks the same on
+// is picked from the record, not stored, so the same record looks the same on
 // every screen and in every session without a round trip.
 const AVATAR_TONES = 6;
 
+/**
+ * The initials a chip falls back to.
+ *
+ * Split on whitespace AND on the punctuation an address uses, because the
+ * signed-in reader is frequently known to the product only by their address:
+ * `jane.doe@example.com` reads as "JD" here, where a whitespace-only split
+ * gives the single letter "J" and every colleague whose address starts with a
+ * J gets the same chip. Two letters at most — a third stops being a monogram
+ * and starts being text set too small to read.
+ */
+function monogramOf(name: string): string {
+  return name
+    .split(/[\s@._-]+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => [...part][0]?.toUpperCase() ?? "")
+    .join("");
+}
+
 export function Avatar({
   name,
-  tinted,
+  identity,
   src,
-  size,
+  size = "sm",
 }: Readonly<{
   name: string;
-  // A deterministic per-name colour. Off by default so the many existing
-  // callers keep the neutral chip they render today.
-  tinted?: boolean;
+  /**
+   * What the tint is derived FROM, when that is not the displayed name — a
+   * record id, an address, anything stable for the life of the record. The
+   * name is the fallback and it is a poor key: renaming a person or a company
+   * silently moves them to a different colour on every screen at once, which
+   * reads as a different record rather than as a rename.
+   */
+  identity?: string;
   // A resolved logo to render instead of the monogram. The monogram is the
   // floor, not the fallback of last resort: it is what shows while the image
   // loads, if it fails to load, and whenever no logo resolved — so a company
   // is never a broken image or an empty slot.
   src?: string | null;
-  // "lg" is the record header's larger chip; the default is the 28px chip
-  // every list and row uses.
-  size?: "lg";
+  /**
+   * The four sizes this chip is drawn at, which used to be four numbers in
+   * four different stylesheets for a prop that admitted two: `xs` in a dense
+   * table, `sm` in every list row and beside every name, `md` on a record
+   * header, `lg` on a wide one.
+   */
+  size?: "xs" | "sm" | "md" | "lg";
 }>) {
   // An image that fails to load falls back to the monogram for the rest of
   // this mount. Keyed by src so a record whose logo changes gets a fresh try
@@ -157,26 +185,21 @@ export function Avatar({
   // image is removed while the fallback stays suppressed, and the avatar is
   // simply empty.
   const painted = Boolean(src) && paintedSrc === src && !broken;
-  const initials = name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
+  const initials = monogramOf(name);
+  // A small sum over the code points: stable across sessions and locales, and
+  // the spread only has to be even enough that neighbouring records in a list
+  // rarely collide.
+  //
+  // The tint is UNCONDITIONAL. It used to be opt-in, and the result was that a
+  // company was tinted in the list it was found in and a neutral accent chip on
+  // the record page that list opened — the same company, two colours, one
+  // click apart. A chip that identifies a record on one screen and not on the
+  // next identifies nothing.
   let tone = 0;
-  if (tinted) {
-    // A small sum over the code points: stable across sessions and locales,
-    // and the spread only has to be even enough that neighbouring names in a
-    // list rarely collide.
-    let hash = 0;
-    for (const char of name) {
-      hash = (hash + (char.codePointAt(0) ?? 0)) % AVATAR_TONES;
-    }
-    tone = hash;
+  for (const char of identity ?? name) {
+    tone = (tone + (char.codePointAt(0) ?? 0)) % AVATAR_TONES;
   }
-  const classes = ["avatar"];
-  if (tinted) classes.push(`avatar-t${tone}`);
-  if (size === "lg") classes.push("avatar-lg");
+  const classes = ["avatar", `avatar-t${tone}`, `avatar-${size}`];
   if (src && !broken) classes.push("avatar-has-logo");
   if (painted) classes.push("avatar-painted");
   return (

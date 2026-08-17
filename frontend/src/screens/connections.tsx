@@ -499,7 +499,7 @@ function NodeList({
         <li key={node.id} className="co-row">
           <span className="cx-node-name avatar-row">
             {node.kind === "organization" && (
-              <Avatar name={node.label} src={node.logo_url} tinted />
+              <Avatar name={node.label} src={node.logo_url} />
             )}
             {/* The label comes off THIS payload. EntityRef would otherwise
                 fetch each record's name — one request per visible node, with

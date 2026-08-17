@@ -603,7 +603,12 @@
 }
 
 /* Compact tightens the row, so the chips in it come down to match: a 28px mark
- * against a 20px row is what makes one row taller than its neighbours. */
+ * against a 20px row is what makes one row taller than its neighbours.
+ *
+ * This is the ONE avatar size a prop cannot carry — density is the table's
+ * decision and the chip arrives already built from a caller's cell renderer,
+ * which knows nothing about it. The values are `avatar-xs` from atoms.css and
+ * must move with it. */
 .lt-table.dense .avatar {
   width: 20px;
   height: 20px;

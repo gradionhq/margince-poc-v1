@@ -189,8 +189,9 @@ export function ConversationWorkbench({
         person={
           me.data
             ? {
-                name: me.data.user.display_name,
+                name: me.data.user.display_name || me.data.user.email,
                 detail: me.data.user.email,
+                identity: me.data.user.email,
               }
             : undefined
         }

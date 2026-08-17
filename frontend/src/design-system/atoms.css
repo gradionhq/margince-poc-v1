@@ -91,18 +91,47 @@
   cursor: pointer;
 }
 
+/* The chip's own chrome. Its SIZE is a rung below, never here: four rendered
+   sizes — 20, 28, 44 and 76 — already existed in three different stylesheets
+   for a component whose prop surface admitted two, so the scale is declared
+   once and picked by the `size` prop rather than by whatever context a caller
+   happened to drop the chip into. */
 .avatar {
-  width: 28px;
-  height: 28px;
   border-radius: var(--r-full);
   background: var(--accentMed);
   color: var(--accent);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
   font-weight: 700;
   flex: none;
+}
+
+/* The dense rung: a list table that has chosen to pack its rows. */
+.avatar-xs {
+  width: 20px;
+  height: 20px;
+  font-size: 9px;
+}
+/* The default: every list row, every name a chip sits beside, the account
+   block in the rail. */
+.avatar-sm {
+  width: 28px;
+  height: 28px;
+  font-size: 11px;
+}
+/* A record header. */
+.avatar-md {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+}
+/* A WIDE record header, where the chip is the page's own mark rather than a
+   marker beside a name. */
+.avatar-lg {
+  width: 76px;
+  height: 76px;
+  font-size: 26px;
 }
 
 /* An avatar beside its label on one line — a list cell, a search hit, a node
@@ -116,12 +145,6 @@
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
-}
-
-.avatar-lg {
-  width: 44px;
-  height: 44px;
-  font-size: 16px;
 }
 
 /* The per-name tints come AFTER the base rule: same specificity, so the

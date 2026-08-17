@@ -291,11 +291,12 @@ export function UserTurn({ entry }: Readonly<{ entry: UserEntry }>) {
   // identity keeps the turn — the message is theirs whether or not the probe
   // has landed — and the chip simply has no letter to show yet.
   const me = useMe();
-  const name = me.data?.user.display_name ?? "";
+  const email = me.data?.user.email ?? "";
+  const name = me.data?.user.display_name || email;
   return (
     <div className="ob-conv-user">
       <p>{entry.i18nKey ? t(entry.i18nKey, entry.params) : entry.text}</p>
-      <Avatar name={name} tinted />
+      <Avatar identity={email || undefined} name={name} />
     </div>
   );
 }

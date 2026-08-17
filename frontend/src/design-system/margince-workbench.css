@@ -703,20 +703,6 @@
   border-top: 1px solid var(--borderSubtle);
 }
 
-.mw-shell.is-rail .mw-person-avatar {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  border-radius: var(--r-full);
-  background: var(--mono0Fill);
-  color: var(--mono0Text);
-  font-family: var(--f-body);
-  font-size: var(--fs-meta);
-  font-weight: var(--fw-semibold);
-}
-
 .mw-shell.is-rail .mw-person-id {
   display: flex;
   flex-direction: column;

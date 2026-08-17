@@ -149,7 +149,7 @@ export function DealCard({
       <span className="deal-name">{deal.name}</span>
       {deal.org && (
         <span className="deal-org">
-          <Avatar name={deal.org} src={deal.orgLogoUrl} tinted />
+          <Avatar name={deal.org} src={deal.orgLogoUrl} />
           {/* The name needs a box of its own to be truncated in: a bare text
               node has nothing for the ellipsis to apply to, and wraps under
               its own mark instead. */}
@@ -406,7 +406,12 @@ function RecordHead({
   const nameTip = useTruncationTooltip<HTMLHeadingElement>(name);
   return (
     <header className={wide ? "record-head record-head-wide" : "record-head"}>
-      <Avatar name={name} src={avatarSrc} size="lg" />
+      {/* The wide header's chip is the page's own mark rather than a marker
+          beside a name, so it takes the largest rung. This used to be a
+          `.record-head-wide .avatar` override in composed.css, which meant the
+          chip's size was decided by a class on its parent and the `size` prop
+          said something that was not true. */}
+      <Avatar name={name} src={avatarSrc} size={wide ? "lg" : "md"} />
       <div className="record-id">
         {/* The record page's name, and the one badge that belongs on ITS
             OWN line — a record's standing, read immediately after what it

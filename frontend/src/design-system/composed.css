@@ -247,11 +247,6 @@
   line-height: 1.15;
   letter-spacing: -0.01em;
 }
-.record-head-wide .avatar {
-  width: 76px;
-  height: 76px;
-  font-size: 26px;
-}
 .record-head .record-sub {
   font-size: 13px;
   color: var(--textMeta);

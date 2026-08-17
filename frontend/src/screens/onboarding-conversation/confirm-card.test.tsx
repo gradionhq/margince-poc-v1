@@ -125,7 +125,7 @@ function renderCard(site: CompanySiteRead | null) {
           for this company, rendered beside the board so the claim under test
           is "the two agree" rather than a hash recomputed in the test. */}
       <span data-testid="reference-mark">
-        <Avatar name={COMPANY} tinted />
+        <Avatar name={COMPANY} />
       </span>
     </>,
   );

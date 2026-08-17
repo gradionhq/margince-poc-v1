@@ -36,6 +36,26 @@ const render = (ui: Parameters<typeof rtlRender>[0]) => {
   );
 };
 
+// The same shell, with this reader carrying a different display name and the
+// same address — which is what a rename is.
+const renderNamed = (displayName: string) => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const me = meFixture();
+  client.setQueryData(["me"], {
+    ...me,
+    user: { ...me.user, display_name: displayName },
+  });
+  return rtlRender(
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">
+        <AccountMenu collapsed={false} />
+      </LocaleProvider>
+    </QueryClientProvider>,
+  );
+};
+
 // Expanded, the trigger's accessible name carries the visible name as well as
 // what the control does, so it is matched by suffix rather than by equality.
 const openMenu = async () => {
@@ -52,8 +72,27 @@ describe("AccountMenu", () => {
     expect(who?.querySelector(".acctmail")?.textContent).toBe(
       "test@example.test",
     );
-    // Initials, never a fabricated name.
-    expect(container.querySelector(".acctavatar")?.textContent).toBe("TU");
+    // Initials, never a fabricated name — and drawn by the design system's one
+    // chip rather than by a hand-rolled span with its own initials rule, which
+    // is what gave this reader a different mark here than on their own account
+    // settings page.
+    expect(container.querySelector(".avatar")?.textContent).toBe("TU");
+  });
+
+  // The rail's chip and the settings page's chip are the SAME person, so they
+  // are the same colour — and they stay that colour when the display name
+  // changes, because the tint is keyed on the address rather than on the name.
+  it("keys the chip's tone on the address, not the display name", () => {
+    const toneOf = (root: HTMLElement) =>
+      [...(root.querySelector(".avatar")?.classList ?? [])].find((cls) =>
+        cls.startsWith("avatar-t"),
+      );
+    const { container: named } = renderNamed("Test User");
+    const tone = toneOf(named);
+    expect(tone).toBeTruthy();
+    cleanup();
+    const { container: renamed } = renderNamed("Renamed Person");
+    expect(toneOf(renamed)).toBe(tone);
   });
 
   // WCAG 2.5.3: the row prints the person's name, so a voice user who says the
