@@ -229,7 +229,7 @@ function ContractRow({
     onSuccess: () => {
       setAsking(false);
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
-      queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["organization360", orgId] });
     },
   });
 

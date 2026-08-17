@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type DragEvent, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
+import { FileDropzone } from "../design-system/filedropzone";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
@@ -96,7 +97,7 @@ export function ContractForm({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
-      queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["organization360", orgId] });
       queryClient.invalidateQueries({ queryKey: ["orgDocuments", orgId] });
       onClose();
     },
@@ -239,7 +240,13 @@ export function ContractForm({
         )}
       </Field>
 
-      <SignedFileField file={file} onPick={setFile} />
+      <FileDropzone
+        label={t("contracts.form.file")}
+        hint={t("contracts.form.fileHint")}
+        emptyLabel={t("contracts.form.fileEmpty")}
+        file={file}
+        onPick={setFile}
+      />
 
       {save.error && (
         <p className="t-caption" role="alert">
@@ -287,64 +294,6 @@ function draftOf(contract: Contract | undefined): ContractDraft {
         : String(contract.notice_period_days),
     signedOn: contract.signed_on ?? "",
   };
-}
-
-/**
- * SignedFileField takes the signed agreement by drag-and-drop or by clicking.
- *
- * BOTH, not one: dropping is what a reader reaches for with a PDF already in
- * front of them, and clicking is what works from a keyboard and on a phone. A
- * drop zone with no real input behind it is unreachable for anyone not using a
- * mouse, which is why the input is present and merely made invisible.
- */
-function SignedFileField({
-  file,
-  onPick,
-}: Readonly<{ file?: File; onPick: (file: File) => void }>) {
-  const t = useT();
-  const [over, setOver] = useState(false);
-
-  const take = (dropped: FileList | null) => {
-    const first = dropped?.[0];
-    if (first) {
-      onPick(first);
-    }
-  };
-
-  return (
-    <Field label={t("contracts.form.file")} hint={t("contracts.form.fileHint")}>
-      {(props) => (
-        // A LABEL, not a div: it owns the real file input, so a click or a
-        // keypress anywhere in the zone opens the picker without a handler
-        // faking it, and a screen reader announces one control rather than an
-        // interactive box of unknown purpose. Dropping is the mouse affordance
-        // layered on top of that, not a replacement for it.
-        <label
-          className={over ? "dropzone dragover" : "dropzone"}
-          onDragOver={(e: DragEvent<HTMLLabelElement>) => {
-            e.preventDefault();
-            setOver(true);
-          }}
-          onDragLeave={() => setOver(false)}
-          onDrop={(e: DragEvent<HTMLLabelElement>) => {
-            e.preventDefault();
-            setOver(false);
-            take(e.dataTransfer.files);
-          }}
-        >
-          <input
-            {...props}
-            type="file"
-            className="dropzone-input"
-            onChange={(e) => take(e.target.files)}
-          />
-          <span className="dropzone-label">
-            {file ? file.name : t("contracts.form.fileEmpty")}
-          </span>
-        </label>
-      )}
-    </Field>
-  );
 }
 
 async function createContract(
