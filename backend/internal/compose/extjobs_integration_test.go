@@ -150,7 +150,7 @@ func seedAgentSeat(t *testing.T, ws ids.UUID) ids.UUID {
 // reports the ones that also finished.
 func awaitRows(t *testing.T, pool *pgxpool.Pool, kind string, want int) int {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), awaitBudget)
 	defer cancel()
 	var got int
 	for {
@@ -344,7 +344,7 @@ func TestHandlerSeesAPinnedWorkspace(t *testing.T) {
 		return nil
 	})
 	_, sub := startRunner(t, e.Pool)
-	awaitKindCompleted(mustDeadline(t), t, sub, decl.ChildKind())
+	awaitKindCompleted(t, sub, decl.ChildKind())
 	// Every tick of the fan-out, not just the first: one pinned handler and one
 	// unpinned would still satisfy an any-of assertion.
 	awaitRows(t, e.Pool, decl.ChildKind(), len(live))
@@ -427,7 +427,7 @@ func TestPanickingTickFailsOneAttemptNotTheWorker(t *testing.T) {
 	if err := runner.Enqueue(context.Background(), CloseDateSweepArgs{}, nil); err != nil {
 		t.Fatalf("enqueueing after the panic: %v", err)
 	}
-	awaitKindCompleted(mustDeadline(t), t, sub, CloseDateSweepArgs{}.Kind())
+	awaitKindCompleted(t, sub, CloseDateSweepArgs{}.Kind())
 }
 
 // TestConfirmFirstJobIsRefusedAtBoot: a job has no caller, so a confirm-first
@@ -645,7 +645,7 @@ func execAsOwner(t *testing.T, sql string, args ...any) {
 // inside a select, never by an unconditional, uninterruptible time.Sleep.
 func waitUntil(t *testing.T, cond func() bool, what string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), awaitBudget)
 	defer cancel()
 	for {
 		if cond() {
@@ -657,13 +657,6 @@ func waitUntil(t *testing.T, cond func() bool, what string) {
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-}
-
-func mustDeadline(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	t.Cleanup(cancel)
-	return ctx
 }
 
 // TestTheChildUniquenessKeyIsTheWorkspaceAlone is the other half of the ByArgs
