@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // TestTheConnectorCannotSend is the guarantee the whole design rests on. The
@@ -285,5 +287,93 @@ func TestHistoryReachesBack(t *testing.T) {
 	if newest.Sub(oldest) < 14*24*time.Hour {
 		t.Errorf("the whole history spans %s — an account worked for a quarter should reach further back",
 			newest.Sub(oldest))
+	}
+}
+
+// TestDescriptorIsReadOnly — the descriptor drives scope enforcement and the
+// risk tier, so a connector that quietly asked for write scopes would be
+// granted them by the connect path without anybody reading this file.
+func TestDescriptorIsReadOnly(t *testing.T) {
+	d := New(stubDirectory{}).Descriptor()
+	if d.Name != Name {
+		t.Errorf("descriptor names %q, want %q", d.Name, Name)
+	}
+	if len(d.Scopes) != 1 || d.Scopes[0] != principal.ScopeRead {
+		t.Errorf("descriptor asks for %v, want read only — this connector writes nothing outward", d.Scopes)
+	}
+	if d.RiskTier != mcp.TierAutoExecute {
+		t.Errorf("risk tier is %v, want auto-execute: generating into the local database is a capture", d.RiskTier)
+	}
+	if len(d.Produces) != 1 || d.Produces[0] != datasource.EntityActivity {
+		t.Errorf("descriptor produces %v, want activities only", d.Produces)
+	}
+}
+
+// TestAuthCarriesTheSeat — Auth is an opaque bundle and this connector puts
+// the seat id in it, the way imap carries its mailbox owner. Nothing is
+// sealed because there is no secret: the generator reads the local database.
+func TestAuthCarriesTheSeat(t *testing.T) {
+	auth, err := New(stubDirectory{}).Authenticate(context.Background(),
+		connector.AuthRequest{Payload: []byte("seat-1")})
+	if err != nil {
+		t.Fatalf("authenticate: %v", err)
+	}
+	if string(auth) != "seat-1" {
+		t.Errorf("auth carries %q, want the seat it was handed", string(auth))
+	}
+}
+
+// TestHealthCheckAlwaysPasses — there is no remote to be unhealthy, and a
+// connector reporting a fault it cannot have would park a mailbox forever.
+func TestHealthCheckAlwaysPasses(t *testing.T) {
+	if err := New(stubDirectory{}).HealthCheck(context.Background(), nil); err != nil {
+		t.Errorf("health check failed for a connector with no remote: %v", err)
+	}
+}
+
+// TestNormalizeRebuildsTheRecord — Raw has to be re-parseable on its own, or
+// a re-normalization of a stored message produces something different from
+// what was captured.
+func TestNormalizeRebuildsTheRecord(t *testing.T) {
+	box := demoMailbox()
+	msgs := generate(box, box.Accounts[0])
+	if len(msgs) == 0 {
+		t.Fatal("nothing generated to normalize")
+	}
+	original := msgs[0].record()
+	rebuilt, err := New(stubDirectory{}).Normalize(context.Background(), original.Raw)
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	if len(rebuilt) != 1 {
+		t.Fatalf("normalize produced %d records, want 1", len(rebuilt))
+	}
+	if rebuilt[0].NaturalKey != original.NaturalKey {
+		t.Errorf("normalize changed the natural key: %v vs %v", rebuilt[0].NaturalKey, original.NaturalKey)
+	}
+	if rebuilt[0].ThreadKey != original.ThreadKey {
+		t.Errorf("normalize changed the thread key")
+	}
+}
+
+// TestNormalizeRefusesGibberish — a stored raw that will not parse is an
+// error rather than an empty record nobody notices.
+func TestNormalizeRefusesGibberish(t *testing.T) {
+	if _, err := New(stubDirectory{}).Normalize(context.Background(), []byte("{not json")); err == nil {
+		t.Error("normalize accepted unparseable raw bytes")
+	}
+}
+
+// TestACursorFromAnotherGeneratorIsDiscarded — version 1 dated its messages in
+// the future and left a `through` two months ahead. Honouring that cursor
+// would skip every message forever, so a version mismatch restarts.
+func TestACursorFromAnotherGeneratorIsDiscarded(t *testing.T) {
+	stale := []byte(`{"v":1,"gen":1,"through":"2099-01-01T00:00:00Z"}`)
+	state, since := readCursor(stale)
+	if !since.IsZero() {
+		t.Errorf("a cursor from generator 1 was honoured, resuming at %s", since)
+	}
+	if state.Gen != generatorVersion {
+		t.Errorf("the fresh cursor claims generator %d, want %d", state.Gen, generatorVersion)
 	}
 }
