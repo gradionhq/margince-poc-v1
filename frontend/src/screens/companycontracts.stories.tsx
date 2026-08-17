@@ -44,6 +44,9 @@ const contracts = [
 ];
 
 const FULL_GRANTS = {
+  // All four: Add needs `create`, Edit needs `update`, Archive needs `delete`,
+  // and the list itself needs `read`. A story holding fewer draws a card with
+  // verbs missing and is named for none of it.
   contract: ["read", "create", "update", "delete"],
 } as const;
 

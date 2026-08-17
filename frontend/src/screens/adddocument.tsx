@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
@@ -156,8 +156,13 @@ export function AddDocumentDialog({
   // mutation's callbacks close over the render that pressed the button, where
   // the dialog was open by definition — so a plain `open` here would always be
   // true and the guard below would never fire.
+  //
+  // Written in an EFFECT, not during render: React may discard a render, and a
+  // ref assigned in one publishes a value that was never committed.
   const openNow = useRef(open);
-  openNow.current = open;
+  useEffect(() => {
+    openNow.current = open;
+  }, [open]);
 
   const deals = useAccountDeals(orgId, open);
   const parent = parseParent(choice, orgId);
