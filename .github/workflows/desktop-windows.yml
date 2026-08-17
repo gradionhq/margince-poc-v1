@@ -13,12 +13,22 @@
 name: desktop-windows
 
 on:
+  # Runs when the desktop lane itself changes, which is the only time the
+  # question "does this still build on Windows?" has a new answer. Scoped by
+  # path so an ordinary backend or frontend PR never pays for it.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - desktop/**
+      - .github/workflows/desktop-windows.yml
+  # On demand, once this workflow is on the default branch — GitHub resolves a
+  # dispatch against the default branch only, so this cannot be invoked for a
+  # workflow that has not landed yet.
   workflow_dispatch:
     inputs:
       ref:
         description: Branch, tag or SHA to build
         required: false
-        default: feat/desktop-bundle
 
 permissions:
   contents: read
@@ -35,7 +45,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.ref }}
+          # Empty on a pull_request, where checkout's own default (the PR merge
+          # ref) is what should be built.
+          ref: ${{ inputs.ref || '' }}
           persist-credentials: false
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
