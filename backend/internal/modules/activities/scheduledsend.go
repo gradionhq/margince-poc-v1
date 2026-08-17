@@ -323,17 +323,14 @@ func (s *Store) scheduleSend(
 	}
 
 	err = s.tx(ctx, func(tx pgx.Tx) error {
-		// workspace_id comes from the transaction's own GUC, the one binding
-		// every tenant write here uses — never from a caller-supplied value.
 		prov := provenanceOf(actor)
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO scheduled_send
-			  (id, workspace_id, status, scheduled_at, scheduled_tz,
+			  (id, status, scheduled_at, scheduled_tz,
 			   origin_kind, anchor_activity_id, origin_links,
 			   payload, payload_version, scheduled_by, principal_kind,
 			   agent_actor_id, agent_passport_id, agent_on_behalf_of)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			row.ID, row.Status, row.ScheduledAt, row.ScheduledTZ,
 			row.OriginKind, nullableAnchor(origin), originLinks,
 			payload, payloadVersionCurrent, row.ScheduledBy, principalKind(actor),

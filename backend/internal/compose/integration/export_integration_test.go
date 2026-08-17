@@ -107,10 +107,10 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 	e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep3Activity, f.rep3Person)
 
 	// Attachments on each rep's person — the files manifest source.
-	e.Seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
-		VALUES ($1, $2, 'person', $3, 'rep1.pdf', 'blob/rep1', 'manual', 'human:x')`, f.rep1Person)
-	e.Seed(t, `INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key, source, captured_by)
-		VALUES ($1, $2, 'person', $3, 'rep3.pdf', 'blob/rep3', 'manual', 'human:x')`, f.rep3Person)
+	e.SeedID(t, `INSERT INTO attachment (id, entity_type, entity_id, filename, storage_key, source, captured_by)
+		VALUES ($1, 'person', $2, 'rep1.pdf', 'blob/rep1', 'manual', 'human:x')`, f.rep1Person)
+	e.SeedID(t, `INSERT INTO attachment (id, entity_type, entity_id, filename, storage_key, source, captured_by)
+		VALUES ($1, 'person', $2, 'rep3.pdf', 'blob/rep3', 'manual', 'human:x')`, f.rep3Person)
 
 	// Audit rows targeting each rep's person (audit_log is record-mutations-only).
 	e.Seed(t, `INSERT INTO audit_log (id, workspace_id, actor_type, actor_id, action, entity_type, entity_id)

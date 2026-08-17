@@ -164,7 +164,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// operational mux instead would win the longest-pattern match against
 	// "/v1/" and serve without a session. See extensionEdge.
 	publicEdge := publicPreferences(consent.NewStore(InstallationDB(pool)), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(InstallationDB(pool)), newPublicBookingLimiters())(
+		publicBooking(activities.NewStore(InstallationDB(pool)), identity.NewService(pool), newPublicBookingLimiters())(
 			extensionEdge(srv, log)(api),
 		),
 	)

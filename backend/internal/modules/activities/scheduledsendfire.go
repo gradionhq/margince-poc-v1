@@ -383,9 +383,9 @@ func (s *Store) OverdueScheduledSends(ctx context.Context, olderThan time.Durati
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT id FROM scheduled_send
-			 WHERE workspace_id = $1 AND status = 'scheduled' AND scheduled_at < $2
+			 WHERE status = 'scheduled' AND scheduled_at < $1
 			 ORDER BY scheduled_at ASC
-			 LIMIT $3`, storekit.MustWorkspace(ctx), s.now().Add(-olderThan), limit)
+			 LIMIT $2`, s.now().Add(-olderThan), limit)
 		if err != nil {
 			return fmt.Errorf("scheduled send: finding messages nothing will wake: %w", err)
 		}
