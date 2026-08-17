@@ -375,6 +375,19 @@ func TestFilteredExportFromASavedViewAndFromAList(t *testing.T) {
 		t.Fatalf("create filterless view → %d, want 201", status)
 	}
 
+	// A filter of explicit null is how a client spells "cleared". The write
+	// surface accepts it as such — and the two surfaces have to AGREE about it,
+	// or a view the create path called filterless is called malformed at export.
+	var cleared struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/views", apptest.AnyMap{
+		"resource": "deals", "name": "Cleared filter",
+		"query": apptest.AnyMap{"columns": []any{"name"}, "filter": nil},
+	}, nil, &cleared); status != http.StatusCreated {
+		t.Fatalf("create view with a null filter → %d, want 201 — the write surface reads null as cleared", status)
+	}
+
 	// Both stored sources export. No deal matches, so the honest answer is a
 	// header row — the same shape the object path gives for an empty slice,
 	// which is what "one engine" has to mean here.
@@ -401,6 +414,7 @@ func TestFilteredExportFromASavedViewAndFromAList(t *testing.T) {
 	}{
 		{"a static list has members, not a filter", apptest.AnyMap{"list_id": static.ID, "format": "csv"}, "list_id"},
 		{"a view carrying no filter state", apptest.AnyMap{"view_id": viewless.ID, "format": "csv"}, "view_id"},
+		{"a view whose filter is explicitly null", apptest.AnyMap{"view_id": cleared.ID, "format": "csv"}, "view_id"},
 		{"a view_id that is not a uuid", apptest.AnyMap{"view_id": "not-a-uuid", "format": "csv"}, "view_id"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
