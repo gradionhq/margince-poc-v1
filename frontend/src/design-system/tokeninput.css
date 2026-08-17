@@ -1,0 +1,69 @@
+/* The token input — a field that holds a set of short values.
+ *
+ * The frame reads `.input` (atoms.css) on top of this, for the same reason the
+ * select trigger does: a field is a field on screen, so the surface — fill,
+ * border, focus ring, font — is declared once there and only the layout the
+ * tokens need lives here. That also means the frame must not restate a height:
+ * this control GROWS as tokens wrap, and a fixed height from `.input` would clip
+ * the second row. */
+
+.token-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  /* Overrides .input's single-line height: the whole point is wrapping. */
+  height: auto;
+  min-height: var(--control-h);
+  cursor: text;
+}
+
+.token-input.is-disabled {
+  cursor: not-allowed;
+}
+
+/* The box shares the frame's row with the tokens and takes what is left, with a
+ * floor so it stays clickable when the tokens have nearly filled the line. */
+.token-box {
+  flex: 1 1 6rem;
+  min-width: 4rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+  color: var(--textContent);
+  /* One step down from the field's own type: a token is a value inside a
+   * control, not a heading over one. */
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.token-remove {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--textSecondary);
+  cursor: pointer;
+}
+
+.token-remove:hover:not(:disabled) {
+  color: var(--textPrimary);
+}
+
+.token-remove:disabled {
+  cursor: not-allowed;
+}
