@@ -15,8 +15,9 @@
 # recorded in a database's schema_migrations_core cannot be renamed without
 # stranding that database — dbmigrate.assertLedgerMatches refuses to continue,
 # by design, because the migration in that slot would otherwise be skipped as
-# done forever. Ten-digit stamps sort after every four-digit one, so the two
-# eras coexist in one namespace with no renumbering and no lost history.
+# done forever. The two eras coexist because every version in that sequence is
+# ZERO-PADDED and so sorts below any ten-digit stamp — not because ten digits
+# beat four, which is false ("9999" sorts above "1787000000").
 #
 # Stamping the clock removes collisions, not the ordering obligation: a
 # migration must still sort after everything on the base ref, so a branch that
@@ -38,12 +39,34 @@ fi
 # the FIRST underscore and pgmigrate then records in schema_migrations_core.
 # Restricting it here keeps that recorded name a stable identifier rather than
 # whatever a shell happened to pass through.
-if ! printf '%s' "$NAME" | grep -qE '^[a-z][a-z0-9_]*$'; then
+#
+# The match is bash's, against the WHOLE string. `grep -q` would accept a
+# multi-line name on the strength of one good line, and the other line would
+# then sit in a filename that check-migration-versions.sh reads one row per
+# line — one file parsed as two rows, in the gate that protects apply order.
+if ! [[ "$NAME" =~ ^[a-z][a-z0-9_]*$ ]]; then
   echo "new-migration: '$NAME' — a migration name is lower-case letters, digits and underscores, starting with a letter (e.g. add_renewal_risk)" >&2
   exit 1
 fi
 
 VERSION="$(date +%s)"
+
+# A stamp is only useful if it sorts above what core/ already holds, and a
+# machine whose clock runs BEHIND produces one that does not. That is not the
+# base-ref gate's case — it compares against origin/main, where the highest
+# version is still from the closed sequence until the first stamped migration
+# merges, so a stamp from 2001 would sail past it. Compare against the tree.
+#
+# It fires the other way too: once a migration stamped by a FAST clock is in
+# the tree, every correct stamp after it is refused here, at the moment it is
+# written, rather than in a gate whose advice is to re-stamp — which would
+# reproduce the same refused number.
+HIGHEST="$(find "$CORE_DIR" -maxdepth 1 -name '*.up.sql' -exec basename {} \; | cut -d_ -f1 | sort | tail -n1)"
+if [ -n "$HIGHEST" ] && ! [[ "$VERSION" > "$HIGHEST" ]]; then
+  echo "new-migration: this machine's clock reads $VERSION, which does not sort above $HIGHEST, the highest version in backend/migrations/core — either the clock is behind, or a migration already in the tree was stamped by one that runs fast" >&2
+  exit 1
+fi
+
 UP="$CORE_DIR/${VERSION}_${NAME}.up.sql"
 DOWN="$CORE_DIR/${VERSION}_${NAME}.down.sql"
 

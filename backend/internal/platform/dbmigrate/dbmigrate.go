@@ -9,9 +9,8 @@
 //
 // A version is ordered as a string, never parsed as a number, so a
 // namespace may hold more than one version shape as long as the shapes
-// sort into one another correctly. core/ does: its closed 0001-0284
-// sequence sorts ahead of the ten-digit unix seconds every migration
-// after it carries.
+// sort into one another correctly. Which shapes a namespace uses is the
+// namespace's own business, not this package's.
 package dbmigrate
 
 import (
