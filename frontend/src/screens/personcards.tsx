@@ -1,4 +1,4 @@
-import { ExternalLink, FileText, Mail } from "lucide-react";
+import { ExternalLink, FileText } from "lucide-react";
 import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
@@ -6,6 +6,7 @@ import { Avatar, Badge, Button, Checkbox } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { interactionIcon, useInteractionLabel } from "./interactionchrome";
 import { money } from "./personstrip";
 
 // The overview's four cards (concept §5.6–5.9). Each one is a read of what the
@@ -15,6 +16,8 @@ import { money } from "./personstrip";
 type Person360 = components["schemas"]["Person360"];
 type PersonBrief = components["schemas"]["PersonBrief"];
 type ConversationClaim = components["schemas"]["ConversationClaim"];
+type Activity = components["schemas"]["Activity"];
+type BriefEvidence = components["schemas"]["OrganizationBriefEvidence"];
 
 // --- Relationship brief (§5.6) ---------------------------------------------
 
@@ -29,6 +32,12 @@ export function PersonBriefCard({
 }>) {
   const t = useT();
   const firstName = view.person.full_name.split(" ")[0];
+  // The timeline the page already read, by id. A citation is resolved from it
+  // rather than fetched, on the same terms as every other card here: a chip
+  // can never name a record the page beside it is withholding.
+  const citedActivities = new Map(
+    (view.activities?.data ?? []).map((row) => [row.id, row]),
+  );
   return (
     <Panel title={t("person.brief.title")}>
       <PanelBody>
@@ -61,7 +70,11 @@ export function PersonBriefCard({
                   ),
                 ).entries(),
               ].map(([key, cited]) => (
-                <SourceChip key={key} kind={cited.entity_type} />
+                <SourceChip
+                  key={key}
+                  cited={cited}
+                  activity={citedActivities.get(cited.entity_id)}
+                />
               ))}
             </div>
           </>
@@ -132,22 +145,38 @@ function commercialLine(view: Person360, t: ReturnType<typeof useT>): string {
   return t("person.commercial.noDeal");
 }
 
-function SourceChip({ kind }: Readonly<{ kind: string }>) {
+// One cited source, named for what it is.
+//
+// A citation carries a RECORD TYPE and an id, never a transport — so an
+// activity citation says nothing at all about how the conversation was
+// carried, and calling every one of them a mail thread told the reader of a
+// contact with no email address that they had been mailed. The activity the
+// page ALREADY read is the resolver: it carries the kind, and for a message
+// the provider the directory names. A citation whose activity is not on this
+// page is named for the one thing it certainly is — a conversation — rather
+// than for a transport nobody checked.
+function SourceChip({
+  cited,
+  activity,
+}: Readonly<{ cited: BriefEvidence; activity: Activity | undefined }>) {
   const t = useT();
-  const label =
-    kind === "activity"
-      ? t("person.brief.sourceEmail")
-      : kind === "deal"
-        ? t("person.brief.sourceDeal")
-        : kind;
+  const interactionLabel = useInteractionLabel();
+  if (cited.entity_type === "activity") {
+    return (
+      <span className="pe-memory-channel">
+        {interactionIcon(activity?.kind)}
+        {activity
+          ? interactionLabel(activity.kind, activity.channel_provider)
+          : t("person.brief.sourceActivity")}
+      </span>
+    );
+  }
   return (
     <span className="pe-memory-channel">
-      {kind === "activity" ? (
-        <Mail size={13} aria-hidden="true" />
-      ) : (
-        <FileText size={13} aria-hidden="true" />
-      )}
-      {label}
+      <FileText size={13} aria-hidden="true" />
+      {cited.entity_type === "deal"
+        ? t("person.brief.sourceDeal")
+        : cited.entity_type}
     </span>
   );
 }

@@ -4924,7 +4924,7 @@ export const de = {
   "person.brief.reading": "Die Beziehung wird gelesen…",
   "person.brief.empty":
     "Es wurde noch nichts erfasst, woraus dieses Briefing geschrieben werden könnte.",
-  "person.brief.sourceEmail": "E-Mail-Verlauf",
+  "person.brief.sourceActivity": "Gespräch",
   "person.brief.sourceDeal": "Deal-Notizen",
 
   "person.matters.title": "Was {name} wichtig ist",
@@ -4965,6 +4965,7 @@ export const de = {
   "person.memory.channelMeeting": "Termin",
   "person.memory.channelCall": "Anruf",
   "person.memory.channelNote": "Notiz",
+  "person.memory.channelMessage": "Nachricht",
   "person.memory.replied": "Beantwortet",
   "person.memory.unanswered": "Unbeantwortet",
 
@@ -5001,6 +5002,9 @@ export const de = {
   "person.rail.consentTitle": "Einwilligung & Kanäle",
   "person.rail.email": "E-Mail",
   "person.rail.phone": "Telefon",
+  "person.rail.noEmailAddress": "Keine Adresse hinterlegt",
+  "person.rail.noPhoneNumber": "Keine Nummer hinterlegt",
+  "person.rail.channelNotDeliverable": "Nicht zustellbar",
   "person.rail.recentActivity": "Letzte Aktivität",
   "person.rail.nothingCaptured": "Noch nichts erfasst.",
   "person.rail.viewAllActivity": "Alle Aktivitäten ansehen",

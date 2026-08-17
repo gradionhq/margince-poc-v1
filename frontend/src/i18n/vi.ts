@@ -4895,7 +4895,7 @@ export const vi = {
   "person.brief.reading": "Đang đọc mối quan hệ…",
   "person.brief.empty":
     "Chưa có gì được ghi nhận để viết bản tóm tắt này từ đó.",
-  "person.brief.sourceEmail": "Chuỗi email",
+  "person.brief.sourceActivity": "Cuộc trò chuyện",
   "person.brief.sourceDeal": "Ghi chú deal",
 
   "person.matters.title": "Điều {name} quan tâm",
@@ -4936,6 +4936,7 @@ export const vi = {
   "person.memory.channelMeeting": "Cuộc họp",
   "person.memory.channelCall": "Cuộc gọi",
   "person.memory.channelNote": "Ghi chú",
+  "person.memory.channelMessage": "Tin nhắn",
   "person.memory.replied": "Đã hồi đáp",
   "person.memory.unanswered": "Chưa hồi đáp",
 
@@ -4972,6 +4973,9 @@ export const vi = {
   "person.rail.consentTitle": "Đồng ý & kênh liên lạc",
   "person.rail.email": "Email",
   "person.rail.phone": "Điện thoại",
+  "person.rail.noEmailAddress": "Chưa có địa chỉ",
+  "person.rail.noPhoneNumber": "Chưa có số",
+  "person.rail.channelNotDeliverable": "Không thể gửi",
   "person.rail.recentActivity": "Hoạt động gần đây",
   "person.rail.nothingCaptured": "Chưa ghi nhận gì.",
   "person.rail.viewAllActivity": "Xem tất cả hoạt động",
