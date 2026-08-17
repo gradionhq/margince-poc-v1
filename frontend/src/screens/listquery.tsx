@@ -99,7 +99,11 @@ export function useListQuery<Row>({
     q: "",
     sort: overlay ? "" : (initialSort ?? ""),
     includeArchived: false,
-    filters: initialFilters ?? {},
+    // Overlay withholds filters for the same reason it withholds sort: the
+    // incumbent mirror answers 422 to both. A screen that opens on a narrowed
+    // list opens unnarrowed there rather than sending a dial the mirror
+    // refuses.
+    filters: overlay ? {} : (initialFilters ?? {}),
     perPage: LIST_PAGE_SIZES[0],
   });
   const infinite = useInfiniteQuery({
