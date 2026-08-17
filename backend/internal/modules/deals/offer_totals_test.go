@@ -9,6 +9,8 @@ import (
 	"math"
 	"math/big"
 	"net/http"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -83,8 +85,8 @@ func TestLineTotalsRejectsMalformedDecimals(t *testing.T) {
 // narrowed: big.Int.Int64() would hand back the low 64 bits, which for
 // the quantity × unit_price magnitudes both columns accept is routinely a
 // negative number the offer row, the PDF and the rollup then treat as
-// real money. The refusal classifies as a 422 naming the inputs to lower,
-// so it reads the same on REST and on the MCP tool surface.
+// real money. The refusal classifies as a 422 naming the inputs that fed
+// the figure, so it reads the same on REST and on the MCP tool surface.
 func TestLineTotalsRefusesFiguresOutsideTheMoneyRange(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -174,10 +176,11 @@ func TestOfferTotalsRefuseASumOutsideTheMoneyRange(t *testing.T) {
 }
 
 // assertMoneyRangeIsClientFault checks what a CALLER observes, not which
-// type carried it: the refusal must classify as 422 naming the inputs to
-// lower, with the contract's machine code. Asserting the carrier instead
-// would pass even if the wire answer were an internal fault — which is
-// what every surface reports for an error outside the taxonomy.
+// type carried it: the refusal must classify as 422 naming the inputs
+// that fed the figure, with the contract's machine code. Asserting the
+// carrier instead would pass even if the wire answer were an internal
+// fault — which is what every surface reports for an error outside the
+// taxonomy.
 func assertMoneyRangeIsClientFault(t *testing.T, err error, fields ...string) {
 	t.Helper()
 	for _, field := range fields {
@@ -189,12 +192,35 @@ func assertMoneyRangeIsClientFault(t *testing.T, err error, fields ...string) {
 	}
 	if fault.Status != http.StatusUnprocessableEntity {
 		t.Errorf("an unrepresentable money figure answered status %d, want exactly 422 — the body is "+
-			"well-formed and the caller lowers a value they supplied", fault.Status)
+			"well-formed and the request cannot be stored as sent", fault.Status)
 	}
 	for _, refusal := range fault.Fields {
-		if refusal.Code != "money_out_of_range" {
+		if refusal.Code != "money_not_representable" {
 			t.Errorf("refusal for %s carries code %q, want %q — the code is what a client branches on",
-				refusal.Field, refusal.Code, "money_out_of_range")
+				refusal.Field, refusal.Code, "money_not_representable")
+		}
+		assertStatesTheLimitWithoutBlamingTheCaller(t, refusal.Message)
+	}
+}
+
+// assertStatesTheLimitWithoutBlamingTheCaller pins the framing, because
+// the framing is the decision here and it is the kind that regresses
+// silently. A high-magnitude currency (a zero-decimal one spends the
+// range one minor unit at a time) can reach this ceiling with an amount
+// that is entirely real, so the refusal must state what the installation
+// can store — telling that caller to reduce their figure would be telling
+// them to falsify it.
+func assertStatesTheLimitWithoutBlamingTheCaller(t *testing.T, message string) {
+	t.Helper()
+	ceiling := strconv.FormatInt(math.MaxInt64, 10)
+	if !strings.Contains(message, ceiling) {
+		t.Errorf("refusal %q does not state the ceiling %s, so the caller cannot tell what is storable",
+			message, ceiling)
+	}
+	for _, instruction := range []string{"lower ", "reduce ", "decrease "} {
+		if strings.Contains(strings.ToLower(message), instruction) {
+			t.Errorf("refusal %q instructs the caller to shrink a figure that may be legitimate; state the "+
+				"installation's limit instead", message)
 		}
 	}
 }

@@ -12,9 +12,9 @@ package deals
 
 import (
 	"fmt"
+	"math"
 	"math/big"
 	"strconv"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
@@ -55,29 +55,40 @@ func (e *DecimalFieldError) FieldFault() (field, code, message string) {
 	return e.Field, "invalid_decimal", e.Error()
 }
 
-// MoneyRangeError maps to 422: a derived figure that int64 minor units
-// cannot represent. The engine refuses instead of narrowing, because
-// big.Int.Int64() on an out-of-range value yields the low 64 bits — a
-// plausible, frequently negative number that the offer row, the PDF and
-// the pipeline rollup all go on to treat as real money.
+// MoneyRangeError maps to 422: a derived figure larger than the integer
+// minor units every money column and contract field is declared in
+// (bigint / format:int64). The engine refuses instead of narrowing,
+// because big.Int.Int64() on an out-of-range value yields the low 64
+// bits — a plausible, frequently negative number the offer row, the PDF
+// and the pipeline rollup all go on to treat as real money.
+//
+// It states the INSTALLATION's limit and does not instruct the caller to
+// shrink anything. The ceiling is not a small number in any currency this
+// money model serves — a zero-decimal currency spends it one minor unit
+// at a time (values.MinorUnitDigits: VND, JPY, KRW are 0), which still
+// leaves a single line room for several times world GDP — so a figure
+// that reaches it is either an overflow probe or an amount this model
+// genuinely cannot hold. Telling the second caller to lower their amount
+// would be telling them to falsify it.
 type MoneyRangeError struct {
 	Figure string   // the derived value that left the range (line_net_minor, gross_minor, …)
-	Fields []string // the contract inputs whose magnitude the caller can lower
+	Fields []string // the contract inputs that feed the figure, so the caller can locate it
 }
 
 func (e *MoneyRangeError) Error() string {
-	return e.Figure + " exceeds the money range this system represents exactly (int64 minor units); lower " +
-		strings.Join(e.Fields, " or ")
+	return e.Figure + " is larger than this installation stores exactly (integer minor units, at most " +
+		strconv.FormatInt(math.MaxInt64, 10) + ")"
 }
 
-// FieldFaults names every input that feeds the figure: the figure itself
-// is derived, so lowering any one of them brings it back into range and
-// pointing at a single one would be an arbitrary choice among equals.
+// FieldFaults names every input that feeds the figure — which inputs
+// combined to produce it, not which one is wrong. The figure is derived,
+// so no single input is at fault, and a refusal that named just one would
+// point at an arbitrary member of the set.
 func (e *MoneyRangeError) FieldFaults() []apperrors.FieldRefusal {
 	refusals := make([]apperrors.FieldRefusal, 0, len(e.Fields))
 	for _, field := range e.Fields {
 		refusals = append(refusals, apperrors.FieldRefusal{
-			Field: field, Code: "money_out_of_range", Message: e.Error(),
+			Field: field, Code: "money_not_representable", Message: e.Error(),
 		})
 	}
 	return refusals
@@ -178,10 +189,11 @@ func OfferTotals(lines []OfferLineInput) (OfferFigures, error) {
 	return out, nil
 }
 
-// minorFromBig narrows an exact figure to the int64 minor units the money
-// columns hold, or refuses naming the inputs to lower. Every derived value
-// in this engine passes through here: it is the ONE place that decides an
-// out-of-range total is a refusal rather than a wrapped number.
+// minorFromBig narrows an exact figure to the integer minor units the
+// money columns hold, or refuses naming the inputs that produced it.
+// Every derived value in this engine passes through here: it is the ONE
+// place that decides an unrepresentable total is a refusal rather than a
+// wrapped number.
 func minorFromBig(v *big.Int, figure string, fields ...string) (int64, error) {
 	if !v.IsInt64() {
 		return 0, &MoneyRangeError{Figure: figure, Fields: fields}
