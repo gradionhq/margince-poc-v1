@@ -7,9 +7,11 @@ import (
 	"bytes"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -182,6 +184,69 @@ func TestCrmHelloManifestMatchesItsDerivation(t *testing.T) {
 		`"digest": "sha256:`)
 }
 
+// digestField matches every field a manifest publishes a hash in, by NAME
+// rather than by a maintained list: anything ending in `_hash`, plus `digest`
+// itself. A field added later is covered the moment it is named like the ones
+// beside it, which is the point — the encoding is a property of the file, not
+// of the entries a reader happens to know about.
+var digestField = regexp.MustCompile(`"([a-z0-9]+(?:_[a-z0-9]+)*_hash|digest)": "([^"]*)"`)
+
+// digestEncoding is the ONE spelling every one of those fields carries.
+var digestEncoding = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+// TestEveryManifestHashIsAlgorithmPrefixed: a manifest is the record an
+// operator reads to resolve what a unit requests, so a hash in it says which
+// algorithm produced it. A field whose encoding depended on which KIND of entry
+// carried it — a job's prefixed, a tool's bare — is one every reader has to
+// special-case, and a reader that did not would compare two spellings of the
+// same digest and see a change that never happened.
+//
+// It walks the committed manifests rather than the requests a derivation
+// builds, because the committed file is what an operator actually reads.
+func TestEveryManifestHashIsAlgorithmPrefixed(t *testing.T) {
+	var checked int
+	for _, path := range committedManifests(t) {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, field := range digestField.FindAllStringSubmatch(string(content), -1) {
+			checked++
+			if !digestEncoding.MatchString(field[2]) {
+				t.Errorf("%s: %s = %q, want an algorithm-prefixed sha256 digest", path, field[1], field[2])
+			}
+		}
+	}
+	// Without this the walk finding nothing would read exactly like the whole
+	// tree passing.
+	if checked == 0 {
+		t.Fatalf("no hash field found in any %s under %s — the walk is not reading the manifests", unitManifestFile, repoRoot)
+	}
+}
+
+// committedManifests is every generated unit manifest in the tree. Derived by
+// walking rather than listed, so a unit added later is covered without anyone
+// remembering to add it here.
+func committedManifests(t *testing.T) []string {
+	t.Helper()
+	var found []string
+	for _, tier := range []string{"extensions", filepath.Join("fixtures", "extensions")} {
+		err := filepath.WalkDir(filepath.Join(repoRoot, tier), func(path string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if !d.IsDir() && d.Name() == unitManifestFile {
+				found = append(found, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return found
+}
+
 func assertCommittedManifest(t *testing.T, dir, name string, wantSubstrings ...string) {
 	t.Helper()
 	unit, err := scanUnit(name, dir)
@@ -243,7 +308,10 @@ func syntheticVerb(unit, tool, tier, scope string) declaredVerb {
 			Tier:           extension.Tier(tier),
 			RequestedScope: extension.Scope(scope),
 		},
-		fragmentHash: "0000000000000000000000000000000000000000000000000000000000000000",
+		// Spelled the way operationHash spells it, prefix included: a stand-in
+		// that carried a shape production never produces would let the manifest
+		// assertions below pass over an encoding no real unit has.
+		fragmentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
 }
 
@@ -451,7 +519,7 @@ func TestToolDerivesIntoRiskTier(t *testing.T) {
 		`"method": "POST"`,
 		`"tier": "auto_execute"`,
 		`"write"`,
-		`"fragment_hash": "0000`,
+		`"fragment_hash": "sha256:0000`,
 		`"digest": "sha256:`,
 	} {
 		if !strings.Contains(string(first), want) {

@@ -134,8 +134,12 @@ func TestExtensionVerbsReadsAnOperationOutOfTheMergedContract(t *testing.T) {
 	if string(v.OutputSchema) != `{"properties":{"quote":{"type":"string"}},"type":"object"}` {
 		t.Fatalf("OutputSchema = %s", v.OutputSchema)
 	}
-	if got[0].fragmentHash == "" || len(got[0].fragmentHash) != 64 {
-		t.Fatalf("fragmentHash = %q, want a sha256 hex digest", got[0].fragmentHash)
+	// Algorithm-prefixed, the one spelling every hash in a manifest carries —
+	// a tool's fragment hash sits beside a job's and beside every digest, and a
+	// reader that had to tell them apart by entry kind would compare two
+	// spellings of one value and see a change that never happened.
+	if !digestEncoding.MatchString(got[0].fragmentHash) {
+		t.Fatalf("fragmentHash = %q, want an algorithm-prefixed sha256 digest", got[0].fragmentHash)
 	}
 }
 

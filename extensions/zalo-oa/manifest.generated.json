@@ -32,8 +32,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "a80d8576a1a154d7a9c0ce0448b36e9998caecea12c9263b8f9503af8ce9d98a",
-      "digest": "sha256:4cb496089a005f899d97d4bdfd66c4d7a94a9605bb7fce5e00d2466b838e89a2"
+      "fragment_hash": "sha256:a80d8576a1a154d7a9c0ce0448b36e9998caecea12c9263b8f9503af8ce9d98a",
+      "digest": "sha256:685e96ccde668839fd6698c1739cfa7e838e7c9eaf23b0de61d786fcf28c1a77"
     },
     {
       "id": "tool/zalo_oa_disconnect",
@@ -48,8 +48,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "7a6ff021031bf8ccad90ea50e4ddb040cf3dbc3890ad2cff63eab6cb470d082e",
-      "digest": "sha256:440184775705891927c010996e3d32d9f6fd0fe8f5554b7aff17a67f3fd73ba4"
+      "fragment_hash": "sha256:7a6ff021031bf8ccad90ea50e4ddb040cf3dbc3890ad2cff63eab6cb470d082e",
+      "digest": "sha256:2faa7fc23feec0bbbaabdb87ae215260d6089b1d0b8b190df5f0ff0fc96d1b8b"
     },
     {
       "id": "tool/zalo_oa_status",
@@ -64,8 +64,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "0b21f25205aa791b3c3d5e2e18b2fe9f194f8ca2fe41ada3281176775ca272d2",
-      "digest": "sha256:60acd5e32d837ed295d1d65cc2b77d9e57f0fd1601c2eb5ab3c81fc5169e02b3"
+      "fragment_hash": "sha256:0b21f25205aa791b3c3d5e2e18b2fe9f194f8ca2fe41ada3281176775ca272d2",
+      "digest": "sha256:a381ca403e4060311a09b3be52dee7b7490b243ea2184147ba9edbbe264b1332"
     }
   ],
   "secrets": [
