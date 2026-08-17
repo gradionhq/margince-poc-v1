@@ -340,14 +340,12 @@ func TestUndoResumesFromAPersistedCheckpointAcrossPages(t *testing.T) {
 	}
 }
 
-func TestUndoIsTenantFenced(t *testing.T) {
-	ctxA, dbA := testWorkspaceCtx(t, adminImportRunGrant())
-	sA := NewRunStore(dbA)
-	run := completeCSVRun(ctxA, t, sA)
-
-	ctxB, dbB := testWorkspaceCtx(t, adminImportRunGrant())
-	sB := NewRunStore(dbB)
-	if _, err := sB.Undo(ctxB, run.ID, &fakeUndoWriters{}); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("cross-workspace Undo err = %v, want ErrNotFound (existence-hiding)", err)
+// Undo resolves its run before it reverses anything, so a run id that names no
+// run answers not-found rather than reporting a successful undo of nothing.
+func TestUndoOfAnUnknownRunIsNotFound(t *testing.T) {
+	ctx, db := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(db)
+	if _, err := s.Undo(ctx, RunID(ids.NewV7()), &fakeUndoWriters{}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("Undo of an unknown run = %v, want ErrNotFound", err)
 	}
 }

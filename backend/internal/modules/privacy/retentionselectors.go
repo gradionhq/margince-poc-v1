@@ -71,6 +71,5 @@ var retentionSelectors = map[string]string{
 		  AND status = 'won' AND archived_at IS NULL AND NOT legal_hold
 		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
 	"ai_call_payload/content": `SELECT id FROM ai_call_payload
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND occurred_at < now() - make_interval(days => $1) LIMIT $2`,
+		WHERE occurred_at < now() - make_interval(days => $1) LIMIT $2`,
 }

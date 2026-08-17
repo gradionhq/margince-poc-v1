@@ -7,11 +7,9 @@ package ai
 
 // ADR-0067 phase 1's real-Postgres proof: RateFor's as-of-date resolution
 // across a rate change, CostReport's unpriced counting and free-by-
-// construction exclusions (cache_hit, zero-usage), a row-by-row
+// construction exclusions (cache_hit, zero-usage), and a row-by-row
 // cross-check of the aggregate SQL against PriceCall on identical fixture
-// data, and cross-workspace invisibility carried by RLS alone (this
-// package's stores add no workspace_id filter of their own — the GUC
-// transaction is the only gate).
+// data.
 
 import (
 	"context"
@@ -86,13 +84,13 @@ func (e *rateEnv) seedWorkspace(ctx context.Context, t *testing.T) (ids.UUID, co
 // later task's job, per the brief), so fixtures write the row the same
 // way any other seed fixture in this repo writes tenant data it doesn't
 // own an insert helper for yet.
-func (e *rateEnv) insertRate(ctx context.Context, t *testing.T, ws ids.UUID, r ModelRate) {
+func (e *rateEnv) insertRate(ctx context.Context, t *testing.T, r ModelRate) {
 	t.Helper()
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
+		INSERT INTO ai_model_rate (provider, model_id, input_per_mtok_microusd,
 		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		ws, r.Provider, r.ModelID, r.InputPerMTokMicroUSD, r.OutputPerMTokMicroUSD,
+		VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+		r.Provider, r.ModelID, r.InputPerMTokMicroUSD, r.OutputPerMTokMicroUSD,
 		r.CacheReadPerMTokMicroUSD, r.CacheWritePerMTokMicroUSD, r.EffectiveDate); err != nil {
 		t.Fatalf("insert rate %+v: %v", r, err)
 	}
@@ -109,17 +107,17 @@ type callFixture struct {
 	occurredAt                                          time.Time
 }
 
-func (e *rateEnv) insertCall(ctx context.Context, t *testing.T, ws ids.UUID, c callFixture) {
+func (e *rateEnv) insertCall(ctx context.Context, t *testing.T, c callFixture) {
 	t.Helper()
 	// logical_call_id has carried NOT NULL since 0100 (one row per attempt,
 	// grouped by logical call) with no schema default — a fixture that
 	// wants a single-attempt logical call mints its own id, the same as a
 	// pre-0100 row backfilled to logical_call_id = id.
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO ai_call (workspace_id, task, tier, provider, model_id, request_fingerprint,
+		INSERT INTO ai_call (task, tier, provider, model_id, request_fingerprint,
 		  tokens_in, tokens_out, cached_tokens, cache_write_tokens, cache_hit, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		ws, string(c.task), string(c.tier), c.provider, c.model, "fp-"+ids.NewV7().String(),
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		string(c.task), string(c.tier), c.provider, c.model, "fp-"+ids.NewV7().String(),
 		c.tokensIn, c.tokensOut, c.cachedTokens, c.cacheWriteTokens, c.cacheHit, c.occurredAt, ids.NewV7()); err != nil {
 		t.Fatalf("insert call %+v: %v", c, err)
 	}
@@ -133,11 +131,11 @@ func TestRateForResolvesEffectiveDateAcrossARateChange(t *testing.T) {
 
 	jan1 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	jun1 := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	e.insertRate(ctx, t, ws, ModelRate{
+	e.insertRate(ctx, t, ModelRate{
 		Provider: providerAnthropic, ModelID: "claude-test-model",
 		InputPerMTokMicroUSD: 1_000_000, OutputPerMTokMicroUSD: 1_000_000, EffectiveDate: jan1,
 	})
-	e.insertRate(ctx, t, ws, ModelRate{
+	e.insertRate(ctx, t, ModelRate{
 		Provider: providerAnthropic, ModelID: "claude-test-model",
 		InputPerMTokMicroUSD: 2_000_000, OutputPerMTokMicroUSD: 2_000_000, EffectiveDate: jun1,
 	})
@@ -251,9 +249,9 @@ func TestCostReportPricesTheWindowAndCountsUnpriced(t *testing.T) {
 	store := e.storeFor(ws)
 
 	f := buildCostReportFixture()
-	e.insertRate(ctx, t, ws, f.rate)
+	e.insertRate(ctx, t, f.rate)
 	for _, c := range []callFixture{f.priced, f.unpriced, f.cacheHit, f.zeroUsage, f.pricedNoCache, f.outsideWindow} {
-		e.insertCall(ctx, t, ws, c)
+		e.insertCall(ctx, t, c)
 	}
 
 	report, err := store.CostReport(wsCtx, f.from, f.to)
@@ -320,15 +318,15 @@ func TestCostReportGroupsByCalendarDay(t *testing.T) {
 		InputPerMTokMicroUSD: 5_000_000, OutputPerMTokMicroUSD: 25_000_000,
 		EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	e.insertRate(ctx, t, ws, rate)
+	e.insertRate(ctx, t, rate)
 
 	day1 := time.Date(2026, 2, 5, 10, 0, 0, 0, time.UTC)
 	day2 := time.Date(2026, 2, 6, 10, 0, 0, 0, time.UTC)
-	e.insertCall(ctx, t, ws, callFixture{
+	e.insertCall(ctx, t, callFixture{
 		task: TaskSummarize, provider: providerAnthropic, model: "claude-test-model",
 		tokensIn: 100, tokensOut: 10, occurredAt: day1,
 	})
-	e.insertCall(ctx, t, ws, callFixture{
+	e.insertCall(ctx, t, callFixture{
 		task: TaskSummarize, provider: providerAnthropic, model: "claude-test-model",
 		tokensIn: 300, tokensOut: 30, occurredAt: day2,
 	})
@@ -371,7 +369,7 @@ func TestCostReportGroupsByTierNotJustTask(t *testing.T) {
 		InputPerMTokMicroUSD: 5_000_000, OutputPerMTokMicroUSD: 25_000_000,
 		EffectiveDate: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	}
-	e.insertRate(ctx, t, ws, rate)
+	e.insertRate(ctx, t, rate)
 
 	day := time.Date(2026, 4, 10, 9, 0, 0, 0, time.UTC)
 	cheapCall := callFixture{
@@ -382,8 +380,8 @@ func TestCostReportGroupsByTierNotJustTask(t *testing.T) {
 		task: TaskSummarize, tier: TierPremium, provider: providerAnthropic, model: "claude-test-model",
 		tokensIn: 900, tokensOut: 90, occurredAt: day.Add(time.Hour),
 	}
-	e.insertCall(ctx, t, ws, cheapCall)
-	e.insertCall(ctx, t, ws, premiumCall)
+	e.insertCall(ctx, t, cheapCall)
+	e.insertCall(ctx, t, premiumCall)
 
 	report, err := store.CostReport(wsCtx, time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC))
 	if err != nil {
@@ -446,7 +444,7 @@ func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
 
 	effective := time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
 	for _, r := range SeedModelRates(effective) {
-		e.insertRate(ctx, t, ws, r)
+		e.insertRate(ctx, t, r)
 	}
 
 	day := time.Date(2026, 8, 1, 9, 0, 0, 0, time.UTC)
@@ -455,19 +453,19 @@ func TestCostReportPricesEmbeddingCallsHonestly(t *testing.T) {
 
 	// Paid embedding call: gemini-embedding-001 has a seeded nonzero input
 	// rate. tokens_out stays 0 — embeddings have no output.
-	e.insertCall(ctx, t, ws, callFixture{
+	e.insertCall(ctx, t, callFixture{
 		task: TaskEmbeddings, tier: TierEmbedLane, provider: providerGemini, model: "gemini-embedding-001",
 		tokensIn: 10_000, occurredAt: day,
 	})
 	// Local/offline embedding call: bge-m3 has a seeded ALL-ZERO rate — it
 	// must price to 0 but must NOT count as unpriced (a rate row exists).
-	e.insertCall(ctx, t, ws, callFixture{
+	e.insertCall(ctx, t, callFixture{
 		task: TaskEmbeddings, tier: TierEmbedLane, provider: providerOllama, model: "bge-m3",
 		tokensIn: 10_000, occurredAt: day.Add(time.Hour),
 	})
 	// Unrated embedding call: no seed row for this model at all — must
 	// come back unpriced, never a silent 0.
-	e.insertCall(ctx, t, ws, callFixture{
+	e.insertCall(ctx, t, callFixture{
 		task: TaskEmbeddings, tier: TierEmbedLane, provider: providerGemini, model: "gemini-embedding-999-unreleased",
 		tokensIn: 10_000, occurredAt: day.Add(2 * time.Hour),
 	})

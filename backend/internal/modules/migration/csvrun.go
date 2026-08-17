@@ -67,8 +67,8 @@ func (s *RunStore) CreateStagedRun(ctx context.Context, in CreateStagedRunInput)
 	var run Run
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO import_run (workspace_id, connector, status, mapping, source_ref, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6)
+			INSERT INTO import_run (connector, status, mapping, source_ref, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, $6)
 			RETURNING id, connector, status, source_ref, checkpoint, created_at, updated_at`,
 			in.Connector, StatusValidating, mapping, in.SourceRef, in.Source, capturedBy)
 		if err := scanRun(row, &run); err != nil {
@@ -188,7 +188,7 @@ func (s *RunStore) explainMiss(ctx context.Context, tx pgx.Tx, id RunID, from, t
 	var status string
 	err := tx.QueryRow(ctx, `
 		SELECT status FROM import_run
-		 WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id).Scan(&status)
+		 WHERE id = $1`, id).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("import run %s: %w", id, apperrors.ErrNotFound)
 	}
@@ -218,7 +218,7 @@ func (s *RunStore) GetStaged(ctx context.Context, id RunID) (Run, error) {
 			-- Scoped as well as keyed, exactly as Get is: a run id from another
 			-- workspace owes the existence-hiding not-found, not its status,
 			-- its mapping and its report.
-			  FROM import_run WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id)
+			  FROM import_run WHERE id = $1`, id)
 		return row.Scan(&run.ID, &run.Connector, &run.Status, &run.SourceRef, &run.Checkpoint,
 			&run.CreatedAt, &run.UpdatedAt, &mapping, &report, &undoReport, &runErr, &run.CapturedBy)
 	})

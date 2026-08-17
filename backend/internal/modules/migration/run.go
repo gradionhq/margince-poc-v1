@@ -109,8 +109,8 @@ func (s *RunStore) Create(ctx context.Context, in CreateRunInput) (Run, error) {
 	var run Run
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			INSERT INTO import_run (workspace_id, connector, status, source_ref, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+			INSERT INTO import_run (connector, status, source_ref, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id, connector, status, source_ref, checkpoint, created_at, updated_at`,
 			in.Connector, StatusRunning, in.SourceRef, in.Source, capturedBy)
 		if err := scanRun(row, &run); err != nil {
@@ -136,9 +136,7 @@ func (s *RunStore) Get(ctx context.Context, id RunID) (Run, error) {
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
 			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at, report, error
-			-- Scoped as well as keyed: a run id from another workspace owes the
-			-- existence-hiding not-found, not that run's status and report.
-			FROM import_run WHERE id = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`, id)
+			FROM import_run WHERE id = $1`, id)
 		var report []byte
 		var runErr *string
 		if err := row.Scan(&run.ID, &run.Connector, &run.Status, &run.SourceRef, &run.Checkpoint,
@@ -176,7 +174,7 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 		row := tx.QueryRow(ctx, `
 			SELECT id, connector, status, source_ref, checkpoint, created_at, updated_at
 			FROM import_run
-			 WHERE connector = $1 AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			 WHERE connector = $1
 			 ORDER BY created_at DESC LIMIT 1`, connector)
 		if err := scanRun(row, &run); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -223,12 +221,8 @@ func (s *RunStore) LookupIdentity(ctx context.Context, sourceSystem, object, ext
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
 			-- The workspace predicate is the lookup's own: tenant isolation
-			-- used to bound it, and without it an external id maps to whatever
-			-- installation imported it first, so the row this run writes points
-			-- at another installation's record (ADR-0091 §8 phase A).
 			SELECT native_id FROM import_record_map
-			WHERE source_system = $1 AND object = $2 AND external_id = $3
-			  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			WHERE source_system = $1 AND object = $2 AND external_id = $3`,
 			sourceSystem, object, externalID).Scan(&id)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -270,34 +264,25 @@ func (s *RunStore) RecordIdentityTx(ctx context.Context, tx pgx.Tx, runID RunID,
 
 // recordIdentityInTx is the statement both entry points run.
 func recordIdentityInTx(ctx context.Context, tx pgx.Tx, runID RunID, sourceSystem, object, externalID string, nativeID ids.UUID) error {
-	// The run is resolved in the statement, not trusted from the argument.
-	//
-	// The composite foreign key used to be the boundary: `(workspace_id,
-	// import_run_id)` could not name a run in another workspace, so a scope
-	// miss surfaced as an FK violation this function turned into not-found.
-	// Phase C collapsed that key to `(import_run_id)` (ADR-0091 §8), so a run
-	// id from anywhere now satisfies it. The INSERT selects its run instead,
-	// under the same workspace binding the row is written with — no row, no
-	// insert, and the caller gets the same existence-hiding not-found it
-	// always did rather than a constraint name telling it the run exists.
+	// The run is resolved BY the statement rather than trusted from the
+	// argument, so a mapping can never be written under a run that does not
+	// exist: the SELECT finds no row, the INSERT writes none, and the caller
+	// gets the existence-hiding not-found below rather than a foreign-key
+	// error naming a table it has no business hearing about.
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
-		SELECT r.workspace_id, $1, $2, $3, $4, r.id
+		INSERT INTO import_record_map (source_system, object, external_id, native_id, import_run_id)
+		SELECT $1, $2, $3, $4, r.id
 		  FROM import_run r
 		 WHERE r.id = $5
-		   AND r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		ON CONFLICT (source_system, object, external_id) DO NOTHING`,
 		sourceSystem, object, externalID, nativeID, runID)
 	if err == nil && tag.RowsAffected() == 0 {
-		// Either the run is not this workspace's, or the identity is already
-		// mapped. Distinguished here rather than guessed: a replay must stay a
-		// no-op, and only a missing run is a scope miss.
+		// Either the run does not exist, or the identity is already mapped.
+		// Distinguished here rather than guessed: a replay must stay a no-op,
+		// and only a missing run is an error.
 		var exists bool
 		if probeErr := tx.QueryRow(ctx, `
-			SELECT EXISTS (
-			  SELECT 1 FROM import_run
-			   WHERE id = $1
-			     AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)`,
+			SELECT EXISTS (SELECT 1 FROM import_run WHERE id = $1)`,
 			runID).Scan(&exists); probeErr != nil {
 			return fmt.Errorf("migration: resolving the import run %s: %w", runID, probeErr)
 		}
@@ -336,8 +321,8 @@ func (s *RunStore) RecordIdentities(ctx context.Context, runID RunID, sourceSyst
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
-			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, e, n, $5
+			INSERT INTO import_record_map (source_system, object, external_id, native_id, import_run_id)
+			SELECT $1, $2, e, n, $5
 			FROM unnest($3::text[], $4::uuid[]) AS t(e, n)
 			ON CONFLICT (source_system, object, external_id) DO NOTHING`,
 			sourceSystem, object, externals, natives, runID)

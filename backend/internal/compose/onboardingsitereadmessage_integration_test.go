@@ -27,15 +27,15 @@ func TestCompanySiteReadMessageUsesTheStoredDossierAndReturnsRuntime(t *testing.
 	read := onboardingDraft(t, env)
 	usedAt := time.Date(2026, 7, 22, 8, 0, 0, 0, time.UTC)
 	env.WsExec(t, `
-		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
+		INSERT INTO ai_model_rate (provider, model_id, input_per_mtok_microusd,
 		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
-		VALUES ($1,'anthropic','claude-workbench-test',1000000,5000000,500000,2000000,$2)`, env.WS, usedAt)
+		VALUES ('anthropic','claude-workbench-test',1000000,5000000,500000,2000000,$1)`, usedAt)
 	env.WsExec(t, `
-		INSERT INTO ai_call (workspace_id, correlation_id, task, tier, provider, model_id,
+		INSERT INTO ai_call (correlation_id, task, tier, provider, model_id,
 		  served_model, served_identity_source, request_fingerprint, tokens_in, tokens_out, reasoning_tokens,
 		  cached_tokens, cache_write_tokens, latency_ms, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,'anthropic','claude-workbench-test','claude-workbench-test-202607','response',$5,
-		  1000,100,20,200,50,750,$6,$7)`, env.WS, read.ID, string(ai.TaskColdStart),
+		VALUES ($1,$2,$3,'anthropic','claude-workbench-test','claude-workbench-test-202607','response',$4,
+		  1000,100,20,200,50,750,$5,$6)`, read.ID, string(ai.TaskColdStart),
 		string(ai.TierCheapCloud), "workbench-fingerprint", usedAt, read.ID)
 	human := env.As(env.Rep1, nil, integration.AdminPerms)
 	brain := &replyBrainStub{response: model.Response{Text: `{

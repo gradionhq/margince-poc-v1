@@ -249,6 +249,17 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", table, err)
 		}
 	}
+	// The identity ledger goes with the estate, for the same reason and by the
+	// same rule: since ADR-0091 §8 phase D it is keyed on the INCUMBENT's
+	// identity — (source_system, object, external_id) — so a mapping the
+	// retired estate wrote still names `d-won`, and the rebuild would adopt a
+	// deal that no longer exists. The map before the runs it references: the
+	// foreign key points that way.
+	for _, table := range []string{"import_record_map", "import_run"} {
+		if _, err := f.e.Owner.Exec(ctx, "DELETE FROM "+table); err != nil {
+			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", table, err)
+		}
+	}
 	cleanCtx := flipAdminCtx(ws, user.UUID)
 	if err := deals.NewHandlers(database.BindTo(f.pool, ids.From[ids.WorkspaceKind](ws)), compose.DealsInstallation()).SeedWorkspaceDefaults(cleanCtx); err != nil {
 		t.Fatalf("seeding the clean workspace's default pipeline: %v", err)
