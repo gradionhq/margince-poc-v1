@@ -92,6 +92,15 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	// reader that no one ANSWERED: a column of these is work going unattended,
 	// which no count of rejections would show.
 	"expire": "let the decision window close on",
+	// The statutory-retention pair (A165/ADR-0114, migration 0287). "withheld"
+	// rather than "restricted", which a reader hears as an access-control
+	// decision the business made; this is the opposite — an obligation the
+	// business is under, holding a record it would otherwise have had to
+	// erase. "placed … under statutory retention" for the pin, because the
+	// administrator is recording a finding of fact about the document, not
+	// choosing a setting on it.
+	"restrict": "withheld under a statutory retention obligation",
+	"pin":      "placed under statutory retention",
 }
 
 // RecordHistoryFilter carries the validated query surface of

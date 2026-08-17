@@ -70,6 +70,12 @@ var auditVerbNoGrant = gatekit.Waive(map[string]string{
 	// audit as create/update on `user` and reach the map only through those
 	// generic verbs, which is the same non-attribution wearing a CRUD name.
 	"password_link_issued": "audited on user, which is not an RBAC policy object; the governing check is the admin role gate, not an object CRUD grant",
+	// The erasure path and the expiry sweep write it, both under the system
+	// principal, and neither is a human exercising a grant: the row records
+	// that a statutory obligation held a record back, not that somebody was
+	// permitted to hold it. Its sibling `pin` IS a human act and carries
+	// retention_policy.update in auditActionGrant.
+	"restrict": "written by the Art. 17 erasure path and the restriction-expiry sweep under the system principal: the obligation withheld the record, no grant admitted it",
 })
 
 func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {

@@ -149,6 +149,14 @@ var auditActionGrant = map[string]principal.Action{
 	"cancel":     principal.ActionUpdate,
 	"release":    principal.ActionCreate,
 	"hold":       principal.ActionUpdate,
+	// Placing a record under the statutory floor the derivation could not see
+	// (A165/ADR-0114). It is an administrator's finding of fact about a
+	// document, admitted by the retention_policy update grant the release/pin
+	// operations are gated on — so the rule recorded is the one the write path
+	// actually checked. `restrict` is deliberately absent: the erasure path and
+	// the expiry sweep write it, and no human is exercising a grant when they
+	// do (see auditVerbNoGrant).
+	"pin": principal.ActionUpdate,
 }
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a
