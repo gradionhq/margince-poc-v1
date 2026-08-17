@@ -19918,7 +19918,12 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire]
+          # `restrict`/`pin` are the statutory-retention verbs (A165/ADR-0114,
+          # A167/ADR-0116, migration 0287): an erasure shielded a record under the
+          # floor instead of destroying it, and an administrator placed a record
+          # under the floor the derivation could not see. `resolve` was in the DDL
+          # since 0047 and missing here — a row a strict client could not decode.
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }

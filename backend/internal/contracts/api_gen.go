@@ -1027,6 +1027,7 @@ const (
 	AuditLogEntryActionImportUndo         AuditLogEntryAction = "import_undo"
 	AuditLogEntryActionMerge              AuditLogEntryAction = "merge"
 	AuditLogEntryActionPasswordLinkIssued AuditLogEntryAction = "password_link_issued"
+	AuditLogEntryActionPin                AuditLogEntryAction = "pin"
 	AuditLogEntryActionPromote            AuditLogEntryAction = "promote"
 	AuditLogEntryActionRecordShare        AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare      AuditLogEntryAction = "record_unshare"
@@ -1034,7 +1035,9 @@ const (
 	AuditLogEntryActionRelease            AuditLogEntryAction = "release"
 	AuditLogEntryActionReschedule         AuditLogEntryAction = "reschedule"
 	AuditLogEntryActionResetData          AuditLogEntryAction = "reset_data"
+	AuditLogEntryActionResolve            AuditLogEntryAction = "resolve"
 	AuditLogEntryActionRestore            AuditLogEntryAction = "restore"
+	AuditLogEntryActionRestrict           AuditLogEntryAction = "restrict"
 	AuditLogEntryActionSchedule           AuditLogEntryAction = "schedule"
 	AuditLogEntryActionSendEmail          AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate             AuditLogEntryAction = "update"
@@ -1089,6 +1092,8 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionPasswordLinkIssued:
 		return true
+	case AuditLogEntryActionPin:
+		return true
 	case AuditLogEntryActionPromote:
 		return true
 	case AuditLogEntryActionRecordShare:
@@ -1103,7 +1108,11 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionResetData:
 		return true
+	case AuditLogEntryActionResolve:
+		return true
 	case AuditLogEntryActionRestore:
+		return true
+	case AuditLogEntryActionRestrict:
 		return true
 	case AuditLogEntryActionSchedule:
 		return true

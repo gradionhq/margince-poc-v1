@@ -70,6 +70,22 @@ var auditVerbNoGrant = gatekit.Waive(map[string]string{
 	// audit as create/update on `user` and reach the map only through those
 	// generic verbs, which is the same non-attribution wearing a CRUD name.
 	"password_link_issued": "audited on user, which is not an RBAC policy object; the governing check is the admin role gate, not an object CRUD grant",
+	// Both audit on the ACTIVITY they hold, and Rule() renders the grant
+	// against the AUDITED entity — so a mapping in auditActionGrant would
+	// record `activity.update`, naming a grant nobody checked. The authority
+	// that admits a pin is auth.Require(retention_policy, update) at the
+	// operation's own entry point: the same non-attribution as `reset_data`
+	// above, where the governing check is not an object CRUD grant on the row
+	// being audited. `restrict` has no human actor at all — the Art. 17
+	// erasure path writes it, where AuthzRule answers "system" before the map
+	// is read.
+	//
+	// Neither verb has a Go writer yet (A165/ADR-0114 is unbuilt). These
+	// entries exist because migration 0287 admits the verbs and this gate
+	// derives its vocabulary from the CHECK, so the verbs arrive here before
+	// their writers do.
+	"restrict": "written by the Art. 17 erasure path under the system principal; audited on activity, so no object CRUD grant on that row admitted it",
+	"pin":      "audited on activity, which is not the object its authority is checked against; the governing check is auth.Require(retention_policy, update) at the operation entry point",
 })
 
 func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {
