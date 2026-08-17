@@ -17,10 +17,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"regexp"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -271,18 +277,19 @@ func TestSavedView_roundTripsAndIsPerUser(t *testing.T) {
 	}
 }
 
-// A saved view's filter is checked when it is WRITTEN, not when someone finally
-// exports it: a view naming a field that is not filterable is refused by the
-// surface that accepts it, rather than by an export the author reaches much
-// later, if ever.
+// A saved view's filter is checked when it is WRITTEN: a view naming a field
+// that is not filterable is refused by the surface that accepts it, not by an
+// export the author reaches much later, if ever.
 //
 // Both write paths, because a create-time gate one PATCH walks around is not a
 // gate. The other obligation these paths carry — that the vocabulary is
-// resolved BEFORE the write transaction opens — is NOT pinned here and cannot
-// be: this store is built without a field catalogue, so SegmentEngine returns
-// the core vocabulary without ever reaching for a second connection.
-// dynamicsegment_singleconn_integration_test.go holds that one, with a real
-// catalogue over a pool capped at one connection.
+// resolved BEFORE the write transaction opens — is NOT pinned here, for two
+// reasons that both have to hold: this store is built without a field
+// catalogue, so SegmentEngine never reaches for a second connection at all,
+// AND e.DB() is the shared multi-connection harness pool, so even wiring a
+// catalogue in would not make a nested acquire fail. Both are why
+// dynamicsegment_singleconn_integration_test.go owns that claim, over a pool
+// capped at one connection.
 func TestSavedView_filterIsValidatedWhenWrittenNotWhenExported(t *testing.T) {
 	e := Setup(t)
 	store := collections.NewStore(e.DB())
@@ -344,4 +351,67 @@ func jsonEqual(t *testing.T, a, b map[string]any) bool {
 		t.Fatal(err)
 	}
 	return string(ab) == string(bb)
+}
+
+// checkLiteral pulls the single-quoted values out of a CHECK constraint
+// definition; a column or type name never matches, only the literals do.
+var checkLiteral = regexp.MustCompile(`'([a-z_]+)'`)
+
+// The resource vocabulary against its real authority — the DDL — because the
+// unit lane can only compare the contract enum to a Go map, and those two are
+// not the ones that disagree.
+//
+// saved_view.resource admits SIX values; the contract declares SEVEN. The extra
+// one is `projects`, which means POST /v1/saved-views with resource=projects
+// passes contract validation, resolves the project segment engine, validates
+// its filter — and then trips the CHECK on INSERT, answering the caller that a
+// value the schema they were handed calls legal is not allowed.
+//
+// Asserted as a NAMED divergence rather than left to a narrower expectation:
+// tracked at #1484, where widening the CHECK versus narrowing the contract is a
+// product call, and the spec's own DDL pin still says six. This fails the day
+// either side moves, which is the day someone should look at it.
+func TestSavedViewResourceCheckAgainstTheContractEnum(t *testing.T) {
+	e := Setup(t)
+
+	var def string
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.Admin(), `
+			SELECT pg_get_constraintdef(oid) FROM pg_constraint
+			 WHERE conrelid = 'saved_view'::regclass AND contype = 'c'
+			   AND pg_get_constraintdef(oid) LIKE '%resource%'`).Scan(&def)
+	})
+	if err != nil {
+		t.Fatalf("reading saved_view's own resource CHECK: %v", err)
+	}
+	storable := map[string]bool{}
+	for _, m := range checkLiteral.FindAllStringSubmatch(def, -1) {
+		storable[m[1]] = true
+	}
+
+	declared := map[string]bool{}
+	for _, r := range []crmcontracts.SavedViewResource{
+		crmcontracts.SavedViewResourceActivities, crmcontracts.SavedViewResourceDeals,
+		crmcontracts.SavedViewResourceLeads, crmcontracts.SavedViewResourceOrganizations,
+		crmcontracts.SavedViewResourcePartners, crmcontracts.SavedViewResourcePeople,
+		crmcontracts.SavedViewResourceProjects,
+	} {
+		declared[string(r)] = true
+	}
+
+	for name := range storable {
+		if !declared[name] {
+			t.Errorf("the CHECK stores resource %q, which the contract does not declare — a row no client can name", name)
+		}
+	}
+	undeclared := map[string]bool{}
+	for name := range declared {
+		if !storable[name] {
+			undeclared[name] = true
+		}
+	}
+	if want := map[string]bool{"projects": true}; !maps.Equal(undeclared, want) {
+		t.Errorf("the contract declares %v that the CHECK refuses, want exactly %v (#1484); "+
+			"if the CHECK was widened, drop the exception here", undeclared, want)
+	}
 }

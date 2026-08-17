@@ -73,9 +73,12 @@ func (s *Store) SavedViewFilterSource(ctx context.Context, id ids.SavedViewID) (
 			Reason: "this saved view's filter state is not a filter tree",
 		}
 	}
+	// A stored tree that no longer decodes is an invariant break, not the
+	// caller's error: it was compiled before it was stored, and this caller
+	// sent only an id. Same story evaluateSegment tells for a list.
 	pred, err := predicateFromDefinition(filterMap)
 	if err != nil {
-		return FilterSource{}, asFieldFault(err, "view_id")
+		return FilterSource{}, fmt.Errorf("stored filter state for saved view %s: %w", id, err)
 	}
 	return FilterSource{Resource: resource, Predicate: pred}, nil
 }
@@ -98,7 +101,7 @@ func (s *Store) ListFilterSource(ctx context.Context, id ids.ListID) (FilterSour
 	}
 	pred, err := predicateFromDefinition(list.Definition)
 	if err != nil {
-		return FilterSource{}, asFieldFault(err, "list_id")
+		return FilterSource{}, fmt.Errorf("stored definition for list %s: %w", id, err)
 	}
 	return FilterSource{Resource: list.EntityType, Predicate: pred}, nil
 }

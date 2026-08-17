@@ -200,10 +200,10 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 	// A dynamic segment IS its definition; a static set must not carry
 	// one — the shape rules out a half-and-half list.
 	if in.ListType == listTypeDynamic && len(in.Definition) == 0 {
-		return listRow{}, &BadInputError{Field: "definition", Reason: "a dynamic list needs a query definition"}
+		return listRow{}, &BadInputError{Field: definitionField, Reason: "a dynamic list needs a query definition"}
 	}
 	if in.ListType == listTypeStatic && len(in.Definition) > 0 {
-		return listRow{}, &BadInputError{Field: "definition", Reason: "a static list carries no definition"}
+		return listRow{}, &BadInputError{Field: definitionField, Reason: "a static list carries no definition"}
 	}
 	// A dynamic segment's definition is a stored filter the members
 	// endpoint later runs through the ONE engine. Validate it against the
@@ -308,7 +308,13 @@ func (s *Store) validateSegmentDefinition(ctx context.Context, entityType string
 func compileForValidation(engine storekit.Query, tree map[string]any, field string) error {
 	pred, err := predicateFromDefinition(tree)
 	if err != nil {
-		return asFieldFault(err, field)
+		// Dressed as the caller's own field, because on THIS path the caller
+		// did send the tree. Anything else passes through untouched: the
+		// tree's shape is the only part of a refusal a caller can act on.
+		if errors.Is(err, errNotAFilterTree) {
+			return &BadInputError{Field: field, Reason: "is not a valid filter tree"}
+		}
+		return err
 	}
 	discard := 0
 	arg := func(any) int { discard++; return discard }

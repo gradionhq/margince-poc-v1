@@ -41,8 +41,9 @@ var dynamicSegmentSingleConnPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
-// savedViewSingleConnPerms is the create+read+update posture the saved-view arm
-// needs; a view is per-user state, so ownership is the only scope that applies.
+// savedViewSingleConnPerms is the posture the saved-view arm needs. A view is
+// per-user state gated on ownership, so the row scope here is not what decides
+// visibility — it is set wide so a refusal in this test can only be the pool.
 var savedViewSingleConnPerms = principal.Permissions{
 	RoleKeys: []string{"admin"},
 	Objects: map[string]principal.ObjectGrant{

@@ -166,7 +166,7 @@ func (s *Store) CreateSavedView(ctx context.Context, in CreateSavedViewInput) (s
 		return savedViewRow{}, &BadInputError{Field: "name", Reason: "must not be empty"}
 	}
 	if in.Query == nil {
-		return savedViewRow{}, &BadInputError{Field: "query", Reason: "must not be null"}
+		return savedViewRow{}, &BadInputError{Field: viewQueryField, Reason: "must not be null"}
 	}
 	if err := s.validateViewFilter(ctx, in.Resource, in.Query); err != nil {
 		return savedViewRow{}, err

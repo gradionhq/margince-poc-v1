@@ -273,12 +273,6 @@ func predicateFromDefinition(def map[string]any) (storekit.Predicate, error) {
 	return p, nil
 }
 
-// asFieldFault dresses an undecodable tree as the 422 naming the caller's own
-// wire field. Everything else passes through untouched: the tree's SHAPE is
-// the only part of this a caller can fix.
-func asFieldFault(err error, field string) error {
-	if errors.Is(err, errNotAFilterTree) {
-		return &BadInputError{Field: field, Reason: "is not a valid filter tree"}
-	}
-	return err
-}
+// The one caller that dresses this as a field fault is compileForValidation,
+// where the caller genuinely sent the tree; every read path wraps it as the
+// invariant break it is instead.

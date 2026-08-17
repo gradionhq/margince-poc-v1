@@ -74,9 +74,8 @@ func TestASavedViewWithNothingToValidateIsAccepted(t *testing.T) {
 	}
 }
 
-// Filter state that is not a tree at all is refused where it is written rather
-// than where it is read. The export path has always answered this; the point of
-// the gate is that both surfaces now answer it.
+// Filter state that is not a tree at all is refused where it is written, by the
+// same surface that accepts the rest of the view.
 func TestASavedViewFilterThatIsNotATreeIsRefused(t *testing.T) {
 	store := (&Store{}).WithFieldCatalog(stubFilterable{})
 
@@ -102,24 +101,36 @@ var nonFilterableViewResources = map[string]bool{
 	string(crmcontracts.SavedViewResourcePartners):   true,
 }
 
-// Derived from the CONTRACT's enum, in the direction that can actually fail.
+// contractViewResources is the SavedViewResource enum as the contract declares
+// it. Hand-listed, which is a snapshot rather than a derivation: an eighth
+// member added to crm.yaml and forgotten here leaves this test green. The
+// derived form belongs in the backend-root suite, where contractSchema already
+// parses api/crm.yaml — tracked separately rather than half-built here.
+var contractViewResources = []crmcontracts.SavedViewResource{
+	crmcontracts.SavedViewResourceActivities,
+	crmcontracts.SavedViewResourceDeals,
+	crmcontracts.SavedViewResourceLeads,
+	crmcontracts.SavedViewResourceOrganizations,
+	crmcontracts.SavedViewResourcePartners,
+	crmcontracts.SavedViewResourcePeople,
+	crmcontracts.SavedViewResourceProjects,
+}
+
+// Every contract member is either filterable or declared deliberately not, in
+// the direction that can actually fail.
 //
 // The hazard is a resource MISSING from viewResourceToEngine: validateViewFilter
 // passes it through unchecked while SavedViewFilterSource refuses it at export
 // — the accepted-at-write, refused-at-read split this gate exists to close.
-// Iterating the map instead only proves its existing entries are live, which is
-// the one direction that cannot reintroduce the bug. So every contract member
-// must be either filterable or listed as deliberately not.
+// Iterating the map alone only proves its existing entries are live, which is
+// the one direction that cannot reintroduce the bug.
+//
+// WHAT THIS DOES NOT SAY is whether the database will store a view over that
+// resource. Filterability and storability are separate vocabularies with
+// separate authorities, and they disagree today — the saved_view.resource CHECK
+// is the authority, and the integration lane compares against it.
 func TestEveryViewResourceIsFilterableOrDeclaredOtherwise(t *testing.T) {
-	for _, resource := range []crmcontracts.SavedViewResource{
-		crmcontracts.SavedViewResourceActivities,
-		crmcontracts.SavedViewResourceDeals,
-		crmcontracts.SavedViewResourceLeads,
-		crmcontracts.SavedViewResourceOrganizations,
-		crmcontracts.SavedViewResourcePartners,
-		crmcontracts.SavedViewResourcePeople,
-		crmcontracts.SavedViewResourceProjects,
-	} {
+	for _, resource := range contractViewResources {
 		name := string(resource)
 		key, filterable := viewResourceToEngine[name]
 		switch {
@@ -131,6 +142,17 @@ func TestEveryViewResourceIsFilterableOrDeclaredOtherwise(t *testing.T) {
 			}
 		case !nonFilterableViewResources[name]:
 			t.Errorf("view resource %q has no engine and is not declared unfilterable, so a view over it accepts any filter at write and is refused at export", name)
+		}
+	}
+}
+
+// The other direction, which the enum-first loop above gives up: a key in
+// viewResourceToEngine that no contract member names is a mapping nothing can
+// ever reach, and it would sit there reading as coverage.
+func TestEveryMappedViewResourceIsAContractMember(t *testing.T) {
+	for name := range viewResourceToEngine {
+		if !crmcontracts.SavedViewResource(name).Valid() {
+			t.Errorf("viewResourceToEngine maps %q, which the contract's resource enum does not declare", name)
 		}
 	}
 }
@@ -151,42 +173,63 @@ func TestAnUndecodableTreeAnswersASentinelWithNoWireField(t *testing.T) {
 	}
 }
 
-// The same undecodable tree names a DIFFERENT field depending on which surface
-// carried it. Naming `definition` on a saved view — which is what every caller
-// used to get — tells the author to fix a key their payload does not contain.
+// An undecodable tree names a DIFFERENT field depending on which surface
+// carried it — driven through the real entry points, because the claim is about
+// what each surface answers, and a direct call to the shared helper would only
+// prove it returns the string it was handed. Neither entry point reaches the
+// pool for this input, so both belong in the unit lane.
 func TestAnUndecodableTreeIsNamedForTheSurfaceThatCarriedIt(t *testing.T) {
-	for _, c := range []struct{ surface, field string }{
-		{"a dynamic list", definitionField},
-		{"a saved view", viewQueryField},
-		{"an export by view id", "view_id"},
+	store := (&Store{}).WithFieldCatalog(stubFilterable{})
+	tree := map[string]any{"field": 5, "op": "eq", "value": "x"}
+
+	for _, c := range []struct {
+		surface string
+		refuse  func() error
+		field   string
+	}{
+		{
+			surface: "a dynamic list, which sends the tree as `definition`",
+			refuse:  func() error { return store.validateSegmentDefinition(context.Background(), "person", tree) },
+			field:   definitionField,
+		},
+		{
+			surface: "a saved view, which sends it inside `query`",
+			refuse: func() error {
+				return store.validateViewFilter(context.Background(), "people", map[string]any{"filter": tree})
+			},
+			field: viewQueryField,
+		},
 	} {
 		t.Run(c.surface, func(t *testing.T) {
-			err := asFieldFault(errNotAFilterTree, c.field)
+			err := c.refuse()
 
 			var bad *BadInputError
 			if !errors.As(err, &bad) {
 				t.Fatalf("err = %v, want a BadInputError", err)
 			}
 			if bad.Field != c.field {
-				t.Errorf("field = %q, want %q", bad.Field, c.field)
+				t.Errorf("field = %q, want %q — the caller is told to fix a key they never sent", bad.Field, c.field)
 			}
 		})
 	}
 }
 
-// Anything that is not an undecodable tree passes through untouched: the shape
-// of a filter is the only part of this a caller can fix, so a catalogue failure
-// or a compile refusal must not be dressed up as their field error.
-func TestAsFieldFaultLeavesOtherErrorsAlone(t *testing.T) {
+// A failure that is not the tree's shape is not the caller's to fix, so it must
+// not arrive dressed as their field error: a catalogue that cannot answer would
+// otherwise read as an invalid filter.
+func TestACatalogueFailureIsNotDressedAsAFieldFault(t *testing.T) {
 	boom := errors.New("catalog unreachable")
+	store := (&Store{}).WithFieldCatalog(stubFilterable{err: boom})
 
-	got := asFieldFault(boom, definitionField)
+	err := store.validateViewFilter(context.Background(), "people", map[string]any{
+		"filter": map[string]any{"field": "owner_id", "op": "eq", "value": "x"},
+	})
 
-	if !errors.Is(got, boom) {
-		t.Fatalf("got %v, want the original error", got)
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want the catalogue's own error", err)
 	}
 	var bad *BadInputError
-	if errors.As(got, &bad) {
-		t.Error("an unrelated failure was dressed up as a field fault")
+	if errors.As(err, &bad) {
+		t.Errorf("a failed catalogue read was reported as a bad %q", bad.Field)
 	}
 }
