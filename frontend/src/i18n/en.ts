@@ -580,6 +580,13 @@ export const en = {
   "list.filterOwnerTeam": "My team",
   "list.viewTeam": "My team",
   "list.viewUnassigned": "Unassigned",
+  "views.save": "Save view",
+  "views.saveConfirm": "Save",
+  "views.saveTitle": "Save this view",
+  "views.name": "Name",
+  "views.delete": "Delete view",
+  "views.deleteConfirm":
+    "Delete the view \u201c{name}\u201d? The records stay; only the saved filter goes.",
   "list.viewMine": "Mine",
   "list.viewCustomers": "Customers",
   "list.viewProspects": "Prospects",

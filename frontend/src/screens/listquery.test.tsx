@@ -11,6 +11,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ListView } from "../design-system/listsurface";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ProblemError } from "./common";
@@ -20,6 +21,7 @@ import {
   type ListQuery,
   ListTable,
   useListQuery,
+  type ViewSpec,
 } from "./listquery";
 
 // The shared list foundation (P-14): keyset pagination via useListQuery, and
@@ -110,6 +112,8 @@ function ListTableHarness({
   fetchPage,
   chips,
   action,
+  views,
+  dataViews,
 }: Readonly<{
   fetchPage: (
     query: ListQuery,
@@ -117,6 +121,8 @@ function ListTableHarness({
   ) => Promise<ListPage<Row>>;
   chips?: readonly FilterSpec[];
   action?: ReactNode;
+  views?: readonly ViewSpec[];
+  dataViews?: readonly ListView[];
 }>) {
   const state = useListQuery<Row>({
     key: "list-table-harness",
@@ -137,6 +143,8 @@ function ListTableHarness({
       ]}
       rowKey={(row) => row.id}
       chips={chips}
+      views={views}
+      dataViews={dataViews}
       action={action}
     />
   );
@@ -441,5 +449,43 @@ describe("the owner dial — one question the server answers three ways", () => 
     expect(
       screen.getByRole("group", { name: "Owner: My records" }),
     ).toBeTruthy();
+  });
+});
+
+describe("view tabs — two views can ask for the same thing", () => {
+  it("highlights the tab the reader pressed, not the first one that matches", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        views={[
+          { label: "list.viewAll" },
+          { label: "list.viewAZ", sort: "full_name" },
+        ]}
+        dataViews={[{ label: "My A-Z", sort: "full_name" }]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    // The saved view narrows exactly as the built-in preset does. Derived from
+    // the query alone, the highlight lands on the first match and the reader's
+    // own view never lights up when they pick it.
+    await user.click(screen.getByRole("button", { name: "My A-Z" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "My A-Z" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(
+      screen.getByRole("button", { name: "A–Z" }).getAttribute("aria-pressed"),
+    ).toBe("false");
   });
 });

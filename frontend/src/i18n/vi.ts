@@ -561,6 +561,13 @@ export const vi = {
   "list.filterOwnerTeam": "Nhóm của tôi",
   "list.viewTeam": "Nhóm của tôi",
   "list.viewUnassigned": "Chưa phân công",
+  "views.save": "Lưu bộ lọc",
+  "views.saveConfirm": "Lưu",
+  "views.saveTitle": "Lưu bộ lọc này",
+  "views.name": "Tên",
+  "views.delete": "Xoá bộ lọc",
+  "views.deleteConfirm":
+    "Xoá bộ lọc \u201c{name}\u201d? Bản ghi vẫn còn, chỉ bộ lọc đã lưu bị xoá.",
   "list.viewMine": "Của tôi",
   "list.viewCustomers": "Khách hàng",
   "list.viewProspects": "Khách tiềm năng",

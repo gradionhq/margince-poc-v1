@@ -120,6 +120,7 @@ import {
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
   TaskDetailModal,
   TaskQuickActions,
@@ -548,6 +549,7 @@ export function CompaniesScreen() {
   // nothing — the same reason the deal list builds its owner chip this way.
   const viewerId = useViewerId();
   const ownerChips = useOwnerChips();
+  const savedViews = useSavedViewTabs("organizations");
 
   return (
     <div className="wrap">
@@ -647,6 +649,7 @@ export function CompaniesScreen() {
             sort: "created_at",
           },
         ]}
+        tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
         chips={[
@@ -669,6 +672,7 @@ export function CompaniesScreen() {
           },
           ...ownerChips,
         ]}
+        dataViews={savedViews}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
           ...(viewerId
