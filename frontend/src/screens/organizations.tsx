@@ -566,7 +566,11 @@ export function CompaniesScreen() {
             header: t("org.name"),
             cell: (org: Organization) => (
               <span className="avatar-row">
-                <Avatar name={org.display_name} src={org.logo_url} tinted />
+                <Avatar
+                  identity={org.id}
+                  name={org.display_name}
+                  src={org.logo_url}
+                />
                 <strong>{org.display_name}</strong>
                 {org.archived_at && (
                   <Badge tone="warn">{t("record.archived")}</Badge>

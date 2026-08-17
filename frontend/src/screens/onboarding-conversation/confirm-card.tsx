@@ -815,7 +815,7 @@ function CompanyIdentityCard({
           the same colour here, in the organizations list and on the
           connections graph, and a neutral chip would make the one company
           this whole surface is about the only anonymous one. */}
-      <Avatar name={name} tinted size="lg" />
+      <Avatar name={name} size="md" />
       <div className="ob-company-card-body">
         <h3>{name}</h3>
         {facts.length > 0 && (

@@ -24,6 +24,7 @@ import {
   Textarea,
   TextInput,
 } from "./atoms";
+import { AvatarStack } from "./avatarstack";
 import { Select } from "./select";
 
 // Stories are the render surface the change-scoped fe-uat capture gate drives
@@ -169,12 +170,91 @@ export const Badges: Story = {
   ),
 };
 
+// The chip is an IDENTIFIER, so the states that matter are the ones where two
+// chips have to be told apart or recognised as the same record. The old story
+// was three default-size untinted chips, which showed neither: it could not
+// have caught that four sizes existed for a two-value prop, that the tint was
+// opt-in so a company changed colour between its list row and its own page, or
+// that a name with no space in it produced a single letter.
 export const Avatars: Story = {
   render: () => (
-    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-      <Avatar name="Alice Müller" />
-      <Avatar name="Bob Schmidt" />
-      <Avatar name="Carol Wagner" />
+    <div style={stack}>
+      <div style={stack}>
+        <span className="t-label">The four sizes</span>
+        <div style={row}>
+          <Avatar name="Alice Müller" size="xs" />
+          <Avatar name="Alice Müller" size="sm" />
+          <Avatar name="Alice Müller" size="md" />
+          <Avatar name="Alice Müller" size="lg" />
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          Six tones, picked from the record and never stored
+        </span>
+        <div style={row}>
+          <Avatar name="Alice Müller" />
+          <Avatar name="Bob Schmidt" />
+          <Avatar name="Carol Wagner" />
+          <Avatar name="Voltaq Systems" />
+          <Avatar name="Northwind Handel" />
+          <Avatar name="Dara O'Brien" />
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          The names a monogram rule usually gets wrong
+        </span>
+        <div style={row}>
+          <Avatar name="jane.doe@example.com" />
+          <Avatar name="Müller" />
+          <Avatar name="van der Berg" />
+          <Avatar name="李" />
+          <Avatar name="Ana-Sofía Ruiz" />
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          Same record, same colour — keyed on an id, so a rename does not move
+          it
+        </span>
+        <div style={row}>
+          <Avatar identity="org_7f3" name="Voltaq Systems" />
+          <Avatar identity="org_7f3" name="Voltaq Systems GmbH" size="md" />
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          A logo sits ON the monogram; a broken one leaves it standing
+        </span>
+        <div style={row}>
+          <Avatar
+            name="Northwind Handel"
+            size="md"
+            src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b7a53'/%3E%3C/svg%3E"
+          />
+          <Avatar name="Northwind Handel" size="md" src="/does-not-resolve" />
+        </div>
+      </div>
+      <div style={stack}>
+        <span className="t-label">
+          Stacked — the ring costs the chip no size, so a folded face sits on
+          the same line as a lone one
+        </span>
+        <div style={row}>
+          <AvatarStack
+            people={[
+              { name: "Alice Müller" },
+              { name: "Bob Schmidt" },
+              { name: "Carol Wagner" },
+              { name: "Dara O'Brien" },
+              { name: "Eve Lindqvist" },
+              { name: "Frank Osei" },
+            ]}
+          />
+          <Avatar name="Alice Müller" />
+        </div>
+      </div>
     </div>
   ),
 };

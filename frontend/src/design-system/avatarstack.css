@@ -7,10 +7,14 @@
   white-space: nowrap;
   align-items: center;
 }
+/* The ring is a shadow rather than a border so it costs the chip no size: a
+ * 2px border made a stacked face 32px while the identical unstacked chip beside
+ * it stayed 28px, and the two then sat on different centre lines in the same
+ * row. A shadow paints in the same place and takes no layout box. */
 .avatar-stack-item {
   display: block;
   border-radius: var(--r-full);
-  border: 2px solid var(--bgElevated);
+  box-shadow: 0 0 0 2px var(--bgElevated);
 }
 .avatar-stack-item + .avatar-stack-item {
   margin-left: calc(var(--space-2) * -1);

@@ -683,11 +683,13 @@ function IdentityCard() {
                   neither costs the reader an unnamed chip rather than the whole
                   page: this block renders inside the app shell, and a throw here
                   takes the navigation down with it. */}
+              {/* The address is the tint's key, so this reader keeps the same
+                  colour here as in the rail's account block and as their turns
+                  in the onboarding transcript — and keeps it after they change
+                  their display name. */}
               <Avatar
+                identity={me.user.email || undefined}
                 name={me.user.display_name || me.user.email || ""}
-                // Tinted, because this is the ONE person the page is about and
-                // the tint is derived from their own name.
-                tinted
               />
               <div className="settings-identity-id">
                 <div className="settings-identity-name">

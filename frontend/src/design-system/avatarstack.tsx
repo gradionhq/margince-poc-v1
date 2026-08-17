@@ -23,7 +23,7 @@ export function AvatarStack({
     <span className="avatar-stack">
       {shown.map((person) => (
         <span className="avatar-stack-item" key={person.name}>
-          <Avatar name={person.name} tinted />
+          <Avatar name={person.name} />
         </span>
       ))}
       {rest > 0 && <span className="avatar-stack-more">+{rest}</span>}

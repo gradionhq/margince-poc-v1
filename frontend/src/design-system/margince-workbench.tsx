@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../api/schema";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { Avatar } from "./atoms";
 import { MarginceCoreScene, type MarginceCoreState } from "./margince-core";
 import "./margince-workbench.css";
 
@@ -85,7 +86,12 @@ export function MarginceWorkbench({
    * Copy belongs to the caller's catalog, never to the design system. */
   stepLabel?: string;
   /** Rail only: who is signed in, at the rail's very foot. */
-  person?: Readonly<{ name: string; detail: string }>;
+  person?: Readonly<{
+    name: string;
+    detail: string;
+    /** What the chip's tint is keyed on — see `Avatar.identity`. */
+    identity?: string;
+  }>;
   /**
    * Rail only: a control at the right-hand end of the person row. The rail has
    * no top bar, so this is the one place surface-level chrome can live; the foot
@@ -181,9 +187,13 @@ export function MarginceWorkbench({
             <div className="mw-person">
               {person && (
                 <>
-                  <span className="mw-person-avatar" aria-hidden>
-                    {person.name.slice(0, 1).toUpperCase()}
-                  </span>
+                  {/* The design system's chip, not a second one. This was a
+                      hand-rolled span taking ONE letter and a hard-coded
+                      `--mono0Fill`, so every reader was the same colour and a
+                      different letter count from the same person's chip in the
+                      transcript three columns away — which that transcript's
+                      own comment claims it matches. */}
+                  <Avatar identity={person.identity} name={person.name} />
                   <span className="mw-person-id">
                     <b>{person.name}</b>
                     <small>{person.detail}</small>
