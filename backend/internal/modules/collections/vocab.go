@@ -30,9 +30,10 @@ const (
 // one field to one indexed column on the base table (the join-backed and
 // full-text list params — organization_id-via-employment, q,
 // entity_type+entity_id — are list-query surface, not predicate leaves,
-// and are deliberately out of the segment vocabulary). Only the four
-// list entity types carry a segment engine; list.entity_type constrains
-// membership to exactly these tables.
+// and are deliberately out of the segment vocabulary). Every list entity
+// type carries a segment engine; list.entity_type constrains membership to
+// exactly these tables, and the map below is the authority the export
+// object's own vocabulary answers to.
 // projectEntity is this file's spelling of the project record type, named
 // once so the engine key, the table and the column prefix cannot drift.
 const projectEntity = "project"

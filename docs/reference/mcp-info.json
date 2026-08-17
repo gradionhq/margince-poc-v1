@@ -10,16 +10,16 @@
   "totals": {
     "tools": 39,
     "resources": 8,
-    "tool_catalog_bytes": 112722,
+    "tool_catalog_bytes": 112614,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 28957,
+    "approx_wire_tokens_total": 28930,
     "largest_tool_bytes": 4639,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 29945,
+      "description_bytes": 29837,
       "input_schema_bytes": 27065,
       "output_schema_bytes": 47191,
-      "description_plus_input_schema_bytes": 57010
+      "description_plus_input_schema_bytes": 56902
     }
   },
   "tools": {
@@ -865,7 +865,7 @@
           "readOnlyHint": false,
           "title": "Book a meeting"
         },
-        "description": "Hold a slot in the host's calendar and record the meeting against the records it is about — a person, an account, a deal, a lead or a project. It requires at least one link saying what the meeting is about and is refused without one. The slot is taken and the meeting becomes a real commitment, so a person approves it before it is booked. It takes no attendee list: who is invited, and whether an invitation is delivered at all, is the deployment's calendar connection rather than this call. Check the slot is free first — this tool does not. Use check_availability to find the time, and log_activity to record a meeting that already happened. Keep the staged approval id and re-send the identical start, end and links: the approval is bound to the meeting as it was described. (Governance: a person approves every call before it runs; requires passport scope \"send\".)",
+        "description": "Hold a slot in the host's calendar and record the meeting against the records it is about. It requires at least one link saying what the meeting is about and is refused without one. The slot is taken and the meeting becomes a real commitment, so a person approves it before it is booked. It takes no attendee list: who is invited, and whether an invitation is delivered at all, is the deployment's calendar connection rather than this call. Check the slot is free first — this tool does not. Use check_availability to find the time, and log_activity to record a meeting that already happened. Keep the staged approval id and re-send the identical start, end and links: the approval is bound to the meeting as it was described. (Governance: a person approves every call before it runs; requires passport scope \"send\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -2712,7 +2712,7 @@
           "readOnlyHint": false,
           "title": "Log an activity"
         },
-        "description": "Record something that happened — a call, a meeting, a note, a message — on the timeline of the records it was about — a person, an account, a deal, a lead or a project. It writes history, and changes nothing else: logging a call does not move a deal, update a field or notify anyone. An activity logged without links is stored attached to nothing and appears on no timeline. Use progress_deal when the same event also moves a deal forward, so the move and the note are one act rather than two. The activity id comes back in the result; keep it — draft_email, send_email and send_message all identify a conversation by it. (Governance: runs immediately; requires passport scope \"write\".)",
+        "description": "Record something that happened — a call, a meeting, a note, a message — on the timeline of the records it was about. It writes history, and changes nothing else: logging a call does not move a deal, update a field or notify anyone. An activity logged without links is stored attached to nothing and appears on no timeline. Use progress_deal when the same event also moves a deal forward, so the move and the note are one act rather than two. The activity id comes back in the result; keep it — draft_email, send_email and send_message all identify a conversation by it. (Governance: runs immediately; requires passport scope \"write\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

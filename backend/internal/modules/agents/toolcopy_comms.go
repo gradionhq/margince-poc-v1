@@ -85,7 +85,7 @@ var checkAvailabilityCopy = toolCopy{
 
 var bookMeetingCopy = toolCopy{
 	Purpose: "Hold a slot in the host's calendar and record the meeting against the records it " +
-		"is about — a person, an account, a deal, a lead or a project.",
+		"is about.",
 	Limits: "It requires at least one link saying what the meeting is about and is refused " +
 		"without one. The slot is taken and the meeting becomes a real commitment, so a person " +
 		"approves it before it is booked. It takes no attendee list: who is invited, and whether " +

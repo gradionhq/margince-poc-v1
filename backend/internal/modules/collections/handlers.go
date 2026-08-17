@@ -195,19 +195,12 @@ func (h Handlers) ApplyTag(w http.ResponseWriter, r *http.Request, id crmcontrac
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	// The declared enum is checked HERE, at the door, rather than left to the
-	// store's own record-type set to reject by coincidence. Nothing else
-	// validates it: no OpenAPI request-validation middleware is wired into the
-	// chassis, so an undeclared value decodes cleanly into the typed field and
-	// travels on. The two vocabularies agree today and a fitness test holds
-	// them together — but agreement is what is being asserted, and an
-	// assertion nobody makes is not one.
-	if !req.EntityType.Valid() {
-		writeErr(w, r, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary})
-		return
-	}
 	// req.EntityId is a polymorphic tag target (any entity), so it stays an
-	// untyped ids.UUID; the store row-scope-gates it as a link target.
+	// untyped ids.UUID; the store row-scope-gates it as a link target. The
+	// entity_type is not checked here either: the store refuses an
+	// out-of-vocabulary one with the same 422, AFTER its own auth gate, which
+	// is the order this repo keeps — a door check would tell an unauthorized
+	// caller about their input instead of refusing them.
 	applied, err := h.store.ApplyTag(r.Context(), pathID[ids.TagKind](id), string(req.EntityType), ids.UUID(req.EntityId))
 	if err != nil {
 		writeErr(w, r, err)

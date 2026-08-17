@@ -470,24 +470,40 @@ func TestFilteredExportOfASegmentMatchesItsMembership(t *testing.T) {
 	}
 }
 
-// setOf renders a generated enum's members as the comparable set its authority
-// is compared against — one spelling for every enum this file checks.
-func setOf[T ~string](members ...T) map[string]bool {
-	out := make(map[string]bool, len(members))
-	for _, m := range members {
-		out[string(m)] = true
-	}
-	return out
-}
-
 // checkLiteralRe pulls a quoted literal out of a rendered Postgres CHECK
 // constraint (pg_get_constraintdef quotes each value, whether it renders
 // as `IN (...)` or the normalized `= ANY (ARRAY[...])`); a double-quoted
 // column or type name never matches, only the single-quoted values do.
 var checkLiteralRe = regexp.MustCompile(`'([a-z_]+)'`)
 
-// TestTheTaggableVocabularyMatchesTheCheckConstraint proves the Go-side
-// taggable set is not just consistent with itself (the unit lane's job)
+// entityTypeCheckValues reads one table's own entity_type CHECK and answers the
+// values it admits. Per table, because each polymorphic table carries its own
+// constraint and they are not required to agree — assuming they do is the
+// mistake this file exists to catch.
+func entityTypeCheckValues(t *testing.T, f fixture, table string) map[string]bool {
+	t.Helper()
+	var def string
+	err := database.WithWorkspaceTx(f.ctx, f.e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(f.ctx, `
+			SELECT pg_get_constraintdef(oid) FROM pg_constraint
+			 WHERE conrelid = $1::regclass AND contype = 'c'
+			   AND pg_get_constraintdef(oid) LIKE '%entity_type%'`, table).Scan(&def)
+	})
+	if err != nil {
+		t.Fatalf("reading %s's own entity_type CHECK: %v", table, err)
+	}
+	out := map[string]bool{}
+	for _, m := range checkLiteralRe.FindAllStringSubmatch(def, -1) {
+		out[m[1]] = true
+	}
+	if len(out) == 0 {
+		t.Fatalf("%s's CHECK yielded no values from %q", table, def)
+	}
+	return out
+}
+
+// TestEveryEnumOverTheRecordVocabularyMatchesTheCheckConstraint proves the
+// Go-side taggable set is not just consistent with itself (the unit lane's job)
 // but COMPLETE against the schema's own CHECK (LVS-DDL-2) — the authority
 // every other spelling answers to. The CHECK admits five values: person,
 // organization, deal, lead and project (0131_project.up.sql's
@@ -498,7 +514,7 @@ var checkLiteralRe = regexp.MustCompile(`'([a-z_]+)'`)
 // set the store gates on — and they disagreed once: the enum omitted project
 // while the server accepted, stored and returned project tags, so a client
 // switching exhaustively on that enum had no branch for a value it was handed.
-func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
+func TestEveryEnumOverTheRecordVocabularyMatchesTheCheckConstraint(t *testing.T) {
 	f := setupFixture(t)
 
 	var def string
@@ -520,22 +536,81 @@ func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
 		t.Fatalf("taggable's CHECK admits %v, want %v", got, want)
 	}
 
-	// Every generated enum over the SAME vocabulary, against that authority.
+	// Every generated enum over the SAME vocabulary, asked about the CHECK's own
+	// values rather than compared to a list restated here. A restated list is
+	// the thing this test exists to catch: it cannot fail for an enum that GAINS
+	// a member, and an enum that LOSES one takes the constant with it, so the
+	// file stops compiling and the legible failure never runs.
+	//
 	// Fixing one spelling and leaving its siblings is how this diverged in the
 	// first place: migration 0131 widened four CHECKs to five and the contract
-	// caught up on one of them, so the API accepted, stored and returned a
-	// project list, list member and tag while three enums said it could not
-	// exist. Each of these casts back unchecked at its wire edge (wireTaggable,
-	// wireList, wireMember), so a value the CHECK admits reaches a client
-	// whether or not the enum declares it.
-	for name, declared := range map[string]map[string]bool{
-		"Taggable.entity_type":   setOf(crmcontracts.TaggableEntityTypePerson, crmcontracts.TaggableEntityTypeOrganization, crmcontracts.TaggableEntityTypeDeal, crmcontracts.TaggableEntityTypeLead, crmcontracts.TaggableEntityTypeProject),
-		"ApplyTagRequest":        setOf(crmcontracts.ApplyTagRequestEntityTypePerson, crmcontracts.ApplyTagRequestEntityTypeOrganization, crmcontracts.ApplyTagRequestEntityTypeDeal, crmcontracts.ApplyTagRequestEntityTypeLead, crmcontracts.ApplyTagRequestEntityTypeProject),
-		"List.entity_type":       setOf(crmcontracts.ListEntityTypePerson, crmcontracts.ListEntityTypeOrganization, crmcontracts.ListEntityTypeDeal, crmcontracts.ListEntityTypeLead, crmcontracts.ListEntityTypeProject),
-		"ListMember.entity_type": setOf(crmcontracts.ListMemberEntityTypePerson, crmcontracts.ListMemberEntityTypeOrganization, crmcontracts.ListMemberEntityTypeDeal, crmcontracts.ListMemberEntityTypeLead, crmcontracts.ListMemberEntityTypeProject),
+	// caught up on one, so the API accepted, stored and returned a project list,
+	// list member and tag while three enums said it could not exist. The three
+	// RESPONSE shapes cast back unchecked at their wire edge (wireTaggable,
+	// wireList, wireMember), which is how a value the CHECK admits reaches a
+	// client the enum never told about it; ApplyTagRequest is the request half
+	// of the same vocabulary, where the cost is a value refused instead.
+	for admitted := range got {
+		for name, valid := range map[string]bool{
+			"Taggable.entity_type":        crmcontracts.TaggableEntityType(admitted).Valid(),
+			"ApplyTagRequest.entity_type": crmcontracts.ApplyTagRequestEntityType(admitted).Valid(),
+		} {
+			if !valid {
+				t.Errorf("%s refuses %q, which taggable's CHECK admits — the database stores it and the wire cannot name it", name, admitted)
+			}
+		}
+	}
+
+	// The SIBLING vocabularies, each against ITS OWN table. Comparing them all
+	// to taggable's CHECK would pass only because the four happen to admit the
+	// same five today, and that coincidence is where this class of bug lives:
+	// 0131 widened four CHECKs and the contract tracked one.
+	for _, c := range []struct {
+		table string
+		enums map[string]func(string) bool
+	}{
+		{
+			table: "list",
+			enums: map[string]func(string) bool{
+				"List.entity_type":              func(v string) bool { return crmcontracts.ListEntityType(v).Valid() },
+				"CreateListRequest.entity_type": func(v string) bool { return crmcontracts.CreateListRequestEntityType(v).Valid() },
+			},
+		},
+		{
+			table: "list_member",
+			enums: map[string]func(string) bool{
+				"ListMember.entity_type":           func(v string) bool { return crmcontracts.ListMemberEntityType(v).Valid() },
+				"AddListMemberRequest.entity_type": func(v string) bool { return crmcontracts.AddListMemberRequestEntityType(v).Valid() },
+			},
+		},
+		{
+			table: "activity_link",
+			enums: map[string]func(string) bool{
+				"ActivityLink.entity_type":                func(v string) bool { return crmcontracts.ActivityLinkEntityType(v).Valid() },
+				"CreateActivityRequest.links.entity_type": func(v string) bool { return crmcontracts.CreateActivityRequestLinksEntityType(v).Valid() },
+				"bookMeeting.links.entity_type":           func(v string) bool { return crmcontracts.BookMeetingJSONBodyLinksEntityType(v).Valid() },
+			},
+		},
 	} {
-		if !maps.Equal(declared, got) {
-			t.Errorf("%s declares %v, the CHECK admits %v", name, declared, got)
+		t.Run(c.table, func(t *testing.T) {
+			for admitted := range entityTypeCheckValues(t, f, c.table) {
+				for name, valid := range c.enums {
+					if !valid(admitted) {
+						t.Errorf("%s refuses %q, which %s's CHECK admits", name, admitted, c.table)
+					}
+				}
+			}
+		})
+	}
+
+	// The export object answers to segmentEngines rather than a CHECK — it names
+	// a filterable resource, not a stored column — and collections exports no
+	// accessor for that map, so the filter vocabulary is the observable proxy:
+	// every record type a segment can filter must be nameable as an export
+	// object, or a segment exists that no export of it can address.
+	for entity := range want {
+		if !crmcontracts.FilteredExportRequestObject(entity).Valid() {
+			t.Errorf("FilteredExportRequest.object refuses %q, which carries a segment engine", entity)
 		}
 	}
 
