@@ -287,8 +287,9 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.SavedViewID, in Upda
 		if err != nil {
 			return savedViewRow{}, err
 		}
-		// The write below answers not-found for an archived view. Refusing its
-		// filter first would tell the caller it exists.
+		// The write below answers not-found for an archived view, so this check
+		// has to come BEFORE the filter is judged: a 422 for a view the caller
+		// is not entitled to see would be an existence oracle for archived ones.
 		if current.ArchivedAt != nil {
 			return savedViewRow{}, apperrors.ErrNotFound
 		}

@@ -337,6 +337,38 @@ func TestSavedView_filterIsValidatedWhenWrittenNotWhenExported(t *testing.T) {
 	}
 }
 
+// An ARCHIVED view refuses a query replacement as not-found, and does it BEFORE
+// the filter is examined. The order is the point: refusing the filter first
+// would answer 422 for a view whose existence the caller is not entitled to
+// learn, so a 422 here would be an existence oracle for archived views.
+//
+// This is the branch the update path's own comment claims and nothing exercised.
+func TestSavedView_anArchivedViewIsNotFoundBeforeItsFilterIsJudged(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+
+	view, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Retired",
+		Query: map[string]any{"filter": map[string]any{"field": "owner_id", "op": "eq", "value": e.Rep1.String()}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := store.ArchiveSavedView(rep, view.ID); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	// A filter that would ALSO be refused on its own merits, so a 422 could
+	// only mean the archived check was skipped.
+	unfilterable := map[string]any{"filter": map[string]any{"field": "secret_salary", "op": "eq", "value": "x"}}
+	_, err = store.UpdateSavedView(rep, view.ID, collections.UpdateSavedViewInput{Query: &unfilterable})
+
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound — a 422 here tells the caller an archived view exists", err)
+	}
+}
+
 // jsonEqual compares two values by their canonical JSON encoding, so a
 // jsonb round-trip (which re-types numbers/arrays) does not defeat the
 // exact-restore assertion.
