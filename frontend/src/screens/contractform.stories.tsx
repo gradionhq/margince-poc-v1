@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, waitFor } from "storybook/test";
 import { meFixture } from "../app/mefixture";
 import { ContractForm, SignedFileField } from "./contractform";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -100,6 +101,39 @@ export const WithFiledPaper: Story = {
       [DOCUMENTS]: () => jsonResponse({ data: [PAPER] }),
     });
     return field();
+  },
+};
+
+// The download with KEYBOARD FOCUS on it.
+//
+// Its own story because a focus ring is invisible in every other capture, and
+// this one regressed silently: the link moved to .link-button for its colour
+// and inherited that class's 9%-opacity shadow ring, which on the modal's
+// elevated surface is not a focus state a person can see. A tab stop nobody
+// can locate is the whole defect, and a screenshot is the only thing that
+// shows it.
+export const DownloadFocused: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": SESSION,
+      [DOCUMENTS]: () => jsonResponse({ data: [PAPER] }),
+    });
+    return field();
+  },
+  play: async ({ canvasElement }) => {
+    const link = await waitFor(() => {
+      const found =
+        canvasElement.querySelector<HTMLAnchorElement>("a.link-button");
+      if (!found) {
+        throw new Error("the download link has not rendered yet");
+      }
+      return found;
+    });
+    // focus-visible follows keyboard intent, so the ring the story exists to
+    // show only paints after a real Tab — .focus() alone would capture the
+    // resting state and quietly prove nothing.
+    link.blur();
+    await userEvent.tab();
   },
 };
 

@@ -443,10 +443,18 @@
 .link-button:hover {
   text-decoration: underline;
 }
+/* A SOLID outline, not the 9%-opacity ring the filled controls use.
+ *
+ * --accentLight carries an alpha under a tenth: behind a filled button its own
+ * colour makes the ring read, but .link-button has no fill, so on an elevated
+ * surface — a modal, a card — that band is not a focus state anybody sees. A
+ * keyboard user tabbing through a form could not tell which link they were on.
+ * A real outline also survives Windows High Contrast Mode, which drops
+ * box-shadow entirely — the transparent-outline trick the filled controls use
+ * exists only to keep something there when it does. */
 .link-button:focus-visible {
-  outline: 2px solid transparent;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  box-shadow: 0 0 0 3px var(--accentLight);
 }
 
 .kbd {
