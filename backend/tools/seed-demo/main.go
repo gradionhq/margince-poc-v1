@@ -79,6 +79,13 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// A configured bootstrap holds the account until the operator's password
+	// is replaced. Doing that first is what lets everything below write at
+	// all, and it returns a client signed in on the new credential.
+	client, *password, err = replaceOperatorPassword(*baseURL, *email, *password, client)
+	if err != nil {
+		return err
+	}
 
 	// -verify-only reads an installation somebody already seeded and reports
 	// what is missing. It writes NOTHING, which makes it safe to point at an
@@ -123,10 +130,23 @@ func run() error {
 		return err
 	}
 
-	if err := seedWhatNeedsCompanies(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
+	if err := seedWhatNeedsSQLAfterCompanies(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
 		return err
 	}
 	return verifySeed(client, demo, modeFor(*dryRun))
+}
+
+// seedWhatNeedsSQLAfterCompanies runs everything that needs the companies on
+// file: the finance links, the facts, and the mailboxes.
+func seedWhatNeedsSQLAfterCompanies(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
+	if err := seedWhatNeedsCompanies(dsn, client, demo, companies, mode); err != nil {
+		return err
+	}
+	// The inbox goes on LAST: the connector generates from the accounts,
+	// people and deals this run has just written, so a mailbox connected
+	// before them would generate from an empty installation.
+	_, err := seedCommsConnections(dsn, demo, mode)
+	return err
 }
 
 // seedWhatNeedsCompanies runs the SQL-and-in-process phases that need the

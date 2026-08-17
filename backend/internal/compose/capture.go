@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/offlinedemo"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -156,6 +157,12 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// reads as "this installation has no Telegram integration" and parks every
 	// reply a rep writes.
 	r.Register(telegram.New(telegram.NewAPI(nil, "")))
+	// The offline demo connector, registered unconditionally and INERT until a
+	// capture_connection names it — which only the demo seeder and
+	// scripts/seed-dev.sql do. It reaches no network and holds no credential,
+	// so there is nothing to configure and nothing to gate on; the finance
+	// mirror's offline_demo provider is registered on the same terms.
+	r.Register(offlinedemo.New(offlineDemoDirectory{pool: pool}))
 	// The derived channel vocabulary is NOT reconciled here. Constructing this
 	// registry is config-gated — a role builds it only when a keyvault root key
 	// is configured — and the registry write is not, so it runs as its own boot
