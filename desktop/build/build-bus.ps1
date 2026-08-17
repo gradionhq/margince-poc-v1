@@ -26,6 +26,13 @@ $REDIS_SHA256 = '7bf7975331511fdb788e85dae63964b128fccee1df026a10db57444babc9c9c
 
 $out = Join-Path $Stage 'bus'
 
+# Where the source unpacks. Named once at script scope rather than returned from
+# Build-Redis: a PowerShell function returns EVERYTHING on the success stream,
+# so a returned path is only as trustworthy as every command in the function
+# being quiet. This path is derived from the pinned version and needs no such
+# assumption.
+$src = Join-Path $Work "redis-$REDIS_VERSION"
+
 function Get-MsysBash {
     $roots = @($env:MSYS2_ROOT, 'C:\msys64', 'C:\tools\msys64') | Where-Object { $_ }
     foreach ($root in $roots) {
@@ -79,7 +86,6 @@ function Build-Redis {
     Get-Pinned -Url "https://download.redis.io/releases/redis-$REDIS_VERSION.tar.gz" `
         -Destination $tar -Sha256 $REDIS_SHA256
 
-    $src = Join-Path $Work "redis-$REDIS_VERSION"
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $src
     Write-Step "unpacking redis $REDIS_VERSION"
     Invoke-Native 'unpacking redis' 'tar.exe' '-xzf' $tar '-C' $Work
@@ -118,7 +124,6 @@ function Build-Redis {
     Invoke-Msys 'building redis' ("cd '$srcPosix' && " +
         "DEBUG_FLAGS='-g -ggdb -Wno-char-subscripts' " +
         "make -j`$(nproc) MALLOC=libc BUILD_TLS=no REDIS_CFLAGS=-D_GNU_SOURCE")
-    return $src
 }
 
 # Copy-Runtime copies redis-server.exe together with every MSYS DLL it loads.
@@ -184,9 +189,9 @@ New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $out
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
-$source = Build-Redis
-Copy-Runtime -Source $source
-Copy-Licenses -Source $source
+Build-Redis
+Copy-Runtime -Source $src
+Copy-Licenses -Source $src
 
 # Running it out of the staged folder is the only check that proves the DLLs
 # travelled: from the build tree it would find them on PATH and pass anyway.

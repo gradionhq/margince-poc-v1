@@ -19,19 +19,29 @@ function Write-Step {
     Write-Host "==> $Message" -ForegroundColor Blue
 }
 
-# Invoke-Native runs an external program and fails the build when it fails.
+# Invoke-Native runs an external program, shows its output, and fails the build
+# when the program fails. It RUNS a program; it never captures one -- a caller
+# that wants the output calls the executable directly (see ConvertTo-MsysPath).
 #
 # PowerShell's $ErrorActionPreference does not apply to native executables: a
 # compiler that exits 1 leaves the script running happily, and the first sign
 # of trouble is a missing file three steps later. Every external call in this
 # lane goes through here so a failure stops where it happened.
+#
+# Out-Host is what keeps the contract above true. A native command's stdout goes
+# to the SUCCESS stream, and a PowerShell function returns everything on that
+# stream -- not just what it names in `return`. So a compiler's entire output
+# would become part of the return value of whatever function ran it, and the
+# caller assigning that to a [string] parameter gets "Cannot convert value to
+# type System.String" from a build that in fact just succeeded. Out-Host writes
+# to the console and puts nothing on the stream.
 function Invoke-Native {
     param(
         [Parameter(Mandatory)][string]$What,
         [Parameter(Mandatory)][string]$Exe,
         [Parameter(ValueFromRemainingArguments)][string[]]$Arguments
     )
-    & $Exe @Arguments
+    & $Exe @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "$What failed (exit $LASTEXITCODE): $Exe $($Arguments -join ' ')"
     }
