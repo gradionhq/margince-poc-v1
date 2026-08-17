@@ -69,7 +69,9 @@ activity to a project**, because the tool schema did not offer the value — and
 deals", prose already stale for `lead` before this branch touched it. A stale
 description on an agent surface is a capability the model cannot reach.
 
-**The review rounds found three things no gate could.**
+**The review rounds found five things no gate could, and every one was an
+obligation maintained as a LIST rather than derived from the system** — which is
+the same defect the four issues were about, committed while fixing them.
 
 A new fitness test **ratified the exact gap this session had filed an hour
 earlier**: it asserted `projects` is a working saved-view resource while the
@@ -87,10 +89,36 @@ And a coverage-motivated test **proved that a function returns its own
 argument** — three cases, one tautology, and swapping the field names at either
 real call site left it green. It drives the real entry points now.
 
-SonarCloud's coverage gate then found a gap that was not a metric: **nothing
+The enum-parity gate #1244 shipped was itself **a restated list**: it compared
+four enums to four hand-written constant sets, so it could not fail for an enum
+that GAINED a member, and an enum that LOST one took its constant with it — the
+file would stop compiling and the legible failure never run. It also pinned four
+of the EIGHT sites that change widened, all against `taggable`'s CHECK, when the
+four polymorphic tables carry four separate constraints that agree only by
+coincidence. It asks each enum about its OWN table's CHECK values now.
+
+And the door check added to `ApplyTag` was deleted: the store refuses the same
+input with the same 422 twenty lines later, and the check ran BEFORE the store's
+auth gate, so a caller without `tag:update` got 422 where they used to get 403.
+Two independent rounds said drop it; the second named the regression.
+
+SonarCloud's coverage gate then found two gaps that were not metrics. **Nothing
 reached `SavedViewFilterSource` or `ListFilterSource` at all**, so #693's central
 guarantee held for the `object` export path and was untested for the other two
-ways into the same engine.
+ways into the same engine. And an untested branch turned out to carry a security
+property: an archived view must be refused as not-found BEFORE its filter is
+judged, or the 422 becomes an existence oracle for archived views.
+
+Filed rather than fixed, all three the same shape: [#1520](https://github.com/gradionhq/margince-poc-v1/issues/1520)
+(`CustomField.object` is wrong in BOTH directions — `project` missing while the
+server already returns it, `activity` declared and always refused; a sibling
+that #1244's sweep missed, because its authority is a Go set rather than a
+CHECK),
+[#1521](https://github.com/gradionhq/margince-poc-v1/issues/1521) (three
+row-scope table sets are hand-maintained lists of properties the schema already
+states, and two are behind), [#1522](https://github.com/gradionhq/margince-poc-v1/issues/1522)
+(the activities handler echoes a raw Postgres constraint name to clients, which
+its own neighbour file refuses to do).
 
 **Of the CI failures investigated across the day, two were defects in this code
 and six were not** — golangci lock collisions, a stale-branch contract diff that
