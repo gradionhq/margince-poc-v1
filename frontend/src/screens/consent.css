@@ -1,15 +1,22 @@
 /* ConsentSection layout only — the row/badge/timeline primitives themselves
  * come from atoms.css and composed.css's .timeline. Tokens only (ds-purity). */
 
+/* One purpose, as a row of the list. PanelRow's shape — a top border against the
+ * row above and none on the first — rather than a bottom border with a
+ * `:last-child` reset, which is the same line drawn from the other side and the
+ * reason two cards in this tree could disagree about where a list ends. It is
+ * inset by the Card's own padding rather than full-bleed: this surface is a Card,
+ * which has no full-bleed row slot, and reaching past its padding with a negative
+ * margin would be a third spelling rather than a fix. */
 .consent-row {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--borderSubtle);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--borderSubtle);
 }
-.consent-row:last-child {
-  border-bottom: 0;
+.consent-row:first-child {
+  border-top: 0;
 }
 .consent-row-head {
   display: flex;

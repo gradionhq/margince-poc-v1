@@ -45,16 +45,15 @@
   flex: 1;
 }
 
-/* The shipped list sits below the workspace's own entries, behind a rule: it
-   is a different question — what the baseline already says — asked on the same
-   card as what this workspace adds to it. */
+/* The shipped list sits below the workspace's own entries as its own band of
+   the card: a different question — what the baseline already says — asked on
+   the same card as what this workspace adds to it. It is a PanelBody, so the
+   rule above it and the interval around it are panel.css's; all this owns is
+   how its own lines stack. */
 .consumer-mail-baseline {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--borderSubtle);
 }
 
 /* Matches run as a wrapped set of names rather than one per line: they are

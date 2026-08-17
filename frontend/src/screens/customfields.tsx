@@ -773,7 +773,7 @@ export function CustomFieldsAdmin() {
         />
       </PanelBody>
 
-      <PanelBody className="cf-tablebody">
+      <PanelBody>
         <QueryGate query={list}>
           {(page) => (
             <FieldTable

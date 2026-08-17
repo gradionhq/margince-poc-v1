@@ -49,6 +49,14 @@
   vertical-align: middle;
 }
 
+/* The last row has nothing under it to be ruled off from: without this the
+ * mapping table ends on a dangling hairline that reads as a card seam drawn in
+ * the wrong place. */
+.import__table tbody tr:last-child th,
+.import__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
 .import__table thead th {
   color: var(--textMeta);
   font-weight: var(--fw-medium);

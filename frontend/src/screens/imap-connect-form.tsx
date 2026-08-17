@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemCodeOf, problemMessageOf, throwProblem } from "./common";
@@ -220,13 +221,9 @@ export function ImapConnectForm({
         </Field>
         <p className="t-caption">{t("connectors.imapSecretHint")}</p>
         {errorMessage && (
-          <p
-            role="alert"
-            className="t-caption"
-            style={{ color: "var(--danger)" }}
-          >
+          <Callout tone="danger" live="alert">
             {errorMessage}
-          </p>
+          </Callout>
         )}
         <div className="actions">
           <Button

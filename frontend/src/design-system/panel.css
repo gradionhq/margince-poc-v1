@@ -35,6 +35,36 @@
   padding: var(--space-5);
 }
 
+/* THE SEAM RULE, and it is one rule: a boundary between two sections of a card
+ * is a full-bleed hairline, and a section that wants air instead takes spacing
+ * and no line at all. There is no third option, because the third option is
+ * what the tree had — twenty-odd independent `border-top: 1px solid
+ * var(--borderSubtle)` declarations across the screen sheets, seven of them
+ * drawn as `border-bottom` instead, six full-bleed and seven inset by the
+ * body's own 20px, with a `:last-child` reset on about half. The same card
+ * could therefore show a line that reached its edges above one section and a
+ * line that stopped 20px short above the next.
+ *
+ * Declared as adjacency rather than as an opt-in class so a caller cannot
+ * forget it, and so two sections that ARE adjacent cannot disagree about
+ * whether they are. Two spellings of exactly this already existed — an opt-in
+ * `.connector-add` with no reset, and `.cf-screen > .panel-body + .panel-body`
+ * — which is two screens independently discovering the same missing rule. */
+.panel-body + .panel-body,
+.panel-row + .panel-body {
+  border-top: 1px solid var(--borderSubtle);
+}
+
+/* A section heading INSIDE a body has a body's padding above it already, so it
+ * does not also pay `.section-header`'s own 24px top margin. Unreset, a rule
+ * followed by a level-3 heading measured 45px from line to text on the
+ * connections tab, 41px on general and 8px on people — three distances for one
+ * relationship, none of them chosen. `.card` has carried this reset since it
+ * was written; `.panel` never got it. */
+.panel-body > .section-header:first-child {
+  margin-top: 0;
+}
+
 /* A hairline row that runs full-bleed against the panel's own edges and
  * highlights on hover — the shape every list inside a panel wants. No border
  * on the first row: the header above it already draws that line. */

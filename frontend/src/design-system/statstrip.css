@@ -53,6 +53,49 @@
     0 -1px 0 var(--borderSubtle);
 }
 
+/* A SLOT MAY BE A CONTROL. A strip of filters is still one comparison — the
+ * reader is choosing between the same readings they are comparing — so the
+ * press target is the slot itself rather than something inside it.
+ *
+ * The reset therefore has to reach the card a control wraps, or the two chrome
+ * sets stack: the plate's seamless rules PLUS the card's own border and 12px
+ * radius, which is five bordered rounded boxes nested inside a plate built to
+ * draw none. The capture-activity funnel shipped exactly that, and answered it
+ * with `all: unset` on the wrapper — a declaration that ties `.stat-strip > *`
+ * on specificity, so which one won was decided by stylesheet import order
+ * rather than by intent. The chrome a button brings is reset HERE, where the
+ * plate's other chrome is, so a caller has nothing left to unset. */
+.stat-strip > button {
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+.stat-strip > * > .stat-card {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* A pressed slot fills the SLOT, not the button around the card inside it: a
+ * fill painted on the wrapper is repainted by the card's own `--bgElevated`
+ * directly over it, which left the selected filter showing an accent ring and
+ * almost no fill. Both halves land on the slot now, and the ring is inset so
+ * it reads inside the plate's own rules rather than doubling them. */
+.stat-strip > [aria-pressed="true"] {
+  background: var(--bgHover);
+  box-shadow:
+    -1px 0 0 var(--borderSubtle),
+    0 -1px 0 var(--borderSubtle),
+    inset 0 0 0 2px var(--accent);
+}
+.stat-strip > *:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ONE size for every slot in the row, sized to the SLOT rather than to a
    mockup's absolute pixels: the value has to hold a short sentence on one line
    in the narrowest slot, so it sits below the size figures alone could have
