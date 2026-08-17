@@ -21,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -335,7 +336,7 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 		client := ai.NewFakeClient()
 		return client, client, client, "fake (offline; extraction yields nothing — crawl dry-run)", nil
 	case routingPath != "":
-		cfg, err := ai.LoadRoutingFile(routingPath)
+		cfg, err := ai.LoadRoutingFile(routingPath, config.FromOS)
 		if err != nil {
 			return nil, nil, nil, "", err
 		}
@@ -441,7 +442,7 @@ func TaskProbeBrain(routingPath, modelSpec string, fake bool, task ai.Task) (Tas
 
 func taskProbeRouting(routingPath, modelSpec string) (ai.RoutingConfig, string, error) {
 	if routingPath != "" {
-		cfg, err := ai.LoadRoutingFile(routingPath)
+		cfg, err := ai.LoadRoutingFile(routingPath, config.FromOS)
 		if err != nil {
 			return ai.RoutingConfig{}, "", err
 		}

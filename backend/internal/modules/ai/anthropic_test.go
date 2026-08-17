@@ -17,12 +17,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
+// testAnthropicKey is the BYOK key this suite supplies, named so the payload
+// test can assert the client sent THIS key rather than any key at all.
+const testAnthropicKey = "test-key"
+
 func newAnthropicForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
-	t.Setenv("ANTHROPIC_API_KEY", "test-key") // the BYOK key rides the environment
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client, err := SelectBrain(ProviderConfig{Provider: "anthropic", Model: "claude-test", BaseURL: srv.URL})
+	client, err := SelectBrain(ProviderConfig{Provider: "anthropic", Model: "claude-test", BaseURL: srv.URL}, cloudKeyFor("anthropic", testAnthropicKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +188,7 @@ func TestAnthropicCompleteSendsStrippedPayload(t *testing.T) {
 	if resp.ServedModel != "claude-served-x" {
 		t.Fatalf("ServedModel not decoded from the response's own model field: %q", resp.ServedModel)
 	}
-	if gotKey != "test-key" || gotVersion != anthropicAPIVersion {
+	if gotKey != testAnthropicKey || gotVersion != anthropicAPIVersion {
 		t.Fatalf("auth headers wrong: key=%q version=%q", gotKey, gotVersion)
 	}
 	if strings.Contains(string(received), "ghp_") {

@@ -21,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
@@ -36,18 +37,18 @@ import (
 // state that every development and CI process here runs in, while a license
 // that is present and refused is an operator mistake nobody downstream can
 // distinguish from a deliberate downgrade.
-func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config, env runtimeenv.Environment) (*licensecheck.Watcher, error) {
+func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Config, env runtimeenv.Environment, lookup config.Lookup) (*licensecheck.Watcher, error) {
 	// The SOURCE is handed over, not a token: the watcher re-reads it, so a
 	// license the operator renews in place takes effect on the next re-check
 	// instead of waiting for a restart.
-	watcher, err := licensecheck.NewWatcher(ctx, cfg.License.Token, time.Now, log, env)
+	watcher, err := licensecheck.NewWatcher(ctx, cfg.License.TokenSource(lookup), time.Now, log, env)
 	if err != nil {
 		// The setting to correct is named HERE, where the token's source is
 		// known: platform's check is handed a token, not a configuration file.
 		return nil, fmt.Errorf("%w — correct or remove license.token_file (or %s) and start again",
 			err, deployconfig.LicenseTokenEnvVar)
 	}
-	logLicensePosture(ctx, log, watcher.Posture(), cfg.License.TokenOrigin())
+	logLicensePosture(ctx, log, watcher.Posture(), cfg.License.TokenOrigin(lookup))
 	return watcher, nil
 }
 

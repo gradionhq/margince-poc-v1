@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -57,7 +58,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	// resolved once, shared; when it is not configured, configuredVault is nil
 	// so an unconfigured deployment never fails worker boot over pollers it has
 	// no connected workspace to run anyway.
-	vault, vaultConfigured, verr := keyvault.FromEnv(pool)
+	vault, vaultConfigured, verr := keyvault.FromEnv(pool, config.FromOS)
 	if verr != nil {
 		return nil, fmt.Errorf("worker: keyvault: %w", verr)
 	}

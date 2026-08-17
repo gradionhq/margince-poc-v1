@@ -22,7 +22,7 @@ func newOllamaForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client, err := SelectBrain(ProviderConfig{Provider: "ollama", Model: "gemma3", BaseURL: srv.URL})
+	client, err := SelectBrain(ProviderConfig{Provider: "ollama", Model: "gemma3", BaseURL: srv.URL}, noCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}

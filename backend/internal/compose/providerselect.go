@@ -10,12 +10,12 @@ package compose
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/integrations"
 	"github.com/gradionhq/margince/backend/internal/modules/integrations/surfe"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // providerModeEnv selects WHICH adapter this process talks to: "live" (the
@@ -54,8 +54,8 @@ const offlinePollsBeforeDone = 2
 // "off" survives for a deployment that wants the code absent entirely, and an
 // unknown value is still a boot error — a typo must not silently disable a
 // feature an operator asked for, nor silently choose the wrong vendor.
-func ProviderRegistryFromEnv(now func() time.Time) (*integrations.Registry, bool, error) {
-	switch mode := strings.ToLower(strings.TrimSpace(os.Getenv(providerModeEnv))); mode {
+func ProviderRegistryFromEnv(now func() time.Time, env config.Lookup) (*integrations.Registry, bool, error) {
+	switch mode := strings.ToLower(strings.TrimSpace(env(providerModeEnv))); mode {
 	case "off":
 		return nil, false, nil
 	case "offline":

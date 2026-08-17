@@ -11,19 +11,19 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// envRootKey names the environment variable carrying the base64 (standard
+// EnvRootKey names the environment variable carrying the base64 (standard
 // encoding) 32-byte AES-256 root key. It is read from the environment, never
 // a CLI flag — a flag leaks into the process table. The value never reaches
 // a log line or an error message.
-const envRootKey = "MARGINCE_KEYVAULT_ROOT_KEY"
+const EnvRootKey = "MARGINCE_KEYVAULT_ROOT_KEY"
 
 // Config is the local provider's wiring, populated from operator config in
 // cmd. RootKey is the workspace-agnostic master key that seals every secret;
@@ -73,8 +73,8 @@ func New(cfg Config) (Vault, error) {
 // misconfigured vault must fail loudly, never fall back to something weaker.
 //
 //nolint:ireturn // the seam has two providers behind one Vault; returning the interface is the design.
-func FromEnv(pool *pgxpool.Pool) (vault Vault, configured bool, err error) {
-	encoded := os.Getenv(envRootKey)
+func FromEnv(pool *pgxpool.Pool, env config.Lookup) (vault Vault, configured bool, err error) {
+	encoded := env(EnvRootKey)
 	if encoded == "" {
 		return nil, false, nil
 	}
@@ -82,7 +82,7 @@ func FromEnv(pool *pgxpool.Pool) (vault Vault, configured bool, err error) {
 	if err != nil {
 		// The decode error from the base64 package does not include the input,
 		// but wrap it with our own message to be certain no key bytes travel.
-		return nil, false, fmt.Errorf("keyvault: %s is not valid base64", envRootKey)
+		return nil, false, fmt.Errorf("keyvault: %s is not valid base64", EnvRootKey)
 	}
 	v, err := New(Config{RootKey: key, Pool: pool})
 	if err != nil {

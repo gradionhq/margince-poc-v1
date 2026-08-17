@@ -37,7 +37,7 @@ func exampleRoutingFiles(t *testing.T) []string {
 func TestEveryShippedExampleRoutingConfigParses(t *testing.T) {
 	for _, path := range exampleRoutingFiles(t) {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cfg, err := LoadRoutingFile(path)
+			cfg, err := LoadRoutingFile(path, allCloudKeys())
 			if err != nil {
 				t.Fatalf("%s no longer parses: %v", path, err)
 			}
@@ -52,7 +52,7 @@ func TestEveryShippedExampleRoutingConfigParses(t *testing.T) {
 // profile is pinned here rather than in the loop above: eu_hosted is a claim
 // about that binding specifically, and no other example inherits it.
 func TestTheDefaultExampleRoutingConfigDeclaresTheEUHostedPosture(t *testing.T) {
-	cfg, err := LoadRoutingFile("../../../../config/ai-routing.example.yaml")
+	cfg, err := LoadRoutingFile("../../../../config/ai-routing.example.yaml", allCloudKeys())
 	if err != nil {
 		t.Fatalf("config/ai-routing.example.yaml no longer parses: %v", err)
 	}
@@ -71,9 +71,7 @@ func TestTheDefaultExampleRoutingConfigDeclaresTheEUHostedPosture(t *testing.T) 
 // (openai_compatible, vllm) without declaring `input:` would silently ship a
 // default install that refuses every document. This is the test that would say so.
 func TestTheDefaultExampleCanBeGivenADocumentOutOfTheBox(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "k")
-	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
-	cfg, err := LoadRoutingFile("../../../../config/ai-routing.example.yaml")
+	cfg, err := LoadRoutingFile("../../../../config/ai-routing.example.yaml", allCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +103,7 @@ func TestNoOpenRouterExampleClaimsResidencyItCannotKeep(t *testing.T) {
 	}
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
-			cfg, err := LoadRoutingFile(path)
+			cfg, err := LoadRoutingFile(path, allCloudKeys())
 			if err != nil {
 				t.Fatalf("%s no longer parses: %v", path, err)
 			}

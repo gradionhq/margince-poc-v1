@@ -13,6 +13,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -68,6 +69,18 @@ type RoutingConfig struct {
 	// bytes. Zero value "" on a config built by struct literal (FakeRoutingConfig,
 	// most unit-test configs) rather than parsed from yaml.
 	sourceHash string
+	// keys resolves a cloud provider's BYOK secret when the clients are built.
+	// It travels on the config because that is where configuration enters this
+	// package (LoadRoutingFile), and because the routing file names only the
+	// provider — the key itself never appears in it (ADR-0020, 12-factor).
+	//
+	// Nil on a config built by struct literal, which resolves every key to
+	// "unset". That is the honest default: a cloud binding without a key then
+	// fails at construction with byokKeyRequired naming the variable to set,
+	// which is exactly what an unconfigured deployment should get, while the
+	// fake and local providers — the ones struct-literal configs actually use —
+	// need no key at all.
+	keys config.Lookup
 }
 
 // BoundModelIDsByProvider is every model this deployment actually calls, keyed
@@ -113,13 +126,29 @@ func (cfg RoutingConfig) BoundModelIDsByProvider() map[string]map[string]bool {
 // deployment binding to name.
 func (cfg RoutingConfig) RoutingVersion() string { return cfg.sourceHash }
 
-// LoadRoutingFile reads and validates a deployment's routing config.
-func LoadRoutingFile(path string) (RoutingConfig, error) {
+// LoadRoutingFile reads and validates a deployment's routing config. keys is
+// where the BYOK secrets come from — the file names providers, never their
+// credentials, so the two arrive together only here.
+func LoadRoutingFile(path string, keys config.Lookup) (RoutingConfig, error) {
 	raw, err := os.ReadFile(path) // #nosec G304 -- deployment config path, operator-chosen
 	if err != nil {
 		return RoutingConfig{}, fmt.Errorf("ai: routing config: %w", err)
 	}
-	return ParseRouting(raw)
+	cfg, err := ParseRouting(raw)
+	if err != nil {
+		return RoutingConfig{}, err
+	}
+	return cfg.WithKeys(keys), nil
+}
+
+// WithKeys binds where this config's BYOK secrets come from, and returns the
+// bound copy. ParseRouting works on bytes alone and so cannot know: the routing
+// file names providers and never their credentials. LoadRoutingFile binds it
+// for the path it read, and this is the same binding for a caller that already
+// holds the bytes.
+func (cfg RoutingConfig) WithKeys(keys config.Lookup) RoutingConfig {
+	cfg.keys = keys
+	return cfg
 }
 
 // ParseRouting decodes + validates. Unknown keys are errors: a typo'd
@@ -297,13 +326,13 @@ func TaskLadder(task Task) []Tier {
 func (cfg RoutingConfig) buildClients() (map[Tier]model.Client, model.Client, error) {
 	clients := make(map[Tier]model.Client, len(cfg.Tiers))
 	for tier, binding := range cfg.Tiers {
-		client, err := SelectBrain(binding)
+		client, err := SelectBrain(binding, cfg.keys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("ai: tier %s: %w", tier, err)
 		}
 		clients[tier] = client
 	}
-	embedder, err := SelectBrain(cfg.Embeddings.ProviderConfig)
+	embedder, err := SelectBrain(cfg.Embeddings.ProviderConfig, cfg.keys)
 	if err != nil {
 		return nil, nil, fmt.Errorf("ai: embeddings lane: %w", err)
 	}

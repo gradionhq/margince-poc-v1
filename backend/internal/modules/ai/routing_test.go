@@ -150,10 +150,6 @@ func TestSovereignRefusesNativeCloudProviders(t *testing.T) {
 // LocalOnly (the runtime capability) and localProviders (the parse-time set)
 // are two encodings of "is this cloud"; they may never disagree.
 func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
-	clearCloudKeyEnv(t)
-	for _, env := range cloudKeyEnv {
-		t.Setenv(env, "k") // every cloud provider has its BYOK key in the environment
-	}
 	built := map[string]ProviderConfig{
 		"fake":              {Provider: "fake"},
 		"anthropic":         {Provider: "anthropic", Model: "m"},
@@ -168,7 +164,7 @@ func TestLocalOnlyMatchesLocalProvidersForEveryProvider(t *testing.T) {
 		if !ok {
 			t.Fatalf("knownProviders has %q with no build recipe in this test — add one", name)
 		}
-		client, err := SelectBrain(cfg)
+		client, err := SelectBrain(cfg, allCloudKeys())
 		if err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -307,6 +303,7 @@ profile: sovereign
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg = cfg.WithKeys(allCloudKeys())
 	if cfg.Profile != ProfileSovereign || len(cfg.Tiers) != 2 {
 		t.Fatalf("unexpected parse: %+v", cfg)
 	}

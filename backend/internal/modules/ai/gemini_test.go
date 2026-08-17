@@ -20,12 +20,15 @@ import (
 // there now (the wire's own set, narrowed by any `input:`), so a hand-built
 // client would be a second, differently-configured production that proves
 // nothing about the one that ships.
+// testGeminiKey is the BYOK key this suite supplies, named so a case can assert
+// the client sent THIS key rather than any key at all.
+const testGeminiKey = "gk"
+
 func newGeminiForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
-	t.Setenv("GEMINI_API_KEY", "gk")
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client, err := SelectBrain(ProviderConfig{Provider: providerGemini, BaseURL: srv.URL, Model: "gemini-x"})
+	client, err := SelectBrain(ProviderConfig{Provider: providerGemini, BaseURL: srv.URL, Model: "gemini-x"}, cloudKeyFor("gemini", testGeminiKey))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,8 +199,7 @@ func TestGeminiEmbedReturnsVectorsAndPinsOutputDimensionality(t *testing.T) {
 }
 
 func TestGeminiReportsNotLocalOnly(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "k")
-	client, err := SelectBrain(ProviderConfig{Provider: "gemini", Model: "gemini-x"})
+	client, err := SelectBrain(ProviderConfig{Provider: "gemini", Model: "gemini-x"}, allCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,8 +209,7 @@ func TestGeminiReportsNotLocalOnly(t *testing.T) {
 }
 
 func TestGeminiFailsClosedWithoutKey(t *testing.T) {
-	clearCloudKeyEnv(t)
-	if _, err := SelectBrain(ProviderConfig{Provider: "gemini"}); err == nil || !strings.Contains(err.Error(), "api key") {
+	if _, err := SelectBrain(ProviderConfig{Provider: "gemini"}, noCloudKeys()); err == nil || !strings.Contains(err.Error(), "api key") {
 		t.Fatalf("gemini without a key must fail closed, got %v", err)
 	}
 }

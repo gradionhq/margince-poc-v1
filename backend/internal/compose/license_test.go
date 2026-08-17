@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
@@ -23,11 +24,10 @@ import (
 // looks at the file reference, so an engineer or CI lane that exports a real
 // license would otherwise fail all three for a reason that has nothing to do
 // with the code — one would stop being absent, and two would stop exercising
-// the file path they name. (t.Setenv forbids t.Parallel, which is why these
+// the file path they name. (the environment travels as a parameter now, so these
 // three do not run parallel.)
 func unlicensedEnvironment(t *testing.T) {
 	t.Helper()
-	t.Setenv(deployconfig.LicenseTokenEnvVar, "")
 }
 
 func TestEnsureLicenseBootsUnlicensedAndSaysSo(t *testing.T) {
@@ -35,7 +35,7 @@ func TestEnsureLicenseBootsUnlicensedAndSaysSo(t *testing.T) {
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
 
-	watcher, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Production)
+	watcher, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Production, config.Static(nil))
 	if err != nil {
 		t.Fatalf("EnsureLicense refused an unlicensed installation: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 	}
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: path}}
 
-	_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production)
+	_, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production, config.Static(nil))
 	if err == nil {
 		t.Fatal("EnsureLicense booted on a license the bundled module refuses")
 	}
@@ -79,7 +79,7 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 func TestEnsureLicenseRefusesAnUnreadableTokenFile(t *testing.T) {
 	unlicensedEnvironment(t)
 	cfg := deployconfig.Config{License: deployconfig.License{TokenFile: filepath.Join(t.TempDir(), "typo")}}
-	if _, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production); err == nil {
+	if _, err := EnsureLicense(context.Background(), slog.New(slog.DiscardHandler), cfg, runtimeenv.Production, config.Static(nil)); err == nil {
 		t.Fatal("EnsureLicense booted with a token_file that does not exist")
 	}
 }
@@ -193,7 +193,7 @@ func TestEnsureLicenseBootLineNamesTheTokenSource(t *testing.T) {
 	unlicensedEnvironment(t)
 	var log bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&log, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if _, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Production); err != nil {
+	if _, err := EnsureLicense(context.Background(), logger, deployconfig.Config{}, runtimeenv.Production, config.Static(nil)); err != nil {
 		t.Fatalf("EnsureLicense: %v", err)
 	}
 	if !strings.Contains(log.String(), "token_from=none") {

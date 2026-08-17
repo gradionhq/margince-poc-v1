@@ -7,11 +7,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // apiConfig is the parsed boot configuration of the api process.
@@ -93,7 +93,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	// rather than in each flag's default because `flag` echoes a non-empty default
 	// in its usage output, and these values are DSNs, signing keys, OAuth client
 	// secrets and bearer tokens — see internal/platform/cliflags.
-	env.Apply(fs, os.Getenv)
+	env.Apply(fs, config.FromOS)
 	if cfg.dsn == "" {
 		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
 	}
@@ -111,7 +111,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 // ignored setting — an operator who mistypes a TTL must not be told nothing and
 // left running the default.
 func envDuration(key string) (time.Duration, error) {
-	raw := os.Getenv(key)
+	raw := config.FromOS(key)
 	if raw == "" {
 		return 0, nil
 	}

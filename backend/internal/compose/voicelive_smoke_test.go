@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -27,7 +28,7 @@ func TestVoiceLiveSmoke(t *testing.T) {
 	if routing == "" {
 		t.Fatal("set MARGINCE_AI_ROUTING to the routing yaml (this smoke is manual-only)")
 	}
-	cfg, err := ai.LoadRoutingFile(routing)
+	cfg, err := ai.LoadRoutingFile(routing, config.Static(nil))
 	if err != nil {
 		t.Fatal(err)
 	}

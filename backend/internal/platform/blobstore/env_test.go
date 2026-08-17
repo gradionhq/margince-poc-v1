@@ -7,12 +7,14 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 func TestFromEnvUnconfiguredIsNotAnError(t *testing.T) {
-	t.Setenv("MARGINCE_BLOBSTORE_ENDPOINT", "")
-
-	store, configured, err := blobstore.FromEnv(t.Context())
+	// An empty lookup rather than t.Setenv: the point of taking the
+	// environment as a parameter is that a test need not mutate process state
+	// to steer a package, and a test that does leaks into every one after it.
+	store, configured, err := blobstore.FromEnv(t.Context(), config.Static(nil))
 	if err != nil {
 		t.Fatalf("FromEnv with no endpoint: %v", err)
 	}

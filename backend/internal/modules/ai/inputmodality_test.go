@@ -94,6 +94,7 @@ embeddings: {provider: openai_compatible, base_url: https://x, model: e}
 	if err != nil {
 		t.Fatal(err)
 	}
+	cfg = cfg.WithKeys(allCloudKeys())
 	if got := cfg.Tiers[TierPremium].Input; !slices.Equal(got, []string{"text", "image"}) {
 		t.Fatalf("premium input = %v", got)
 	}

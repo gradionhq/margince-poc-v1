@@ -20,7 +20,7 @@ func newVLLMForTest(t *testing.T, handler http.HandlerFunc) model.Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	client, err := SelectBrain(ProviderConfig{Provider: "vllm", Model: "google/gemma-3-12b-it", BaseURL: srv.URL})
+	client, err := SelectBrain(ProviderConfig{Provider: "vllm", Model: "google/gemma-3-12b-it", BaseURL: srv.URL}, noCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestVLLMStreamReadsSSEDeltas(t *testing.T) {
 }
 
 func TestVLLMReportsLocalOnly(t *testing.T) {
-	client, err := SelectBrain(ProviderConfig{Provider: "vllm"})
+	client, err := SelectBrain(ProviderConfig{Provider: "vllm"}, noCloudKeys())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestLocalProvidersDefaultToGemmaClassModels(t *testing.T) {
 		if !strings.Contains(wantModel, "gemma") {
 			t.Fatalf("%s default %q is not Gemma-class (A23)", provider, wantModel)
 		}
-		client, err := SelectBrain(ProviderConfig{Provider: provider})
+		client, err := SelectBrain(ProviderConfig{Provider: provider}, noCloudKeys())
 		if err != nil {
 			t.Fatal(err)
 		}

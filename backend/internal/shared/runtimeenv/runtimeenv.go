@@ -7,6 +7,11 @@
 // unset or anything unrecognized is Production, which disables them.
 package runtimeenv
 
+// EnvVar names the variable this posture is read from. Exported so the
+// composition roots that read it do not each spell the string, which is how a
+// configuration surface drifts from the one that is documented.
+const EnvVar = "MARGINCE_ENV"
+
 // Environment is the deployment posture derived from MARGINCE_ENV.
 type Environment string
 

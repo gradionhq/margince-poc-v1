@@ -5,8 +5,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"strconv"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
 // overlayBackfillLimitFromEnv reads MARGINCE_OVERLAY_BACKFILL_LIMIT: unset
@@ -14,7 +15,7 @@ import (
 // → that per-object-class cap (dev/demo, so a large portal's initial load
 // stays bounded); anything else is a boot error, never a silent default.
 func overlayBackfillLimitFromEnv() (int, error) {
-	v := os.Getenv("MARGINCE_OVERLAY_BACKFILL_LIMIT")
+	v := config.FromOS("MARGINCE_OVERLAY_BACKFILL_LIMIT")
 	if v == "" {
 		return 0, nil
 	}

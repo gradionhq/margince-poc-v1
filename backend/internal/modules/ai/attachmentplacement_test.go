@@ -310,10 +310,6 @@ func TestEveryAttachmentCarryingProviderIsUnderThePlacementInvariant(t *testing.
 // the placement invariant. Each adapter's own test pins the answer for that
 // wire; this one asserts they AGREE, and it does not replace them.
 func TestEveryAdapterPlacesAnAttachmentOnTheSameTurn(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "k")
-	t.Setenv("GEMINI_API_KEY", "k")
-	t.Setenv("ANTHROPIC_API_KEY", "k")
-	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "k")
 
 	png := model.Attachment{MIME: "image/png", Bytes: []byte("PNG")}
 	for _, conversation := range placementConversations() {
@@ -322,7 +318,7 @@ func TestEveryAdapterPlacesAnAttachmentOnTheSameTurn(t *testing.T) {
 			defer srv.Close()
 
 			for name, read := range placementReaders {
-				client, err := SelectBrain(placementBinding(name, srv.URL))
+				client, err := SelectBrain(placementBinding(name, srv.URL), allCloudKeys())
 				if err != nil {
 					t.Fatalf("%s: %v", name, err)
 				}

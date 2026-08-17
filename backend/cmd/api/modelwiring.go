@@ -11,6 +11,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
@@ -60,7 +61,7 @@ func modelPathSpecFrom(cfg apiConfig, deployCfg deployconfig.Config) modelPathSp
 func resolveModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
 	switch {
 	case spec.routingPath != "":
-		cfg, err := ai.LoadRoutingFile(spec.routingPath)
+		cfg, err := ai.LoadRoutingFile(spec.routingPath, config.FromOS)
 		if err != nil {
 			return nil, "", ai.PublicProfile{}, "", err
 		}
