@@ -520,6 +520,12 @@ clean: ## Tear down the dev stack, containers and data volumes
 
 migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner DSN)
 
+# The version is the current unix second, not the next number in a sequence:
+# two branches numbering against the same main claim one number and main stops
+# loading. scripts/new-migration.sh carries the full reasoning.
+migrate-create: ## Scaffold a core migration pair: make migrate-create NAME=add_renewal_risk
+	@bash ../scripts/new-migration.sh "$(NAME)"
+
 migrate-down: composition ## Roll back the last migration(s): make migrate-down [STEPS=n]
 	@echo "migrate-down: reverting $(or $(STEPS),1) on $(REDACTED_OWNER_DSN)"
 	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate down --steps $(or $(STEPS),1)

@@ -23,13 +23,20 @@
 # so. Two installations then differ by a migration neither can see is missing —
 # the same silent divergence the root CLAUDE.md's "additive migrations only"
 # rule exists to prevent. The fix in both cases is the same and is cheap:
-# renumber above the base and rebase.
+# re-stamp above the base and rebase.
+#
+# WHY THE GATE OUTLIVED THE NUMBERING IT WAS BUILT FOR. core/ now names a
+# migration for the unix second it was written, so two branches no longer pick
+# one version — but stamping the clock only removes the COLLISION, never the
+# ordering obligation above, which is a property of what a database already
+# applied and not of how the name was chosen. A branch that sat while another
+# migration merged still sorts below the base and still has to re-stamp.
 #
 # The namespace list is derived from the tree (backend/migrations/*/), not
-# hand-maintained, so a third namespace is gated the day it appears. Both
-# shapes work: core's 4-digit sequence and custom's YYYYMMDDHHMMSS stamp both
-# sort correctly as fixed-width strings, which is the same ordering pgmigrate
-# itself applies.
+# hand-maintained, so a third namespace is gated the day it appears. Every
+# shape in the tree works: custom's YYYYMMDDHHMMSS stamp, core's unix seconds,
+# and core's closed 0001-0284 sequence — which the ten-digit stamps sort above
+# — all compare as strings, the same ordering pgmigrate itself applies.
 #
 # Usage: check-migration-versions.sh [base-ref]   (default: origin/main)
 set -euo pipefail
@@ -128,7 +135,7 @@ for dir in "$MIGRATIONS_DIR"/*/; do
         continue
       fi
       if [ "$base_name" != "$name" ]; then
-        echo "FAIL: $ns/$version is claimed by two different migrations — '$name' here, '$base_name' on $BASE_REF. Renumber this one above $base_max and rebase" >&2
+        echo "FAIL: $ns/$version is claimed by two different migrations — '$name' here, '$base_name' on $BASE_REF. Rename this one above $base_max and rebase (in core, re-stamp it with 'make migrate-create')" >&2
         failed=1
       fi
       continue
@@ -139,7 +146,7 @@ for dir in "$MIGRATIONS_DIR"/*/; do
     # applied, so an installation past $base_max never runs this and never
     # reports it missing.
     if [[ ! "$version" > "$base_max" ]]; then
-      echo "FAIL: $ns/$version ('$name') sorts at or below $base_max, the highest on $BASE_REF — an installation past $base_max would never apply it, and would not report it missing. Renumber above $base_max and rebase" >&2
+      echo "FAIL: $ns/$version ('$name') sorts at or below $base_max, the highest on $BASE_REF — an installation past $base_max would never apply it, and would not report it missing. Rename it above $base_max and rebase (in core, re-stamp it with 'make migrate-create')" >&2
       failed=1
     fi
   done <<<"$tree_rows"

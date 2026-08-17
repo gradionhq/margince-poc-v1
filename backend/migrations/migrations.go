@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package migrations embeds the SQL migration namespaces (ADR-0017):
-// core/ is upstream-owned and sequentially numbered; custom/ is fork-owned
-// and timestamp-ordered; jurisdiction packs bring their own third
-// namespace. Apply order is always core, then custom, then packs.
+// core/ is upstream-owned and named for the unix second the migration was
+// written; custom/ is fork-owned and stamped YYYYMMDDHHMMSS; jurisdiction
+// packs bring their own third namespace. Apply order is always core, then
+// custom, then packs.
 package migrations
 
 import (
