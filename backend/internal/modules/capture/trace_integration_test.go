@@ -301,3 +301,123 @@ func TestAnErasedAddressIsNeverWrittenEvenWithPayloadsOn(t *testing.T) {
 		t.Errorf("stored subject = %q for an erased subject, want NULL", *subject)
 	}
 }
+
+// A COUNTERPARTY NAMED BY A PROVIDER ACCOUNT is recorded by name, because no
+// address is not no sender.
+//
+// A channel connector may have no address for anybody at all — an Official
+// Account is given none — and the trace used to leave the column NULL for every
+// such message, so the capture screen reported "no sender recorded" about a
+// person the pipeline had just resolved and created a contact for. The reader was
+// told the pipeline knew less than it did.
+func TestTraceNamesACounterpartyThatHasNoAddress(t *testing.T) {
+	ctx, db := traceWorkspace(t)
+
+	entry := mailTrace("chan-named", capture.TraceCaptured)
+	entry.Connector, entry.SourceSystem = "zalo_oa", "ext:zalo-oa:zalo-oa"
+	entry.ChannelIdentity = true
+	entry.Counterparty = "" // the provider gives an Official Account no address
+	entry.CounterpartyProvider = "zalo_oa"
+	entry.CounterpartyAccountID = "4033837145949898046:6677650832821588240"
+	entry.CounterpartyName = "Quốc Vinh"
+	entry.Subject = "Zalo message from Quốc Vinh"
+	writeTrace(ctx, t, db, entry, true)
+
+	var counterparty, subject *string
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			// Selected without a source_id predicate on purpose: a channel entry's
+			// source id is HASHED on write (it may be personal data), and this
+			// workspace holds exactly the one row the test wrote.
+			`SELECT counterparty, subject FROM capture_trace`).
+			Scan(&counterparty, &subject)
+	}); err != nil {
+		t.Fatalf("reading the row: %v", err)
+	}
+	if counterparty == nil {
+		t.Fatal("stored counterparty = NULL for a record that names its human by account, which reads as \"no sender recorded\"")
+	}
+	if *counterparty != "Quốc Vinh" {
+		t.Errorf("stored counterparty = %q, want the name a reader can act on", *counterparty)
+	}
+	if subject == nil || *subject != "Zalo message from Quốc Vinh" {
+		t.Errorf("stored subject = %v, want the subject to survive alongside it", subject)
+	}
+}
+
+// AND THE SUPPRESSION CHECK IS THE CHANNEL ONE. An erased channel identity is on
+// `erasure_suppression` under kind `channel_identity`, which the email list knows
+// nothing about — so an address check run against a display name would answer
+// "not suppressed" for every erased person and write the very name the erasure
+// existed to remove.
+func TestTraceWithholdsTheNameOfAnErasedChannelIdentity(t *testing.T) {
+	ctx, db := traceWorkspace(t)
+
+	const provider, account = "zalo_oa", "4033837145949898046:6020261223181465911"
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		// Seeded through storekit's own hashing rule and the columns the erasure
+		// engine itself writes, for the reason the mail case is: writer and reader
+		// must normalize identically or an erased subject comes back.
+		_, err := tx.Exec(ctx, `
+			INSERT INTO erasure_suppression (kind, value_hash)
+			VALUES ('channel_identity', $1)`,
+			// The derivation the reader uses, not a hand-rolled equivalent: a test
+			// that seeded its own spelling would pass while production looked
+			// somewhere else.
+			storekit.ChannelIdentityHash(provider, account))
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the suppression list: %v", err)
+	}
+
+	entry := mailTrace("chan-erased", capture.TraceCaptured)
+	entry.Connector, entry.SourceSystem = provider, "ext:zalo-oa:zalo-oa"
+	entry.ChannelIdentity = true
+	entry.Counterparty = ""
+	entry.CounterpartyProvider, entry.CounterpartyAccountID = provider, account
+	entry.CounterpartyName, entry.Subject = "Tin Nguyen", "Zalo message from Tin Nguyen"
+	writeTrace(ctx, t, db, entry, true)
+
+	var counterparty, subject *string
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			// Selected without a source_id predicate on purpose: a channel entry's
+			// source id is HASHED on write (it may be personal data), and this
+			// workspace holds exactly the one row the test wrote.
+			`SELECT counterparty, subject FROM capture_trace`).
+			Scan(&counterparty, &subject)
+	}); err != nil {
+		t.Fatalf("reading the row: %v", err)
+	}
+	// The decision is still traced — a member is owed the answer that their
+	// message was handled — but with no trace of who.
+	if counterparty != nil {
+		t.Errorf("stored counterparty = %q for an erased channel identity, want NULL", *counterparty)
+	}
+	if subject != nil {
+		t.Errorf("stored subject = %q for an erased channel identity, want NULL", *subject)
+	}
+}
+
+// A record naming its human NEITHER way keeps the honest NULL this column was
+// always for: the trace says nothing about a sender it never had.
+func TestTraceRecordsNoCounterpartyWhenTheRecordNamesNobody(t *testing.T) {
+	ctx, db := traceWorkspace(t)
+
+	entry := mailTrace("chan-anon", capture.TraceCaptured)
+	entry.ChannelIdentity = true
+	entry.Counterparty, entry.CounterpartyName = "", ""
+	entry.Subject = "a message from nobody nameable"
+	writeTrace(ctx, t, db, entry, true)
+
+	var counterparty *string
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT counterparty FROM capture_trace`).Scan(&counterparty)
+	}); err != nil {
+		t.Fatalf("reading the row: %v", err)
+	}
+	if counterparty != nil {
+		t.Errorf("stored counterparty = %q where the record named nobody", *counterparty)
+	}
+}

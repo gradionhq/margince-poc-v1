@@ -107,7 +107,14 @@ func (s *Sink) traceEntry(ctx context.Context, rec connector.NormalizedRecord,
 		Reason:          reason,
 		ChannelIdentity: channel,
 		Counterparty:    rec.Counterparty.Email,
-		Subject:         traceSubject(rec),
+		// Carried so the trace can name a counterparty that has no address —
+		// which is every counterparty, for a connector whose provider gives it
+		// none. tracePayload decides which of the two it may write, and against
+		// which suppression list.
+		CounterpartyProvider:  rec.Counterparty.ChannelIdentity.Provider,
+		CounterpartyAccountID: rec.Counterparty.ChannelIdentity.ChannelUserID,
+		CounterpartyName:      rec.Counterparty.DisplayName,
+		Subject:               traceSubject(rec),
 	}
 }
 
