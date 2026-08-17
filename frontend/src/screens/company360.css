@@ -612,7 +612,11 @@
 .co-worth-row,
 .co-growth-fit-score {
   display: grid;
-  grid-template-columns: 138px 1fr;
+  /* Wide enough for the longest label any of the three draws ("Transformation
+     need"): a label that wraps to two lines takes its row's second line with
+     it, and the answer beside it then starts halfway down a block of empty
+     space. */
+  grid-template-columns: 150px 1fr;
   column-gap: var(--space-5);
   align-items: baseline;
 }
