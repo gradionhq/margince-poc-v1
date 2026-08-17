@@ -43,16 +43,39 @@ func Healthz(w http.ResponseWriter, _ *http.Request) {
 // keeps 'unsafe-inline' regardless: loosening it is a CSP posture
 // decision for whatever renders HTML behind this origin, not a
 // side effect of where any one screen happens to live.
-// LimitBodies caps every request body at httperr.MaxBodyBytes so no
-// handler — including ones decoding r.Body directly — can be fed an
-// unbounded payload. Reads past the cap fail with http.MaxBytesError.
+// LimitBodies caps every request body so no handler — including ones decoding
+// r.Body directly — can be fed an unbounded payload. Reads past the cap fail
+// with http.MaxBytesError.
+//
+// TWO ceilings, because there are two kinds of body. A JSON payload rides
+// httperr.MaxBodyBytes (1 MiB); a multipart/form-data body carries files and
+// rides httperr.MaxMultipartBodyBytes (25 MiB). Neither is an exemption: a
+// handler's own MaxBytesReader can only tighten what this middleware already
+// bounded, never widen it, so a route whose declared cap exceeds its ceiling
+// has a cap that never runs. That was true of all three multipart routes while
+// the JSON ceiling governed every body (issue 1542).
+//
+// The content type is the sender's claim and is not trusted for anything else —
+// it decides only WHICH bound applies, and both bounds are finite, so a lie
+// buys at most the difference between them.
 func LimitBodies(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, httperr.MaxBodyBytes)
+			r.Body = http.MaxBytesReader(w, r.Body, bodyCeiling(r))
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bodyCeiling picks the ceiling this request's body rides under.
+func bodyCeiling(r *http.Request) int64 {
+	// Parsed off the prefix rather than compared whole: a real multipart header
+	// carries the boundary parameter after the media type, so an equality test
+	// would match nothing that a client actually sends.
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		return httperr.MaxMultipartBodyBytes
+	}
+	return httperr.MaxBodyBytes
 }
 
 func SecureHeaders(next http.Handler) http.Handler {

@@ -16,10 +16,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// maxAttachmentBytes caps one upload. The body is bounded by
-// http.MaxBytesReader so a client cannot exhaust memory streaming a
-// too-large file; the limit is deliberately modest for the PoC surface.
-const maxAttachmentBytes = 25 << 20 // 25 MiB
+// maxAttachmentBytes caps one upload, so a client cannot exhaust memory
+// streaming a too-large file.
+//
+// It IS the chassis ceiling rather than a number of its own, because this is
+// the widest multipart route and a route cannot widen what the chassis already
+// bounded. Written as its own 25 MiB literal it silently became dead the moment
+// the chassis bound every body at 1 MiB, and the refusal below went on naming a
+// limit nothing enforced (issue 1542). Two constants that must agree are one
+// constant.
+const maxAttachmentBytes = httperr.MaxMultipartBodyBytes
 
 // UploadAttachment stores an uploaded file against an entity. Multipart is
 // parsed here (the JSON decoder cannot carry bytes); the store owns the
@@ -28,8 +34,12 @@ func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes)
 	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so total parse size is capped; the arg only sets the in-memory/spill threshold.
 	if err := r.ParseMultipartForm(maxAttachmentBytes); err != nil {
+		// The limit is NAMED. A refusal that says only "within the size limit"
+		// leaves the one actionable fact out, and the reader's next move is to
+		// guess at a smaller file.
 		httperr.Write(w, r, httperr.Validation("file", "invalid_multipart",
-			"the request must be multipart/form-data within the size limit"))
+			fmt.Sprintf("the request must be multipart/form-data no larger than %d MB",
+				maxAttachmentBytes>>20)))
 		return
 	}
 	entityType := r.FormValue("entity_type")

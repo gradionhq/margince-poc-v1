@@ -294,6 +294,11 @@ export function AddDocumentDialog({
         )}
       </Field>
 
+      {/* 25 MB is what the server enforces, checked against a running one
+          rather than read off a constant: the chassis bounded every body at
+          1 MiB until this change, which made the upload handler's own 25 MiB
+          cap dead and this hint a promise the product could not keep (issue
+          1542). A number in copy is a claim about behaviour. */}
       <FileDropzone
         label={t("docs.add.file")}
         hint={t("docs.add.fileHint")}

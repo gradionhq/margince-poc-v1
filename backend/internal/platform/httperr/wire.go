@@ -27,6 +27,23 @@ import (
 // amplification on the cheapest endpoints.
 const MaxBodyBytes = 1 << 20
 
+// MaxMultipartBodyBytes bounds a multipart/form-data body (25 MiB), which
+// carries FILES and so cannot live under the JSON ceiling.
+//
+// It is a SECOND ceiling rather than an exemption. A handler wrapping its own
+// `http.MaxBytesReader` around a body the chassis already bounded cannot widen
+// it — the inner reader still enforces itself — so an exemption is the only
+// shape in which a per-route cap works, and an exempt route is an unbounded
+// one the day somebody forgets its cap. Every multipart route therefore rides
+// this ceiling and may only TIGHTEN below it (the CSV import at 10 MiB, the
+// LinkedIn export at 8 MiB); the attachment upload is the widest, so it IS
+// this number rather than a copy of it.
+//
+// 1 MiB governed both for a while, which made all three declared caps dead
+// and their refusals name limits nothing enforced (issue 1542). That is what
+// `TestLimitBodies*` exists to keep from coming back.
+const MaxMultipartBodyBytes = 25 << 20
+
 // Decode parses the request body, answering the validation problem shape
 // on malformed JSON. The body is size-capped and must contain exactly
 // one JSON value — trailing tokens are malformed, not ignored. Returns
