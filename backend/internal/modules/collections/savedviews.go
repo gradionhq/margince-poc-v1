@@ -273,6 +273,15 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.SavedViewID, in Upda
 	// SegmentEngine reads the custom-field catalogue on its own pool
 	// connection, and a second acquire while holding a transaction is the
 	// deadlock shape the sibling seams spell out.
+	//
+	// Through GetSavedView, which means replacing a query needs saved_view:read
+	// as well as :update. That coupling is deliberate rather than incidental:
+	// this operation ANSWERS with the view (the handler writes wireSavedView
+	// as its 200 body), so a principal who may PATCH it is already shown it —
+	// update-without-read is not a coherent grant for this resource. The
+	// alternative, a private read that skips the object gate, would be a path
+	// returning a record without the gate every other read carries, which is a
+	// worse thing to own than a grant combination no seeded role has.
 	if in.Query != nil {
 		current, err := s.GetSavedView(ctx, id)
 		if err != nil {
