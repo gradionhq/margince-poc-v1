@@ -6,12 +6,9 @@ package compose
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 )
 
@@ -19,10 +16,23 @@ import (
 // it is addressed to, never by what the sender says the body is.
 //
 // The version of this that shipped chose on Content-Type alone, which handed
-// the 25 MiB bound to every route in the product. Several decode `r.Body` with
+// the file bound to every route in the product. Several decode `r.Body` with
 // no bound of their own — `/oauth/register` and `/v1/auth/login` among them,
 // both unauthenticated — so a one-header lie was a 25x memory amplification on
 // an anonymous endpoint. `TestALyingContentTypeBuysNothing` is that attack.
+//
+// The declaration gates — that the ceiling table matches the routes which
+// actually carry files — live in bodyceilingcensus_test.go.
+
+// testLimits are deliberately three DIFFERENT numbers, none of them a shipped
+// default. A test that gives every route the same ceiling passes just as
+// happily against a table that hands every route the same one, and a table
+// wired to the wrong field is the likelier mistake than one wired to nothing.
+var testLimits = deployconfig.UploadLimits{
+	Attachment:     31_000_000,
+	CSVImport:      12_000_000,
+	LinkedInImport: 7_000_000,
+}
 
 func ceilingFor(t *testing.T, method, path, contentType string) int64 {
 	t.Helper()
@@ -30,16 +40,21 @@ func ceilingFor(t *testing.T, method, path, contentType string) int64 {
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
-	return bodyCeiling(req)
+	return bodyCeilingFor(uploadCeilings(testLimits))(req)
 }
 
-func TestAnUploadRouteGetsTheWideCeiling(t *testing.T) {
-	for path := range fileUploadRoutes {
+func TestEachUploadRouteRidesItsOwnConfiguredCeiling(t *testing.T) {
+	for path, want := range map[string]int64{
+		"/v1/attachments":             testLimits.Attachment,
+		"/v1/imports/sources":         testLimits.CSVImport,
+		"/v1/me/linkedin-connections": testLimits.LinkedInImport,
+	} {
 		got := ceilingFor(t, http.MethodPost, path,
 			"multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW")
-		if got != httperr.MaxMultipartBodyBytes {
-			t.Errorf("%s rode ceiling %d, want the multipart ceiling %d — its "+
-				"declared cap cannot run", path, got, httperr.MaxMultipartBodyBytes)
+		if got != want {
+			t.Errorf("%s rode ceiling %d, want its own configured %d — a route "+
+				"reading under a ceiling that is not the one it was granted "+
+				"refuses files the operator meant it to accept", path, got, want)
 		}
 	}
 }
@@ -95,46 +110,19 @@ func TestOnlyPOSTCarriesAFile(t *testing.T) {
 	}
 }
 
-// multipartParse finds every handler that parses a multipart body.
-var multipartParse = regexp.MustCompile(`ParseMultipartForm\(`)
-
-// TestEveryMultipartRouteIsDeclared derives the obligation from the tree rather
-// than restating it: a handler that parses a multipart body needs its route in
-// `fileUploadRoutes`, or the parse runs under the 1 MiB bound and whatever cap
-// it declares is dead. A hand-kept list would pass while the next upload route
-// silently ran at the wrong ceiling — which is the bug this all came from.
-func TestEveryMultipartRouteIsDeclared(t *testing.T) {
-	root := filepath.Join("..", "..")
-	var parsers []string
-	err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
+func TestAPathTheRouterDoesNotServeIsNotAnUploadRoute(t *testing.T) {
+	// Normalizing here would be guessing at how the router resolves a path it
+	// does not mount, and a guess that lands wide is a grant nobody wrote.
+	for _, path := range []string{
+		"/v1/attachments/",
+		"/v1/attachments//",
+		"//v1/attachments",
+		"/v1/ATTACHMENTS",
+	} {
+		got := ceilingFor(t, http.MethodPost, path, "multipart/form-data; boundary=x")
+		if got != httperr.MaxBodyBytes {
+			t.Errorf("%q rode the file ceiling %d — only the exact path the "+
+				"router mounts carries a file", path, got)
 		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".go") ||
-			strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		source, readErr := os.ReadFile(path)
-		if readErr != nil {
-			return readErr
-		}
-		if multipartParse.Match(source) {
-			parsers = append(parsers, path)
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("walking the backend tree: %v", err)
-	}
-	if len(parsers) == 0 {
-		t.Fatal("found no multipart handlers at all — the walk is broken, and a " +
-			"walk that finds nothing passes this test for the wrong reason")
-	}
-	if len(parsers) != len(fileUploadRoutes) {
-		t.Errorf("%d handler(s) parse a multipart body but %d route(s) are "+
-			"declared in fileUploadRoutes: %v\n"+
-			"An undeclared upload route parses under the %d-byte JSON bound, so "+
-			"the cap it declares never runs.",
-			len(parsers), len(fileUploadRoutes), parsers, httperr.MaxBodyBytes)
 	}
 }

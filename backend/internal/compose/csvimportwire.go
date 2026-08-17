@@ -269,22 +269,21 @@ func lineOf(externalID string) int {
 	return line
 }
 
-// readImportUpload takes the multipart body apart under the 10 MB cap and
-// returns the object the rows are and the file's bytes.
+// readImportUpload takes the multipart body apart under the deployment's import
+// cap and returns the object the rows are and the file's bytes.
 //
 // The bytes are read whole rather than streamed to the blobstore, and that is
 // deliberate: the same upload must be BOTH profiled and stored, and a stream
 // can only be consumed once. The cap is what makes reading it whole safe, and
 // MaxBytesReader (not a bare LimitReader) is what turns an over-cap upload into
 // a refusal rather than a file silently cut in half.
-func readImportUpload(w http.ResponseWriter, r *http.Request) (string, []byte, error) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxImportUploadBytes)
-	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so the total parse size is capped; this argument only sets the in-memory/spill threshold.
-	if err := r.ParseMultipartForm(maxImportUploadBytes); err != nil {
+func readImportUpload(w http.ResponseWriter, r *http.Request, limit int64) (string, []byte, error) {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	if err := r.ParseMultipartForm(importSpillBytes); err != nil {
 		// The cap is DERIVED, never spelled again in prose: this sentence said
 		// "10 MB" while the constant beside it decided the real answer, and the
 		// two were free to drift the moment either moved.
-		return "", nil, httperr.MultipartRefusal(err, maxImportUploadBytes)
+		return "", nil, httperr.MultipartRefusal(err, limit)
 	}
 
 	object := strings.TrimSpace(r.FormValue("object"))

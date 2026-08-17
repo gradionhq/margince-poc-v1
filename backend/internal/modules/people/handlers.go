@@ -32,6 +32,10 @@ type Handlers struct {
 	// objects: the logo endpoint then answers 501 rather than nil-derefing,
 	// and no logo can have been resolved for it to serve anyway.
 	blob blobstore.Store
+	// uploadLimit is the deployment's ceiling for this module's upload route
+	// (OPS-CFG-12), injected by WithUploadLimit. Zero refuses every upload,
+	// which is the honest reading of "nobody has said" for a bound.
+	uploadLimit int64
 }
 
 // NewHandlers builds the module's HTTP surface over a workspace-bound handle.

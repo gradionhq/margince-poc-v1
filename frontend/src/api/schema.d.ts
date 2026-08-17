@@ -8254,6 +8254,18 @@ export interface components {
              *     it. Absent when it is still changeable.
              */
             base_currency_locked_reason?: string;
+            /**
+             * Format: int64
+             * @description The largest upload request this installation accepts, in bytes — set by whoever
+             *     operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+             *     it is a deployment fact, so PATCH does not carry it.
+             *
+             *     An upload surface states and enforces THIS number rather than one of its own, so
+             *     a file too large is refused before it is sent instead of after. The ceiling bounds
+             *     the whole request, part framing included, which is why a client should leave a
+             *     little room rather than compare a file against it exactly.
+             */
+            max_upload_bytes: number;
         };
         /** @description A sparse installation-settings patch (admin/ops, human-only). */
         UpdateInstallationSettingsRequest: {

@@ -71,6 +71,9 @@ function stubApi(
     // Resolves the upload only once the test lets it, so the in-flight window
     // is a state the test can act in rather than a race it has to win.
     holdUpload?: Promise<void>;
+    // What this installation says it accepts. Absent means the read answers
+    // without the field, which is the "server has not said" case.
+    maxUploadBytes?: number;
   } = {},
 ) {
   const calls: Recorded[] = [];
@@ -95,6 +98,15 @@ function stubApi(
 
       if (url.includes("/v1/me")) {
         return json(me);
+      }
+      if (url.includes("/installation/settings")) {
+        return json({
+          name: "Demo",
+          timezone: "Europe/Berlin",
+          base_currency: "EUR",
+          base_currency_locked: false,
+          max_upload_bytes: options.maxUploadBytes,
+        });
       }
       if (url.includes("/v1/deals")) {
         return json({ data: [DEAL], page: { next_cursor: null } });
@@ -197,6 +209,11 @@ function orderForm() {
   return new File(["EUR 148,500.00"], "order_form.txt", {
     type: "text/plain",
   });
+}
+
+/** A file of exactly `size` bytes, for the cases that are about size alone. */
+function fileOf(size: number) {
+  return new File(["x".repeat(size)], "scan.pdf", { type: "application/pdf" });
 }
 
 /** Every multipart upload the dialog sent. Its LENGTH is the duplicate check. */
@@ -514,5 +531,62 @@ describe("adding a document from the account", () => {
     expect(
       await screen.findByText(/exceeds the 26214400-byte limit/),
     ).toBeTruthy();
+  });
+  // What this installation accepts is the OPERATOR's number, so the form has to
+  // ask rather than compile one in. Getting it wrong costs either a wasted
+  // upload of a file that was never going to be taken, or a refusal of one that
+  // would have been.
+  it("states the limit this installation actually enforces", async () => {
+    stubApi(FULL_SEAT, { maxUploadBytes: 3_000_000 });
+    show();
+
+    expect(await screen.findByText("Up to 3 MB.")).toBeTruthy();
+  });
+
+  it("refuses an oversize file without sending it", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT, { maxUploadBytes: 3_000_000 });
+    show();
+
+    await screen.findByText("Up to 3 MB.");
+    await user.upload(screen.getByLabelText(/File/), fileOf(3_000_001));
+
+    const submit = screen.getByRole("button", { name: "Upload" });
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(true));
+    await user.click(submit);
+
+    // The refusal names the limit, and NOTHING went over the wire: refusing
+    // after a 3 MB round trip is the cost this check exists to avoid.
+    expect(screen.getByText(/larger than 3 MB/)).toBeTruthy();
+    expect(uploads(calls)).toHaveLength(0);
+  });
+
+  it("takes a file exactly at the limit", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT, { maxUploadBytes: 3_000_000 });
+    show();
+
+    await screen.findByText("Up to 3 MB.");
+    await user.upload(screen.getByLabelText(/File/), fileOf(3_000_000));
+    await pressUpload(user);
+
+    // The boundary belongs to the accepting side: a form that refused the exact
+    // limit would contradict the sentence beside it.
+    await waitFor(() => expect(uploads(calls)).toHaveLength(1));
+  });
+
+  it("leaves the refusal to the server until the installation has answered", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT);
+    show();
+
+    await user.upload(screen.getByLabelText(/File/), fileOf(50_000_000));
+    await pressUpload(user);
+
+    // No answer means no local limit — not a guessed one. Guessing would refuse
+    // a file the installation may well accept, and the reader has no way to
+    // argue with a number the client invented.
+    await waitFor(() => expect(uploads(calls)).toHaveLength(1));
+    expect(screen.queryByText(/larger than/)).toBeNull();
   });
 });

@@ -165,6 +165,15 @@ type Server struct {
 	// ready on Postgres alone.
 	busReady func(context.Context) error
 
+	// uploadLimits are the deployment's per-route body ceilings for the routes
+	// that carry files (OPS-CFG-12), injected by WithUploadLimits. They govern
+	// three things that must agree: the chassis ceiling each route rides, the
+	// cap its handler parses under, and the number the installation read
+	// publishes to a client. Defaulted in New, so a composition never told
+	// about a deployment file still gets the compiled-in ceilings rather than
+	// zero — which would refuse every upload.
+	uploadLimits deployconfig.UploadLimits
+
 	// blob is the object store, injected by WithBlobstore. When configured
 	// it feeds a /readyz probe and backs the attachment handlers; nil means
 	// a role that stores no objects.
@@ -379,19 +388,25 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	mux := operationalMux(srv, pool, log, identitySvc, api)
 
 	return httpserver.RecoverPanics(log,
-		httpserver.LimitBodies(bodyCeiling, httpserver.SecureHeaders(mux)))
+		httpserver.LimitBodies(bodyCeilingFor(uploadCeilings(srv.uploadLimits)),
+			httpserver.SecureHeaders(mux)))
 }
 
 // newServer assembles the module handler sets. Every cross-module edge is
 // injected here, or in the assembly step this calls for it
 // (serverassembly.go) — never as a sibling import (ADR-0054).
 func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH dealsHandlers) Server {
+	// The compiled-in ceilings, taken from the deployment-config defaults rather
+	// than restated here: one place resolves a default, so no composition can
+	// disagree with the file about what "unconfigured" means.
+	limits := deployconfig.Config{}.EffectiveUploads()
 	srv := Server{
+		uploadLimits:       limits,
 		authHandlers:       authH,
-		peopleHandlers:     newPeopleHandlers(pool),
+		peopleHandlers:     newPeopleHandlers(pool).WithUploadLimit(limits.LinkedInImport),
 		dealsHandlers:      dealsH,
 		contractsHandlers:  contracts.NewHandlers(InstallationDB(pool)),
-		activitiesHandlers: newActivitiesHandlers(pool),
+		activitiesHandlers: newActivitiesHandlers(pool).WithUploadLimit(limits.Attachment),
 		searchHandlers:     search.NewHandlers(InstallationDB(pool)),
 		// Constructed, not merely embedded: the handler carries no nil-pool
 		// branch, so the zero value would panic on the first authenticated

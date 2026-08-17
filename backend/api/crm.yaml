@@ -12858,7 +12858,7 @@ components:
       description: |
         The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
         changed only by admin/ops.
-      required: [name, timezone, base_currency, base_currency_locked]
+      required: [name, timezone, base_currency, base_currency_locked, max_upload_bytes]
       properties:
         name:
           type: string
@@ -12881,6 +12881,18 @@ components:
           description: |
             Why the currency is locked, naming how many deals have already converted against
             it. Absent when it is still changeable.
+        max_upload_bytes:
+          type: integer
+          format: int64
+          description: |
+            The largest upload request this installation accepts, in bytes — set by whoever
+            operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+            it is a deployment fact, so PATCH does not carry it.
+
+            An upload surface states and enforces THIS number rather than one of its own, so
+            a file too large is refused before it is sent instead of after. The ceiling bounds
+            the whole request, part framing included, which is why a client should leave a
+            little room rather than compare a file against it exactly.
     UpdateInstallationSettingsRequest:
       type: object
       description: A sparse installation-settings patch (admin/ops, human-only).

@@ -6,6 +6,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
+import { formatUploadLimit, useMaxUploadBytes } from "../app/uploadlimit";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { FileDropzone } from "../design-system/filedropzone";
@@ -164,6 +165,11 @@ export function AddDocumentDialog({
     openNow.current = open;
   }, [open]);
 
+  // What this installation accepts, so an oversize file is refused here rather
+  // than after every byte of it has crossed the wire.
+  const maxUploadBytes = useMaxUploadBytes();
+  const limitLabel = maxUploadBytes ? formatUploadLimit(maxUploadBytes) : "";
+
   const deals = useAccountDeals(orgId, open);
   const parent = parseParent(choice, orgId);
   const canWriteOrg = useCanWrite("organization", "update");
@@ -248,7 +254,7 @@ export function AddDocumentDialog({
     onClose();
   }
 
-  const refusal = uploadRefusal(file, permitted, upload.isPending);
+  const refusal = uploadRefusal(file, permitted, upload.isPending, maxUploadBytes);
 
   return (
     <Modal open={open} onClose={closeAndClear} labelledBy={titleId}>
@@ -315,14 +321,14 @@ export function AddDocumentDialog({
         )}
       </Field>
 
-      {/* 25 MB is what the server enforces, checked against a running one
-          rather than read off a constant: the chassis bounded every body at
-          1 MiB until this change, which made the upload handler's own 25 MiB
-          cap dead and this hint a promise the product could not keep (issue
-          1542). A number in copy is a claim about behaviour. */}
+      {/* The limit is the SERVER's, read from the installation rather than
+          written here: it is set per deployment, so a number in this copy would
+          be right only for whoever shipped the default. Until the answer
+          arrives the hint says nothing at all — silence is honest, a guess is
+          not, and the wait is one request long. */}
       <FileDropzone
         label={t("docs.add.file")}
-        hint={t("docs.add.fileHint")}
+        hint={limitLabel ? t("docs.add.fileHint", { size: limitLabel }) : undefined}
         emptyLabel={t("docs.add.fileEmpty")}
         file={file}
         onPick={setFile}
@@ -332,7 +338,7 @@ export function AddDocumentDialog({
         <Button onClick={closeAndClear}>{t("docs.add.cancel")}</Button>
         <Button
           variant="primary"
-          reason={refusal ? t(refusal) : undefined}
+          reason={refusal ? t(refusal, { size: limitLabel }) : undefined}
           onClick={() =>
             file && upload.mutate({ parent, category, title, file })
           }
@@ -356,6 +362,7 @@ function uploadRefusal(
   file: File | undefined,
   permitted: boolean,
   pending: boolean,
+  maxBytes: number | undefined,
 ): MessageKey | null {
   if (!permitted) {
     return "docs.add.errRefused";
@@ -365,6 +372,18 @@ function uploadRefusal(
   }
   if (pending) {
     return "docs.add.errInFlight";
+  }
+  // Only when the server has SAID what it accepts. An unanswered installation
+  // read leaves the upload to be refused where it always was — sending a file
+  // that turns out to be too large costs a wasted request, while guessing a
+  // limit refuses one the installation would have taken.
+  //
+  // Compared against the file alone, though the ceiling bounds the whole
+  // request. The few hundred bytes of part framing mean a file within that
+  // distance of the limit still reaches the server's own refusal, which names
+  // the same number this message does.
+  if (maxBytes !== undefined && file.size > maxBytes) {
+    return "docs.add.errTooLarge";
   }
   return null;
 }

@@ -116,6 +116,11 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 		// zero value: an unconfigured `seeds` section means built-in defaults
 		// on both provisioning paths, which is the behaviour to preserve.
 		compose.WithBootstrapSeeds(deployCfg.Seeds),
+		// The per-route upload ceilings (OPS-CFG-12). Always applied, including
+		// for a file with no `uploads` section: EffectiveUploads resolves the
+		// compiled-in defaults, so this stays the one place the numbers are
+		// decided either way.
+		compose.WithUploadLimits(deployCfg.EffectiveUploads()),
 	}
 	reset, err := newResetLane(allowDataReset, pool, rdb, logger)
 	if err != nil {

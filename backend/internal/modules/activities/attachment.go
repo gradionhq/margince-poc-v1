@@ -4,7 +4,6 @@
 package activities
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -37,15 +36,21 @@ func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
 // maps it to 501). A role opts in with Store.WithBlobstore.
 var ErrBlobstoreUnconfigured = errors.New("activities: no object store configured")
 
-// AttachmentInput is one upload's server-validated inputs. Body is already
-// read (bounded) by the transport; captured_by is stamped from the
-// principal in the store, never taken from the request.
+// AttachmentInput is one upload's server-validated inputs. captured_by is
+// stamped from the principal in the store, never taken from the request.
 type AttachmentInput struct {
 	EntityType  string
 	EntityID    ids.UUID
 	Filename    string
 	ContentType string
-	Body        []byte
+	// Content is the file, still unread. A reader rather than bytes so an
+	// upload is never resident in full — the transport has already bounded it,
+	// and the store reads it twice (hash, then store) by seeking back rather
+	// than by keeping a copy. Its length is COUNTED on the hashing pass and
+	// never declared alongside it: a size that travels beside the bytes is a
+	// size that can disagree with them, and `byte_size` is a column every later
+	// reader trusts.
+	Content io.ReadSeeker
 	// ContractID files this document against one agreement (ADR-0109). A
 	// roll-up like the account column beside it, not a second parent: the
 	// primary entity still owns the file's visibility.
@@ -93,6 +98,25 @@ func requireParentOrHide(ctx context.Context, entityType string, action principa
 	return nil
 }
 
+// digest reads the upload once to fingerprint and measure it, then rewinds so
+// the object store can read the same bytes from the start.
+//
+// Both facts come from the SAME pass. A checksum and a length that were
+// established separately can describe different content, and they are what a
+// later integrity check compares against — so they are produced together or the
+// comparison proves nothing.
+func digest(content io.ReadSeeker) (string, int64, error) {
+	sum := sha256.New()
+	size, err := io.Copy(sum, content)
+	if err != nil {
+		return "", 0, fmt.Errorf("activities: reading the uploaded file: %w", err)
+	}
+	if _, err := content.Seek(0, io.SeekStart); err != nil {
+		return "", 0, fmt.Errorf("activities: rewinding the uploaded file: %w", err)
+	}
+	return hex.EncodeToString(sum.Sum(nil)), size, nil
+}
+
 // UploadAttachment stores an object and records its metadata row. Authority
 // inherits from the parent entity: the caller must hold Update on the parent
 // object type and be able to see the parent row — both are checked BEFORE any
@@ -122,11 +146,12 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 
 	id := ids.NewV7()
 	key := blobstore.WorkspaceKey(workspaceID(ctx), "attachment", id.String())
-	sum := sha256.Sum256(in.Body)
-	checksum := hex.EncodeToString(sum[:])
-	size := int64(len(in.Body))
+	checksum, size, err := digest(in.Content)
+	if err != nil {
+		return crmcontracts.Attachment{}, err
+	}
 
-	if err := s.blob.Put(ctx, key, bytes.NewReader(in.Body), size, in.ContentType); err != nil {
+	if err := s.blob.Put(ctx, key, in.Content, size, in.ContentType); err != nil {
 		return crmcontracts.Attachment{}, err
 	}
 

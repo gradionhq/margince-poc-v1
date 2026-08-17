@@ -14,6 +14,7 @@ package integration
 // something is there.
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -164,13 +165,13 @@ func TestAnUploadedDocumentReachesTheAccountLibrary(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docUploadPerms)
 
 	onOrg, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "organization", EntityID: org, Filename: "nda.pdf", Body: []byte("bytes"),
+		EntityType: "organization", EntityID: org, Filename: "nda.pdf", Content: bytes.NewReader([]byte("bytes")),
 	})
 	if err != nil {
 		t.Fatalf("uploading against the organization: %v", err)
 	}
 	onDeal, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "deal", EntityID: deal, Filename: "quote.pdf", Body: []byte("bytes"),
+		EntityType: "deal", EntityID: deal, Filename: "quote.pdf", Content: bytes.NewReader([]byte("bytes")),
 	})
 	if err != nil {
 		t.Fatalf("uploading against the deal: %v", err)

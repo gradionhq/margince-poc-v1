@@ -42,6 +42,10 @@ type Handlers struct {
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer
 	publicConsent ConsentCapturer
+	// uploadLimit is the deployment's ceiling for this module's upload route
+	// (OPS-CFG-12), injected by WithUploadLimit. Zero refuses every upload,
+	// which is the honest reading of "nobody has said" for a bound.
+	uploadLimit int64
 }
 
 // EmailDrafter prepares a reply for an existing activity without sending it.

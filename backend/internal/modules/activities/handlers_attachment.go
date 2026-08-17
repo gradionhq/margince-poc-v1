@@ -6,8 +6,6 @@ package activities
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 
@@ -16,26 +14,52 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// maxAttachmentBytes caps one upload, so a client cannot exhaust memory
-// streaming a too-large file.
+// multipartSpillBytes is how much of an upload is held in memory before the
+// rest goes to a temp file.
 //
-// It IS the chassis ceiling rather than a number of its own: this is the widest
-// route that carries a file, and a route cannot widen what the chassis already
-// bounded, so a separate literal here could only ever be equal or dead. Two
-// constants that must agree are one constant.
-const maxAttachmentBytes = httperr.MaxMultipartBodyBytes
+// Deliberately far below the ceiling. `ParseMultipartForm`'s argument is the
+// in-memory threshold, not a cap — passing the ceiling means nothing ever
+// spills, so concurrent uploads scale resident memory by their own size with no
+// admission control anywhere. The body is bounded by the MaxBytesReader above
+// it either way; this only decides where the bytes live while being read.
+const multipartSpillBytes = 1 << 20
+
+// errUploadLimitUnset reports that this composition never told the handler what
+// its ceiling is. A wiring fault, not a request fault, so it answers 500 rather
+// than refusing the caller's file for a size nobody set.
+var errUploadLimitUnset = errors.New("activities: no upload ceiling configured for this role")
+
+// WithUploadLimit returns handlers that parse an upload under the deployment's
+// ceiling for this route (OPS-CFG-12). Compose calls it.
+//
+// The zero value refuses every upload rather than defaulting to something
+// generous: an unconfigured ceiling is a wiring mistake, and a handler that
+// silently invents its own number is how the chassis and the parse end up
+// disagreeing about what fits.
+func (h Handlers) WithUploadLimit(bytes int64) Handlers {
+	h.uploadLimit = bytes
+	return h
+}
 
 // UploadAttachment stores an uploaded file against an entity. Multipart is
 // parsed here (the JSON decoder cannot carry bytes); the store owns the
 // RBAC gate, provenance, and the write shape.
 func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
-	// Equal to the ceiling the chassis already applied, and kept anyway: it is
-	// what makes this handler correct when mounted without that middleware, and
-	// it is what the waiver below points at.
-	r.Body = http.MaxBytesReader(w, r.Body, maxAttachmentBytes)
-	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so total parse size is capped; the arg only sets the in-memory/spill threshold.
-	if err := r.ParseMultipartForm(maxAttachmentBytes); err != nil {
-		httperr.WriteMultipartRefusal(w, r, err, maxAttachmentBytes)
+	if h.uploadLimit <= 0 {
+		// Answered as OUR fault, because it is: nobody wired the ceiling. The
+		// alternative — carrying on with a zero bound — refuses the caller's
+		// perfectly good file and tells them it exceeds a 0 MB limit, which
+		// sends them off to shrink a file that was never the problem.
+		httperr.Write(w, r, errUploadLimitUnset)
+		return
+	}
+	// The same ceiling the chassis already applied, and applied again anyway: it
+	// is what makes this handler correct when mounted without that middleware.
+	// It can only ever tighten — a MaxBytesReader cannot widen a body an outer
+	// one already bounded — so the two agreeing is the point, not a redundancy.
+	r.Body = http.MaxBytesReader(w, r.Body, h.uploadLimit)
+	if err := r.ParseMultipartForm(multipartSpillBytes); err != nil {
+		httperr.WriteMultipartRefusal(w, r, err, h.uploadLimit)
 		return
 	}
 	entityType := r.FormValue("entity_type")
@@ -59,12 +83,6 @@ func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 			slog.WarnContext(ctx, "closing uploaded file part", "err", cerr)
 		}
 	}(r.Context())
-	body, err := io.ReadAll(file)
-	if err != nil {
-		httperr.Write(w, r, httperr.Validation("file", "too_large",
-			fmt.Sprintf("the file exceeds the %d-byte limit or could not be read", maxAttachmentBytes)))
-		return
-	}
 
 	// The agreement this document is about, when the uploader named one. An
 	// absent part files the document against no contract, which is the ordinary
@@ -79,12 +97,15 @@ func (h Handlers) UploadAttachment(w http.ResponseWriter, r *http.Request) {
 		contractID = &parsed
 	}
 
+	// The part is handed on as a reader, not as bytes: the store hashes it and
+	// streams it to object storage, so the whole file never has to be resident
+	// at once.
 	att, err := h.store.UploadAttachment(r.Context(), AttachmentInput{
 		EntityType:  entityType,
 		EntityID:    entityID,
 		Filename:    header.Filename,
 		ContentType: header.Header.Get("Content-Type"),
-		Body:        body,
+		Content:     file,
 		ContractID:  contractID,
 	})
 	if err != nil {

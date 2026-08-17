@@ -30,11 +30,30 @@ func uploaderID(ctx context.Context) ids.UUID {
 	return actor.UserID
 }
 
-// maxLinkedInExportBytes bounds the upload. A large personal network is a few
-// thousand rows of short text — well under a megabyte — so 8 MB is generous
-// for the real file and still refuses a mis-picked video before it reaches
-// the CSV reader.
-const maxLinkedInExportBytes = 8 << 20
+// linkedInSpillBytes is how much of the export is held in memory before the
+// rest goes to a temp file. The ceiling is the deployment's (OPS-CFG-12); this
+// only decides where the bytes live while being parsed, and passing the ceiling
+// here would mean nothing ever spills.
+const linkedInSpillBytes = 1 << 20
+
+// errUploadLimitUnset reports that this composition never told the handler what
+// its ceiling is. A wiring fault, not a request fault, so it answers 500 rather
+// than refusing the caller's file for a size nobody set.
+var errUploadLimitUnset = errors.New("people: no upload ceiling configured for this role")
+
+// WithUploadLimit returns handlers that parse the export under the deployment's
+// ceiling for this route (OPS-CFG-12). Compose calls it. A large personal
+// network is a few thousand rows of short text — well under a megabyte — so the
+// default is generous for the real file and still refuses a mis-picked video
+// before it reaches the CSV reader.
+//
+// The zero value refuses every upload rather than inventing a bound of its own:
+// a handler that disagrees with the chassis about what fits produces a refusal
+// no reader can act on.
+func (h Handlers) WithUploadLimit(bytes int64) Handlers {
+	h.uploadLimit = bytes
+	return h
+}
 
 // ImportLinkedInConnections implements POST /me/linkedin-connections.
 //
@@ -44,10 +63,15 @@ const maxLinkedInExportBytes = 8 << 20
 // person attribute a stranger's connections to a colleague, and the whole
 // point of the feature is that "Lars knows them" means Lars.
 func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, maxLinkedInExportBytes)
-	//nolint:gosec // r.Body is bounded by http.MaxBytesReader above, so total parse size is capped; the arg only sets the in-memory/spill threshold.
-	if err := r.ParseMultipartForm(maxLinkedInExportBytes); err != nil {
-		httperr.WriteMultipartRefusal(w, r, err, maxLinkedInExportBytes)
+	if h.uploadLimit <= 0 {
+		// Our fault, not the caller's: nobody wired the ceiling. Carrying on
+		// with a zero bound would refuse their export and blame its size.
+		httperr.Write(w, r, errUploadLimitUnset)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, h.uploadLimit)
+	if err := r.ParseMultipartForm(linkedInSpillBytes); err != nil {
+		httperr.WriteMultipartRefusal(w, r, err, h.uploadLimit)
 		return
 	}
 	file, _, err := r.FormFile("file")
