@@ -1,10 +1,3 @@
-# The pnpm workspace root, and it is the REPOSITORY root rather than frontend/.
-#
-# That is forced rather than preferred: a unit's frontend package lives at
-# extensions/<name>/frontend, pnpm resolves members only underneath its root,
-# and a member outside the root is not expressible. So the SPA stops being the
-# root and becomes one member of two kinds — the core one, and however many
-# units the installation enabled.
 packages:
   - frontend
   # Every enabled unit's frontend layer, if it has one. This glob is why adding
@@ -33,4 +26,4 @@ overrides:
   # Pinned to the 4.x line on purpose: an open `>=4.3.1` resolves to 5.x, whose
   # API the consumer was never written against, and swapping a DoS advisory for
   # a broken type generator is not a trade.
-  js-yaml: '^4.3.1'
+  js-yaml: '^5.0.0'
