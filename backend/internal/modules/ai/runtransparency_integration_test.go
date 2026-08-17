@@ -20,18 +20,18 @@ func TestRunTransparencyReadsAndPricesOneCorrelatedProductRun(t *testing.T) {
 	workspaceID, workspaceCtx := env.seedWorkspace(background, t)
 	correlationID := ids.NewV7()
 	usedAt := time.Date(2026, 7, 22, 8, 0, 0, 0, time.UTC)
-	env.insertRate(background, t, workspaceID, ModelRate{
+	env.insertRate(background, t, ModelRate{
 		Provider: providerAnthropic, ModelID: "claude-run-model",
 		InputPerMTokMicroUSD: 1_000_000, OutputPerMTokMicroUSD: 5_000_000,
 		CacheReadPerMTokMicroUSD: 500_000, CacheWritePerMTokMicroUSD: 2_000_000,
 		EffectiveDate: usedAt.AddDate(0, 0, -1),
 	})
 	if _, err := env.owner.Exec(background, `
-		INSERT INTO ai_call (workspace_id, correlation_id, task, tier, provider, model_id,
+		INSERT INTO ai_call (correlation_id, task, tier, provider, model_id,
 		  served_model, served_identity_source, request_fingerprint, tokens_in, tokens_out, reasoning_tokens,
 		  cached_tokens, cache_write_tokens, latency_ms, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-		workspaceID, correlationID, string(TaskColdStart), string(TierCheapCloud), providerAnthropic,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+		correlationID, string(TaskColdStart), string(TierCheapCloud), providerAnthropic,
 		"claude-run-model", "claude-run-model-202607", servedIdentitySourceResponse, "run-fingerprint", 1_000, 100, 20,
 		200, 50, 750, usedAt, ids.NewV7()); err != nil {
 		t.Fatal(err)

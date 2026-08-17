@@ -65,8 +65,8 @@ func (m *Meter) Record(ctx context.Context, u Usage) error {
 	}
 	return m.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO ai_usage (workspace_id, day, task, tier, calls, cached_hits, tokens_in, tokens_out, reasoning_tokens, cached_tokens, cache_write_tokens)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 1, $4, $5, $6, $7, $8, $9)
+			INSERT INTO ai_usage (day, task, tier, calls, cached_hits, tokens_in, tokens_out, reasoning_tokens, cached_tokens, cache_write_tokens)
+			VALUES ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9)
 			ON CONFLICT (day, task, tier) DO UPDATE SET
 			  calls              = ai_usage.calls + 1,
 			  cached_hits        = ai_usage.cached_hits + EXCLUDED.cached_hits,

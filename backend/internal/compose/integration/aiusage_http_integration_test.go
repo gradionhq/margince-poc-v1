@@ -41,10 +41,10 @@ func seedAiUsage(t *testing.T, e *apptest.AppEnv) {
 		t.Fatalf("set guc: %v", err)
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO ai_usage (workspace_id, day, task, tier, calls, cached_hits, tokens_in, tokens_out) VALUES
-		($1, '2026-07-10', 'capture_classify', 'local_small', 4, 1, 1200, 300),
-		($1, '2026-07-10', 'capture_classify', 'cheap_cloud', 1, 0, 800, 200),
-		($1, '2026-07-11', 'enrich', 'cheap_cloud', 2, 0, 500, 120),
+		INSERT INTO ai_usage (day, task, tier, calls, cached_hits, tokens_in, tokens_out) VALUES
+		('2026-07-10', 'capture_classify', 'local_small', 4, 1, 1200, 300),
+		('2026-07-10', 'capture_classify', 'cheap_cloud', 1, 0, 800, 200),
+		('2026-07-11', 'enrich', 'cheap_cloud', 2, 0, 500, 120),
 		-- One row in the LIVE budget period, and it is not decoration. The day
 		-- report is scoped by the from/to query; the BUDGET block is not — it
 		-- reports what has been spent in the current period whatever the
@@ -52,7 +52,7 @@ func seedAiUsage(t *testing.T, e *apptest.AppEnv) {
 		-- read zero the moment the month turned: this test passed for exactly
 		-- as long as it was July 2026 and broke on the 1st, on every branch at
 		-- once. Anchored to the clock so it cannot expire again.
-		($1, current_date, 'capture_classify', 'local_small', 1, 0, 900, 200)`, wsID); err != nil {
+		(current_date, 'capture_classify', 'local_small', 1, 0, 900, 200)`); err != nil {
 		t.Fatalf("seeding ai_usage: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -137,10 +137,10 @@ func TestAiUsageOverHTTP(t *testing.T) {
 func seedAiCall(t *testing.T, e *apptest.AppEnv, wsID string, task, tier, provider, model string, tokensIn, tokensOut int, occurredAt time.Time) {
 	t.Helper()
 	if _, err := e.Owner.Exec(context.Background(), `
-		INSERT INTO ai_call (workspace_id, task, tier, provider, model_id, request_fingerprint,
+		INSERT INTO ai_call (task, tier, provider, model_id, request_fingerprint,
 		  tokens_in, tokens_out, occurred_at, logical_call_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-		wsID, task, tier, provider, model, "fp-"+ids.NewV7().String(),
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		task, tier, provider, model, "fp-"+ids.NewV7().String(),
 		tokensIn, tokensOut, occurredAt, ids.NewV7()); err != nil {
 		t.Fatalf("insert ai_call: %v", err)
 	}
@@ -150,10 +150,10 @@ func seedAiCall(t *testing.T, e *apptest.AppEnv, wsID string, task, tier, provid
 func seedAiModelRate(t *testing.T, e *apptest.AppEnv, wsID string, day time.Time) {
 	t.Helper()
 	if _, err := e.Owner.Exec(context.Background(), `
-		INSERT INTO ai_model_rate (workspace_id, provider, model_id, input_per_mtok_microusd,
+		INSERT INTO ai_model_rate (provider, model_id, input_per_mtok_microusd,
 		  output_per_mtok_microusd, cache_read_per_mtok_microusd, cache_write_per_mtok_microusd, effective_date)
-		VALUES ($1,'anthropic','claude-test-model',5000000,25000000,500000,6250000,$2)`,
-		wsID, day); err != nil {
+		VALUES ('anthropic','claude-test-model',5000000,25000000,500000,6250000,$1)`,
+		day); err != nil {
 		t.Fatalf("insert ai_model_rate: %v", err)
 	}
 }

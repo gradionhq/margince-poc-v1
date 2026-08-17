@@ -237,9 +237,8 @@ func TestEnsureConfigIsIdempotentAndFKsFromAICall(t *testing.T) {
 func seedEmbedCall(t *testing.T, e *Env, daysBack int) ids.UUID {
 	t.Helper()
 	callID := ids.NewV7()
-	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
-	e.WsExec(t, `INSERT INTO ai_call (id, workspace_id, logical_call_id, task, tier, kind, request_fingerprint, occurred_at)
-		VALUES ($1, `+wsClause+`, $1, 'embeddings', 'embed', 'embedding', 'fp-embed', now() - make_interval(days => $2))`,
+	e.WsExec(t, `INSERT INTO ai_call (id, logical_call_id, task, tier, kind, request_fingerprint, occurred_at)
+		VALUES ($1, $1, 'embeddings', 'embed', 'embedding', 'fp-embed', now() - make_interval(days => $2))`,
 		callID, daysBack)
 	return callID
 }
@@ -273,12 +272,11 @@ func TestEmbedCallRetentionAgesOutOverAgeEmbeddingRows(t *testing.T) {
 func seedAgedPayload(t *testing.T, e *Env, daysBack int, requestJSON string) ids.UUID {
 	t.Helper()
 	callID := ids.NewV7()
-	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
-	e.WsExec(t, `INSERT INTO ai_call (id, workspace_id, logical_call_id, task, request_fingerprint, occurred_at)
-		VALUES ($1, `+wsClause+`, $1, 'summarize', 'fp-aged', now() - make_interval(days => $2))`,
+	e.WsExec(t, `INSERT INTO ai_call (id, logical_call_id, task, request_fingerprint, occurred_at)
+		VALUES ($1, $1, 'summarize', 'fp-aged', now() - make_interval(days => $2))`,
 		callID, daysBack)
-	e.WsExec(t, `INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload, occurred_at)
-		VALUES (`+wsClause+`, $1, $2::jsonb, '{}'::jsonb, now() - make_interval(days => $3))`,
+	e.WsExec(t, `INSERT INTO ai_call_payload (ai_call_id, request_payload, response_payload, occurred_at)
+		VALUES ($1, $2::jsonb, '{}'::jsonb, now() - make_interval(days => $3))`,
 		callID, requestJSON, daysBack)
 	return callID
 }

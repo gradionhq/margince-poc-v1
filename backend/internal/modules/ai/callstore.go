@@ -193,15 +193,14 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 			err := tx.QueryRow(
 				ctx, `
 				INSERT INTO ai_call (
-				  workspace_id, correlation_id, task, tier, provider, model_id,
+				  correlation_id, task, tier, provider, model_id,
 				  request_fingerprint, context_scopes, context_fingerprint,
 				  context_bytes, context_tokens_estimate,
 				  tokens_in, tokens_out, reasoning_tokens,
 				  cached_tokens, cache_write_tokens, latency_ms, cache_hit, degraded, error_sentinel, agent_run_id,
 				  logical_call_id, attempt, is_terminal, attempt_reason, kind,
 				  served_model, served_identity_source, cache_off, config_hash)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-				  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,''),$20,
+				VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,''),$20,
 				  $21,$22,$23,$24,$25,$26,$27,$28,$29)
 				RETURNING id`,
 				c.CorrelationID, string(c.Task), string(c.Tier), c.Provider, c.ModelID,
@@ -218,8 +217,8 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 				continue
 			}
 			_, err = tx.Exec(ctx, `
-				INSERT INTO ai_call_payload (workspace_id, ai_call_id, request_payload, response_payload)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+				INSERT INTO ai_call_payload (ai_call_id, request_payload, response_payload)
+				VALUES ($1, $2, $3)`,
 				callID, c.Payload.Request, c.Payload.Response)
 			if err != nil {
 				return fmt.Errorf("ai: recording call payload: %w", err)
@@ -232,7 +231,7 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 // EnsureConfig plants snap's row in ai_call_config if it does not already
 // exist.
 func (m *CallMeter) EnsureConfig(ctx context.Context, snap ConfigSnapshot) error {
-	// rls-exempt: ai_call_config is a global config-snapshot dimension (spec §4) — no workspace_id, no RLS policy, so this write must not ride the per-workspace GUC transaction.
+	// rls-exempt: ai_call_config is a global config-snapshot dimension (spec §4) — no RLS policy, so this write must not ride the per-workspace GUC transaction.
 	_, err := m.db.Pool().Exec(ctx, `
 		INSERT INTO ai_call_config (hash, task_contract_hash, routing_config_hash, prompt_version, provider_params)
 		VALUES ($1, $2, $3, $4, $5)
