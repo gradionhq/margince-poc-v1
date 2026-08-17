@@ -65,13 +65,13 @@ type workerConfig struct {
 	observeAddr          string
 }
 
-// parseWorkerFlags parses and validates the boot flags; the DSN is the
-// one dependency without a sane default, so its absence fails the boot
-// here.
-func parseWorkerFlags(args []string) (workerConfig, error) {
+// workerFlagSet registers this role's flags and their environment bindings,
+// unparsed — the same registration that a boot reads and that describes this
+// role's configurable surface, so neither is a copy of the other.
+func workerFlagSet() (*flag.FlagSet, *cliflags.Env, *workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
-	var env cliflags.Env
-	var cfg workerConfig
+	env := &cliflags.Env{}
+	cfg := &workerConfig{}
 	env.String(fs, &cfg.dsn, "dsn", "MARGINCE_DSN", "", "Postgres DSN (runtime app role)")
 	// The same canonical origin the api serves: a marketing send from this
 	// role's Surface-B agent run builds the recipient's tokenized unsubscribe
@@ -100,8 +100,8 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.DurationVar(&cfg.gmailWatchRenew, "gmail-watch-renew-within", 48*time.Hour, "renew a Gmail watch this far ahead of its 7-day expiry")
 	fs.DurationVar(&cfg.overlayInterval, "overlay-reconcile-interval", 2*time.Minute, "overlay-mode incumbent mirror reconcile poll interval (design.md §4.4)")
 	fs.IntVar(&cfg.overlayBackfillLimit, "overlay-backfill-limit", 0, "cap the overlay initial mirror backfill at this many records per object class (dev/demo; 0 = uncapped)")
-	if err := registerDeepReadFlags(fs, &cfg); err != nil {
-		return workerConfig{}, err
+	if err := registerDeepReadFlags(fs, cfg); err != nil {
+		return nil, nil, nil, err
 	}
 	// Outbound pacing. Zero on any of the three takes the compose default —
 	// a forgotten flag must degrade to the conservative rule, never to "no
@@ -124,6 +124,20 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 		"address to serve this worker's /healthz, /readyz and /metrics on (e.g. 127.0.0.1:9101). Empty serves nothing. Process-local metrics only — the job-table and outbox gauges stay a single fleet-wide reading on the api.")
 	env.String(fs, &cfg.logLevel, "log-level", "MARGINCE_LOG_LEVEL", "info", "log level: debug|info|warn|error")
 	env.String(fs, &cfg.logFormat, "log-format", "MARGINCE_LOG_FORMAT", "text", "log format: text|json")
+	return fs, env, cfg, nil
+}
+
+// parseWorkerFlags parses and validates the boot flags; the DSN is the one
+// dependency without a sane default, so its absence fails the boot here.
+func parseWorkerFlags(args []string) (workerConfig, error) {
+	fs, env, cfg, err := workerFlagSet()
+	if err != nil {
+		return workerConfig{}, err
+	}
+	// An undescribable surface fails the boot rather than the generator.
+	if _, err := workerConfigItems(fs, env); err != nil {
+		return workerConfig{}, err
+	}
 	if err := fs.Parse(args); err != nil {
 		return workerConfig{}, err
 	}
@@ -146,10 +160,10 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	if cfg.sendRateLimit < 0 || cfg.sendRateWindow < 0 || cfg.sendMaxAge < 0 {
 		return workerConfig{}, errors.New("worker: the outbound send pacing values must be zero (default) or positive")
 	}
-	if err := validateSchedulerIntervals(cfg); err != nil {
+	if err := validateSchedulerIntervals(*cfg); err != nil {
 		return workerConfig{}, err
 	}
-	return cfg, nil
+	return *cfg, nil
 }
 
 // registerDeepReadFlags declares the three deep-read crawl caps. They are a
@@ -158,16 +172,25 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 // unparseable value there is a boot error rather than a silent fallback to the
 // built-in — an operator who typed a cap and got the default instead would have
 // no way to tell.
+// The deep-read caps and the overlay backfill limit, named so each role can
+// declare them without spelling the strings a second time.
+const (
+	deepReadMaxPagesEnv     = "MARGINCE_DEEPREAD_MAX_PAGES"
+	deepReadMaxBytesEnv     = "MARGINCE_DEEPREAD_MAX_BYTES"
+	deepReadWallEnv         = "MARGINCE_DEEPREAD_WALL"
+	overlayBackfillLimitEnv = "MARGINCE_OVERLAY_BACKFILL_LIMIT"
+)
+
 func registerDeepReadFlags(fs *flag.FlagSet, cfg *workerConfig) error {
-	maxPages, err := envIntOr("MARGINCE_DEEPREAD_MAX_PAGES", 0)
+	maxPages, err := envIntOr(deepReadMaxPagesEnv, 0)
 	if err != nil {
 		return err
 	}
-	maxBytes, err := envIntOr("MARGINCE_DEEPREAD_MAX_BYTES", 0)
+	maxBytes, err := envIntOr(deepReadMaxBytesEnv, 0)
 	if err != nil {
 		return err
 	}
-	wall, err := envDurationOr("MARGINCE_DEEPREAD_WALL", 0)
+	wall, err := envDurationOr(deepReadWallEnv, 0)
 	if err != nil {
 		return err
 	}
@@ -224,7 +247,7 @@ func validateSchedulerIntervals(cfg workerConfig) error {
 // env sets the cap. An unset env leaves limit untouched; a set-but-invalid
 // env (non-integer or negative) is a boot error, never a silent default.
 func overlayBackfillLimitFromEnv(limit *int) error {
-	v := config.FromOS("MARGINCE_OVERLAY_BACKFILL_LIMIT")
+	v := config.FromOS(overlayBackfillLimitEnv)
 	if v == "" || *limit != 0 {
 		return nil
 	}

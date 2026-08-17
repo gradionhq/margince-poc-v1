@@ -220,3 +220,29 @@ func byokKeyRequired(provider string) error {
 	}
 	return fmt.Errorf("ai: provider %s needs an api key (BYOK — we provide no inference)", provider)
 }
+
+// ConfigItems declares the BYOK keys. They carry no MARGINCE_ prefix — the
+// names match each vendor's own convention so an operator already exporting one
+// needs no extra wiring — which is exactly why they have to be declared: the
+// documentation gate that sweeps the tree exempts non-namespaced names, so this
+// registry is the only artefact that can describe them at all.
+//
+// None is Required. A deployment binds whichever providers it uses, and a cloud
+// binding without its key fails loudly at construction naming the variable
+// (byokKeyRequired) rather than being pre-empted here, because which keys an
+// installation needs is a property of its routing file, not of the product.
+func ConfigItems() []config.Item {
+	both := []string{config.RoleAPI, config.RoleWorker}
+	items := make([]config.Item, 0, len(cloudKeyEnv))
+	for _, provider := range knownProviders {
+		env, cloud := cloudKeyEnv[provider]
+		if !cloud {
+			continue
+		}
+		items = append(items, config.Item{
+			Name: env, Kind: config.KindString, Secret: true, Roles: both,
+			Doc: "BYOK API key for the " + provider + " provider; required only when the routing file binds it (ADR-0020 — we provide no inference)",
+		})
+	}
+	return items
+}

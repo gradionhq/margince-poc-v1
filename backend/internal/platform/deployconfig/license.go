@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/config"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // LicenseTokenEnvVar overrides license.token_file when it is set. It is the
@@ -97,4 +98,26 @@ func (l License) TokenOrigin(lookup config.Lookup) string {
 		return "license.token_file"
 	}
 	return "none"
+}
+
+// ConfigItems declares the two variables that belong to the DEPLOYMENT rather
+// than to any one process role: the posture, and the licence override.
+//
+// Here rather than in each cmd/<role>, because both roles read both and a
+// per-role copy is a doc string that drifts. Here rather than in
+// shared/runtimeenv, because that package is Tier-0 and stdlib-only — it cannot
+// import platform/config, so the name travels up to the package that already
+// owns the licence half.
+func ConfigItems() []config.Item {
+	both := []string{config.RoleAPI, config.RoleWorker}
+	return []config.Item{
+		{
+			Name: runtimeenv.EnvVar, Kind: config.KindString, Default: "production", Roles: both,
+			Doc: "deployment posture: dev|test honour the non-production licence authorities and may run unlicensed; anything else, staging included, is production",
+		},
+		{
+			Name: LicenseTokenEnvVar, Kind: config.KindString, Secret: true, Roles: both,
+			Doc: "licence token, overriding license.token_file when non-empty",
+		},
+	}
 }
