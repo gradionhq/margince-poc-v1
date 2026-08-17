@@ -54,15 +54,6 @@ func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error)
 	}
 	defer func() { _ = conn.Close(ctx) }() //craft:ignore swallowed-errors closing a seed connection has no failure the caller can act on
 
-	// The workspace is read once and passed explicitly. capture_connection
-	// still carries workspace_id NOT NULL, and the seeder's own connection
-	// sets no app.workspace_id GUC — the product's inserts get theirs from a
-	// request context this tool does not have.
-	var workspace string
-	if err := conn.QueryRow(ctx, `SELECT id::text FROM workspace LIMIT 1`).Scan(&workspace); err != nil {
-		return 0, fmt.Errorf("resolving the workspace for the mailboxes: %w", err)
-	}
-
 	created := 0
 	for _, user := range cfg.Users {
 		var userID string
@@ -77,12 +68,15 @@ func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error)
 
 		// workspace_id is set from the GUC the way every tenant write is; the
 		// seeder's other SQL phases do the same.
+		// No workspace_id: migration 0282 dropped the tenant column from
+		// capture_connection, because the installation is a singleton and the
+		// row is installation-wide by construction (ADR-0091 §8 phase D).
 		tag, err := conn.Exec(ctx, `
 			INSERT INTO capture_connection
-			       (workspace_id, provider, user_id, scopes, status, account_label, auth)
-			VALUES ($1::uuid, 'offline_demo', $2::uuid, '{read}', 'connected', $3, $4::bytea)
+			       (provider, user_id, scopes, status, account_label, auth)
+			VALUES ('offline_demo', $1::uuid, '{read}', 'connected', $2, $3::bytea)
 			ON CONFLICT (user_id, provider) DO NOTHING`,
-			workspace, userID, user.Email, []byte(userID))
+			userID, user.Email, []byte(userID))
 		if err != nil {
 			return created, fmt.Errorf("provisioning the mailbox for %s: %w", user.Email, err)
 		}
