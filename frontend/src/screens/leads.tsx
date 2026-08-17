@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -1060,6 +1060,24 @@ function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
   // lead page.
   const entries = history.data?.pages.flatMap((page) => page?.data ?? []) ?? [];
   const row = entries.find((entry) => entry.action === "promote");
+
+  // The history is served OLDEST FIRST, 20 to a page, and `promote` is the
+  // LAST thing that ever happens to a lead — it retires the record. So a lead
+  // worked long enough to collect 20 earlier audit rows carries its promotion
+  // on a later page, and reading only the first one found nothing and reported
+  // the outcome as unknowable on exactly the leads someone worked hardest.
+  //
+  // Paging on until it turns up is the client half of the fix. The server half
+  // — an `action` filter on the history endpoint, so this is one row rather
+  // than a walk — needs a contract change and is filed as its own work.
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = history;
+  const seeking = promoted && !row && hasNextPage && !isFetchingNextPage;
+  useEffect(() => {
+    if (seeking) {
+      fetchNextPage();
+    }
+  }, [seeking, fetchNextPage]);
+
   const after = (row?.after ?? {}) as Record<string, unknown>;
   const str = (key: string) =>
     typeof after[key] === "string" ? (after[key] as string) : undefined;
@@ -1069,7 +1087,10 @@ function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
       recorded === "merged" || recorded === "created" ? recorded : "unknown",
     trigger: str("trigger"),
     evidenceNote: str("evidence_note"),
-    pending: promoted && history.isPending,
+    // Still walking is still pending: reporting "we cannot tell" while pages
+    // are in flight is the same false certainty as reporting "created".
+    pending:
+      promoted && (history.isPending || Boolean(seeking) || isFetchingNextPage),
     failed: promoted && history.isError,
   };
 }

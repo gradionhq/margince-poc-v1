@@ -296,6 +296,63 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(screen.queryByText(/Disqualified — this lead/)).toBeNull();
   });
 
+  it("finds the promotion when earlier audit rows push it onto a later page", async () => {
+    // The history is served OLDEST FIRST, 20 to a page, and `promote` is the
+    // LAST thing that happens to a lead. So a lead worked long enough to
+    // collect a page of earlier rows carries its promotion on a later one, and
+    // reading only the first page reported "we cannot tell" on exactly the
+    // leads someone worked hardest.
+    const filler = Array.from({ length: 20 }, (_, i) => ({
+      id: `a-${i}`,
+      actor_type: "human",
+      actor_id: "human:u-9",
+      action: "update",
+      occurred_at: "2026-06-01T08:00:00Z",
+      after: { status: "working" },
+    }));
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        // The second page is asked for by cursor; the first hands one back.
+        if (url.includes("cursor=")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "a-99",
+                actor_type: "human",
+                actor_id: "human:u-9",
+                action: "promote",
+                occurred_at: "2026-06-20T08:00:00Z",
+                after: {
+                  dedupe_outcome: "merged",
+                  trigger: "inbound_reply",
+                },
+              },
+            ],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({
+          data: filler,
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "This lead merged into a contact we already knew — no duplicate was created.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("says it cannot tell the outcome rather than guessing 'created'", async () => {
     // An empty, unreadable, or unrecognised audit row is not a merge and not a
     // creation. Reporting one would be a confident claim about something
