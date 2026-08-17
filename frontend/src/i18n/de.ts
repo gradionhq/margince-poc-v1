@@ -2624,12 +2624,12 @@ export const de = {
   // Die Einheiten dieser Installation, auf der Einstellungsseite, die bereits
   // die Art von Zugangsdaten trägt, mit der die jeweilige Einheit konfiguriert
   // wird.
-  "extUnits.user.title": "Ihre weiteren Konten",
+  "extUnits.user.title": "Deine weiteren Konten",
   "extUnits.user.sub":
-    "Konten, die diese Installation in Ihrem Namen verbinden kann. Jedes gehört Ihnen allein — niemand sonst sieht es, und ein Trennen betrifft nur Sie.",
+    "Konten, die diese Installation in deinem Namen verbinden kann. Jedes gehört dir allein — niemand sonst sieht es, und ein Trennen betrifft nur dich.",
   "extUnits.workspace.title": "Erweiterungen der Installation",
   "extUnits.workspace.sub":
-    "Erweiterungen, die diese Installation mit einem gemeinsamen Zugang betreibt. Was Sie hier einstellen, gilt für alle.",
+    "Erweiterungen, die diese Installation mit einem gemeinsamen Zugang betreibt. Was du hier einstellst, gilt für alle.",
 
   "connectors.title": "Verbundene Postfächer",
   "connectors.sub":
