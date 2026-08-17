@@ -324,6 +324,7 @@ const (
 	AddListMemberRequestEntityTypeLead         AddListMemberRequestEntityType = "lead"
 	AddListMemberRequestEntityTypeOrganization AddListMemberRequestEntityType = "organization"
 	AddListMemberRequestEntityTypePerson       AddListMemberRequestEntityType = "person"
+	AddListMemberRequestEntityTypeProject      AddListMemberRequestEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the AddListMemberRequestEntityType enum.
@@ -336,6 +337,8 @@ func (e AddListMemberRequestEntityType) Valid() bool {
 	case AddListMemberRequestEntityTypeOrganization:
 		return true
 	case AddListMemberRequestEntityTypePerson:
+		return true
+	case AddListMemberRequestEntityTypeProject:
 		return true
 	default:
 		return false
@@ -588,6 +591,7 @@ const (
 	ApplyTagRequestEntityTypeLead         ApplyTagRequestEntityType = "lead"
 	ApplyTagRequestEntityTypeOrganization ApplyTagRequestEntityType = "organization"
 	ApplyTagRequestEntityTypePerson       ApplyTagRequestEntityType = "person"
+	ApplyTagRequestEntityTypeProject      ApplyTagRequestEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ApplyTagRequestEntityType enum.
@@ -600,6 +604,8 @@ func (e ApplyTagRequestEntityType) Valid() bool {
 	case ApplyTagRequestEntityTypeOrganization:
 		return true
 	case ApplyTagRequestEntityTypePerson:
+		return true
+	case ApplyTagRequestEntityTypeProject:
 		return true
 	default:
 		return false
@@ -2904,6 +2910,7 @@ const (
 	CreateActivityRequestLinksEntityTypeLead         CreateActivityRequestLinksEntityType = "lead"
 	CreateActivityRequestLinksEntityTypeOrganization CreateActivityRequestLinksEntityType = "organization"
 	CreateActivityRequestLinksEntityTypePerson       CreateActivityRequestLinksEntityType = "person"
+	CreateActivityRequestLinksEntityTypeProject      CreateActivityRequestLinksEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateActivityRequestLinksEntityType enum.
@@ -2916,6 +2923,8 @@ func (e CreateActivityRequestLinksEntityType) Valid() bool {
 	case CreateActivityRequestLinksEntityTypeOrganization:
 		return true
 	case CreateActivityRequestLinksEntityTypePerson:
+		return true
+	case CreateActivityRequestLinksEntityTypeProject:
 		return true
 	default:
 		return false
@@ -3090,6 +3099,7 @@ const (
 	CreateListRequestEntityTypeLead         CreateListRequestEntityType = "lead"
 	CreateListRequestEntityTypeOrganization CreateListRequestEntityType = "organization"
 	CreateListRequestEntityTypePerson       CreateListRequestEntityType = "person"
+	CreateListRequestEntityTypeProject      CreateListRequestEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateListRequestEntityType enum.
@@ -3102,6 +3112,8 @@ func (e CreateListRequestEntityType) Valid() bool {
 	case CreateListRequestEntityTypeOrganization:
 		return true
 	case CreateListRequestEntityTypePerson:
+		return true
+	case CreateListRequestEntityTypeProject:
 		return true
 	default:
 		return false
@@ -3918,6 +3930,7 @@ const (
 	FilteredExportRequestObjectLead         FilteredExportRequestObject = "lead"
 	FilteredExportRequestObjectOrganization FilteredExportRequestObject = "organization"
 	FilteredExportRequestObjectPerson       FilteredExportRequestObject = "person"
+	FilteredExportRequestObjectProject      FilteredExportRequestObject = "project"
 )
 
 // Valid indicates whether the value is a known member of the FilteredExportRequestObject enum.
@@ -3930,6 +3943,8 @@ func (e FilteredExportRequestObject) Valid() bool {
 	case FilteredExportRequestObjectOrganization:
 		return true
 	case FilteredExportRequestObjectPerson:
+		return true
+	case FilteredExportRequestObjectProject:
 		return true
 	default:
 		return false
@@ -4398,6 +4413,7 @@ const (
 	ListEntityTypeLead         ListEntityType = "lead"
 	ListEntityTypeOrganization ListEntityType = "organization"
 	ListEntityTypePerson       ListEntityType = "person"
+	ListEntityTypeProject      ListEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListEntityType enum.
@@ -4410,6 +4426,8 @@ func (e ListEntityType) Valid() bool {
 	case ListEntityTypeOrganization:
 		return true
 	case ListEntityTypePerson:
+		return true
+	case ListEntityTypeProject:
 		return true
 	default:
 		return false
@@ -4440,6 +4458,7 @@ const (
 	ListMemberEntityTypeLead         ListMemberEntityType = "lead"
 	ListMemberEntityTypeOrganization ListMemberEntityType = "organization"
 	ListMemberEntityTypePerson       ListMemberEntityType = "person"
+	ListMemberEntityTypeProject      ListMemberEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListMemberEntityType enum.
@@ -4452,6 +4471,8 @@ func (e ListMemberEntityType) Valid() bool {
 	case ListMemberEntityTypeOrganization:
 		return true
 	case ListMemberEntityTypePerson:
+		return true
+	case ListMemberEntityTypeProject:
 		return true
 	default:
 		return false
@@ -8238,6 +8259,7 @@ const (
 	TaggableEntityTypeLead         TaggableEntityType = "lead"
 	TaggableEntityTypeOrganization TaggableEntityType = "organization"
 	TaggableEntityTypePerson       TaggableEntityType = "person"
+	TaggableEntityTypeProject      TaggableEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the TaggableEntityType enum.
@@ -8250,6 +8272,8 @@ func (e TaggableEntityType) Valid() bool {
 	case TaggableEntityTypeOrganization:
 		return true
 	case TaggableEntityTypePerson:
+		return true
+	case TaggableEntityTypeProject:
 		return true
 	default:
 		return false
@@ -9687,6 +9711,7 @@ const (
 	BookMeetingJSONBodyLinksEntityTypeLead         BookMeetingJSONBodyLinksEntityType = "lead"
 	BookMeetingJSONBodyLinksEntityTypeOrganization BookMeetingJSONBodyLinksEntityType = "organization"
 	BookMeetingJSONBodyLinksEntityTypePerson       BookMeetingJSONBodyLinksEntityType = "person"
+	BookMeetingJSONBodyLinksEntityTypeProject      BookMeetingJSONBodyLinksEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the BookMeetingJSONBodyLinksEntityType enum.
@@ -9699,6 +9724,8 @@ func (e BookMeetingJSONBodyLinksEntityType) Valid() bool {
 	case BookMeetingJSONBodyLinksEntityTypeOrganization:
 		return true
 	case BookMeetingJSONBodyLinksEntityTypePerson:
+		return true
+	case BookMeetingJSONBodyLinksEntityTypeProject:
 		return true
 	default:
 		return false
@@ -9969,6 +9996,7 @@ const (
 	ListListsParamsEntityTypeLead         ListListsParamsEntityType = "lead"
 	ListListsParamsEntityTypeOrganization ListListsParamsEntityType = "organization"
 	ListListsParamsEntityTypePerson       ListListsParamsEntityType = "person"
+	ListListsParamsEntityTypeProject      ListListsParamsEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListListsParamsEntityType enum.
@@ -9981,6 +10009,8 @@ func (e ListListsParamsEntityType) Valid() bool {
 	case ListListsParamsEntityTypeOrganization:
 		return true
 	case ListListsParamsEntityTypePerson:
+		return true
+	case ListListsParamsEntityTypeProject:
 		return true
 	default:
 		return false

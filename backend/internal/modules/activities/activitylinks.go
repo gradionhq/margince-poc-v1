@@ -20,9 +20,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// ActivityLinkInput ties one activity to a person, organization or deal.
+// ActivityLinkInput ties one activity to one record. Which record types are
+// admitted is linkTargets' answer, not a list restated here.
 type ActivityLinkInput struct {
-	EntityType string // person | organization | deal
+	EntityType string // one of linkTargets (activity_link_entity_type_check)
 	// note: the link target is polymorphic (activity_link is the canonical
 	// (entity_type, entity_id) seam), so the id stays untyped (rule 6).
 	EntityID ids.UUID

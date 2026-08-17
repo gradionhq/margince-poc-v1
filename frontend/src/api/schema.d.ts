@@ -13007,7 +13007,7 @@ export interface components {
             source_id?: string | null;
             links?: {
                 /** @enum {string} */
-                entity_type: "person" | "organization" | "deal" | "lead";
+                entity_type: "person" | "organization" | "deal" | "lead" | "project";
                 /** Format: uuid */
                 entity_id: string;
             }[];
@@ -13986,7 +13986,7 @@ export interface components {
             id: string;
             name: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /**
              * @default static
              * @enum {string}
@@ -14010,7 +14010,7 @@ export interface components {
         CreateListRequest: {
             name: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /**
              * @default static
              * @enum {string}
@@ -14030,7 +14030,7 @@ export interface components {
             /** Format: uuid */
             list_id: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /** Format: uuid */
             entity_id: string;
             added_by?: string;
@@ -14039,7 +14039,7 @@ export interface components {
         };
         AddListMemberRequest: {
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /** Format: uuid */
             entity_id: string;
         };
@@ -14074,7 +14074,7 @@ export interface components {
             /** Format: uuid */
             tag_id: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /** Format: uuid */
             entity_id: string;
             /** Format: date-time */
@@ -14082,7 +14082,7 @@ export interface components {
         };
         ApplyTagRequest: {
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /** Format: uuid */
             entity_id: string;
         };
@@ -14146,7 +14146,7 @@ export interface components {
              * @description The object type to filter-export; requires `filter`. Mutually exclusive with view_id/list_id.
              * @enum {string}
              */
-            object?: "person" | "organization" | "deal" | "lead";
+            object?: "person" | "organization" | "deal" | "lead" | "project";
             /** @description The canonical §13.5 predicate tree (nested and/or groups over typed leaves). Required with `object`. */
             filter?: {
                 [key: string]: unknown;
@@ -22131,7 +22131,7 @@ export interface operations {
                      */
                     links: {
                         /** @enum {string} */
-                        entity_type: "person" | "organization" | "deal" | "lead";
+                        entity_type: "person" | "organization" | "deal" | "lead" | "project";
                         /** Format: uuid */
                         entity_id: string;
                     }[];
@@ -23219,7 +23219,7 @@ export interface operations {
     listLists: {
         parameters: {
             query?: {
-                entity_type?: "person" | "organization" | "deal" | "lead";
+                entity_type?: "person" | "organization" | "deal" | "lead" | "project";
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
             };
