@@ -4,8 +4,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { EntityKind } from "../app/entity";
-import { throwProblem, useSorMode } from "../screens/common";
 import { entityTimelineKeys } from "../screens/activitykeys";
+import { throwProblem, useSorMode } from "../screens/common";
 
 /**
  * useRecordTimeline reads the activities linked to ONE record, for the

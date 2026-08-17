@@ -436,7 +436,14 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
       screen.getByRole("button", { name: "Promote to contact" }),
     ).toBeTruthy();
     expect(screen.getByText("Score: 72")).toBeTruthy();
-    expect(screen.getByText("working")).toBeTruthy();
+    // The badge and the status control now read the SAME word, which is the
+    // point: a German reader saw "In Bearbeitung" on the chip and the raw
+    // enum "working" in the cell. The badge is the one asserted here.
+    expect(
+      screen
+        .getAllByText("Working")
+        .some((el) => el.classList.contains("badge")),
+    ).toBe(true);
     expect(screen.getByText("Nordwind Logistik")).toBeTruthy();
   });
 });
@@ -820,7 +827,9 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Assign" }),
     );
-    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Assign this lead to" }),
+    );
     await userEvent.click(
       await screen.findByRole("option", { name: "Assign to me" }),
     );
@@ -923,7 +932,11 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     });
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    await waitFor(() =>
+      // Two elements legitimately say "Disqualified" now — the status badge
+      // and the terminal badge — so the wait names the badge it meant.
+      expect(screen.getAllByText("Disqualified").length).toBeGreaterThan(0),
+    );
     // The tab bar is navigation, not mutation; everything else must be dead.
     const navigation = new Set(["Overview", "History"]);
     for (const button of screen.getAllByRole("button")) {
@@ -951,7 +964,11 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     );
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    await waitFor(() =>
+      // Two elements legitimately say "Disqualified" now — the status badge
+      // and the terminal badge — so the wait names the badge it meant.
+      expect(screen.getAllByText("Disqualified").length).toBeGreaterThan(0),
+    );
     const reason = "Disqualified — this lead is now read-only.";
     for (const testId of ["edit-record", "archive-record"]) {
       const control = screen.getByTestId(testId) as HTMLButtonElement;
@@ -1134,7 +1151,9 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     // The listbox is opened ONCE and the option awaited inside it: clicking
     // the trigger again would toggle it shut, and the popup re-renders in
     // place when the roster lands.
-    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Assign this lead to" }),
+    );
     await userEvent.click(
       await screen.findByRole("option", { name: "Dana Fischer" }),
     );

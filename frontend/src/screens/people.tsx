@@ -4,8 +4,8 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
-import { Badge, SegmentedControl } from "../design-system/atoms";
 import { activityTimeline } from "../design-system/activitytimeline";
+import { Badge, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { ProvenanceTag } from "../design-system/trust";
@@ -506,10 +506,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 {person.converted_from_lead_id && (
                   <Badge tone="accent">
                     {t("person.fromLead")}{" "}
-                    <EntityRef
-                      kind="lead"
-                      id={person.converted_from_lead_id}
-                    />
+                    <EntityRef kind="lead" id={person.converted_from_lead_id} />
                   </Badge>
                 )}
                 {person.archived_at ? (

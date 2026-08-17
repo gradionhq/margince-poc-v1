@@ -5,6 +5,7 @@ import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { isOption } from "../app/options";
 import { navigate } from "../app/router";
+import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Badge,
   Button,
@@ -39,14 +40,13 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab } from "./history";
-import { LogActivity } from "./logactivity";
 import {
   type ListPage,
   type ListQuery,
   ListTable,
   useListQuery,
 } from "./listquery";
-import { activityTimeline } from "../design-system/activitytimeline";
+import { LogActivity } from "./logactivity";
 import { ShareAction } from "./share";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the

@@ -32,12 +32,10 @@ const TIMELINE_KINDS: readonly TimelineEntry["kind"][] = [
   "message",
 ];
 
-
 function timelineKind(kind: string): TimelineEntry["kind"] {
   const known = TIMELINE_KINDS.find((candidate) => candidate === kind);
   return known ?? "note";
 }
-
 
 // A timeline row is one line, so a body used as its title has its whitespace
 // collapsed and is cut at this many characters.
@@ -72,15 +70,18 @@ function timelineTitle(activity: Activity): string {
     : body;
 }
 
-
 export function activityTimeline(
-  activities: Activity[],
+  // Optional because a 200 with no body is a shape the contract permits and
+  // the mirror actually returns: `isSuccess` is true while `data.data` is
+  // undefined, and a caller that trusted the flag crashed the record page it
+  // was rendering. An absent list is an empty timeline, not an error.
+  activities: Activity[] | undefined,
   // Who is reading, so a row this user logged reads as theirs and a
   // colleague's does not. Absent while the session is still resolving.
   viewerUserId?: string,
   renderActions?: (activity: Activity) => ReactNode,
 ): TimelineEntry[] {
-  return activities.map((activity) => ({
+  return (activities ?? []).map((activity) => ({
     id: activity.id,
     kind: timelineKind(activity.kind),
     title: timelineTitle(activity),
@@ -106,4 +107,3 @@ export function activityTimeline(
     actions: renderActions?.(activity),
   }));
 }
-
