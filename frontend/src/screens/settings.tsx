@@ -88,6 +88,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { ExtensionAccessCard } from "./extension-access";
+import { ExtensionUnitsCard } from "./extension-units";
 import { ImportCard } from "./import";
 import { InstallationSettingsCard } from "./installation-settings";
 import { ProviderCard } from "./integrations-provider";
@@ -298,6 +299,12 @@ function ConnectionsTab() {
           proposals live in the approvals inbox. This shows what the import
           bought — which accounts the network reaches. */}
       <LinkedInReachCard />
+      {/* Last, and only when the installation composed a unit whose credential
+          is the member's OWN — that is what a `user`-scoped secret is, and it
+          is the same thing every card above it holds. A unit is offered here
+          rather than from the rail because enabling one adds something to
+          configure, not a destination. */}
+      <ExtensionUnitsCard scope="user" />
     </>
   );
 }
@@ -321,6 +328,12 @@ function IntegrationsTab() {
           OverlayCard renders its connect form and the rest stays quiet. */}
       <OverlayCard />
       <MirrorUserMapCard />
+      {/* The other half of the units split: a unit whose secret is
+          `workspace`-scoped holds the INSTALLATION's credential, like the four
+          cards above it, so it is offered here and not on a member's own
+          Connections page. Which page a unit lands on is its manifest's
+          decision, never this file's. */}
+      <ExtensionUnitsCard scope="workspace" />
     </>
   );
 }

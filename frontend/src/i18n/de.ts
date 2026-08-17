@@ -85,8 +85,6 @@ export const de = {
   "nav.group.records": "Datensätze",
   "nav.group.work": "Arbeit",
   "nav.group.intelligence": "Auswertung",
-  "nav.group.units": "Einheiten",
-  "nav.units.entry": "Einheit",
   "nav.dedupe": "Duplikate",
   "nav.offers": "Angebot",
   "nav.share": "Freigabe",
@@ -2623,6 +2621,16 @@ export const de = {
     "Zuletzt aktualisiert vor {duration} — kein aktueller Fortschritt.",
 
   // Connected inboxes (Einstellungen → Verbindungen).
+  // Die Einheiten dieser Installation, auf der Einstellungsseite, die bereits
+  // die Art von Zugangsdaten trägt, mit der die jeweilige Einheit konfiguriert
+  // wird.
+  "extUnits.user.title": "Ihre weiteren Konten",
+  "extUnits.user.sub":
+    "Konten, die diese Installation in Ihrem Namen verbinden kann. Jedes gehört Ihnen allein — niemand sonst sieht es, und ein Trennen betrifft nur Sie.",
+  "extUnits.workspace.title": "Erweiterungen der Installation",
+  "extUnits.workspace.sub":
+    "Erweiterungen, die diese Installation mit einem gemeinsamen Zugang betreibt. Was Sie hier einstellen, gilt für alle.",
+
   "connectors.title": "Verbundene Postfächer",
   "connectors.sub":
     "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",

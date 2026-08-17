@@ -82,8 +82,6 @@ export const en = {
   "nav.group.records": "Records",
   "nav.group.work": "Work",
   "nav.group.intelligence": "Intelligence",
-  "nav.group.units": "Units",
-  "nav.units.entry": "Unit",
   "nav.dedupe": "Duplicates",
   "nav.offers": "Offer",
   "nav.share": "Sharing",
@@ -2610,6 +2608,17 @@ export const en = {
   "backfill.narrowingNote":
     "A wider window already ran for this mailbox; the import window can only be widened, not narrowed.",
   "backfill.staleUpdated": "Last updated {duration} ago — no recent progress.",
+
+  // The units an installation composed, offered on the settings page that
+  // already holds the kind of credential each one is configured with. The two
+  // headings differ because the two pages mean different things — one is your
+  // own account somewhere, the other is the installation's.
+  "extUnits.user.title": "Your other accounts",
+  "extUnits.user.sub":
+    "Accounts this installation can connect on your behalf. Each one is yours alone — nobody else sees it, and disconnecting it affects only you.",
+  "extUnits.workspace.title": "Installation add-ons",
+  "extUnits.workspace.sub":
+    "Add-ons this installation runs with one shared credential. What you set here applies to everybody.",
 
   // Connected inboxes (Settings → Connections): the "manage in Settings"
   // surface the onboarding copy promises.

@@ -19,7 +19,11 @@ import DispactConnectorScreen from "./screen";
 const FULL_GRANT = {
   seat_type: "full",
   objects: {
-    ext_dispact_connector_connection: { read: true, update: true, delete: true },
+    ext_dispact_connector_connection: {
+      read: true,
+      update: true,
+      delete: true,
+    },
   },
 };
 
@@ -148,12 +152,17 @@ describe("the Dispact connector screen", () => {
 
     renderScreen();
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Dispact URL"), "https://workspace.example.com");
+    await user.type(
+      await screen.findByLabelText("Dispact URL"),
+      "https://workspace.example.com",
+    );
     await user.type(screen.getByLabelText("Access token"), "pat_secret");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
     await waitFor(() => {
-      const connect = calls.find((call) => call.path === "/ext/dispact-connector/connect");
+      const connect = calls.find(
+        (call) => call.path === "/ext/dispact-connector/connect",
+      );
       expect(connect?.method).toBe("PUT");
       expect(connect?.body).toEqual({
         base_url: "https://workspace.example.com",
@@ -163,7 +172,9 @@ describe("the Dispact connector screen", () => {
     // The token field is cleared whatever happened, so a live credential is not
     // left sitting in a form field on an unattended screen.
     await waitFor(() => {
-      expect((screen.getByLabelText("Access token") as HTMLInputElement).value).toBe("");
+      expect(
+        (screen.getByLabelText("Access token") as HTMLInputElement).value,
+      ).toBe("");
     });
   });
 
@@ -183,7 +194,10 @@ describe("the Dispact connector screen", () => {
 
     renderScreen();
     const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("Dispact URL"), "https://workspace.example.com");
+    await user.type(
+      await screen.findByLabelText("Dispact URL"),
+      "https://workspace.example.com",
+    );
     await user.type(screen.getByLabelText("Access token"), "pat_secret");
     await user.click(screen.getByRole("button", { name: "Connect" }));
 
@@ -199,7 +213,10 @@ describe("the Dispact connector screen", () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/dispact-connector/status": () => ({
         connected: true,
-        connection: { ...CONNECTED.connection, token: "pat_leaked_by_the_server" },
+        connection: {
+          ...CONNECTED.connection,
+          token: "pat_leaked_by_the_server",
+        },
       }),
     });
     vi.stubGlobal("fetch", vi.fn(fetchStub));
@@ -265,8 +282,110 @@ describe("the Dispact connector screen", () => {
     vi.stubGlobal("fetch", vi.fn(fetchStub));
 
     renderScreen();
-    expect(await screen.findByText(/have not been granted access/)).toBeTruthy();
-    expect(calls.filter((call) => call.path.startsWith("/ext/"))).toHaveLength(0);
+    expect(
+      await screen.findByText(/have not been granted access/),
+    ).toBeTruthy();
+    expect(calls.filter((call) => call.path.startsWith("/ext/"))).toHaveLength(
+      0,
+    );
+  });
+
+  // A deposited credential must LOOK deposited. An empty enabled token box
+  // beside a working connection reads as "no token set", which is the one
+  // thing it is not, and what it invites is pasting over a credential that is
+  // already polling.
+  it("shows a stored token as stored, and refuses to be typed into", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/dispact-connector/status": () => CONNECTED,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await screen.findByText("Connected");
+    const token = screen.getByLabelText("Access token") as HTMLInputElement;
+    expect(token.disabled).toBe(true);
+    expect(token.value).not.toBe("");
+    expect(screen.getByText(/A token is stored/)).toBeTruthy();
+    // And the stored deployment is the one on screen, not the example: a
+    // connected account whose URL renders as a placeholder states that nothing
+    // is set.
+    expect(
+      (screen.getByLabelText("Dispact URL") as HTMLInputElement).value,
+    ).toBe("https://workspace.example.com");
+    // Depositing is the only edit `PUT /connect` can express, so the deposit
+    // button is not offered while a credential is in place.
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
+  });
+
+  // The mask is not the token, and it is not the token's LENGTH either — a
+  // field sized to the secret publishes how long it is.
+  it("masks a stored token without echoing it or its length", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/dispact-connector/status": () => ({
+        connected: true,
+        connection: {
+          ...CONNECTED.connection,
+          token: "pat_leaked_by_the_server",
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await screen.findByText("Connected");
+    const token = screen.getByLabelText("Access token") as HTMLInputElement;
+    expect(token.value).toBe("••••••••••••");
+    expect(token.value).not.toContain("pat_leaked_by_the_server");
+  });
+
+  it("opens an empty token field when the member asks to replace one", async () => {
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/dispact-connector/status": () => CONNECTED,
+      "/ext/dispact-connector/connect": () => CONNECTED.connection,
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await screen.findByText("Connected");
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Replace token" }));
+
+    const token = screen.getByLabelText("Access token") as HTMLInputElement;
+    expect(token.disabled).toBe(false);
+    // Empty, never the mask: a member who typed after the mask would send it.
+    expect(token.value).toBe("");
+
+    await user.type(token, "pat_rotated");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
+
+    // The stored deployment travels with the new token — the contract requires
+    // both on every call, so a replacement that dropped the URL would move the
+    // account to an empty one.
+    await waitFor(() => {
+      const connect = calls.find(
+        (call) => call.path === "/ext/dispact-connector/connect",
+      );
+      expect(connect?.body).toEqual({
+        base_url: "https://workspace.example.com",
+        token: "pat_rotated",
+      });
+    });
+  });
+
+  // A read that has said nothing yet must not draw a deposit form: an empty
+  // form claims "not connected" before anything established it, and that claim
+  // is the one that gets a working credential overwritten.
+  it("offers no deposit form until the status read has answered", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/dispact-connector/status": () => ({ something_else: true }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await waitFor(() => {
+      expect(screen.queryByLabelText("Access token")).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
   });
 
   // A body this screen cannot read is an error, not "not connected" — the

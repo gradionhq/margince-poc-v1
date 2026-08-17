@@ -1,5 +1,11 @@
 import { api, QueryStates, throwProblem } from "@margince/frontend/api";
-import { formatDateTime, useCan, useCanWrite, useLocale, useT } from "@margince/frontend/app";
+import {
+  formatDateTime,
+  useCan,
+  useCanWrite,
+  useLocale,
+  useT,
+} from "@margince/frontend/app";
 import {
   Badge,
   Button,
@@ -8,7 +14,12 @@ import {
   SectionHeader,
   TextInput,
 } from "@margince/frontend/design-system";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type UseMutationResult,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useState } from "react";
 
 // #/ext/dispact-connector — the one screen a member uses to connect their
@@ -50,6 +61,17 @@ const CONNECTION_OBJECT = "ext_dispact_connector_connection";
  * two minutes at most.
  */
 const STATUS_POLL_MS = 20_000;
+
+/**
+ * What the token field shows when one is deposited.
+ *
+ * Bullets rather than a sentence, and a FIXED count rather than the token's
+ * own length: the field's job here is to look like a filled field, and one
+ * that grew with the secret would publish how long it is. The words that say
+ * what this means are the field's hint, which is copy and translates; a row of
+ * bullets is not language and does not.
+ */
+const STORED_TOKEN_MASK = "••••••••••••";
 
 type Connection = {
   id: string;
@@ -93,7 +115,9 @@ function useConnectionStatus(enabled: boolean) {
     refetchInterval: STATUS_POLL_MS,
     queryKey: ["ext", "dispact-connector", "status"],
     queryFn: async () => {
-      const { data, error, response } = await api.GET("/ext/dispact-connector/status");
+      const { data, error, response } = await api.GET(
+        "/ext/dispact-connector/status",
+      );
       if (error || !response.ok) {
         throwProblem(error);
       }
@@ -105,7 +129,10 @@ function useConnectionStatus(enabled: boolean) {
       if (typeof data?.connected !== "boolean") {
         throw new Error("the connection status carried no `connected` field");
       }
-      return { connected: data.connected, connection: data.connection as Connection | undefined };
+      return {
+        connected: data.connected,
+        connection: data.connection as Connection | undefined,
+      };
     },
   });
 }
@@ -127,14 +154,15 @@ function ConnectionCard() {
   const canConnect = useCanWrite(CONNECTION_OBJECT, "update");
   const canDisconnect = useCanWrite(CONNECTION_OBJECT, "delete");
   const status = useConnectionStatus(canRead);
-  const [baseURL, setBaseURL] = useState("");
-  const [token, setToken] = useState("");
 
   const connect = useMutation({
-    mutationFn: async () => {
-      const { error, response } = await api.PUT("/ext/dispact-connector/connect", {
-        body: { base_url: baseURL.trim(), token: token.trim() },
-      });
+    mutationFn: async (deposit: { baseURL: string; token: string }) => {
+      const { error, response } = await api.PUT(
+        "/ext/dispact-connector/connect",
+        {
+          body: { base_url: deposit.baseURL, token: deposit.token },
+        },
+      );
       if (error || !response.ok) {
         throwProblem(error);
       }
@@ -142,24 +170,27 @@ function ConnectionCard() {
     // onSettled rather than onSuccess: a request that failed did not
     // necessarily fail to CONNECT — a response lost on the way back leaves the
     // credential deposited while the client sees an error. The screen re-reads
-    // rather than asserting a rollback it cannot know about, and the token
-    // input is cleared either way so a live credential is not left sitting in
-    // a form field.
+    // rather than asserting a rollback it cannot know about.
     onSettled: async () => {
-      setToken("");
-      await queryClient.invalidateQueries({ queryKey: ["ext", "dispact-connector", "status"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["ext", "dispact-connector", "status"],
+      });
     },
   });
 
   const disconnect = useMutation({
     mutationFn: async () => {
-      const { error, response } = await api.DELETE("/ext/dispact-connector/disconnect");
+      const { error, response } = await api.DELETE(
+        "/ext/dispact-connector/disconnect",
+      );
       if (error || !response.ok) {
         throwProblem(error);
       }
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["ext", "dispact-connector", "status"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["ext", "dispact-connector", "status"],
+      });
     },
   });
 
@@ -183,48 +214,46 @@ function ConnectionCard() {
           member's account that the read did not establish. */}
       <QueryStates query={status}>
         {status.data?.connected && status.data.connection ? (
-          <ConnectionState connection={status.data.connection} locale={locale} zone={zone} />
+          <ConnectionState
+            connection={status.data.connection}
+            locale={locale}
+            zone={zone}
+          />
         ) : (
           <p>
-            <Badge tone="warn">{t("extDispactConnector.connection.absent")}</Badge>
+            <Badge tone="warn">
+              {t("extDispactConnector.connection.absent")}
+            </Badge>
           </p>
         )}
       </QueryStates>
 
-      {canConnect ? (
+      {/* Only once the read has ANSWERED. An empty deposit form drawn while
+          the status is still in flight says "nothing is connected" before
+          anything has established that, and what it invites is pasting a token
+          over a connection that is already working. `status.data` is undefined
+          for both the in-flight and the failed read, which are exactly the two
+          states with nothing to say about the member's account. */}
+      {canConnect && status.data ? (
         <>
-          <Field label={t("extDispactConnector.connection.baseUrlLabel")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                value={baseURL}
-                placeholder="https://workspace.example.com"
-                onChange={(event) => setBaseURL(event.target.value)}
-              />
-            )}
-          </Field>
-          <Field label={t("extDispactConnector.connection.tokenLabel")}>
-            {(control) => (
-              <TextInput
-                {...control}
-                type="password"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-              />
-            )}
-          </Field>
-          <Button
-            disabled={baseURL.trim() === "" || token.trim() === "" || connect.isPending}
-            onClick={() => connect.mutate()}
-          >
-            {t("extDispactConnector.connection.connect")}
-          </Button>
+          {/* Keyed by the connection it was opened over, so the fields'
+              starting values come from that record and are re-seeded when it
+              changes. Deriving them at render instead would need a second rule
+              for "edited" versus "as stored", and the two readings would
+              disagree the first time a member cleared the field. */}
+          <CredentialForm
+            key={status.data.connection?.id ?? "absent"}
+            connection={status.data.connection}
+            connect={connect}
+          />
           {/* role="alert", as QueryStates gives a read failure: a mutation
               failure appears AFTER the press that caused it, so a screen
               reader that is not on this element announces nothing and the
               member is left believing the account connected. */}
           {connect.isError ? (
-            <p role="alert">{t("extDispactConnector.connection.connectFailed")}</p>
+            <p role="alert">
+              {t("extDispactConnector.connection.connectFailed")}
+            </p>
           ) : null}
         </>
       ) : null}
@@ -239,11 +268,120 @@ function ConnectionCard() {
             {t("extDispactConnector.connection.disconnect")}
           </Button>
           {disconnect.isError ? (
-            <p role="alert">{t("extDispactConnector.connection.disconnectFailed")}</p>
+            <p role="alert">
+              {t("extDispactConnector.connection.disconnectFailed")}
+            </p>
           ) : null}
         </>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * What a member fills in to connect, and what they see once something is
+ * already deposited.
+ *
+ * A STORED TOKEN IS NEVER RENDERED — no operation returns it, masked or
+ * otherwise — so the field says that one EXISTS rather than what it is, and it
+ * is disabled while it does: an enabled empty box beside a working connection
+ * reads as "no token set", which is the one thing it is not, and it invites
+ * pasting over a credential that is already polling.
+ *
+ * Disabled rather than merely read-only because there is no partial edit to
+ * make. `PUT /connect` requires `token` on every call, so the only change this
+ * contract can express is a whole replacement — which is what the button says,
+ * in the words of what it does.
+ */
+function CredentialForm({
+  connection,
+  connect,
+}: Readonly<{
+  connection?: Connection;
+  connect: UseMutationResult<void, Error, { baseURL: string; token: string }>;
+}>) {
+  const t = useT();
+  // Seeded from the stored connection rather than left empty: a connected
+  // account whose deployment URL renders as the example placeholder states
+  // that nothing is set. The component is keyed on the connection, so this
+  // initial value is re-taken whenever that record changes.
+  const [baseURL, setBaseURL] = useState(connection?.base_url ?? "");
+  const [token, setToken] = useState("");
+  // Whether the member has asked to put a NEW credential in. A connection that
+  // exists starts closed: the commonest reason to open this screen is to read
+  // how far the poll has got, not to re-paste a token that works.
+  const [replacing, setReplacing] = useState(false);
+  const depositing = connection === undefined || replacing;
+
+  const submit = () =>
+    connect.mutate(
+      { baseURL: baseURL.trim(), token: token.trim() },
+      {
+        // The token is cleared whatever the outcome, so a live credential is
+        // never left sitting in a form field — the rule the parent's onSettled
+        // used to carry. The form closes only on a SUCCESS, because a failure
+        // the member can still read is a failure they can still act on.
+        onSettled: () => setToken(""),
+        onSuccess: () => setReplacing(false),
+      },
+    );
+
+  return (
+    <>
+      <Field label={t("extDispactConnector.connection.baseUrlLabel")}>
+        {(control) => (
+          <TextInput
+            {...control}
+            value={baseURL}
+            disabled={!depositing}
+            placeholder="https://workspace.example.com"
+            onChange={(event) => setBaseURL(event.target.value)}
+          />
+        )}
+      </Field>
+      <Field
+        label={t("extDispactConnector.connection.tokenLabel")}
+        hint={
+          depositing
+            ? undefined
+            : t("extDispactConnector.connection.tokenStored")
+        }
+      >
+        {(control) =>
+          depositing ? (
+            <TextInput
+              {...control}
+              type="password"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+            />
+          ) : (
+            // The mask is a fixed width and not the token's own length: a
+            // field that grew with the secret would leak how long it is.
+            <TextInput
+              {...control}
+              value={STORED_TOKEN_MASK}
+              disabled
+              readOnly
+            />
+          )
+        }
+      </Field>
+      {depositing ? (
+        <Button
+          disabled={
+            baseURL.trim() === "" || token.trim() === "" || connect.isPending
+          }
+          onClick={submit}
+        >
+          {t("extDispactConnector.connection.connect")}
+        </Button>
+      ) : (
+        <Button variant="ghost" onClick={() => setReplacing(true)}>
+          {t("extDispactConnector.connection.replaceToken")}
+        </Button>
+      )}
+    </>
   );
 }
 
@@ -271,9 +409,13 @@ function ConnectionState({
     <>
       <p>
         {parked ? (
-          <Badge tone="warn">{t("extDispactConnector.connection.parked")}</Badge>
+          <Badge tone="warn">
+            {t("extDispactConnector.connection.parked")}
+          </Badge>
         ) : (
-          <Badge tone="success">{t("extDispactConnector.connection.connected")}</Badge>
+          <Badge tone="success">
+            {t("extDispactConnector.connection.connected")}
+          </Badge>
         )}{" "}
         {connection.account_label}
       </p>

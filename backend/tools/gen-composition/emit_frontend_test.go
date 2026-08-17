@@ -42,8 +42,11 @@ func TestVanillaFrontendRegistryIsAnEmptyArray(t *testing.T) {
 	}
 }
 
-func composedFixture() ([]extensionUnit, []declaredVerb) {
-	units := []extensionUnit{{Name: "alpha"}, {Name: "beta"}}
+func composedFixture() ([]derivedManifest, []declaredVerb) {
+	units := []derivedManifest{
+		{Unit: extensionUnit{Name: "alpha"}},
+		{Unit: extensionUnit{Name: "beta"}},
+	}
 	verbs := []declaredVerb{
 		{verb: extension.Verb{
 			Unit: "alpha", OperationID: "alphaSync", Route: "/ext/alpha/sync",
@@ -101,9 +104,37 @@ func TestFrontendRegistryCarriesEveryDeclaredVerbUnderItsUnit(t *testing.T) {
 // SPA's not-found card is a claim that the unit is not ENABLED, and it would
 // be a lie for a unit that is.
 func TestAUnitWithNoVerbsStillReachesTheRegistry(t *testing.T) {
-	got := string(frontendGen([]extensionUnit{{Name: "de"}}, nil))
-	if !strings.Contains(got, "    name: \"de\",\n    verbs: [\n    ],\n") {
+	got := string(frontendGen([]derivedManifest{{Unit: extensionUnit{Name: "de"}}}, nil))
+	if !strings.Contains(got, "    name: \"de\",\n    secretScope: \"\",\n    verbs: [\n    ],\n") {
 		t.Fatalf("a verb-less unit is missing or malformed:\n%s", got)
+	}
+}
+
+// The secret scope the SPA places a unit's settings entry by. It is emitted
+// for every unit, the one declaring no secret included — the empty string is
+// read as "this unit has no credential to manage" and offers it on neither
+// page, and a field that was simply absent would be indistinguishable from a
+// registry generated before the field existed.
+func TestFrontendRegistryCarriesTheDeclaredSecretScope(t *testing.T) {
+	got := string(frontendGen([]derivedManifest{
+		{
+			Unit:     extensionUnit{Name: "dispact-connector"},
+			Manifest: unitManifest{Secrets: []secretsRequest{{Key: "api-token", Scope: "user"}}},
+		},
+		{
+			Unit:     extensionUnit{Name: "notes"},
+			Manifest: unitManifest{Secrets: []secretsRequest{{Key: "signing", Scope: "workspace"}}},
+		},
+		{Unit: extensionUnit{Name: "yogi"}},
+	}, nil))
+	for _, want := range []string{
+		"    name: \"dispact-connector\",\n    secretScope: \"user\",\n",
+		"    name: \"notes\",\n    secretScope: \"workspace\",\n",
+		"    name: \"yogi\",\n    secretScope: \"\",\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, got)
+		}
 	}
 }
 
@@ -115,7 +146,7 @@ func TestAUnitWithNoVerbsStillReachesTheRegistry(t *testing.T) {
 func TestFrontendRegistryEscapesDeclaredText(t *testing.T) {
 	hostile := "\" + (() => { fetch(\"//evil\") })() + \"\n\\"
 	got := string(frontendGen(
-		[]extensionUnit{{Name: "alpha"}},
+		[]derivedManifest{{Unit: extensionUnit{Name: "alpha"}}},
 		[]declaredVerb{{verb: extension.Verb{Unit: "alpha", Title: hostile}}},
 	))
 	encoded, err := json.Marshal(hostile)

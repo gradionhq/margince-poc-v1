@@ -4,26 +4,12 @@
 import { describe, expect, it } from "vitest";
 import { railTrail } from "./nav";
 
-describe("the composed units group", () => {
-  const notes = {
-    name: "notes",
-    verbs: [
-      {
-        operationId: "notesList",
-        route: "/ext/notes/list",
-        method: "GET",
-        title: "List notes",
-        version: "1.0.0",
-        rbacObject: "ext_notes_note",
-      },
-    ],
-  };
-
-  // The vanilla tree composes none, which is why the pinned Records / Work /
-  // Intelligence order needed no revising — and why a test that only looked at
-  // the default lane would never see this group at all.
-  it("is absent when the installation composed no unit", () => {
-    const [primary] = railTrail({ screen: "home" }, undefined, []);
+describe("the rail and a composed unit", () => {
+  // The product's own destinations, and no group an installation can add to.
+  // A unit had a group here once; the composed set is no longer an input to
+  // this level at all, which is what the missing argument to railTrail says.
+  it("carries only the groups the product names", () => {
+    const [primary] = railTrail({ screen: "home" });
     expect(primary.groups.map((group) => group.headingKey)).toEqual([
       undefined,
       "nav.group.records",
@@ -32,60 +18,26 @@ describe("the composed units group", () => {
     ]);
   });
 
-  it("is the LAST group, after the ten the product names", () => {
-    const [primary] = railTrail({ screen: "home" }, undefined, [notes]);
-    const headings = primary.groups.map((group) => group.headingKey);
-    expect(headings.at(-1)).toBe("nav.group.units");
-    expect(headings.slice(0, -1)).toEqual([
-      undefined,
-      "nav.group.records",
-      "nav.group.work",
-      "nav.group.intelligence",
-    ]);
+  // The regression the rail row used to prevent, now prevented differently: a
+  // unit screen still has no row of its own, so without an answer here the
+  // rail would mark nothing current and the page would read as if it sat
+  // outside the app. Settings is where the unit is offered and where the
+  // reader came from.
+  it("marks Settings current on a unit's route", () => {
+    const [primary] = railTrail({ screen: "ext", id: "notes" });
+    expect(primary.activeId).toBe("settings");
   });
 
-  it("names each row by the unit and routes it under #/ext", () => {
-    const [primary] = railTrail({ screen: "home" }, undefined, [notes]);
-    const units = primary.groups.at(-1);
-    expect(units?.items).toHaveLength(1);
-    // The unit's own text, not a translated key: an installation's surface is
-    // named by the installation.
-    expect(units?.items[0].label).toBe("notes");
-    expect(units?.items[0].id).toBe("ext/notes");
-  });
-
-  it("gives a unit one row however many verbs it publishes", () => {
-    const [primary] = railTrail({ screen: "home" }, undefined, [
-      {
-        ...notes,
-        verbs: [...notes.verbs, { ...notes.verbs[0], operationId: "notesAdd" }],
-      },
-    ]);
-    expect(primary.groups.at(-1)?.items).toHaveLength(1);
-  });
-
-  // A unit's screen is a destination, never a badge or a phone-bar slot: what
-  // wants a person's attention is the product's judgement, and it cannot make
-  // one for a surface it did not write.
-  it("claims no badge and no phone-bar slot", () => {
-    const [primary] = railTrail({ screen: "home" }, undefined, [notes]);
-    expect(primary.badgeIds?.has("ext/notes")).toBe(false);
-    expect(primary.barIds?.has("ext/notes")).toBe(false);
-  });
-
-  // The route a unit screen dispatches on is {screen: "ext", id: "<unit>"},
-  // while its row's id is "ext/<unit>". A level whose active row is the
-  // route's SCREEN marks nothing current on the only routes this group exists
-  // for — no aria-current, no active styling, on every unit page.
-  it("marks the unit's own row current on that unit's route", () => {
-    const [primary] = railTrail({ screen: "ext", id: "notes" }, undefined, [
-      notes,
-    ]);
-    expect(primary.activeId).toBe("ext/notes");
+  // Including the malformed one: `#/ext` with no unit renders the not-found
+  // surface, and a reader who typed it is still somewhere in Settings' world
+  // rather than nowhere.
+  it("marks Settings current on a unit route naming no unit", () => {
+    const [primary] = railTrail({ screen: "ext" });
+    expect(primary.activeId).toBe("settings");
   });
 
   it("leaves the product's rows marking themselves", () => {
-    const [primary] = railTrail({ screen: "deals" }, undefined, [notes]);
+    const [primary] = railTrail({ screen: "deals" });
     expect(primary.activeId).toBe("deals");
   });
 });

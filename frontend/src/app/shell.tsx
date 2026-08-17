@@ -676,7 +676,7 @@ function SectionPickGroup({
           onClick={onPick}
         >
           <entry.icon size={16} aria-hidden />
-          {entry.label ?? t(entry.labelKey)}
+          {t(entry.labelKey)}
         </a>
       ))}
     </div>
@@ -708,7 +708,7 @@ function SectionSwitcher({
   const [open, setOpen] = useState(false);
   const titleId = useId();
   const close = useCallback(() => setOpen(false), []);
-  const label = entry.label ?? t(entry.labelKey);
+  const label = t(entry.labelKey);
   return (
     <>
       <button
@@ -786,9 +786,7 @@ export function PageHead({
   // else on screen says which section this page belongs to: the pair swaps, the
   // heading names the section, and the switcher under it names the entry and
   // opens the others. Each of the two is still named exactly once.
-  const entryTitle = inSection
-    ? (inSection.entry.label ?? t(inSection.entry.labelKey))
-    : undefined;
+  const entryTitle = inSection ? t(inSection.entry.labelKey) : undefined;
   const sectionTitle =
     phone && inSection ? t(inSection.section.titleKey) : undefined;
   const title =

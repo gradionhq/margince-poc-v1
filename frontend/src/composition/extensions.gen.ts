@@ -34,6 +34,20 @@ export type ExtensionVerbDescriptor = {
 export type ExtensionDescriptor = {
   readonly name: string;
   readonly verbs: readonly ExtensionVerbDescriptor[];
+  /**
+   * The scope the unit's declared secrets ask for, or "" when it declares
+   * none. A unit spanning both scopes is refused at generation time, so this
+   * answers for every secret the unit has rather than for one of them.
+   *
+   * It is what decides where the unit is offered in Settings: "user" is one
+   * member's own credential and belongs on their Connections page, "workspace"
+   * is the installation's and belongs under Integrations, and "" is a unit
+   * with nothing for either page to manage. A plain string union rather than a
+   * derived flag, because the two values are the two the manifest already
+   * publishes and the SPA should be reading the same vocabulary an operator
+   * reads.
+   */
+  readonly secretScope: "user" | "workspace" | "";
 };
 
 export const extensions: readonly ExtensionDescriptor[] = [];

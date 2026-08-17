@@ -130,38 +130,73 @@ export type ExtensionVerbDescriptor = {
 export type ExtensionDescriptor = {
   readonly name: string;
   readonly verbs: readonly ExtensionVerbDescriptor[];
+  /**
+   * The scope the unit's declared secrets ask for, or "" when it declares
+   * none. A unit spanning both scopes is refused at generation time, so this
+   * answers for every secret the unit has rather than for one of them.
+   *
+   * It is what decides where the unit is offered in Settings: "user" is one
+   * member's own credential and belongs on their Connections page, "workspace"
+   * is the installation's and belongs under Integrations, and "" is a unit
+   * with nothing for either page to manage. A plain string union rather than a
+   * derived flag, because the two values are the two the manifest already
+   * publishes and the SPA should be reading the same vocabulary an operator
+   * reads.
+   */
+  readonly secretScope: "user" | "workspace" | "";
 };
 
 export const extensions: readonly ExtensionDescriptor[] = `
 
-// composedFiles builds every deterministic output of the composition
-// (everything except go.work.sum, which only the go command writes),
-// keyed by path relative to build/composition/.
-func composedFiles(root string) (map[string][]byte, []declaredVerb, []extension.JobDeclaration, error) {
+// composition is everything one read of the enabled set produces: the
+// deterministic output files, the governance the merged contracts publish, and
+// each unit's derived manifest. They travel together because they are one
+// derivation — a lane that re-read any of them separately would be reading the
+// same declarations a second time, which is how two artifacts of one tree come
+// to disagree.
+type composition struct {
+	// Files is every deterministic output (everything except go.work.sum,
+	// which only the go command writes), keyed by path relative to
+	// build/composition/.
+	Files     map[string][]byte
+	Verbs     []declaredVerb
+	Jobs      []extension.JobDeclaration
+	Manifests []derivedManifest
+}
+
+// composedFiles builds the composition from the enabled set under extensions/.
+func composedFiles(root string) (composition, error) {
 	units, err := scanExtensions(root)
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
 	}
 	work, goVersion, err := composedWork(root, units)
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
 	}
 	contracts, err := composedContracts(root, units)
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
 	}
 	// Read back OUT of the merged contracts, not out of the fragments: the
 	// governance the composed program serves is derived from the document a
 	// client is handed. See extverbs.go.
 	verbs, err := extensionVerbs(units, contracts)
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
 	}
 	// The same read, on the jobs contract: a scheduled job's mechanics are
 	// declared in the merged document and nowhere in Go.
 	jobDecls, err := extensionJobs(units, contracts)
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
+	}
+	// The declarations themselves, which the manifests and the SPA registry
+	// below are both a projection of. Derived here, after the verbs a unit's
+	// tools are validated against, and read exactly once.
+	manifests, err := deriveUnitManifests(root, units, verbs, jobDecls)
+	if err != nil {
+		return composition{}, err
 	}
 	// Every unit's copy, merged into one overlay per locale. Collected here
 	// rather than in scanUnit because the collision rule is cross-unit: no
@@ -170,23 +205,23 @@ func composedFiles(root string) (map[string][]byte, []declaredVerb, []extension.
 	for _, u := range units {
 		supplied, err := collectUnitLocales(u.Name, u.Dir)
 		if err != nil {
-			return nil, nil, nil, err
+			return composition{}, err
 		}
 		locales = append(locales, supplied...)
 	}
 	mergedCopy, err := mergeUnitLocales(locales)
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
 	}
 	wiring, err := canonicalGoSource("backend/extensions_gen.go", extensionsGen(units, verbs, jobDecls))
 	if err != nil {
-		return nil, nil, nil, err
+		return composition{}, err
 	}
 	files := map[string][]byte{
 		goWorkFile:                   work,
 		"backend/go.mod":             composedGoMod(goVersion),
 		"backend/extensions_gen.go":  wiring,
-		"frontend/extensions.gen.ts": frontendGen(units, verbs),
+		"frontend/extensions.gen.ts": frontendGen(manifests, verbs),
 		"frontend/extscreens.gen.ts": extScreensGen(units),
 		"frontend/extlocales.gen.ts": extLocalesGen(mergedCopy),
 	}
@@ -195,7 +230,7 @@ func composedFiles(root string) (map[string][]byte, []declaredVerb, []extension.
 	for base, content := range contracts {
 		files["api/"+base] = content
 	}
-	return files, verbs, jobDecls, nil
+	return composition{Files: files, Verbs: verbs, Jobs: jobDecls, Manifests: manifests}, nil
 }
 
 // canonicalGoSource parses emitted Go source and requires it to already
