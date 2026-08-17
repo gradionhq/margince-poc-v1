@@ -29,10 +29,15 @@ const personNameColumn = "full_name"
 
 // ListPeopleInput carries the person list's contract parameters.
 type ListPeopleInput struct {
-	Cursor          *string
-	Limit           *int
-	Query           *string
-	OwnerID         *ids.UserID
+	Cursor  *string
+	Limit   *int
+	Query   *string
+	OwnerID *ids.UserID
+	// OwnerTeamID narrows to a team's rows; Unassigned to the unowned queue.
+	// Both narrow the caller's row scope and never widen it — see
+	// listFilters.ownershipClause, which also refuses two of them at once.
+	OwnerTeamID     *ids.TeamID
+	Unassigned      *bool
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
@@ -103,6 +108,8 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		AiWritten:       in.AiWritten,
 		entity:          personEntity,
 		OwnerID:         in.OwnerID,
+		OwnerTeamID:     in.OwnerTeamID,
+		Unassigned:      in.Unassigned,
 		Query:           in.Query,
 		Cursor:          in.Cursor,
 		CustomFilters:   in.CustomFilters,

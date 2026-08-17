@@ -239,3 +239,79 @@ func pipelineNames(page []crmcontracts.Pipeline) []string {
 	}
 	return names
 }
+
+func TestThePersonListNarrowsToOneTeamsRows(t *testing.T) {
+	e := Setup(t)
+	// Rep1 and Rep2 share Team1; Rep3 sits in Team2.
+	mine := e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+	teammates := e.SeedPerson(t, "Owned By Rep2", &e.Rep2)
+	e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
+	e.SeedPerson(t, "Owned By Nobody", nil)
+
+	team := ids.From[ids.TeamKind](e.Team1)
+	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OwnerTeamID: &team})
+	if err != nil {
+		t.Fatalf("listing people by owner team: %v", err)
+	}
+	got := make([]string, 0, len(page))
+	for _, person := range page {
+		got = append(got, ids.UUID(person.Id).String())
+	}
+	slices.Sort(got)
+	want := []string{mine.String(), teammates.String()}
+	slices.Sort(want)
+	// Both of the team's members, and nobody else's rows. The unowned person is
+	// deliberately absent: the `team` ROW SCOPE admits unassigned rows, this
+	// FILTER names the ones a team owns, and reading the two as one question is
+	// how a rep ends up seeing a queue they were not asked to work.
+	if !slices.Equal(got, want) {
+		t.Fatalf("owner_team_id returned %v, want exactly the two rows Team1's members own (%v)", got, want)
+	}
+}
+
+func TestThePersonListNarrowsToTheUnownedQueue(t *testing.T) {
+	e := Setup(t)
+	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+	unowned := e.SeedPerson(t, "Owned By Nobody", nil)
+
+	yes := true
+	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{Unassigned: &yes})
+	if err != nil {
+		t.Fatalf("listing the unowned queue: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != unowned {
+		t.Fatalf("unassigned=true returned %d people, want only the unowned one", len(page))
+	}
+
+	// `unassigned=false` is not "only owned rows": the reader asked to stop
+	// narrowing, and the honest answer is the unnarrowed list.
+	no := false
+	all, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{Unassigned: &no})
+	if err != nil {
+		t.Fatalf("listing with unassigned=false: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("unassigned=false returned %d people, want both — it asks for no narrowing at all", len(all))
+	}
+}
+
+func TestTheOwnerDialsRefuseEachOther(t *testing.T) {
+	e := Setup(t)
+	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+
+	owner := ids.From[ids.UserKind](e.Rep1)
+	team := ids.From[ids.TeamKind](e.Team1)
+	yes := true
+	for _, in := range []people.ListPeopleInput{
+		{OwnerID: &owner, Unassigned: &yes},
+		{OwnerID: &owner, OwnerTeamID: &team},
+		{OwnerTeamID: &team, Unassigned: &yes},
+	} {
+		// Each pair can only ever match nothing, and an empty page is
+		// indistinguishable from an honest one — so the query is refused
+		// rather than answered.
+		if _, _, err := e.People.ListPeople(e.Admin(), in); err == nil {
+			t.Fatal("two owner dials at once were accepted; want a validation refusal")
+		}
+	}
+}

@@ -45,6 +45,8 @@ func (h Handlers) ListPeople(w http.ResponseWriter, r *http.Request, params crmc
 		Tag:             params.Tag,
 	}
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
+	in.OwnerTeamID = idArg[ids.TeamKind](params.OwnerTeamId)
+	in.Unassigned = params.Unassigned
 
 	people, page, err := h.store.ListPeople(r.Context(), in)
 	if err != nil {

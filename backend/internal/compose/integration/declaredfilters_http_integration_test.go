@@ -150,3 +150,46 @@ func lists(page listedIDs, id string) bool {
 	}
 	return false
 }
+
+// callerUserID reads the signed-in user's own id off /me — the same value a
+// screen builds its "My records" filter from.
+func callerUserID(t *testing.T, e *apptest.AppEnv) string {
+	t.Helper()
+	var me struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+	}
+	if status := e.Call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
+		t.Fatalf("GET /v1/me = %d, want 200", status)
+	}
+	return me.User.ID
+}
+
+func TestThePersonListNarrowsToTheUnownedQueueOnTheWire(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	owner := callerUserID(t, e)
+
+	createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Owned Person", "owner_id": owner})
+	unowned := createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Unowned Person"})
+
+	// Unassigned is a fact with its own queue, not an absence: a list that
+	// answered every row here would send somebody to claim records that are
+	// already claimed.
+	onlyRecord(t, e, "/v1/people?unassigned=true", unowned, "the unowned person")
+}
+
+func TestTheOwnerDialsRefuseEachOtherOnTheWire(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	owner := callerUserID(t, e)
+
+	// owner_id AND unassigned can only ever match nothing. Answering an empty
+	// page would be indistinguishable from an honest one, so the request is
+	// refused instead.
+	path := "/v1/people?owner_id=" + owner + "&unassigned=true"
+	if status := e.Call(t, "GET", path, nil, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("GET %s = %d, want 422 — two owner dials name two different sets", path, status)
+	}
+}

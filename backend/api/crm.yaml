@@ -660,6 +660,21 @@ paths:
           in: query
           schema: { type: string, format: uuid }
           description: Filter to a single owner.
+        - name: owner_team_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+            a team the caller cannot see returns their own visible rows filtered to nothing, not a
+            wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+            and rows reached by a record grant (AAD-ROLE-2).
+        - name: unassigned
+          in: query
+          schema: { type: boolean }
+          description: |
+            `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+            (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+            Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
         - name: q
           in: query
           schema: { type: string }
@@ -1590,6 +1605,21 @@ paths:
           description: >-
             Accounts carrying this relationship type. Multi-valued per account, so this selects
             accounts that are AT LEAST this — a partner that is also a customer matches both.
+        - name: owner_team_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+            a team the caller cannot see returns their own visible rows filtered to nothing, not a
+            wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+            and rows reached by a record grant (AAD-ROLE-2).
+        - name: unassigned
+          in: query
+          schema: { type: boolean }
+          description: |
+            `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+            (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+            Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
         - name: q
           in: query
           schema: { type: string }
