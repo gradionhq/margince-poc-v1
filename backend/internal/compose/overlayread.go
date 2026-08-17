@@ -217,6 +217,10 @@ func (s Server) ListPeople(w http.ResponseWriter, r *http.Request, params crmcon
 			{paramOwnerTeamID, params.OwnerTeamId != nil},
 			{paramUnassigned, params.Unassigned != nil && *params.Unassigned},
 			{paramTag, params.Tag != nil},
+			// Employment is OUR edge: the mirror holds the incumbent's own
+			// contact-to-company links, under their ids, so a margince
+			// organization id names nothing there.
+			{paramOrganizationID, params.OrganizationId != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},
 		},
@@ -241,6 +245,11 @@ func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params
 			{paramOwnerID, params.OwnerId != nil},
 			{paramOwnerTeamID, params.OwnerTeamId != nil},
 			{paramUnassigned, params.Unassigned != nil && *params.Unassigned},
+			// Firmographics we hold and the mirror does not: refused rather
+			// than forwarded, or the answer is the unfiltered list wearing a
+			// filtered list's shape.
+			{fieldIndustry, params.Industry != nil},
+			{"size_band", params.SizeBand != nil},
 			{"domain", params.Domain != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},

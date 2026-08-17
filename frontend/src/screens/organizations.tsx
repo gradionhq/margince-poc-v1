@@ -652,6 +652,7 @@ export function CompaniesScreen() {
         tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
+        dataChips={ownerChips}
         chips={[
           {
             key: "lifecycle",
@@ -670,7 +671,6 @@ export function CompaniesScreen() {
               label: RELATIONSHIP_TYPE_LABELS[value],
             })),
           },
-          ...ownerChips,
         ]}
         dataViews={savedViews}
         views={[

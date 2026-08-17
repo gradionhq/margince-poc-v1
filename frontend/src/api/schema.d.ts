@@ -18044,6 +18044,13 @@ export interface operations {
                 q?: string;
                 /** @description Filter by tag name. */
                 tag?: string;
+                /**
+                 * @description People who work at this account, by their CURRENT PRIMARY employment edge
+                 *     (`relationship` kind `employment`, DM-VOCAB-1). A past employer does not match:
+                 *     "who works there" and "who has ever worked there" are different questions, and the
+                 *     list answers the first.
+                 */
+                organization_id?: string;
             };
             header?: never;
             path?: never;
@@ -19052,6 +19059,13 @@ export interface operations {
                  *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
                  */
                 unassigned?: boolean;
+                /**
+                 * @description Accounts in one industry, matched exactly (DM-VOCAB-2). The column is free text rather
+                 *     than an enum, so this is the value as it was written.
+                 */
+                industry?: string;
+                /** @description How many people work there (DM-VOCAB-2). */
+                size_band?: "1-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1001-5000" | "5000+";
                 q?: string;
             };
             header?: never;

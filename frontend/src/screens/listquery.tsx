@@ -17,6 +17,7 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useMe, useSorMode } from "./common";
+import { useRoster } from "./entityref";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -441,29 +442,32 @@ function matchesView(
  * guessing which one the reader meant — the wire takes one team id, and picking
  * for them would answer a question they did not ask.
  */
-export function useOwnerChips(): readonly FilterSpec[] {
+export function useOwnerChips(): readonly ListChip[] {
+  const t = useT();
   const me = useMe();
   const viewerId = me.data?.user.id;
+  const teams = useRoster("team", Boolean(viewerId));
   if (!viewerId) {
     return [];
   }
-  const teams = me.data?.teams ?? [];
+  // Named, not counted. The viewer may sit in several teams, and a dial that
+  // withheld itself past the first one left everyone on two teams unable to
+  // ask a question the API answers. Each team is its own option, so picking one
+  // is picking a team rather than accepting a guess about which was meant.
+  const mine = new Set(me.data?.teams ?? []);
+  const named = (teams.data ?? []).filter((entry) => mine.has(entry.id));
   return [
     {
       key: "owner",
-      label: "list.owner",
-      allLabel: "list.filterOwnerAll",
+      label: t("list.owner"),
+      allLabel: t("list.filterOwnerAll"),
       options: [
-        { value: `owner_id:${viewerId}`, label: "list.filterOwnerMe" },
-        ...(teams.length === 1
-          ? [
-              {
-                value: `owner_team_id:${teams[0]}`,
-                label: "list.filterOwnerTeam" as const,
-              },
-            ]
-          : []),
-        { value: "unassigned:true", label: "list.filterOwnerUnassigned" },
+        { value: `owner_id:${viewerId}`, label: t("list.filterOwnerMe") },
+        ...named.map((team) => ({
+          value: `owner_team_id:${team.id}`,
+          label: "display_name" in team ? team.display_name : team.name,
+        })),
+        { value: "unassigned:true", label: t("list.filterOwnerUnassigned") },
       ],
     },
   ];
