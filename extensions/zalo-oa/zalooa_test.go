@@ -96,11 +96,14 @@ func TestTheCredentialIsDeclaredAtUserScopeSoAnIngestCanBeConsentedTo(t *testing
 		t.Fatalf("%q is declared at %q scope; it must be user-scoped or no ingest this unit makes can be consented to",
 			tokenKey, scopes[tokenKey])
 	}
-	if scopes[verifierKey] != extension.SecretScopeUser {
-		t.Fatalf("%q is declared at %q scope; a PKCE verifier belongs to the one authorization its owner has in flight", verifierKey, scopes[verifierKey])
-	}
-	if scopes[appSecretKey] != extension.SecretScopeWorkspace {
-		t.Fatalf("%q is declared at %q scope; one developer app serves every account an operator connects", appSecretKey, scopes[appSecretKey])
+	// EVERY key at one scope, because the composition generator refuses a unit
+	// whose secrets span both — its settings placement is derived from that
+	// scope, and a mixed unit has no single answer. The cost is named on the
+	// declaration.
+	for key, scope := range scopes {
+		if scope != extension.SecretScopeUser {
+			t.Fatalf("%q is declared at %q scope; a unit declares one scope, and this unit's is user", key, scope)
+		}
 	}
 }
 
@@ -126,8 +129,7 @@ func TestTheChannelSuppliesBothHalvesOfATransport(t *testing.T) {
 func TestEveryDeclaredToolAndJobIsWired(t *testing.T) {
 	unit := New()
 	wanted := map[string]bool{
-		"zalo_oa_authorize": false, "zalo_oa_connect": false,
-		"zalo_oa_status": false, "zalo_oa_disconnect": false,
+		"zalo_oa_connect": false, "zalo_oa_status": false, "zalo_oa_disconnect": false,
 	}
 	for _, tool := range unit.Tools {
 		if _, declared := wanted[tool.Name]; !declared {

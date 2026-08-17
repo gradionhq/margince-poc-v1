@@ -1,4 +1,4 @@
-import { api, QueryStates, throwProblem } from "@margince/frontend/api";
+import { api, problemMessageOf, QueryStates, throwProblem } from "@margince/frontend/api";
 import { formatDateTime, useCan, useCanWrite, useLocale, useT } from "@margince/frontend/app";
 import {
   Badge,
@@ -14,21 +14,19 @@ import { useState } from "react";
 // #/ext/zalo-oa — the administrator screen for this installation's Zalo Official
 // Account.
 //
-// IT IS A TWO-STEP SCREEN because the provider makes it one. Zalo has no
-// client-credentials grant: an OA administrator has to open a permission URL in
-// a browser and click Cho phép, and the redirect that follows carries a code
-// that is single-use and dies in ten minutes. So step one mints the URL, the
-// administrator leaves, and step two redeems what they came back with.
+// ONE FORM, because connecting is one call. The browser authorization that mints
+// the first token pair is run once, outside the product, with a tool; what an
+// administrator brings here is the pair it produced. connect.go carries why.
 //
-// The second step asks for the WHOLE redirect address rather than for three
-// fields picked out of it. That is one paste instead of three, and it is the
-// only version in which the `state` genuinely comes back from the browser: a
-// screen that filled the state in from what it already knew would be checking
-// its own answer.
+// THE REFUSALS ARE THE SERVER'S OWN WORDS, not a static string. That is the whole
+// difference between a screen that helps and one that does not, and it is what
+// this connector's refusals are written for: an account on the free package and
+// an app missing a permission group both fail to connect, and one of them costs
+// 2.500.000 đ a year while the other costs a click. A card that said "it did not
+// work" for both would send an operator to buy something they already have.
 //
 // WHAT THE SCREEN DELIBERATELY DOES NOT SHOW: any credential. No operation
-// returns the app secret or either token, masked or otherwise, and there is
-// nothing here that asks for one back.
+// returns the app secret or either token, and nothing here asks for one back.
 
 /**
  * The locale type, derived from the hook rather than imported: the core's
@@ -51,9 +49,8 @@ const STATUS_POLL_MS = 20_000;
 
 type Connection = {
   id: string;
-  oa_id?: string;
+  oa_id: string;
   app_id: string;
-  redirect_uri: string;
   authorized_by: string;
   status: string;
   account_label?: string;
@@ -66,8 +63,6 @@ type Connection = {
   last_error_class?: string;
   version: number;
 };
-
-type Started = { permission_url: string; code_challenge: string };
 
 const STATUS_KEY = ["ext", "zalo-oa", "status"];
 
@@ -102,40 +97,14 @@ function useConnectionStatus(enabled: boolean) {
       // The declared field or an error. `data.connected` absent is undefined,
       // which is falsey — so a body this screen could not read would render "not
       // connected", which is a claim about the installation made from a read that
-      // produced nothing, and it invites an administrator to start a second
-      // authorization over one that is already working.
+      // produced nothing, and it invites an administrator to connect over one
+      // that is already working.
       if (typeof data?.connected !== "boolean") {
         throw new Error("the connection status carried no `connected` field");
       }
       return { connected: data.connected, connection: data.connection as Connection | undefined };
     },
   });
-}
-
-/**
- * Reads the three values Zalo puts on the redirect out of the address an
- * administrator pasted.
- *
- * It refuses rather than guesses. A pasted address missing any of them is a
- * redirect that did not complete — the administrator cancelled, or copied the
- * permission URL instead of the one they landed on — and sending a request built
- * from the pieces that ARE there would spend the ten-minute code on a call that
- * cannot succeed.
- */
-export function redemptionFrom(pasted: string): { code: string; oa_id: string; state: string } | null {
-  let query: URLSearchParams;
-  try {
-    query = new URL(pasted.trim()).searchParams;
-  } catch {
-    return null;
-  }
-  const code = query.get("code") ?? "";
-  const oaID = query.get("oa_id") ?? "";
-  const state = query.get("state") ?? "";
-  if (code === "" || oaID === "" || state === "") {
-    return null;
-  }
-  return { code, oa_id: oaID, state };
 }
 
 function ConnectionCard() {
@@ -146,59 +115,41 @@ function ConnectionCard() {
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const queryClient = useQueryClient();
   // Read decides whether this card has anything to say; update decides whether an
-  // authorization can be started or completed; delete decides whether it can be
-  // withdrawn. Three separate grants because they are three separate decisions.
+  // account can be connected; delete decides whether it can be withdrawn. Three
+  // separate grants because they are three separate decisions.
   const canRead = useCan(CONNECTION_OBJECT, "read");
   const canConnect = useCanWrite(CONNECTION_OBJECT, "update");
   const canDisconnect = useCanWrite(CONNECTION_OBJECT, "delete");
   const status = useConnectionStatus(canRead);
   const [appID, setAppID] = useState("");
   const [appSecret, setAppSecret] = useState("");
-  const [redirectURI, setRedirectURI] = useState("");
-  const [redirected, setRedirected] = useState("");
-  const [started, setStarted] = useState<Started | null>(null);
+  const [accessToken, setAccessToken] = useState("");
+  const [refreshToken, setRefreshToken] = useState("");
 
-  const authorize = useMutation({
+  const connect = useMutation({
     mutationFn: async () => {
-      const { data, error, response } = await api.POST("/ext/zalo-oa/authorize", {
+      const { error, response } = await api.PUT("/ext/zalo-oa/connect", {
         body: {
           app_id: appID.trim(),
           app_secret: appSecret.trim(),
-          redirect_uri: redirectURI.trim(),
+          access_token: accessToken.trim(),
+          refresh_token: refreshToken.trim(),
         },
       });
       if (error || !response.ok) {
         throwProblem(error);
       }
-      if (typeof data?.permission_url !== "string" || typeof data?.code_challenge !== "string") {
-        throw new Error("the authorization carried no permission URL");
-      }
-      return { permission_url: data.permission_url, code_challenge: data.code_challenge };
     },
-    onSuccess: (result) => setStarted(result),
-    // The secret is cleared whatever happened, so a live credential is not left
-    // sitting in a form field — and the screen re-reads rather than asserting a
-    // rollback it cannot know about, because a response lost on the way back
-    // leaves the secret deposited while the client sees an error.
+    // Every credential is cleared whatever happened, so none is left sitting in a
+    // form field on an unattended screen — and the refresh token especially, since
+    // it is single-use and the one on screen is spent the moment this succeeds.
+    // The screen re-reads rather than asserting a rollback it cannot know about:
+    // a response lost on the way back leaves an account connected while the
+    // client sees an error.
     onSettled: async () => {
       setAppSecret("");
-      await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
-    },
-  });
-
-  const connect = useMutation({
-    mutationFn: async () => {
-      const redemption = redemptionFrom(redirected);
-      if (redemption === null) {
-        throw new Error("the pasted address carries no authorization code");
-      }
-      const { error, response } = await api.PUT("/ext/zalo-oa/connect", { body: redemption });
-      if (error || !response.ok) {
-        throwProblem(error);
-      }
-    },
-    onSettled: async () => {
-      setRedirected("");
+      setAccessToken("");
+      setRefreshToken("");
       await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
   });
@@ -211,7 +162,10 @@ function ConnectionCard() {
       }
     },
     onSettled: async () => {
-      setStarted(null);
+      // The connect failure is cleared too: a refusal left standing under a card
+      // that now says "not connected" describes an attempt nobody can act on any
+      // more.
+      connect.reset();
       await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
     },
   });
@@ -223,6 +177,12 @@ function ConnectionCard() {
       </Card>
     );
   }
+
+  const ready =
+    appID.trim() !== "" &&
+    appSecret.trim() !== "" &&
+    accessToken.trim() !== "" &&
+    refreshToken.trim() !== "";
 
   return (
     <Card>
@@ -243,8 +203,8 @@ function ConnectionCard() {
 
       {canConnect ? (
         <>
-          <SectionHeader title={t("extZaloOa.step1.title")} sub={t("extZaloOa.step1.sub")} />
-          <Field label={t("extZaloOa.step1.appId")}>
+          <SectionHeader title={t("extZaloOa.connect.title")} sub={t("extZaloOa.connect.sub")} />
+          <Field label={t("extZaloOa.connect.appId")}>
             {(control) => (
               <TextInput
                 {...control}
@@ -253,7 +213,7 @@ function ConnectionCard() {
               />
             )}
           </Field>
-          <Field label={t("extZaloOa.step1.appSecret")}>
+          <Field label={t("extZaloOa.connect.appSecret")}>
             {(control) => (
               <TextInput
                 {...control}
@@ -263,52 +223,44 @@ function ConnectionCard() {
               />
             )}
           </Field>
-          <Field label={t("extZaloOa.step1.redirectUri")}>
+          <Field label={t("extZaloOa.connect.accessToken")}>
             {(control) => (
               <TextInput
                 {...control}
-                value={redirectURI}
-                placeholder="https://crm.example.com/zalo-callback"
-                onChange={(event) => setRedirectURI(event.target.value)}
+                type="password"
+                value={accessToken}
+                onChange={(event) => setAccessToken(event.target.value)}
               />
             )}
           </Field>
-          <Button
-            disabled={
-              appID.trim() === "" ||
-              appSecret.trim() === "" ||
-              redirectURI.trim() === "" ||
-              authorize.isPending
-            }
-            onClick={() => authorize.mutate()}
-          >
-            {t("extZaloOa.step1.start")}
-          </Button>
-          {/* role="alert", as QueryStates gives a read failure: a mutation
-              failure appears AFTER the press that caused it, so a screen reader
-              that is not on this element announces nothing and the administrator
-              is left believing the authorization started. */}
-          {authorize.isError ? <p role="alert">{t("extZaloOa.step1.failed")}</p> : null}
-
-          {started ? <StartedInstructions started={started} /> : null}
-
-          <SectionHeader title={t("extZaloOa.step2.title")} sub={t("extZaloOa.step2.sub")} />
-          <Field label={t("extZaloOa.step2.redirected")}>
+          <Field label={t("extZaloOa.connect.refreshToken")}>
             {(control) => (
               <TextInput
                 {...control}
-                value={redirected}
-                onChange={(event) => setRedirected(event.target.value)}
+                type="password"
+                value={refreshToken}
+                onChange={(event) => setRefreshToken(event.target.value)}
               />
             )}
           </Field>
-          <Button
-            disabled={redemptionFrom(redirected) === null || connect.isPending}
-            onClick={() => connect.mutate()}
-          >
-            {t("extZaloOa.step2.finish")}
+          <Button disabled={!ready || connect.isPending} onClick={() => connect.mutate()}>
+            {t("extZaloOa.connect.submit")}
           </Button>
-          {connect.isError ? <p role="alert">{t("extZaloOa.step2.failed")}</p> : null}
+          {/* role="alert", because a mutation failure appears AFTER the press that
+              caused it: a screen reader that is not on this element announces
+              nothing, and the administrator is left believing the account
+              connected.
+
+              The SERVER'S OWN SENTENCE, with this card's copy only as the
+              fallback for a failure nobody phrased for a reader. Every refusal
+              worth acting on here — the package, the free console toggle, an
+              expired access token, a refresh token already spent — is a
+              distinction the server drew and a static string would throw away. */}
+          {connect.isError ? (
+            <p role="alert">
+              {problemMessageOf(connect.error, t, t("extZaloOa.connect.failed"))}
+            </p>
+          ) : null}
         </>
       ) : null}
 
@@ -322,41 +274,13 @@ function ConnectionCard() {
             {t("extZaloOa.connection.disconnect")}
           </Button>
           {disconnect.isError ? (
-            <p role="alert">{t("extZaloOa.connection.disconnectFailed")}</p>
+            <p role="alert">
+              {problemMessageOf(disconnect.error, t, t("extZaloOa.connection.disconnectFailed"))}
+            </p>
           ) : null}
         </>
       ) : null}
     </Card>
-  );
-}
-
-/**
- * What the administrator does next, shown only after an authorization has been
- * started.
- *
- * The code challenge is rendered rather than hidden because the developer console
- * stores ONE challenge per application instead of one per request, so it has to
- * be pasted there before the permission URL is opened. That is the provider's
- * design; saying so is the only alternative to silently reusing a verifier, and a
- * PKCE verifier that never changes is not one.
- *
- * The permission URL is text and not a link: it carries this installation's app
- * id and a challenge, and it is meant to be opened by whoever administers the
- * Official Account, who is not always the person at this screen.
- */
-function StartedInstructions({ started }: { started: Started }) {
-  const t = useT();
-  return (
-    <dl>
-      <dt>{t("extZaloOa.step1.challenge")}</dt>
-      <dd>
-        <code>{started.code_challenge}</code>
-      </dd>
-      <dt>{t("extZaloOa.step1.permissionUrl")}</dt>
-      <dd>
-        <code>{started.permission_url}</code>
-      </dd>
-    </dl>
   );
 }
 

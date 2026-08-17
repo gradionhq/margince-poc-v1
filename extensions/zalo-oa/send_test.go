@@ -39,7 +39,7 @@ func sendableRuntime(t *testing.T) *fakeRuntime {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(20*time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{connectionRow(statusConnected, nil, cursor{})}
 	return rt
 }
@@ -227,7 +227,6 @@ func TestAConfirmedNoAnswersFalseSoTheDeliveryParks(t *testing.T) {
 		expired bool
 	}{
 		"no connection at all":  {noRows: true},
-		"an unfinished one":     {status: statusPending},
 		"one awaiting reauth":   {status: statusReauth},
 		"one whose tier lapsed": {status: statusTierLapse},
 		"an expired credential": {status: statusConnected, expired: true},
@@ -310,7 +309,7 @@ func TestASendRenewsTheCredentialOnTheWayThrough(t *testing.T) {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(-time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusConnected, nil, cursor{}),

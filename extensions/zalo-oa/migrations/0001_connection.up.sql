@@ -21,36 +21,32 @@ CREATE TABLE ext.ext_zalo_oa_connection (
     -- so erasing a tenant would stop at the first installed extension.
     workspace_id    uuid        NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
 
-    -- WHICH Official Account, as Zalo's own id. It is NULL only between starting
-    -- an authorization and the admin coming back from the browser with it: the
-    -- id arrives on the redirect, not before.
+    -- WHICH Official Account, as Zalo's own id, and it is NOT NULL because a row
+    -- exists only once an account has been connected — there is no half-connected
+    -- state to leave it empty in.
     --
-    -- It is also a NAMESPACE. Zalo account ids are OA-scoped rather than global,
-    -- so every person binding and every natural key this unit writes is prefixed
-    -- with this value; repointing the row at another OA under the same
-    -- identifiers would silently rebind every captured human.
-    oa_id           text        CHECK (oa_id IS NULL OR length(oa_id) > 0),
+    -- It is a NAMESPACE. Zalo account ids are OA-scoped rather than global, so
+    -- every person binding and every natural key this unit writes is prefixed
+    -- with this value; repointing the row at another account under the same
+    -- identifiers would silently rebind every captured human. It is therefore
+    -- taken from what the CREDENTIAL answers for, never from a request.
+    oa_id           text        NOT NULL CHECK (length(oa_id) > 0),
 
-    -- The developer app the authorization was made through. Its SECRET is
-    -- sealed, not here; the id is not a credential and is needed to build the
-    -- permission URL and every later rotation.
+    -- The developer app the grant was made through. Its SECRET is sealed, not
+    -- here; the id is not a credential and every later rotation needs it.
     app_id          text        NOT NULL CHECK (length(app_id) > 0),
 
-    -- Where Zalo sends the admin's browser back to. Stored because the exchange
-    -- has to present the same value the permission URL was built with, and a
-    -- deployment's own address is not something this unit can derive.
-    redirect_uri    text        NOT NULL CHECK (length(redirect_uri) > 0),
-
-    -- WHOSE grant this is: the admin who clicked *Cho phép*, whose sealed token
-    -- the poll spends, and whose LIVE authority every landed record runs under.
+    -- WHOSE grant this is: the administrator who brought the token pair back from
+    -- Zalo, whose sealed credential the poll spends, and whose LIVE authority
+    -- every landed record runs under.
     -- Stamped by the handler from the invocation's Caller and never from the
     -- request body — a user id a client supplies is a user id a client forges,
     -- and here it would forge the consent the ingress port checks.
     --
-    -- It is an explicit column rather than an implicit "whoever clicked" because
-    -- an OA token is renewable only by the human Zalo bound it to: when they
-    -- leave, this connection stops, and a row that could not name them would
-    -- make that look like a provider outage.
+    -- It is an explicit column rather than an implicit "whoever connected it",
+    -- because an OA token is renewable only against the grant it came from: when
+    -- that human leaves, this connection stops, and a row that could not name
+    -- them would make that look like a provider outage.
     --
     -- NO FOREIGN KEY to the core user table: the role this file is applied as
     -- holds REFERENCES (id) on workspace and nothing else on public. The cost is
@@ -60,21 +56,20 @@ CREATE TABLE ext.ext_zalo_oa_connection (
     -- rather than pretending.
     authorized_by   uuid        NOT NULL,
 
-    -- Four states, and no more than this unit can honestly distinguish.
+    -- Three states, and no more than this unit can honestly distinguish.
     --
-    -- `pending_authorization` is the row between minting a permission URL and the
-    -- admin returning with a code — it holds no token and polls nothing.
     -- `connected` is working. `reauth_required` means the credential can no
-    -- longer be renewed and a human must authorize again. `tier_lapsed` is the
-    -- package expiring under a working connection: the token is fine, the
+    -- longer be renewed and a human must bring a new pair. `tier_lapsed` is the
+    -- package expiring under a working connection: the credential is fine, the
     -- account's plan is not, and telling an operator to re-authorize would send
     -- them to fix the one thing that is not broken.
     --
-    -- A disconnected installation has no row at all (the disconnect deletes it,
+    -- There is no half-connected state, because connecting is ONE call that
+    -- either produces a working credential or produces nothing. And a
+    -- disconnected installation has no row at all (the disconnect deletes it,
     -- with the credential), so there is no state meaning "here but not here".
-    status          text        NOT NULL DEFAULT 'pending_authorization'
-                    CHECK (status IN ('pending_authorization', 'connected',
-                                      'reauth_required', 'tier_lapsed')),
+    status          text        NOT NULL DEFAULT 'connected'
+                    CHECK (status IN ('connected', 'reauth_required', 'tier_lapsed')),
 
     -- What the provider says about the account, refreshed on every poll: the
     -- OA's name, and the tier EVIDENCE an admin reads.

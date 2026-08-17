@@ -370,7 +370,7 @@ func (e errScripted) Error() string {
 // scripted row.
 func connectionRow(status string, expiresAt *time.Time, at cursor) []any {
 	row := []any{
-		fixtureConnectionID, fixtureOAID, "app-1", "https://crm.example.com/zalo",
+		fixtureConnectionID, fixtureOAID, "app-1",
 		adminUserID, status, "NFQ", "Tăng trưởng", "12/08/2027", nil, nil,
 		at.floor, at.gap, at.top, at.offset, nil, "", 1,
 	}
@@ -385,7 +385,7 @@ func connectionRow(status string, expiresAt *time.Time, at cursor) []any {
 // expiryColumn is where access_token_expires_at sits in connectionColumns, named
 // so a column inserted before it is one edit here rather than a silent off-by-one
 // that scripts a timestamp into the wrong field.
-const expiryColumn = 9
+const expiryColumn = 8
 
 // jsonOf decodes a handler's answer, failing the test rather than the caller.
 func jsonOf[T any](tb testing.TB, raw json.RawMessage) T {
@@ -430,6 +430,10 @@ type zaloFake struct {
 	// errorCode is the in-band code every endpoint answers with, zero for
 	// success.
 	errorCode int
+	// rejectToken is one access token this fake refuses as expired, leaving every
+	// other one accepted. It is how a test scripts the ordinary state of a pair
+	// carried between tools: a dead access half beside a live refresh half.
+	rejectToken string
 	// chatPages is what listrecentchat answers, indexed by offset/10. An offset
 	// past the end answers an empty page, which is how the real walk terminates.
 	chatPages [][]map[string]any
@@ -462,6 +466,10 @@ func (z *zaloFake) dial() clientFactory {
 
 func (z *zaloFake) serve(w http.ResponseWriter, r *http.Request) {
 	z.calls[r.URL.Path]++
+	if z.rejectToken != "" && r.Header.Get("access_token") == z.rejectToken {
+		z.answer(w, map[string]any{"error": codeTokenExpired, "message": "Access token has expired"})
+		return
+	}
 	if z.errorCode != 0 {
 		z.answer(w, map[string]any{"error": z.errorCode, "message": "refused"})
 		return
@@ -540,13 +548,9 @@ func message(id string, at int64, src int, text string) map[string]any {
 // "how many times did this tick reach the token endpoint" is not a detail — it is
 // the property the whole renewal design exists to keep at one.
 type fakeGrants struct {
-	redeemed  tokenPair
-	redeemErr error
-
-	rotated     tokenPair
-	rotateErr   error
-	rotations   int
-	redemptions int
+	rotated   tokenPair
+	rotateErr error
+	rotations int
 
 	spent []string
 
@@ -555,14 +559,6 @@ type fakeGrants struct {
 	// credential, which an after-the-fact count can only say once the damage is
 	// already in the fixture.
 	beforeRotate func()
-}
-
-func (g *fakeGrants) Redeem(context.Context, string, string, string, string) (tokenPair, error) {
-	g.redemptions++
-	if g.redeemErr != nil {
-		return tokenPair{}, g.redeemErr
-	}
-	return g.redeemed, nil
 }
 
 func (g *fakeGrants) Rotate(_ context.Context, _, _, refreshToken string) (tokenPair, error) {

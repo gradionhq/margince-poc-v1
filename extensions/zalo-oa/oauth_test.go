@@ -3,105 +3,17 @@
 
 package zalooa
 
-// The browser round trip and the token endpoint behind it.
+// The token endpoint: the one call this unit makes that spends a single-use
+// credential.
 
 import (
-	"crypto/sha256"
-	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
-
-// The verifier is drawn fresh each time, is the length Zalo specifies exactly,
-// and uses only the alphabet Zalo admits — which is NARROWER than RFC 7636's,
-// and it is the provider that validates it.
-func TestAVerifierIsFreshAndInsideTheProvidersOwnAlphabet(t *testing.T) {
-	first, err := newVerifier()
-	if err != nil {
-		t.Fatalf("newVerifier: %v", err)
-	}
-	second, err := newVerifier()
-	if err != nil {
-		t.Fatalf("newVerifier: %v", err)
-	}
-	if first == second {
-		t.Fatal("two verifiers came out the same; a PKCE verifier that repeats is not one")
-	}
-	for _, verifier := range []string{first, second} {
-		if len(verifier) != verifierLength {
-			t.Fatalf("the verifier is %d characters, want exactly %d", len(verifier), verifierLength)
-		}
-		if strings.ContainsFunc(verifier, func(r rune) bool {
-			return !strings.ContainsRune(verifierAlphabet, r)
-		}) {
-			t.Fatalf("the verifier %q uses characters outside the alphabet the provider admits", verifier)
-		}
-	}
-}
-
-// THE CHALLENGE IS BASE64URL. Zalo's documentation says "Base64 (without
-// padding)" while linking the PKCE spec, which mandates base64URL; the two differ
-// whenever the digest contains a byte mapping to `+` or `/`, which is most of the
-// time — so the wrong choice fails intermittently, against a code that lives ten
-// minutes. base64url is what the linked specification mandates and what every
-// other implementation sends.
-func TestTheCodeChallengeIsBase64URLAndCarriesNoPadding(t *testing.T) {
-	// A verifier whose digest is known to contain bytes that differ between the
-	// two encodings, found by construction rather than assumed.
-	var verifier string
-	for i := range 200 {
-		candidate := strings.Repeat("a", verifierLength-3) + string(rune('a'+i%26)) + "bc"
-		sum := sha256.Sum256([]byte(candidate))
-		if base64.RawStdEncoding.EncodeToString(sum[:]) != base64.RawURLEncoding.EncodeToString(sum[:]) {
-			verifier = candidate
-			break
-		}
-	}
-	if verifier == "" {
-		t.Fatal("no verifier was found whose digest distinguishes the two encodings; the test proves nothing without one")
-	}
-	sum := sha256.Sum256([]byte(verifier))
-	got := challengeFor(verifier)
-	if got != base64.RawURLEncoding.EncodeToString(sum[:]) {
-		t.Fatalf("challenge = %q, want the base64url form", got)
-	}
-	if got == base64.RawStdEncoding.EncodeToString(sum[:]) {
-		t.Fatal("the challenge matches the standard encoding for a digest where the two differ")
-	}
-	if strings.Contains(got, "=") {
-		t.Fatalf("challenge = %q, want no padding", got)
-	}
-}
-
-// The permission URL carries what the provider needs and nothing this unit
-// invented, and the state binds the redirect back to the authorization that
-// started it.
-func TestThePermissionURLCarriesTheAppTheChallengeAndTheState(t *testing.T) {
-	link, err := permissionLink("app-1", "https://crm.example.com/zalo", "chal", "state-1")
-	if err != nil {
-		t.Fatalf("permissionLink: %v", err)
-	}
-	parsed, err := url.Parse(link)
-	if err != nil {
-		t.Fatalf("the permission URL is not a URL: %v", err)
-	}
-	for key, want := range map[string]string{
-		"app_id": "app-1", "redirect_uri": "https://crm.example.com/zalo",
-		"code_challenge": "chal", "state": "state-1",
-	} {
-		if got := parsed.Query().Get(key); got != want {
-			t.Fatalf("%s = %q, want %q", key, got, want)
-		}
-	}
-	if !strings.HasPrefix(link, permissionURL) {
-		t.Fatalf("the permission URL points at %q rather than the provider's own endpoint", link)
-	}
-}
 
 // A grant is BOTH halves or nothing. One missing the refresh token would connect
 // and become unrenewable twenty-five hours later, with no signal in between.
@@ -119,16 +31,14 @@ func TestAGrantMissingEitherHalfIsRefused(t *testing.T) {
 	}
 }
 
-// WHAT AN UNPRODUCTIVE ANSWER MEANS DIFFERS BY WHICH GRANT ASKED FOR IT, and
-// reading it the same way on both would be expensive in one direction.
+// AN UNPRODUCTIVE ANSWER IS CLASSIFIED BY ITS CALLER, not by the endpoint.
 //
-// A redemption's code is single-use and lives ten minutes, so an answer with no
-// pair is the credential's own refusal and no retry produces one. A ROTATION's is
-// not: this endpoint's refusal codes are not in the measured catalog, so a rate
-// limit and a spent token arrive looking alike — and reading them as the
-// credential parks a working connection, recoverable only by an OA admin at
-// another company, where reading them as the provider costs one retry.
-func TestAnUnproductiveAnswerIsTheCredentialsForARedemptionAndTheProvidersForARenewal(t *testing.T) {
+// This endpoint's refusal codes are not in the measured catalog — GUIDE.md §3
+// covers the OpenAPI host only — so a rate limit and a spent token arrive looking
+// alike. A connect has a human at the screen who supplied the token seconds ago
+// and reads it as the credential's; a scheduled renewal has nobody, and reading
+// it as the credential would park a working connection.
+func TestAnUnproductiveAnswerIsLeftForItsCallerToClassify(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if _, err := w.Write([]byte(`{"error":-32,"message":"rate limit"}`)); err != nil {
@@ -140,20 +50,15 @@ func TestAnUnproductiveAnswerIsTheCredentialsForARedemptionAndTheProvidersForARe
 	client := newOAuthClient()
 	client.base = server.URL
 
-	_, err := client.Redeem(t.Context(), "app-1", "secret", "code", "verifier")
-	if !errors.Is(err, errUnauthorized) {
-		t.Fatalf("a redemption answered %v, want the credential's refusal", err)
+	_, err := client.Rotate(t.Context(), "app-1", "secret", "refresh")
+	if !errors.Is(err, errNoGrant) {
+		t.Fatalf("a renewal answered %v, want the unproductive answer left for its caller to classify", err)
 	}
-	if !strings.Contains(err.Error(), "ten minutes") {
-		t.Fatalf("the redemption refusal does not say what expires: %v", err)
-	}
-
-	_, err = client.Rotate(t.Context(), "app-1", "secret", "refresh")
-	if errors.Is(err, errUnauthorized) {
-		t.Fatalf("a renewal answered %v; reading an unexplained refusal as the credential parks a connection that may be perfectly fine", err)
-	}
-	if !errors.Is(err, errProvider) {
-		t.Fatalf("a renewal answered %v, want the provider class so the next tick tries again", err)
+	// And the SCHEDULED caller reads it as the provider's, never the
+	// credential's: parking a working connection costs an OA administrator at
+	// another company, where a retry costs one tick.
+	if errors.Is(rotationRefusal(err), errUnauthorized) {
+		t.Fatalf("a scheduled renewal read an unexplained refusal as the credential: %v", err)
 	}
 }
 
@@ -235,35 +140,6 @@ func TestTheTokenEndpointIsCalledWithTheSecretInItsOwnHeader(t *testing.T) {
 	}
 	if form.Get("code_verifier") != "" {
 		t.Fatal("a rotation carried a code verifier, which belongs only to a first redemption")
-	}
-}
-
-// A redemption carries the verifier that minted the challenge; without it the
-// provider cannot check the binding and the code is spent for nothing.
-func TestARedemptionCarriesTheCodeAndItsVerifier(t *testing.T) {
-	var form url.Values
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Errorf("parsing the form: %v", err)
-		}
-		form = r.PostForm
-		w.Header().Set("Content-Type", "application/json")
-		if _, err := w.Write([]byte(`{"access_token":"a","refresh_token":"r","expires_in":"90000"}`)); err != nil {
-			t.Errorf("writing the answer: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	client := newOAuthClient()
-	client.base = server.URL
-	if _, err := client.Redeem(t.Context(), "app-1", "secret", "the-code", "the-verifier"); err != nil {
-		t.Fatalf("Redeem: %v", err)
-	}
-	if form.Get("grant_type") != "authorization_code" {
-		t.Fatalf("grant_type = %q, want authorization_code", form.Get("grant_type"))
-	}
-	if form.Get("code") != "the-code" || form.Get("code_verifier") != "the-verifier" {
-		t.Fatalf("the redemption carried %v, want the code and its verifier", form)
 	}
 }
 

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import ZaloOaScreen, { redemptionFrom } from "./screen";
+import ZaloOaScreen from "./screen";
 
 // The connector's screen, over a stubbed transport.
 //
@@ -106,29 +106,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// The redirect is parsed rather than trusted, and a redirect missing any of the
-// three values is refused: sending a request built from the pieces that ARE there
-// would spend a ten-minute single-use code on a call that cannot succeed.
-describe("reading the address Zalo redirected to", () => {
-  it("takes the code, the account and the state off a complete redirect", () => {
-    expect(
-      redemptionFrom(
-        " https://crm.example.com/zalo?code=abc&oa_id=123&state=s1 ",
-      ),
-    ).toEqual({ code: "abc", oa_id: "123", state: "s1" });
-  });
-
-  it.each([
-    ["not an address at all", "the administrator pasted a sentence"],
-    ["no code", "https://crm.example.com/zalo?oa_id=123&state=s1"],
-    ["no account", "https://crm.example.com/zalo?code=abc&state=s1"],
-    ["no state", "https://crm.example.com/zalo?code=abc&oa_id=123"],
-    ["nothing at all", ""],
-  ])("refuses one carrying %s", (_name, pasted) => {
-    expect(redemptionFrom(pasted)).toBeNull();
-  });
-});
-
 describe("the Zalo Official Account screen", () => {
   it("names the page in the one level-1 heading a unit screen owns", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
@@ -144,7 +121,7 @@ describe("the Zalo Official Account screen", () => {
 
   // Not having connected is the ordinary state of this screen, and it is a state
   // rather than a failure.
-  it("says nothing is connected, and offers the first step", async () => {
+  it("says nothing is connected, and offers the form to connect one", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/zalo-oa/status": () => ({ connected: false }),
     });
@@ -152,75 +129,14 @@ describe("the Zalo Official Account screen", () => {
 
     renderScreen();
     expect(await screen.findByText("No Official Account connected")).toBeTruthy();
-    expect(screen.getByLabelText("App ID")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start authorization" })).toBeTruthy();
+    for (const label of ["App ID", "App Secret", "Access token", "Refresh token"]) {
+      expect(screen.getByLabelText(label)).toBeTruthy();
+    }
     // Nothing to disconnect, so no control that would 404 on the way.
     expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
   });
 
-  it("sends the app credentials, and keeps the secret on screen nowhere after", async () => {
-    const { calls, fetchStub } = stubTransport(FULL_GRANT, {
-      "/ext/zalo-oa/status": () => ({ connected: false }),
-      "/ext/zalo-oa/authorize": () => ({
-        permission_url: "https://oauth.zaloapp.com/v4/oa/permission?app_id=app-1",
-        code_challenge: "the-challenge",
-        connection: { ...CONNECTION, status: "pending_authorization" },
-      }),
-    });
-    vi.stubGlobal("fetch", vi.fn(fetchStub));
-
-    renderScreen();
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("App ID"), "app-1");
-    await user.type(screen.getByLabelText("App Secret"), "the-secret");
-    await user.type(screen.getByLabelText("Redirect address"), "https://crm.example.com/zalo");
-    await user.click(screen.getByRole("button", { name: "Start authorization" }));
-
-    await waitFor(() => {
-      const started = calls.find((call) => call.path === "/ext/zalo-oa/authorize");
-      expect(started?.method).toBe("POST");
-      expect(started?.body).toEqual({
-        app_id: "app-1",
-        app_secret: "the-secret",
-        redirect_uri: "https://crm.example.com/zalo",
-      });
-    });
-    // The secret is cleared whatever happened, so a live credential is not left
-    // sitting in a form field on an unattended screen.
-    await waitFor(() => {
-      expect((screen.getByLabelText("App Secret") as HTMLInputElement).value).toBe("");
-    });
-  });
-
-  // The challenge has to be pasted into the developer console BEFORE the
-  // permission URL is opened, because that console stores one challenge per
-  // application rather than one per request. A screen that hid it would leave an
-  // administrator with an authorization that fails for a reason nothing states.
-  it("shows the challenge to save and the URL to open, once an authorization starts", async () => {
-    const { fetchStub } = stubTransport(FULL_GRANT, {
-      "/ext/zalo-oa/status": () => ({ connected: false }),
-      "/ext/zalo-oa/authorize": () => ({
-        permission_url: "https://oauth.zaloapp.com/v4/oa/permission?app_id=app-1",
-        code_challenge: "the-challenge",
-        connection: { ...CONNECTION, status: "pending_authorization" },
-      }),
-    });
-    vi.stubGlobal("fetch", vi.fn(fetchStub));
-
-    renderScreen();
-    const user = userEvent.setup();
-    await user.type(await screen.findByLabelText("App ID"), "app-1");
-    await user.type(screen.getByLabelText("App Secret"), "the-secret");
-    await user.type(screen.getByLabelText("Redirect address"), "https://crm.example.com/zalo");
-    await user.click(screen.getByRole("button", { name: "Start authorization" }));
-
-    expect(await screen.findByText("the-challenge")).toBeTruthy();
-    expect(
-      screen.getByText("https://oauth.zaloapp.com/v4/oa/permission?app_id=app-1"),
-    ).toBeTruthy();
-  });
-
-  it("redeems the whole redirect address the administrator came back with", async () => {
+  it("sends all four values, and leaves no credential in a form field after", async () => {
     const { calls, fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/zalo-oa/status": () => ({ connected: false }),
       "/ext/zalo-oa/connect": () => CONNECTION,
@@ -229,27 +145,32 @@ describe("the Zalo Official Account screen", () => {
 
     renderScreen();
     const user = userEvent.setup();
-    await user.type(
-      await screen.findByLabelText("The address Zalo sent the administrator to"),
-      "https://crm.example.com/zalo?code=the-code&oa_id=4033837145949898046&state=3d5f8a10-7c42-4e19-9b03-1f6a2d8c5e74",
-    );
-    await user.click(screen.getByRole("button", { name: "Finish connecting" }));
+    await user.type(await screen.findByLabelText("App ID"), "app-1");
+    await user.type(screen.getByLabelText("App Secret"), "the-secret");
+    await user.type(screen.getByLabelText("Access token"), "at-1");
+    await user.type(screen.getByLabelText("Refresh token"), "rt-1");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
     await waitFor(() => {
-      const finished = calls.find((call) => call.path === "/ext/zalo-oa/connect");
-      expect(finished?.method).toBe("PUT");
-      expect(finished?.body).toEqual({
-        code: "the-code",
-        oa_id: "4033837145949898046",
-        state: "3d5f8a10-7c42-4e19-9b03-1f6a2d8c5e74",
+      const sent = calls.find((call) => call.path === "/ext/zalo-oa/connect");
+      expect(sent?.method).toBe("PUT");
+      expect(sent?.body).toEqual({
+        app_id: "app-1",
+        app_secret: "the-secret",
+        access_token: "at-1",
+        refresh_token: "rt-1",
       });
+    });
+    // Every credential is cleared whatever happened — the refresh token above
+    // all, since a successful connect has just spent it.
+    await waitFor(() => {
+      for (const label of ["App Secret", "Access token", "Refresh token"]) {
+        expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe("");
+      }
     });
   });
 
-  // The button stays shut until the pasted address actually carries a
-  // redemption, because pressing it otherwise spends nothing and teaches an
-  // administrator that the screen is broken.
-  it("will not redeem an address that carries no code", async () => {
+  it("keeps the button shut until every value is present", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/zalo-oa/status": () => ({ connected: false }),
     });
@@ -257,37 +178,50 @@ describe("the Zalo Official Account screen", () => {
 
     renderScreen();
     const user = userEvent.setup();
-    await user.type(
-      await screen.findByLabelText("The address Zalo sent the administrator to"),
-      "https://crm.example.com/zalo",
-    );
+    await user.type(await screen.findByLabelText("App ID"), "app-1");
+    await user.type(screen.getByLabelText("App Secret"), "the-secret");
     expect(
-      (screen.getByRole("button", { name: "Finish connecting" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled,
     ).toBe(true);
   });
 
-  // A failed step is ANNOUNCED, not merely rendered. It appears after the press
-  // that caused it, so an administrator not looking at this element — a
-  // screen-reader user who has just moved off the button — otherwise hears
-  // nothing and is left believing the account connected.
-  it("announces a failed redemption as an alert", async () => {
-    // /connect is deliberately unscripted, so the stub answers 503 — a real
-    // refusal shape rather than a thrown fetch, which no server produces.
+  // THE SERVER'S OWN SENTENCE, not a static string. This is the whole difference
+  // between a screen that helps and one that does not: an account on the free
+  // package and an app missing a permission group both fail to connect, and one
+  // costs 2.500.000 đ a year while the other costs a click. A UAT found the
+  // screen throwing both away.
+  it("announces the server's own refusal, not a generic line", async () => {
+    const detail =
+      "this Official Account's package does not include the conversation API. Margince needs the paid tier — upgrade the account at oa.zalo.me";
     const { fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/zalo-oa/status": () => ({ connected: false }),
+      "/ext/zalo-oa/connect": () => {
+        throw new Error("unused");
+      },
     });
-    vi.stubGlobal("fetch", vi.fn(fetchStub));
+    // A 422 carrying an RFC-7807 detail, which is what the unit actually answers.
+    const refusing = async (input: Request | string | URL) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.includes("/ext/zalo-oa/connect")) {
+        return new Response(JSON.stringify({ title: "Unprocessable", status: 422, detail }), {
+          status: 422,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return fetchStub(input);
+    };
+    vi.stubGlobal("fetch", vi.fn(refusing));
 
     renderScreen();
     const user = userEvent.setup();
-    await user.type(
-      await screen.findByLabelText("The address Zalo sent the administrator to"),
-      "https://crm.example.com/zalo?code=c&oa_id=o&state=s",
-    );
-    await user.click(screen.getByRole("button", { name: "Finish connecting" }));
+    await user.type(await screen.findByLabelText("App ID"), "app-1");
+    await user.type(screen.getByLabelText("App Secret"), "s");
+    await user.type(screen.getByLabelText("Access token"), "at");
+    await user.type(screen.getByLabelText("Refresh token"), "rt");
+    await user.click(screen.getByRole("button", { name: "Connect" }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("The account was not connected");
+    expect(alert.textContent).toContain("oa.zalo.me");
   });
 
   // No operation returns a credential, and the screen must not display one it was
@@ -330,7 +264,7 @@ describe("the Zalo Official Account screen", () => {
     [
       "reauth_required",
       "refresh_rotation_lost",
-      "Authorization needed",
+      "Reconnection needed",
       /replacement could not be stored/,
     ],
   ])("says what to do about %s", async (status, errorClass, badge, explanation) => {
@@ -357,7 +291,7 @@ describe("the Zalo Official Account screen", () => {
 
     renderScreen();
     expect(await screen.findByText("Connected")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start authorization" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
   });
 

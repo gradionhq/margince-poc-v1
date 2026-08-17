@@ -8,9 +8,10 @@
 // WHOSE CREDENTIAL THIS RUNS ON is the one thing to understand before anything
 // else here reads correctly. Zalo has no client-credentials grant — an OA ADMIN
 // clicks *Cho phép* in a browser and the token pair that comes back is the grant
-// that one human made. So the credential is deposited at USER scope under that
-// admin, the connection row names them in authorized_by, and every record this
-// unit lands is landed on THEIR live authority.
+// that one human made. This unit does not conduct that browser trip (see
+// connect.go); it takes the pair the administrator brings back from it, deposits
+// it at USER scope under the person who brought it, names them in authorized_by,
+// and lands every record on THEIR live authority.
 //
 // That is not a per-member integration. There is ONE connection, ONE OA and one
 // setup, and every rep in the workspace replies through it; what is per-member
@@ -33,11 +34,10 @@
 //     200, including an invalid token and an unknown endpoint. The error lives in
 //     the body. A client that classified on status would read a revoked token as
 //     a successful empty page.
-//   - oauth.go — the browser round trip: PKCE, the permission URL, the
-//     single-use code exchange, and the single-use REFRESH.
-//   - connection.go — authorize / connect / status / disconnect, and the tier
-//     gate, which is a CAPABILITY PROBE and never a match on the localized
-//     package name.
+//   - oauth.go — the token endpoint, which this unit reaches for exactly one
+//     thing: the single-use REFRESH.
+//   - connection.go — connect / status / disconnect, and the tier gate, which is
+//     a CAPABILITY PROBE and never a match on the localized package name.
 //   - credential.go — the sealed token document and the serialized refresh. It
 //     is the sharpest correctness requirement in this unit: the refresh token is
 //     single-use, and a rotation issued but not persisted costs an OA-admin
@@ -87,25 +87,29 @@ func New() extension.Extension {
 			},
 		},
 		Tools: []extension.Tool{
-			{Name: "zalo_oa_authorize", Handle: authorize},
 			{Name: "zalo_oa_connect", Handle: connect},
 			{Name: "zalo_oa_status", Handle: status},
 			{Name: "zalo_oa_disconnect", Handle: disconnect},
 		},
-		// Three keys, in the two scopes, and which is which is the whole custody
-		// argument above.
+		// Both keys at USER scope, under the administrator who connected the
+		// account — and the token's scope is the load-bearing one: it is the
+		// deposit the ingress port reads as that human's consent to be acted for,
+		// so a workspace-scoped token would be refused on every record this unit
+		// ever tried to land.
 		//
-		// The TOKEN is user-scoped under the authorizing admin: it is that
-		// human's grant, it is the deposit the ingress port reads as their
-		// consent, and it is what the poll acts on. The PKCE verifier is
-		// user-scoped for the same reason — it belongs to the one authorization
-		// its owner has in flight. The APP SECRET is the installation's own: one
-		// developer app serves every OA an operator ever connects, and it is
-		// spent by the exchange and the refresh alike.
+		// The APP SECRET sits beside it rather than at workspace scope, which is
+		// where it would otherwise belong: one developer app serves every account
+		// an operator connects, so it describes the installation and not the
+		// person. It is here because a unit declares ONE scope — the composition
+		// generator refuses a unit whose secrets span both, since a unit's
+		// settings placement is derived from that scope and a mixed unit has no
+		// single answer. The cost is real and worth naming: this unit is offered
+		// under Connections, beside a member's own personal accounts, when one
+		// Official Account in fact serves the whole workspace and every rep
+		// replies through it.
 		Secrets: []extension.SecretsRequest{
 			{Key: "oa-token", Scope: extension.SecretScopeUser},
-			{Key: "pkce-verifier", Scope: extension.SecretScopeUser},
-			{Key: "app-secret", Scope: extension.SecretScopeWorkspace},
+			{Key: "app-secret", Scope: extension.SecretScopeUser},
 		},
 		// The transport this unit supplies (ADR-0107/A158). A message it carries
 		// lands as kind `message` with `zalo_oa` on the provider column — the
@@ -145,11 +149,9 @@ const (
 	// expiry as ONE value, so a rotation is one write and the halves cannot land
 	// apart. See credential.go.
 	tokenKey = "oa-token"
-	// verifierKey holds the PKCE code verifier between minting the permission
-	// URL and exchanging the code the admin comes back with.
-	verifierKey = "pkce-verifier"
-	// appSecretKey holds the developer app's secret, which the exchange and the
-	// refresh both spend.
+	// appSecretKey holds the developer app's secret, which every renewal spends.
+	// It is deposited under the same administrator as the token; see the
+	// declaration for why it is not workspace-scoped.
 	appSecretKey = "app-secret"
 )
 

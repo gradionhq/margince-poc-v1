@@ -3,29 +3,23 @@
 
 package zalooa
 
-// The browser round trip, and the token endpoint behind it.
+// The token endpoint, which this unit reaches for exactly one thing: spending a
+// refresh token to get the pair that replaces it.
 //
-// There is NO client-credentials grant for an Official Account. An OA admin
-// opens a permission URL, reads what is being asked for, and clicks *Cho phép*;
-// what comes back is a code that is single-use and dies in ten minutes, which
-// is exchanged for a pair of tokens. Every part of this file exists because that
-// human step cannot be automated away, and the design's job is to make the parts
-// around it recoverable.
+// It does NOT conduct the browser authorization that mints the first pair — see
+// connect.go for why that trip belongs to a tool and a human rather than to the
+// product. What lands here is the half that repeats: every twenty-five hours,
+// unattended, for as long as the connection lives.
 //
 // The token endpoint answers a DIFFERENT shape from the OpenAPI host — a flat
-// grant document, not the `{error, message, data}` envelope client.go reads —
+// grant document, not the `{error, message, data}` envelope the transport reads —
 // so it has its own transport here rather than sharing that one.
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,73 +27,11 @@ import (
 )
 
 const (
-	// permissionURL is where the OA admin goes to grant access.
-	permissionURL = "https://oauth.zaloapp.com/v4/oa/permission"
-	// tokenURL redeems a code and rotates a refresh token. Both grants post
-	// here; only `grant_type` differs.
+	// tokenURL is where a refresh token is spent for the pair that replaces it.
+	//
 	//nolint:gosec // G101 false positive: the provider's public token ENDPOINT, which is the opposite of a secret
 	tokenURL = "https://oauth.zaloapp.com/v4/oa/access_token"
 )
-
-const (
-	// verifierLength is fixed at 43 characters because Zalo's documentation
-	// specifies exactly that, not a range.
-	verifierLength = 43
-
-	// verifierAlphabet is the character set Zalo requires: upper, lower and
-	// digits. It is NARROWER than RFC 7636, which also admits `-._~` — this
-	// follows the provider's rule rather than the RFC's, because the provider is
-	// what validates it.
-	verifierAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
-)
-
-// newVerifier draws a PKCE code verifier from crypto/rand.
-func newVerifier() (string, error) {
-	out := make([]byte, verifierLength)
-	limit := big.NewInt(int64(len(verifierAlphabet)))
-	for i := range out {
-		n, err := rand.Int(rand.Reader, limit)
-		if err != nil {
-			return "", fmt.Errorf("zalo-oa: drawing a code verifier: %w", err)
-		}
-		out[i] = verifierAlphabet[n.Int64()]
-	}
-	return string(out), nil
-}
-
-// challengeFor derives the PKCE code challenge from a verifier.
-//
-// THE ENCODING IS THE ONE GENUINELY AMBIGUOUS PARAMETER in this provider's
-// documentation: it says "Base64 (without padding)" while linking the PKCE
-// spec, which mandates base64URL. The two differ whenever the SHA-256 digest
-// contains a byte mapping to `+` or `/` — which is most of the time — so the
-// wrong choice fails INTERMITTENTLY, and an intermittent authorization failure
-// is the worst kind to debug against a ten-minute code.
-//
-// base64url is used, because it is what the specification Zalo links mandates
-// and what every other PKCE implementation sends. The standard-encoding
-// alternative is named in the refusal an exchange produces rather than tried
-// silently: an authorization that failed for this reason has a symptom nobody
-// would otherwise connect to an encoding.
-func challengeFor(verifier string) string {
-	sum := sha256.Sum256([]byte(verifier))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
-}
-
-// permissionLink is the URL the OA admin opens.
-func permissionLink(appID, redirectURI, challenge, state string) (string, error) {
-	authorize, err := url.Parse(permissionURL)
-	if err != nil {
-		return "", fmt.Errorf("zalo-oa: parsing the permission endpoint: %w", err)
-	}
-	authorize.RawQuery = url.Values{
-		"app_id":         {appID},
-		"redirect_uri":   {redirectURI},
-		"code_challenge": {challenge},
-		"state":          {state},
-	}.Encode()
-	return authorize.String(), nil
-}
 
 // tokenPair is a grant as this unit holds it: the two credentials and when the
 // access half stops being accepted.
@@ -132,8 +64,6 @@ const refreshMargin = time.Hour
 // persistence rules around it are this unit's own logic that has to be provable
 // without a live grant.
 type grantExchanger interface {
-	// Redeem exchanges an authorization code for a first token pair.
-	Redeem(ctx context.Context, appID, appSecret, code, verifier string) (tokenPair, error)
 	// Rotate spends a refresh token and returns the pair that replaces it. The
 	// token passed in is DEAD once this returns without an error.
 	Rotate(ctx context.Context, appID, appSecret, refreshToken string) (tokenPair, error)
@@ -158,52 +88,26 @@ func newOAuthClient() *oauthClient {
 	}
 }
 
-// Redeem exchanges the code the admin's browser came back with.
-//
-// A refusal here IS the credential's: an authorization code is single-use and
-// lives ten minutes, so a grant that did not come back is one no retry will
-// produce. It is reported as such, with the two things that actually go wrong.
-func (o *oauthClient) Redeem(ctx context.Context, appID, appSecret, code, verifier string) (tokenPair, error) {
-	pair, err := o.grant(ctx, appSecret, url.Values{
-		"code":          {code},
-		"app_id":        {appID},
-		"grant_type":    {"authorization_code"},
-		"code_verifier": {verifier},
-	})
-	if errors.Is(err, errNoGrant) {
-		return tokenPair{}, fmt.Errorf("%w: the authorization did not produce a token pair — the code may have been used already or expired (it is single-use and lives ten minutes), or the code challenge saved in the developer console was not the one that matches this verifier", errUnauthorized)
-	}
-	return pair, err
-}
-
 // Rotate spends the refresh token and returns its replacement.
 //
 // CALLING THIS IS DESTRUCTIVE. The token passed in is dead the moment the
 // provider answers, whether or not this side manages to keep what came back —
-// which is why the only caller holds a row lock and persists before it uses
+// which is why the scheduled caller holds a lease and persists before it uses
 // anything (credential.go).
+//
+// An unproductive answer is returned as errNoGrant and CLASSIFIED BY THE CALLER,
+// because the two callers mean different things by it. Connecting has a human at
+// the screen who supplied the token seconds ago, so it is the credential's
+// refusal. A scheduled renewal has nobody: this endpoint's refusal codes are not
+// in the measured catalog — GUIDE.md §3 covers the OpenAPI host only — so a rate
+// limit and a spent token arrive looking alike, and reading them as the
+// credential would park a working connection that only needed a retry.
 func (o *oauthClient) Rotate(ctx context.Context, appID, appSecret, refreshToken string) (tokenPair, error) {
-	pair, err := o.grant(ctx, appSecret, url.Values{
+	return o.grant(ctx, appSecret, url.Values{
 		"refresh_token": {refreshToken},
 		"app_id":        {appID},
 		"grant_type":    {"refresh_token"},
 	})
-	if errors.Is(err, errNoGrant) {
-		// AN ANSWERED REFUSAL IS NOT PROOF THE CREDENTIAL IS DEAD, and the
-		// asymmetry decides which way to read it. This endpoint's refusal codes are
-		// not in the measured catalog — GUIDE.md §3 covers the OpenAPI host only —
-		// so a rate limit, a disabled app or a maintenance document all arrive here
-		// looking the same as a spent refresh token. Reading them as the credential
-		// would park a working connection, and the only way back from that is an OA
-		// admin at another company; reading them as the provider costs a retry on
-		// the next tick.
-		//
-		// A refresh token that really is dead still parks, on measured evidence
-		// rather than guessed: the access token expires behind it and the API then
-		// answers -216, which IS in the catalog and IS the credential's refusal.
-		return tokenPair{}, fmt.Errorf("%w: the token endpoint would not renew this credential, and did not say why in a way this unit reads", errProvider)
-	}
-	return pair, err
 }
 
 // grant posts one form to the token endpoint and reads what comes back.

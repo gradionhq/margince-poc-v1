@@ -20,22 +20,6 @@
       "digest": "sha256:2f3bb00403daec0f8a5184fc3d43164b3d2a710226799d74ae5571881de712b5"
     },
     {
-      "id": "tool/zalo_oa_authorize",
-      "unit": "zalo-oa",
-      "kind": "agent_tool",
-      "contract": "crm.yaml",
-      "operation": "agent.tool.invoke",
-      "operation_id": "zaloOaAuthorize",
-      "route": "/ext/zalo-oa/authorize",
-      "method": "POST",
-      "scopes": [
-        "write"
-      ],
-      "tier": "auto_execute",
-      "fragment_hash": "8ff38bbd4754e9dad4f26cc01440c55bfffdc5b4313eea418d922428851dbbfa",
-      "digest": "sha256:bd75cc9de466d0df9bf05742bea36aa27a4cd4f79618ae5c43013ff3685edc7e"
-    },
-    {
       "id": "tool/zalo_oa_connect",
       "unit": "zalo-oa",
       "kind": "agent_tool",
@@ -48,8 +32,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "7f84402cff9940ee7fb8d52b2a4252139fd052aca50a1681beda7a0f611f2d39",
-      "digest": "sha256:e8b2c10fcb5bf1df450bc7b221fed354508a02a42c80e75709ebf5cd5ecc4898"
+      "fragment_hash": "d519197f072d76ccd027c5e787bee3fbd2a3fb37928a7b8bcc141b0dfd69c94a",
+      "digest": "sha256:627efc19ee662b381b60b376430245fbda257ecddd0339ebac23e93462adc138"
     },
     {
       "id": "tool/zalo_oa_disconnect",
@@ -80,21 +64,17 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "e0326887f9541ed275315f42ae1aba4ca7239e2e0d08442b2b19f650650d7f27",
-      "digest": "sha256:03f766f97a3204d21b50c267164b97eda3c5de1bf2403776d497447446f2ad84"
+      "fragment_hash": "0b21f25205aa791b3c3d5e2e18b2fe9f194f8ca2fe41ada3281176775ca272d2",
+      "digest": "sha256:60acd5e32d837ed295d1d65cc2b77d9e57f0fd1601c2eb5ab3c81fc5169e02b3"
     }
   ],
   "secrets": [
     {
       "key": "app-secret",
-      "scope": "workspace"
-    },
-    {
-      "key": "oa-token",
       "scope": "user"
     },
     {
-      "key": "pkce-verifier",
+      "key": "oa-token",
       "scope": "user"
     }
   ],

@@ -101,13 +101,19 @@ func unsealTokens(ctx context.Context, rt extension.Runtime, admin extension.Use
 	return pair, nil
 }
 
-// forgetCredential removes everything sealed for one admin: the token pair, and
-// any PKCE verifier left from an authorization.
+// forgetCredential removes EVERYTHING sealed for one administrator: the token
+// pair, and the app secret that renews it.
+//
+// Both, because both are theirs — the app secret sits at user scope for the
+// reason the declaration gives — and because leaving either behind is a
+// credential on deposit for a connection that no longer exists. The ingress port
+// reads a deposit as live consent, so a stray one is a standing authority rather
+// than a stray blob.
 //
 // A key that holds nothing is not an error here — this is the withdrawal path,
 // and "it was already gone" is the outcome asked for.
 func forgetCredential(ctx context.Context, rt extension.Runtime, admin extension.UserID) error {
-	for _, key := range []string{tokenKey, verifierKey} {
+	for _, key := range []string{tokenKey, appSecretKey} {
 		if err := rt.Secrets().DeleteUser(ctx, admin, key); err != nil &&
 			!errors.Is(err, extension.ErrSecretNotFound) {
 			return err
@@ -147,7 +153,7 @@ func usableToken(ctx context.Context, rt extension.Runtime, grants grantExchange
 	// rotation needs that this side can be missing, and discovering that while
 	// holding the lease would shut the renewal for the lease's whole length over
 	// a fault that has nothing to do with the provider.
-	appSecret, err := rt.Secrets().Get(ctx, appSecretKey)
+	appSecret, err := rt.Secrets().GetUser(ctx, admin, appSecretKey)
 	if err != nil {
 		if errors.Is(err, extension.ErrSecretNotFound) {
 			return tokenPair{}, conn, fmt.Errorf("%w: this installation has no app secret on deposit, so the credential cannot be renewed", errCredentialGone)
@@ -211,10 +217,12 @@ func rotate(ctx context.Context, rt extension.Runtime, grants grantExchanger,
 		parked, perr := park(ctx, rt, conn, "refresh_token_rejected", statusReauth)
 		return tokenPair{}, parked, errors.Join(err, perr)
 	case err != nil:
-		// The provider was unreachable or unreadable and nothing was spent. The
-		// lease is released so the next tick may try again.
+		// The provider was unreachable, unreadable, or refused without saying why
+		// — and nothing was spent. The lease is released so the next tick may try
+		// again; see rotationRefusal for why an unexplained refusal is read this
+		// way rather than as the credential's.
 		released, rerr := releaseRefresh(ctx, rt, conn)
-		return tokenPair{}, released, errors.Join(err, rerr)
+		return tokenPair{}, released, errors.Join(rotationRefusal(err), rerr)
 	}
 	// THE PROVIDER HAS NOW ROTATED. From here the old refresh token is dead
 	// whatever happens, so the replacement is sealed before it is used, mirrored
@@ -232,6 +240,26 @@ func rotate(ctx context.Context, rt extension.Runtime, grants grantExchanger,
 		return tokenPair{}, conn, err
 	}
 	return renewed, after, nil
+}
+
+// rotationRefusal is how a SCHEDULED renewal reads an answer that produced no
+// pair, and it is deliberately the opposite of how connecting reads the same one.
+//
+// The token endpoint's refusal codes are not in the measured catalog — GUIDE.md
+// §3 covers the OpenAPI host only — so a rate limit, a disabled app and a spent
+// refresh token all arrive here looking alike. Nobody is watching a scheduled
+// tick, and reading an unexplained refusal as the credential would park a
+// working connection whose only way back is an OA administrator in a browser at
+// another company. Reading it as the provider costs one retry.
+//
+// A refresh token that really is dead still parks, on measured evidence rather
+// than guessed: the access token expires behind it and the API then answers -216,
+// which IS in the catalog and IS the credential's own refusal.
+func rotationRefusal(cause error) error {
+	if errors.Is(cause, errNoGrant) {
+		return fmt.Errorf("%w: the token endpoint would not renew this credential, and did not say why in a way this unit reads", errProvider)
+	}
+	return cause
 }
 
 // claimRefresh takes the renewal lease, atomically.

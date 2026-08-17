@@ -29,37 +29,42 @@ info:
   title: zalo-oa
   version: "1.0.0"
 actions:
-  - target: $.paths['/ext/zalo-oa/authorize']
+  - target: $.paths['/ext/zalo-oa/connect']
     update:
-      # POST, because each call MINTS something: a fresh PKCE verifier, and the
-      # permission URL built around it. It is not an upsert of a stable resource,
-      # and a PUT would publish it as one.
-      post:
-        operationId: zaloOaAuthorize
-        summary: Start authorizing a Zalo Official Account.
+      # PUT, because an installation has ONE Official Account: connecting a second
+      # time replaces the first rather than adding to it. A POST would publish
+      # "create another one" for an operation that cannot.
+      put:
+        operationId: zaloOaConnect
+        summary: Connect this installation's Zalo Official Account.
         tags: [Extensions]
         x-rbac-object: ext_zalo_oa_connection
         x-rbac-action: update
         x-mcp-tool:
-          verb: zalo_oa_authorize
+          verb: zalo_oa_connect
           version: 1.0.0
-          title: Start a Zalo Official Account authorization
-          # 🟢 write: it writes the unit's own row and seals two credentials in
-          # the unit's own namespace. Nothing leaves the workspace — the
-          # permission URL it returns is opened by a human in their own browser,
-          # not by this installation.
+          title: Connect a Zalo Official Account
+          # 🟢 write: it seals credentials the caller already holds in the unit's
+          # own namespace and writes the unit's own row. It does spend the
+          # supplied refresh token once, at the provider — which renews this
+          # installation's own credential and reaches no third party.
           tier: auto_execute
           scope: write
           description: >-
-            Begin connecting this installation's Zalo Official Account. It takes
-            the App ID and App Secret from developers.zalo.me and the address
-            Zalo should redirect back to, and returns a permission URL for an OA
-            administrator to open, plus the code challenge that must be saved in
-            the same developer console. Nothing is connected yet: the
-            administrator opens the URL, clicks Cho phép, and the redirect
-            carries a single-use code that expires in ten minutes, which the
-            connect operation redeems. The App Secret is sealed and no operation
-            ever reads it back.
+            Connect a Zalo Official Account, using the App ID and App Secret from
+            developers.zalo.me and a token pair from running the Zalo
+            authorization once. Before anything is stored the account is checked
+            for the paid package this connector needs, by asking the API rather
+            than by reading the package name — a free-tier account is refused with
+            what it would cost to upgrade, and an account whose app has simply not
+            enabled the right permission group is told that instead, because that
+            costs nothing. The supplied refresh token is then spent immediately,
+            once, which proves it works and replaces it with a pair only this
+            installation holds; a Zalo refresh token can be used only once, so a
+            pair anything else is still using will not connect. Whoever calls this
+            becomes the connection's administrator, and an installation has one
+            Official Account, so connecting replaces whatever was connected
+            before.
         requestBody:
           required: true
           content:
@@ -67,14 +72,15 @@ actions:
               schema:
                 type: object
                 additionalProperties: false
-                required: [app_id, app_secret, redirect_uri]
+                required: [app_id, app_secret, access_token, refresh_token]
+                # No user member, deliberately. See the header.
                 properties:
                   app_id:
                     type: string
                     minLength: 1
                     maxLength: 128
                     description: >-
-                      The App ID of the Zalo application this authorization runs
+                      The App ID of the Zalo application the grant was made
                       through, from developers.zalo.me. It is not a credential and
                       is stored in the clear so a screen can show which app is in
                       use.
@@ -83,222 +89,28 @@ actions:
                     minLength: 1
                     maxLength: 512
                     description: >-
-                      That application's App Secret. It is sealed by the
-                      installation's custodian and is never returned.
-                  redirect_uri:
+                      That application's App Secret. Every renewal spends it. It is
+                      sealed by the installation's custodian and is never returned.
+                  access_token:
                     type: string
-                    format: uri
+                    minLength: 1
                     maxLength: 2048
                     description: >-
-                      Where Zalo sends the administrator's browser back to after
-                      they approve. It must be https and must carry no query or
-                      fragment, because Zalo appends its own — and it must match
-                      the OA Callback Url saved in the developer console exactly.
-        responses:
-          '200':
-            description: What the administrator needs to complete the authorization.
-            content:
-              application/json:
-                schema:
-                  type: object
-                  additionalProperties: false
-                  required: [permission_url, code_challenge, connection]
-                  properties:
-                    permission_url:
-                      type: string
-                      format: uri
-                      description: >-
-                        The URL an OA administrator opens to approve. The
-                        authorization code it produces is single-use and expires
-                        ten minutes after they click.
-                    code_challenge:
-                      type: string
-                      description: >-
-                        The PKCE code challenge for this authorization, which must
-                        be saved in the developer console before the administrator
-                        opens the permission URL. It is returned because the
-                        console stores one challenge per application rather than
-                        one per request, so a fresh authorization needs it pasted
-                        again.
-                    connection:
-                      # Restated rather than $ref'd, and the rule is the sibling
-                      # unit's: a fragment is merged into the core document, and
-                      # this generator resolves no references — an unresolved one
-                      # would be advertised to a model as the shape. Copies to
-                      # reconcile by hand is the cost; a unit writing into the
-                      # core's component space is what it buys out of.
-                      type: object
-                      additionalProperties: false
-                      required: [id, app_id, redirect_uri, authorized_by, status, high_water_mark, version]
-                      description: >-
-                        This installation's Zalo connection, here in its
-                        pending_authorization state. It carries no token — the
-                        credentials are sealed in the unit's secret namespace and
-                        no operation returns them.
-                      properties:
-                        id: { type: string, format: uuid }
-                        oa_id:
-                          type: string
-                          description: >-
-                            Zalo's own id for the connected Official Account, and the
-                            namespace every person binding and every captured message key
-                            is prefixed with. Absent until an administrator returns from
-                            the browser with it.
-                        app_id: { type: string }
-                        redirect_uri: { type: string, format: uri }
-                        authorized_by:
-                          type: string
-                          format: uuid
-                          description: >-
-                            The administrator whose grant this is: whose sealed credential
-                            the poll spends, and whose live authority every captured
-                            message is landed on. When they leave, this connection stops —
-                            which is why it is named rather than implied.
-                        status:
-                          type: string
-                          enum: [pending_authorization, connected, reauth_required, tier_lapsed]
-                          description: >-
-                            `pending_authorization` is an authorization part way through a
-                            browser. `connected` is working. `reauth_required` means the
-                            credential can no longer be renewed and an administrator must
-                            authorize again. `tier_lapsed` means the token is fine and the
-                            Official Account's package is not.
-                        account_label:
-                          type: string
-                          description: What Zalo says this Official Account is called.
-                        package_name:
-                          type: string
-                          description: >-
-                            The Official Account's package, as Zalo names it — a localized
-                            display string shown as evidence. Nothing in this connector
-                            compares it: whether the account may be used is decided by
-                            asking the API, not by reading this.
-                        package_valid_through:
-                          type: string
-                          description: >-
-                            When that package expires, as Zalo reports it. A package that
-                            lapses turns a working connection into `tier_lapsed`.
-                        access_token_expires_at:
-                          type: string
-                          format: date-time
-                          description: >-
-                            When the sealed access token stops being accepted. It is
-                            mirrored from the credential so a screen can show renewal
-                            without unsealing anything.
-                        refresh_claimed_at:
-                          type: string
-                          format: date-time
-                          description: >-
-                            Set while a renewal is in flight. Because a Zalo refresh token
-                            is single-use, exactly one caller may hold this at a time.
-                        high_water_mark:
-                          type: integer
-                          format: int64
-                          description: >-
-                            The newest message this connection has decided about — landed,
-                            skipped or unrepresentable alike — as a millisecond timestamp.
-                        backfill_before:
-                          type: integer
-                          format: int64
-                          description: >-
-                            Where a poll that ran out of page budget stopped, and where the
-                            next one resumes. Zero means there is no gap. While it is set
-                            the watermark deliberately does not move.
-                        pending_high_water_mark:
-                          type: integer
-                          format: int64
-                          description: >-
-                            The newest message decided about above an unread region, which
-                            is what lets each poll read new messages first while a backlog
-                            is still being filled in.
-                        backfill_offset:
-                          type: integer
-                          description: >-
-                            Where in the provider's global walk the unread region began. It
-                            is a resume hint rather than a position: the provider shifts
-                            every offset as messages arrive.
-                        last_polled_at: { type: string, format: date-time }
-                        last_error_class:
-                          type: string
-                          description: >-
-                            What went wrong on the last poll, in this unit's own vocabulary
-                            (`token_rejected`, `package_too_low`, `api_not_registered`,
-                            `refresh_rotation_lost`, …). Zalo's own message is deliberately
-                            not carried.
-                        version: { type: integer }
-          '401': { $ref: '#/components/responses/Unauthorized' }
-          '403': { $ref: '#/components/responses/Forbidden' }
-          # Declared because this operation genuinely answers it: a redirect
-          # address that is not https, carries credentials, or carries a query
-          # or fragment is refused before anything is minted, and so is an empty
-          # or oversized app id or secret.
-          '422': { $ref: '#/components/responses/ValidationError' }
-
-  - target: $.paths['/ext/zalo-oa/connect']
-    update:
-      # PUT, because completing the authorization is an upsert of the one
-      # connection this installation has: the row already exists in
-      # pending_authorization and this fills it in. A POST would publish "create
-      # another one" for an operation that cannot.
-      put:
-        operationId: zaloOaConnect
-        summary: Complete a Zalo Official Account authorization.
-        tags: [Extensions]
-        x-rbac-object: ext_zalo_oa_connection
-        x-rbac-action: update
-        x-mcp-tool:
-          verb: zalo_oa_connect
-          version: 1.0.0
-          title: Complete a Zalo Official Account authorization
-          # 🟢 write: it redeems a code the caller already holds, seals the
-          # resulting credential in the unit's own namespace, and writes the
-          # unit's own row.
-          tier: auto_execute
-          scope: write
-          description: >-
-            Finish connecting a Zalo Official Account, using the code and oa_id
-            Zalo redirected back with. The code is single-use and expires ten
-            minutes after it is issued. Before anything is stored the account is
-            checked for the paid package this connector needs, by asking the API
-            rather than by reading the package name — a free-tier account is
-            refused here with what it would cost to upgrade, and an account whose
-            app has simply not enabled the right permission group is told that
-            instead, because that costs nothing. Whoever calls this becomes the
-            connection's authorizing administrator.
-        requestBody:
-          required: true
-          content:
-            application/json:
-              schema:
-                type: object
-                additionalProperties: false
-                required: [code, oa_id, state]
-                properties:
-                  code:
+                      The access token from the authorization. It is spent once
+                      here, to check the account's package, and then replaced by
+                      the renewal below — so a token near the end of its
+                      twenty-five hours still connects.
+                  refresh_token:
                     type: string
                     minLength: 1
-                    maxLength: 1024
+                    maxLength: 2048
                     description: >-
-                      The authorization code from the redirect. Single-use, and it
-                      expires ten minutes after the administrator approved.
-                  oa_id:
-                    type: string
-                    minLength: 1
-                    maxLength: 64
-                    description: >-
-                      The Official Account id from the redirect. It becomes the
-                      namespace for every person binding and every captured
-                      message key.
-                  state:
-                    type: string
-                    minLength: 1
-                    maxLength: 64
-                    description: >-
-                      The state value from the redirect, which binds this
-                      redemption to the authorization that was started on this
-                      screen. A mismatch is refused rather than warned about: it
-                      is either a stale browser tab or somebody else's redirect,
-                      and this side cannot tell which.
+                      The refresh token from the authorization. It is SINGLE-USE
+                      and is spent immediately: what is stored is the pair that
+                      replaces it, so nothing outside this installation is left
+                      holding a live credential. A token already spent — by the
+                      tool that produced it, or by a previous connect — is refused
+                      here rather than twenty-five hours later.
         responses:
           '200':
             description: The connected account.
@@ -307,7 +119,7 @@ actions:
                 schema:
                   type: object
                   additionalProperties: false
-                  required: [id, app_id, redirect_uri, authorized_by, status, high_water_mark, version]
+                  required: [id, oa_id, app_id, authorized_by, status, high_water_mark, version]
                   description: >-
                     This installation's Zalo connection. It carries no token — the
                     credentials are sealed in the unit's secret namespace and no
@@ -319,24 +131,24 @@ actions:
                       description: >-
                         Zalo's own id for the connected Official Account, and the namespace
                         every person binding and every captured message key is prefixed
-                        with.
+                        with. It is taken from what the credential answers for, never from
+                        a request.
                     app_id: { type: string }
-                    redirect_uri: { type: string, format: uri }
                     authorized_by:
                       type: string
                       format: uuid
                       description: >-
-                        The administrator whose grant this is: whose sealed credential the
-                        poll spends, and whose live authority every captured message is
-                        landed on.
+                        The administrator who connected the account: whose sealed
+                        credential the poll spends, and whose live authority every captured
+                        message is landed on.
                     status:
                       type: string
-                      enum: [pending_authorization, connected, reauth_required, tier_lapsed]
+                      enum: [connected, reauth_required, tier_lapsed]
                       description: >-
-                        `pending_authorization` is an authorization part way through a
-                        browser. `connected` is working. `reauth_required` means the
-                        credential can no longer be renewed. `tier_lapsed` means the token
-                        is fine and the Official Account's package is not.
+                        `connected` is working. `reauth_required` means the credential can
+                        no longer be renewed and an administrator must connect a fresh
+                        token pair. `tier_lapsed` means the credential is fine and the
+                        Official Account's package is not.
                     account_label:
                       type: string
                       description: What Zalo says this Official Account is called.
@@ -432,10 +244,10 @@ actions:
                         through, neither of which is an error.
                     connection:
                       # The same connection object the other two operations
-                      # return, member for member. See the note on authorize.
+                      # return, member for member. See the note on connect.
                       type: object
                       additionalProperties: false
-                      required: [id, app_id, redirect_uri, authorized_by, status, high_water_mark, version]
+                      required: [id, oa_id, app_id, authorized_by, status, high_water_mark, version]
                       description: >-
                         This installation's Zalo connection. It carries no token — the
                         credentials are sealed in the unit's secret namespace and no
@@ -447,24 +259,24 @@ actions:
                           description: >-
                             Zalo's own id for the connected Official Account, and the
                             namespace every person binding and every captured message key
-                            is prefixed with.
+                            is prefixed with. It is taken from what the credential answers
+                            for, never from a request.
                         app_id: { type: string }
-                        redirect_uri: { type: string, format: uri }
                         authorized_by:
                           type: string
                           format: uuid
                           description: >-
-                            The administrator whose grant this is: whose sealed credential
-                            the poll spends, and whose live authority every captured
-                            message is landed on.
+                            The administrator who connected the account: whose sealed
+                            credential the poll spends, and whose live authority every
+                            captured message is landed on.
                         status:
                           type: string
-                          enum: [pending_authorization, connected, reauth_required, tier_lapsed]
+                          enum: [connected, reauth_required, tier_lapsed]
                           description: >-
-                            `pending_authorization` is an authorization part way through a
-                            browser. `connected` is working. `reauth_required` means the
-                            credential can no longer be renewed. `tier_lapsed` means the
-                            token is fine and the Official Account's package is not.
+                            `connected` is working. `reauth_required` means the credential
+                            can no longer be renewed and an administrator must connect a
+                            fresh token pair. `tier_lapsed` means the credential is fine and
+                            the Official Account's package is not.
                         account_label:
                           type: string
                           description: What Zalo says this Official Account is called.

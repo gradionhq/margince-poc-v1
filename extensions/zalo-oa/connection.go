@@ -3,39 +3,32 @@
 
 package zalooa
 
-// The connection row, and the three operations that do not involve a browser:
-// starting an authorization, reporting one, and withdrawing it. Redeeming what
-// the browser comes back with is connect.go.
-//
-// The flow is in TWO halves because a human leaves the building in the middle of
-// it. `authorize` mints the PKCE material, seals it, and hands back a URL; an OA
-// administrator opens that URL, clicks *Cho phép*, and Zalo redirects with a code
-// that is single-use and dies in ten minutes. The split is the provider's, not a
-// preference: there is no client-credentials grant for an Official Account, and
-// nothing here can create one.
+// The connection row, and the two operations that only read or undo it. Making
+// one is connect.go.
 //
 // EVERY operation takes the member from the INVOCATION and never from the
-// request body. Whoever completes an authorization becomes `authorized_by`, whose
-// sealed credential the poll spends and on whose live authority every record
-// lands — so a body-supplied user id here would let one member deposit a
-// credential in a colleague's name and forge, through this unit's own front door,
-// the consent the ingress port checks.
+// request body. Whoever connects an account becomes `authorized_by`, whose sealed
+// credential the poll spends and on whose live authority every record lands — so
+// a body-supplied user id here would let one member deposit a credential in a
+// colleague's name and forge, through this unit's own front door, the consent the
+// ingress port checks.
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// The four statuses the row admits, matching the column's CHECK.
+// The three statuses the row admits, matching the column's CHECK.
+//
+// There is no half-connected state, because connecting is ONE call that either
+// produces a working credential or produces nothing.
 const (
-	statusPending   = "pending_authorization"
 	statusConnected = "connected"
 	statusReauth    = "reauth_required"
 	statusTierLapse = "tier_lapsed"
@@ -46,16 +39,18 @@ const (
 // secret are opaque to this unit, so the only honest checks are that they are
 // there and are not a paste of something else entirely.
 const (
-	maxAppIDBytes       = 128
-	maxAppSecretBytes   = 512
-	maxRedirectURIBytes = 2048
-	maxAuthCodeBytes    = 1024
-	maxOAIDBytes        = 64
+	maxAppIDBytes     = 128
+	maxAppSecretBytes = 512
+	// maxTokenBytes bounds each half of a pasted pair. A Zalo access token runs to
+	// a few hundred bytes; this leaves room for a longer format and refuses a
+	// paste of something that is not a token at all.
+	maxTokenBytes = 2048
+	maxOAIDBytes  = 64
 )
 
 // connectionColumns is the projection every read and every write returns, in one
 // place so a column added to the table is one edit rather than six.
-const connectionColumns = `id::text, coalesce(oa_id, ''), app_id, redirect_uri,
+const connectionColumns = `id::text, oa_id, app_id,
 	authorized_by::text, status, coalesce(account_label, ''), coalesce(package_name, ''),
 	coalesce(package_valid_through, ''), access_token_expires_at, refresh_claimed_at,
 	high_water_mark, coalesce(backfill_before, 0), coalesce(pending_high_water_mark, 0),
@@ -69,11 +64,11 @@ const connectionColumns = `id::text, coalesce(oa_id, ''), app_id, redirect_uri,
 // expires, which is what a row here means.
 type connection struct {
 	ID string `json:"id"`
-	// OAID is Zalo's own id for the account, and empty until the admin returns
-	// from the browser with it.
-	OAID        string `json:"oa_id,omitempty"`
-	AppID       string `json:"app_id"`
-	RedirectURI string `json:"redirect_uri"`
+	// OAID is Zalo's own id for the account, and the namespace every identity key
+	// this unit writes is prefixed with. It is taken from what the CREDENTIAL
+	// answers for, never from a request.
+	OAID  string `json:"oa_id"`
+	AppID string `json:"app_id"`
 	// AuthorizedBy is the admin whose grant this is: whose sealed token the poll
 	// spends, and whose live authority every landed record runs under.
 	AuthorizedBy string `json:"authorized_by"`
@@ -131,7 +126,7 @@ func scanConnection(scan func(...any) error) (connection, error) {
 		claimedAt    *time.Time
 		lastPolledAt *time.Time
 	)
-	err := scan(&c.ID, &c.OAID, &c.AppID, &c.RedirectURI, &c.AuthorizedBy, &c.Status,
+	err := scan(&c.ID, &c.OAID, &c.AppID, &c.AuthorizedBy, &c.Status,
 		&c.AccountLabel, &c.PackageName, &c.PackageValidThrough, &expiresAt, &claimedAt,
 		&c.HighWaterMark, &c.BackfillBefore, &c.PendingHighWaterMark, &c.BackfillOffset,
 		&lastPolledAt, &c.LastErrorClass, &c.Version)
@@ -148,130 +143,6 @@ func scanConnection(scan func(...any) error) (connection, error) {
 		c.LastPolledAt = lastPolledAt.UTC().Format(time.RFC3339)
 	}
 	return c, nil
-}
-
-// authorize starts the browser round trip: it seals what the exchange will need
-// and returns the URL an OA admin opens.
-//
-// NOTHING IS SPENT HERE and no account is reached. What it produces is a
-// verifier sealed under the caller, a row in `pending_authorization`, and two
-// strings for the screen: the permission URL, and the code challenge the admin
-// must save in their developer console.
-//
-// The challenge is returned rather than only used because of a real tension in
-// this provider's design: the console stores ONE code challenge in the app's
-// settings, so the "a fresh verifier per request" advice its own documentation
-// gives cannot be followed through the console path. An admin therefore pastes
-// the challenge once per authorization. Saying so on the screen is the honest
-// handling; silently reusing a verifier across authorizations would be the
-// alternative, and a PKCE verifier that never changes is not one.
-//
-// IT TAKES A WORKING CONNECTION DOWN, and that is the operation rather than a
-// side effect of it: the row returns to `pending_authorization`, so the poll
-// stops and a reply can no longer be staged until somebody comes back from the
-// browser. Starting an authorization over a live account IS re-setting it up,
-// the screen says so before the button, and the state it lands in is one an
-// operator can read. The app secret is replaced for the same reason and in the
-// same act.
-func authorize(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
-	args, err := extension.DecodeArgs[struct {
-		AppID       string `json:"app_id"`
-		AppSecret   string `json:"app_secret"`
-		RedirectURI string `json:"redirect_uri"`
-	}](in)
-	if err != nil {
-		return nil, err
-	}
-	admin, err := callingAdmin(rt, "starting an authorization")
-	if err != nil {
-		return nil, err
-	}
-	appID, err := boundedSecretish(args.AppID, maxAppIDBytes, "the App ID from developers.zalo.me")
-	if err != nil {
-		return nil, err
-	}
-	appSecret, err := boundedSecretish(args.AppSecret, maxAppSecretBytes, "the App Secret from developers.zalo.me")
-	if err != nil {
-		return nil, err
-	}
-	redirect, err := connectableRedirect(args.RedirectURI)
-	if err != nil {
-		return nil, err
-	}
-	verifier, err := newVerifier()
-	if err != nil {
-		return nil, err
-	}
-	// The two secrets go down BEFORE the row, for the reason every deposit in
-	// this tree does: a row with no verifier sealed is an authorization whose
-	// code can never be redeemed, and it looks live on the screen until the
-	// admin comes back from the browser and finds out. A sealed verifier with no
-	// row is invisible and costs nothing.
-	if err := rt.Secrets().Put(ctx, appSecretKey, []byte(appSecret)); err != nil {
-		return nil, err
-	}
-	if err := rt.Secrets().PutUser(ctx, admin, verifierKey, []byte(verifier)); err != nil {
-		return nil, err
-	}
-	// The state is the CSRF binding between the URL handed out and the redirect
-	// that comes back. It is the connection row's own id, which is unguessable,
-	// already stored, and — unlike a second random value — cannot go missing
-	// while the row it belongs to survives.
-	var (
-		stored connection
-		before *connection
-	)
-	err = rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		var err error
-		before, err = currentConnection(ctx, tx)
-		if err != nil {
-			return err
-		}
-		stored, err = scanConnection(tx.QueryRow(ctx,
-			`INSERT INTO `+connectionTable+` (workspace_id, app_id, redirect_uri, authorized_by)
-			 VALUES (`+callerWorkspace+`, $1, $2, $3::uuid)
-			 ON CONFLICT (workspace_id) DO UPDATE
-			    SET app_id = EXCLUDED.app_id,
-			        redirect_uri = EXCLUDED.redirect_uri,
-			        authorized_by = EXCLUDED.authorized_by,
-			        status = '`+statusPending+`',
-			        last_error_class = NULL,
-			        version = `+connectionTable+`.version + 1,
-			        updated_at = now()
-			 RETURNING `+connectionColumns, appID, redirect, string(admin)).Scan)
-		if err != nil {
-			return err
-		}
-		return recordConnection(ctx, tx, auditActionFor(before), eventAuthorizationStarted, before, &stored)
-	})
-	if err != nil {
-		return nil, err
-	}
-	// A DEPOSIT EXISTS ONLY FOR THE ROW'S CURRENT authorized_by, and this is where
-	// that could otherwise stop being true. Repointing the row at a new
-	// administrator leaves the previous one's sealed pair with nothing referencing
-	// it — and the ingress port reads a deposit as live consent to act for that
-	// person, so what would be left behind is not a stray blob but a standing
-	// authority no screen shows and no disconnect reaches (disconnect withdraws
-	// the row's CURRENT administrator, who is now somebody else).
-	//
-	// It is withdrawn after the row is written rather than before, because the
-	// write is what decides whether the repointing happened at all.
-	if before != nil && before.AuthorizedBy != string(admin) {
-		if err := forgetCredential(ctx, rt, extension.UserID(before.AuthorizedBy)); err != nil {
-			return nil, err
-		}
-	}
-	challenge := challengeFor(verifier)
-	link, err := permissionLink(appID, redirect, challenge, stored.ID)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(struct {
-		PermissionURL string     `json:"permission_url"`
-		CodeChallenge string     `json:"code_challenge"`
-		Connection    connection `json:"connection"`
-	}{PermissionURL: link, CodeChallenge: challenge, Connection: stored})
 }
 
 // status answers what this installation's connection is doing.
@@ -303,13 +174,13 @@ func status(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json
 	}{Connected: found != nil && found.Status == statusConnected, Connection: found})
 }
 
-// disconnect removes the connection and the credential behind it.
+// disconnect removes the connection and every credential behind it.
 //
-// BOTH, and the row goes rather than taking a fifth status: a "disconnected" row
-// would be a connection the poll skips and the screen shows as absent, while the
-// ingress port would still read the deposited credential as consent. Deleting
-// the credential is what actually ends the authority; deleting the row is what
-// stops the poll finding it.
+// ALL OF THEM, and the row goes rather than taking a fourth status: a
+// "disconnected" row would be a connection the poll skips and the screen shows as
+// absent, while the ingress port would still read the deposited credential as
+// consent. Deleting the credentials is what actually ends the authority; deleting
+// the row is what stops the poll finding it.
 //
 // The token deleted is the AUTHORIZING ADMIN's, taken from the row and not from
 // the caller: any admin holding this unit's object may disconnect, and one who
@@ -332,9 +203,13 @@ func disconnect(ctx context.Context, rt extension.Runtime, in json.RawMessage) (
 			Disconnected bool `json:"disconnected"`
 		}{Disconnected: false})
 	}
-	// The credential first, for the reason the deposits go first: if the row
+	// The credentials first, for the reason the deposits go first: if the row
 	// survives a failure here the poll keeps running against a token the operator
 	// asked to withdraw, which is the one ordering that leaves authority behind.
+	//
+	// EVERY key, not just the token: a UAT found the app secret surviving a
+	// disconnect, against this function's own comment. forgetCredential is the one
+	// place that list lives, so the two cannot drift apart again.
 	if err := forgetCredential(ctx, rt, extension.UserID(existing.AuthorizedBy)); err != nil {
 		return nil, err
 	}
@@ -419,37 +294,4 @@ func boundedSecretish(raw string, cap int, what string) (string, error) {
 		return "", fmt.Errorf("%w: %s is %d bytes, over the %d-byte cap — check that a whole page was not pasted", extension.ErrInvalid, what, len(value), cap)
 	}
 	return value, nil
-}
-
-// connectableRedirect validates where Zalo will send the admin's browser back
-// to.
-//
-// This unit never dials it — it is handed to a browser — so what is checked is
-// what a browser and the provider will do with it: https, because an
-// authorization code travels on it; no credentials, query or fragment, because
-// the provider appends its own and a URL carrying either would come back
-// ambiguous.
-func connectableRedirect(raw string) (string, error) {
-	value := strings.TrimSpace(raw)
-	if value == "" {
-		return "", fmt.Errorf("%w: this needs the address Zalo should send the admin's browser back to, which must also be saved as the OA Callback Url in the developer console", extension.ErrInvalid)
-	}
-	if len(value) > maxRedirectURIBytes {
-		return "", fmt.Errorf("%w: the redirect address is %d bytes, over the %d-byte cap", extension.ErrInvalid, len(value), maxRedirectURIBytes)
-	}
-	parsed, err := url.Parse(value)
-	if err != nil {
-		return "", fmt.Errorf("%w: the redirect address is not a URL", extension.ErrInvalid)
-	}
-	switch {
-	case parsed.Scheme != "https":
-		return "", fmt.Errorf("%w: the redirect address must be https — a single-use authorization code travels back on it", extension.ErrInvalid)
-	case parsed.Host == "":
-		return "", fmt.Errorf("%w: the redirect address names no host", extension.ErrInvalid)
-	case parsed.User != nil:
-		return "", fmt.Errorf("%w: the redirect address carries credentials", extension.ErrInvalid)
-	case parsed.RawQuery != "" || parsed.Fragment != "":
-		return "", fmt.Errorf("%w: the redirect address carries a query or fragment, and Zalo appends its own — the code and oa_id would come back ambiguous", extension.ErrInvalid)
-	}
-	return parsed.String(), nil
 }

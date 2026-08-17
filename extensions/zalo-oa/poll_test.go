@@ -27,7 +27,7 @@ func connectedRuntime(t *testing.T, from cursor) *fakeRuntime {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(20*time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{connectionRow(statusConnected, nil, from)}
 	return rt
 }
@@ -161,7 +161,6 @@ func TestARecordTheCoreRefusesAsInvalidIsDroppedRatherThanRetried(t *testing.T) 
 func TestATickOverAConnectionThatIsNotWorkingDoesNothingQuietly(t *testing.T) {
 	for name, arm := range map[string]struct{ status string }{
 		"no connection at all":  {""},
-		"an unfinished one":     {statusPending},
 		"one awaiting reauth":   {statusReauth},
 		"one whose tier lapsed": {statusTierLapse},
 	} {
@@ -253,7 +252,7 @@ func TestATickThatLosesTheRenewalLeaseReportsNoFailure(t *testing.T) {
 	if err := sealTokens(t.Context(), rt, adminUserID, livePair(at(-time.Hour))); err != nil {
 		t.Fatalf("sealing the credential: %v", err)
 	}
-	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
+	rt.secrets.stored["user/"+adminUserID+"/"+appSecretKey] = []byte("secret")
 	rt.tx.singleRows = [][]any{connectionRow(statusConnected, nil, cursor{})}
 	rt.tx.noRows = map[int]bool{2: true}
 	fake := newZaloFake(t)
