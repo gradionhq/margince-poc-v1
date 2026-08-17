@@ -130,14 +130,27 @@ misleads about.
 leaving them off puts unactionable work in somebody's queue:
 
 - `status: needs-decision` — unactionable until a human rules ("decide or decline X").
-- `status: spec-change` — contract-first (P3): it lands in `margince-foundation`
-  first, so it does not belong in this repo's work queue yet.
+- `status: spec-change` — contract-first (P3): the spec change lands in
+  `margince-foundation` first. The issue stays open **here**, linked to that
+  upstream change, as the implementation follow-up. This label sequences the
+  work; it does not hand it away — contract-first means the spec change lands
+  first, not that somebody else writes it (see the four rules above).
 
 **Provenance**, additive and independent of the three axes: `bug`,
 `enhancement`, `security`, `capability-gap` (a missing capability, not a defect),
 and `fast-track-debt` (shipped fast under time pressure with the gap recorded
 deliberately). These record *why the issue exists*, which is the one thing
 nobody can reconstruct later — prefer keeping them over tidying them away.
+
+**`security` is not a way to report a vulnerability.** This repo is public, and
+[SECURITY.md](SECURITY.md) is explicit that an exploitable weakness goes to a
+private GitHub Security Advisory, never a public issue or pull request, because
+a public report before a fix ships puts every deployment at risk. The label is
+for hardening and defence-in-depth work that carries no live exploit. The test
+is the one SECURITY.md itself implies: **if you can write the reproduction, it
+belongs in an advisory** — a cross-tenant read, a row-scope or RBAC escape, an
+agent-governance bypass, a forged or still-binding revoked credential, a
+mutation that skips the audit or outbox row, injection, SSRF.
 
 Before filing, check whether a **parent tracker** already covers the finding
 (`gh issue list --label "area: <x>"`); if one does, attach yours as a sub-issue
