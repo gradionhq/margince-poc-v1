@@ -640,6 +640,25 @@
   color: var(--danger);
 }
 
+/* A CARD'S TRAILING ACTION ROW: the verbs under a card's body, with the air
+ * above them.
+ *
+ * `.form-actions` is the submit row of a FORM, and it carries no top margin
+ * because the field above it brings its own. A card whose body is facts and
+ * prose has nothing that does: `.factlist` sets `margin: 0` deliberately (a
+ * primitive does not dictate the space outside itself) and a bare `<p>` in a
+ * card is flush, so the buttons ended up against the last line of text with the
+ * two of them touching each other. Both connector screens looked that way.
+ *
+ * The spacing rides HERE, on the row, for the reason `.filter-tabs` carries its
+ * own: it then holds for every body the card can have above it. */
+.card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
 /* A card that stacks above the next one in a rail. */
 .card-stack {
   margin-bottom: var(--space-4);

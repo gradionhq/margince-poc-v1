@@ -37,6 +37,12 @@ const (
 	fixtureConnectionID = "3d5f8a10-7c42-4e19-9b03-1f6a2d8c5e74"
 )
 
+// defaultPollRequestBudget is the migration's own default for
+// poll_request_budget, so an ordinary scripted row is the row a fresh
+// installation actually has. It lives here rather than in the unit because
+// nothing in the unit chooses it: the column's DEFAULT does.
+const defaultPollRequestBudget = 40
+
 // fakeRuntime is one invocation's Runtime.
 type fakeRuntime struct {
 	secrets *fakeSecrets
@@ -388,6 +394,7 @@ func connectionRow(status string, expiresAt *time.Time, at cursor) []any {
 		fixtureConnectionID, fixtureOAID, "app-1",
 		adminUserID, status, "NFQ", "Tăng trưởng", "12/08/2027", nil, nil,
 		at.floor, at.gap, at.top, at.offset, nil, "", 1,
+		defaultPollRequestBudget,
 	}
 	if expiresAt != nil {
 		// Dereferenced into the slot rather than through a helper, so the scanner's
@@ -396,6 +403,19 @@ func connectionRow(status string, expiresAt *time.Time, at cursor) []any {
 	}
 	return row
 }
+
+// withBudget scripts a row whose request ceiling is not the default, for the
+// tests that are about the tick obeying the row rather than a constant.
+func withBudget(row []any, requests int) []any {
+	scripted := make([]any, len(row))
+	copy(scripted, row)
+	scripted[budgetColumn] = requests
+	return scripted
+}
+
+// budgetColumn is where poll_request_budget sits in connectionColumns — last,
+// named for the same reason expiryColumn is.
+const budgetColumn = 17
 
 // expiryColumn is where access_token_expires_at sits in connectionColumns, named
 // so a column inserted before it is one edit here rather than a silent off-by-one

@@ -133,7 +133,8 @@ actions:
                 schema:
                   type: object
                   additionalProperties: false
-                  required: [id, oa_id, app_id, authorized_by, status, high_water_mark, version]
+                  required: [id, oa_id, app_id, authorized_by, status, high_water_mark, version,
+                    poll_request_budget]
                   description: >-
                     This installation's Zalo connection. It carries no token — the
                     credentials are sealed in the unit's secret namespace and no
@@ -209,6 +210,17 @@ actions:
                         What went wrong on the last poll, in this unit's own vocabulary.
                         Zalo's own message is deliberately not carried.
                     version: { type: integer }
+                    poll_request_budget:
+                      type: integer
+                      minimum: 2
+                      maximum: 200
+                      description: >-
+                        How many provider requests one scheduled poll may spend, including the
+                        call that re-reads the account. It is a property of the ACCOUNT rather
+                        than of the build: an installation with four conversations and one with
+                        four hundred need different ceilings. Zalo publishes no per-account rate
+                        limit in any response header, so the ceiling can only be chosen, never
+                        discovered.
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
           # The tier gate's refusals arrive here: an Official Account on the free
@@ -261,7 +273,8 @@ actions:
                       # return, member for member. See the note on connect.
                       type: object
                       additionalProperties: false
-                      required: [id, oa_id, app_id, authorized_by, status, high_water_mark, version]
+                      required: [id, oa_id, app_id, authorized_by, status, high_water_mark, version,
+                        poll_request_budget]
                       description: >-
                         This installation's Zalo connection. It carries no token — the
                         credentials are sealed in the unit's secret namespace and no
@@ -337,6 +350,17 @@ actions:
                             What went wrong on the last poll, in this unit's own vocabulary.
                             Zalo's own message is deliberately not carried.
                         version: { type: integer }
+                        poll_request_budget:
+                          type: integer
+                          minimum: 2
+                          maximum: 200
+                          description: >-
+                            How many provider requests one scheduled poll may spend, including the
+                            call that re-reads the account. It is a property of the ACCOUNT rather
+                            than of the build: an installation with four conversations and one with
+                            four hundred need different ceilings. Zalo publishes no per-account rate
+                            limit in any response header, so the ceiling can only be chosen, never
+                            discovered.
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
 

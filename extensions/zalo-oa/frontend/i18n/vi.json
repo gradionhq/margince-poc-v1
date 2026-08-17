@@ -20,6 +20,8 @@
   "extZaloOa.connection.lastPolled": "Lần kiểm tra gần nhất",
   "extZaloOa.connection.package": "Gói dịch vụ",
   "extZaloOa.connection.renewsBy": "Thông tin đăng nhập gia hạn trước",
+  "extZaloOa.connection.requestBudget": "Số lần gọi API mỗi lượt kiểm tra",
+  "extZaloOa.connection.requestBudgetNote": "Zalo không công bố giới hạn cho từng tài khoản, nên chỉ có thể biết mức cao hơn có được chấp nhận khi thực sự chạm tới.",
   "extZaloOa.connection.sub": "Một Official Account phục vụ toàn bộ không gian làm việc. Trang này không hiển thị thông tin đăng nhập: App Secret và cả hai token đều do bộ phận lưu ký của hệ thống giữ và không bao giờ được hiển thị.",
   "extZaloOa.connection.title": "Official Account Zalo của hệ thống này",
   "extZaloOa.error.account_changed": "Thông tin đăng nhập đang lưu hiện thuộc về một Official Account khác với tài khoản đã kết nối. Không có gì được ghi nhận. Hãy kết nối lại bằng cặp token của đúng tài khoản bạn muốn dùng.",

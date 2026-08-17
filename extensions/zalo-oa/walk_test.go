@@ -9,6 +9,7 @@ package zalooa
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 // pageOf builds one full page of scripted messages descending from `newest`, so
@@ -31,6 +32,55 @@ func tenFrom(newest int64) []map[string]any {
 	return pageOf(newest, ids...)
 }
 
+// A WALK DOES NOT START A PAGE IT HAS NO TIME TO FINISH, which is what makes the
+// request ceiling safe at any value the column admits.
+//
+// One request may take requestTimeout and a tick's window is fifteen of those,
+// while the ceiling admits two hundred — so the walk has to stop on the clock
+// rather than on the count. It stops UNCLOSED, because a killed tick writes no
+// cursor at all: the next one would walk the same region and be killed in the
+// same place, which is not slow progress but none.
+func TestAWalkWillNotStartAPageItCannotFinish(t *testing.T) {
+	fake := newZaloFake(t)
+	fake.chatPages = [][]map[string]any{tenFrom(2000), tenFrom(1990)}
+	// A window narrower than one request's own timeout. No sleeping and no real
+	// waiting: what the walk reads is how much time is LEFT, and there is not
+	// enough for a page.
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(requestTimeout/2))
+	defer cancel()
+
+	result, err := walkChats(ctx, fake.client("t"), walkSpec{budget: 6})
+	if err != nil {
+		t.Fatalf("walkChats: %v", err)
+	}
+	if got := fake.calls["/v2.0/oa/listrecentchat"]; got != 0 {
+		t.Fatalf("the walk fetched %d page(s) with less than one request's time left; a tick killed mid-page writes no cursor and the next one repeats it", got)
+	}
+	if result.closed {
+		t.Fatal("the walk reported itself CLOSED after stopping on the clock, which would advance the floor over messages nothing read")
+	}
+}
+
+// And a walk with room to work is not held back by the same check: the deadline
+// bounds the walk, it does not disable it.
+func TestAWalkWithTimeToSpareStillReads(t *testing.T) {
+	fake := newZaloFake(t)
+	fake.chatPages = [][]map[string]any{pageOf(1000, "a", "b", "c")}
+	ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(10*requestTimeout))
+	defer cancel()
+
+	result, err := walkChats(ctx, fake.client("t"), walkSpec{budget: 6})
+	if err != nil {
+		t.Fatalf("walkChats: %v", err)
+	}
+	if len(result.items) != 3 {
+		t.Fatalf("the walk collected %d message(s) with a whole window ahead of it, want the 3 on the feed", len(result.items))
+	}
+	if !result.closed {
+		t.Fatal("the walk did not close on a short page while it still had time")
+	}
+}
+
 // A page shorter than the cap is the end of the feed, which is how this provider
 // says so: an offset past the end answers success with no rows rather than an
 // error.
@@ -38,7 +88,8 @@ func TestAShortPageClosesTheWalk(t *testing.T) {
 	fake := newZaloFake(t)
 	fake.chatPages = [][]map[string]any{pageOf(1000, "a", "b", "c")}
 
-	result, err := walkChats(t.Context(), fake.client("t"), walkSpec{budget: maxPagesPerPoll})
+	result, err := walkChats(t.Context(), fake.client("t"),
+		walkSpec{budget: pageBudget(defaultPollRequestBudget)})
 	if err != nil {
 		t.Fatalf("walkChats: %v", err)
 	}

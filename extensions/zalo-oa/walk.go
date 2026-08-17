@@ -30,13 +30,31 @@ package zalooa
 // is arriving, and a backward token that fills in history, disjoint by
 // construction.
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
-// maxPagesPerPoll bounds one tick's paging across BOTH walks. Six pages of ten
-// is 60 messages per tick; at the two-minute cadence that is 30 a minute
-// sustained, and an account busier than that is one the poll is permanently
-// behind — which the gap makes visible rather than hiding.
-const maxPagesPerPoll = 6
+// accountReadRequests is what a tick spends before it pages anything: the one
+// call that re-reads the account and its tier evidence.
+const accountReadRequests = 1
+
+// pageBudget is how many pages of the walk one tick may read, given the request
+// ceiling on the connection row.
+//
+// The account read comes off the top because it is a request like any other, and
+// a ceiling that ignored it would spend one more than the installation
+// authorized — which on a provider whose per-OA rate limit appears in no
+// response header is the kind of overspend that can only be discovered by being
+// refused. The column's CHECK keeps the ceiling at 2 or more, so this is never
+// zero.
+//
+// It is a CEILING and not a spend: paging stops at a short page, so a ceiling
+// far above what an account holds costs nothing. That is also why nothing resets
+// it when a connection is re-pointed at another Official Account — unlike the
+// cursor, which means nothing against a different message log, a ceiling too
+// high for the new account is simply never reached.
+func pageBudget(requests int) int { return requests - accountReadRequests }
 
 // firstPollPages is what a connection that has never polled reads: one page, and
 // no backfill. Connecting an account brings the CRM what arrives from now on —
@@ -121,6 +139,16 @@ type walkResult struct {
 	// stoppedAtPage is the page a truncated walk did not get past, kept as the
 	// resume hint.
 	stoppedAtPage int
+	// pagesRead is how many requests this walk actually spent, which is what the
+	// second walk of a tick has left to spend.
+	//
+	// It is COUNTED rather than inferred from the messages collected. The two are
+	// not the same number: a backfill pages through the region above the gap
+	// without collecting any of it, and a walk that stops on the clock collects
+	// nothing at all — so a count derived from the items would report a page spent
+	// where none was, or none where two were, and the tick would spend past the
+	// ceiling on the row.
+	pagesRead int
 }
 
 // walkChats pages backwards until it passes the stop point, runs out of feed, or
@@ -132,11 +160,31 @@ type walkResult struct {
 func walkChats(ctx context.Context, api *client, spec walkSpec) (walkResult, error) {
 	result := walkResult{stoppedAtPage: spec.startPage}
 	for page := spec.startPage; page < spec.startPage+spec.budget; page++ {
+		// A PAGE IS NOT STARTED UNLESS THERE IS TIME TO FINISH IT, and this is
+		// what makes the request ceiling safe at any value the column admits.
+		//
+		// The two numbers do not agree on their own: one request may take
+		// requestTimeout, and a tick's whole window (api/jobs.yaml) is fifteen of
+		// those, while the ceiling admits two hundred. A walk that spent the
+		// ceiling against a slow provider would be killed mid-page — and a killed
+		// tick writes NO cursor, so the next one walks the same region and is
+		// killed in the same place. That is not slow progress, it is none.
+		//
+		// Stopping here instead leaves the walk UNCLOSED, which is a state the
+		// cursor already handles honestly: the floor stays where it is and the
+		// region below is recorded as a backlog, so the next tick resumes with a
+		// fresh window rather than repeating this one.
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < requestTimeout {
+			return result, nil
+		}
 		result.stoppedAtPage = page
 		fetched, err := api.recentChat(ctx, chatPageOffset(page))
 		if err != nil {
 			return walkResult{}, err
 		}
+		// Counted on the request rather than on its answer: a page that came back
+		// empty still cost the call.
+		result.pagesRead++
 		for _, row := range fetched {
 			if row.Time < spec.stopBelow {
 				// Past the stop point: everything from here down has been
@@ -244,12 +292,6 @@ func resumePage(at cursor, arrivedSince int) int {
 		return 0
 	}
 	return page
-}
-
-// pagesSpent reports how many pages a walk of n collected messages cost, which
-// is what the second walk of a tick has left to spend.
-func pagesSpent(collected int) int {
-	return collected/maxChatPage + 1
 }
 
 // maxOf is the larger of two timestamps.

@@ -23,6 +23,20 @@ export {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+// FactList, because a unit screen has NO other way to draw a label→value pair.
+//
+// No extension ships a stylesheet — nothing in extensions/*/frontend imports
+// CSS and the bundler gives a unit no place to put any — so a unit that writes
+// its own `<dl>` gets the browser's 40px `dd` indent and no alignment at all.
+// Publishing the pre-styled primitive is the only way a unit can present a
+// record back, and a surface that offered every control for COLLECTING input
+// and none for that is a surface whose screens look unfinished for a reason
+// their authors cannot fix.
+//
+// It is the read-only half of what those screens need, which is why this is the
+// primitive that gets published rather than FieldGrid: a unit describing what it
+// connected is not editing it.
+export { type Fact, FactList } from "../design-system/factlist";
 // RecordPicker, because the alternative is every unit that touches a core
 // record asking a person to paste a UUID.
 //

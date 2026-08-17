@@ -84,7 +84,11 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 		return nil
 	}
 	at := current.cursor()
-	budget := maxPagesPerPoll
+	// THE CEILING IS THE ROW'S. The account read above has already spent one
+	// request against it, so what is left is what the walk may page. A first poll
+	// ignores it downward and never upward: connecting an account brings what
+	// arrives from now on, whatever ceiling the row carries.
+	budget := pageBudget(current.PollRequestBudget)
 	if at.firstPoll() {
 		budget = firstPollPages
 	}
@@ -106,7 +110,7 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 
 	// Whatever budget the forward walk left goes to the backlog. Nothing is spent
 	// on it when there is none, and a first poll never has one.
-	if spent := pagesSpent(len(forward.items)); at.unread() && spent < budget {
+	if spent := forward.pagesRead; at.unread() && spent < budget {
 		at, err = fillGap(ctx, rt, api, current, at, len(forward.items), budget-spent)
 		if err != nil {
 			return noteFailure(ctx, rt, current, err)

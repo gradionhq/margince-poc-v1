@@ -10,6 +10,8 @@ import {
   Badge,
   Button,
   Card,
+  type Fact,
+  FactList,
   Field,
   SectionHeader,
   TextInput,
@@ -275,17 +277,22 @@ function ConnectionCard() {
         </>
       ) : null}
 
+      {/* `.card-actions` rather than a bare Button: this verb follows the facts
+          and the prose above it, neither of which carries space of its own, so
+          without the row it sits against the last line of text. */}
       {canDisconnect && status.data?.connected ? (
         <>
-          <Button
-            variant="danger"
-            disabled={disconnect.isPending}
-            onClick={() => disconnect.mutate()}
-          >
-            {t("extDispactConnector.connection.disconnect")}
-          </Button>
+          <div className="card-actions">
+            <Button
+              variant="danger"
+              disabled={disconnect.isPending}
+              onClick={() => disconnect.mutate()}
+            >
+              {t("extDispactConnector.connection.disconnect")}
+            </Button>
+          </div>
           {disconnect.isError ? (
-            <p role="alert">
+            <p role="alert" className="co-error">
               {t("extDispactConnector.connection.disconnectFailed")}
             </p>
           ) : null}
@@ -400,20 +407,22 @@ function CredentialForm({
           )
         }
       </Field>
-      {depositing ? (
-        <Button
-          disabled={
-            baseURL.trim() === "" || token.trim() === "" || connect.isPending
-          }
-          onClick={submit}
-        >
-          {t("extDispactConnector.connection.connect")}
-        </Button>
-      ) : (
-        <Button variant="ghost" onClick={() => setReplacing(true)}>
-          {t("extDispactConnector.connection.replaceToken")}
-        </Button>
-      )}
+      <div className="form-actions">
+        {depositing ? (
+          <Button
+            disabled={
+              baseURL.trim() === "" || token.trim() === "" || connect.isPending
+            }
+            onClick={submit}
+          >
+            {t("extDispactConnector.connection.connect")}
+          </Button>
+        ) : (
+          <Button variant="ghost" onClick={() => setReplacing(true)}>
+            {t("extDispactConnector.connection.replaceToken")}
+          </Button>
+        )}
+      </div>
     </>
   );
 }
@@ -438,6 +447,31 @@ function ConnectionState({
 }) {
   const t = useT();
   const parked = connection.status === "reauth_required";
+  // Rows the reader scans, assembled as an array so an absent fact is dropped
+  // rather than drawn empty.
+  const facts: Fact[] = [
+    {
+      key: "readto",
+      term: t("extDispactConnector.connection.readTo"),
+      value: connection.high_water_mark,
+    },
+  ];
+  if (connection.backfill_before) {
+    // Only when there IS a gap: a member who saw "catching up" on every screen
+    // would learn to ignore it.
+    facts.push({
+      key: "catchingup",
+      term: t("extDispactConnector.connection.catchingUp"),
+      value: connection.backfill_before,
+    });
+  }
+  if (connection.last_polled_at) {
+    facts.push({
+      key: "polled",
+      term: t("extDispactConnector.connection.lastPolled"),
+      value: formatDateTime(connection.last_polled_at, locale, zone),
+    });
+  }
   return (
     <>
       <p>
@@ -452,24 +486,7 @@ function ConnectionState({
         )}{" "}
         {connection.account_label}
       </p>
-      <dl>
-        <dt>{t("extDispactConnector.connection.readTo")}</dt>
-        <dd>{connection.high_water_mark}</dd>
-        {connection.backfill_before ? (
-          <>
-            {/* Shown only when there IS a gap, because a member seeing
-                "catching up" on every screen would learn to ignore it. */}
-            <dt>{t("extDispactConnector.connection.catchingUp")}</dt>
-            <dd>{connection.backfill_before}</dd>
-          </>
-        ) : null}
-        {connection.last_polled_at ? (
-          <>
-            <dt>{t("extDispactConnector.connection.lastPolled")}</dt>
-            <dd>{formatDateTime(connection.last_polled_at, locale, zone)}</dd>
-          </>
-        ) : null}
-      </dl>
+      <FactList numeric facts={facts} />
       {connection.last_error_class ? (
         <p>{t(`extDispactConnector.error.${connection.last_error_class}`)}</p>
       ) : null}
