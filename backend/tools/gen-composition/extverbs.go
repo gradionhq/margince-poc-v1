@@ -369,11 +369,8 @@ func yamlChild(node *yaml.Node, key string) *yaml.Node {
 // when the DECLARATION changes and not when someone reflows a comment or a
 // flow mapping in the fragment above it.
 //
-// It hashes through digestBytes, so a tool's fragment hash is spelled the same
-// way as a job's and as every digest in the file. The manifest is what an
-// operator reads to resolve what a unit requests, and a field whose encoding
-// depended on which kind of entry carried it would have to be special-cased by
-// every reader of it.
+// The result is algorithm-prefixed, the one spelling every hash a manifest
+// publishes carries; backend/manifestdigest_test.go holds the whole tree to it.
 func operationHash(node *yaml.Node) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
