@@ -588,6 +588,7 @@ const (
 	ApplyTagRequestEntityTypeLead         ApplyTagRequestEntityType = "lead"
 	ApplyTagRequestEntityTypeOrganization ApplyTagRequestEntityType = "organization"
 	ApplyTagRequestEntityTypePerson       ApplyTagRequestEntityType = "person"
+	ApplyTagRequestEntityTypeProject      ApplyTagRequestEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ApplyTagRequestEntityType enum.
@@ -600,6 +601,8 @@ func (e ApplyTagRequestEntityType) Valid() bool {
 	case ApplyTagRequestEntityTypeOrganization:
 		return true
 	case ApplyTagRequestEntityTypePerson:
+		return true
+	case ApplyTagRequestEntityTypeProject:
 		return true
 	default:
 		return false
@@ -8238,6 +8241,7 @@ const (
 	TaggableEntityTypeLead         TaggableEntityType = "lead"
 	TaggableEntityTypeOrganization TaggableEntityType = "organization"
 	TaggableEntityTypePerson       TaggableEntityType = "person"
+	TaggableEntityTypeProject      TaggableEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the TaggableEntityType enum.
@@ -8250,6 +8254,8 @@ func (e TaggableEntityType) Valid() bool {
 	case TaggableEntityTypeOrganization:
 		return true
 	case TaggableEntityTypePerson:
+		return true
+	case TaggableEntityTypeProject:
 		return true
 	default:
 		return false

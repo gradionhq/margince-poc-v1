@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/installseam"
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	collectionsmod "github.com/gradionhq/margince/backend/internal/modules/collections"
 	customfieldsmod "github.com/gradionhq/margince/backend/internal/modules/customfields"
 	dealsmod "github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -478,11 +479,15 @@ var checkLiteralRe = regexp.MustCompile(`'([a-z_]+)'`)
 // TestTheTaggableVocabularyMatchesTheCheckConstraint proves the Go-side
 // taggable set is not just consistent with itself (the unit lane's job)
 // but COMPLETE against the schema's own CHECK (LVS-DDL-2) — the authority
-// a generated contract enum can lag behind. The CHECK admits five values:
-// person, organization, deal, lead and project (0131_project.up.sql's
-// taggable_entity_type_check); the contract enum's omission of project is
-// a separately tracked contract/spec divergence (#1244), not a defect a
-// narrower expectation here should paper over.
+// every other spelling answers to. The CHECK admits five values: person,
+// organization, deal, lead and project (0131_project.up.sql's
+// taggable_entity_type_check).
+//
+// The CONTRACT's enum is compared to the same set, because three vocabularies
+// describe one thing here — the CHECK, the generated enum, and the record-type
+// set the store gates on — and they disagreed once: the enum omitted project
+// while the server accepted, stored and returned project tags, so a client
+// switching exhaustively on that enum had no branch for a value it was handed.
 func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
 	f := setupFixture(t)
 
@@ -503,6 +508,26 @@ func TestTheTaggableVocabularyMatchesTheCheckConstraint(t *testing.T) {
 	want := map[string]bool{"person": true, "organization": true, "deal": true, "lead": true, "project": true}
 	if !maps.Equal(got, want) {
 		t.Fatalf("taggable's CHECK admits %v, want %v", got, want)
+	}
+
+	// The generated enum, against the same authority. A value the database
+	// stores and the API returns must be one the contract declares, or a
+	// generated client meets a value its own type system says cannot exist.
+	declared := map[string]bool{}
+	for _, member := range []crmcontracts.TaggableEntityType{
+		crmcontracts.TaggableEntityTypePerson,
+		crmcontracts.TaggableEntityTypeOrganization,
+		crmcontracts.TaggableEntityTypeDeal,
+		crmcontracts.TaggableEntityTypeLead,
+		crmcontracts.TaggableEntityTypeProject,
+	} {
+		if !member.Valid() {
+			t.Errorf("TaggableEntityType %q is named here but not admitted by its own Valid()", member)
+		}
+		declared[string(member)] = true
+	}
+	if !maps.Equal(declared, got) {
+		t.Errorf("the contract enum declares %v, the CHECK admits %v", declared, got)
 	}
 
 	// collections exports no accessor for its private taggable set, so

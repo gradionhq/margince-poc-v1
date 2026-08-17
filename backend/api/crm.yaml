@@ -19242,7 +19242,12 @@ components:
       properties:
         id: { type: string, format: uuid }
         tag_id: { type: string, format: uuid }
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        # The five record types taggable.entity_type admits (LVS-DDL-2; project
+        # added by A119/ADR-0073). The DDL CHECK has carried five since core
+        # 0131 and the server has always accepted a project tag, so a client
+        # could already be handed one — this enum states what the wire actually
+        # carries rather than widening what it may.
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
         created_at: { type: string, format: date-time }
 
@@ -19250,7 +19255,7 @@ components:
       type: object
       required: [entity_type, entity_id]
       properties:
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
 
     TagListResponse:
