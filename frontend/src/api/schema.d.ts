@@ -21282,7 +21282,7 @@ export interface operations {
                  */
                 channel_provider?: components["schemas"]["ProviderRef"];
                 /** @description Filter to activities linked to an entity type (with entity_id). */
-                entity_type?: "person" | "organization" | "deal";
+                entity_type?: "person" | "organization" | "deal" | "lead" | "project";
                 entity_id?: string;
                 /** @description Open tasks for an assignee. */
                 assignee_id?: string;

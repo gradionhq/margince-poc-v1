@@ -1,14 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { Badge, SegmentedControl } from "../design-system/atoms";
-import { RecordView, type TimelineEntry } from "../design-system/composed";
+import { RecordView } from "../design-system/composed";
+import { useRecordTimeline } from "../design-system/recordtimeline";
 import { ProvenanceTag } from "../design-system/trust";
-import { emailSummaryText } from "../format/emailtext";
 import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -29,7 +29,7 @@ import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { OwnerName } from "./entityref";
+import { EntityRef, OwnerName } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import {
   type ListPage,
@@ -54,7 +54,6 @@ import { PersonGraphPanel } from "./persongraph";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
-import { isTranscriptActivity, TranscriptReadCard } from "./transcriptread";
 
 // Contacts list + person 360 (B-EP09.10a/b). Every row carries its
 // provenance chip (captured_by is server truth); the 360 renders the
@@ -268,45 +267,6 @@ async function createContact(
   return data;
 }
 
-function useTimeline(
-  entityType: "person" | "organization" | "deal",
-  id: string,
-) {
-  // The timeline is an entity-scoped activity read, a dial the overlay mirror
-  // refuses (422) — skip the fetch in overlay; the 360 renders the honest
-  // unavailable state in the timeline slot instead.
-  const overlay = useSorMode() === "overlay";
-  return useQuery({
-    queryKey: ["activities", entityType, id],
-    enabled: !overlay,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/activities", {
-        params: {
-          query: { entity_type: entityType, entity_id: id, limit: 20 },
-        },
-      });
-      if (error) {
-        throwProblem(error);
-      }
-      return data;
-    },
-  });
-}
-
-// TIMELINE_KINDS is the backend's activity vocabulary, and the adapter
-// passes a kind straight through when the timeline can draw it. Collapsing
-// everything but email and meeting into "note" told the reader a call was a
-// note; anything genuinely outside the set still falls back to note rather
-// than rendering no icon at all.
-const TIMELINE_KINDS: readonly TimelineEntry["kind"][] = [
-  "email",
-  "meeting",
-  "note",
-  "call",
-  "task",
-  "message",
-];
-
 /**
  * PersonAside is the relationship column, and in overlay mode it SAYS it
  * cannot answer rather than disappearing.
@@ -337,11 +297,6 @@ function PersonAside({
       <WhoKnowsThem view={view} />
     </>
   );
-}
-
-function timelineKind(kind: string): TimelineEntry["kind"] {
-  const known = TIMELINE_KINDS.find((candidate) => candidate === kind);
-  return known ?? "note";
 }
 
 // The timeline filters. They group by what a reader is LOOKING for rather
@@ -390,73 +345,6 @@ function matchesFilter(activity: Activity, filter: TimelineFilter): boolean {
     default:
       return true;
   }
-}
-
-// A timeline row is one line, so a body used as its title has its whitespace
-// collapsed and is cut at this many characters.
-const TIMELINE_TITLE_MAX = 140;
-
-// timelineTitle is what the row says the activity WAS. A subject is the natural
-// title, but a channel message has none — a chat carries text, not a subject
-// line — so a subject-only title rendered the literal word "message" on every
-// row and made the conversation invisible on the record it belongs to. The
-// body is the title for anything that has no subject, which is also why the
-// connector fills it for a wordless message ("photo", "voice"): capture's
-// messageBody names the kind precisely so this row has something to show.
-function timelineTitle(activity: Activity): string {
-  const subject = activity.subject?.trim();
-  if (subject) {
-    return subject;
-  }
-  // Collapsed rather than trusted: a pasted multi-line message would otherwise
-  // break the row's single-line layout. A mail is read for its message first:
-  // titling the row from the raw body puts the From/To preamble, or a sign-off,
-  // where the reason for the mail should be.
-  const raw = activity.body ?? "";
-  const body =
-    activity.kind === "email"
-      ? emailSummaryText(raw)
-      : raw.replace(/\s+/g, " ").trim();
-  if (!body) {
-    return activity.kind;
-  }
-  return body.length > TIMELINE_TITLE_MAX
-    ? `${body.slice(0, TIMELINE_TITLE_MAX - 1)}…`
-    : body;
-}
-
-export function activityTimeline(
-  activities: Activity[],
-  // Who is reading, so a row this user logged reads as theirs and a
-  // colleague's does not. Absent while the session is still resolving.
-  viewerUserId?: string,
-  renderActions?: (activity: Activity) => ReactNode,
-): TimelineEntry[] {
-  return activities.map((activity) => ({
-    id: activity.id,
-    kind: timelineKind(activity.kind),
-    title: timelineTitle(activity),
-    // Carried beside the rendered title, which may be the body or the kind:
-    // bulk grouping needs the message's OWN subject or it folds unrelated
-    // subjectless rows together.
-    subject: activity.subject,
-    // The body is already in the composite read this row came from, so a
-    // timeline of unreadable subject lines was a rendering choice, not a
-    // limit of what the page knew.
-    body: activity.body,
-    direction: activity.direction,
-    threadKey: activity.thread_key,
-    bulkAttested: activity.bulk_mail_attested,
-    atIso: activity.occurred_at,
-    provenance: provenanceOf(activity.captured_by, viewerUserId),
-    // Offered on the row rather than by each caller: a transcript is readable
-    // wherever it is listed, and a per-screen opt-in is how the same affordance
-    // ends up on the deal and missing on the person who was in the meeting.
-    detail: isTranscriptActivity(activity) ? (
-      <TranscriptReadCard activityId={activity.id} />
-    ) : undefined,
-    actions: renderActions?.(activity),
-  }));
 }
 
 export function ContactsScreen() {
@@ -586,7 +474,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
-  const timelineQuery = useTimeline("person", id);
+  const timelineQuery = useRecordTimeline("person", id);
   const [timelineFilter, setTimelineFilter] = useTimelineFilter(id);
   const view360 = usePerson360(id);
   // The composite is only usable once it carries its mandatory root record.
@@ -610,6 +498,17 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                 <ProvenanceTag
                   provenance={provenanceOf(person.captured_by, viewerId)}
                 />
+                {/* Where this contact came from, when it came from a lead
+                    (ADR-0119/A170). The pointer runs person → lead and the
+                    lead's page is a terminal record of the promotion, so the
+                    chip is a link rather than a label: a rep asking "was this
+                    a merge or a new contact?" reads the answer there. */}
+                {person.converted_from_lead_id && (
+                  <Badge tone="accent">
+                    {t("person.fromLead")}{" "}
+                    <EntityRef kind="lead" id={person.converted_from_lead_id} />
+                  </Badge>
+                )}
                 {person.archived_at ? (
                   // An archived record is read-only: the backend rejects
                   // edit/merge/archive on a non-live row (there is no
@@ -724,7 +623,11 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(
-                    timelineQuery.data.data.filter((a) =>
+                    // Filtered through the same absent-body guard the adapter
+                    // holds: `isSuccess` says nothing about whether the body
+                    // arrived, and .filter on an undefined list crashes the
+                    // page before the adapter ever sees it.
+                    (timelineQuery.data.data ?? []).filter((a) =>
                       matchesFilter(a, timelineFilter),
                     ),
                     viewerId,

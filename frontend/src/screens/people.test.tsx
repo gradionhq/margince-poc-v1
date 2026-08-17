@@ -13,7 +13,8 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { activityTimeline, ContactsScreen, PersonScreen } from "./people";
+import { activityTimeline } from "../design-system/activitytimeline";
+import { ContactsScreen, PersonScreen } from "./people";
 
 // B-EP09.10a acceptance: per-row provenance chips, row→360 navigation, and
 // the honest error state. Lead-specific acceptance (score thresholds,

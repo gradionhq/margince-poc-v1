@@ -9561,8 +9561,10 @@ func (e ListActivitiesParamsKind) Valid() bool {
 // Defines values for ListActivitiesParamsEntityType.
 const (
 	ListActivitiesParamsEntityTypeDeal         ListActivitiesParamsEntityType = "deal"
+	ListActivitiesParamsEntityTypeLead         ListActivitiesParamsEntityType = "lead"
 	ListActivitiesParamsEntityTypeOrganization ListActivitiesParamsEntityType = "organization"
 	ListActivitiesParamsEntityTypePerson       ListActivitiesParamsEntityType = "person"
+	ListActivitiesParamsEntityTypeProject      ListActivitiesParamsEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsEntityType enum.
@@ -9570,9 +9572,13 @@ func (e ListActivitiesParamsEntityType) Valid() bool {
 	switch e {
 	case ListActivitiesParamsEntityTypeDeal:
 		return true
+	case ListActivitiesParamsEntityTypeLead:
+		return true
 	case ListActivitiesParamsEntityTypeOrganization:
 		return true
 	case ListActivitiesParamsEntityTypePerson:
+		return true
+	case ListActivitiesParamsEntityTypeProject:
 		return true
 	default:
 		return false
