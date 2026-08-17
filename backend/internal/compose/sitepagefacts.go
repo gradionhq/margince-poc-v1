@@ -149,7 +149,13 @@ func menuGuidance(fields []string) string {
 		present[f] = true
 	}
 	var parts []string
-	for _, category := range []string{companyWord, "offering", "signal"} {
+	// EVERY category the vocabulary describes, "market" included. It was
+	// missing, so a page offering company_size or served_industry reached the
+	// model with no guidance for either — and company_size then collected
+	// whatever looked numeric: a headcount that belonged in employee_range,
+	// the company's own name, a revenue figure. The categories are listed in
+	// the order the guidance reads best, not the order the map iterates.
+	for _, category := range []string{companyWord, "offering", "market", "signal"} {
 		for _, f := range people.OrganizationFactFields[category] {
 			if present[f] {
 				parts = append(parts, categoryGuidance[category])
