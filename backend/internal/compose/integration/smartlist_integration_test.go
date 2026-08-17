@@ -496,7 +496,10 @@ func TestSavedViewResourceCheckAgainstTheContractEnum(t *testing.T) {
 		}
 	}
 	if want := map[string]bool{"projects": true}; !maps.Equal(undeclared, want) {
-		t.Errorf("the contract declares %v that the CHECK refuses, want exactly %v (#1484); "+
-			"if the CHECK was widened, drop the exception here", undeclared, want)
+		t.Errorf("the contract declares %v that the CHECK refuses, want exactly %v — tracked at "+
+			"#1484, whose spec half is margince-foundation#1327 (LVS-DDL-3 still pins six). When "+
+			"that lands, the additive migration widening the CHECK drops this exception; if it is "+
+			"rejected instead, the contract narrows and this exception drops the other way. Either "+
+			"way the answer is upstream, not here", undeclared, want)
 	}
 }

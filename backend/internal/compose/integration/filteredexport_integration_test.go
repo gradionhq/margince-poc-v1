@@ -370,7 +370,7 @@ func TestFilteredExportFromASavedViewAndFromAList(t *testing.T) {
 	}
 	if status := e.Call(t, "POST", "/v1/views", apptest.AnyMap{
 		"resource": "deals", "name": "Columns only",
-		"query": apptest.AnyMap{"columns": []any{"name"}},
+		"query": apptest.AnyMap{"columns": []string{"name"}},
 	}, nil, &viewless); status != http.StatusCreated {
 		t.Fatalf("create filterless view → %d, want 201", status)
 	}
@@ -383,7 +383,7 @@ func TestFilteredExportFromASavedViewAndFromAList(t *testing.T) {
 	}
 	if status := e.Call(t, "POST", "/v1/views", apptest.AnyMap{
 		"resource": "deals", "name": "Cleared filter",
-		"query": apptest.AnyMap{"columns": []any{"name"}, "filter": nil},
+		"query": apptest.AnyMap{"columns": []string{"name"}, "filter": nil},
 	}, nil, &cleared); status != http.StatusCreated {
 		t.Fatalf("create view with a null filter → %d, want 201 — the write surface reads null as cleared", status)
 	}
