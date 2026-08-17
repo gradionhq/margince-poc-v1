@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -311,6 +312,17 @@ func isConflict(err error) bool {
 	return apiErr.Status == http.StatusConflict
 }
 
+// isUnauthorized reports the server rejecting the credential. On a re-seed it
+// means the supplied password is no longer the account's, which is expected:
+// the first run replaced it with seedAdminPassword.
+func isUnauthorized(err error) bool {
+	var apiErr apiError
+	if !asAPIError(err, &apiErr) {
+		return false
+	}
+	return apiErr.Status == http.StatusUnauthorized
+}
+
 // isUnprocessable reports the server refusing a request it understood. For
 // the password rotation it means the account is not on a first-login hold,
 // which is a state to carry on from rather than stop for.
@@ -330,12 +342,13 @@ func isNotFound(err error) bool {
 	return asAPIError(err, &apiErr) && apiErr.Status == http.StatusNotFound
 }
 
+// asAPIError unwraps to the server's refusal. It uses errors.As rather than a
+// type assertion because call sites DO wrap: login() returns
+// fmt.Errorf("login as %s: %w", …), and a bare assertion saw nothing through
+// that — which is why a re-seed reported a plain 401 instead of falling back
+// to the password an earlier run set.
 func asAPIError(err error, target *apiError) bool {
-	if converted, ok := err.(apiError); ok { //nolint:errorlint // the only wrapper here is fmt.Errorf at call sites that do not wrap this type
-		*target = converted
-		return true
-	}
-	return false
+	return errors.As(err, target)
 }
 
 // conflictingID pulls the existing record's id out of a duplicate refusal.

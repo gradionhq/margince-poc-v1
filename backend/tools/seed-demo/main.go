@@ -75,7 +75,7 @@ func run() error {
 	}
 	fmt.Printf("dataset: %d company/companies from %s\n", len(companies), *dataset)
 
-	client, err := login(*baseURL, *email, *password)
+	client, err := loginAllowingAnEarlierSeed(*baseURL, *email, password)
 	if err != nil {
 		return err
 	}
@@ -134,6 +134,33 @@ func run() error {
 		return err
 	}
 	return verifySeed(client, demo, modeFor(*dryRun))
+}
+
+// loginAllowingAnEarlierSeed signs in, and on a rejected credential tries the
+// password THIS tool would have set on an earlier run.
+//
+// The first seed replaces the operator password with seedAdminPassword, while
+// every run after it is handed the original by `make seed-demo`, which reads
+// config/margince-admin-password and cannot know that. Re-running the seeder
+// is meant to converge rather than stop at a 401, so a rejected credential is
+// worth one more attempt before it becomes an error.
+//
+// It updates password in place, because replaceOperatorPassword needs to know
+// which credential the returned client actually holds.
+func loginAllowingAnEarlierSeed(baseURL, email string, password *string) (*client, error) {
+	client, err := login(baseURL, email, *password)
+	if err == nil {
+		return client, nil
+	}
+	if !isUnauthorized(err) || *password == seedAdminPassword {
+		return nil, err
+	}
+	client, err = login(baseURL, email, seedAdminPassword)
+	if err != nil {
+		return nil, fmt.Errorf("signing in as %s with the supplied password and with the one an earlier seed would have set: %w", email, err)
+	}
+	*password = seedAdminPassword
+	return client, nil
 }
 
 // seedWhatNeedsSQLAfterCompanies runs everything that needs the companies on
