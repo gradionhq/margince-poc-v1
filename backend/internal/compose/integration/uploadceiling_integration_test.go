@@ -44,6 +44,7 @@ var uploadCeiling = deployconfig.Config{}.EffectiveUploads().Attachment
 const (
 	testAttachmentMB = 3
 	testCSVImportMB  = 2
+	testLinkedInMB   = 1
 	// Between the two: over the import cap, under the attachment ceiling. What
 	// makes the two keys provably separate rather than one key spelled twice.
 	betweenTheCeilings = 2_500_000
@@ -55,6 +56,7 @@ func configuredUploads(t *testing.T) deployconfig.UploadLimits {
 uploads:
   attachment_mb: 3
   csv_import_mb: 2
+  linkedin_import_mb: 1
 `))
 	if err != nil {
 		t.Fatalf("the uploads section was refused: %v", err)
@@ -287,5 +289,85 @@ func TestAStoredUploadKeepsItsOwnSizeAndChecksum(t *testing.T) {
 		t.Errorf("downloaded %d bytes of a %d-byte file, and not the same ones — "+
 			"the stored object and the row describing it disagree",
 			downloaded.Len(), size)
+	}
+}
+
+// TestTheLinkedInRouteRidesItsOwnConfiguredCeiling covers the third upload
+// route, which the wiring reaches through a different handler set than the
+// other two.
+//
+// Worth its own test because the failure it guards is silent in the worst
+// direction: the chassis would grant the configured ceiling while the handler
+// parsed under a compiled-in one, so a raised limit would be refused by a
+// number the operator never set — and no gate above the transport can see the
+// two disagree.
+func TestTheLinkedInRouteRidesItsOwnConfiguredCeiling(t *testing.T) {
+	e := appWithUploads(t)
+
+	// Under the 1 MB LinkedIn ceiling: refused for its CONTENT (not a LinkedIn
+	// export), which is proof the bytes reached the handler at all.
+	small, smallType := linkedInForm(t, 500_000)
+	code, body := postUpload(t, e, "/v1/me/linkedin-connections", small, smallType)
+	if code == http.StatusRequestEntityTooLarge {
+		t.Errorf("a 500 KB export under a %d MB ceiling was refused as too large: %s",
+			testLinkedInMB, body)
+	}
+
+	// Over it: refused for its SIZE, naming the configured number.
+	big, bigType := linkedInForm(t, 1_500_000)
+	code, body = postUpload(t, e, "/v1/me/linkedin-connections", big, bigType)
+	if code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("a 1.5 MB export under a %d MB ceiling answered %d, want 413: %s",
+			testLinkedInMB, code, body)
+	}
+	if want := fmt.Sprintf("%d MB", testLinkedInMB); !strings.Contains(body, want) {
+		t.Errorf("the refusal %q names a limit other than this route's own %s",
+			body, want)
+	}
+}
+
+// linkedInForm builds an export upload of roughly `size` bytes.
+func linkedInForm(t *testing.T, size int) (*bytes.Buffer, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	form := multipart.NewWriter(&buf)
+	part, err := form.CreateFormFile("file", "Connections.csv")
+	if err != nil {
+		t.Fatalf("creating the file part: %v", err)
+	}
+	if _, err := part.Write(fileOf(size)); err != nil {
+		t.Fatalf("writing the file part: %v", err)
+	}
+	if err := form.Close(); err != nil {
+		t.Fatalf("closing the form: %v", err)
+	}
+	return &buf, form.FormDataContentType()
+}
+
+// TestAnUnwiredImportCeilingIsOurFaultNotTheCallers covers the third guard.
+//
+// The import route reaches its ceiling through a different field than the other
+// two, and it was the one site the first version of this change left unguarded:
+// with no ceiling it answered 413 "the upload exceeds the 0 MB limit", blaming a
+// perfectly good file for a number this composition never set.
+//
+// Driven through the composed server because that is where the omission would
+// happen — a handler built by hand here would be testing the test's own wiring.
+func TestAnUnwiredImportCeilingIsOurFaultNotTheCallers(t *testing.T) {
+	e := apptest.SetupAppWithOptions(t,
+		compose.WithBlobstore(blobstore.NewMemory()),
+		compose.WithUploadLimits(deployconfig.UploadLimits{}))
+	e.BootstrapWorkspace(t)
+
+	form, contentType := importForm(t, 1000)
+	code, body := postUpload(t, e, "/v1/imports/sources", form, contentType)
+
+	if code != http.StatusInternalServerError {
+		t.Fatalf("an unwired import ceiling answered %d, want 500 — anything in "+
+			"the 4xx range blames the caller: %s", code, body)
+	}
+	if strings.Contains(body, "MB") {
+		t.Errorf("the refusal %q names a size limit, which is the misdirection "+
+			"this branch exists to avoid", body)
 	}
 }

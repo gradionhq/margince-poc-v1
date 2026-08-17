@@ -29,47 +29,107 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// contractPaths is the slice of the OpenAPI document these gates read: which
-// operation each path's POST is, and whether its body is a file.
+// contractOperation is the slice of one OpenAPI operation these gates read:
+// which operation it is, and whether its body is a file.
 //
 //nolint:tagliatelle // these are OpenAPI's OWN field names, and they are camelCase; a snake_case tag here would decode a document that does not exist.
-type contractPaths struct {
-	Paths map[string]struct {
-		Post *struct {
-			OperationID string `yaml:"operationId"`
-			RequestBody *struct {
-				Content map[string]struct{} `yaml:"content"`
-			} `yaml:"requestBody"`
-		} `yaml:"post"`
-	} `yaml:"paths"`
+type contractOperation struct {
+	OperationID string `yaml:"operationId"`
+	RequestBody *struct {
+		// Ref catches a requestBody this reader cannot see through. It is
+		// refused rather than skipped: a body it cannot read is a body it cannot
+		// prove is not a file, and skipping would drop the route out of the
+		// obligation set in silence — the exact shape of the bug being gated.
+		Ref     string              `yaml:"$ref"`
+		Content map[string]struct{} `yaml:"content"`
+	} `yaml:"requestBody"`
+}
+
+type contractDoc struct {
+	// Each path item, method-keyed and left unparsed: a path item also carries
+	// `parameters`, `summary` and friends, which are not operations.
+	Paths map[string]map[string]yaml.Node `yaml:"paths"`
 }
 
 const multipartMediaType = "multipart/form-data"
 
-// uploadOperations reads the contract for every POST that declares a file body.
-// This is the OBLIGATION side of both gates: the contract is where an upload
-// route comes into existence, so it is the only place that cannot be forgotten
-// while adding one.
+// httpMethods is every method an OpenAPI path item may carry an operation
+// under. ALL of them, not just post: a multipart PUT is just as much an upload
+// route, and a harvest that only looked at POST would leave it out of the
+// obligation set while the chassis — which grants on POST alone — could not
+// give it a ceiling either. Both halves would be silent.
+var httpMethods = []string{
+	"get", "put", "post", "patch", "delete", "head", "options", "trace",
+}
+
+// uploadOperationsIn reads a contract document for every operation that
+// declares a file body, and reports what it could not account for.
+//
+// Split from the test so the HARVEST can be armed too. Arming only the set
+// comparison leaves the reader half unproven, and a harvest that quietly
+// returns nothing makes every comparison downstream pass.
+func uploadOperationsIn(raw []byte) (map[string]string, []string, error) {
+	var doc contractDoc
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil, nil, fmt.Errorf("parsing the contract: %w", err)
+	}
+	ops := map[string]string{}
+	var problems []string
+	for path, item := range doc.Paths {
+		for _, method := range httpMethods {
+			node, present := item[method]
+			if !present {
+				continue
+			}
+			var op contractOperation
+			if err := node.Decode(&op); err != nil {
+				problems = append(problems, fmt.Sprintf(
+					"%s %s could not be read: %v", strings.ToUpper(method), path, err))
+				continue
+			}
+			if op.RequestBody == nil {
+				continue
+			}
+			if op.RequestBody.Ref != "" {
+				problems = append(problems, fmt.Sprintf(
+					"%s %s takes its requestBody by $ref (%s), which this gate cannot "+
+						"follow — it cannot tell whether the route carries a file",
+					strings.ToUpper(method), path, op.RequestBody.Ref))
+				continue
+			}
+			if _, isFile := op.RequestBody.Content[multipartMediaType]; !isFile {
+				continue
+			}
+			if method != "post" {
+				problems = append(problems, fmt.Sprintf(
+					"%s %s takes a file body, but the chassis grants the wider ceiling "+
+						"on POST alone, so this route can never receive one",
+					strings.ToUpper(method), path))
+				continue
+			}
+			// As the chassis sees it: the generated router mounts the contract's
+			// paths under /v1, and the ceiling is chosen on the served path.
+			ops["/v1"+path] = op.OperationID
+		}
+	}
+	return ops, problems, nil
+}
+
+// uploadOperations is the OBLIGATION side of both gates: the contract is where
+// an upload route comes into existence, so it is the only place that cannot be
+// forgotten while adding one.
 func uploadOperations(t *testing.T) map[string]string {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "..", "api", "crm.yaml"))
 	if err != nil {
 		t.Fatalf("reading the contract: %v", err)
 	}
-	var doc contractPaths
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("parsing the contract: %v", err)
+	ops, problems, err := uploadOperationsIn(raw)
+	if err != nil {
+		t.Fatalf("%v", err)
 	}
-	ops := map[string]string{}
-	for path, item := range doc.Paths {
-		if item.Post == nil || item.Post.RequestBody == nil {
-			continue
-		}
-		if _, isFile := item.Post.RequestBody.Content[multipartMediaType]; isFile {
-			// As the chassis sees it: the generated router mounts the contract's
-			// paths under /v1, and the ceiling is chosen on the served path.
-			ops["/v1"+path] = item.Post.OperationID
-		}
+	for _, problem := range problems {
+		t.Error(problem)
 	}
 	if len(ops) == 0 {
 		t.Fatal("the contract declares no file uploads at all — this gate is " +
@@ -77,6 +137,93 @@ func uploadOperations(t *testing.T) map[string]string {
 			"for the wrong reason")
 	}
 	return ops
+}
+
+// TestTheContractHarvestSeesWhatItCannotAccountFor arms the reader half.
+//
+// The version this replaces looked only at `post` and only at an inline
+// requestBody, so a multipart PUT and a $ref'd body each dropped out of the
+// obligation set without a word — and every set comparison downstream then
+// agreed that nothing was missing.
+func TestTheContractHarvestSeesWhatItCannotAccountFor(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		document string
+		wants    string
+	}{
+		{
+			name: "an inline multipart POST is harvested",
+			document: `paths:
+  /widgets:
+    post:
+      operationId: uploadWidget
+      requestBody:
+        content:
+          multipart/form-data: {}
+`,
+			wants: "",
+		},
+		{
+			name: "a multipart body on another method is reported",
+			document: `paths:
+  /widgets:
+    put:
+      operationId: replaceWidget
+      requestBody:
+        content:
+          multipart/form-data: {}
+`,
+			wants: "PUT /widgets",
+		},
+		{
+			name: "a requestBody this reader cannot follow is reported",
+			document: `paths:
+  /widgets:
+    post:
+      operationId: uploadWidget
+      requestBody:
+        $ref: '#/components/requestBodies/WidgetUpload'
+`,
+			wants: "$ref",
+		},
+		{
+			name: "a path item's non-operation keys are not mistaken for one",
+			document: `paths:
+  /widgets:
+    parameters:
+      - name: id
+        in: query
+    post:
+      operationId: uploadWidget
+      requestBody:
+        content:
+          multipart/form-data: {}
+`,
+			wants: "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ops, problems, err := uploadOperationsIn([]byte(tc.document))
+			if err != nil {
+				t.Fatalf("reading the fixture: %v", err)
+			}
+			if tc.wants == "" {
+				if len(problems) != 0 {
+					t.Fatalf("a readable document was reported as a problem: %v", problems)
+				}
+				if _, found := ops["/v1/widgets"]; !found {
+					t.Errorf("the upload was not harvested at all: %v", ops)
+				}
+				return
+			}
+			if !slices.ContainsFunc(problems, func(p string) bool {
+				return strings.Contains(p, tc.wants)
+			}) {
+				t.Errorf("nothing was reported about %q — it would drop out of the "+
+					"obligation set in silence: %v", tc.wants, problems)
+			}
+		})
+	}
 }
 
 // TestEveryUploadRouteIsDeclared is the gate proper: the routes that carry
