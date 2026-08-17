@@ -30,7 +30,10 @@ package zalooa
 // is arriving, and a backward token that fills in history, disjoint by
 // construction.
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // accountReadRequests is what a tick spends before it pages anything: the one
 // call that re-reads the account and its tier evidence.
@@ -40,10 +43,17 @@ const accountReadRequests = 1
 // ceiling on the connection row.
 //
 // The account read comes off the top because it is a request like any other, and
-// a ceiling that ignored it would spend one more than the operator authorized —
-// which on a provider whose per-OA rate limit appears in no response header is
-// the kind of overspend that can only be discovered by being refused. The
-// column's CHECK keeps the ceiling at 2 or more, so this is never zero.
+// a ceiling that ignored it would spend one more than the installation
+// authorized — which on a provider whose per-OA rate limit appears in no
+// response header is the kind of overspend that can only be discovered by being
+// refused. The column's CHECK keeps the ceiling at 2 or more, so this is never
+// zero.
+//
+// It is a CEILING and not a spend: paging stops at a short page, so a ceiling
+// far above what an account holds costs nothing. That is also why nothing resets
+// it when a connection is re-pointed at another Official Account — unlike the
+// cursor, which means nothing against a different message log, a ceiling too
+// high for the new account is simply never reached.
 func pageBudget(requests int) int { return requests - accountReadRequests }
 
 // firstPollPages is what a connection that has never polled reads: one page, and
@@ -140,6 +150,23 @@ type walkResult struct {
 func walkChats(ctx context.Context, api *client, spec walkSpec) (walkResult, error) {
 	result := walkResult{stoppedAtPage: spec.startPage}
 	for page := spec.startPage; page < spec.startPage+spec.budget; page++ {
+		// A PAGE IS NOT STARTED UNLESS THERE IS TIME TO FINISH IT, and this is
+		// what makes the request ceiling safe at any value the column admits.
+		//
+		// The two numbers do not agree on their own: one request may take
+		// requestTimeout, and a tick's whole window (api/jobs.yaml) is fifteen of
+		// those, while the ceiling admits two hundred. A walk that spent the
+		// ceiling against a slow provider would be killed mid-page — and a killed
+		// tick writes NO cursor, so the next one walks the same region and is
+		// killed in the same place. That is not slow progress, it is none.
+		//
+		// Stopping here instead leaves the walk UNCLOSED, which is a state the
+		// cursor already handles honestly: the floor stays where it is and the
+		// region below is recorded as a backlog, so the next tick resumes with a
+		// fresh window rather than repeating this one.
+		if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < requestTimeout {
+			return result, nil
+		}
 		result.stoppedAtPage = page
 		fetched, err := api.recentChat(ctx, chatPageOffset(page))
 		if err != nil {

@@ -2,25 +2,30 @@
 -- SPDX-FileCopyrightText: 2026 Gradion
 --
 -- HOW MANY PROVIDER REQUESTS ONE TICK MAY SPEND, on the row rather than in a
--- constant, because the right number is a property of the account and not of
--- this code.
+-- constant, because the right number depends on the account being polled and not
+-- on this code.
 --
--- It is on the connection because that is what the number is about: an
+-- It is on the connection because that is the thing it is sized against: an
 -- installation with four conversations and one with four hundred need different
--- ceilings, and an operator can only reason about the one in front of them. It is
--- also what the status screen renders, so the value that governs the tick is the
--- value a human reads.
+-- ceilings. It is also what the status screen renders, so the value that governs
+-- the tick is the value a human reads.
+--
+-- NOTHING EDITS IT YET. No operation in this unit's contract writes this column,
+-- so today it is the default below, changed by an operator in the database if it
+-- must be. That is a gap in the product and not a property of the setting; the
+-- update operation is issue #1595.
 --
 -- The ceiling exists because the per-OA rate limit is NOT surfaced in any
 -- response header — it can only be hit, not observed. At the two-minute cadence
--- the default of 40 is roughly 20 requests a minute against a limit measured at
--- 100 on this account's package, which leaves room for the sends a rep makes
--- while a tick is running.
+-- the default of 40 is roughly 20 requests a minute; for scale, one development
+-- account on the Tăng trưởng package was refused past about 100 a minute, and
+-- other packages may sit elsewhere entirely.
 --
 -- The bounds are the honest ones. Below 2 a tick cannot both read the account and
--- read a page, so it could never make progress. Above 200 a single tick would
--- outrun the provider's per-minute ceiling on its own, and a tick that is rate
--- limited half way through is a tick that read part of a conversation.
+-- read a page, so it could never make progress. 200 is the upper bound because a
+-- ceiling has to stop somewhere; what keeps a large one SAFE is not this number
+-- but the walk, which refuses to start a page it has no time to finish (see
+-- walkChats) and leaves the unread region recorded as a backlog instead.
 ALTER TABLE ext.ext_zalo_oa_connection
     ADD COLUMN poll_request_budget integer NOT NULL DEFAULT 40
         CHECK (poll_request_budget BETWEEN 2 AND 200);

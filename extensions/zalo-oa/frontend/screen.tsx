@@ -199,6 +199,10 @@ function ConnectionCard() {
   }
 
   const connected = status.data?.connection !== undefined;
+  // Whether this seat is offered the replace verb over a live connection: the
+  // paragraph that explains what is stored and the button that replaces it are
+  // one offer, so they cannot disagree about being drawn.
+  const offersReplace = canConnect && connected && !replacing;
   const ready =
     appID.trim() !== "" &&
     appSecret.trim() !== "" &&
@@ -228,12 +232,7 @@ function ConnectionCard() {
           say "not set up", and the credentials they would collect are single-use,
           so an accidental submit costs a real token. */}
       {canConnect && connected && !replacing ? (
-        <>
-          <p>{t("extZaloOa.connect.stored")}</p>
-          <Button variant="ghost" onClick={() => setReplacing(true)}>
-            {t("extZaloOa.connect.replace")}
-          </Button>
-        </>
+        <p className="t-small">{t("extZaloOa.connect.stored")}</p>
       ) : null}
 
       {canConnect && (!connected || replacing) ? (
@@ -281,14 +280,16 @@ function ConnectionCard() {
               />
             )}
           </Field>
-          <Button disabled={!ready || connect.isPending} onClick={() => connect.mutate()}>
-            {t(replacing ? "extZaloOa.connect.replaceSubmit" : "extZaloOa.connect.submit")}
-          </Button>
-          {replacing ? (
-            <Button variant="ghost" onClick={() => setReplacing(false)}>
-              {t("extZaloOa.connect.cancel")}
+          <div className="form-actions">
+            {replacing ? (
+              <Button variant="ghost" onClick={() => setReplacing(false)}>
+                {t("extZaloOa.connect.cancel")}
+              </Button>
+            ) : null}
+            <Button disabled={!ready || connect.isPending} onClick={() => connect.mutate()}>
+              {t(replacing ? "extZaloOa.connect.replaceSubmit" : "extZaloOa.connect.submit")}
             </Button>
-          ) : null}
+          </div>
           {/* role="alert", because a mutation failure appears AFTER the press that
               caused it: a screen reader that is not on this element announces
               nothing, and the administrator is left believing the account
@@ -307,21 +308,32 @@ function ConnectionCard() {
         </>
       ) : null}
 
-      {canDisconnect && connected ? (
-        <>
-          <Button
-            variant="danger"
-            disabled={disconnect.isPending}
-            onClick={() => disconnect.mutate()}
-          >
-            {t("extZaloOa.connection.disconnect")}
-          </Button>
-          {disconnect.isError ? (
-            <p role="alert">
-              {problemMessageOf(disconnect.error, t, t("extZaloOa.connection.disconnectFailed"))}
-            </p>
+      {/* ONE action row rather than two adjacent card children: the verbs belong
+          together, and `.card-actions` is what puts the air above them and the
+          gap between them. Drawn only when this seat holds at least one of them,
+          because an empty row is space with nothing in it. */}
+      {connected && (offersReplace || canDisconnect) ? (
+        <div className="card-actions">
+          {offersReplace ? (
+            <Button variant="ghost" onClick={() => setReplacing(true)}>
+              {t("extZaloOa.connect.replace")}
+            </Button>
           ) : null}
-        </>
+          {canDisconnect ? (
+            <Button
+              variant="danger"
+              disabled={disconnect.isPending}
+              onClick={() => disconnect.mutate()}
+            >
+              {t("extZaloOa.connection.disconnect")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+      {connected && disconnect.isError ? (
+        <p role="alert" className="co-error">
+          {problemMessageOf(disconnect.error, t, t("extZaloOa.connection.disconnectFailed"))}
+        </p>
       ) : null}
     </Card>
   );

@@ -277,17 +277,22 @@ function ConnectionCard() {
         </>
       ) : null}
 
+      {/* `.card-actions` rather than a bare Button: this verb follows the facts
+          and the prose above it, neither of which carries space of its own, so
+          without the row it sits against the last line of text. */}
       {canDisconnect && status.data?.connected ? (
         <>
-          <Button
-            variant="danger"
-            disabled={disconnect.isPending}
-            onClick={() => disconnect.mutate()}
-          >
-            {t("extDispactConnector.connection.disconnect")}
-          </Button>
+          <div className="card-actions">
+            <Button
+              variant="danger"
+              disabled={disconnect.isPending}
+              onClick={() => disconnect.mutate()}
+            >
+              {t("extDispactConnector.connection.disconnect")}
+            </Button>
+          </div>
           {disconnect.isError ? (
-            <p role="alert">
+            <p role="alert" className="co-error">
               {t("extDispactConnector.connection.disconnectFailed")}
             </p>
           ) : null}
@@ -402,20 +407,22 @@ function CredentialForm({
           )
         }
       </Field>
-      {depositing ? (
-        <Button
-          disabled={
-            baseURL.trim() === "" || token.trim() === "" || connect.isPending
-          }
-          onClick={submit}
-        >
-          {t("extDispactConnector.connection.connect")}
-        </Button>
-      ) : (
-        <Button variant="ghost" onClick={() => setReplacing(true)}>
-          {t("extDispactConnector.connection.replaceToken")}
-        </Button>
-      )}
+      <div className="form-actions">
+        {depositing ? (
+          <Button
+            disabled={
+              baseURL.trim() === "" || token.trim() === "" || connect.isPending
+            }
+            onClick={submit}
+          >
+            {t("extDispactConnector.connection.connect")}
+          </Button>
+        ) : (
+          <Button variant="ghost" onClick={() => setReplacing(true)}>
+            {t("extDispactConnector.connection.replaceToken")}
+          </Button>
+        )}
+      </div>
     </>
   );
 }

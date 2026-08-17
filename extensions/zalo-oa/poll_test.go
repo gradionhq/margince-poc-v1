@@ -484,9 +484,9 @@ func TestATickSpendsTheRequestBudgetOnItsOwnRow(t *testing.T) {
 	}
 }
 
-// The default budget reads FURTHER than the six pages the walk used to be capped
-// at, which is the whole point of moving the number onto the row.
-func TestTheDefaultBudgetReadsPastTheOldSixPageCap(t *testing.T) {
+// The default ceiling reads a NINETY-MESSAGE feed to its end in one tick, which
+// is the size of account the shipped default has to keep up with.
+func TestTheDefaultBudgetDrainsANinetyMessageFeedInOneTick(t *testing.T) {
 	rt := connectedRuntime(t, cursor{floor: 100})
 	rt.tx.singleRows = append(rt.tx.singleRows, connectionRow(statusConnected, nil, cursor{floor: 2500}))
 	fake := newZaloFake(t)
@@ -499,8 +499,8 @@ func TestTheDefaultBudgetReadsPastTheOldSixPageCap(t *testing.T) {
 	if err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
 		t.Fatalf("pollConnection: %v", err)
 	}
-	// Nine full pages and then the short page that ends the feed: a walk still
-	// capped at six would have stopped inside it and left a hole behind.
+	// Nine full pages and then the short page that ends the feed. A ceiling that
+	// stopped inside it would leave a hole behind, recorded as a backlog.
 	if got := fake.calls["/v2.0/oa/listrecentchat"]; got != 10 {
 		t.Fatalf("the tick read %d pages, want all 9 and the short page that closes the walk", got)
 	}

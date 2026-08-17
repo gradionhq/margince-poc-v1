@@ -102,15 +102,18 @@ type connection struct {
 	// display.
 	LastErrorClass string `json:"last_error_class,omitempty"`
 	Version        int    `json:"version"`
-	// PollRequestBudget is how many provider requests one tick may spend, on this
-	// row because the right number is a property of the ACCOUNT: an installation
-	// with four conversations and one with four hundred need different ceilings.
+	// PollRequestBudget is how many provider requests one tick may spend. It is on
+	// this row because that is what it is sized against: an installation with four
+	// conversations and one with four hundred need different ceilings.
 	//
 	// It is rendered, and that is not decoration — the per-OA rate limit is in no
 	// response header and can only be hit, so the number that governs how much of
 	// a busy account a poll keeps up with is one an operator has to be able to
-	// read. The column's CHECK holds the bounds, which is why nothing here
-	// re-checks them.
+	// read. No operation writes it yet; the screen shows what the installation is
+	// running under, which is a smaller promise than offering to change it.
+	//
+	// The column's CHECK holds the bounds, which is why nothing here re-checks
+	// them.
 	PollRequestBudget int `json:"poll_request_budget"`
 }
 
