@@ -10,6 +10,7 @@ import {
   type ElementType,
   type FormEventHandler,
   type InputHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type TextareaHTMLAttributes,
   useEffect,
@@ -49,10 +50,11 @@ export function BusyMark({ className }: Readonly<{ className?: string }>) {
 // button posting the form a second time (a plain early return does not — the
 // browser submits on the click, not on the handler), and `stopPropagation`
 // stops a clickable row underneath treating the press as a click on itself.
-function swallowWhileBusy(event: {
-  preventDefault(): void;
-  stopPropagation(): void;
-}) {
+//
+// Aliased on import because this file also uses the DOM's own `MouseEvent`,
+// for the document-level listener `OverflowMenu` attaches; the unaliased React
+// type shadows it and that listener stops compiling.
+function swallowWhileBusy(event: ReactMouseEvent<HTMLButtonElement>) {
   event.preventDefault();
   event.stopPropagation();
 }
