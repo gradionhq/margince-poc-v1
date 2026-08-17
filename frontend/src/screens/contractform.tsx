@@ -7,6 +7,12 @@ import { Select } from "../design-system/select";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import { ProblemError, throwProblem } from "./common";
+// The dropzone classes live here. Imported explicitly rather than relied on:
+// this form worked only because the company page happened to load the sheet
+// first, so rendering it anywhere else — a story, a route that opens the modal
+// directly — showed the browser's raw "Choose File" control instead of the
+// styled drop zone.
+import "./company360.css";
 
 // Recording an agreement.
 //
@@ -358,7 +364,7 @@ function problemStatus(err: unknown): number {
  * unreachable for anyone not using a mouse, which is why the input is present
  * and merely made invisible.
  */
-function SignedFileField({
+export function SignedFileField({
   orgId,
   contractID,
   file,
@@ -415,9 +421,13 @@ function SignedFileField({
               a file; two sentences saying the same absence is noise. */}
           {known ? (
             onFile.map((doc) => (
+              // `.link-button`, not the row link: a row title is a link
+              // because of where it sits, but in a form a plain-coloured line
+              // reads as a value somebody typed. This one has to look like the
+              // download it is.
               <a
                 key={doc.id}
-                className="co-rowlink"
+                className="link-button"
                 href={`/v1/attachments/${doc.id}`}
                 download={doc.filename}
               >
