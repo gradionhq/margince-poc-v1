@@ -93,14 +93,21 @@ func (s *VoiceStore) RecordDraftedSignal(ctx context.Context, profileID ids.UUID
 		}
 		now := s.now().UTC()
 		var signalID ids.UUID
+		// The retention window is a DELAY the database applies to its own
+		// clock. privacy's erasure sweep selects on `retention_until < now()`
+		// INSIDE Postgres, so a boundary bound from this process would be a
+		// cross-clock comparison — and this boundary is the promise about when
+		// the stored draft stops existing, which erasing early breaks in one
+		// direction and late in the other. updated_at stays on the process
+		// clock: it records when this process wrote, and nothing compares it.
 		err := tx.QueryRow(ctx, `
 			INSERT INTO voice_learning_signal
 			  (voice_profile_id, profile_version, draft_ref_hash, outcome,
 			   generated_original, retention_until, source, captured_by, updated_at)
-			VALUES ($1, $2, $3, 'drafted', $4, $5, 'draft', $6, $7)
+			VALUES ($1, $2, $3, 'drafted', $4, now() + $5::interval, 'draft', $6, $7)
 			ON CONFLICT (draft_ref_hash) DO NOTHING
 			RETURNING id`, profileID, profileVersion, hash[:], generatedOriginal,
-			now.Add(voiceLearningSignalRetention), actor.ID, now).Scan(&signalID)
+			voiceLearningSignalRetention.String(), actor.ID, now).Scan(&signalID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
