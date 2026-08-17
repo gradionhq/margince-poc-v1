@@ -187,8 +187,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a non-production installation to its first-boot state.
-         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         * Reset an installation that armed the capability to its first-boot state.
+         * @description Served only where the deployment set `operations.allow_data_reset`; the compiled default is false in every posture. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. `GET /me` reports the same value as `data_reset_available`, so a client never offers what this would refuse.
          */
         post: operations["resetData"];
         delete?: never;
@@ -14301,7 +14301,7 @@ export interface components {
         };
         MeResponse: {
             user: components["schemas"]["User"];
-            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
+            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the "Reset data" action — the exact string that endpoint validates. */
             workspace_name: string;
             /**
              * @deprecated
@@ -17794,7 +17794,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The endpoint is unavailable in this environment — production, or an unset/unknown MARGINCE_ENV. It is served only under a non-production posture; the body is the standard problem document. */
+            /** @description This installation did not arm `operations.allow_data_reset`, so the operation does not exist here. Checked before authentication, so it is a 404 rather than a 403 for every caller — the answer discloses nothing about who asked. The body is the standard problem document. */
             404: {
                 headers: {
                     [name: string]: unknown;

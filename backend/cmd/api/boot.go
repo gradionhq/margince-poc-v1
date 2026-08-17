@@ -103,6 +103,11 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 	// itself — a different question, and no longer a destructive one.
 	env := runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
 	allowDataReset := deployCfg.Operations.AllowDataReset
+	// Said out loud at boot because each role reads its own --config: an api
+	// armed beside a worker that was not given the file purges the workspace and
+	// leaves that worker's caches resident until it restarts. A line in each log
+	// makes the disagreement visible instead of silent.
+	logger.Info("data reset", "armed", allowDataReset)
 	opts := []compose.Option{
 		compose.WithDataReset(schemaPool, deployCfg.Seeds, allowDataReset),
 		// The same seeds reach the ADR-0105 claim route, so an installation
@@ -117,10 +122,9 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 		return nil, nil, err
 	}
 	opts = append(opts, reset.opts...)
-	// /me carries both: the posture, which is what non_production has always
-	// meant, and the reset switch, so a client never renders an action for an
-	// endpoint that would answer 404.
-	opts = append(opts, compose.WithNonProduction(env, allowDataReset))
+	// /me carries both facts, from two options, because they are two facts: the
+	// deployment posture, and whether the reset exists here at all.
+	opts = append(opts, compose.WithNonProduction(env), compose.WithDataResetAvailable(allowDataReset))
 	// Gate 1: the connector's whole route group — /mcp, the authorization
 	// server and both discovery documents — exists only when the deployment
 	// declared it. The boot check in bindInstallation already proved the

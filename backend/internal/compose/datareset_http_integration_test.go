@@ -32,7 +32,7 @@ func TestResetDataEndpointGates(t *testing.T) {
 
 	call := func(ctx context.Context, allowed bool, body string) *httptest.ResponseRecorder {
 		h := dataResetHandlers{
-			pool: e.Pool, schemaPool: nil, seeds: deployconfig.Seeds{}, allowed: allowed,
+			pool: e.Pool, schemaPool: nil, seeds: deployconfig.Seeds{}, dataResetAllowed: allowed,
 			log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}
 		req := httptest.NewRequest(http.MethodPost, "/v1/admin/reset-data", strings.NewReader(body)).WithContext(ctx)
@@ -42,7 +42,7 @@ func TestResetDataEndpointGates(t *testing.T) {
 	}
 
 	if rec := call(e.Admin(), false, `{"confirmation":"x"}`); rec.Code != http.StatusNotFound {
-		t.Fatalf("production posture: got %d, want 404", rec.Code)
+		t.Fatalf("an installation that did not arm the reset: got %d, want 404", rec.Code)
 	}
 
 	if rec := call(e.AgentCtx(), true, `{"confirmation":"x"}`); rec.Code != http.StatusForbidden {

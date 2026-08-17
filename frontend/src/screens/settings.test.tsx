@@ -1786,7 +1786,7 @@ function resetDataBackend(opts: {
 }
 
 describe("ResetDataCard (danger zone)", () => {
-  it("shows the Reset data control for an admin in a non-production posture", async () => {
+  it("shows the Reset data control for an admin where the reset is armed", async () => {
     vi.stubGlobal(
       "fetch",
       resetDataBackend({ roles: ["admin"], dataResetAvailable: true }),
@@ -1795,7 +1795,7 @@ describe("ResetDataCard (danger zone)", () => {
     expect(await screen.findByText(/reset data/i)).toBeTruthy();
   });
 
-  it("hides Reset data for an admin in a production posture", async () => {
+  it("hides Reset data for an admin where the reset was never armed", async () => {
     vi.stubGlobal(
       "fetch",
       resetDataBackend({ roles: ["admin"], dataResetAvailable: false }),
@@ -1811,7 +1811,7 @@ describe("ResetDataCard (danger zone)", () => {
     expect(screen.queryByText(/reset data/i)).toBeNull();
   });
 
-  it("hides Reset data from a rep even in a non-production posture", async () => {
+  it("hides Reset data from a rep even where the reset is armed", async () => {
     vi.stubGlobal(
       "fetch",
       // A rep is no admin and holds no embedding_reindex grant, so Maintenance
@@ -2259,7 +2259,7 @@ describe("SettingsScreen restructured entries", () => {
       mergedEntryBackend({
         roles: ["rep"],
         allow: { embedding_reindex: ["read", "update"] },
-        // The posture the danger zone's second gate asks for, so the ROLE is
+        // The switch the danger zone's second gate asks for, so the ROLE is
         // the only thing left holding it back below.
         dataResetAvailable: true,
       }),

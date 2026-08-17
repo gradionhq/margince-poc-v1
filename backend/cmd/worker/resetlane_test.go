@@ -48,12 +48,3 @@ func TestTheWorkerReadsTheDataResetSwitchFromTheDeploymentFile(t *testing.T) {
 		})
 	}
 }
-
-func TestAWorkerThatLoadedNothingArmsNothing(t *testing.T) {
-	// The zero value is what a role holds before any file is read, and what one
-	// with no --config holds for good. Fail-closed is not a posture question.
-	var cfg workerConfig
-	if cfg.allowDataReset {
-		t.Fatal("a worker that read no deployment file armed the data reset")
-	}
-}

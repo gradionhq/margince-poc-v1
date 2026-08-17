@@ -348,7 +348,7 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 func WithDataReset(schemaPool *pgxpool.Pool, seeds deployconfig.Seeds, allowed bool) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.dataResetHandlers = dataResetHandlers{
-			pool: pool, schemaPool: schemaPool, seeds: seeds, allowed: allowed, log: s.log,
+			pool: pool, schemaPool: schemaPool, seeds: seeds, dataResetAllowed: allowed, log: s.log,
 			// A pointer into the Server, so WithResetRuntime may be applied
 			// before or after this option (see Server.resetRuntime). The meter
 			// is likewise the ONE shared instance WithOverlayMeter rebinds; the
@@ -380,21 +380,25 @@ func WithResetRuntime(rt ResetRuntime) Option {
 	return func(s *Server, _ *pgxpool.Pool) { s.resetRuntime = rt }
 }
 
-// WithNonProduction surfaces two different facts onto /me, which is why it
-// takes two arguments that used to be one.
-//
-// The POSTURE still answers "is this a production deployment" (non_production),
-// which is what it always meant. Whether the reset action is OFFERED is now the
-// same switch that arms the endpoint — so the button a client renders and the
-// route it would call can no longer disagree, and neither is inferred from a
-// deployment's name.
-//
-// Absent this option both report closed (Handlers' zero value): hide the
-// destructive action rather than risk offering it under an unwired role.
-func WithNonProduction(env runtimeenv.Environment, dataResetAllowed bool) Option {
+// WithNonProduction surfaces the deployment posture onto /me's non_production
+// field. Absent this option /me reports production, the fail-closed default.
+func WithNonProduction(env runtimeenv.Environment) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
-		s.authHandlers = s.WithNonProduction(env.IsNonProduction()).
-			WithDataResetAvailable(dataResetAllowed)
+		s.authHandlers = s.WithNonProduction(env.IsNonProduction())
+	}
+}
+
+// WithDataResetAvailable surfaces onto /me the same switch WithDataReset gates
+// the endpoint on, so the action a client renders and the route it would call
+// cannot disagree.
+//
+// Its own option rather than an argument to the posture above, because the two
+// are independent facts and this whole capability exists to stop them
+// travelling together. Absent it /me reports unavailable, which hides the
+// action rather than offering one the server would refuse.
+func WithDataResetAvailable(allowed bool) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithDataResetAvailable(allowed)
 	}
 }
 

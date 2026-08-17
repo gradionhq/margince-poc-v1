@@ -64,11 +64,11 @@ type resetDataResponse struct {
 // configured — the reset itself still succeeds, only the DDL cleanup is
 // skipped). log defaults to slog.Default() when nil.
 type dataResetHandlers struct {
-	pool       *pgxpool.Pool
-	schemaPool *pgxpool.Pool
-	seeds      deployconfig.Seeds
-	allowed    bool
-	log        *slog.Logger
+	pool             *pgxpool.Pool
+	schemaPool       *pgxpool.Pool
+	seeds            deployconfig.Seeds
+	dataResetAllowed bool
+	log              *slog.Logger
 
 	// runtime POINTS AT the Server's own field rather than copying it, so
 	// WithResetRuntime and WithDataReset may be applied in either order — see
@@ -415,7 +415,7 @@ func (h dataResetHandlers) purgeSealedCredentials(ctx context.Context, wsID ids.
 // enforces.
 func (h dataResetHandlers) ResetData(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	if h.pool == nil || !h.allowed {
+	if h.pool == nil || !h.dataResetAllowed {
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}

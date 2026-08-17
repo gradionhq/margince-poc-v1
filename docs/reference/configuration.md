@@ -689,8 +689,8 @@ object purge is the exception: it cannot join that transaction and so runs
 with the rows already wiped and some stored bytes still present. Re-running
 the reset is again the recovery.
 
-`GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
-show the action only where it will work: Admin settings → *data* tab → Danger
+`GET /v1/me`'s `data_reset_available` field carries the same switch the endpoint
+gates on, so the SPA shows the action only where it will work: Admin settings → *data* tab → Danger
 zone → *Reset data*, which prompts the operator to type the organization name
 before calling the endpoint — the server is the sole validator of that string,
 the client-side prompt is only UX.

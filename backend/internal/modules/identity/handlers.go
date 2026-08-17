@@ -88,16 +88,16 @@ type Handlers struct {
 	// the correct default for any role that wired no overlay dispatch.
 	sorMode func(context.Context) (overlay bool, err error)
 
-	// nonProduction reports the deployment posture (MARGINCE_ENV), so /me
-	// can tell the client whether the destructive admin "Reset data"
-	// action is even reachable. Injected by the composition root from
+	// nonProduction reports the deployment posture (MARGINCE_ENV) on /me's
+	// deprecated non_production field. Injected by the composition root from
 	// runtimeenv.Environment.IsNonProduction() — identity never imports
-	// deployconfig or compose. False ⟹ production, the fail-closed
-	// default for any role that wired no posture (hides the action).
+	// deployconfig or compose. It gates nothing: what a client may DO is
+	// dataResetAvailable below.
 	nonProduction bool
 	// dataResetAvailable is operations.allow_data_reset — whether this
-	// installation armed the destructive reset at all. Distinct from the
-	// posture above: a dev deployment that never armed it offers nothing.
+	// installation armed the destructive reset at all. The same value the
+	// endpoint gates on, so an offered action and a served route agree. False
+	// is the fail-closed default for a role that wired nothing.
 	dataResetAvailable bool
 	// mcpResource is the canonical MCP server URL (public_base_url +
 	// "/mcp"), injected by the composition root from deployment config.

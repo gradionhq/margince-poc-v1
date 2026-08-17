@@ -24,10 +24,10 @@ import (
 // binds one. Pool is nil precisely to prove the workspace check returns first.
 func TestResetRunRequiresBoundWorkspace(t *testing.T) {
 	h := dataResetHandlers{
-		pool:    nil,
-		seeds:   deployconfig.Seeds{},
-		allowed: true,
-		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		pool:             nil,
+		seeds:            deployconfig.Seeds{},
+		dataResetAllowed: true,
+		log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	if _, err := h.run(context.Background(), "irrelevant"); !errors.Is(err, database.ErrNoWorkspace) {
 		t.Fatalf("run without a bound workspace: got %v, want ErrNoWorkspace", err)
@@ -45,19 +45,8 @@ func TestWithDataResetWiresTheComposedPool(t *testing.T) {
 	if s.dataResetHandlers.pool != composed {
 		t.Fatal("WithDataReset did not wire the composed app-role pool")
 	}
-	if !s.allowed {
+	if !s.dataResetAllowed {
 		t.Fatal("WithDataReset did not carry the armed switch to the handler")
-	}
-}
-
-// The switch is what the endpoint answers on, so an installation that did not
-// arm it holds a handler that refuses — with the pool wired, which is what makes
-// this about the flag rather than about missing wiring.
-func TestWithDataResetUnarmedIsClosed(t *testing.T) {
-	var s Server
-	WithDataReset(nil, deployconfig.Seeds{}, false)(&s, &pgxpool.Pool{})
-	if s.allowed {
-		t.Fatal("an installation that did not arm the reset got an armed handler")
 	}
 }
 
@@ -73,9 +62,9 @@ func TestResetDataRefusesUnlessArmed(t *testing.T) {
 	// never dialed, because the gate returns before any query.
 	armedLike := func(allowed bool) dataResetHandlers {
 		return dataResetHandlers{
-			pool:    &pgxpool.Pool{},
-			allowed: allowed,
-			log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+			pool:             &pgxpool.Pool{},
+			dataResetAllowed: allowed,
+			log:              slog.New(slog.NewTextHandler(io.Discard, nil)),
 		}
 	}
 

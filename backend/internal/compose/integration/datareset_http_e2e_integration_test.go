@@ -14,25 +14,34 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
-// TestResetDataOverHTTP drives the non-production admin reset end to end over
-// the real router and a real admin session (what the direct-handler test
-// cannot see): the WithDataReset / WithNonProduction wiring, the non_production
-// posture /me carries for the client gate, the confirmation refusal, and a
+// TestResetDataOverHTTP drives the armed admin reset end to end over the real
+// router and a real admin session (what the direct-handler test cannot see):
+// the WithDataReset / WithDataResetAvailable wiring, the data_reset_available
+// flag /me carries for the client gate, the confirmation refusal, and a
 // successful reset. Reaching 200 also proves the live session path populates
 // the admin RoleKeys that RequireAdmin gates on.
 func TestResetDataOverHTTP(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t,
 		compose.WithDataReset(nil, deployconfig.Seeds{}, true),
-		compose.WithNonProduction(runtimeenv.Development, true),
+		compose.WithNonProduction(runtimeenv.Development),
+		compose.WithDataResetAvailable(true),
 	)
 	apptest.BootstrapWorkspaceSession(t, e, "Fable E2E", "ada@example.com", "Ada Admin")
 
 	var me struct {
-		NonProduction bool `json:"non_production"`
+		NonProduction      bool  `json:"non_production"`
+		DataResetAvailable *bool `json:"data_reset_available"`
 	}
 	if code := e.Call(t, "GET", "/v1/me", nil, nil, &me); code != 200 {
 		t.Fatalf("GET /me = %d, want 200", code)
 	}
+	// The field the SPA gates on, over the real router. Asserting only the
+	// posture would leave a dropped WithDataResetAvailable green here while
+	// every client's button disappeared.
+	if me.DataResetAvailable == nil || !*me.DataResetAvailable {
+		t.Fatalf("me.data_reset_available = %v; the endpoint below is armed, so the client must be told so", me.DataResetAvailable)
+	}
+	// And the posture travels separately, on its own deprecated field.
 	if !me.NonProduction {
 		t.Fatal("me.non_production = false; want true under the Development posture")
 	}

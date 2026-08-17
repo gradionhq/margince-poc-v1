@@ -1317,9 +1317,7 @@ function ToolRow({
 // deployment armed the capability; the server gates the endpoint on that same
 // value and 404s it otherwise, regardless of what this card renders.
 //
-// Not `non_production`: a deployment being non-production is not consent to
-// purge its tenant data, and reading one as the other is why a `staging`
-// installation full of real internal users could be wiped through the API. This is admin-ONLY, and narrower than the Maintenance entry
+// This is admin-ONLY, and narrower than the Maintenance entry
 // that hosts it — that entry opens on the embedding_reindex read, so an ops seat
 // reaches it for the search index and simply finds no reset control. The
 // server's auth.RequireAdmin on /admin/reset-data admits only the literal

@@ -54,9 +54,11 @@ func runDebugSubcommand(ctx context.Context, args []string, stdout io.Writer) (b
 }
 
 // loadDeployment reads the same deployment file the api boots from — the
-// capture pipeline tuning (capture.freemail_extra) and the operator's
-// ai.capture_payloads posture the Surface-B runner honors — and folds the rate
-// sources it declares into cfg. A missing file means defaults; a malformed one
+// capture pipeline tuning (capture.freemail_extra), the operator's
+// ai.capture_payloads posture the Surface-B runner honors, and whether the
+// installation armed operations.allow_data_reset, which decides whether this
+// role subscribes to reset announcements at all — and folds the rate sources it
+// declares into cfg. A missing file means defaults; a malformed one
 // is a boot error (a typo must not silently drop the blocklist or flip the
 // payload posture).
 func loadDeployment(cfg *workerConfig) (deployconfig.Config, error) {
@@ -155,6 +157,10 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startProjectionLanes(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
+	// Said out loud for the reason the api says it: each role reads its own
+	// --config, so an unarmed worker beside an armed api is a purge whose cache
+	// flush never reaches this process.
+	logger.Info("data reset", "armed", cfg.allowDataReset)
 	startResetLane(laneCtx, cfg.allowDataReset, rdb, modelPath, lanes.background, logger)
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx, config.FromOS)

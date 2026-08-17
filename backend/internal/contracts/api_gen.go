@@ -14805,7 +14805,7 @@ type MeResponse struct {
 	// User A seat — human or first-party agent. Mirrors `app_user`.
 	User User `json:"user"`
 
-	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
+	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the "Reset data" action — the exact string that endpoint validates.
 	WorkspaceName string `json:"workspace_name"`
 }
 
@@ -30103,7 +30103,7 @@ type ServerInterface interface {
 	// What the background system is holding, and whose work failed.
 	// (GET /admin/job-health)
 	GetJobHealth(w http.ResponseWriter, r *http.Request)
-	// Reset a non-production installation to its first-boot state.
+	// Reset an installation that armed the capability to its first-boot state.
 	// (POST /admin/reset-data)
 	ResetData(w http.ResponseWriter, r *http.Request)
 	// The governed tool surface (registry metadata) for the operator UI.
@@ -31321,7 +31321,7 @@ func (_ Unimplemented) GetJobHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Reset a non-production installation to its first-boot state.
+// Reset an installation that armed the capability to its first-boot state.
 // (POST /admin/reset-data)
 func (_ Unimplemented) ResetData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
