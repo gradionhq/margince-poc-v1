@@ -14484,7 +14484,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin";
             entity_type: string;
             /**
              * Format: uuid
