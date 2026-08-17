@@ -28,18 +28,19 @@ import "./extension-units.css";
 // unit names a destination. See app/extensions.ts's unitsForSecretScope.
 //
 // The permission story is the page, and it was already written: Connections is
-// per-person and ungated, Integrations is the organization's and gated on the
-// grants its cards ask for. The rows here add no gate of their own — the rail
-// rows they replace had none either, and a unit's screen refuses independently
-// on the object it declares.
+// per-person and ungated, Integrations is the organization's and opens on the
+// grants its cards ask for OR on a workspace-scoped unit being composed at all,
+// because this page is the only place such a unit is offered. The rows here add
+// no gate of their own — the rail rows they replace had none either, and a
+// unit's screen refuses independently on the object it declares.
 
 /**
  * The units whose credential lives in `scope`, or nothing at all.
  *
  * Nothing at all is the vanilla tree, where no unit is composed, and it is also
- * the honest answer for a page whose scope no composed unit declares. A card
- * headed "Units" over an empty list is a promise the installation did not make
- * — the same reason the rail group it replaces was absent rather than empty.
+ * the honest answer for a page whose scope no composed unit declares. A heading
+ * over an empty list is a promise the installation did not make — the same
+ * reason the rail group this replaces was absent rather than empty.
  */
 export function ExtensionUnitsCard({
   scope,
