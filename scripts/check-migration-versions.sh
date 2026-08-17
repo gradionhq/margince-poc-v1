@@ -18,12 +18,17 @@
 # the stack.
 #
 # WHY "AFTER", NOT MERELY "NOT EQUAL". A version BELOW the base's highest is not
-# a collision, and is worse than one: pgmigrate records what it applied, so a
-# database already past that number never runs the new migration and never says
-# so. Two installations then differ by a migration neither can see is missing —
-# the same silent divergence the root CLAUDE.md's "additive migrations only"
-# rule exists to prevent. The fix in both cases is the same and is cheap:
-# re-stamp above the base and rebase.
+# a collision, and is worse than one, but not because it is skipped: pgmigrate
+# tests membership (`done[version]`), not a watermark, so a lower version IS
+# applied. It is applied in the WRONG PLACE. On a fresh database it runs before
+# everything above it; on a database already past that number it runs after,
+# since those are recorded and skipped. The same set of migrations then produces
+# two schemas whenever anything in it is order-dependent — a later ALTER of the
+# table this one creates, a CHECK this one widens, a backfill reading a column
+# added above it — and nothing reports the difference. `down` diverges too: it
+# reverts by VERSION order, so on the second database `migrate down --steps 1`
+# reverts the highest version, which is not the migration last applied. The fix
+# in both cases is the same and is cheap: re-stamp above the base and rebase.
 #
 # WHY THE GATE OUTLIVED THE NUMBERING IT WAS BUILT FOR. core/ now names a
 # migration for the unix second it was written, so two branches no longer pick
@@ -142,11 +147,11 @@ for dir in "$MIGRATIONS_DIR"/*/; do
     fi
 
     # A version the base does not carry, at or below what it has already
-    # reached: not a collision, and worse than one. pgmigrate records what it
-    # applied, so an installation past $base_max never runs this and never
-    # reports it missing.
+    # reached: not a collision, and worse than one. It still applies — pgmigrate
+    # skips only what the ledger already names — but it applies in a different
+    # PLACE on a fresh database than on one already past $base_max.
     if [[ ! "$version" > "$base_max" ]]; then
-      echo "FAIL: $ns/$version ('$name') sorts at or below $base_max, the highest on $BASE_REF — an installation past $base_max would never apply it, and would not report it missing. Rename it above $base_max and rebase (in core, re-stamp it with 'make migrate-create')" >&2
+      echo "FAIL: $ns/$version ('$name') sorts at or below $base_max, the highest on $BASE_REF — it would still be applied, but in a different place on each installation: before $base_max on a fresh database, after it on one already past it. Anything order-dependent then leaves the two schemas different with nothing to report it. Rename it above $base_max and rebase (in core, re-stamp it with 'make migrate-create')" >&2
       failed=1
     fi
   done <<<"$tree_rows"

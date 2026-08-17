@@ -54,8 +54,8 @@ func TestCoreMigrationVersionsAreUnixSecondsAfterTheClosedSequence(t *testing.T)
 		case unixSecond.MatchString(m.Version):
 			assertStampIsNotAhead(t, m.Version, m.Name, ceiling)
 			if m.Version <= closedSequenceEnd {
-				t.Errorf("core %s_%s: sorts at or below the closed sequence's last version %s, so a database already past it would never apply this migration and would never report it missing",
-					m.Version, m.Name, closedSequenceEnd)
+				t.Errorf("core %s_%s: sorts at or below the closed sequence's last version %s, so it would run before the sequence on a fresh database and after it on every database already past %s — the same migrations in two orders",
+					m.Version, m.Name, closedSequenceEnd, closedSequenceEnd)
 			}
 		case sequence.MatchString(m.Version):
 			if m.Version > closedSequenceEnd {
