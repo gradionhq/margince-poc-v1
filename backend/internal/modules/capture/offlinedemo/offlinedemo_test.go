@@ -132,7 +132,7 @@ func TestEveryAddressIsKnown(t *testing.T) {
 func TestEveryThreadHasAnExternalParty(t *testing.T) {
 	box := demoMailbox()
 	for _, m := range generate(box, box.Accounts[0]) {
-		rec := m.record(box)
+		rec := m.record()
 		external := false
 		for _, addr := range rec.Addresses {
 			if !strings.HasSuffix(addr, "@demo.test") {
@@ -145,21 +145,24 @@ func TestEveryThreadHasAnExternalParty(t *testing.T) {
 	}
 }
 
-// TestOutboundIsAttested — an outbound message is a SENT COPY, and the
-// attestation is what tells the product the owner wrote it rather than
-// received it from themselves.
-func TestOutboundIsAttested(t *testing.T) {
+// TestOutboundNamesItsRecipient — and deliberately does NOT carry the owner
+// attestation. WithOwnerAttestation is the T1 correspondence gate's only
+// evidence and may be minted solely by the mail mapper, which knows the
+// provider's own filing of the message; a generator asserting it from its own
+// content is the hole that rule closes. A fitness test in package backendarch
+// enforces it.
+func TestOutboundNamesItsRecipient(t *testing.T) {
 	box := demoMailbox()
 	sawOutbound := false
 	for _, m := range generate(box, box.Accounts[0]) {
 		if m.Kind == "meeting" {
-			if m.record(box).Counterparty.Email != "" {
+			if m.record().Counterparty.Email != "" {
 				t.Errorf("meeting %s carries a counterparty; a calendar record has attendees instead", m.MessageID)
 			}
 			continue
 		}
-		rec := m.record(box)
-		if m.Direction == "outbound" {
+		rec := m.record()
+		if m.Direction == directionOutbound {
 			sawOutbound = true
 			if rec.Counterparty.Email != strings.ToLower(m.ToAddr) {
 				t.Errorf("outbound %s names %q as counterparty, want the recipient", m.MessageID, rec.Counterparty.Email)
@@ -179,7 +182,7 @@ func TestOutboundIsAttested(t *testing.T) {
 func TestRecordsLinkTheAccount(t *testing.T) {
 	box := demoMailbox()
 	for _, m := range generate(box, box.Accounts[0]) {
-		rec := m.record(box)
+		rec := m.record()
 		found := false
 		for _, link := range rec.Links {
 			if link.Type == datasource.EntityOrganization {

@@ -172,19 +172,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 		return cursor, fmt.Errorf("offline demo sync has no seat to generate for")
 	}
 
-	state := cursorState{Version: 1, Gen: generatorVersion}
-	if len(cursor) > 0 {
-		var prior cursorState
-		if err := json.Unmarshal(cursor, &prior); err == nil && prior.Gen == generatorVersion {
-			state = prior
-		}
-	}
-	since := time.Time{}
-	if state.Through != "" {
-		if parsed, err := time.Parse(time.RFC3339, state.Through); err == nil {
-			since = parsed
-		}
-	}
+	state, since := readCursor(cursor)
 
 	mailbox, err := c.directory.Mailbox(ctx, userID)
 	if err != nil {
@@ -198,7 +186,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 				skipped++
 				continue
 			}
-			if _, err := sink.Upsert(ctx, msg.record(mailbox)); err != nil {
+			if _, err := sink.Upsert(ctx, msg.record()); err != nil {
 				// One refused message must not cost the rest of the mailbox:
 				// the sink drops an internal-only record deliberately, and a
 				// link to a row this seat cannot see is refused by design.
@@ -231,6 +219,32 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	return connector.Cursor(next), nil
 }
 
+// readCursor is where a sync resumes from.
+//
+// A cursor written by a DIFFERENT generator version is discarded rather than
+// honoured: version 1 dated its messages in the future and left a `through`
+// two months ahead, which would skip everything forever. Discarding restarts
+// the generator, and the natural key refuses whatever already landed.
+func readCursor(cursor connector.Cursor) (cursorState, time.Time) {
+	state := cursorState{Version: 1, Gen: generatorVersion}
+	if len(cursor) == 0 {
+		return state, time.Time{}
+	}
+	var prior cursorState
+	if err := json.Unmarshal(cursor, &prior); err != nil || prior.Gen != generatorVersion {
+		return state, time.Time{}
+	}
+	state = prior
+	if state.Through == "" {
+		return state, time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339, state.Through)
+	if err != nil {
+		return state, time.Time{}
+	}
+	return state, parsed
+}
+
 // Normalize re-parses one stored raw message. The generator writes its own
 // JSON into Raw, so this is the inverse of that and nothing more.
 func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]connector.NormalizedRecord, error) {
@@ -238,7 +252,7 @@ func (c *Connector) Normalize(_ context.Context, raw connector.RawRecord) ([]con
 	if err := json.Unmarshal(raw, &msg); err != nil {
 		return nil, fmt.Errorf("re-reading a generated message: %w", err)
 	}
-	return []connector.NormalizedRecord{msg.record(msg.Mailbox)}, nil
+	return []connector.NormalizedRecord{msg.record()}, nil
 }
 
 // assert the connector satisfies the port.

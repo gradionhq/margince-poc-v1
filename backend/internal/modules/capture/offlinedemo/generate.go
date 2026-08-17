@@ -32,6 +32,12 @@ import (
 // maxBodyLen keeps a generated body inside what the activity write accepts.
 const maxBodyLen = 4000
 
+// The two directions a message travels, as the activity contract spells them.
+const (
+	directionInbound  = "inbound"
+	directionOutbound = "outbound"
+)
+
 // message is one generated mail, and the shape stored in Raw so Normalize can
 // rebuild the record from it alone.
 type message struct {
@@ -60,7 +66,7 @@ type message struct {
 // way a captured mail's does, the counterparty is the human on the other side,
 // and an OUTBOUND message is attested as sent by the mailbox owner — which is
 // what makes it a sent copy rather than something we received from ourselves.
-func (m message) record(mailbox Mailbox) connector.NormalizedRecord {
+func (m message) record() connector.NormalizedRecord {
 	header := fmt.Sprintf("From: %s\nTo: %s", m.FromAddr, m.ToAddr)
 	if m.CCAddr != "" {
 		header += "\nCc: " + m.CCAddr
@@ -72,7 +78,7 @@ func (m message) record(mailbox Mailbox) connector.NormalizedRecord {
 
 	counterparty := m.ToAddr
 	counterpartyName := m.ToName
-	if m.Direction == "inbound" {
+	if m.Direction == directionInbound {
 		counterparty, counterpartyName = m.FromAddr, m.FromName
 	}
 
@@ -118,13 +124,25 @@ func (m message) record(mailbox Mailbox) connector.NormalizedRecord {
 	}
 	// A meeting has no counterparty, matching how the calendar connector maps
 	// one: attendance is a participant list, not a correspondent.
+	//
+	// The outbound OWNER ATTESTATION is deliberately NOT minted here.
+	// WithOwnerAttestation is the T1 correspondence gate's only evidence
+	// (ADR-0072 §1) and may be called solely by the mail mapper, which knows
+	// both the message's authorship and the provider's own filing of it. A
+	// generator deriving it from its own content is precisely the hole the
+	// rule closes: whatever supplied the argument could whitelist an
+	// arbitrary address past transactional suppression.
+	//
+	// The cost is that a generated outbound reads as correspondence without
+	// T1 evidence, which is honest — nobody filed these in a Sent folder,
+	// because nobody sent them.
 	if m.Kind != "meeting" {
 		rec.Counterparty = connector.Counterparty{
 			Email:       strings.ToLower(counterparty),
 			DisplayName: counterpartyName,
 			Domain:      domainOf(counterparty),
 			Direction:   m.Direction,
-		}.WithOwnerAttestation(m.Direction == "outbound")
+		}
 	}
 	return rec
 }
@@ -177,7 +195,7 @@ func generate(mailbox Mailbox, account Account) []message {
 type threadSpec struct {
 	Key      string // stable per account+thread
 	Subject  string
-	Opener   string // "outbound" or "inbound"
+	Opener   string // directionOutbound or directionInbound
 	Replies  int
 	DayStart int // days after the account's anchor
 	Deal     bool
@@ -191,44 +209,62 @@ func threadsFor(account Account) []threadSpec {
 	switch {
 	case account.Lifecycle == "customer":
 		return []threadSpec{
-			{Key: "kickoff", Subject: "Kickoff " + account.Name, Opener: "outbound", Replies: 2,
+			{
+				Key: "kickoff", Subject: "Kickoff " + account.Name, Opener: directionOutbound, Replies: 2,
 				DayStart: 20, Deal: true, Meeting: true, Body: [3]string{
 					"vielen Dank für Ihr Vertrauen. Anbei der Terminvorschlag für den Kickoff.",
 					"passt uns gut, wir bringen die Fachbereiche mit.",
-					"prima, Einladung ist raus. Agenda hängt an."}},
-			{Key: "invoice", Subject: "Rechnung " + orDash(account.ContractNumber), Opener: "inbound", Replies: 1,
+					"prima, Einladung ist raus. Agenda hängt an.",
+				},
+			},
+			{
+				Key: "invoice", Subject: "Rechnung " + orDash(account.ContractNumber), Opener: directionInbound, Replies: 1,
 				DayStart: 60, Body: [3]string{
 					"kurze Rückfrage zur letzten Rechnung — ist die Position 3 anteilig berechnet?",
-					"ja, anteilig bis zum Periodenende. Ich schicke die Aufstellung mit.", ""}},
+					"ja, anteilig bis zum Periodenende. Ich schicke die Aufstellung mit.", "",
+				},
+			},
 		}
 	case account.Lifecycle == "former_customer":
 		return []threadSpec{
-			{Key: "offboarding", Subject: "Kündigung bestätigt", Opener: "outbound", Replies: 1,
+			{
+				Key: "offboarding", Subject: "Kündigung bestätigt", Opener: directionOutbound, Replies: 1,
 				DayStart: 30, Body: [3]string{
 					"wir bestätigen den Eingang Ihrer Kündigung zum Ende der Laufzeit.",
-					"danke für die Bestätigung und die Zusammenarbeit.", ""}},
+					"danke für die Bestätigung und die Zusammenarbeit.", "",
+				},
+			},
 		}
 	case stage == "proposal" || stage == "negotiation":
 		return []threadSpec{
-			{Key: "offer", Subject: "Angebot " + account.Name, Opener: "outbound", Replies: 2,
+			{
+				Key: "offer", Subject: "Angebot " + account.Name, Opener: directionOutbound, Replies: 2,
 				DayStart: 10, Deal: true, Meeting: true, Body: [3]string{
 					"anbei unser Angebot wie besprochen. Die Staffel greift ab 50 Lizenzen.",
 					"danke — zwei Rückfragen zur Laufzeit und zum Support-Level.",
-					"beides gerne im Termin, Vorschlag hängt an."}},
+					"beides gerne im Termin, Vorschlag hängt an.",
+				},
+			},
 		}
 	case stage != "":
 		return []threadSpec{
-			{Key: "intro", Subject: "Kurzer Austausch?", Opener: "outbound", Replies: 1,
+			{
+				Key: "intro", Subject: "Kurzer Austausch?", Opener: directionOutbound, Replies: 1,
 				DayStart: 5, Deal: true, Body: [3]string{
 					"wir arbeiten mit mehreren Häusern Ihrer Größe — lohnt ein kurzer Austausch?",
-					"gerne, schicken Sie ein paar Slots.", ""}},
+					"gerne, schicken Sie ein paar Slots.", "",
+				},
+			},
 		}
 	case account.Lifecycle == "prospect":
 		return []threadSpec{
-			{Key: "inbound", Subject: "Anfrage über die Website", Opener: "inbound", Replies: 1,
+			{
+				Key: directionInbound, Subject: "Anfrage über die Website", Opener: directionInbound, Replies: 1,
 				DayStart: 8, Body: [3]string{
 					"wir prüfen gerade Anbieter und würden gerne mehr erfahren.",
-					"sehr gerne — ich melde mich mit zwei Terminvorschlägen.", ""}},
+					"sehr gerne — ich melde mich mit zwei Terminvorschlägen.", "",
+				},
+			},
 		}
 	default:
 		// A target nobody has worked. Most get nothing, which is the honest
@@ -237,9 +273,12 @@ func threadsFor(account Account) []threadSpec {
 			return nil
 		}
 		return []threadSpec{
-			{Key: "cold", Subject: "Kurze Frage zu Ihrem Shop", Opener: "outbound", Replies: 0,
+			{
+				Key: "cold", Subject: "Kurze Frage zu Ihrem Shop", Opener: directionOutbound, Replies: 0,
 				DayStart: 12, Body: [3]string{
-					"eine kurze Frage zu Ihrer Plattform — haben Sie zehn Minuten?", "", ""}},
+					"eine kurze Frage zu Ihrer Plattform — haben Sie zehn Minuten?", "", "",
+				},
+			},
 		}
 	}
 }
@@ -263,7 +302,7 @@ func writeThread(mailbox Mailbox, account Account, contact Person, anchor time.T
 		dealID = account.Deals[0].ID
 	}
 
-	out := []message{newMessage(mailbox, account, contact, spec, openerID, openerID, "",
+	out := []message{newMessage(mailbox, account, contact, openerID, openerID, "",
 		spec.Subject, spec.Body[0], occurred, spec.Opener, "email", dealID)}
 
 	direction := flip(spec.Opener)
@@ -274,7 +313,7 @@ func writeThread(mailbox Mailbox, account Account, contact Person, anchor time.T
 		}
 		occurred = occurred.AddDate(0, 0, 2+hashIndex(fmt.Sprintf("gap:%s:%d", base, reply), 4))
 		id := fmt.Sprintf("<%s.m%d@offline-demo.invalid>", base, reply)
-		out = append(out, newMessage(mailbox, account, contact, spec, id, openerID, openerID,
+		out = append(out, newMessage(mailbox, account, contact, id, openerID, openerID,
 			"Re: "+spec.Subject, body, occurred, direction, "email", dealID))
 		direction = flip(direction)
 	}
@@ -282,7 +321,7 @@ func writeThread(mailbox Mailbox, account Account, contact Person, anchor time.T
 	if spec.Meeting {
 		occurred = occurred.AddDate(0, 0, 5)
 		id := fmt.Sprintf("<%s.meet@offline-demo.invalid>", base)
-		meeting := newMessage(mailbox, account, contact, spec, id, openerID, "",
+		meeting := newMessage(mailbox, account, contact, id, openerID, "",
 			"Termin: "+spec.Subject, "Abstimmung, 45 Minuten, per Video.",
 			occurred, "", "meeting", dealID)
 		out = append(out, meeting)
@@ -290,17 +329,17 @@ func writeThread(mailbox Mailbox, account Account, contact Person, anchor time.T
 	return out
 }
 
-func newMessage(mailbox Mailbox, account Account, contact Person, spec threadSpec,
+func newMessage(mailbox Mailbox, account Account, contact Person,
 	id, threadKey, inReplyTo, subject, body string, occurred time.Time,
 	direction, kind, dealID string,
 ) message {
 	from, fromName := mailbox.Email, mailbox.DisplayName
 	to, toName := contact.Email, contact.Name
-	if direction == "inbound" {
+	if direction == directionInbound {
 		from, fromName, to, toName = contact.Email, contact.Name, mailbox.Email, mailbox.DisplayName
 	}
 	greeting := "Hallo " + firstWord(contact.Name) + ","
-	if direction == "inbound" {
+	if direction == directionInbound {
 		greeting = "Hallo " + firstWord(mailbox.DisplayName) + ","
 	}
 	cc := ""
@@ -319,10 +358,10 @@ func newMessage(mailbox Mailbox, account Account, contact Person, spec threadSpe
 }
 
 func flip(direction string) string {
-	if direction == "outbound" {
-		return "inbound"
+	if direction == directionOutbound {
+		return directionInbound
 	}
-	return "outbound"
+	return directionOutbound
 }
 
 func firstWord(s string) string {
@@ -357,11 +396,21 @@ func shortKey(domain string) string {
 }
 
 // hashIndex spreads a key across n buckets, stably across runs and machines.
+//
+// Walking the sum down by n keeps every value an int and every step in range,
+// so the bucket is provably inside the slice without a conversion anyone has
+// to reason about — and without the int/uint32 narrowing gosec rightly flags.
+// The seeder's own hashIndex is written the same way for the same reason.
 func hashIndex(key string, n int) int {
 	if n <= 0 {
 		return 0
 	}
 	h := fnv.New32a()
-	_, _ = h.Write([]byte(key)) //nolint:errcheck // hash.Write never returns an error
-	return int(h.Sum32() % uint32(n))
+	_, _ = h.Write([]byte(key)) // hash.Write never returns an error, as its own contract states
+	sum := h.Sum32()
+	bucket := 0
+	for i := 0; i < 32; i++ {
+		bucket = (bucket*2 + int((sum>>(31-i))&1)) % n
+	}
+	return bucket
 }
