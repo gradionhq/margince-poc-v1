@@ -25,9 +25,18 @@ likewise advisory.
 - `push` to `main`
 - `workflow_dispatch` (manual)
 
-One live run per ref (`concurrency` group): a new push cancels the stale run —
-except on `main`, where a merge must not kill the in-flight check of the
-previous merge.
+One live run per PR ref (`concurrency` group): a new push cancels the stale run.
+A merge to `main` gets a group of its **own**, keyed by commit, so every merge is
+gated.
+
+That last part is what `cancel-in-progress: false` alone does not buy, and
+assuming it did cost three ungated merges in one afternoon. The flag protects a
+run that is already *running*; a group holds at most one *queued* run, so while
+every `main` push shared one group, each merge evicted the one queued behind the
+current lane — reported `cancelled`, zero jobs, indistinguishable from a green
+skip on any dashboard. The daily scheduled `backend lane (main)` exists to catch
+exactly that mask and leaves a window up to a day wide. The deliberate cost is
+that several full lanes can now run on `main` at once.
 
 ## Run only the checks a change can affect
 

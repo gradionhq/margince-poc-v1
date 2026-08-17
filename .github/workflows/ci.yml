@@ -20,11 +20,25 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-# One live run per ref: a new push to the same branch/PR cancels the stale
-# run instead of queueing behind it. Runs on main are never cancelled — a
-# merge must not kill the in-flight check of the previous merge.
+# One live run per PR ref: a new push to the same branch cancels the stale run
+# instead of queueing behind it. A merge to main gets a group of its OWN, keyed
+# by commit, so every merge is gated.
+#
+# `cancel-in-progress: false` alone does not achieve that, which is what the
+# previous spelling assumed. It protects the run that is already RUNNING; a
+# group holds at most one QUEUED run, so with every main push in one group each
+# merge evicted the one queued behind the current lane and was reported
+# `cancelled` with zero jobs. That reads identically to a green skip on every
+# dashboard. It is not hypothetical: three consecutive merges landed ungated
+# behind one slow lane on 2026-08-16, and the daily scheduled backend lane —
+# which exists for exactly this mask — leaves a window up to a day wide.
+#
+# The cost is deliberate: several full lanes, twelve integration shards each,
+# can now run on main at once rather than one at a time. Runner minutes for a
+# gate that runs is the trade this repository wants while main is the only
+# integration point.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || '' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 defaults:
