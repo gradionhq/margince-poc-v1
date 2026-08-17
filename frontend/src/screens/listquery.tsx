@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import { navigate, type Route, routeHash } from "../app/router";
@@ -229,6 +230,24 @@ export function ListTable<Row>({
     ...dataViews,
   ];
   const [view, setPicked] = useActiveView(allViews, query);
+  // Keyed on the VALUES, not on the arrays that carry them. The table treats a
+  // new `chosen` object as the reader narrowing the list and resets to page 1,
+  // so an object rebuilt every render resets on every render: pressing Next
+  // re-read page 2 and then immediately snapped back to page 1, and the list
+  // flipped between the first two pages forever.
+  //
+  // `chips` cannot be the key — screens declare it as an inline array literal,
+  // which is a fresh reference each render. The option values are what
+  // chosenFor actually reads, and they are strings.
+  const chipOptionKey = chips
+    .flatMap((chip) => chip.options.map((option) => option.value))
+    .join("\u0000");
+  const filterKey = JSON.stringify(query.filters);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
+  const chosen = useMemo(
+    () => chosenFor(chips, query.filters),
+    [chipOptionKey, filterKey],
+  );
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -332,7 +351,7 @@ export function ListTable<Row>({
           ? []
           : [...chips.map((chip) => translateChip(chip, t)), ...dataChips]
       }
-      chosen={chosenFor(chips, query.filters)}
+      chosen={chosen}
       onChipChange={setFilter}
       // A view tab whose preset the mirror would refuse is a tab that lights up
       // and does nothing, so overlay mode shows none — the same reason its

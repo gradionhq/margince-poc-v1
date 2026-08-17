@@ -489,3 +489,45 @@ describe("view tabs — two views can ask for the same thing", () => {
     ).toBe("false");
   });
 });
+
+describe("paging a filtered list", () => {
+  it("keeps going forward instead of snapping back to page 1", async () => {
+    const user = userEvent.setup();
+    const page = (from: number) => ({
+      data: Array.from({ length: 25 }, (_, i) => ({
+        id: `r-${from + i}`,
+        name: `Row ${from + i}`,
+      })),
+      page: { next_cursor: `c-${from + 25}`, has_more: true },
+    });
+    let served = 0;
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      page(25 * served++),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "owner",
+            label: "list.owner",
+            allLabel: "list.filterOwnerAll",
+            options: [{ value: "owner_id:u-1", label: "list.filterOwnerMe" }],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
+
+    // Next twice. The table resets to page 1 whenever `chosen` changes
+    // IDENTITY — so a chosen object rebuilt on every render reset on every
+    // render, and the list flipped between the first two pages forever.
+    for (const _ of [1, 2]) {
+      await user.click(screen.getByRole("button", { name: /Next/ }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    await waitFor(() => expect(screen.getByText("Row 50")).toBeTruthy());
+    expect(screen.queryByText("Row 0")).toBeNull();
+  });
+});
