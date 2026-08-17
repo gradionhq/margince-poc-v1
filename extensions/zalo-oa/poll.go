@@ -84,7 +84,11 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 		return nil
 	}
 	at := current.cursor()
-	budget := maxPagesPerPoll
+	// THE CEILING IS THE ROW'S. The account read above has already spent one
+	// request against it, so what is left is what the walk may page. A first poll
+	// ignores it downward and never upward: connecting an account brings what
+	// arrives from now on, whatever an operator authorized the tick to spend.
+	budget := pageBudget(current.PollRequestBudget)
 	if at.firstPoll() {
 		budget = firstPollPages
 	}

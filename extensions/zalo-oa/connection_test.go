@@ -293,6 +293,28 @@ func TestStatusReportsTheAbsenceOfAConnectionWithoutFailing(t *testing.T) {
 	}
 }
 
+// Status reports the tick's REQUEST BUDGET, because it is the one number on this
+// row that governs how much of a busy account a poll can keep up with — and it is
+// no use as a setting if the screen it is set for cannot show it.
+func TestStatusReportsTheRequestBudgetTheTickSpends(t *testing.T) {
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{withBudget(connectionRow(statusConnected, nil, cursor{}), 90)}
+
+	answer, err := status(t.Context(), rt, json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	reported := jsonOf[struct {
+		Connection *connection `json:"connection"`
+	}](t, answer)
+	if reported.Connection == nil {
+		t.Fatal("status reported no connection for a row that is connected")
+	}
+	if reported.Connection.PollRequestBudget != 90 {
+		t.Fatalf("status reported a budget of %d, want the 90 on the row", reported.Connection.PollRequestBudget)
+	}
+}
+
 // A parked connection is reported, and reported as NOT connected: the screen has
 // to tell "nothing here" from "something a human must repair".
 func TestAParkedConnectionIsReportedAndIsNotConnected(t *testing.T) {

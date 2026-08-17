@@ -20,6 +20,7 @@
   "extZaloOa.connection.lastPolled": "Zuletzt geprüft",
   "extZaloOa.connection.package": "Paket",
   "extZaloOa.connection.renewsBy": "Zugangsdaten erneuern sich bis",
+  "extZaloOa.connection.requestBudget": "Anfragen pro Prüfung",
   "extZaloOa.connection.sub": "Ein Official Account bedient den gesamten Arbeitsbereich. Hier werden keine Zugangsdaten angezeigt: App Secret und beide Token liegen bei der Schlüsselverwaltung der Installation und werden nie angezeigt.",
   "extZaloOa.connection.title": "Der Zalo Official Account dieser Installation",
   "extZaloOa.error.account_changed": "Die gespeicherten Zugangsdaten gelten inzwischen für einen anderen Official Account als den, für den diese Verbindung angelegt wurde. Es wurde nichts erfasst. Verbinden Sie erneut mit einem Paar für das gewünschte Konto.",

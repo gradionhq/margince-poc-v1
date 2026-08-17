@@ -20,6 +20,7 @@
   "extZaloOa.connection.lastPolled": "Last checked",
   "extZaloOa.connection.package": "Package",
   "extZaloOa.connection.renewsBy": "Credential renews by",
+  "extZaloOa.connection.requestBudget": "Requests per check",
   "extZaloOa.connection.sub": "One Official Account serves the whole workspace. Nothing here shows a credential: the App Secret and both tokens are held by the installation's custodian and are never displayed.",
   "extZaloOa.connection.title": "This installation's Zalo Official Account",
   "extZaloOa.error.account_changed": "The stored credential now answers for a different Official Account than this connection was made for. Nothing was captured. Connect again with a pair for the account you mean to use.",

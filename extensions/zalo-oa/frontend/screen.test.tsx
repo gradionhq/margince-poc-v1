@@ -44,6 +44,7 @@ const CONNECTION = {
   high_water_mark: 1786689951020,
   backfill_offset: 0,
   version: 3,
+  poll_request_budget: 40,
 };
 
 const CONNECTED = { connected: true, connection: CONNECTION };
@@ -279,6 +280,26 @@ describe("the Zalo Official Account screen", () => {
     expect(await screen.findByText("Connected")).toBeTruthy();
     expect(screen.getByText(/Tăng trưởng/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+  });
+
+  // The request ceiling is the one number on this card that governs how much of a
+  // busy account each check keeps up with, and Zalo publishes no per-account rate
+  // limit anywhere — so it is shown FIRST, and shown whatever it is set to.
+  it("shows the request budget each check spends, ahead of the rest", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-oa/status": () => ({
+        connected: true,
+        connection: { ...CONNECTION, poll_request_budget: 90 },
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    const label = await screen.findByText("Requests per check");
+    expect(label.nextElementSibling?.textContent).toBe("90");
+    // Ahead of the package, which was the first row before it.
+    const terms = [...label.parentElement!.querySelectorAll("dt")].map((dt) => dt.textContent);
+    expect(terms[0]).toBe("Requests per check");
   });
 
   // The two parked states send an administrator to different places, and one of

@@ -62,6 +62,7 @@ type Connection = {
   last_polled_at?: string;
   last_error_class?: string;
   version: number;
+  poll_request_budget: number;
 };
 
 const STATUS_KEY = ["ext", "zalo-oa", "status"];
@@ -344,6 +345,12 @@ function ConnectionState({
         {connection.account_label}
       </p>
       <dl>
+        {/* FIRST, and unconditionally: it is the one number here that governs how
+            much of a busy account each check can keep up with, and Zalo publishes
+            no per-account rate limit in any response header — so a ceiling nobody
+            can read is a ceiling nobody can choose. */}
+        <dt>{t("extZaloOa.connection.requestBudget")}</dt>
+        <dd>{connection.poll_request_budget}</dd>
         {connection.package_name ? (
           <>
             <dt>{t("extZaloOa.connection.package")}</dt>

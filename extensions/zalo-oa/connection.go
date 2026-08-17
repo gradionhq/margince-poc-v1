@@ -54,7 +54,8 @@ const connectionColumns = `id::text, oa_id, app_id,
 	authorized_by::text, status, coalesce(account_label, ''), coalesce(package_name, ''),
 	coalesce(package_valid_through, ''), access_token_expires_at, refresh_claimed_at,
 	high_water_mark, coalesce(backfill_before, 0), coalesce(pending_high_water_mark, 0),
-	backfill_offset, last_polled_at, coalesce(last_error_class, ''), version`
+	backfill_offset, last_polled_at, coalesce(last_error_class, ''), version,
+	poll_request_budget`
 
 // connection is this installation's Zalo connection, as the unit reads and
 // renders it.
@@ -101,6 +102,16 @@ type connection struct {
 	// display.
 	LastErrorClass string `json:"last_error_class,omitempty"`
 	Version        int    `json:"version"`
+	// PollRequestBudget is how many provider requests one tick may spend, on this
+	// row because the right number is a property of the ACCOUNT: an installation
+	// with four conversations and one with four hundred need different ceilings.
+	//
+	// It is rendered, and that is not decoration — the per-OA rate limit is in no
+	// response header and can only be hit, so the number that governs how much of
+	// a busy account a poll keeps up with is one an operator has to be able to
+	// read. The column's CHECK holds the bounds, which is why nothing here
+	// re-checks them.
+	PollRequestBudget int `json:"poll_request_budget"`
 }
 
 // cursor is where this connection has read to, as the walk reasons about it.
@@ -129,7 +140,7 @@ func scanConnection(scan func(...any) error) (connection, error) {
 	err := scan(&c.ID, &c.OAID, &c.AppID, &c.AuthorizedBy, &c.Status,
 		&c.AccountLabel, &c.PackageName, &c.PackageValidThrough, &expiresAt, &claimedAt,
 		&c.HighWaterMark, &c.BackfillBefore, &c.PendingHighWaterMark, &c.BackfillOffset,
-		&lastPolledAt, &c.LastErrorClass, &c.Version)
+		&lastPolledAt, &c.LastErrorClass, &c.Version, &c.PollRequestBudget)
 	if err != nil {
 		return connection{}, err
 	}

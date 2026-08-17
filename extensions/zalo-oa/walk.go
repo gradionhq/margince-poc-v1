@@ -32,11 +32,19 @@ package zalooa
 
 import "context"
 
-// maxPagesPerPoll bounds one tick's paging across BOTH walks. Six pages of ten
-// is 60 messages per tick; at the two-minute cadence that is 30 a minute
-// sustained, and an account busier than that is one the poll is permanently
-// behind — which the gap makes visible rather than hiding.
-const maxPagesPerPoll = 6
+// accountReadRequests is what a tick spends before it pages anything: the one
+// call that re-reads the account and its tier evidence.
+const accountReadRequests = 1
+
+// pageBudget is how many pages of the walk one tick may read, given the request
+// ceiling on the connection row.
+//
+// The account read comes off the top because it is a request like any other, and
+// a ceiling that ignored it would spend one more than the operator authorized —
+// which on a provider whose per-OA rate limit appears in no response header is
+// the kind of overspend that can only be discovered by being refused. The
+// column's CHECK keeps the ceiling at 2 or more, so this is never zero.
+func pageBudget(requests int) int { return requests - accountReadRequests }
 
 // firstPollPages is what a connection that has never polled reads: one page, and
 // no backfill. Connecting an account brings the CRM what arrives from now on —

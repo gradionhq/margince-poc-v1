@@ -38,7 +38,8 @@ func TestAShortPageClosesTheWalk(t *testing.T) {
 	fake := newZaloFake(t)
 	fake.chatPages = [][]map[string]any{pageOf(1000, "a", "b", "c")}
 
-	result, err := walkChats(t.Context(), fake.client("t"), walkSpec{budget: maxPagesPerPoll})
+	result, err := walkChats(t.Context(), fake.client("t"),
+		walkSpec{budget: pageBudget(defaultPollRequestBudget)})
 	if err != nil {
 		t.Fatalf("walkChats: %v", err)
 	}

@@ -426,6 +426,9 @@ func TestATickReadsWhatIsNewFirstAndThenFillsTheBacklogUnderIt(t *testing.T) {
 func TestABacklogThatOutlastsTheBudgetHoldsTheFloor(t *testing.T) {
 	open := cursor{floor: 100, gap: 800, top: 2000, offset: 20}
 	rt := connectedRuntime(t, open)
+	// A ceiling the backlog below cannot be finished inside: the account read and
+	// three pages, against a hole more than thirty messages deep.
+	rt.tx.singleRows[0] = withBudget(rt.tx.singleRows[0], 4)
 	rt.tx.singleRows = append(rt.tx.singleRows, connectionRow(statusConnected, nil, open))
 	fake := newZaloFake(t)
 	pages := [][]map[string]any{{message("new", 2500, srcUserToOA, "sáng nay")}}
@@ -445,6 +448,65 @@ func TestABacklogThatOutlastsTheBudgetHoldsTheFloor(t *testing.T) {
 	}
 	if args[2] == int64(0) {
 		t.Fatal("the tick reported no backlog after running out of budget with one still open")
+	}
+}
+
+// THE TICK'S REQUEST CEILING COMES FROM THE ROW, not from a constant compiled
+// into the walk.
+//
+// Two installations on the same build need different numbers — one has four
+// conversations and one has four hundred — and the number an operator reads on
+// the status screen has to be the number the tick actually obeys, or the screen
+// is telling them about something else.
+func TestATickSpendsTheRequestBudgetOnItsOwnRow(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 100})
+	rt.tx.singleRows[0] = withBudget(rt.tx.singleRows[0], 4)
+	rt.tx.singleRows = append(rt.tx.singleRows, connectionRow(statusConnected, nil, cursor{floor: 100}))
+	fake := newZaloFake(t)
+	// Full pages all the way down, so nothing but the budget can stop the walk.
+	var pages [][]map[string]any
+	for page := range 10 {
+		pages = append(pages, tenFrom(2500-int64(page*10)))
+	}
+	fake.chatPages = pages
+
+	if err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
+		t.Fatalf("pollConnection: %v", err)
+	}
+	// Four requests: one read the account, and the three that were left read
+	// pages. Reading the account is not free, and a budget that ignored it would
+	// spend one request more than the operator authorized.
+	if got := fake.calls["/v2.0/oa/getoa"]; got != 1 {
+		t.Fatalf("the tick read the account %d times, want once", got)
+	}
+	if got := fake.calls["/v2.0/oa/listrecentchat"]; got != 3 {
+		t.Fatalf("the tick read %d pages on a budget of 4 requests, want the 3 left after reading the account", got)
+	}
+}
+
+// The default budget reads FURTHER than the six pages the walk used to be capped
+// at, which is the whole point of moving the number onto the row.
+func TestTheDefaultBudgetReadsPastTheOldSixPageCap(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 100})
+	rt.tx.singleRows = append(rt.tx.singleRows, connectionRow(statusConnected, nil, cursor{floor: 2500}))
+	fake := newZaloFake(t)
+	var pages [][]map[string]any
+	for page := range 9 {
+		pages = append(pages, tenFrom(2500-int64(page*10)))
+	}
+	fake.chatPages = pages
+
+	if err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
+		t.Fatalf("pollConnection: %v", err)
+	}
+	// Nine full pages and then the short page that ends the feed: a walk still
+	// capped at six would have stopped inside it and left a hole behind.
+	if got := fake.calls["/v2.0/oa/listrecentchat"]; got != 10 {
+		t.Fatalf("the tick read %d pages, want all 9 and the short page that closes the walk", got)
+	}
+	_, args := rt.tx.statementMentioning(t, "backfill_offset = $5")
+	if args[2] != int64(0) {
+		t.Fatalf("the tick left a backlog at %v after reading the whole feed inside its budget", args[2])
 	}
 }
 

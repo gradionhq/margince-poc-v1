@@ -27,9 +27,11 @@ actions:
       # recover. Polling often is what keeps the window this connector can fall
       # behind by far smaller than the window the provider keeps.
       cadence: 120s
-      # Wide enough for one connection to renew its credential if it must, walk
-      # up to six pages, and ingest what it found. The client's own per-request
-      # timeout is what keeps one hung provider call from spending all of it.
+      # Wide enough for one connection to renew its credential if it must, spend
+      # the request budget on its row, and ingest what it found. The client's own
+      # per-request timeout is what keeps one hung provider call from spending all
+      # of it. Raising that budget spends more of this window: the two numbers are
+      # set together or a generous ceiling is one a tick never reaches.
       timeout: 300s
       # 🟢 write: the tick writes this unit's own connection row, and hands
       # records to core capture through the governed ingress port — which runs on
