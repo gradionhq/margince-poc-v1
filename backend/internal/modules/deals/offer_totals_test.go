@@ -4,9 +4,13 @@
 package deals
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // The B-E03.18 golden cases: line_net = round(qty × unit_price ×
@@ -69,6 +73,119 @@ func TestLineTotalsRejectsMalformedDecimals(t *testing.T) {
 	} {
 		if _, err := LineTotals(bad); err == nil {
 			t.Errorf("LineTotals(%+v) accepted a malformed decimal", bad)
+		}
+	}
+}
+
+// A line whose figures leave the int64 minor-unit range is REFUSED, not
+// narrowed: big.Int.Int64() would hand back the low 64 bits, which for
+// the quantity × unit_price magnitudes both columns accept is routinely a
+// negative number the offer row, the PDF and the rollup then treat as
+// real money. The refusal classifies as a 422 naming the inputs to lower,
+// so it reads the same on REST and on the MCP tool surface.
+func TestLineTotalsRefusesFiguresOutsideTheMoneyRange(t *testing.T) {
+	cases := []struct {
+		name       string
+		line       OfferLineInput
+		wantFigure string
+	}{
+		{
+			name: "quantity times price wraps int64 into a negative net",
+			// 9e9 × 1e11 = 9e20, past int64's 9.22e18 ceiling.
+			line:       OfferLineInput{Quantity: "99999999999.000", UnitPriceMinor: 9_000_000_000, DiscountPct: "0.00", TaxRate: "0.00"},
+			wantFigure: "line_net_minor",
+		},
+		{
+			name: "a rate the numeric(5,2) column accepts takes the tax past the ceiling",
+			// net = MaxInt64 fits; net × 999.99 % does not.
+			line:       OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "999.99"},
+			wantFigure: "line_tax_minor",
+		},
+		{
+			name: "net plus tax leaves the range both halves fit",
+			// net = MaxInt64, tax = 19 % of it; each is representable, the sum is not.
+			line:       OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "19.00"},
+			wantFigure: "line_total_minor",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := LineTotals(tc.line)
+			if err == nil {
+				t.Fatalf("LineTotals accepted an unrepresentable line and returned %+v", got)
+			}
+			var rangeErr *MoneyRangeError
+			if !errors.As(err, &rangeErr) {
+				t.Fatalf("refusal is not a MoneyRangeError, so it reports as an internal fault: %v", err)
+			}
+			if rangeErr.Figure != tc.wantFigure {
+				t.Fatalf("refusal names figure %q, want %q", rangeErr.Figure, tc.wantFigure)
+			}
+			assertMoneyRangeIsClientFault(t, err)
+		})
+	}
+}
+
+// The positive control for the refusal above: the largest line the range
+// genuinely holds still computes, so the fence rejects overflow rather
+// than large-but-valid money.
+func TestLineTotalsAcceptsTheLargestRepresentableLine(t *testing.T) {
+	line := OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "0.00"}
+	got, err := LineTotals(line)
+	if err != nil {
+		t.Fatalf("LineTotals(%+v): %v", line, err)
+	}
+	want := LineFigures{NetMinor: math.MaxInt64, TaxMinor: 0, TotalMinor: math.MaxInt64}
+	if got != want {
+		t.Fatalf("LineTotals(%+v) = %+v, want %+v", line, got, want)
+	}
+}
+
+// Lines that each fit int64 can still sum past it, so the offer-level
+// accumulation carries the same fence — a native += would wrap the stored
+// offer row while every line it is supposed to reconcile to reads right.
+func TestOfferTotalsRefuseASumOutsideTheMoneyRange(t *testing.T) {
+	half := OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64 / 2, DiscountPct: "0.00", TaxRate: "0.00"}
+	lines := []OfferLineInput{half, half, half}
+	for _, line := range lines {
+		if _, err := LineTotals(line); err != nil {
+			t.Fatalf("a line the sum is built from must itself be representable: %v", err)
+		}
+	}
+
+	got, err := OfferTotals(lines)
+	if err == nil {
+		t.Fatalf("OfferTotals accepted an unrepresentable sum and returned %+v", got)
+	}
+	var rangeErr *MoneyRangeError
+	if !errors.As(err, &rangeErr) {
+		t.Fatalf("refusal is not a MoneyRangeError, so it reports as an internal fault: %v", err)
+	}
+	if rangeErr.Figure != "net_minor" {
+		t.Fatalf("refusal names figure %q, want %q", rangeErr.Figure, "net_minor")
+	}
+	assertMoneyRangeIsClientFault(t, err)
+}
+
+// assertMoneyRangeIsClientFault checks the refusal carries its own 422
+// verdict: it must name at least one input with the contract's machine
+// code, or the same defect answers as an internal fault off the REST path.
+func assertMoneyRangeIsClientFault(t *testing.T, err error) {
+	t.Helper()
+	var faults apperrors.FieldFaults
+	if !errors.As(err, &faults) {
+		t.Fatalf("refusal does not implement FieldFaults: %v", err)
+	}
+	refusals := faults.FieldFaults()
+	if len(refusals) == 0 {
+		t.Fatal("refusal names no input, so the caller is told nothing to lower")
+	}
+	for _, r := range refusals {
+		if r.Field == "" {
+			t.Errorf("refusal entry names no field: %+v", r)
+		}
+		if r.Code != "money_out_of_range" {
+			t.Errorf("refusal entry code = %q, want %q", r.Code, "money_out_of_range")
 		}
 	}
 }

@@ -14,6 +14,9 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // OfferLineInput is one line as the engine consumes it: exact decimal
@@ -52,6 +55,34 @@ func (e *DecimalFieldError) FieldFault() (field, code, message string) {
 	return e.Field, "invalid_decimal", e.Error()
 }
 
+// MoneyRangeError maps to 422: a derived figure that int64 minor units
+// cannot represent. The engine refuses instead of narrowing, because
+// big.Int.Int64() on an out-of-range value yields the low 64 bits — a
+// plausible, frequently negative number that the offer row, the PDF and
+// the pipeline rollup all go on to treat as real money.
+type MoneyRangeError struct {
+	Figure string   // the derived value that left the range (line_net_minor, gross_minor, …)
+	Fields []string // the contract inputs whose magnitude the caller can lower
+}
+
+func (e *MoneyRangeError) Error() string {
+	return e.Figure + " exceeds the money range this system represents exactly (int64 minor units); lower " +
+		strings.Join(e.Fields, " or ")
+}
+
+// FieldFaults names every input that feeds the figure: the figure itself
+// is derived, so lowering any one of them brings it back into range and
+// pointing at a single one would be an arbitrary choice among equals.
+func (e *MoneyRangeError) FieldFaults() []apperrors.FieldRefusal {
+	refusals := make([]apperrors.FieldRefusal, 0, len(e.Fields))
+	for _, field := range e.Fields {
+		refusals = append(refusals, apperrors.FieldRefusal{
+			Field: field, Code: "money_out_of_range", Message: e.Error(),
+		})
+	}
+	return refusals
+}
+
 // LineTotals derives one line's figures (formulas: line_net =
 // round(qty × unit_price × (1 − discount_pct/100)), line_tax =
 // round(line_net × tax_rate/100), line_total = line_net + line_tax).
@@ -75,14 +106,25 @@ func LineTotals(line OfferLineInput) (LineFigures, error) {
 	net.Mul(net, qty)
 	net.Mul(net, keep)
 	net.Quo(net, hundred)
-	netMinor := roundHalfUp(net)
+	netMinor, err := minorFromBig(roundHalfUp(net), "line_net_minor", "quantity", "unit_price_minor")
+	if err != nil {
+		return LineFigures{}, err
+	}
 
 	tax := new(big.Rat).SetInt64(netMinor)
 	tax.Mul(tax, taxRate)
 	tax.Quo(tax, hundred)
-	taxMinor := roundHalfUp(tax)
+	taxMinor, err := minorFromBig(roundHalfUp(tax), "line_tax_minor", "quantity", "unit_price_minor", "tax_rate")
+	if err != nil {
+		return LineFigures{}, err
+	}
 
-	return LineFigures{NetMinor: netMinor, TaxMinor: taxMinor, TotalMinor: netMinor + taxMinor}, nil
+	total := new(big.Int).Add(big.NewInt(netMinor), big.NewInt(taxMinor))
+	totalMinor, err := minorFromBig(total, "line_total_minor", "quantity", "unit_price_minor")
+	if err != nil {
+		return LineFigures{}, err
+	}
+	return LineFigures{NetMinor: netMinor, TaxMinor: taxMinor, TotalMinor: totalMinor}, nil
 }
 
 // statefulOfferLine pairs a line's money inputs with its proposal state
@@ -107,18 +149,44 @@ func acceptedLines(lines []statefulOfferLine) []OfferLineInput {
 
 // OfferTotals sums the per-line figures: net/tax/gross are Σ over lines,
 // so the stored totals reconcile to the displayed lines with zero drift.
+// The sums accumulate in exact big integers because lines that each fit
+// int64 can still add past it — a native += would wrap on the offer row
+// even though every line it reconciles to reads correctly.
 func OfferTotals(lines []OfferLineInput) (OfferFigures, error) {
-	var out OfferFigures
+	net, tax, gross := new(big.Int), new(big.Int), new(big.Int)
 	for i, line := range lines {
 		fig, err := LineTotals(line)
 		if err != nil {
 			return OfferFigures{}, fmt.Errorf("line %d: %w", i+1, err)
 		}
-		out.NetMinor += fig.NetMinor
-		out.TaxMinor += fig.TaxMinor
-		out.GrossMinor += fig.TotalMinor
+		net.Add(net, big.NewInt(fig.NetMinor))
+		tax.Add(tax, big.NewInt(fig.TaxMinor))
+		gross.Add(gross, big.NewInt(fig.TotalMinor))
+	}
+
+	var out OfferFigures
+	var err error
+	if out.NetMinor, err = minorFromBig(net, "net_minor", "line_items"); err != nil {
+		return OfferFigures{}, err
+	}
+	if out.TaxMinor, err = minorFromBig(tax, "tax_minor", "line_items"); err != nil {
+		return OfferFigures{}, err
+	}
+	if out.GrossMinor, err = minorFromBig(gross, "gross_minor", "line_items"); err != nil {
+		return OfferFigures{}, err
 	}
 	return out, nil
+}
+
+// minorFromBig narrows an exact figure to the int64 minor units the money
+// columns hold, or refuses naming the inputs to lower. Every derived value
+// in this engine passes through here: it is the ONE place that decides an
+// out-of-range total is a refusal rather than a wrapped number.
+func minorFromBig(v *big.Int, figure string, fields ...string) (int64, error) {
+	if !v.IsInt64() {
+		return 0, &MoneyRangeError{Figure: figure, Fields: fields}
+	}
+	return v.Int64(), nil
 }
 
 // ratFromDecimal parses a plain decimal string exactly. big.Rat's
@@ -145,7 +213,11 @@ func ratFromDecimal(field, value string) (*big.Rat, error) {
 // > 0, price ≥ 0, discount ≤ 100, tax ≥ 0 — DB CHECKs), so the
 // negative branch cannot arise; it is still handled symmetrically
 // rather than silently misrounding a future caller.
-func roundHalfUp(x *big.Rat) int64 {
+//
+// The result stays an exact big integer: quantity × unit_price_minor is
+// unbounded by either column, so narrowing belongs to minorFromBig,
+// which refuses what int64 cannot hold instead of wrapping it.
+func roundHalfUp(x *big.Rat) *big.Int {
 	num := new(big.Int).Set(x.Num())
 	den := x.Denom() // always > 0 for big.Rat
 	twice := num.Mul(num, big.NewInt(2))
@@ -154,10 +226,9 @@ func roundHalfUp(x *big.Rat) int64 {
 	} else {
 		twice.Sub(twice, den)
 	}
-	q := new(big.Int).Quo(twice, new(big.Int).Mul(den, big.NewInt(2)))
 	// Quo truncates toward zero; for negatives, floor(x+1/2) semantics
 	// mirror to ceil(x−1/2), which truncation already yields here.
-	return q.Int64()
+	return new(big.Int).Quo(twice, new(big.Int).Mul(den, big.NewInt(2)))
 }
 
 // formatQuantity renders the contract's float64 quantity at the DB's
