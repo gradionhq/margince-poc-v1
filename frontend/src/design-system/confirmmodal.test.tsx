@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,8 +9,8 @@ import { ConfirmModal } from "./confirmmodal";
 // to live duplicated inline in the deals.tsx terminal-stage advance confirm
 // and archive.tsx's ArchiveAction. These specs pin the shared behaviour both
 // call sites relied on: a Cancel/Confirm button pair, an optional autonomy
-// dot before the title, an inline (not thrown) mutation error, and both
-// buttons disabling while a mutation is pending.
+// dot before the title, an inline (not thrown) mutation error, and the two
+// different ways the pair refuses a press while a mutation is out.
 
 afterEach(cleanup);
 
@@ -130,7 +131,13 @@ describe("ConfirmModal", () => {
     expect(screen.queryByText("archive failed")).toBeNull();
   });
 
-  it("disables both buttons while pending", () => {
+  // Both buttons refuse the press while the act is in flight, and they refuse
+  // it in two different ways because they are two different facts. Confirm
+  // started the write and stays focusable so the reader keeps their place;
+  // Cancel started nothing and is simply not available, since backing out of
+  // something already on its way to the server would tell the reader they
+  // stopped it when they did not.
+  it("keeps the confirm focusable and busy, and takes Cancel away", () => {
     rtlRender(
       <ConfirmModal
         open
@@ -146,9 +153,29 @@ describe("ConfirmModal", () => {
     expect((screen.getByText("Cancel") as HTMLButtonElement).disabled).toBe(
       true,
     );
-    expect((screen.getByText("Archive") as HTMLButtonElement).disabled).toBe(
-      true,
+    const confirm = screen.getByText("Archive") as HTMLButtonElement;
+    expect(confirm.disabled).toBe(false);
+    expect(confirm).toHaveAttribute("aria-disabled", "true");
+    expect(confirm).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("does not confirm a second time while the first is still out", async () => {
+    const user = userEvent.setup();
+    const onConfirm = vi.fn();
+    rtlRender(
+      <ConfirmModal
+        open
+        onClose={vi.fn()}
+        title="Archive this person?"
+        confirmLabel="Archive"
+        onConfirm={onConfirm}
+        pending
+      >
+        <p>Body copy</p>
+      </ConfirmModal>,
     );
+    await user.click(screen.getByText("Archive"));
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it("leaves both buttons enabled when not pending", () => {
@@ -189,6 +216,10 @@ describe("ConfirmModal", () => {
 
     const confirm = screen.getByRole("button", { name: "Erase + suppress" });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    // An unmet precondition is not a write in flight. The two used to share
+    // one `disabled` on this control, so "type ERASE first" was drawn exactly
+    // like "your erasure is going through".
+    expect(confirm.hasAttribute("aria-busy")).toBe(false);
     await userEvent.click(confirm);
     expect(onConfirm).not.toHaveBeenCalled();
   });

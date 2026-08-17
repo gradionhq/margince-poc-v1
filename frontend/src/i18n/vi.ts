@@ -3602,7 +3602,6 @@ export const vi = {
   "auth.legalTerms": "Điều khoản",
   "auth.legalPrivacy": "Quyền riêng tư",
   "auth.signIn": "Đăng nhập",
-  "auth.signingIn": "Đang đăng nhập…",
   "auth.failed": "Không thành công",
   "auth.errCredentials":
     "Không thể đăng nhập. Hãy kiểm tra email và mật khẩu rồi thử lại.",
@@ -3635,7 +3634,6 @@ export const vi = {
   "password.signsYouOut":
     "Việc đổi mật khẩu sẽ đăng xuất bạn ở mọi nơi, kể cả ở đây. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.submit": "Đổi mật khẩu",
-  "password.changing": "Đang đổi…",
   "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
   "setup.pageTitle": "Thiết lập Margince",

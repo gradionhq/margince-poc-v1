@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button } from "./atoms";
 
 // jsdom resolves no custom properties and computes no layout, so the geometry
@@ -130,6 +132,121 @@ describe("Button", () => {
       const button = screen.getByRole("button", { name: "Send" });
       expect(button.getAttribute("aria-describedby")).toBe("hint");
       expect(button.hasAttribute("disabled")).toBe(false);
+    });
+  });
+
+  // A write in flight and a write you are not allowed to make are opposite
+  // facts, and before `pending` existed the product spelled both as `disabled`:
+  // the same dimmed, barred control, and the same detached focus. What is held
+  // here is the difference — the reader keeps their place, the state is
+  // announced from where they are standing, and the second press does not land.
+  describe("the pending contract", () => {
+    it("refuses the press without taking the button out of the tab order", () => {
+      render(<Button pending>Save</Button>);
+      const button = screen.getByRole("button", { name: "Save" });
+      // Not `disabled`: that is what drops focus to <body> on the very click
+      // that started the write, leaving the announcement with nobody on it.
+      expect(button.hasAttribute("disabled")).toBe(false);
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(button).toHaveAttribute("aria-busy", "true");
+      button.focus();
+      expect(button).toHaveFocus();
+    });
+
+    it("keeps the label it had, so the accessible name does not move", () => {
+      const { rerender } = render(<Button>Save</Button>);
+      rerender(<Button pending>Save</Button>);
+      // Found by the SAME name while busy. A caller that swapped in "Saving…"
+      // would rename a control the reader is focused on, and a screen reader
+      // re-reads a name that changes under it.
+      expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    });
+
+    it("swallows a second press while the first write is out", async () => {
+      const user = userEvent.setup();
+      const onClick = vi.fn();
+      render(
+        <Button pending onClick={onClick}>
+          Save
+        </Button>,
+      );
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it("does not submit the form it sits in while a write is out", async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn((event: { preventDefault(): void }) =>
+        event.preventDefault(),
+      );
+      render(
+        // A `type="submit"` is the case an early return in the handler does not
+        // cover: the browser posts on the click itself, so only
+        // `preventDefault` stops a form going out twice.
+        <form onSubmit={onSubmit}>
+          <Button type="submit" pending>
+            Save
+          </Button>
+        </form>,
+      );
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("carries no busy attributes at all when nothing is in flight", () => {
+      render(<Button>Save</Button>);
+      const button = screen.getByRole("button", { name: "Save" });
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("still calls the caller's handler once the write has landed", async () => {
+      const user = userEvent.setup();
+      const onClick = vi.fn();
+      const { rerender } = render(
+        <Button pending onClick={onClick}>
+          Save
+        </Button>,
+      );
+      rerender(<Button onClick={onClick}>Save</Button>);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    // A refused button was never pressed, so it cannot also be waiting for an
+    // answer. If a caller says both, the refusal is the true one — drawing the
+    // mark would claim a write nobody started.
+    it("lets a reason outrank it, and refuses properly rather than busily", () => {
+      render(
+        <Button pending reason="Connect an inbox first.">
+          Send
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Send" });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+    });
+
+    it("replaces an icon-only button's glyph rather than crowding it", () => {
+      const { rerender } = render(
+        <Button iconOnly aria-label="Reconnect">
+          <svg data-testid="verb-glyph" aria-hidden />
+        </Button>,
+      );
+      expect(screen.getByTestId("verb-glyph")).toBeTruthy();
+      rerender(
+        <Button iconOnly pending aria-label="Reconnect">
+          <svg data-testid="verb-glyph" aria-hidden />
+        </Button>,
+      );
+      // One 16px mark in a square control, not two. The name still comes from
+      // `aria-label`, so nothing the reader relies on went with the glyph.
+      expect(screen.queryByTestId("verb-glyph")).toBeNull();
+      expect(
+        screen
+          .getByRole("button", { name: "Reconnect" })
+          .querySelectorAll("svg"),
+      ).toHaveLength(1);
     });
   });
 

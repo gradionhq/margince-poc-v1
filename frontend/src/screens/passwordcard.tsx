@@ -200,12 +200,18 @@ export function ChangePasswordCard({
               kicked out. */}
           <p className="t-small">{t("password.signsYouOut")}</p>
           <div className="form-actions">
+            {/* Two facts, two props. `!ready` is a form that is not filled in
+                yet and `change.isPending` is a write already on its way, and
+                folding them into one `disabled` drew them the same: the reader
+                could not tell "I still have to type something" from "it is
+                going". */}
             <Button
               type="submit"
               variant="primary"
-              disabled={!ready || change.isPending}
+              disabled={!ready}
+              pending={change.isPending}
             >
-              {change.isPending ? t("password.changing") : t("password.submit")}
+              {t("password.submit")}
             </Button>
           </div>
         </PanelBody>

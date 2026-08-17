@@ -3618,7 +3618,6 @@ export const en = {
   "auth.legalTerms": "Terms",
   "auth.legalPrivacy": "Privacy",
   "auth.signIn": "Sign in",
-  "auth.signingIn": "Signing in…",
   "auth.failed": "That didn't work",
   "auth.errCredentials":
     "We couldn't sign you in. Check your email and password and try again.",
@@ -3658,7 +3657,6 @@ export const en = {
   "password.signsYouOut":
     "Changing it signs you out everywhere, including here. Sign in again with the new password.",
   "password.submit": "Change password",
-  "password.changing": "Changing…",
   "password.done": "Password changed. Sign in again with the new one.",
   // Deliberately says nothing about WHICH field: this is the fallback for a
   // refusal the server did not explain, and naming the current password would

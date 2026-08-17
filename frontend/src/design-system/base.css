@@ -171,6 +171,46 @@
   transform: none;
   filter: none;
 }
+/* A control that is WORKING must not be drawn as one that was REFUSED, and
+   until this rule existed every button in the product drew both the same way:
+   a write in flight set `disabled`, so it dimmed to 0.5 with a barred cursor —
+   the exact treatment that elsewhere means "your seat may not do this" or
+   "fill the form in first". Two opposite facts, one appearance. So a busy
+   button keeps its full ink and takes the cursor that means wait; the mark
+   beside the label is what says something is happening.
+
+   Keyed on `aria-busy` rather than on a class of its own, because that
+   attribute IS the state: a class can be set without it, and then what the
+   button looks like and what it announces disagree. */
+.btn[aria-busy="true"] {
+  cursor: progress;
+}
+/* The lift belongs to a control inviting a press. This one has already been
+   pressed and is not accepting another, so it stays put under the pointer. */
+.btn[aria-busy="true"]:hover {
+  transform: none;
+  filter: none;
+}
+.busy-mark {
+  animation: busy-mark-turn 0.8s linear infinite;
+}
+@keyframes busy-mark-turn {
+  to {
+    rotate: 1turn;
+  }
+}
+/* The one place the house rule — reduced motion lands on the END state — has
+   no end to land on: a spinner turns until an answer arrives, and there is no
+   final frame that means "finished". What reduced motion gets instead is the
+   mark itself, standing still. The button still shows that a write is out
+   there; it simply does not turn while it waits. Removing the mark entirely
+   would leave a reader who asked for less motion with no signal at all, which
+   is the failure this rule exists to prevent. */
+@media (prefers-reduced-motion: reduce) {
+  .busy-mark {
+    animation: none;
+  }
+}
 /* The refused button and the sentence explaining it, stacked. Button has
    rendered this wrapper since `reason` existed, but no rule ever declared it,
    so the explanation sat inline beside the control it belongs under. */

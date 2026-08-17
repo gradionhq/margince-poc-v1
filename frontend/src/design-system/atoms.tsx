@@ -1,4 +1,9 @@
-import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
+import {
+  ChevronRight,
+  LoaderCircle,
+  MoreHorizontal,
+  Search,
+} from "lucide-react";
 import {
   type ComponentPropsWithRef,
   type CSSProperties,
@@ -22,6 +27,36 @@ import "./atoms.css";
 
 type ButtonVariant = "primary" | "ghost" | "danger";
 
+/**
+ * The turning mark a control shows while a write it started is in flight.
+ *
+ * Exported because `Switch` carries the same state and must draw it the same
+ * way; sized by whatever control hosts it (`.btn svg` is 16px, 14px small), so
+ * it takes no size prop. Decorative — `aria-busy` on the control is the fact,
+ * and a glyph that announced itself would say it twice.
+ */
+export function BusyMark({ className }: Readonly<{ className?: string }>) {
+  return (
+    <LoaderCircle
+      className={["busy-mark", className ?? ""].filter(Boolean).join(" ")}
+      aria-hidden="true"
+    />
+  );
+}
+
+// A press that lands on a control already waiting for its own answer. Both
+// halves are load bearing: `preventDefault` is what stops a `type="submit"`
+// button posting the form a second time (a plain early return does not — the
+// browser submits on the click, not on the handler), and `stopPropagation`
+// stops a clickable row underneath treating the press as a click on itself.
+function swallowWhileBusy(event: {
+  preventDefault(): void;
+  stopPropagation(): void;
+}) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function Button({
   variant = "ghost",
   small,
@@ -29,6 +64,7 @@ export function Button({
   className,
   reason,
   reasonId,
+  pending,
   disabled,
   ...rest
   // `ComponentPropsWithRef`, not the bare attribute set — the same reason
@@ -66,6 +102,29 @@ export function Button({
    * and still reaches a screen reader from each of them.
    */
   reasonId?: string;
+  /**
+   * Whether a write this button started is still in flight.
+   *
+   * It deliberately does NOT set `disabled`, and that is the whole contract.
+   * Disabling the control the reader has just pressed detaches focus — Chrome
+   * and Safari drop it to `<body>` — so the reader loses their place at the
+   * exact moment the app has something to tell them, and an `aria-busy`
+   * announcing the wait lands on a control nobody is on. `aria-disabled`
+   * refuses the second press while keeping the button focusable, so focus
+   * stays where the reader put it and the state is announced from there. The
+   * press itself is swallowed in the handler, since `aria-disabled` is a
+   * promise to assistive technology and not something the browser enforces.
+   *
+   * The LABEL does not change while this is set. The mark and `aria-busy`
+   * already say "working"; swapping "Save" for "Saving…" says it a second time
+   * and renames a focused control mid-press, which a screen reader re-reads —
+   * so a caller passes one label and lets the state carry the rest.
+   *
+   * `reason` outranks it: a refused control was never pressed, so it cannot
+   * also be waiting, and drawing the mark there would claim a write nobody
+   * started.
+   */
+  pending?: boolean;
 }) {
   const ownReasonId = useId();
   const classes = [
@@ -78,13 +137,20 @@ export function Button({
     .filter(Boolean)
     .join(" ");
   const refused = reason !== undefined || reasonId !== undefined;
-  // `disabled` and `aria-describedby` are computed here and must survive the
-  // caller's props, so both are destructured out of `rest` (disabled above,
-  // aria-describedby below) rather than sitting where a later spread could
-  // overwrite them: a `disabled={false}` passed alongside `reason` would
-  // otherwise re-enable a control the reason contract promises is refused, and
-  // silently drop the description pointing at the sentence that says why.
-  const { "aria-describedby": callerDescribedBy, ...attrs } = rest;
+  const busy = pending === true && !refused;
+  // `disabled`, `aria-describedby` and `onClick` are computed here and must
+  // survive the caller's props, so all three are destructured out of `rest`
+  // (disabled above, the other two below) rather than sitting where a later
+  // spread could overwrite them: a `disabled={false}` passed alongside `reason`
+  // would otherwise re-enable a control the reason contract promises is
+  // refused, silently drop the description pointing at the sentence that says
+  // why, and let a second press through a button that is already writing.
+  const {
+    "aria-describedby": callerDescribedBy,
+    onClick,
+    children,
+    ...attrs
+  } = rest;
   const describedBy =
     reasonId ?? (reason === undefined ? callerDescribedBy : ownReasonId);
   const button = (
@@ -93,8 +159,18 @@ export function Button({
       {...attrs}
       className={classes}
       disabled={disabled || refused}
+      aria-disabled={busy || undefined}
+      aria-busy={busy || undefined}
       aria-describedby={describedBy}
-    />
+      onClick={busy ? swallowWhileBusy : onClick}
+    >
+      {busy && <BusyMark />}
+      {/* An icon-only control has no room beside its glyph — two 16px marks in
+          a square button overflow it — so there the mark REPLACES the icon.
+          Nothing is lost: that button's accessible name has always come from
+          `aria-label` rather than from what is drawn inside it. */}
+      {busy && iconOnly ? null : children}
+    </button>
   );
   if (reason === undefined) {
     return button;

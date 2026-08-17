@@ -93,13 +93,24 @@ export function ConfirmModal({
         </p>
       )}
       <div className="actions">
+        {/* Cancel is `disabled`, not `pending`, and the difference is real: it
+            is not the control that started the write, so it is genuinely
+            unavailable rather than busy. Backing out of an act that is already
+            on its way to the server would leave the reader believing they
+            stopped something they did not. */}
         <Button onClick={onClose} disabled={pending}>
           {t("create.cancel")}
         </Button>
+        {/* The compound this dialog used to carry — `pending || confirmDisabled`
+            — folded two unrelated facts into one attribute: a write in flight
+            and a precondition the caller has not met. Split, each is drawn as
+            what it is, and the twenty-eight surfaces built on this dialog get
+            it without changing a line. */}
         <Button
           variant={confirmVariant}
           onClick={onConfirm}
-          disabled={pending || confirmDisabled}
+          pending={pending}
+          disabled={confirmDisabled}
         >
           {confirmLabel}
         </Button>

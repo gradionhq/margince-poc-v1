@@ -720,10 +720,13 @@ export function ApprovalRow({
           </div>
         ) : (
           <div className="approval-gate">
+            {/* Accept is the control that STARTED the write, so it is the one
+                that goes busy: it keeps the reader's focus and says a verdict
+                is on its way. */}
             <Button
               variant="primary"
               small
-              disabled={decide.isPending}
+              pending={decide.isPending}
               onClick={() => decide.mutate({ verdict: "approve" })}
             >
               {t("trust.accept")}
@@ -733,6 +736,10 @@ export function ApprovalRow({
                 {t("trust.edit")}
               </Button>
             )}
+            {/* Reject stays `disabled`, and the difference is the whole point of
+                having two props: it did not start anything, it is simply not
+                available while a verdict is in flight. Drawing it busy would
+                claim a rejection nobody sent. */}
             <Button
               small
               disabled={decide.isPending}

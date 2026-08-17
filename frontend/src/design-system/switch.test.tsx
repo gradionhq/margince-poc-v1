@@ -98,6 +98,70 @@ describe("Switch", () => {
     expect(screen.getByRole("switch")).not.toHaveAttribute("aria-describedby");
   });
 
+  // The state the docblock and the design-system catalog have both claimed
+  // this control carries since it was written, while the implementation had
+  // only `disabled` and `reason`. A switch IS the write, so the gap was
+  // exactly where it mattered least noticeably and most: the reader flips it,
+  // nothing says the write is out, and a second flip sends a value derived
+  // from a state the server never confirmed.
+  describe("a flip that is still being written", () => {
+    it("refuses the next flip without dropping the reader off the control", () => {
+      const onChange = vi.fn();
+      render(
+        <Switch label="Auto-enrich" checked pending onChange={onChange} />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      expect(control.hasAttribute("disabled")).toBe(false);
+      expect(control).toHaveAttribute("aria-disabled", "true");
+      expect(control).toHaveAttribute("aria-busy", "true");
+      control.focus();
+      expect(control).toHaveFocus();
+    });
+
+    it("does not write again while the first write is out", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <Switch label="Auto-enrich" checked pending onChange={onChange} />,
+      );
+      await user.click(screen.getByRole("switch", { name: "Auto-enrich" }));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("keeps showing which way the setting is currently set", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          pending
+          onChange={() => undefined}
+        />,
+      );
+      // The knob is the only thing carrying the state the reader is changing
+      // FROM, so the busy mark sits beside the label rather than over it.
+      expect(screen.getByRole("switch")).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+    });
+
+    it("lets a denial outrank it — nobody's switch cannot be mid-flip", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          pending
+          disabled
+          reason="Your seat cannot change this."
+          onChange={() => undefined}
+        />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      expect(control.hasAttribute("disabled")).toBe(true);
+      expect(control.hasAttribute("aria-busy")).toBe(false);
+    });
+  });
+
   it("keeps a hidden label reachable by name", () => {
     render(
       <Switch

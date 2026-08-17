@@ -718,11 +718,18 @@ function LoginForm({
         </div>
       )}
       <div className="auth-actions">
-        {/* Disabled ONLY while a request is in flight (§8.4). An empty field is
-            answered by native validation on the inputs, not by a pale control
-            with nothing to say. */}
-        <Button type="submit" variant="primary" disabled={login.isPending}>
-          {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
+        {/* Refuses the press ONLY while a request is in flight (§8.4). An empty
+            field is answered by native validation on the inputs, not by a pale
+            control with nothing to say.
+
+            `pending`, not `disabled`: this is the one screen where losing focus
+            on submit costs the most, because the reader arrived by keyboard and
+            the next thing to happen is either a page change or an error they
+            have to be sent back to. The label stays "Sign in" — the mark says
+            the rest, and renaming a control mid-press makes a screen reader
+            re-read it. */}
+        <Button type="submit" variant="primary" pending={login.isPending}>
+          {t("auth.signIn")}
         </Button>
       </div>
     </form>

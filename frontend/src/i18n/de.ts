@@ -3611,7 +3611,6 @@ export const de = {
   "auth.legalTerms": "Nutzungsbedingungen",
   "auth.legalPrivacy": "Datenschutz",
   "auth.signIn": "Anmelden",
-  "auth.signingIn": "Anmeldung läuft…",
   "auth.failed": "Das hat nicht geklappt",
   "auth.errCredentials":
     "Die Anmeldung war nicht möglich. Prüfe E-Mail-Adresse und Passwort und versuche es erneut.",
@@ -3647,7 +3646,6 @@ export const de = {
   "password.signsYouOut":
     "Die Änderung meldet dich überall ab, auch hier. Melde dich mit dem neuen Passwort erneut an.",
   "password.submit": "Passwort ändern",
-  "password.changing": "Wird geändert…",
   "password.done": "Passwort geändert. Melde dich mit dem neuen an.",
   "password.errorGeneric":
     "Das Passwort konnte nicht geändert werden. Versuche es erneut.",

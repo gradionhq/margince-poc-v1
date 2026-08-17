@@ -172,6 +172,35 @@ export const Buttons: Story = {
           </button>
         </div>
       </div>
+      {/* The row this story exists for. Working and refused are opposite
+          facts, and the product drew both as `disabled` — dimmed, barred,
+          focus dropped — so a reader could not tell a request in flight from
+          one their seat is not allowed to make. Side by side is the only way
+          to see that they now differ: full ink and a turning mark against a
+          dimmed pill. The label does not change, which is the other half; a
+          "Saving…" here would rename a control the reader is standing on. */}
+      <div style={stack}>
+        <span className="t-label">
+          Working — which must not read as refused
+        </span>
+        <div style={row}>
+          <Button variant="primary" pending>
+            Save
+          </Button>
+          <Button variant="ghost" pending>
+            Reconnect
+          </Button>
+          <Button variant="primary" small pending>
+            Save
+          </Button>
+          <Button variant="ghost" iconOnly pending aria-label="Reconnect">
+            <RefreshCw aria-hidden />
+          </Button>
+          <Button variant="primary" disabled>
+            Save
+          </Button>
+        </div>
+      </div>
     </div>
   ),
 };
