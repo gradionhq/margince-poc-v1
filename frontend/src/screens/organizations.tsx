@@ -1810,9 +1810,12 @@ function useAccountChronology({
   // still have more. Another page of changes only reaches the reader when the
   // change feed owns that cut — i.e. its oldest loaded row is not older than
   // the activity feed's.
+  // Seeded with the first row rather than left to throw on an empty one. The
+  // length check above already made that unreachable, but a reduce whose safety
+  // lives in a ternary two lines up is one refactor away from not having it.
   const oldest = (rows: TimelineEntry[]) =>
     rows.length > 0
-      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b)).atIso
+      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b), rows[0]).atIso
       : undefined;
   const oldestChange = oldest(changeEntries);
   const oldestActivity = oldest(activityEntries);
