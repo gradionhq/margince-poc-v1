@@ -22,7 +22,14 @@ import {
   Webhook,
   Wrench,
 } from "lucide-react";
-import { type ReactNode, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
@@ -39,6 +46,7 @@ import {
   Checkbox,
   EmptyState,
   Field,
+  Modal,
   SectionHeader,
   SegmentedControl,
   Skeleton,
@@ -914,13 +922,15 @@ function PassportCard() {
   const [label, setLabel] = useState("");
   const [scopes, setScopes] = useState<Set<string>>(new Set(["read", "draft"]));
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [minting, setMinting] = useState(false);
   const revokingRow = useRef<HTMLElement | null>(null);
   // Where the minted token lands. It is a live region that is ALWAYS mounted
-  // rather than one that appears with the token in it: a region inserted at the
-  // same moment as its content is not reliably announced, and this token is
-  // shown exactly once in its life.
+  // for the drawer's whole life rather than one that appears with the token in
+  // it: a region inserted at the same moment as its content is not reliably
+  // announced, and this token is shown exactly once in its life.
   const tokenRegion = useRef<HTMLDivElement | null>(null);
-  const labelId = useId();
+  const mintTitleId = useId();
+  const mintScopeHintId = useId();
 
   // Metadata only — the wire schema carries no token (PassportSummary),
   // so this list cannot re-disclose one.
@@ -990,73 +1000,37 @@ function PassportCard() {
     }
   }, [minted]);
 
+  // Closing resets the whole attempt, so re-opening starts clean rather than
+  // showing the previous mint's token or its refusal. The scope defaults come
+  // back with it — the drawer is not a form somebody left half-filled, it is a
+  // new passport each time.
+  const closeMint = useCallback(() => {
+    setMinting(false);
+    setLabel("");
+    setScopes(new Set(["read", "draft"]));
+    mint.reset();
+  }, [mint]);
+
   return (
+    // The card LISTS what exists; minting is a drawer. It used to be one flex
+    // row holding a label, a name field, five scope ticks and the submit — eight
+    // controls on one line with a single 8px gap between all of them, so nothing
+    // said where the field ended and the choices began. A form that wide is not
+    // a row in a settings card; it is a form, and the product already has the
+    // surface for one.
     <Panel
       title={t("settings.passports")}
+      titleAction={
+        <Button small variant="primary" onClick={() => setMinting(true)}>
+          {t("settings.mint")}
+        </Button>
+      }
       footer={t("settings.passportsLendHint")}
     >
       <PanelBody>
         <p className="t-small settings-panel-sub">
           {t("settings.passportsSub")}
         </p>
-        <div className="passport-mint">
-          <span className="t-label" id={labelId}>
-            {t("settings.passportLabel")}
-          </span>
-          <TextInput
-            aria-labelledby={labelId}
-            value={label}
-            onChange={(event) => setLabel(event.target.value)}
-          />
-          {PASSPORT_SCOPES.map((scope) => (
-            <Checkbox
-              key={scope}
-              className="t-caption"
-              checked={scopes.has(scope)}
-              onChange={(event) => {
-                const next = new Set(scopes);
-                if (event.target.checked) {
-                  next.add(scope);
-                } else {
-                  next.delete(scope);
-                }
-                setScopes(next);
-              }}
-              label={t(scopeLabelKey(scope))}
-            />
-          ))}
-          <Button
-            small
-            variant="primary"
-            disabled={scopes.size === 0 || mint.isPending}
-            onClick={() => mint.mutate()}
-          >
-            {t("settings.mint")}
-          </Button>
-        </div>
-        {/* The whole point of the mutation, and until now it simply appeared:
-            no live region, no focus. It is announced AND focused, because it is
-            shown once and never again — a reader who misses it has lost the
-            credential. tabIndex -1 makes it a focus target without joining
-            anybody's Tab order. */}
-        <div
-          className="passport-token"
-          ref={tokenRegion}
-          tabIndex={-1}
-          role="status"
-        >
-          {mint.isSuccess && (
-            <PanelPlate>
-              <p className="t-label">{t("settings.tokenOnce")}</p>
-              <p className="t-mono passport-token-value">{mint.data.token}</p>
-            </PanelPlate>
-          )}
-        </div>
-        {mint.isError && (
-          <p className="t-caption passport-mint-error">
-            {problemMessageOf(mint.error, t)}
-          </p>
-        )}
       </PanelBody>
       {/* Only what this human MINTED. A row carrying a connection was issued by
           the token exchange to a client — it belongs to ConnectedAgentsCard,
@@ -1085,6 +1059,123 @@ function PassportCard() {
             ))
         }
       </QueryGate>
+      <Modal
+        open={minting}
+        onClose={closeMint}
+        labelledBy={mintTitleId}
+        placement="right"
+      >
+        <h2 className="t-h2" id={mintTitleId}>
+          {t("settings.mint")}
+        </h2>
+        {/* The token region is mounted for the whole life of the drawer rather
+            than appearing with the token in it: a live region inserted at the
+            same moment as its content is not reliably announced, and this token
+            is shown exactly once. */}
+        <div
+          className="passport-token"
+          ref={tokenRegion}
+          tabIndex={-1}
+          role="status"
+        >
+          {mint.isSuccess && (
+            <PanelPlate>
+              <p className="t-label">{t("settings.tokenOnce")}</p>
+              <p className="t-mono passport-token-value">{mint.data.token}</p>
+            </PanelPlate>
+          )}
+        </div>
+        {mint.isSuccess ? (
+          // The drawer does NOT close itself on success. Closing would take the
+          // one and only sight of the credential with it, and a reader who was
+          // still reading has no way back — the list carries metadata and the
+          // server will not re-disclose a token.
+          <div className="form-actions">
+            <Button variant="primary" onClick={closeMint}>
+              {t("settings.mintDone")}
+            </Button>
+          </div>
+        ) : (
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (scopes.size > 0 && !mint.isPending) mint.mutate();
+            }}
+          >
+            <Field label={t("settings.passportLabel")}>
+              {(control) => (
+                <TextInput
+                  {...control}
+                  value={label}
+                  onChange={(event) => setLabel(event.target.value)}
+                />
+              )}
+            </Field>
+            {/* A fieldset with a legend, which is what five checkboxes that
+                belong together ARE. Loose siblings beside a text input said
+                nothing about what they were choices FOR, and the accessible
+                group had no name at all. `.field-multiselect` is the house
+                spelling — `create.tsx` has used it for exactly this since it
+                was written. */}
+            <fieldset
+              className="field-multiselect"
+              aria-describedby={mintScopeHintId}
+            >
+              <legend className="t-label">
+                {t("settings.passportScopes")}
+              </legend>
+              <p id={mintScopeHintId} className="t-caption">
+                {t("settings.passportScopesHint")}
+              </p>
+              {PASSPORT_SCOPES.map((scope) => (
+                <Checkbox
+                  key={scope}
+                  className="t-label"
+                  checked={scopes.has(scope)}
+                  onChange={(event) => {
+                    const next = new Set(scopes);
+                    if (event.target.checked) {
+                      next.add(scope);
+                    } else {
+                      next.delete(scope);
+                    }
+                    setScopes(next);
+                  }}
+                  label={t(scopeLabelKey(scope))}
+                />
+              ))}
+            </fieldset>
+            {/* Beside the button that produced it, in the danger tone. It used
+                to render two blocks below, past the token region, as a caption
+                with no live role — so a refused mint announced nothing and sat
+                where nothing had been pressed. */}
+            {mint.isError && (
+              <Callout tone="danger" live="alert">
+                {problemMessageOf(mint.error, t)}
+              </Callout>
+            )}
+            <div className="form-actions">
+              <Button onClick={closeMint}>{t("settings.mintCancel")}</Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={scopes.size === 0 || mint.isPending}
+                // A passport with no scope is a credential that can do nothing,
+                // so the button says why it is refused rather than sitting pale
+                // with nothing to offer.
+                reason={
+                  scopes.size === 0
+                    ? t("settings.passportScopesRequired")
+                    : undefined
+                }
+              >
+                {mint.isPending ? t("settings.minting") : t("settings.mint")}
+              </Button>
+            </div>
+          </form>
+        )}
+      </Modal>
       <ConfirmModal
         open={confirmId != null}
         onClose={() => {
@@ -2008,10 +2099,13 @@ const UNFILTERED_AUDIT_LOG: AuditLogFilters = {
   to: "",
 };
 
-// The six filters, declared once. Naming them here keeps the accessible wiring
-// identical across the row: each control is named by the `t-label` span beside
-// it via aria-labelledby, because a real <label> per control would wrap every
-// field onto its own line and the row is what makes six filters scannable.
+// The six filters, declared once, so the accessible wiring is identical across
+// the row. Each is a `Field` — a real <label> with `htmlFor`, so clicking the
+// words focuses the control. It used to be a `t-label` span pointed at by
+// aria-labelledby, on the reasoning that a real label would wrap every field
+// onto its own line; that is not what happens. `.field` IS a flex column, and
+// the grid around it decides the layout either way, so the span bought nothing
+// and cost the click target.
 const AUDIT_LOG_FILTER_FIELDS: readonly Readonly<{
   key: keyof AuditLogFilters;
   labelKey: MessageKey;
@@ -2074,31 +2168,26 @@ function AuditLogFilterFields({
   onChange: (next: AuditLogFilters) => void;
 }>) {
   const t = useT();
-  const filterId = useId();
   return (
     // Six narrow filters read as a grid of labelled cells rather than one long
     // row: in a row each control took the width of the card and the six of them
     // stacked into a page-tall form, which is the shape of something to fill in
     // rather than something to narrow a list with.
     <div className="audit-filters">
-      {AUDIT_LOG_FILTER_FIELDS.map((field) => {
-        const labelId = `${filterId}-${field.key}`;
-        return (
-          <div key={field.key} className="audit-filter">
-            <span className="t-label" id={labelId}>
-              {t(field.labelKey)}
-            </span>
+      {AUDIT_LOG_FILTER_FIELDS.map((field) => (
+        <Field key={field.key} label={t(field.labelKey)}>
+          {(control) => (
             <TextInput
+              {...control}
               type={field.date ? "date" : undefined}
-              aria-labelledby={labelId}
               value={filters[field.key]}
               onChange={(event) =>
                 onChange({ ...filters, [field.key]: event.target.value })
               }
             />
-          </div>
-        );
-      })}
+          )}
+        </Field>
+      ))}
     </div>
   );
 }

@@ -1925,6 +1925,14 @@ export const vi = {
     "Đây là những passport của bạn để cho mượn. Kết nối một client MCP, nó sẽ hỏi bạn trao passport nào — kết nối đó sau đó mang đúng các phạm vi của passport ấy.",
   "settings.passportLabel": "Tên Agent",
   "settings.mint": "Tạo passport",
+  "settings.minting": "Đang tạo…",
+  "settings.mintCancel": "Huỷ",
+  "settings.mintDone": "Xong",
+  "settings.passportScopes": "Tác nhân này được phép làm gì",
+  "settings.passportScopesHint":
+    "Chọn ít nhất một mục. Tác nhân không bao giờ được làm nhiều hơn bạn.",
+  "settings.passportScopesRequired":
+    "Hãy chọn ít nhất một việc tác nhân này được phép làm.",
   "agents.connected": "Agent đã kết nối",
   "agents.connectedSub":
     "Các client MCP giữ thông tin xác thực của riêng mình, sinh ra từ một passport bạn cho mượn",
