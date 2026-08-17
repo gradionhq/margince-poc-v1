@@ -37,6 +37,19 @@ import (
 // seeding and reading.
 var roomFixedNow = time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
 
+// roomAgo and roomAhead place a fixture's timestamp against the SAME clock the
+// services under test are given.
+//
+// The database's `now()` is a different clock, and a fixture that mixes the two
+// measures the distance between them: it drifts one day further from the frozen
+// now for every real day that passes. A row seeded at `now() - 20 days` was
+// nearly 20 days old to the frozen clock the week this suite was written, and
+// exactly 6.9 days old on 2026-08-17 — one hour under the seven-day rule the
+// gone-quiet rung applies, which is the day the suite began failing with nothing
+// changed but the date.
+func roomAgo(d time.Duration) time.Time   { return roomFixedNow.Add(-d) }
+func roomAhead(d time.Duration) time.Time { return roomFixedNow.Add(d) }
+
 // roomPerms is a bounded rep holding every grant the person page asks for. The
 // scope must be team-level: an unbounded admin short-circuits the row-scope
 // clauses these tests exist to prove.
@@ -381,8 +394,8 @@ func TestADismissalHoldsUntilTheEvidenceMoves(t *testing.T) {
 	// We wrote and they never answered: the gone-quiet rung.
 	outbound := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Following up', 'body', now() - interval '20 days',
-		        'outbound', 'manual', 'human:x')`, e.WS)
+		VALUES ($1, $2, 'email', 'Following up', 'body', $3,
+		        'outbound', 'manual', 'human:x')`, e.WS, roomAgo(20*24*time.Hour))
 	LinkActivity(t, owner, e.WS, outbound, "person", mine)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
@@ -417,8 +430,8 @@ func TestADismissalHoldsUntilTheEvidenceMoves(t *testing.T) {
 	// so the page must speak again rather than stay quiet about the new fact.
 	inbound := SeedRow(t, owner, `INSERT INTO activity
 		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Re: Following up', 'body', now() - interval '1 hour',
-		        'inbound', 'manual', 'human:x')`, e.WS)
+		VALUES ($1, $2, 'email', 'Re: Following up', 'body', $3,
+		        'inbound', 'manual', 'human:x')`, e.WS, roomAgo(time.Hour))
 	LinkActivity(t, owner, e.WS, inbound, "person", mine)
 
 	reArmed, err := svc.Assemble(rep, personID)
