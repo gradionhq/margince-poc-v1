@@ -168,8 +168,9 @@ func versionBumpingTables(t *testing.T) map[string]bool {
 	t.Helper()
 	live := map[attachedTrigger]triggerBody{}
 	// Namespace order and, inside each, the walk's lexical order are the order
-	// dbmigrate applies the files in: every version is a fixed-width sequence
-	// number or a timestamp, so ascending version and ascending name agree.
+	// dbmigrate applies the files in: a version is a stamp or a zero-padded
+	// sequence number, and dbmigrate orders versions as strings too, so
+	// ascending version and ascending name agree.
 	for _, root := range []string{"migrations/core", "migrations/custom"} {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".up.sql") {

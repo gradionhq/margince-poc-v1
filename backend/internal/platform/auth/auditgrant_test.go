@@ -119,8 +119,9 @@ func TestEveryAuditVerbRendersItsAuthorizationRule(t *testing.T) {
 
 // auditActionVocabulary returns the effective audit_log.action set. The
 // vocabulary grows additively (drop CHECK + re-add wider), so the effective set
-// is the HIGHEST-numbered migration that states it; ADR-0017's 4-digit prefix
-// makes lexical order migration order.
+// is the LAST migration that states it; core versions compare as strings, and
+// its closed sequence is zero-padded so it sorts below the later unix-second
+// stamps, which makes lexical order migration order across both eras.
 func auditActionVocabulary(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir(coreMigrationsDir)

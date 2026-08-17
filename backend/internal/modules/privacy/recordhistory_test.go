@@ -110,11 +110,12 @@ var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 
 // verbsFromCheckConstraint returns every verb the effective
 // audit_log_action_check admits. The vocabulary grows additively (drop
-// CHECK + re-add wider), so the effective set is the HIGHEST-numbered
-// migration that restates it — reading one pinned file instead is how a
-// later widening (0133 added advance_phase) sailed past this gate while
-// the new verb rendered no phrase at all. ADR-0017's 4-digit prefix makes
-// lexical order migration order, so the last match wins.
+// CHECK + re-add wider), so the effective set is the LAST migration that
+// restates it — reading one pinned file instead is how a later widening
+// (0133 added advance_phase) sailed past this gate while the new verb
+// rendered no phrase at all. core versions compare as strings, and its
+// closed sequence is zero-padded so it sorts below the later unix-second
+// stamps, which makes lexical order migration order and the last match win.
 func verbsFromCheckConstraint(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir(coreMigrationsDir)

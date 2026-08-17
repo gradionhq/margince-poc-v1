@@ -66,11 +66,13 @@ var alterTableStmt = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+([a-z_]+)`)
 // singleQuoted pulls the 'value' literals out of a captured IN-list.
 var singleQuoted = regexp.MustCompile(`'([^']*)'`)
 
-// migrationPrefix is the fixed-width name shape last-wins ordering needs:
-// core/ uses a 4-digit sequence number (ADR-0017), custom/ a 14-digit
-// YYYYMMDDHHMMSS timestamp (ADR-0017 Amendment 1) — either width sorts
-// lexically-equals-chronologically within its own namespace, which is all
-// tableCheckSets' per-root walk relies on.
+// migrationPrefix is the numeric-prefix name shape last-wins ordering needs.
+// Widths differ — custom/ stamps 14 digits, core/ ten since it started naming
+// a migration for the unix second it was written, and four before that — and
+// last-wins does not need them to agree, only to sort
+// lexically-equals-chronologically within one namespace, which is all
+// tableCheckSets' per-root walk relies on. core/'s closed four-digit sequence
+// is zero-padded and so still sorts below its later stamps.
 var migrationPrefix = regexp.MustCompile(`^\d{4,}_`)
 
 // recordChecks derives every CHECK (col IN (…)) set in text and records
@@ -102,9 +104,9 @@ func tableCheckSets(t *testing.T) map[string][]string {
 				return err
 			}
 			// Last-wins depends on lexical order being migration order:
-			// every name must carry the fixed-width numeric prefix.
+			// every name must carry the numeric version prefix.
 			if !migrationPrefix.MatchString(d.Name()) {
-				return fmt.Errorf("%s: migration name lacks the 4-digit prefix the lexical-order derivation relies on", path)
+				return fmt.Errorf("%s: migration name lacks the numeric version prefix the lexical-order derivation relies on", path)
 			}
 			raw, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.up.sql file from walking the trusted migrations tree
 			if err != nil {

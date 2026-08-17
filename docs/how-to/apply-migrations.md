@@ -55,13 +55,23 @@ environment, so a wrapper passing an unset variable aborts instead of running
 Follow this checklist — several obligations are enforced by fitness tests, so missing one fails
 `make check` / `make test-integration` rather than shipping a latent bug.
 
-1. **Create the next sequential pair** in `backend/migrations/core/`: `NNNN_<name>.up.sql` **and**
-   `NNNN_<name>.down.sql`. Both halves are mandatory (the runner rejects a missing `.down.sql`).
+1. **Scaffold the pair** — `make migrate-create NAME=<name>` writes
+   `<unix-seconds>_<name>.up.sql` **and** `.down.sql` in `backend/migrations/core/`. Both halves are
+   mandatory (the runner rejects a missing `.down.sql`). The version is the clock, not the next
+   number in a sequence: two branches open at once pick the same *number* and `main` stops loading
+   the moment both merge, which is how core `0240` and then `0248` were each claimed twice. The
+   four-digit sequence `0001`–`0292` is closed, not renamed — those versions are recorded in every
+   database that applied them, and renaming one strands that database.
    **Never edit a shipped core migration** — additive migrations only; extend a `CHECK` vocabulary
    with a new migration rather than rewriting the old one. (The runner is
    hand-rolled — one transaction per migration under a cluster-wide advisory
    lock — because the core/custom/jurisdiction ownership namespaces don't fit
    an off-the-shelf one-dir-one-table migrator.)
+
+   A stamp removes collisions, not the ordering rule: a migration must still sort after everything
+   on `origin/main`, so a branch that sat while another migration merged re-runs
+   `make migrate-create` and moves its SQL across. `make check` reports that
+   (`scripts/check-migration-versions.sh`).
 2. **Tenant tables** carry `workspace_id uuid NOT NULL REFERENCES workspace(id)` with `ENABLE`+`FORCE`
    row-level security + an isolation policy, and composite same-workspace foreign keys — the RLS
    coverage integration test derives these from the live schema and fails any table that misses them.
@@ -71,5 +81,5 @@ Follow this checklist — several obligations are enforced by fitness tests, so 
    owning module's `doc.go` "Tables owned" list (`tableownership_test.go`).
 5. **Apply and verify** — `make migrate`, then `make check` / `make test-integration`.
 
-Fork-local schema goes in `backend/migrations/custom/`, which sorts after core (timestamp-named,
-`x_`-prefixed columns) and survives upstream merges untouched.
+Fork-local schema goes in `backend/migrations/custom/`, which has its own tracking table and applies
+after core (`YYYYMMDDHHMMSS`-named, `x_`-prefixed columns) and survives upstream merges untouched.
