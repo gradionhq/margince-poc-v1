@@ -91,11 +91,10 @@ func (e *BriefEngine) SnapshotRun(ctx context.Context, now time.Time) (BriefRun,
 	}
 	queueDeals := make([]ids.UUID, 0, len(ranking.Queue))
 	err = database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		ws := storekit.MustWorkspace(ctx)
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO brief_run (id, workspace_id, user_id, generated_at, as_of, candidate_count, revenue_norm_minor)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			run.ID, ws, run.UserID, run.GeneratedAt, run.AsOf, run.CandidateCount, run.RevenueNormMinor); err != nil {
+			INSERT INTO brief_run (id, user_id, generated_at, as_of, candidate_count, revenue_norm_minor)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			run.ID, run.UserID, run.GeneratedAt, run.AsOf, run.CandidateCount, run.RevenueNormMinor); err != nil {
 			return err
 		}
 		for i, item := range ranking.Queue {
@@ -113,9 +112,9 @@ func (e *BriefEngine) SnapshotRun(ctx context.Context, now time.Time) (BriefRun,
 				State:       briefStateNew,
 			}
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO brief_item (id, workspace_id, brief_run_id, deal_id, rank, composite, feature_vector, evidence_ids, state)
-				VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-				persisted.ID, ws, run.ID, persisted.DealID, persisted.Rank,
+				INSERT INTO brief_item (id, brief_run_id, deal_id, rank, composite, feature_vector, evidence_ids, state)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+				persisted.ID, run.ID, persisted.DealID, persisted.Rank,
 				persisted.Composite, features, persisted.EvidenceIDs, briefStateNew); err != nil {
 				return err
 			}
