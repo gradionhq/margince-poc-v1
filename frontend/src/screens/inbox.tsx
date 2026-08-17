@@ -710,10 +710,22 @@ export function ApprovalRow({
               </Field>
             ))}
             <div className="approval-gate">
-              <Button variant="primary" small onClick={approveEdited}>
+              {/* The edited approve is the same write as the plain one and was
+                  the one path with no gate at all, so a second press sent a
+                  second verdict. */}
+              <Button
+                variant="primary"
+                small
+                pending={decide.isPending}
+                onClick={approveEdited}
+              >
                 {t("inbox.approveEdited")}
               </Button>
-              <Button small onClick={() => setEditing(false)}>
+              <Button
+                small
+                disabled={decide.isPending}
+                onClick={() => setEditing(false)}
+              >
                 {t("deals.cancel")}
               </Button>
             </div>

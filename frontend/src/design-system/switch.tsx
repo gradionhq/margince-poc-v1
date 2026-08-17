@@ -94,7 +94,12 @@ export function Switch({
   // back on click, so what a reader hears and what the next write carries can
   // never disagree.
   const on = checked === true;
-  const busy = pending === true && disabled !== true;
+  // Refusal beats busy in both its spellings, exactly as `Button` reads it. A
+  // switch carrying `reason` is one this reader may not change, so drawing the
+  // mark beside a sentence that says "your seat cannot change this" would tell
+  // them their write is going through and that they were never allowed to make
+  // it, in the same row.
+  const busy = pending === true && disabled !== true && reason === undefined;
 
   return (
     <div className="switchrow">

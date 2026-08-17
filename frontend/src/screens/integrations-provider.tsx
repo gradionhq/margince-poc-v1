@@ -410,7 +410,8 @@ function PolicyBlock({
         // one names why the CARD is read-only and would say the same thing twice
         // here, once as prose and once attached to the control.
         reason={canEdit ? undefined : t("captureSettings.adminOnly")}
-        disabled={!canEdit || patch.isPending || disconnected}
+        disabled={!canEdit || disconnected}
+        pending={patch.isPending}
         onChange={(next) => patch.mutate(next)}
         label={t("provider.autoEnrich")}
       />

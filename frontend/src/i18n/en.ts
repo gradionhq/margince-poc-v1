@@ -3617,6 +3617,7 @@ export const en = {
   "auth.legalProtected": "Access to this organization is restricted.",
   "auth.legalTerms": "Terms",
   "auth.legalPrivacy": "Privacy",
+  "auth.signingIn": "Signing in…",
   "auth.signIn": "Sign in",
   "auth.failed": "That didn't work",
   "auth.errCredentials":
@@ -3656,6 +3657,7 @@ export const en = {
   "password.mismatch": "These two don't match.",
   "password.signsYouOut":
     "Changing it signs you out everywhere, including here. Sign in again with the new password.",
+  "password.changing": "Changing your password…",
   "password.submit": "Change password",
   "password.done": "Password changed. Sign in again with the new one.",
   // Deliberately says nothing about WHICH field: this is the fallback for a
@@ -4761,7 +4763,6 @@ export const en = {
   "embedreindex.rebuildTitle": "Rebuild the search index",
   "embedreindex.confirmCta": "Start reindex",
   "embedreindex.rebuildConfirmCta": "Rebuild now",
-  "embedreindex.starting": "Starting…",
   "embedreindex.previewLoading": "Estimating scope…",
   "embedreindex.estimateEntities": "Entities to (re)embed:",
   "embedreindex.estimateTokens": "Estimated AI tokens:",

@@ -196,8 +196,31 @@ export const Buttons: Story = {
           <Button variant="ghost" iconOnly pending aria-label="Reconnect">
             <RefreshCw aria-hidden />
           </Button>
+          <Button
+            variant="primary"
+            pending
+            busyLabel="Signing you in — this can take a moment."
+          >
+            Sign in
+          </Button>
           <Button variant="primary" disabled>
             Save
+          </Button>
+        </div>
+      </div>
+      {/* Refusal outranks busy in both its spellings, and this row is here to
+          prove it visually: neither of these draws a mark. A control nobody
+          may press cannot also be mid-press, and an earlier cut of this
+          feature rendered a natively disabled button — focus already gone —
+          with a spinner turning inside it. */}
+      <div style={stack}>
+        <span className="t-label">Refused wins over busy, both ways round</span>
+        <div style={row}>
+          <Button variant="primary" disabled pending>
+            Save
+          </Button>
+          <Button variant="primary" pending reason="Connect an inbox first.">
+            Send
           </Button>
         </div>
       </div>

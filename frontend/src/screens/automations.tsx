@@ -495,7 +495,7 @@ export function AutomationRow({
             label={t("auto.enabledFor", { name: automation.name })}
             labelHidden
             checked={enabled}
-            disabled={patch.isPending}
+            pending={patch.isPending}
             onChange={(next) =>
               patch.mutate({ status: next ? "enabled" : "paused" })
             }

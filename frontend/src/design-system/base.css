@@ -185,27 +185,53 @@
 .btn[aria-busy="true"] {
   cursor: progress;
 }
-/* The lift belongs to a control inviting a press. This one has already been
-   pressed and is not accepting another, so it stays put under the pointer. */
+/* Every hover response belongs to a control inviting a press. This one has
+   already been pressed and is not accepting another, so nothing about it moves
+   under the pointer — not the lift the filled variants take, and not the
+   ground and ink the ghost variant swaps, which is the DEFAULT and was still
+   lighting up when only transform and filter were reset here. */
 .btn[aria-busy="true"]:hover {
   transform: none;
   filter: none;
 }
+/* The ghost variant is the one whose hover is a colour change rather than a
+   lift, and it is also the default, so it needs saying separately — back to its
+   resting ground and ink. It comes after `[aria-pressed="true"]:hover` at equal
+   specificity on purpose: a busy toggle should look busy, not hovered. */
+.btn-ghost[aria-busy="true"]:hover {
+  background: transparent;
+  color: var(--textMeta);
+}
+/* An icon-only button is one control's width, and two 16px marks do not fit in
+   it. The GLYPH gives way, in CSS rather than by dropping the button's children
+   — a caller may have named this control with visually-hidden text instead of
+   an `aria-label`, and removing the children takes the accessible name with it.
+   `.busy-mark` is spared by name so the turning mark is the one thing left. */
+.btn-icon[aria-busy="true"] > svg:not(.busy-mark) {
+  display: none;
+}
+/* A wrapper that is not a box: `busyLabel` renders a visually-hidden sentence
+   as a SIBLING of the button (anything inside a button joins its accessible
+   name), and this keeps that sibling from changing how the button lays out in
+   the row it sits in. */
+.btn-shell {
+  display: contents;
+}
 .busy-mark {
+  /* `transform: rotate()` rather than the standalone `rotate` property, which
+     would be the only one in this tree — the three screen-local spinners this
+     replaces during the sweep all animate transform. */
   animation: busy-mark-turn 0.8s linear infinite;
 }
 @keyframes busy-mark-turn {
   to {
-    rotate: 1turn;
+    transform: rotate(360deg);
   }
 }
-/* The one place the house rule — reduced motion lands on the END state — has
-   no end to land on: a spinner turns until an answer arrives, and there is no
-   final frame that means "finished". What reduced motion gets instead is the
-   mark itself, standing still. The button still shows that a write is out
-   there; it simply does not turn while it waits. Removing the mark entirely
-   would leave a reader who asked for less motion with no signal at all, which
-   is the failure this rule exists to prevent. */
+/* Reduced motion has no END state to land on here, unlike every other
+   animation in this system: a spinner turns until an answer arrives and there
+   is no final frame meaning "finished". So the mark stops and STAYS — removing
+   it would leave a reader who asked for less motion with no signal at all. */
 @media (prefers-reduced-motion: reduce) {
   .busy-mark {
     animation: none;

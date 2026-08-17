@@ -210,6 +210,7 @@ export function ChangePasswordCard({
               variant="primary"
               disabled={!ready}
               pending={change.isPending}
+              busyLabel={t("password.changing")}
             >
               {t("password.submit")}
             </Button>

@@ -128,7 +128,7 @@ describe("Switch", () => {
       expect(onChange).not.toHaveBeenCalled();
     });
 
-    it("keeps showing which way the setting is currently set", () => {
+    it("draws the mark beside the label, leaving the knob showing the state", () => {
       render(
         <Switch
           label="Auto-enrich"
@@ -137,28 +137,51 @@ describe("Switch", () => {
           onChange={() => undefined}
         />,
       );
+      const control = screen.getByRole("switch");
       // The knob is the only thing carrying the state the reader is changing
-      // FROM, so the busy mark sits beside the label rather than over it.
-      expect(screen.getByRole("switch")).toHaveAttribute(
-        "aria-checked",
-        "true",
-      );
+      // FROM, so covering it during the write would hide what they are moving
+      // away from. The mark goes beside the label instead — and it is inside
+      // the control, so both are on screen at once.
+      expect(control).toHaveAttribute("aria-checked", "true");
+      expect(control.querySelector(".busy-mark")).toBeTruthy();
+      expect(control.querySelector(".switchknob")).toBeTruthy();
     });
 
-    it("lets a denial outrank it — nobody's switch cannot be mid-flip", () => {
+    // Two spellings of refusal, and BOTH outrank a write in flight — tested
+    // apart, because passing them together proves only that one of them works
+    // and hides whichever is broken.
+    it("lets a bare denial outrank it", () => {
       render(
         <Switch
           label="Auto-enrich"
           checked
           pending
           disabled
-          reason="Your seat cannot change this."
           onChange={() => undefined}
         />,
       );
       const control = screen.getByRole("switch", { name: "Auto-enrich" });
       expect(control.hasAttribute("disabled")).toBe(true);
       expect(control.hasAttribute("aria-busy")).toBe(false);
+      expect(control.querySelector(".busy-mark")).toBeNull();
+    });
+
+    it("lets a stated reason outrank it, so no row says both things at once", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          pending
+          reason="Your seat cannot change this."
+          onChange={() => undefined}
+        />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      // "Your seat cannot change this" and a turning mark in one row tells the
+      // reader their write is going through AND that they were never allowed
+      // to make it.
+      expect(control.hasAttribute("aria-busy")).toBe(false);
+      expect(control.querySelector(".busy-mark")).toBeNull();
     });
   });
 

@@ -1538,7 +1538,7 @@ function ResetDataCard() {
         title={t("settings.resetDataConfirmTitle")}
         confirmLabel={t("settings.resetDataButton")}
         confirmVariant="danger"
-        confirmDisabled={typed.trim() === "" || reset.isPending}
+        confirmDisabled={typed.trim() === ""}
         onConfirm={() => reset.mutate()}
         pending={reset.isPending}
         error={reset.error ? problemMessageOf(reset.error, t) : null}

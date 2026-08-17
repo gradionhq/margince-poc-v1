@@ -227,26 +227,99 @@ describe("Button", () => {
       expect(button.hasAttribute("aria-busy")).toBe(false);
     });
 
-    it("replaces an icon-only button's glyph rather than crowding it", () => {
+    // `iconOnly` documents TWO ways to name the control — an `aria-label` or a
+    // visually-hidden child — and an earlier cut of this feature dropped the
+    // children while busy, which took the second one with it and left a
+    // focusable control with no accessible name (WCAG 4.1.2). The glyph gives
+    // way in CSS now; the children stay.
+    it("keeps an icon-only button's name when that name is a hidden child", () => {
+      render(
+        <Button iconOnly pending>
+          <svg aria-hidden />
+          <span className="sr-only">Reconnect</span>
+        </Button>,
+      );
+      expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy();
+    });
+
+    // A control nobody may press cannot also be mid-press. Getting this wrong
+    // produced the exact failure the prop exists to prevent: a natively
+    // disabled button — focus already gone — announcing itself busy.
+    it("lets disabled outrank it, and never sets both", () => {
+      render(
+        <Button disabled pending>
+          Save
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Save" });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("owns the busy attributes, so a caller cannot set them by hand", () => {
+      render(
+        <Button aria-busy="true" aria-disabled="true">
+          Save
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Save" });
+      // Nothing is in flight, so nothing may claim it is. A caller's own
+      // spelling of this state can only disagree with the component's.
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+    });
+  });
+
+  // `aria-busy` is a legal global state on a button, but ARIA defines it as
+  // permission for assistive tech to DEFER exposing a change — not as an
+  // instruction to announce one. So a screen with something worth saying says
+  // it through a description, which a reader focused on this control does hear,
+  // rather than through a renamed button, which makes them re-hear the control.
+  describe("busyLabel", () => {
+    it("describes the wait without touching the accessible name", () => {
+      render(
+        <Button pending busyLabel="Signing in…">
+          Sign in
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Sign in" });
+      const describedBy = button.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+        "Signing in…",
+      );
+    });
+
+    it("keeps the sentence OUTSIDE the button, or it would rename it", () => {
+      render(
+        <Button pending busyLabel="Signing in…">
+          Sign in
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Sign in" });
+      // Anything rendered inside a button joins its accessible name, which is
+      // the one thing holding the label steady was for.
+      expect(button.textContent).toBe("Sign in");
+    });
+
+    it("holds the description element from the first render, and empties it", () => {
       const { rerender } = render(
-        <Button iconOnly aria-label="Reconnect">
-          <svg data-testid="verb-glyph" aria-hidden />
-        </Button>,
+        <Button busyLabel="Signing in…">Sign in</Button>,
       );
-      expect(screen.getByTestId("verb-glyph")).toBeTruthy();
+      const idle = screen.getByRole("button", { name: "Sign in" });
+      // Present before the write, so the sentence is a CHANGE a screen reader
+      // reads rather than a node arriving with its text already in it — which
+      // is frequently missed.
+      expect(idle.hasAttribute("aria-describedby")).toBe(false);
+      const holder = document.querySelector(".btn-shell .sr-only");
+      expect(holder?.textContent).toBe("");
       rerender(
-        <Button iconOnly pending aria-label="Reconnect">
-          <svg data-testid="verb-glyph" aria-hidden />
+        <Button pending busyLabel="Signing in…">
+          Sign in
         </Button>,
       );
-      // One 16px mark in a square control, not two. The name still comes from
-      // `aria-label`, so nothing the reader relies on went with the glyph.
-      expect(screen.queryByTestId("verb-glyph")).toBeNull();
-      expect(
-        screen
-          .getByRole("button", { name: "Reconnect" })
-          .querySelectorAll("svg"),
-      ).toHaveLength(1);
+      expect(holder?.textContent).toBe("Signing in…");
     });
   });
 

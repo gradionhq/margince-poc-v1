@@ -3610,6 +3610,7 @@ export const de = {
   "auth.legalProtected": "Der Zugang zu dieser Organisation ist beschränkt.",
   "auth.legalTerms": "Nutzungsbedingungen",
   "auth.legalPrivacy": "Datenschutz",
+  "auth.signingIn": "Anmeldung läuft…",
   "auth.signIn": "Anmelden",
   "auth.failed": "Das hat nicht geklappt",
   "auth.errCredentials":
@@ -3645,6 +3646,7 @@ export const de = {
   "password.mismatch": "Die beiden stimmen nicht überein.",
   "password.signsYouOut":
     "Die Änderung meldet dich überall ab, auch hier. Melde dich mit dem neuen Passwort erneut an.",
+  "password.changing": "Passwort wird geändert…",
   "password.submit": "Passwort ändern",
   "password.done": "Passwort geändert. Melde dich mit dem neuen an.",
   "password.errorGeneric":
@@ -4780,7 +4782,6 @@ export const de = {
   "embedreindex.rebuildTitle": "Suchindex neu aufbauen",
   "embedreindex.confirmCta": "Neuindizierung starten",
   "embedreindex.rebuildConfirmCta": "Jetzt neu aufbauen",
-  "embedreindex.starting": "Wird gestartet…",
   "embedreindex.previewLoading": "Umfang wird geschätzt…",
   "embedreindex.estimateEntities": "Neu einzubettende Einträge:",
   "embedreindex.estimateTokens": "Geschätzte KI-Tokens:",

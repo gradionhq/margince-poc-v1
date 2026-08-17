@@ -592,7 +592,8 @@ function ObjectMatrix({
                           object,
                         })}
                         checked={grant[action]}
-                        disabled={!canManage || setGrant.isPending}
+                        disabled={!canManage}
+                        pending={setGrant.isPending}
                         // Only the PERMISSION denial gets a reason. A write in
                         // flight is the other way this is disabled, and it
                         // wants no words at all — a sentence that appeared for
