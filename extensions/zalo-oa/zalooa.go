@@ -72,7 +72,13 @@ var migrations embed.FS
 // this function's AST without compiling it.
 func New() extension.Extension {
 	return extension.Extension{
-		Name:    "zalo-oa",
+		// NOSONAR: this literal, the ingress System below and the ingressSystem
+		// constant are the same word three times and cannot be one — the manifest
+		// generator reads this function's AST WITHOUT COMPILING IT, so a constant
+		// here is a name it cannot resolve, while the Go needs a constant it can.
+		// A test holds the three equal, which is the guarantee extracting one
+		// would have bought.
+		Name:    "zalo-oa", //NOSONAR
 		Version: "1.0.0",
 		// The declaration that lets this unit reach core capture, and the source
 		// every record it lands is attributed to.
@@ -84,7 +90,7 @@ func New() extension.Extension {
 		// not exist.
 		Ingress: []extension.IngressSource{
 			{
-				System: "zalo-oa",
+				System: "zalo-oa", //NOSONAR — a literal for the reason Name is
 				Lands:  []extension.RecordKind{extension.KindActivity},
 			},
 		},
