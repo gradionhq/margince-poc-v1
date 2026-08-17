@@ -377,3 +377,102 @@ func TestACursorFromAnotherGeneratorIsDiscarded(t *testing.T) {
 		t.Errorf("the fresh cursor claims generator %d, want %d", state.Gen, generatorVersion)
 	}
 }
+
+// TestEveryLifecycleWritesTheRightConversation — the inbox has to AGREE with
+// the pipeline. A customer whose only thread is a cold intro, or a target
+// holding a kickoff, reads as decoration beside the records rather than as the
+// account's own history.
+func TestEveryLifecycleWritesTheRightConversation(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		lifecycle string
+		stage     string
+		wantSubj  string
+		wantAny   bool
+	}{
+		{"customer gets a kickoff", "customer", "Won", "Kickoff", true},
+		{"a lost customer gets an offboarding", "former_customer", "Won", "Kündigung", true},
+		{"a proposal gets an offer thread", "opportunity", "Proposal", "Angebot", true},
+		{"a negotiation gets one too", "opportunity", "Negotiation", "Angebot", true},
+		{"an early deal gets an intro", "opportunity", "Qualified", "Austausch", true},
+		{"a prospect gets an inbound enquiry", "prospect", "", "Anfrage", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			box := demoMailbox()
+			a := box.Accounts[0]
+			a.Lifecycle = tc.lifecycle
+			a.Deals = nil
+			if tc.stage != "" {
+				a.Deals = []Deal{{ID: "01a00000-0000-7000-8000-0000000000bb", Name: "d", Stage: tc.stage}}
+			}
+			specs := threadsFor(a)
+			if tc.wantAny && len(specs) == 0 {
+				t.Fatalf("a %s account with a %q deal writes no correspondence at all", tc.lifecycle, tc.stage)
+			}
+			var found bool
+			for _, s := range specs {
+				if strings.Contains(s.Subject, tc.wantSubj) {
+					found = true
+				}
+			}
+			if !found {
+				var got []string
+				for _, s := range specs {
+					got = append(got, s.Subject)
+				}
+				t.Errorf("a %s account wrote %v, want a thread mentioning %q", tc.lifecycle, got, tc.wantSubj)
+			}
+			// Whatever it writes must survive the trip to a record.
+			for _, m := range generate(box, a) {
+				if m.record().NaturalKey.SourceID == "" {
+					t.Error("a generated message carries no natural key, so it cannot be deduplicated")
+				}
+			}
+		})
+	}
+}
+
+// TestAnUntouchedTargetIsMostlySilent — the honest majority of a prospect list
+// has never been written to, and a demo where every account has a thread looks
+// invented.
+func TestAnUntouchedTargetIsMostlySilent(t *testing.T) {
+	box := demoMailbox()
+	silent, total := 0, 0
+	for _, domain := range []string{"a.de", "b.de", "c.de", "d.de", "e.de", "f.de", "g.de", "h.de"} {
+		a := box.Accounts[0]
+		a.Lifecycle, a.Deals, a.Domain = "target", nil, domain
+		total++
+		if len(threadsFor(a)) == 0 {
+			silent++
+		}
+	}
+	if silent == 0 {
+		t.Error("every untouched target carries correspondence — nobody has an inbox that tidy")
+	}
+	if silent == total {
+		t.Error("no untouched target was ever written to, so the cold-outreach thread is unreachable")
+	}
+}
+
+// TestTheSmallHelpersHoldTheirEdges — each is one line and each has a branch
+// that only fires on input the generator will eventually see.
+func TestTheSmallHelpersHoldTheirEdges(t *testing.T) {
+	if got := domainOf("nobody"); got != "" {
+		t.Errorf("domainOf on an address with no @ = %q, want empty", got)
+	}
+	if got := firstWord("Petra"); got != "Petra" {
+		t.Errorf("firstWord on a single name = %q", got)
+	}
+	if got := orDash(""); got != "—" {
+		t.Errorf("orDash on empty = %q, want a dash so the line is not blank", got)
+	}
+	if got := shortKey("!!!"); got != "unknown" {
+		t.Errorf("shortKey on a domain with no usable characters = %q, want a safe fallback", got)
+	}
+	if got := hashIndex("anything", 0); got != 0 {
+		t.Errorf("hashIndex with no buckets = %d, want 0 rather than a division by zero", got)
+	}
+	if got := dealStage(Account{}); got != "" {
+		t.Errorf("dealStage with no deals = %q", got)
+	}
+}
