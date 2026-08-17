@@ -134,3 +134,59 @@ func TestEveryViewResourceIsFilterableOrDeclaredOtherwise(t *testing.T) {
 		}
 	}
 }
+
+// A tree that marshals but does not decode into a predicate — `field` is a
+// string in the canonical shape, so a number there is well-formed JSON and an
+// invalid filter. The decode answers a sentinel carrying NO wire field, which
+// is what lets each surface name its own.
+func TestAnUndecodableTreeAnswersASentinelWithNoWireField(t *testing.T) {
+	_, err := predicateFromDefinition(map[string]any{"field": 5, "op": "eq", "value": "x"})
+
+	if !errors.Is(err, errNotAFilterTree) {
+		t.Fatalf("err = %v, want errNotAFilterTree", err)
+	}
+	var bad *BadInputError
+	if errors.As(err, &bad) {
+		t.Errorf("the decoder named a wire field (%q) it cannot know", bad.Field)
+	}
+}
+
+// The same undecodable tree names a DIFFERENT field depending on which surface
+// carried it. Naming `definition` on a saved view — which is what every caller
+// used to get — tells the author to fix a key their payload does not contain.
+func TestAnUndecodableTreeIsNamedForTheSurfaceThatCarriedIt(t *testing.T) {
+	for _, c := range []struct{ surface, field string }{
+		{"a dynamic list", definitionField},
+		{"a saved view", viewQueryField},
+		{"an export by view id", "view_id"},
+	} {
+		t.Run(c.surface, func(t *testing.T) {
+			err := asFieldFault(errNotAFilterTree, c.field)
+
+			var bad *BadInputError
+			if !errors.As(err, &bad) {
+				t.Fatalf("err = %v, want a BadInputError", err)
+			}
+			if bad.Field != c.field {
+				t.Errorf("field = %q, want %q", bad.Field, c.field)
+			}
+		})
+	}
+}
+
+// Anything that is not an undecodable tree passes through untouched: the shape
+// of a filter is the only part of this a caller can fix, so a catalogue failure
+// or a compile refusal must not be dressed up as their field error.
+func TestAsFieldFaultLeavesOtherErrorsAlone(t *testing.T) {
+	boom := errors.New("catalog unreachable")
+
+	got := asFieldFault(boom, definitionField)
+
+	if !errors.Is(got, boom) {
+		t.Fatalf("got %v, want the original error", got)
+	}
+	var bad *BadInputError
+	if errors.As(got, &bad) {
+		t.Error("an unrelated failure was dressed up as a field fault")
+	}
+}
