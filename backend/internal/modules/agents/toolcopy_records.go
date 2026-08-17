@@ -76,7 +76,8 @@ var updateRecordCopy = toolCopy{
 
 var logActivityCopy = toolCopy{
 	Purpose: "Record something that happened — a call, a meeting, a note, a message — on the " +
-		"timeline of the people, accounts and deals it was about.",
+		"timeline of the records it was about — a person, an account, a deal, a lead or a " +
+		"project.",
 	Limits: "It writes history, and changes nothing else: logging a call does not move a deal, " +
 		"update a field or notify anyone. An activity logged without links is stored attached to " +
 		"nothing and appears on no timeline.",
