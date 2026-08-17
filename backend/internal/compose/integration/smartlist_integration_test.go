@@ -369,6 +369,59 @@ func TestSavedView_anArchivedViewIsNotFoundBeforeItsFilterIsJudged(t *testing.T)
 	}
 }
 
+// The shape refusals on both write surfaces, each naming its own wire field.
+//
+// They are one line of validation apiece and were unexercised, which is how the
+// wrong field name survived in them for as long as it did: a refusal nobody
+// reads is a refusal nobody notices is wrong.
+func TestListAndSavedViewShapeRefusalsNameTheirOwnField(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	filter := map[string]any{"field": "owner_id", "op": "eq", "value": e.Rep1.String()}
+
+	assertField := func(what string, err error, want string) {
+		t.Helper()
+		var bad *collections.BadInputError
+		if !errors.As(err, &bad) {
+			t.Fatalf("%s: err = %v, want a BadInputError", what, err)
+		}
+		if bad.Field != want {
+			t.Errorf("%s: field = %q, want %q", what, bad.Field, want)
+		}
+	}
+
+	// A dynamic list IS its definition, and a static one must not carry one —
+	// the pair is what rules out a half-and-half list.
+	_, err := store.CreateList(rep, collections.CreateListInput{
+		Name: "Dynamic with nothing to evaluate", EntityType: "person", ListType: "dynamic",
+	})
+	assertField("a dynamic list with no definition", err, "definition")
+
+	_, err = store.CreateList(rep, collections.CreateListInput{
+		Name: "Static carrying a filter", EntityType: "person", ListType: "static",
+		Definition: filter,
+	})
+	assertField("a static list carrying a definition", err, "definition")
+
+	// A view's query is the whole view; null is not the same as an empty object,
+	// which is a legitimate view with no state yet.
+	_, err = store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "No query at all",
+	})
+	assertField("a view with a null query", err, "query")
+
+	// And a query replacement on a view the caller cannot see is not-found
+	// rather than a validation error — existence-hiding survives the new
+	// pre-read that the update path does to learn the resource.
+	replacement := map[string]any{"filter": filter}
+	_, err = store.UpdateSavedView(rep, ids.From[ids.SavedViewKind](ids.NewV7()),
+		collections.UpdateSavedViewInput{Query: &replacement})
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("updating an unknown view = %v, want ErrNotFound", err)
+	}
+}
+
 // jsonEqual compares two values by their canonical JSON encoding, so a
 // jsonb round-trip (which re-types numbers/arrays) does not defeat the
 // exact-restore assertion.
