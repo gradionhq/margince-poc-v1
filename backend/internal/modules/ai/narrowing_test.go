@@ -35,6 +35,17 @@ func TestADeclarationNarrowsANativeProvidersCarriage(t *testing.T) {
 			cfg:  ProviderConfig{Provider: providerGemini, Model: "m", Input: []string{"text"}},
 			want: []string{},
 		},
+		"undeclared anthropic keeps its whole wire": {
+			cfg:  ProviderConfig{Provider: providerAnthropic, Model: "m"},
+			want: carriesImagesAndPDF,
+		},
+		// The privacy narrowing this field exists for, on the tier most
+		// deployments bind: keep the model for text and images, keep scanned
+		// documents off it.
+		"anthropic narrowed to images loses the document lane": {
+			cfg:  ProviderConfig{Provider: providerAnthropic, Model: "m", Input: []string{"text", "image"}},
+			want: []string{"image/*"},
+		},
 		"anthropic narrowed to text carries nothing": {
 			cfg:  ProviderConfig{Provider: providerAnthropic, Model: "m", Input: []string{"text"}},
 			want: []string{},
