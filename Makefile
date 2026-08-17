@@ -331,10 +331,22 @@ fe-drift:
 ## time to collect coverage doubles the lane for a file the first run could have
 ## written. Off by default: nobody reads an lcov file locally and instrumenting
 ## for one costs about a third of the run, so a developer does not pay it.
+##
+## The provider and the reporter live in frontend/vite.config.ts rather than on
+## this command line, because the reporter carries an option (`projectRoot`) and
+## a CLI `--coverage.reporter` REPLACES the configured entry, option and all.
+## check-lcov-paths.sh is the report's acceptance test: an lcov naming files the
+## scanner cannot resolve is indistinguishable, everywhere downstream, from a
+## suite that covers nothing. Its own test runs on EVERY invocation of this
+## target rather than beside it, because the gate itself only runs on the
+## FE_COVERAGE runs — which are CI's — while an edit to it lands on a bare
+## `make fe-unit`.
 FE_COVERAGE ?=
 fe-unit:
+	bash frontend/scripts/check-lcov-paths.test.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm exec vitest run \
-		$(if $(FE_COVERAGE),--coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov)
+		$(if $(FE_COVERAGE),--coverage.enabled)
+	$(if $(FE_COVERAGE),frontend/scripts/check-lcov-paths.sh frontend/coverage/lcov.info)
 
 ## fe-quality — every leg of the frontend gate EXCEPT the unit suite and the
 ## bundle, which CI runs beside this one. Needs Go: the composed lane composes.
