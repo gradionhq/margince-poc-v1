@@ -1005,6 +1005,15 @@ function PassportCard() {
   // back with it — the drawer is not a form somebody left half-filled, it is a
   // new passport each time.
   const closeMint = useCallback(() => {
+    // Refused while the request is outstanding, and this is about losing a
+    // credential rather than about tidiness. `mint.reset()` detaches the
+    // observer; it does not cancel the POST. A drawer closed mid-flight
+    // therefore still creates a passport on the server, and its token — shown
+    // exactly once, never re-served — goes with the drawer. There is no way
+    // back: the list carries metadata only.
+    if (mint.isPending) {
+      return;
+    }
     setMinting(false);
     setLabel("");
     setScopes(new Set(["read", "draft"]));
@@ -1156,7 +1165,9 @@ function PassportCard() {
               </Callout>
             )}
             <div className="form-actions">
-              <Button onClick={closeMint}>{t("settings.mintCancel")}</Button>
+              <Button disabled={mint.isPending} onClick={closeMint}>
+                {t("settings.mintCancel")}
+              </Button>
               <Button
                 type="submit"
                 variant="primary"
