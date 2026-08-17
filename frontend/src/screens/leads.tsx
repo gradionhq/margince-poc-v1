@@ -263,12 +263,21 @@ function useLeadOwnerChips(): readonly ListChip[] {
  * print the chip "In Bearbeitung" beside a cell reading the raw enum
  * "working".
  */
-function statusLabel(status: Lead["status"]): MessageKey {
+function statusLabel(status: Lead["status"]): MessageKey | null {
   const option = leadStatusFilterOptions.find((o) => o.value === status);
-  // A status the contract adds and this list has not learned yet renders as
-  // itself rather than blank — wrong-looking, which is the point, instead of
-  // an empty badge nobody can diagnose.
-  return option?.label ?? ("lead.status" as MessageKey);
+  // Null, not a stand-in key: a status the contract adds and this list has not
+  // learned yet has no honest translation, and every candidate for one lies.
+  // The callers render the raw value instead, which is wrong-LOOKING rather
+  // than wrong — a reader seeing an untranslated word can report it, where a
+  // badge reading "Status" looks deliberate and hides the gap.
+  return option?.label ?? null;
+}
+
+/** The status as a reader should see it: translated, or the raw value. */
+function StatusBadge({ status }: Readonly<{ status: Lead["status"] }>) {
+  const t = useT();
+  const label = statusLabel(status);
+  return <Badge>{label ? t(label) : status}</Badge>;
 }
 
 async function createLead(
@@ -344,7 +353,7 @@ export function LeadsScreen() {
           {
             key: "status",
             header: t("lead.status"),
-            cell: (lead: Lead) => <Badge>{t(statusLabel(lead.status))}</Badge>,
+            cell: (lead: Lead) => <StatusBadge status={lead.status} />,
           },
           {
             key: "provenance",
@@ -1001,7 +1010,7 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
         {t("lead.score")}: {lead.score}
       </Badge>
       {lead.score_override_reason && <Badge>{t("lead.overriddenBadge")}</Badge>}
-      <Badge>{t(statusLabel(lead.status))}</Badge>
+      <StatusBadge status={lead.status} />
       {lead.company_name && <Badge>{lead.company_name}</Badge>}
       {terminal && <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>}
       <ProvenanceTag provenance={provenanceOf(lead.captured_by, viewerId)} />

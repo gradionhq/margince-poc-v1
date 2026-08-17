@@ -623,7 +623,11 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
             timeline={
               timelineQuery.isSuccess
                 ? activityTimeline(
-                    timelineQuery.data.data.filter((a) =>
+                    // Filtered through the same absent-body guard the adapter
+                    // holds: `isSuccess` says nothing about whether the body
+                    // arrived, and .filter on an undefined list crashes the
+                    // page before the adapter ever sees it.
+                    (timelineQuery.data.data ?? []).filter((a) =>
                       matchesFilter(a, timelineFilter),
                     ),
                     viewerId,
