@@ -50,6 +50,7 @@ func checkCoverage(c *client, _ demoConfig) ([]verifyFinding, error) {
 		tallyLifecycles,
 		tallyDeals,
 		tallyLeads,
+		tallyProjects,
 		tallyContractsAndPaper,
 	} {
 		if err := count(c, tally); err != nil {
@@ -158,6 +159,22 @@ func tallyLeads(c *client, tally tallyFunc) error {
 		}
 		for _, row := range rows {
 			tally(axisLead, row.Status)
+		}
+		return nil
+	})
+}
+
+// tallyProjects counts the delivery work by the phase it has reached.
+func tallyProjects(c *client, tally tallyFunc) error {
+	return c.getAll("/v1/projects", nil, func(raw json.RawMessage) error {
+		var rows []struct {
+			Phase string `json:"phase"`
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			tally(axisProject, strings.ToLower(row.Phase))
 		}
 		return nil
 	})
