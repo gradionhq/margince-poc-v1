@@ -394,8 +394,8 @@ func TestIngestClearsAReprojectionFailureRecord(t *testing.T) {
 func seedTombstone(ctx context.Context, pool *pgxpool.Pool, objectClass, externalID string) error {
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO overlay_tombstone (workspace_id, object_class, external_id)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2)`,
+			INSERT INTO overlay_tombstone (object_class, external_id)
+			VALUES ($1, $2)`,
 			objectClass, externalID)
 		return err
 	})

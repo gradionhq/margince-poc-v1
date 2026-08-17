@@ -78,8 +78,7 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 	// fenced write, exactly the mid-sweep race the fence exists for).
 	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(adminCtx,
-			`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()
-			 WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+			`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()`)
 		return execErr
 	}); err != nil {
 		t.Fatalf("revoking the connection mid-sweep: %v", err)
@@ -162,8 +161,7 @@ func TestReconcileConnectionStopsCleanlyWhenReconnectedMidSweep(t *testing.T) {
 	// disconnect test above revokes via raw SQL instead of svc.Disconnect).
 	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
 		_, execErr := tx.Exec(adminCtx, `
-			UPDATE incumbent_connection SET connected_at = now()
-			WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+			UPDATE incumbent_connection SET connected_at = now()`)
 		return execErr
 	}); err != nil {
 		t.Fatalf("reconnecting mid-sweep: %v", err)
@@ -221,8 +219,7 @@ func (r *revokeOnOwnersIncumbent) Owners(ctx context.Context) ([]overlay.OwnerRe
 		r.done = true
 		if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 			_, execErr := tx.Exec(ctx,
-				`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()
-				 WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+				`UPDATE incumbent_connection SET status = 'revoked', revoked_at = now()`)
 			return execErr
 		}); err != nil {
 			return nil, err

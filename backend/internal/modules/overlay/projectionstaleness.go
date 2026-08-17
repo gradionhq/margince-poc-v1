@@ -198,14 +198,14 @@ func (s *MirrorStore) StaleProjections(ctx context.Context, m ObjectMapping, lim
 // current fingerprint: the caller has just failed to reach `fingerprint`, and
 // whether the row moved underneath it in the meantime does not change that.
 //
-// It is NOT unconditional on the workspace. One of the two lanes reaching here
-// carries an external_id off the wire from the incumbent, and since core 0217
-// (ADR-0091) nothing behind this statement bounds which mirror row that id
-// selects — so the bound is stated here, where the id is untrusted.
+// One of the two lanes reaching here carries an external_id off the wire from
+// the incumbent, so the predicate is the whole bound on an untrusted id — and
+// (object_class, external_id) is overlay_mirror's primary key, which is what
+// makes it a bound rather than a filter: it selects at most one row, and a row
+// the incumbent never mirrored selects none.
 const recordReprojectionFailureSQL = `
 UPDATE overlay_mirror SET reprojection_failed_for = $3
-WHERE object_class = $1 AND external_id = $2
-  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+WHERE object_class = $1 AND external_id = $2`
 
 // RecordReprojectionFailure marks that this row could not be brought to
 // fingerprint: the incumbent handed the record back whole and the declaration

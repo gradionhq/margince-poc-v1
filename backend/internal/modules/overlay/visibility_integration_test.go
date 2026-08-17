@@ -466,8 +466,8 @@ func TestRevalidateEmailMappingsPeriodicSweepCatchesEmailChangeAlone(t *testing.
 func seedStaleEmailMap(ctx context.Context, pool *pgxpool.Pool, appUser ids.UserID, incumbentUserID string) error {
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO mirror_user_map (workspace_id, app_user_id, incumbent, incumbent_user_id, match_source)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, 'hubspot', $2, 'email')`,
+			INSERT INTO mirror_user_map (app_user_id, incumbent, incumbent_user_id, match_source)
+			VALUES ($1, 'hubspot', $2, 'email')`,
 			appUser, incumbentUserID)
 		return err
 	})

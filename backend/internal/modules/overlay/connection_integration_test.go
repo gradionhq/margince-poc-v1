@@ -25,12 +25,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// queryRowWS runs a single-row read inside database.WithWorkspaceTx —
-// every overlay table carries FORCE RLS keyed off the app.workspace_id
-// GUC, so a bare pool.QueryRow (no GUC bound) would see zero rows rather
-// than the fixture the test just wrote. This is the assertion-side
-// mirror of seedTombstone (mirrorstore_integration_test.go): the same
-// tenant-scoped transaction helper the store itself uses.
+// queryRowWS runs a single-row read inside database.WithWorkspaceTx — the same
+// transaction helper the store itself uses, so an assertion reads through the
+// wiring production reads through rather than around it.
 func queryRowWS(ctx context.Context, t *testing.T, pool *pgxpool.Pool, sql string, args []any, dest ...any) {
 	t.Helper()
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
@@ -106,8 +103,7 @@ func TestConnectSealsTheTokenAndFlipsTheWorkspaceToOverlay(t *testing.T) {
 	// token substring is absent is the load-bearing security proof here.
 	var incumbent, region, status, credentialRef string
 	queryRowWS(ctx, t, pool,
-		`SELECT incumbent, region, status, credential_ref FROM incumbent_connection WHERE workspace_id = $1`,
-		[]any{ws}, &incumbent, &region, &status, &credentialRef)
+		`SELECT incumbent, region, status, credential_ref FROM incumbent_connection`, nil, &incumbent, &region, &status, &credentialRef)
 	if strings.Contains(credentialRef, token) {
 		t.Fatalf("credential_ref %q embeds the plaintext token — it must carry only the opaque vault ref", credentialRef)
 	}
@@ -219,7 +215,7 @@ func TestConnectionLifecycleObjectRBACDeniesMemberAllowsAdmin(t *testing.T) {
 	// The connection must still be untouched: the denial happened before
 	// any row was ever read or purged.
 	var status string
-	queryRowWS(adminCtx, t, pool, `SELECT status FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &status)
+	queryRowWS(adminCtx, t, pool, `SELECT status FROM incumbent_connection`, nil, &status)
 	if status != statusActive {
 		t.Errorf("connection status = %q after a denied member Disconnect, want %q (untouched)", status, statusActive)
 	}

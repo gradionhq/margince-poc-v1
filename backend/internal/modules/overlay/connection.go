@@ -233,7 +233,7 @@ func (s *Service) WithLogger(log *slog.Logger) *Service {
 // the mirror on Disconnect and flips sor_mode for every seat), so it is
 // admin/ops-only (identity/internal/policy), the same posture as quota.
 //
-// UNIQUE(workspace_id) means a second Connect on an already-active
+// The singleton index means a second Connect on an already-active
 // connection answers apperrors.ErrIncumbentAlreadyConnected; a revoked one
 // reconnects instead (reconnectConnection). existingConnectionStatus checks
 // for that BEFORE sealing anything, so the common duplicate-connect case
@@ -405,8 +405,8 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 		// nullable binding needs no `any` at the call site.
 		if scanErr := tx.QueryRow(
 			ctx, `
-			INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, scopes, incumbent_account_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, NULLIF($5, ''))
+			INSERT INTO incumbent_connection (incumbent, region, credential_ref, scopes, incumbent_account_id)
+			VALUES ($1, $2, $3, $4, NULLIF($5, ''))
 			RETURNING id, connected_at`,
 			in.Incumbent, in.Region, string(ref), leastPrivilegeHubSpotScopes, accountID,
 		).Scan(&id, &connectedAt); scanErr != nil {
@@ -427,7 +427,7 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 }
 
 // cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but lost
-// the UNIQUE(workspace_id) race to persist (the INSERT hit the unique
+// the singleton race to persist (the INSERT hit the unique
 // constraint after vault.Put already ran) — the row definitively did not
 // persist, so nothing references the ref. Delete is idempotent. It runs on a
 // context DETACHED from ctx's cancellation (context.WithoutCancel) so a
@@ -474,8 +474,7 @@ func (s *Service) Get(ctx context.Context) (Connection, error) {
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			SELECT incumbent, region, status, connected_at, scopes
-			FROM incumbent_connection
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`).
+			FROM incumbent_connection`).
 			Scan(&out.Incumbent, &out.Region, &out.Status, &connectedAt, &out.Scopes)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

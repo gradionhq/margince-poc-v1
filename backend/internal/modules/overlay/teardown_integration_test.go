@@ -116,10 +116,10 @@ func seedConnectedWorkspaceMirrorState(ctx context.Context, t *testing.T, store 
 func assertMirrorFixtureLanded(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ws ids.UUID) {
 	t.Helper()
 	var seededVisibility, seededUserMap, seededCursor, seededWatermark int
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_visibility WHERE workspace_id = $1`, []any{ws}, &seededVisibility)
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_map WHERE workspace_id = $1`, []any{ws}, &seededUserMap)
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM overlay_backfill_cursor WHERE workspace_id = $1`, []any{ws}, &seededCursor)
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM overlay_reconcile_watermark WHERE workspace_id = $1`, []any{ws}, &seededWatermark)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_visibility`, nil, &seededVisibility)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_map`, nil, &seededUserMap)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM overlay_backfill_cursor`, nil, &seededCursor)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM overlay_reconcile_watermark`, nil, &seededWatermark)
 	if seededVisibility == 0 || seededUserMap == 0 || seededCursor == 0 || seededWatermark == 0 {
 		t.Fatalf("fixture is broken: seeded mirror_visibility=%d mirror_user_map=%d overlay_backfill_cursor=%d overlay_reconcile_watermark=%d, want all > 0",
 			seededVisibility, seededUserMap, seededCursor, seededWatermark)
@@ -174,7 +174,7 @@ func assertConnectionRowRevokedNotDeleted(ctx context.Context, t *testing.T, poo
 	var status string
 	var revokedAt *time.Time
 	queryRowWS(ctx, t, pool,
-		`SELECT status, revoked_at FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &status, &revokedAt)
+		`SELECT status, revoked_at FROM incumbent_connection`, nil, &status, &revokedAt)
 	if status != "revoked" || revokedAt == nil {
 		t.Errorf("connection = (status=%s, revoked_at=%v), want (revoked, non-nil)", status, revokedAt)
 	}
@@ -199,7 +199,7 @@ func assertCredentialSecretDeleted(ctx context.Context, t *testing.T, pool *pgxp
 	t.Helper()
 	var credentialRef string
 	queryRowWS(ctx, t, pool,
-		`SELECT credential_ref FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &credentialRef)
+		`SELECT credential_ref FROM incumbent_connection`, nil, &credentialRef)
 	if _, err := vault.Get(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(credentialRef)); !errors.Is(err, keyvault.ErrNotFound) {
 		t.Errorf("vault.Get after Disconnect = %v, want keyvault.ErrNotFound (the secret must be deleted)", err)
 	}
@@ -235,10 +235,10 @@ func assertEveryIncumbentDerivedTablePurged(ctx context.Context, t *testing.T, p
 		}
 		var count int
 		queryRowWS(ctx, t, pool,
-			fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, pgx.Identifier{table}.Sanitize()),
-			[]any{ws}, &count)
+			fmt.Sprintf(`SELECT count(*) FROM %s`, pgx.Identifier{table}.Sanitize()),
+			nil, &count)
 		if count != 0 {
-			t.Errorf("%s holds %d row(s) for the workspace after teardown, want 0 — every incumbent-derived table purges on disconnect", table, count)
+			t.Errorf("%s holds %d row(s) after teardown, want 0 — every incumbent-derived table purges on disconnect", table, count)
 		}
 	}
 }
@@ -249,8 +249,8 @@ func assertTombstoneWrittenForThePurgedRow(ctx context.Context, t *testing.T, po
 	t.Helper()
 	var tombstoneCount int
 	queryRowWS(ctx, t, pool,
-		`SELECT count(*) FROM overlay_tombstone WHERE workspace_id = $1 AND object_class = $2 AND external_id = $3`,
-		[]any{ws, objectClass, externalID}, &tombstoneCount)
+		`SELECT count(*) FROM overlay_tombstone WHERE object_class = $1 AND external_id = $2`,
+		[]any{objectClass, externalID}, &tombstoneCount)
 	if tombstoneCount != 1 {
 		t.Errorf("tombstone count = %d, want exactly 1 for the purged mirror row", tombstoneCount)
 	}
@@ -356,8 +356,8 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 			return err
 		}
 		_, execErr := tx.Exec(ctx, `
-			INSERT INTO mirror_user_map (workspace_id, app_user_id, incumbent, incumbent_user_id, match_source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'email')`,
+			INSERT INTO mirror_user_map (app_user_id, incumbent, incumbent_user_id, match_source)
+			VALUES ($1, $2, $3, 'email')`,
 			fixtureUser, "hubspot", "owner-revalidate")
 		return execErr
 	}); err != nil {
@@ -431,8 +431,8 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	} {
 		var n int
 		queryRowWS(ctx, t, pool,
-			fmt.Sprintf(`SELECT count(*) FROM %s WHERE workspace_id = $1`, pgx.Identifier{tbl}.Sanitize()),
-			[]any{ws}, &n)
+			fmt.Sprintf(`SELECT count(*) FROM %s`, pgx.Identifier{tbl}.Sanitize()),
+			nil, &n)
 		if n != 0 {
 			t.Errorf("%s holds %d row(s) after fenced writes on a disconnected workspace, want 0 — the fence must resurrect nothing", tbl, n)
 		}
@@ -443,7 +443,7 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// RevalidateEmailMappings writes above must add NOTHING to it and must
 	// not delete it either, so the count stays exactly 1.
 	var userMapRows int
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_map WHERE workspace_id = $1`, []any{ws}, &userMapRows)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_map`, nil, &userMapRows)
 	if userMapRows != 1 {
 		t.Errorf("mirror_user_map holds %d row(s) after fenced writes on a disconnected workspace, want exactly 1 (the untouched post-teardown fixture) — the fence must neither add nor remove rows", userMapRows)
 	}
@@ -517,7 +517,7 @@ func TestDisconnectCommitsEvenWhenVaultDeleteFails(t *testing.T) {
 	}
 	var credentialRef string
 	queryRowWS(ctx, t, pool,
-		`SELECT credential_ref FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &credentialRef)
+		`SELECT credential_ref FROM incumbent_connection`, nil, &credentialRef)
 
 	// Disconnect must SUCCEED despite the vault delete failing.
 	if err := svc.Disconnect(ctx); err != nil {
@@ -537,7 +537,7 @@ func TestDisconnectCommitsEvenWhenVaultDeleteFails(t *testing.T) {
 	// The authoritative teardown committed: connection revoked, mode native.
 	var status, sorMode string
 	queryRowWS(ctx, t, pool,
-		`SELECT status FROM incumbent_connection WHERE workspace_id = $1`, []any{ws}, &status)
+		`SELECT status FROM incumbent_connection`, nil, &status)
 	queryRowWS(ctx, t, pool,
 		`SELECT x_sor_mode FROM workspace WHERE id = $1`, []any{ws}, &sorMode)
 	if status != "revoked" || sorMode != "native" {
@@ -562,21 +562,30 @@ func TestDisconnectWithNoActiveConnectionAnswersNotFound(t *testing.T) {
 	}
 }
 
-// overlayWorkspaceTables derives, from the live catalog, every
-// workspace-scoped table the overlay migrations own — the overlay_% and
-// mirror_% clusters plus incumbent_connection, the same name set
-// backend/tableownership_test.go pins to internal/modules/overlay — so
-// the teardown purge assertion's coverage grows with the schema instead
-// of trailing it as a hand-kept list.
+// overlayWorkspaceTables derives, from the live catalog, every table the
+// overlay migrations own — the overlay_% and mirror_% clusters plus
+// incumbent_connection, the same name set backend/tableownership_test.go pins
+// to internal/modules/overlay — so the teardown purge assertion's coverage
+// grows with the schema instead of trailing it as a hand-kept list.
+//
+// The NAME is the derivation. It used to be the name AND a workspace_id column,
+// which was the same set only for as long as every one of these tables carried
+// one; phase D (ADR-0091 §8) removed the column and would have left this
+// returning nothing — an assertion that iterates an empty list passes without
+// checking anything, which is exactly how a purge stops being proved. Deriving
+// from pg_class also means a table added to the cluster is covered the day it
+// exists, and a view or sequence sharing the prefix is not.
 func overlayWorkspaceTables(ctx context.Context, t *testing.T, pool *pgxpool.Pool) []string {
 	t.Helper()
 	var tables []string
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT table_name FROM information_schema.columns
-			WHERE table_schema = 'public' AND column_name = 'workspace_id'
-			  AND (table_name LIKE 'overlay\_%' OR table_name LIKE 'mirror\_%' OR table_name = 'incumbent_connection')
-			ORDER BY table_name`)
+			SELECT c.relname FROM pg_class c
+			JOIN pg_namespace n ON n.oid = c.relnamespace
+			WHERE n.nspname = 'public' AND c.relkind = 'r'
+			  AND (c.relname LIKE 'overlay\_%' OR c.relname LIKE 'mirror\_%'
+			       OR c.relname = 'incumbent_connection')
+			ORDER BY c.relname`)
 		if err != nil {
 			return err
 		}
@@ -584,7 +593,10 @@ func overlayWorkspaceTables(ctx context.Context, t *testing.T, pool *pgxpool.Poo
 		return err
 	})
 	if err != nil {
-		t.Fatalf("deriving the overlay-owned workspace-scoped tables from the catalog: %v", err)
+		t.Fatalf("deriving the overlay-owned tables from the catalog: %v", err)
+	}
+	if len(tables) == 0 {
+		t.Fatal("the catalog names no overlay-owned table — the purge assertion below would pass by iterating nothing")
 	}
 	return tables
 }
@@ -689,7 +701,7 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 	// contract; Connect today refuses a workspace with any connection
 	// row, so no such flow exists yet to exercise).
 	var relanded int
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM overlay_mirror WHERE workspace_id = $1`, []any{ws}, &relanded)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM overlay_mirror`, nil, &relanded)
 	if relanded != 0 {
 		t.Errorf("the post-disconnect backfill re-landed %d purged row(s) — the teardown tombstone guard must hold until a reconnect flow clears it", relanded)
 	}
@@ -724,7 +736,7 @@ func TestDisconnectPurgesTheAutomapBlocks(t *testing.T) {
 	}
 
 	var blocked int
-	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_automap_block WHERE workspace_id = $1`, []any{ws}, &blocked)
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_automap_block`, nil, &blocked)
 	if blocked != 0 {
 		t.Fatalf("disconnect must purge the auto-map blocks, %d remain", blocked)
 	}

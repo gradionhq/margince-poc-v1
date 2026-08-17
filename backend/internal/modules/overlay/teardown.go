@@ -183,8 +183,7 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 		ctx, `
 		SELECT id, incumbent, region, credential_ref
 		FROM incumbent_connection
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status = 'active'
+		WHERE status = 'active'
 		FOR UPDATE`,
 	).Scan(&connID, &incumbent, &region, &credentialRef); scanErr != nil {
 		if errors.Is(scanErr, pgx.ErrNoRows) {
@@ -252,8 +251,8 @@ func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	// the tombstone must exist before the row it would otherwise let a
 	// stray in-flight sweep resurrect is gone, never after.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO overlay_tombstone (workspace_id, object_class, external_id)
-		SELECT workspace_id, object_class, external_id FROM overlay_mirror
+		INSERT INTO overlay_tombstone (object_class, external_id)
+		SELECT object_class, external_id FROM overlay_mirror
 		ON CONFLICT (object_class, external_id) DO NOTHING`); err != nil {
 		return fmt.Errorf("overlay: tombstoning the mirror before purge: %w", err)
 	}

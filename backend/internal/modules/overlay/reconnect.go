@@ -30,7 +30,7 @@ import (
 )
 
 // reconnectConnection revives the workspace's revoked incumbent_connection
-// row: the same UNIQUE(workspace_id) row, re-pointed at a freshly sealed
+// row: the same singleton row, re-pointed at a freshly sealed
 // credential and flipped back to active, in ONE transaction with the
 // tombstone clear and activateConnection's audit + event + mode-flip (the
 // write shape a fresh insert needs too, shared rather than repeated here).
@@ -49,8 +49,7 @@ func (s *Service) reconnectConnection(ctx context.Context, in ConnectInput, ref 
 		// it rather than both reviving the same row.
 		if scanErr := tx.QueryRow(ctx, `
 			SELECT id, incumbent, region, credential_ref FROM incumbent_connection
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			  AND status = 'revoked'
+			WHERE status = 'revoked'
 			FOR UPDATE`).Scan(&id, &previousIncumbent, &previousRegion, &supersededRef); scanErr != nil {
 			return scanErr
 		}
@@ -119,15 +118,14 @@ func (s *Service) deleteSupersededRef(ctx context.Context, ref keyvault.Ref) {
 
 // existingConnectionStatus reports the workspace's incumbent_connection
 // status, if it has a row at all. Connect's pre-flight distinguishes the two
-// states the UNIQUE(workspace_id) row can be in: an active (or errored)
+// states the singleton row can be in: an active (or errored)
 // connection refuses a second connect, while a revoked one — the residue
 // Disconnect leaves so a stray in-flight sweep cannot resurrect a purged row —
 // is what a reconnect revives.
 func (s *Service) existingConnectionStatus(ctx context.Context) (status string, found bool, err error) {
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
 		scanErr := tx.QueryRow(ctx, `
-			SELECT status FROM incumbent_connection
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`).Scan(&status)
+			SELECT status FROM incumbent_connection`).Scan(&status)
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return nil
 		}

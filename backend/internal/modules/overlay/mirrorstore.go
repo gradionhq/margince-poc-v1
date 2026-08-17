@@ -149,10 +149,10 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 //     (mirror.conflict, not implemented until branch 2's write path
 //     lands — see the ProjectOwnerVisibility seam note in Ingest below).
 const ingestSQL = `
-INSERT INTO overlay_mirror (workspace_id, object_class, external_id, fields, updated_at_baseline, owner_external_id, projection_fingerprint, last_synced_at, sync_state)
-SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, $5, $6, now(), 'fresh'
+INSERT INTO overlay_mirror (object_class, external_id, fields, updated_at_baseline, owner_external_id, projection_fingerprint, last_synced_at, sync_state)
+SELECT $1, $2, $3, $4, $5, $6, now(), 'fresh'
 WHERE NOT EXISTS (SELECT 1 FROM overlay_tombstone t
-    WHERE t.workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid AND t.object_class=$1 AND t.external_id=$2)
+    WHERE t.object_class=$1 AND t.external_id=$2)
 ON CONFLICT (object_class, external_id) DO UPDATE
    SET fields=EXCLUDED.fields, updated_at_baseline=EXCLUDED.updated_at_baseline,
        owner_external_id=EXCLUDED.owner_external_id,
@@ -321,13 +321,13 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 }
 
 // upsertAssocSQL keeps the direction/label/category refresh together
-// with the association's identity key (workspace_id, from_type, from_id,
+// with the association's identity key (from_type, from_id,
 // to_type, to_id, type_id) — associations v4 can relabel or recategorize
 // an edge without changing its identity, so a re-sync must update those
 // columns in place rather than duplicate the edge.
 const upsertAssocSQL = `
-INSERT INTO overlay_association (workspace_id, from_type, from_id, to_type, to_id, type_id, category, label, direction)
-VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, $5, $6, $7, $8)
+INSERT INTO overlay_association (from_type, from_id, to_type, to_id, type_id, category, label, direction)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (from_type, from_id, to_type, to_id, type_id) DO UPDATE
    SET category = EXCLUDED.category, label = EXCLUDED.label, direction = EXCLUDED.direction`
 

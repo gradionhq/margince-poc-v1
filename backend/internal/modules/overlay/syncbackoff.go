@@ -100,8 +100,8 @@ func (s *MirrorStore) RecordSweepSuccess(ctx context.Context) error {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_success_at, last_error_class, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 0, now(), NULL, now())
+			INSERT INTO overlay_sync_state (next_sweep_at, consecutive_failures, last_success_at, last_error_class, updated_at)
+			VALUES (now(), 0, now(), NULL, now())
 			ON CONFLICT ((true)) DO UPDATE SET
 			  next_sweep_at = now(),
 			  consecutive_failures = 0,
@@ -124,8 +124,8 @@ func (s *MirrorStore) RequestSweep(ctx context.Context) error {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 0, NULL, now())
+			INSERT INTO overlay_sync_state (next_sweep_at, consecutive_failures, last_error_class, updated_at)
+			VALUES (now(), 0, NULL, now())
 			ON CONFLICT ((true)) DO UPDATE SET
 			  next_sweep_at = now(),
 			  consecutive_failures = 0,
@@ -150,8 +150,8 @@ func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error) er
 		}
 		var failures int
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_error_class, last_failure_at, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, now(), 1, $1, now(), now())
+			INSERT INTO overlay_sync_state (next_sweep_at, consecutive_failures, last_error_class, last_failure_at, updated_at)
+			VALUES (now(), 1, $1, now(), now())
 			ON CONFLICT ((true)) DO UPDATE SET
 			  consecutive_failures = overlay_sync_state.consecutive_failures + 1,
 			  last_error_class = EXCLUDED.last_error_class,
@@ -169,8 +169,7 @@ func (s *MirrorStore) RecordSweepFailure(ctx context.Context, sweepErr error) er
 			delay = rateLimitedFloor
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE overlay_sync_state SET next_sweep_at = now() + make_interval(secs => $1)
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id',true),'')::uuid`,
+			UPDATE overlay_sync_state SET next_sweep_at = now() + make_interval(secs => $1)`,
 			delay.Seconds()); err != nil {
 			return fmt.Errorf("overlay: pacing the next sweep after failure: %w", err)
 		}

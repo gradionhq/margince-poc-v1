@@ -34,8 +34,8 @@ func seedOverlayWorkspace(ctx context.Context, t *testing.T, pool *pgxpool.Pool)
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO incumbent_connection (workspace_id, incumbent, region, credential_ref, status)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'hubspot', 'eu1', $1, 'active')`,
+			INSERT INTO incumbent_connection (incumbent, region, credential_ref, status)
+			VALUES ('hubspot', 'eu1', $1, 'active')`,
 			string(keyvault.Ref("test-ref-"+ids.NewV7().String())))
 		return err
 	})
@@ -62,8 +62,8 @@ func seedMirrorPerson(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ext
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO overlay_mirror (workspace_id, object_class, external_id, fields, updated_at_baseline, sync_state)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'person', $1, '{"full_name":"Fixture Row"}'::jsonb, now(), $2)`,
+			INSERT INTO overlay_mirror (object_class, external_id, fields, updated_at_baseline, sync_state)
+			VALUES ('person', $1, '{"full_name":"Fixture Row"}'::jsonb, now(), $2)`,
 			ext, syncState)
 		return err
 	})
@@ -76,8 +76,8 @@ func recordSweepSuccess(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, consecutive_failures, last_success_at, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(), 0, now(), now())
+			INSERT INTO overlay_sync_state (next_sweep_at, consecutive_failures, last_success_at, updated_at)
+			VALUES (now(), 0, now(), now())
 			ON CONFLICT ((true)) DO UPDATE SET last_success_at = now(), updated_at = now()`)
 		return err
 	})
@@ -90,8 +90,8 @@ func markBackfillDone(ctx context.Context, t *testing.T, pool *pgxpool.Pool, inc
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, truncated)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, '', true, false)
+			INSERT INTO overlay_backfill_cursor (object_class, cursor, done, truncated)
+			VALUES ($1, '', true, false)
 			ON CONFLICT (object_class) DO UPDATE SET done = true, truncated = false`,
 			incumbentClass)
 		return err

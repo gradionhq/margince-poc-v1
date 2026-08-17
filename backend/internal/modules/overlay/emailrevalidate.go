@@ -58,7 +58,7 @@ func (s *MirrorStore) revalidateEmailMapping(ctx context.Context, tx pgx.Tx, ema
 		  AND m.match_source = 'email'
 		  AND NOT EXISTS (
 		      SELECT 1 FROM app_user u
-		      WHERE u.workspace_id = m.workspace_id AND u.id = m.app_user_id
+		      WHERE u.id = m.app_user_id
 		        AND lower(trim(u.email)) = lower(trim($2))
 		  )
 		RETURNING m.app_user_id, m.incumbent_user_id, m.match_source`, incumbentUserID, currentEmail)
