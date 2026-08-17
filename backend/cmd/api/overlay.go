@@ -10,12 +10,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
-// overlayBackfillLimitFromEnv reads MARGINCE_OVERLAY_BACKFILL_LIMIT: unset
+// overlayBackfillLimitEnv is the variable read below, named so the role can
+// declare it without spelling the string a second time.
+const overlayBackfillLimitEnv = "MARGINCE_OVERLAY_BACKFILL_LIMIT"
+
+// overlayBackfillLimitFromEnv reads overlayBackfillLimitEnv: unset
 // → 0 (the overlay initial backfill runs uncapped); a non-negative integer
 // → that per-object-class cap (dev/demo, so a large portal's initial load
 // stays bounded); anything else is a boot error, never a silent default.
 func overlayBackfillLimitFromEnv() (int, error) {
-	v := config.FromOS("MARGINCE_OVERLAY_BACKFILL_LIMIT")
+	v := config.FromOS(overlayBackfillLimitEnv)
 	if v == "" {
 		return 0, nil
 	}

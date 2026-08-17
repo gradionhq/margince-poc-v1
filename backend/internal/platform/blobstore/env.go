@@ -51,3 +51,37 @@ func FromEnv(ctx context.Context, env config.Lookup) (store Store, configured bo
 	}
 	return s, true, nil
 }
+
+// ConfigItems declares this package's surface for the composition root that
+// wires it. Endpoint is what turns the seam on: with it unset the other five
+// are never read, which is why none of them is Required — an installation
+// without object storage is a supported deployment, not a misconfigured one.
+func ConfigItems() []config.Item {
+	worker := []string{config.RoleAPI, config.RoleWorker}
+	return []config.Item{
+		{
+			Name: EnvEndpoint, Kind: config.KindString, Roles: worker,
+			Doc: "S3/MinIO endpoint for attachment bytes; unset disables object storage and the attachment endpoints answer 501",
+		},
+		{
+			Name: EnvAccessKey, Kind: config.KindString, Secret: true, Roles: worker,
+			Doc: "access key for the object store",
+		},
+		{
+			Name: EnvSecretKey, Kind: config.KindString, Secret: true, Roles: worker,
+			Doc: "secret key for the object store",
+		},
+		{
+			Name: EnvBucket, Kind: config.KindString, Roles: worker,
+			Doc: "bucket attachments are written to",
+		},
+		{
+			Name: EnvRegion, Kind: config.KindString, Roles: worker,
+			Doc: "region the bucket lives in",
+		},
+		{
+			Name: EnvUseSSL, Kind: config.KindBool, Default: "false", Roles: worker,
+			Doc: "reach the object store over TLS; the literal \"true\" enables it",
+		},
+	}
+}

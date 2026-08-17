@@ -45,12 +45,17 @@ type apiConfig struct {
 	oauthAccessTokenTTL time.Duration
 }
 
-// parseAPIFlags parses and validates the boot flags; the DSN is the one
-// dependency without a sane default, so its absence fails the boot here.
-func parseAPIFlags(args []string) (apiConfig, error) {
+// apiFlagSet registers this role's flags and their environment bindings, and
+// returns them unparsed.
+//
+// Separate from parsing because the same registration answers two questions:
+// what a boot should read, and what this role's configurable surface IS. The
+// second is how a generated template or schema comes from the flags themselves
+// rather than from a copy of them that drifts.
+func apiFlagSet() (*flag.FlagSet, *cliflags.Env, *apiConfig, error) {
 	fs := flag.NewFlagSet("api", flag.ContinueOnError)
-	var env cliflags.Env
-	var cfg apiConfig
+	env := &cliflags.Env{}
+	cfg := &apiConfig{}
 	env.String(fs, &cfg.dsn, "dsn", "MARGINCE_DSN", "", "Postgres DSN (runtime app role)")
 	env.String(fs, &cfg.configPath, "config", "MARGINCE_CONFIG", "margince.yaml",
 		"path to the deployment configuration file (A107/ADR-0061: bootstrap + auth); a missing file boots an existing installation but cannot bootstrap an empty database")
@@ -80,12 +85,28 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	env.String(fs, &cfg.connectorStateKey, "connector-state-key", "MARGINCE_CONNECTOR_STATE_KEY", "", "HMAC key (>=32 bytes) signing the OAuth connect `state`; required for the Gmail and Graph connect flows")
 	env.String(fs, &cfg.webhookKey, "webhook-key", "MARGINCE_WEBHOOK_KEY", "", "base64 32-byte key sealing outbound-webhook signing secrets; enables the mutating /webhook-subscriptions surface, and (with --inline-relay) the cg:webhooks delivery consumer. Empty = those paths answer 503 and no inline delivery runs. Re-attempting a parked delivery is the worker role's River job, never this one's.")
 	env.String(fs, &cfg.metricsToken, "metrics-token", "MARGINCE_METRICS_TOKEN", "", "shared secret /metrics requires as a Bearer credential; empty (the default) answers 404 for /metrics rather than serving per-workspace job telemetry with no authentication at all")
-	accessTokenTTL, err := envDuration("MARGINCE_OAUTH_ACCESS_TOKEN_TTL")
+	accessTokenTTL, err := envDuration(oauthAccessTokenTTLEnv)
 	if err != nil {
-		return apiConfig{}, err
+		return nil, nil, nil, err
 	}
 	fs.DurationVar(&cfg.oauthAccessTokenTTL, "oauth-access-token-ttl", accessTokenTTL,
 		"lifetime of the access token (an Agent Seat Passport) the OAuth handshake mints, for the code exchange and every refresh rotation; 0 = the passport default of 720h (30 days), maximum 2160h (90 days)")
+	return fs, env, cfg, nil
+}
+
+// parseAPIFlags parses and validates the boot flags; the DSN is the one
+// dependency without a sane default, so its absence fails the boot here.
+func parseAPIFlags(args []string) (apiConfig, error) {
+	fs, env, cfg, err := apiFlagSet()
+	if err != nil {
+		return apiConfig{}, err
+	}
+	// A surface that cannot be described honestly is a boot error, not a
+	// runtime surprise: a duplicate name or a required item carrying a default
+	// would make a generated reference lie about this installation.
+	if _, err := apiConfigItems(fs, env); err != nil {
+		return apiConfig{}, err
+	}
 	if err := fs.Parse(args); err != nil {
 		return apiConfig{}, err
 	}
@@ -103,7 +124,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 		return apiConfig{}, fmt.Errorf("api: --oauth-access-token-ttl %s is out of range: 0 (the default) or up to %s",
 			cfg.oauthAccessTokenTTL, identity.MaxOAuthAccessTokenTTL)
 	}
-	return cfg, nil
+	return *cfg, nil
 }
 
 // envDuration reads a duration from the environment as the default for its
