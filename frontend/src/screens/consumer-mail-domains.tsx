@@ -135,7 +135,7 @@ function BaselineSection() {
   const query = useConsumerMailBaseline(needle);
   const result = query.data;
   return (
-    <section className="consumer-mail-baseline">
+    <PanelBody className="consumer-mail-baseline">
       {/* A real heading, one level under the panel's own title, rather than a
           paragraph styled to look like one — a reader navigating by heading can
           reach the shipped list without scrolling the card. */}
@@ -184,7 +184,7 @@ function BaselineSection() {
           )}
         </>
       )}
-    </section>
+    </PanelBody>
   );
 }
 
@@ -340,8 +340,13 @@ export function ConsumerMailDomainsCard() {
             {problemMessageOf(remove.error, t)}
           </Callout>
         )}
-        <BaselineSection />
       </PanelBody>
+      {/* The shipped list is a SECOND section of this card, not a footnote
+          inside the first: what the baseline already says, against what this
+          workspace adds to it. Its own body, so the boundary is the full-bleed
+          seam panel.css draws between two of them rather than a line that stops
+          20px short of the card's edges. */}
+      <BaselineSection />
     </Panel>
   );
 }

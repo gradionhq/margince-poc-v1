@@ -81,6 +81,18 @@
   border-bottom: 1px solid var(--borderSubtle);
   color: var(--textContent);
 }
+/* A rule DIVIDES rows, so the last row has nothing to divide from and draws
+   none. Without this every table in the tree ended on a hairline pointing at
+   whatever sat under it — usually the card's own edge a few pixels below, which
+   reads as a doubled border. Two screens had already noticed and reset it in
+   their own sheets (`.provider-spend-table`, and now `.ext-matrix` and
+   `.import__table`); this is the same obligation derived from the component
+   instead of maintained as a list of the tables somebody remembered. `th` as
+   well as `td`, because a table with row headers puts one in the last row. */
+.table tbody tr:last-child td,
+.table tbody tr:last-child th {
+  border-bottom: 0;
+}
 .table tbody tr {
   cursor: default;
 }

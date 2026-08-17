@@ -43,14 +43,15 @@
   margin-left: auto;
 }
 
-/* A field group under its own level-3 heading, ruled off from the group above
- * so the three subjects read as three rather than as one long form. */
+/* A field group under its own level-3 heading. The three subjects read as three
+ * on the heading and the air above it — the form-stack's gap plus SectionHeader's
+ * own interval — rather than on a line, because a group is one section of this
+ * body and a line drawn inside a body can only ever stop short of the card's
+ * edges. A seam is full-bleed or it is not drawn; this one takes the air. */
 .company-context-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding-top: var(--space-4);
-  border-top: 1px solid var(--borderSubtle);
 }
 
 .company-context-fields {
@@ -110,13 +111,16 @@
   justify-content: space-between;
 }
 
+/* The choices a conflicting change offers, inside the row that carries it. A
+ * row's own interior is not a card seam, so it is separated by the row's gap and
+ * a little more air rather than by a second hairline running across a row the
+ * panel already ruled off. */
 .company-context-resolutions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--borderSubtle);
+  margin-top: var(--space-2);
 }
 .company-context-resolutions label {
   color: var(--textSecondary);
