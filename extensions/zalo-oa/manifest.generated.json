@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "name": "zalo-oa",
+  "version": "1.0.0",
+  "risk_tiers": [
+    {
+      "id": "job/poll_chats",
+      "unit": "zalo-oa",
+      "kind": "extension_job",
+      "contract": "jobs.yaml",
+      "operation": "extension.job.tick",
+      "operation_id": "ext_zalo_oa_poll_chats",
+      "route": "",
+      "method": "",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:90cc1fc8eb4f855f7465b04ed4d9d50a3d01e45526195d12852c5a3bdf84a92f",
+      "digest": "sha256:2f3bb00403daec0f8a5184fc3d43164b3d2a710226799d74ae5571881de712b5"
+    },
+    {
+      "id": "tool/zalo_oa_authorize",
+      "unit": "zalo-oa",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloOaAuthorize",
+      "route": "/ext/zalo-oa/authorize",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "8ff38bbd4754e9dad4f26cc01440c55bfffdc5b4313eea418d922428851dbbfa",
+      "digest": "sha256:bd75cc9de466d0df9bf05742bea36aa27a4cd4f79618ae5c43013ff3685edc7e"
+    },
+    {
+      "id": "tool/zalo_oa_connect",
+      "unit": "zalo-oa",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloOaConnect",
+      "route": "/ext/zalo-oa/connect",
+      "method": "PUT",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "7f84402cff9940ee7fb8d52b2a4252139fd052aca50a1681beda7a0f611f2d39",
+      "digest": "sha256:e8b2c10fcb5bf1df450bc7b221fed354508a02a42c80e75709ebf5cd5ecc4898"
+    },
+    {
+      "id": "tool/zalo_oa_disconnect",
+      "unit": "zalo-oa",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloOaDisconnect",
+      "route": "/ext/zalo-oa/disconnect",
+      "method": "DELETE",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "7a6ff021031bf8ccad90ea50e4ddb040cf3dbc3890ad2cff63eab6cb470d082e",
+      "digest": "sha256:440184775705891927c010996e3d32d9f6fd0fe8f5554b7aff17a67f3fd73ba4"
+    },
+    {
+      "id": "tool/zalo_oa_status",
+      "unit": "zalo-oa",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloOaStatus",
+      "route": "/ext/zalo-oa/status",
+      "method": "GET",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "e0326887f9541ed275315f42ae1aba4ca7239e2e0d08442b2b19f650650d7f27",
+      "digest": "sha256:03f766f97a3204d21b50c267164b97eda3c5de1bf2403776d497447446f2ad84"
+    }
+  ],
+  "secrets": [
+    {
+      "key": "app-secret",
+      "scope": "workspace"
+    },
+    {
+      "key": "oa-token",
+      "scope": "user"
+    },
+    {
+      "key": "pkce-verifier",
+      "scope": "user"
+    }
+  ],
+  "ingress": [
+    {
+      "system": "zalo-oa",
+      "lands": [
+        "activity"
+      ]
+    }
+  ],
+  "channels": [
+    {
+      "provider": "zalo_oa",
+      "supplies_transport": true
+    }
+  ]
+}
