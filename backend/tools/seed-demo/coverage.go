@@ -95,6 +95,12 @@ var coverageMatrix = []coverageCell{
 	{axisLead, "promoted", 3, "became a person and a company — the path that proves promotion"},
 	{axisLead, "disqualified", 2, "archived, and only visible with include_archived — a state easy to seed wrong"},
 
+	// Projects. Delivery work is a screen of its own, and a phase is reached
+	// by advancing through the ones before it rather than by assertion.
+	{axisProject, "initiative", 2, "a project before it is pursued"},
+	{axisProject, "delivering", 3, "the phase a customer's project sits in"},
+	{axisProject, "closed", 2, "finished work, which needs a closing reason"},
+
 	// Documents. Paper is only useful when it is attached to the right thing.
 	{axisDocument, "contract_pdf", 8, "paper attached to its contract, not floating in Documents"},
 	{axisDocument, "loose", 5, "an NDA or a price list belongs to the account, not to a contract"},
@@ -102,16 +108,17 @@ var coverageMatrix = []coverageCell{
 
 // plannedOnlyMatrix is states the PLANNER assigns but no phase writes yet.
 //
-// Keeping them out of coverageMatrix is deliberate: verify reads the
+// Keeping such a state out of coverageMatrix is deliberate: verify reads the
 // installation, so a cell here would fail every run for work that is simply
 // not built, and a gate that always fails is a gate people learn to ignore.
-// They stay listed so the planner keeps reserving companies for them and the
-// day the phase lands the cells move up with no re-planning.
-var plannedOnlyMatrix = []coverageCell{
-	{axisProject, "initiative", 2, "a project before it is pursued — no project phase in the seeder yet"},
-	{axisProject, "delivering", 3, "the phase a customer's project sits in — no project phase in the seeder yet"},
-	{axisProject, "closed", 2, "finished work, which needs a closing reason — no project phase in the seeder yet"},
-}
+// A state stays listed here so the planner keeps reserving companies for it,
+// and moves up the day its phase lands.
+//
+// EMPTY TODAY. The project cells lived here until seedProjects shipped, and
+// leaving them behind after it did was the actual cost of this list: the
+// seeder created eighteen projects that nothing verified, so a regression in
+// that phase would have gone unnoticed.
+var plannedOnlyMatrix = []coverageCell{}
 
 // planningMatrix is what the PLANNER satisfies: what verify checks, plus what
 // is planned ahead of its phase.
