@@ -413,6 +413,10 @@ func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The email is a Handelsbrief because it concerns a concluded transaction;
+	// the note is not correspondence at all. A165 narrowed the floor to that
+	// distinction, so the deal is what the shielding now rests on.
+	e.SeedWonDealLinkedTo(t, email)
 
 	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, personID, "test"); err != nil {
 		t.Fatalf("erasing the subject → %v", err)

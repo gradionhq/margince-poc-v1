@@ -43,6 +43,10 @@ type Store struct {
 	// a conversion rate onto closed deals, so a store that only looked
 	// constructed would write a basis it cannot take back.
 	installation Installation
+
+	// stampCorrespondence shields the correspondence a concluded deal turns
+	// into a Handelsbrief. Injected, because deals may not import activities.
+	stampCorrespondence StampCorrespondence
 }
 
 // InstallationValue resolves ONE installation-identity value inside a
@@ -62,12 +66,21 @@ type Installation struct {
 	BaseCurrency InstallationValue
 	// Timezone is the IANA zone a "today" is computed in.
 	Timezone InstallationValue
+	// StampCorrespondence shields the correspondence a concluded deal turns
+	// into a Handelsbrief (A165/ADR-0114). It rides here rather than on a
+	// WithX setter because every construction site already passes this struct,
+	// and a seam a caller can forget is one that silently stops shielding.
+	StampCorrespondence StampCorrespondence
 }
 
 // NewStore binds the store to the pool every tenant query runs through, and
 // to the seam that answers the installation's own values.
 func NewStore(db *database.DB, inst Installation) *Store {
-	return &Store{db: db, clock: time.Now, installation: inst.orRefusing()}
+	inst = inst.orRefusing()
+	return &Store{
+		db: db, clock: time.Now, installation: inst,
+		stampCorrespondence: inst.StampCorrespondence,
+	}
 }
 
 // orRefusing replaces any value the composition left unset with one that
@@ -83,6 +96,9 @@ func (i Installation) orRefusing() Installation {
 		if *f == nil {
 			*f = refusing(name)
 		}
+	}
+	if i.StampCorrespondence == nil {
+		i.StampCorrespondence = refusingStamp()
 	}
 	return i
 }

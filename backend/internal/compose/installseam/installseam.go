@@ -13,6 +13,7 @@
 package installseam
 
 import (
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 )
@@ -23,5 +24,8 @@ func Deals() deals.Installation {
 		Name:         identity.NameOf,
 		BaseCurrency: identity.BaseCurrencyOf,
 		Timezone:     identity.TimezoneOf,
+		// activities owns `activity`, so the stamp's write lives there and the
+		// edge is injected here (ADR-0054).
+		StampCorrespondence: activities.StampCorrespondenceForDeal,
 	}
 }
