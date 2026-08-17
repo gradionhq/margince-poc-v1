@@ -549,6 +549,12 @@ type fakeGrants struct {
 	redemptions int
 
 	spent []string
+
+	// beforeRotate runs at the moment a caller reaches the token endpoint. It is
+	// how a test says "nothing should ever get this far" about a single-use
+	// credential, which an after-the-fact count can only say once the damage is
+	// already in the fixture.
+	beforeRotate func()
 }
 
 func (g *fakeGrants) Redeem(context.Context, string, string, string, string) (tokenPair, error) {
@@ -560,6 +566,9 @@ func (g *fakeGrants) Redeem(context.Context, string, string, string, string) (to
 }
 
 func (g *fakeGrants) Rotate(_ context.Context, _, _, refreshToken string) (tokenPair, error) {
+	if g.beforeRotate != nil {
+		g.beforeRotate()
+	}
 	g.rotations++
 	g.spent = append(g.spent, refreshToken)
 	if g.rotateErr != nil {

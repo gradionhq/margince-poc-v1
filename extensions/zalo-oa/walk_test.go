@@ -110,13 +110,48 @@ func TestABackfillPagesPastWhatIsAlreadyDecidedWithoutCollectingIt(t *testing.T)
 	}}
 
 	result, err := walkChats(t.Context(), fake.client("t"), walkSpec{
-		stopBelow: 1000, skipAtOrAbove: 1800, budget: 2,
+		stopBelow: 1000, skipAbove: 1800, budget: 2,
 	})
 	if err != nil {
 		t.Fatalf("walkChats: %v", err)
 	}
 	if len(result.items) != 1 || result.items[0].MessageID != "unread" {
 		t.Fatalf("collected %+v, want only the message inside the unread region", result.items)
+	}
+}
+
+// THE SKIP BOUNDARY IS STRICTLY ABOVE, and it is the mirror of the stop boundary
+// two tests up. A truncated walk stops at a PAGE edge, which can fall in the
+// middle of several messages sharing one millisecond — so a skip that dropped
+// ties would lose the boundary message's siblings, and the floor would then close
+// over them permanently.
+func TestTheSkipBoundaryCollectsTheMessagesSharingTheGapsMillisecond(t *testing.T) {
+	fake := newZaloFake(t)
+	fake.chatPages = [][]map[string]any{{
+		message("above", 2000, srcUserToOA, "decided last tick"),
+		message("the gap itself", 1500, srcUserToOA, "the last one collected"),
+		message("its tie-mate", 1500, srcUserToOA, "the one the budget cut off"),
+		message("under it", 1400, srcUserToOA, "still unread"),
+	}}
+
+	result, err := walkChats(t.Context(), fake.client("t"), walkSpec{
+		stopBelow: 1000, skipAbove: 1500, budget: 2,
+	})
+	if err != nil {
+		t.Fatalf("walkChats: %v", err)
+	}
+	collected := map[string]bool{}
+	for _, row := range result.items {
+		collected[row.MessageID] = true
+	}
+	if !collected["its tie-mate"] {
+		t.Fatalf("the message sharing the gap's millisecond was skipped, and the floor will close over it: collected %v", collected)
+	}
+	if !collected["under it"] {
+		t.Fatalf("the region under the gap was not collected: %v", collected)
+	}
+	if collected["above"] {
+		t.Fatalf("a message above the gap was collected: %v", collected)
 	}
 }
 

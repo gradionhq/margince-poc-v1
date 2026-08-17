@@ -448,3 +448,52 @@ func TestABacklogThatOutlastsTheBudgetHoldsTheFloor(t *testing.T) {
 		t.Fatal("the tick reported no backlog after running out of budget with one still open")
 	}
 }
+
+// A CREDENTIAL THAT HAS COME TO ANSWER FOR A DIFFERENT ACCOUNT parks the
+// connection before a single record is built.
+//
+// Everything this unit writes is namespaced by the account the row claims, so
+// landing under a credential that speaks for another one would key messages into
+// somebody else's people and resolve every reply to a stranger holding the same
+// number. None of that is visible afterwards.
+func TestACredentialAnsweringForAnotherAccountParksBeforeAnythingIsLanded(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 900})
+	// The row claims an account the fake provider does not answer for.
+	row := connectionRow(statusConnected, nil, cursor{floor: 900})
+	row[1] = "1111111111"
+	rt.tx.singleRows = [][]any{row, connectionRow(statusReauth, nil, cursor{floor: 900})}
+	fake := newZaloFake(t)
+	fake.chatPages = [][]map[string]any{{message("m1", 1000, srcUserToOA, "một")}}
+
+	if err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0))); err != nil {
+		t.Fatalf("pollConnection: %v", err)
+	}
+	if len(rt.ingested) != 0 {
+		t.Fatal("a record was landed under an account namespace the credential does not speak for")
+	}
+	_, args := rt.tx.statementMentioning(t, "last_error_class = $3")
+	if args[1] != statusReauth || args[2] != "account_changed" {
+		t.Fatalf("the connection was parked as %v, want reauth_required naming the account", args)
+	}
+	if fake.calls["/v2.0/oa/listrecentchat"] != 0 {
+		t.Fatal("the walk ran before the account was reconciled")
+	}
+}
+
+// A transient failure is RECORDED, not only written. The unit's ledger names one
+// exemption — the poll's timestamp touch on an otherwise unchanged row — and the
+// class a screen renders is not it: "when did this start failing" is the question
+// somebody brings to it.
+func TestATransientFailureIsRecordedAsWellAsWritten(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 900})
+	rt.tx.singleRows = append(rt.tx.singleRows, connectionRow(statusConnected, nil, cursor{floor: 900}))
+	fake := newZaloFake(t)
+	fake.errorCode = codeRateLimited
+
+	if err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0))); err == nil {
+		t.Fatal("a tick that could not reach the provider reported success")
+	}
+	if !published(rt, eventPolled) {
+		t.Fatalf("the failure was written to the row and announced to nobody; the events were %v", verbs(rt))
+	}
+}

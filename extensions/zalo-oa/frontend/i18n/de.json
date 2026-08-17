@@ -32,7 +32,7 @@
   "extZaloOa.step1.permissionUrl": "Lassen Sie danach eine OA-Administration diese Adresse öffnen und zustimmen",
   "extZaloOa.step1.redirectUri": "Weiterleitungsadresse",
   "extZaloOa.step1.start": "Autorisierung starten",
-  "extZaloOa.step1.sub": "Aus developers.zalo.me. Die Weiterleitungsadresse muss exakt der dort gespeicherten OA Callback Url entsprechen.",
+  "extZaloOa.step1.sub": "Aus developers.zalo.me. Die Weiterleitungsadresse muss exakt der dort gespeicherten OA Callback Url entsprechen. Eine neue Autorisierung stoppt die laufende Verbindung, bis sie abgeschlossen ist.",
   "extZaloOa.step1.title": "Schritt 1 — Autorisierung vorbereiten",
   "extZaloOa.step2.failed": "Das Konto wurde nicht verbunden. Der Code wurde möglicherweise schon verwendet oder ist abgelaufen — er gilt zehn Minuten — oder das Paket des Official Accounts ist zu niedrig. Beginnen Sie erneut bei Schritt 1.",
   "extZaloOa.step2.finish": "Verbindung abschließen",

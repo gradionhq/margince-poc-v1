@@ -32,7 +32,7 @@
   "extZaloOa.step1.permissionUrl": "Then have an OA administrator open this and approve",
   "extZaloOa.step1.redirectUri": "Redirect address",
   "extZaloOa.step1.start": "Start authorization",
-  "extZaloOa.step1.sub": "From developers.zalo.me. The redirect address must match the OA Callback Url saved there exactly.",
+  "extZaloOa.step1.sub": "From developers.zalo.me. The redirect address must match the OA Callback Url saved there exactly. Starting an authorization stops the connection that is running now, until this one is finished.",
   "extZaloOa.step1.title": "Step 1 — prepare the authorization",
   "extZaloOa.step2.failed": "The account was not connected. The code may have been used already or expired — it lasts ten minutes — or the Official Account's package may be too low. Start again from step 1.",
   "extZaloOa.step2.finish": "Finish connecting",

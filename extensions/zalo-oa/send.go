@@ -206,13 +206,20 @@ func transmissionRefusal(err error) error {
 		return fmt.Errorf("%w: %s", extension.ErrSendOutcomeUnknown, err.Error())
 	}
 	if errors.Is(err, errProvider) {
-		// The provider refused the message itself — most often because the
-		// recipient is outside the window a consultation message may reach, which
-		// it reports as an argument refusal rather than as a named condition.
-		// It is a definite answer, so nothing was transmitted, and it is
-		// permanent for this delivery: retrying the same message to the same
-		// person produces the same refusal.
-		return fmt.Errorf("%w: Zalo would not accept this message for that recipient — most often the conversation is outside the window an Official Account may write into unprompted", extension.ErrInvalid)
+		// A refusal the provider NAMED, which reaches here only after the branch
+		// above has taken every answer this side could not read — so this really
+		// is a decision, nothing was transmitted, and it is permanent for this
+		// delivery: the same message to the same person produces the same answer.
+		//
+		// What it usually IS, stated no more confidently than it has been
+		// measured: `-201` is what a recipient id that is malformed or names
+		// nobody returns on a send. The window an Official Account may write into
+		// unprompted is the other candidate and is NOT claimed here — the one
+		// out-of-window send anybody has run against this API was accepted, so a
+		// message telling a rep to wait for the customer would be guessing, and
+		// guessing about the recipient is how the wrong person gets blamed for a
+		// mistyped id.
+		return fmt.Errorf("%w: Zalo refused this message for that recipient — check that the conversation is one this Official Account can still write into", extension.ErrInvalid)
 	}
 	return sendRefusal(err)
 }

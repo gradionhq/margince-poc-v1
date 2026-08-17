@@ -98,7 +98,7 @@ func TestTheCredentialRidesTheProvidersOwnHeader(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bearer, accessToken = r.Header.Get("Authorization"), r.Header.Get("access_token")
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{"error": 0, "data": map[string]any{"name": "NFQ"}}); err != nil {
+		if err := json.NewEncoder(w).Encode(map[string]any{"error": 0, "data": map[string]any{"name": "NFQ", "oa_id": fixtureOAID}}); err != nil {
 			t.Errorf("writing the answer: %v", err)
 		}
 	}))
@@ -159,41 +159,64 @@ func TestATransportFailureIsBothTransientAndUnanswered(t *testing.T) {
 	}
 }
 
-// A body that is not the envelope, and a success carrying no data, are both
-// refusals rather than silently-zero answers: decoding nothing into the caller's
-// target would leave it holding a zero value as though the provider had said so.
-func TestAnAnswerThisUnitCannotReadIsARefusalRatherThanAZeroValue(t *testing.T) {
-	for name, body := range map[string]string{
-		"not the envelope":        `["a list where an object belongs"]`,
-		"success, no data":        `{"error":0,"message":"Success"}`,
-		"data of the wrong shape": `{"error":0,"data":"a string"}`,
+// An account answer this unit cannot use is refused HERE, once, because
+// everything downstream keys on it.
+//
+// The name is the connection's own label and a blank one would present as an
+// Official Account nobody named. The ID matters more: it namespaces every person
+// binding, every thread key and every natural key this unit writes, and it is the
+// whole of what stops a reply reaching a different human — so a blank one, or one
+// carrying the colon this unit joins ids with, is a namespace that can be walked
+// out of by spelling.
+func TestAnAccountAnswerThisUnitCannotUseIsRefused(t *testing.T) {
+	for name, data := range map[string]map[string]any{
+		"no name":            {"oa_id": "1"},
+		"no id":              {"name": "NFQ"},
+		"an id with a colon": {"name": "NFQ", "oa_id": "123:456"},
+		"a non-numeric id":   {"name": "NFQ", "oa_id": "not-an-account"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			var into oaProfile
-			err := decodeEnvelope([]byte(body), &into)
-			if !errors.Is(err, errProvider) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if err := json.NewEncoder(w).Encode(map[string]any{"error": 0, "data": data}); err != nil {
+					t.Errorf("writing the answer: %v", err)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			api := newClient("t")
+			api.base = server.URL
+			if _, err := api.profile(t.Context()); !errors.Is(err, errProvider) {
 				t.Fatalf("error = %v, want a provider-answer refusal", err)
 			}
 		})
 	}
 }
 
-// An account answer with no name is refused: it is the connection's own label,
-// it is rendered, and a blank one would present as an Official Account nobody
-// named.
-func TestAnAccountAnswerWithNoNameIsRefused(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{"error": 0, "data": map[string]any{"oa_id": "1"}}); err != nil {
-			t.Errorf("writing the answer: %v", err)
-		}
-	}))
-	t.Cleanup(server.Close)
-
-	api := newClient("t")
-	api.base = server.URL
-	if _, err := api.profile(t.Context()); !errors.Is(err, errProvider) {
-		t.Fatalf("error = %v, want a provider-answer refusal", err)
+// An answer this unit could not READ carries the unanswered class, and one the
+// provider NAMED does not. The distinction is the send path's whole safety
+// argument: an unreadable answer to a POST may have been a delivery, and a
+// refusal the provider spelled was not.
+func TestAnUnreadableAnswerIsUnansweredAndANamedRefusalIsNot(t *testing.T) {
+	for name, arm := range map[string]struct {
+		body           string
+		wantUnanswered bool
+	}{
+		"not the envelope":        {`["a list"]`, true},
+		"success, no data":        {`{"error":0,"message":"Success"}`, true},
+		"data of the wrong shape": {`{"error":0,"data":"a string"}`, true},
+		"a refusal it named":      {`{"error":-201,"message":"user_id is invalid"}`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var into oaProfile
+			err := decodeEnvelope([]byte(arm.body), &into)
+			if err == nil {
+				t.Fatal("the answer was accepted")
+			}
+			if got := errors.Is(err, errUnanswered); got != arm.wantUnanswered {
+				t.Fatalf("unanswered = %v, want %v — this is what decides whether a send retries", got, arm.wantUnanswered)
+			}
+		})
 	}
 }
 

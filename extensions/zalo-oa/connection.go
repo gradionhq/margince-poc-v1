@@ -165,6 +165,14 @@ func scanConnection(scan func(...any) error) (connection, error) {
 // the challenge once per authorization. Saying so on the screen is the honest
 // handling; silently reusing a verifier across authorizations would be the
 // alternative, and a PKCE verifier that never changes is not one.
+//
+// IT TAKES A WORKING CONNECTION DOWN, and that is the operation rather than a
+// side effect of it: the row returns to `pending_authorization`, so the poll
+// stops and a reply can no longer be staged until somebody comes back from the
+// browser. Starting an authorization over a live account IS re-setting it up,
+// the screen says so before the button, and the state it lands in is one an
+// operator can read. The app secret is replaced for the same reason and in the
+// same act.
 func authorize(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
 	args, err := extension.DecodeArgs[struct {
 		AppID       string `json:"app_id"`
@@ -209,9 +217,13 @@ func authorize(ctx context.Context, rt extension.Runtime, in json.RawMessage) (j
 	// that comes back. It is the connection row's own id, which is unguessable,
 	// already stored, and — unlike a second random value — cannot go missing
 	// while the row it belongs to survives.
-	var stored connection
+	var (
+		stored connection
+		before *connection
+	)
 	err = rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		before, err := currentConnection(ctx, tx)
+		var err error
+		before, err = currentConnection(ctx, tx)
 		if err != nil {
 			return err
 		}
@@ -234,6 +246,21 @@ func authorize(ctx context.Context, rt extension.Runtime, in json.RawMessage) (j
 	})
 	if err != nil {
 		return nil, err
+	}
+	// A DEPOSIT EXISTS ONLY FOR THE ROW'S CURRENT authorized_by, and this is where
+	// that could otherwise stop being true. Repointing the row at a new
+	// administrator leaves the previous one's sealed pair with nothing referencing
+	// it — and the ingress port reads a deposit as live consent to act for that
+	// person, so what would be left behind is not a stray blob but a standing
+	// authority no screen shows and no disconnect reaches (disconnect withdraws
+	// the row's CURRENT administrator, who is now somebody else).
+	//
+	// It is withdrawn after the row is written rather than before, because the
+	// write is what decides whether the repointing happened at all.
+	if before != nil && before.AuthorizedBy != string(admin) {
+		if err := forgetCredential(ctx, rt, extension.UserID(before.AuthorizedBy)); err != nil {
+			return nil, err
+		}
 	}
 	challenge := challengeFor(verifier)
 	link, err := permissionLink(appID, redirect, challenge, stored.ID)

@@ -18,10 +18,13 @@ package zalooa
 //     sealed as a single value, so a rotation is one write and the halves cannot
 //     land apart — a live access token beside a dead refresh token is a
 //     connection that works for a day and then cannot be renewed by anybody.
-//  2. ONE WRITER. Renewal is claimed with an atomic compare-and-set on the
-//     connection row before anything is sent, so exactly one caller ever
-//     presents a given refresh token. The claim is a LEASE, because the winner
-//     can die.
+//  2. ONE WRITER AT A TIME, and each one reads the credential under its own
+//     claim. Renewal is claimed with an atomic compare-and-set on the connection
+//     row, and the pair is then read AGAIN — because a caller that read before
+//     claiming holds a token another caller may already have spent, and
+//     presenting a dead one is how a healthy connection gets parked. The claim is
+//     a LEASE rather than a lock, because the winner can die; the honest
+//     statement of what that costs is in the migration, beside the column.
 //  3. PERSIST BEFORE USE. The new pair is sealed before it is spent or mirrored.
 //  4. AN UNKEPT ROTATION PARKS, and does not retry. Once the provider has
 //     rotated, presenting the old token again cannot succeed — so a second
@@ -158,7 +161,30 @@ func usableToken(ctx context.Context, rt extension.Runtime, grants grantExchange
 	if !won {
 		return tokenPair{}, conn, errRefreshInFlight
 	}
-	return rotate(ctx, rt, grants, claimed, admin, string(appSecret), pair)
+	// THE CREDENTIAL IS READ AGAIN, NOW THAT THE LEASE IS HELD, and the pair read
+	// before it is discarded. Without this the lease serializes the wrong span.
+	//
+	// The window is between unsealing and claiming: two callers — a poll tick and
+	// a send — both read the same expiring pair, one claims and rotates and
+	// releases, and the second then wins a lease that is free again and presents
+	// the token the first one already spent. Zalo refuses it, because it is
+	// single-use and dead, and this side concludes the credential is broken and
+	// parks a connection that was renewed correctly seconds earlier.
+	//
+	// Re-reading closes it because of the ORDER the winner writes in: the
+	// replacement is sealed before the lease is released (see rotate), so any
+	// caller that reaches this line after a successful renewal reads the fresh
+	// pair and has nothing to do.
+	current, err := unsealTokens(ctx, rt, admin)
+	if err != nil {
+		released, releaseErr := releaseRefresh(ctx, rt, claimed)
+		return tokenPair{}, released, errors.Join(err, releaseErr)
+	}
+	if current.usable(now) {
+		released, releaseErr := releaseRefresh(ctx, rt, claimed)
+		return current, released, releaseErr
+	}
+	return rotate(ctx, rt, grants, claimed, admin, string(appSecret), current)
 }
 
 // rotate spends the refresh token and keeps what comes back.

@@ -112,10 +112,48 @@ func TestAGrantMissingEitherHalfIsRefused(t *testing.T) {
 		"an error instead": `{"error":-14014,"message":"code has expired"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := decodeGrant([]byte(body), at(0)); !errors.Is(err, errUnauthorized) {
-				t.Fatalf("error = %v, want the authorization refusal", err)
+			if _, err := decodeGrant([]byte(body), at(0)); !errors.Is(err, errNoGrant) {
+				t.Fatalf("error = %v, want the no-grant answer", err)
 			}
 		})
+	}
+}
+
+// WHAT AN UNPRODUCTIVE ANSWER MEANS DIFFERS BY WHICH GRANT ASKED FOR IT, and
+// reading it the same way on both would be expensive in one direction.
+//
+// A redemption's code is single-use and lives ten minutes, so an answer with no
+// pair is the credential's own refusal and no retry produces one. A ROTATION's is
+// not: this endpoint's refusal codes are not in the measured catalog, so a rate
+// limit and a spent token arrive looking alike — and reading them as the
+// credential parks a working connection, recoverable only by an OA admin at
+// another company, where reading them as the provider costs one retry.
+func TestAnUnproductiveAnswerIsTheCredentialsForARedemptionAndTheProvidersForARenewal(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if _, err := w.Write([]byte(`{"error":-32,"message":"rate limit"}`)); err != nil {
+			t.Errorf("writing the answer: %v", err)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	client := newOAuthClient()
+	client.base = server.URL
+
+	_, err := client.Redeem(t.Context(), "app-1", "secret", "code", "verifier")
+	if !errors.Is(err, errUnauthorized) {
+		t.Fatalf("a redemption answered %v, want the credential's refusal", err)
+	}
+	if !strings.Contains(err.Error(), "ten minutes") {
+		t.Fatalf("the redemption refusal does not say what expires: %v", err)
+	}
+
+	_, err = client.Rotate(t.Context(), "app-1", "secret", "refresh")
+	if errors.Is(err, errUnauthorized) {
+		t.Fatalf("a renewal answered %v; reading an unexplained refusal as the credential parks a connection that may be perfectly fine", err)
+	}
+	if !errors.Is(err, errProvider) {
+		t.Fatalf("a renewal answered %v, want the provider class so the next tick tries again", err)
 	}
 }
 

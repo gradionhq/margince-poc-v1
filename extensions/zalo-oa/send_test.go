@@ -122,8 +122,8 @@ func TestARefusalTheProviderActuallySentIsNotAnUnknownOutcome(t *testing.T) {
 	if !errors.Is(err, extension.ErrInvalid) {
 		t.Fatalf("error = %v, want a definite refusal of this delivery", err)
 	}
-	if !strings.Contains(err.Error(), "window") {
-		t.Fatalf("the refusal does not name the likeliest cause a rep can act on: %v", err)
+	if !strings.Contains(err.Error(), "recipient") {
+		t.Fatalf("the refusal does not name what a rep can act on: %v", err)
 	}
 }
 

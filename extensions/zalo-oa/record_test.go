@@ -231,3 +231,40 @@ func TestARecipientFromAnotherOfficialAccountIsRefused(t *testing.T) {
 		})
 	}
 }
+
+// A `link` message carries its URLs in `links[]`, and it is read LOOSELY because
+// which of two shapes arrives has never been measured: the documentation says
+// bare URLs, and the webhook this design does not use wrapped each in an object.
+// Reading it as one concrete type would drop the whole body of every link message
+// the day it turned out to be the other — silently, on the field that IS the
+// message.
+func TestALinkMessageCarriesItsURLsWhicheverShapeTheyArriveIn(t *testing.T) {
+	for name, links := range map[string][]json.RawMessage{
+		"bare URLs":    {json.RawMessage(`"https://vnexpress.net/a"`)},
+		"wrapped ones": {json.RawMessage(`{"url":"https://vnexpress.net/a","title":"a"}`)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			msg := inboundMessage()
+			msg.Type, msg.Message, msg.Links = "link", "", links
+
+			rec, err := recordFor(msg, fixtureOAID)
+			if err != nil {
+				t.Fatalf("recordFor: %v", err)
+			}
+			if !strings.Contains(rec.Activity.Body, "https://vnexpress.net/a") {
+				t.Fatalf("Body = %q, want the address the message carried", rec.Activity.Body)
+			}
+		})
+	}
+	// And an element this unit cannot read costs that element and not the record:
+	// the provider's own row is kept as evidence either way.
+	msg := inboundMessage()
+	msg.Type, msg.Message, msg.Links = "link", "", []json.RawMessage{json.RawMessage(`12345`)}
+	rec, err := recordFor(msg, fixtureOAID)
+	if err != nil {
+		t.Fatalf("recordFor: %v", err)
+	}
+	if !strings.Contains(rec.Activity.Body, "[link]") {
+		t.Fatalf("Body = %q, want it to still name the type", rec.Activity.Body)
+	}
+}

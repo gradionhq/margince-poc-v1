@@ -127,8 +127,14 @@ func TestOnlyOneCallerEverSpendsTheRefreshToken(t *testing.T) {
 	rt := newRuntime()
 	seal(t, rt, livePair(at(-time.Hour)))
 	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
-	grants := &fakeGrants{rotated: livePair(at(25 * time.Hour))}
+	// A REPLACEMENT WITH DISTINCT VALUES, so the assertion below can tell a caller
+	// that read the renewal from one that read the original. The same fixture with
+	// the same strings on both sides would pass against an implementation that
+	// ignored the rotation entirely.
+	renewed := tokenPair{AccessToken: "access-2", RefreshToken: "refresh-2", ExpiresAt: at(25 * time.Hour)}
+	grants := &fakeGrants{rotated: renewed}
 	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusConnected, nil, cursor{}),
 		connectionRow(statusConnected, nil, cursor{}),
 	}
@@ -149,8 +155,48 @@ func TestOnlyOneCallerEverSpendsTheRefreshToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the caller arriving after the renewal: %v", err)
 	}
-	if after.AccessToken != "access-1" || grants.rotations != 1 {
+	if after.AccessToken != "access-2" {
+		t.Fatalf("the second caller spent %q, want the replacement the first one kept", after.AccessToken)
+	}
+	if grants.rotations != 1 {
 		t.Fatalf("the second caller renewed again (%d rotations) instead of spending what the first one kept", grants.rotations)
+	}
+}
+
+// THE STALE-PAIR RACE, which is the one the lease alone does not close: a caller
+// reads the expiring pair, another caller renews and releases, and the first then
+// wins a free lease holding a token that is already dead.
+//
+// Presenting it would have Zalo refuse a credential that was renewed correctly
+// seconds earlier, and this side would park a healthy connection — recoverable
+// only by an OA admin in a browser at another company. Re-reading under the claim
+// is what makes the second caller find nothing to do.
+func TestACallerHoldingAStalePairDoesNotSpendItAfterSomebodyElseRenewed(t *testing.T) {
+	rt := newRuntime()
+	seal(t, rt, livePair(at(-time.Hour)))
+	rt.secrets.stored["workspace//"+appSecretKey] = []byte("secret")
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, nil, cursor{}),
+		connectionRow(statusConnected, nil, cursor{}),
+	}
+	renewed := tokenPair{AccessToken: "access-2", RefreshToken: "refresh-2", ExpiresAt: at(25 * time.Hour)}
+	// The other caller finishes between this one's read and its claim: it sealed
+	// the replacement and released the lease, exactly the order rotate writes in.
+	grants := &fakeGrants{rotated: tokenPair{AccessToken: "access-3", RefreshToken: "refresh-3", ExpiresAt: at(25 * time.Hour)}}
+	grants.beforeRotate = func() {
+		t.Fatal("the stale caller reached the token endpoint with a token somebody else had already spent")
+	}
+	seal(t, rt, renewed)
+
+	got, _, err := usableToken(t.Context(), rt, grants, connectedConn(), at(0))
+	if err != nil {
+		t.Fatalf("usableToken: %v", err)
+	}
+	if got.AccessToken != "access-2" {
+		t.Fatalf("the caller spent %q, want the pair the other caller left on deposit", got.AccessToken)
+	}
+	if grants.rotations != 0 {
+		t.Fatalf("the token endpoint was reached %d times over a credential that had just been renewed", grants.rotations)
 	}
 }
 

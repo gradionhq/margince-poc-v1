@@ -86,13 +86,20 @@ type walkSpec struct {
 	// any such pair forever. Re-deciding the boundary costs one deduplicated
 	// replay per tick, because the natural key makes a re-land a no-op.
 	stopBelow int64
-	// skipAtOrAbove declines to collect anything at or above this timestamp
-	// while still paging past it. It is how a backfill resumes: the pages above
-	// the unread region are walked through rather than around, because the
-	// provider offers no way to seek to a time.
+	// skipAbove declines to collect anything NEWER than this timestamp while
+	// still paging past it. It is how a backfill resumes: the pages above the
+	// unread region are walked through rather than around, because the provider
+	// offers no way to seek to a time.
+	//
+	// It is strictly-above for the same reason stopBelow is inclusive, and the
+	// two boundaries are the same rule seen from each end. A truncated walk stops
+	// at a PAGE edge, which can fall in the middle of several messages sharing
+	// one millisecond — so a skip that also dropped the ties would lose every
+	// sibling of the boundary message, permanently, while re-collecting them
+	// costs a deduplicated replay.
 	//
 	// Zero collects everything.
-	skipAtOrAbove int64
+	skipAbove int64
 	// startPage is where to begin, in pages of maxChatPage.
 	startPage int
 	// budget is how many pages this walk may spend.
@@ -137,7 +144,7 @@ func walkChats(ctx context.Context, api *client, spec walkSpec) (walkResult, err
 				result.closed = true
 				return result, nil
 			}
-			if spec.skipAtOrAbove > 0 && row.Time >= spec.skipAtOrAbove {
+			if spec.skipAbove > 0 && row.Time > spec.skipAbove {
 				// Above the region this walk is filling. It is paged through
 				// rather than sought past, because the provider has no seek.
 				continue

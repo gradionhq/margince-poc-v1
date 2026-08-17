@@ -22,6 +22,7 @@ package zalooa
 // for no merge key precisely because there is nothing here to vouch for.
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -172,7 +173,37 @@ func bodyFor(msg chatMessage) string {
 			parts = append(parts, extra)
 		}
 	}
+	for _, link := range msg.Links {
+		if address := linkURL(link); address != "" {
+			parts = append(parts, address)
+		}
+	}
 	return strings.Join(parts, " ")
+}
+
+// linkURL reads one entry of a `link` or `links` message.
+//
+// It accepts BOTH shapes the provider might be sending — a bare URL string, or
+// an object carrying one — because which of the two arrives here has never been
+// measured: the documentation says bare URLs and the webhook this design does
+// not use wrapped each in an object. Reading it as one concrete type would have
+// dropped the whole body of every link message the day it turned out to be the
+// other, silently, on a field that IS the message.
+//
+// Anything it cannot read answers empty rather than guessing, and the provider's
+// original row is kept as evidence either way.
+func linkURL(raw json.RawMessage) string {
+	var bare string
+	if err := json.Unmarshal(raw, &bare); err == nil {
+		return strings.TrimSpace(bare)
+	}
+	var wrapped struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err == nil {
+		return strings.TrimSpace(wrapped.URL)
+	}
+	return ""
 }
 
 // typeText is the only message type whose body is simply its text.

@@ -32,7 +32,7 @@
   "extZaloOa.step1.permissionUrl": "Sau đó nhờ quản trị viên OA mở đường dẫn này và bấm Cho phép",
   "extZaloOa.step1.redirectUri": "Địa chỉ chuyển hướng",
   "extZaloOa.step1.start": "Bắt đầu cấp quyền",
-  "extZaloOa.step1.sub": "Lấy từ developers.zalo.me. Địa chỉ chuyển hướng phải trùng khớp hoàn toàn với OA Callback Url đã lưu ở đó.",
+  "extZaloOa.step1.sub": "Lấy từ developers.zalo.me. Địa chỉ chuyển hướng phải trùng khớp hoàn toàn với OA Callback Url đã lưu ở đó. Bắt đầu cấp quyền sẽ dừng kết nối đang chạy cho tới khi lần cấp quyền này hoàn tất.",
   "extZaloOa.step1.title": "Bước 1 — chuẩn bị cấp quyền",
   "extZaloOa.step2.failed": "Tài khoản chưa được kết nối. Mã có thể đã dùng rồi hoặc đã hết hạn — mã chỉ sống mười phút — hoặc gói dịch vụ của Official Account quá thấp. Hãy làm lại từ bước 1.",
   "extZaloOa.step2.finish": "Hoàn tất kết nối",

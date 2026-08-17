@@ -68,6 +68,21 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 	if err != nil {
 		return noteFailure(ctx, rt, current, err)
 	}
+	// AND THE ACCOUNT IS RECONCILED, every tick, against the one the row claims.
+	//
+	// The connect path takes the id from the token rather than from the request
+	// that carried it, which is what makes the two agree in the first place. This
+	// is the same obligation from the other end: a credential that has come to
+	// answer for a DIFFERENT account than the row names would key every message it
+	// landed under a namespace belonging to somebody else's people, and every
+	// reply would resolve a stranger holding the same number. Nothing about that
+	// is visible afterwards, so it is refused before a single record is built.
+	if label.OAID != current.OAID {
+		if _, err := park(ctx, rt, current, "account_changed", statusReauth); err != nil {
+			return err
+		}
+		return nil
+	}
 	at := current.cursor()
 	budget := maxPagesPerPoll
 	if at.firstPoll() {
@@ -109,10 +124,10 @@ func fillGap(ctx context.Context, rt extension.Runtime, api *client, conn connec
 	at cursor, arrivedSince, budget int,
 ) (cursor, error) {
 	backfill, err := walkChats(ctx, api, walkSpec{
-		stopBelow:     at.floor,
-		skipAtOrAbove: at.gap,
-		startPage:     resumePage(at, arrivedSince),
-		budget:        budget,
+		stopBelow: at.floor,
+		skipAbove: at.gap,
+		startPage: resumePage(at, arrivedSince),
+		budget:    budget,
 	})
 	if err != nil {
 		return at, err
@@ -330,14 +345,27 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 		// On the version this poll READ, so a failure from a tick that started
 		// before an admin re-authorized cannot mark the connection they just
 		// repaired.
-		if _, err := tx.Exec(ctx,
+		updated, err := scanConnection(tx.QueryRow(ctx,
 			`UPDATE `+connectionTable+`
 			    SET last_error_class = $2, last_polled_at = now(),
 			        version = version + 1, updated_at = now()
-			  WHERE id = $1::uuid AND version = $3`, conn.ID, class, conn.Version); err != nil {
+			  WHERE id = $1::uuid AND version = $3
+			 RETURNING `+connectionColumns, conn.ID, class, conn.Version).Scan)
+		if err != nil {
+			if isNoRows(err) {
+				// The row moved on without this tick. What it learned is about a
+				// connection in a state that no longer exists, and the tick that
+				// moved it will report its own outcome.
+				return nil
+			}
 			return err
 		}
-		return nil
+		// RECORDED, like every other state change on this row. The unit's ledger
+		// header names exactly one exemption — the poll's last_polled_at touch on
+		// an otherwise unchanged row — and this is not it: what is written here is
+		// the class a screen renders, and "when did this start failing" is the
+		// question a human brings to it.
+		return recordConnection(ctx, tx, extension.AuditUpdate, eventPolled, &conn, &updated)
 	})
 	if err != nil {
 		return errors.Join(cause, err)

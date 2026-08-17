@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -158,13 +159,21 @@ func newOAuthClient() *oauthClient {
 }
 
 // Redeem exchanges the code the admin's browser came back with.
+//
+// A refusal here IS the credential's: an authorization code is single-use and
+// lives ten minutes, so a grant that did not come back is one no retry will
+// produce. It is reported as such, with the two things that actually go wrong.
 func (o *oauthClient) Redeem(ctx context.Context, appID, appSecret, code, verifier string) (tokenPair, error) {
-	return o.grant(ctx, appSecret, url.Values{
+	pair, err := o.grant(ctx, appSecret, url.Values{
 		"code":          {code},
 		"app_id":        {appID},
 		"grant_type":    {"authorization_code"},
 		"code_verifier": {verifier},
 	})
+	if errors.Is(err, errNoGrant) {
+		return tokenPair{}, fmt.Errorf("%w: the authorization did not produce a token pair — the code may have been used already or expired (it is single-use and lives ten minutes), or the code challenge saved in the developer console was not the one that matches this verifier", errUnauthorized)
+	}
+	return pair, err
 }
 
 // Rotate spends the refresh token and returns its replacement.
@@ -174,11 +183,27 @@ func (o *oauthClient) Redeem(ctx context.Context, appID, appSecret, code, verifi
 // which is why the only caller holds a row lock and persists before it uses
 // anything (credential.go).
 func (o *oauthClient) Rotate(ctx context.Context, appID, appSecret, refreshToken string) (tokenPair, error) {
-	return o.grant(ctx, appSecret, url.Values{
+	pair, err := o.grant(ctx, appSecret, url.Values{
 		"refresh_token": {refreshToken},
 		"app_id":        {appID},
 		"grant_type":    {"refresh_token"},
 	})
+	if errors.Is(err, errNoGrant) {
+		// AN ANSWERED REFUSAL IS NOT PROOF THE CREDENTIAL IS DEAD, and the
+		// asymmetry decides which way to read it. This endpoint's refusal codes are
+		// not in the measured catalog — GUIDE.md §3 covers the OpenAPI host only —
+		// so a rate limit, a disabled app or a maintenance document all arrive here
+		// looking the same as a spent refresh token. Reading them as the credential
+		// would park a working connection, and the only way back from that is an OA
+		// admin at another company; reading them as the provider costs a retry on
+		// the next tick.
+		//
+		// A refresh token that really is dead still parks, on measured evidence
+		// rather than guessed: the access token expires behind it and the API then
+		// answers -216, which IS in the catalog and IS the credential's refusal.
+		return tokenPair{}, fmt.Errorf("%w: the token endpoint would not renew this credential, and did not say why in a way this unit reads", errProvider)
+	}
+	return pair, err
 }
 
 // grant posts one form to the token endpoint and reads what comes back.
@@ -208,12 +233,18 @@ func (o *oauthClient) grant(ctx context.Context, appSecret string, form url.Valu
 	return decodeGrant(body, time.Now())
 }
 
+// errNoGrant is an answer that carried no token pair. It is deliberately NOT a
+// class of its own to a caller: what an unproductive answer MEANS differs by
+// which grant asked for it, so each entry point maps this to the class its own
+// failure has (see Redeem and Rotate).
+const errNoGrant zaloError = "zalo-oa: the token endpoint returned no grant"
+
 // decodeGrant reads the token endpoint's answer.
 //
 // It is a FLAT document rather than the OpenAPI envelope, and its `error` is
 // sometimes a number and sometimes a string — so it is decoded as neither and
 // the presence of the tokens is what decides. A grant with both halves is a
-// grant; anything else is a refusal, and the provider's own text is deliberately
+// grant; anything else is errNoGrant, and the provider's own text is deliberately
 // not carried into it, because this string reaches an operator's screen.
 func decodeGrant(body []byte, now time.Time) (tokenPair, error) {
 	var answer struct {
@@ -229,7 +260,7 @@ func decodeGrant(body []byte, now time.Time) (tokenPair, error) {
 	if answer.AccessToken == "" || answer.RefreshToken == "" {
 		// Both halves or nothing. A grant missing the refresh token would connect
 		// and then become unrenewable 25 hours later, with no signal in between.
-		return tokenPair{}, fmt.Errorf("%w: the authorization did not produce a token pair — the code may have been used already or expired (it is single-use and lives ten minutes), or the code challenge was encoded differently from the verifier that minted it", errUnauthorized)
+		return tokenPair{}, errNoGrant
 	}
 	lifetime := time.Duration(atoiOrZero(answer.ExpiresIn)) * time.Second
 	if lifetime <= 0 {

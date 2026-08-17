@@ -55,7 +55,7 @@ func connectVia(ctx context.Context, rt extension.Runtime, in json.RawMessage,
 	if err != nil {
 		return nil, err
 	}
-	oaID, err := boundedSecretish(args.OAID, maxOAIDBytes, "the oa_id Zalo redirected back with")
+	claimed, err := boundedSecretish(args.OAID, maxOAIDBytes, "the oa_id Zalo redirected back with")
 	if err != nil {
 		return nil, err
 	}
@@ -68,16 +68,31 @@ func connectVia(ctx context.Context, rt extension.Runtime, in json.RawMessage,
 		return nil, err
 	}
 	// The gate runs on the token that was just issued, against the account that
-	// was just named. A refusal here is the admin's to act on and each kind costs
-	// them something different — see admitTier.
+	// issued it. A refusal here is the admin's to act on and each kind costs them
+	// something different — see admitTier.
 	label, err := admitTier(ctx, dial(granted.AccessToken))
 	if err != nil {
 		return nil, err
 	}
+	// THE ACCOUNT ID STORED IS THE ONE THE TOKEN ANSWERS FOR, never the one the
+	// request carried. It is the same rule as authorized_by two lines below, and
+	// it is the one that would be easiest to get wrong here: the redirect's
+	// `oa_id` is a value a caller supplies, and this column is the NAMESPACE for
+	// every person binding, every thread key and every natural key this unit
+	// writes — and the whole of what stops a reply reaching a different human
+	// (accountWithinOA). A caller who could name it could point an installation's
+	// existing bindings at an account their own credential speaks for.
+	//
+	// The redirect's value is still checked, because a disagreement between what
+	// the browser came back with and what the token answers for is not something
+	// to resolve silently in either direction.
+	if claimed != label.OAID {
+		return nil, fmt.Errorf("%w: this authorization is for a different Official Account than the redirect named, so it has not been connected — start again from this screen and approve with the account you mean to connect", extension.ErrInvalid)
+	}
 	if err := sealTokens(ctx, rt, admin, granted); err != nil {
 		return nil, err
 	}
-	stored, err := markConnected(ctx, rt, pending, admin, oaID, label, granted.ExpiresAt)
+	stored, err := markConnected(ctx, rt, pending, admin, label, granted.ExpiresAt)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +175,7 @@ func tierRefusal(cause error, doing string) error {
 
 // markConnected flips the pending row to a live connection.
 func markConnected(ctx context.Context, rt extension.Runtime, pending connection,
-	admin extension.UserID, oaID string, label oaProfile, expiresAt time.Time,
+	admin extension.UserID, label oaProfile, expiresAt time.Time,
 ) (connection, error) {
 	var stored connection
 	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
@@ -202,7 +217,7 @@ func markConnected(ctx context.Context, rt extension.Runtime, pending connection
 			        updated_at = now()
 			  WHERE id = $1::uuid
 			 RETURNING `+connectionColumns,
-			pending.ID, oaID, string(admin), label.Name, label.PackageName,
+			pending.ID, label.OAID, string(admin), label.Name, label.PackageName,
 			label.PackageValidThroughDate, expiresAt).Scan)
 		if err != nil {
 			return err

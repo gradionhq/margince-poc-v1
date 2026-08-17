@@ -454,3 +454,79 @@ func TestATransactionTheCoreRefusesToOpenIsReported(t *testing.T) {
 		t.Fatalf("error = %v, want the refusal propagated", err)
 	}
 }
+
+// THE ACCOUNT ID IS THE TOKEN'S, NOT THE REQUEST'S. It namespaces every person
+// binding, every thread key and every natural key this unit writes, and it is the
+// whole of what stops a reply reaching a different human — so a caller able to
+// name it could point an installation's existing bindings at an account their own
+// credential speaks for, and nothing afterwards would show it.
+func TestTheAccountIdStoredIsTheOneTheTokenAnswersForAndNotTheOneTheRequestCarried(t *testing.T) {
+	rt := newRuntime()
+	if err := rt.secrets.PutUser(t.Context(), adminUserID, verifierKey, []byte("v")); err != nil {
+		t.Fatalf("depositing the verifier: %v", err)
+	}
+	if err := rt.secrets.Put(t.Context(), appSecretKey, []byte("s")); err != nil {
+		t.Fatalf("depositing the app secret: %v", err)
+	}
+	rt.tx.singleRows = [][]any{connectionRow(statusPending, nil, cursor{floor: 1000})}
+	// The redirect claims an account this credential does not speak for — the
+	// installation's existing one, whose bindings the caller means to inherit.
+	spoofed := json.RawMessage(`{"code":"the-code","oa_id":"9999999999","state":"` + fixtureConnectionID + `"}`)
+
+	_, err := connectVia(t.Context(), rt, spoofed, newZaloFake(t).dial(),
+		&fakeGrants{redeemed: livePair(at(25 * time.Hour))})
+	if !errors.Is(err, extension.ErrInvalid) {
+		t.Fatalf("error = %v, want the disagreement refused", err)
+	}
+	if _, sealed := rt.secrets.stored["user/"+adminUserID+"/"+tokenKey]; sealed {
+		t.Fatal("a credential was sealed for an authorization whose account did not match the token")
+	}
+	for _, sql := range rt.tx.statements {
+		if strings.Contains(sql, "oa_id = $2") {
+			t.Fatalf("the row was written for a spoofed account: %s", sql)
+		}
+	}
+}
+
+// Re-pointing the row at a NEW administrator withdraws the previous one's sealed
+// credential in the same act.
+//
+// What would be left behind is not a stray blob: the ingress port reads a deposit
+// as that person's live consent to be acted for, and nothing else ever reaches it
+// — a later disconnect withdraws the row's CURRENT administrator, who is by then
+// somebody else.
+func TestStartingAnAuthorizationAsSomebodyElseWithdrawsThePreviousAdminsCredential(t *testing.T) {
+	rt := newRuntime()
+	previous := "22222222-3333-4444-5555-666666666666"
+	if err := sealTokens(t.Context(), rt, extension.UserID(previous), livePair(at(20*time.Hour))); err != nil {
+		t.Fatalf("sealing the previous admin's credential: %v", err)
+	}
+	before := connectionRow(statusConnected, nil, cursor{})
+	before[4] = previous
+	rt.tx.singleRows = [][]any{before, connectionRow(statusPending, nil, cursor{})}
+
+	if _, err := authorize(t.Context(), rt, authorizeArgs()); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	if _, still := rt.secrets.stored["user/"+previous+"/"+tokenKey]; still {
+		t.Fatal("the superseded administrator's credential is still on deposit, and the ingress port reads a deposit as live consent")
+	}
+}
+
+// And re-authorizing as the SAME administrator does not withdraw their own
+// credential, which they are about to replace.
+func TestReauthorizingAsTheSameAdminKeepsTheirDepositUntilItIsReplaced(t *testing.T) {
+	rt := newRuntime()
+	seal(t, rt, livePair(at(20*time.Hour)))
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, nil, cursor{}),
+		connectionRow(statusPending, nil, cursor{}),
+	}
+
+	if _, err := authorize(t.Context(), rt, authorizeArgs()); err != nil {
+		t.Fatalf("authorize: %v", err)
+	}
+	if _, still := rt.secrets.stored["user/"+adminUserID+"/"+tokenKey]; !still {
+		t.Fatal("the caller's own credential was withdrawn by their own re-authorization")
+	}
+}
