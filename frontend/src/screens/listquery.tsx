@@ -249,9 +249,14 @@ export function ListTable<Row>({
     ...chips.map((chip) => translateChip(chip, t)),
     ...dataChips,
   ];
-  const chipOptionKey = allChips
-    .flatMap((chip) => chip.options.map((option) => option.value))
-    .join("\u0000");
+  // Carries the chip KEYS and the grouping, not just a flat list of values:
+  // chosenFor reads both, so two different chip sets that happen to share the
+  // same values must not produce the same key. JSON, rather than a join on a
+  // separator — any separator can appear inside a value, and then ["a","b"]
+  // and ["a<sep>b"] are indistinguishable.
+  const chipOptionKey = JSON.stringify(
+    allChips.map((chip) => [chip.key, chip.options.map((o) => o.value)]),
+  );
   const filterKey = JSON.stringify(query.filters);
   // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
   const chosen = useMemo(
@@ -304,16 +309,23 @@ export function ListTable<Row>({
       // refuses if asked two at once). Clearing such a chip has to drop
       // whichever parameter is currently set, not the chip's own key, which
       // names no parameter at all.
-      const alternatives = allChips
+      // Only THIS chip's own parameters are cleared. A chip whose options each
+      // name a different query parameter (the owner dial: mine, my team's,
+      // unowned) has to drop whichever of its own it currently holds, because
+      // its key names no parameter at all. Clearing every composite parameter
+      // on the surface instead would make picking a lifecycle silently drop the
+      // owner filter — one dial reaching into another's answer.
+      const mine = allChips
+        .filter((chip) => chip.key === key)
         .flatMap((chip) => chip.options.map((option) => option.value))
         .filter((candidate) => candidate.includes(":"))
         .map((candidate) => candidate.slice(0, candidate.indexOf(":")));
-      for (const param of alternatives) {
+      for (const param of mine) {
         delete filters[param];
       }
       if (value) {
         const split = value.indexOf(":");
-        if (split > 0 && alternatives.includes(value.slice(0, split))) {
+        if (split > 0 && mine.includes(value.slice(0, split))) {
           filters[value.slice(0, split)] = value.slice(split + 1);
         } else {
           filters[key] = value;

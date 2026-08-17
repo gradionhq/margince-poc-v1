@@ -637,7 +637,13 @@ export function CompaniesScreen() {
             // first would make the second look untrue.
             cell: (org: Organization) =>
               org.relationship_types?.length ? (
-                <span className="row-wrap">
+                <span
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "var(--space-1)",
+                  }}
+                >
                   {org.relationship_types.map((type) => (
                     <Badge key={type}>
                       {t(RELATIONSHIP_TYPE_LABELS[type])}

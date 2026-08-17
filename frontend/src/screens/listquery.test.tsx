@@ -522,14 +522,19 @@ describe("paging a filtered list", () => {
     );
     await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
 
-    // Next twice. The table resets to page 1 whenever `chosen` changes
-    // IDENTITY — so a chosen object rebuilt on every render reset on every
-    // render, and the list flipped between the first two pages forever.
-    for (const _ of [1, 2]) {
-      await user.click(screen.getByRole("button", { name: /Next/ }));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
+    // Next twice, each press waiting for its page to actually render rather
+    // than for a timer to fire: a zero-duration sleep races React Query's
+    // commit, and a test that sometimes clicks Next on a page that has not
+    // arrived is a test that sometimes passes for the wrong reason.
+    //
+    // The table resets to page 1 whenever `chosen` changes IDENTITY — so a
+    // chosen object rebuilt on every render reset on every render, and the
+    // list flipped between the first two pages forever. ONE press hides that:
+    // the reset lands on a page whose content happens to match. It takes two.
+    await user.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
 
+    await user.click(screen.getByRole("button", { name: /Next/ }));
     await waitFor(() => expect(screen.getByText("Row 50")).toBeTruthy());
     expect(screen.queryByText("Row 0")).toBeNull();
   });
@@ -577,5 +582,60 @@ describe("a data-driven chip narrows the list", () => {
     expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(
       "owner",
     );
+  });
+});
+
+describe("two chips on one list", () => {
+  it("does not let one dial clear the other's answer", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "lifecycle",
+            label: "org.lifecycle",
+            allLabel: "org.filterLifecycleAll",
+            options: [{ value: "customer", label: "org.lifecycle.customer" }],
+          },
+        ]}
+        dataChips={[
+          {
+            key: "owner",
+            label: "Owner",
+            allLabel: "Any owner",
+            options: [{ value: "unassigned:true", label: "Unassigned" }],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Unassigned" }));
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true"),
+    );
+
+    // Now narrow by something else. Clearing every composite parameter on the
+    // surface — rather than only the chip being changed — would drop the owner
+    // answer here, so picking a lifecycle would silently widen the list back to
+    // every owner while the owner chip still showed "Unassigned".
+    await user.click(screen.getByRole("button", { name: "Account lifecycle" }));
+    await user.click(screen.getByRole("button", { name: "Customer" }));
+
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.lifecycle).toBe(
+        "customer",
+      ),
+    );
+    expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true");
   });
 });
