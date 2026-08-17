@@ -171,7 +171,18 @@ const seedAdminPassword = "demo-password-123"
 //
 // The change ends every session including the one that made it, so this signs
 // in again and hands back the new client.
+//
+// The bootstrap password may ALREADY be seedAdminPassword: `make dev` writes
+// that value into config/margince-admin-password and still sets the hold.
+// Rotating it to itself is refused, and reading that refusal as "already
+// replaced" is what made a fresh `tools/seed.sh` fail three phases later with
+// 403 password_change_required on the anchor company — a seeded installation
+// with seats but no company, which the UI correctly showed as cold-start
+// onboarding. So that case rotates through a detour value and back.
 func replaceOperatorPassword(baseURL, email, password string, c *client) (*client, string, error) {
+	if password == seedAdminPassword {
+		return replaceViaDetour(baseURL, email, c)
+	}
 	body := jsonBody{"current_password": password, "new_password": seedAdminPassword}
 	if err := c.post("/v1/auth/change-password", body, nil); err != nil {
 		// Already replaced by an earlier run or by seed-dev: the account is
@@ -186,6 +197,50 @@ func replaceOperatorPassword(baseURL, email, password string, c *client) (*clien
 		return nil, password, fmt.Errorf("signing in after replacing the password: %w", err)
 	}
 	fmt.Printf("admin:         operator password replaced with %q\n", seedAdminPassword)
+	return fresh, seedAdminPassword, nil
+}
+
+// seedAdminDetour is the value the bootstrap passes THROUGH when it already
+// holds seedAdminPassword. It exists for one round trip and is never the
+// password an installation is left on.
+const seedAdminDetour = "demo-password-123-first-change"
+
+// replaceViaDetour lifts the first-login hold when the current password is
+// already the one this tool would set.
+//
+// The product refuses a rotation to the same value, which is the rule working:
+// a bootstrap credential is meant to have no life beyond the first login, and
+// "changing" it to itself would end that life without replacing anything. Two
+// changes satisfy the rule honestly — the credential really is replaced — and
+// leave the installation on the password the README documents.
+//
+// A failure between the two leaves the account on the detour value, so the
+// error says so rather than making the next run guess.
+func replaceViaDetour(baseURL, email string, c *client) (*client, string, error) {
+	away := jsonBody{"current_password": seedAdminPassword, "new_password": seedAdminDetour}
+	if err := c.post("/v1/auth/change-password", away, nil); err != nil {
+		// Not on hold after all, and already on the documented password:
+		// nothing to do, and the current client still works.
+		if isUnprocessable(err) || isConflict(err) {
+			return c, seedAdminPassword, nil
+		}
+		return nil, seedAdminPassword, fmt.Errorf("lifting the first-login hold: %w", err)
+	}
+	mid, err := login(baseURL, email, seedAdminDetour)
+	if err != nil {
+		return nil, seedAdminDetour, fmt.Errorf("signing in on the detour password: %w", err)
+	}
+	back := jsonBody{"current_password": seedAdminDetour, "new_password": seedAdminPassword}
+	if err := mid.post("/v1/auth/change-password", back, nil); err != nil {
+		return nil, seedAdminDetour, fmt.Errorf(
+			"restoring %q (the account is on %q until this succeeds): %w",
+			seedAdminPassword, seedAdminDetour, err)
+	}
+	fresh, err := login(baseURL, email, seedAdminPassword)
+	if err != nil {
+		return nil, seedAdminDetour, fmt.Errorf("signing in after restoring the password: %w", err)
+	}
+	fmt.Printf("admin:         first-login hold lifted, password is %q\n", seedAdminPassword)
 	return fresh, seedAdminPassword, nil
 }
 

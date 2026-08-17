@@ -198,9 +198,15 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 				"source_id":     sourceID,
 				"status":        leadCreateStatus(p.LeadState),
 				"full_name":     first + " " + last,
-				"email":         strings.ToLower(first+"."+last) + "@" + domain,
-				"company_name":  refs.orgNameByID[orgID],
-				"title":         title,
+				// example.com, never the company's own domain. This lead is
+				// invented, but shopify.com accepts mail whether or not a
+				// Jonas Sommer works there — an invented address at a real
+				// domain is still deliverable, and the dataset's defang pass
+				// cannot reach an address this tool builds at runtime. RFC
+				// 2606 reserves example.com, so nothing here can be sent.
+				"email":        strings.ToLower(first+"."+last) + "@example.com",
+				"company_name": refs.orgNameByID[orgID],
+				"title":        title,
 			}
 			if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
 				body["owner_id"] = owner
