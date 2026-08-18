@@ -2257,8 +2257,11 @@ export const vi = {
   "jobs.state.discarded": "đã loại bỏ",
   "jobs.state.cancelled": "đã huỷ",
   "jobs.attempt": "lần thử {attempt} trên {max} · {when}",
+  "jobs.remedy": "Cần làm: {remedy}",
+  "jobs.jobId": "mã job {id}",
+  "jobs.failingSince": "lỗi từ {when}",
   "jobs.reasonVetted":
-    "Mỗi lý do là câu chữ của chính tầng tác vụ. Nguyên nhân thô từ worker không bao giờ được gửi tới đây, nên một lỗi mà tầng đó không diễn đạt được sẽ báo bằng một câu thay thế cố định.",
+    "Lý do, lớp lỗi và cách xử lý đều là câu chữ của chính tầng tác vụ, không bao giờ là nguyên nhân thô từ worker. Một lỗi mà tầng đó không diễn đạt được sẽ báo bằng câu thay thế cố định và không mang lớp lỗi nào — một lớp lỗi được đặt ra cho văn bản chưa kiểm chứng sẽ khiến cảnh báo của bạn dựa trên phỏng đoán.",
   "jobs.generatedAt": "Đọc lúc {time}",
 
   "audit.you": "Bạn",

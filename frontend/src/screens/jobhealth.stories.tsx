@@ -34,7 +34,25 @@ const FAILURE = {
   attempt: 2,
   max_attempts: 5,
   failed_at: "2026-08-13T09:20:00Z",
+  job_id: 4711,
+  first_failed_at: "2026-08-13T09:08:00Z",
+  failure_class: "provider_unavailable",
+  remedy:
+    "check the provider status page; the retry ladder rides out a brief outage",
   reason: "the model provider refused the request",
+};
+
+// The same failure as the job layer reports it when the stored text could not be
+// vetted: the fixed substitute sentence, and no class, remedy or first failure at
+// all. Its own story because the absent halves are what has to be LOOKED at —
+// nothing automated can see a row that kept a separator, a label or an empty
+// line where a value used to be.
+const UNVETTED_FAILURE = {
+  ...FAILURE,
+  first_failed_at: null,
+  failure_class: null,
+  remedy: null,
+  reason: "the job failed for a reason it could not classify",
 };
 
 // Every story serves /me too: the card gates its own fetch on the admin role,
@@ -74,6 +92,10 @@ export const DeadWork: Story = {
     kinds: [{ ...CLASSIFY, retrying: 0, dead: 3 }, DISPATCHER],
     recent_failures: [{ ...FAILURE, state: "discarded", attempt: 5 }],
   }),
+};
+
+export const UnclassifiedFailure: Story = {
+  render: story({ ...HEALTHY, recent_failures: [UNVETTED_FAILURE] }),
 };
 
 export const Idle: Story = {
