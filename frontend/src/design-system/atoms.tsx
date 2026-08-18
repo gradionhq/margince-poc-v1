@@ -1164,7 +1164,11 @@ export function OverflowMenu({
           ref={panel}
           className="overflow-menu-items"
           hidden={!open}
-          style={{ top: `${at.top}px`, left: `${at.left}px` }}
+          style={{
+            top: `${at.top}px`,
+            left: `${at.left}px`,
+            maxHeight: `${at.maxHeight}px`,
+          }}
         >
           {everOpened && children}
         </div>,
@@ -1174,8 +1178,14 @@ export function OverflowMenu({
   );
 }
 
-// Where the portalled panel sits: under the trigger, right edge to right edge,
-// kept inside the viewport.
+// Where the portalled panel sits: beside the trigger, right edge to right edge,
+// and INSIDE the viewport on both axes.
+//
+// The panel is fixed, so the viewport is all the room there is — a panel placed
+// below a trigger near the bottom edge puts its actions where no amount of page
+// scrolling reaches them. So it opens upward when the space below cannot hold
+// it, takes whichever side has more room when neither can, and is capped to
+// that space so a panel with many items scrolls inside itself.
 //
 // Measured on OPEN and again whenever anything moves it. Scroll is listened to
 // in the CAPTURE phase because a scroll event does not bubble — the trigger may
@@ -1185,8 +1195,8 @@ function useAnchoredToTrigger(
   open: boolean,
   trigger: RefObject<HTMLButtonElement | null>,
   panel: RefObject<HTMLDivElement | null>,
-): { top: number; left: number } {
-  const [at, setAt] = useState({ top: 0, left: 0 });
+): { top: number; left: number; maxHeight: number } {
+  const [at, setAt] = useState({ top: 0, left: 0, maxHeight: 0 });
   useEffect(() => {
     if (!open) {
       return;
@@ -1199,7 +1209,7 @@ function useAnchoredToTrigger(
       const width = panel.current?.offsetWidth ?? 0;
       const room = globalThis.innerWidth - width - MENU_EDGE_GAP;
       setAt({
-        top: anchor.bottom + MENU_EDGE_GAP,
+        ...verticalPlacement(anchor, panel.current?.offsetHeight ?? 0),
         left: Math.max(MENU_EDGE_GAP, Math.min(anchor.right - width, room)),
       });
     };
@@ -1212,6 +1222,28 @@ function useAnchoredToTrigger(
     };
   }, [open, trigger, panel]);
   return at;
+}
+
+// Below the trigger while the panel fits there, above it when it does not, and
+// on the roomier side when neither fits — capped to that side either way.
+//
+// Exported for its own test: jsdom gives every element a zero-sized rectangle,
+// so the only way to state this rule as a test is to state it over the
+// measurements themselves.
+export function verticalPlacement(
+  anchor: DOMRect,
+  height: number,
+): { top: number; maxHeight: number } {
+  const below = globalThis.innerHeight - anchor.bottom - MENU_EDGE_GAP * 2;
+  const above = anchor.top - MENU_EDGE_GAP * 2;
+  const opensDown = height <= below || below >= above;
+  if (opensDown) {
+    return { top: anchor.bottom + MENU_EDGE_GAP, maxHeight: below };
+  }
+  return {
+    top: Math.max(MENU_EDGE_GAP, anchor.top - MENU_EDGE_GAP - height),
+    maxHeight: above,
+  };
 }
 
 // The breathing room between the panel and both the trigger above it and the

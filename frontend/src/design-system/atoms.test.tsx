@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   Checkbox,
   Field,
@@ -9,6 +9,7 @@ import {
   Radio,
   Textarea,
   TextInput,
+  verticalPlacement,
 } from "./atoms";
 import { Select } from "./select";
 
@@ -21,7 +22,10 @@ const STAGES = [
   { value: "lost", label: "Lost" },
 ];
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 // The items are components with their own reads — the company's edit form
 // fetches the user roster and the custom-field catalogue — so rendering them
@@ -58,13 +62,14 @@ it("does not mount its items until the menu is first opened", async () => {
 // on the last row lost the actions it exists to offer. The panel is drawn at
 // the body and positioned against the trigger, so no ancestor can crop it.
 it("draws its panel outside the container that would clip it", async () => {
+  const user = userEvent.setup();
   const { container } = render(
     <OverflowMenu label="More actions">
       <button type="button">Archive</button>
     </OverflowMenu>,
   );
 
-  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+  await user.click(screen.getByRole("button", { name: "More actions" }));
 
   const items = screen.getByRole("button", { name: "Archive" }).parentElement;
   expect(items?.className).toContain("overflow-menu-items");
@@ -79,17 +84,45 @@ it("draws its panel outside the container that would clip it", async () => {
 // to mean outside BOTH — otherwise pressing an item reads as clicking away and
 // closes the menu under the reader's finger.
 it("stays open when an item inside the portalled panel is clicked", async () => {
+  const user = userEvent.setup();
   render(
     <OverflowMenu label="More actions">
       <button type="button">Archive</button>
     </OverflowMenu>,
   );
   const trigger = screen.getByRole("button", { name: "More actions" });
-  await userEvent.click(trigger);
+  await user.click(trigger);
 
-  await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+  await user.click(screen.getByRole("button", { name: "Archive" }));
 
   expect(trigger.getAttribute("aria-expanded")).toBe("true");
+});
+
+// The panel is FIXED, so the viewport is all the room there is: a menu placed
+// below a trigger near the bottom edge puts its actions where no page scrolling
+// reaches them. Stated over the measurements themselves, because jsdom gives
+// every element a zero-sized rectangle and the rule is arithmetic.
+it("opens the panel toward whichever side of the trigger has room", () => {
+  const viewport = 800;
+  vi.stubGlobal("innerHeight", viewport);
+  const near = (top: number) =>
+    ({ top, bottom: top + 30 }) as unknown as DOMRect;
+
+  // Room below: the panel hangs from the trigger.
+  const down = verticalPlacement(near(100), 200);
+  expect(down.top).toBeGreaterThan(130);
+  expect(down.maxHeight).toBeGreaterThan(200);
+
+  // A trigger on the last row of a long page: below is 30px, so the panel
+  // opens UPWARD and ends above the trigger rather than off the bottom edge.
+  const up = verticalPlacement(near(viewport - 40), 200);
+  expect(up.top + 200).toBeLessThanOrEqual(viewport - 40);
+
+  // Taller than either side: it takes the roomier one and is capped to it, so
+  // it scrolls inside itself instead of running past an edge.
+  const squeezed = verticalPlacement(near(500), 2000);
+  expect(squeezed.maxHeight).toBeLessThan(viewport);
+  expect(squeezed.maxHeight).toBeGreaterThan(0);
 });
 
 // The label is half the control. Every hand-rolled site this atom replaces got

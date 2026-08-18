@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -65,14 +65,17 @@ const GRANTED = {
 // row's paper — are answered independently, and a request for the WRONG
 // contract's paper is visible as an empty answer rather than silently serving
 // the same file.
-function stub(paperByContract: Record<string, unknown[]>) {
+function stub(
+  paperByContract: Record<string, unknown[]>,
+  contracts: unknown[] = [CONTRACT],
+) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       // The generated client calls fetch with a Request, whose String() is
       // "[object Request]" — reading `.url` is what actually names the path.
       const url = input instanceof Request ? input.url : String(input);
-      let body: unknown = { data: [CONTRACT] };
+      let body: unknown = { data: contracts };
       if (url.includes("/me")) {
         body = GRANTED;
       } else if (url.includes("/documents")) {
@@ -135,15 +138,22 @@ describe("a contract's signed paper", () => {
   });
 
   it("says nothing at all when an agreement has no paper on file", async () => {
-    stub({});
+    // TWO agreements, and only the second has paper. The one that does is what
+    // makes the negative assertion mean something: a bare "no link is on
+    // screen" passes while the paper read is still in flight, so this waits for
+    // a paper read to have LANDED and only then counts the links.
+    const SLA = { ...CONTRACT, id: "c-2", title: "Support SLA" };
+    stub({ "c-2": [{ ...PAPER, id: "a-9", filename: "SLA-2026.pdf" }] }, [
+      CONTRACT,
+      SLA,
+    ]);
     show(<CompanyContractsCard orgId="o-1" />);
     await screen.findByText("Framework agreement 2026");
 
     // Recording what was agreed and filing the PDF are separate acts: a
     // commercial record entered from an invoice is complete without a file, so
     // an empty word here would report a gap that is not one.
-    await waitFor(() => {
-      expect(screen.queryByRole("link")).toBeNull();
-    });
+    await screen.findByRole("link", { name: "SLA-2026.pdf" });
+    expect(screen.getAllByRole("link")).toHaveLength(1);
   });
 });
