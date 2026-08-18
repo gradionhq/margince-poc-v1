@@ -26,7 +26,7 @@ import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
-import { formatDateAbbrev } from "../format/format";
+import { formatDateAbbrev, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -265,6 +265,65 @@ function StatusBadge({ status }: Readonly<{ status: Lead["status"] }>) {
   const label = statusLabel(status);
   return <Badge>{label ? t(label) : status}</Badge>;
 }
+
+// The first-response SLA (formulas §18.1) as a reader sees it: overdue,
+// running out, or nothing — a lead within its target carries no badge, so the
+// list stays quiet until something needs a hand.
+function SlaBadge({ state }: Readonly<{ state: Lead["sla_state"] }>) {
+  const t = useT();
+  if (state === "breached") {
+    return <Badge tone="danger">{t("lead.sla.breached")}</Badge>;
+  }
+  if (state === "at_risk") {
+    return <Badge tone="warn">{t("lead.sla.atRisk")}</Badge>;
+  }
+  return null;
+}
+
+// The clock, on the lead's own page: when the first response was given, or
+// when it is due and how that stands. Nothing on a closed lead, which owes
+// no first response.
+function FirstResponseLine({ lead }: Readonly<{ lead: Lead }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (lead.first_response_at) {
+    return (
+      <span className="t-caption">
+        {t("lead.sla.answeredAt", {
+          at: formatDateTime(lead.first_response_at, locale, zone),
+        })}
+      </span>
+    );
+  }
+  if (!lead.sla_deadline_at || !lead.sla_state) {
+    return null;
+  }
+  return (
+    <span
+      className="t-caption"
+      style={{
+        display: "inline-flex",
+        gap: "var(--space-2)",
+        alignItems: "baseline",
+      }}
+    >
+      <SlaBadge state={lead.sla_state} />
+      {t(
+        lead.sla_state === "breached"
+          ? "lead.sla.overdueSince"
+          : "lead.sla.dueBy",
+        { at: formatDateTime(lead.sla_deadline_at, locale, zone) },
+      )}
+    </span>
+  );
+}
+
+const LEAD_SLA_STATES = [
+  { value: "breached", label: "lead.sla.breached" },
+  { value: "at_risk", label: "lead.sla.atRisk" },
+  { value: "within_target", label: "lead.sla.withinTarget" },
+] as const;
 
 async function createLead(
   values: Record<string, string>,
@@ -592,7 +651,18 @@ export function LeadsScreen() {
           {
             key: "status",
             header: t("lead.status"),
-            cell: (lead: Lead) => <StatusBadge status={lead.status} />,
+            cell: (lead: Lead) => (
+              <span
+                style={{
+                  display: "inline-flex",
+                  gap: "var(--space-1)",
+                  alignItems: "center",
+                }}
+              >
+                <StatusBadge status={lead.status} />
+                <SlaBadge state={lead.sla_state} />
+              </span>
+            ),
           },
           ownerColumn<Lead>(t),
           createdColumn<Lead>(t, locale),
@@ -612,12 +682,25 @@ export function LeadsScreen() {
             allLabel: "lead.filterScoreAll",
             options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
           },
+          {
+            key: "sla_state",
+            label: "lead.filterSla",
+            allLabel: "lead.filterSlaAll",
+            options: LEAD_SLA_STATES.map((state) => ({ ...state })),
+          },
         ]}
         // The one ownership dial every record list carries (DM-VOCAB-OWN-1):
         // mine, my team's, the unowned queue.
         dataChips={ownerChips}
         views={[
           ...standardViews(viewerId),
+          // The overdue queue (formulas §18.1): breached first-response
+          // deadlines, warmest first — what a rep opens before anything else.
+          {
+            label: "list.viewOverdue",
+            sort: "-score",
+            filters: { sla_state: "breached" },
+          },
           { label: "list.viewHighestScore", sort: "-score" },
           {
             label: "list.viewHot",
@@ -1249,6 +1332,7 @@ function LeadLifecycle({
         gap: "var(--space-3)",
       }}
     >
+      <FirstResponseLine lead={lead} />
       <LeadIdentityFields
         lead={lead}
         save={saveField}

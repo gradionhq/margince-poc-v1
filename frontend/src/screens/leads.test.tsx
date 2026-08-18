@@ -847,6 +847,52 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
     );
   });
 
+  it("an overdue lead wears the badge, and the Overdue view asks for sla_state=breached", async () => {
+    // formulas §18.1: the first-response clock as the list shows it. A lead
+    // within target carries no badge, so the list stays quiet until something
+    // needs a hand.
+    const { urls } = stubFetch(async () =>
+      jsonResponse({
+        data: [
+          {
+            ...lead,
+            sla_state: "breached",
+            sla_deadline_at: "2026-06-01T08:00:00Z",
+          },
+          {
+            ...lead,
+            id: "l-2",
+            full_name: "Otto Fischer",
+            sla_state: "within_target",
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
+    expect(screen.getAllByText("Overdue").length).toBeGreaterThan(0);
+    expect(screen.queryByText("On time")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Overdue" }));
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("sla_state=breached"))).toBe(true),
+    );
+  });
+
+  it("the lead page says when the first response is due, and when it was given", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        ...lead,
+        sla_state: "at_risk",
+        sla_deadline_at: "2026-06-01T08:00:00Z",
+      }),
+    );
+    render(<LeadScreen id="l-1" />);
+    expect(await screen.findByText(/First response due by/)).toBeTruthy();
+    expect(screen.getByText("Due soon")).toBeTruthy();
+  });
+
   it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
