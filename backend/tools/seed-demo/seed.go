@@ -72,6 +72,15 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err := refs.loadDeals(c, cfg); err != nil {
 		return err
 	}
+	// The invented staff go in BEFORE the committees are drawn. A deal's
+	// stakeholders come from its company's employees, and seedStakeholders
+	// skips a company that publishes nobody — so staffing these five after it
+	// left them the only staffed companies whose deals had no committee, which
+	// is exactly what the verify rule catches.
+	inventedPeople, inventedLinks, err := seedInventedStaff(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
 	stakeholders, err := seedStakeholders(c, cfg, refs, mode)
 	if err != nil {
 		return err
@@ -96,6 +105,10 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 	if err != nil {
 		return err
 	}
+	standing, err := seedWhatEachCompanyIs(c, cfg, refs, mode)
+	if err != nil {
+		return err
+	}
 	// Ownership runs last: it walks every organization the installation holds,
 	// including any a previous run created, so it must see the finished set.
 	ownedOrgs, ownedPeople, err := assignOwners(c, cfg, refs, mode)
@@ -111,8 +124,9 @@ func seedPipeline(c *client, seats *sessions, cfg demoConfig, companies []compan
 		products: catalogue.products, offers: catalogue.offers,
 		documents: paper.documents, looseDocs: paper.looseDocs,
 		consents: consents, lifecycles: lifecycles, surfaces: catalogue.surfaces, fxRates: fxRates,
-		partnerEdges: catalogue.partnerEdges,
-		ownedOrgs:    ownedOrgs, ownedPeople: ownedPeople,
+		partnerEdges: catalogue.partnerEdges, relTypes: standing.relTypes,
+		dualPartners: standing.dualPartners, inventedPeople: inventedPeople, inventedLinks: inventedLinks,
+		ownedOrgs: ownedOrgs, ownedPeople: ownedPeople,
 	})
 	return nil
 }
@@ -160,7 +174,9 @@ type pipelineCounts struct {
 	documents, looseDocs          int
 	consents, lifecycles          int
 	surfaces, fxRates             int
-	partnerEdges                  int
+	partnerEdges, relTypes        int
+	dualPartners                  int
+	inventedPeople, inventedLinks int
 	ownedOrgs, ownedPeople        int
 }
 
@@ -176,6 +192,9 @@ func reportPipeline(n pipelineCounts) {
 	fmt.Printf("fx rates:      %d loaded\n", n.fxRates)
 	fmt.Printf("surfaces:      %d new (tags, lists, custom fields, projects, quotas)\n", n.surfaces)
 	fmt.Printf("partner edges: %d new (referrals, co-sells, served accounts)\n", n.partnerEdges)
+	fmt.Printf("rel. types:    %d set (what each company IS to us)\n", n.relTypes)
+	fmt.Printf("dual partners: %d customer(s) also promoted to partner\n", n.dualPartners)
+	fmt.Printf("invented staff:%d person/people, %d employment(s) — companies that publish none\n", n.inventedPeople, n.inventedLinks)
 	fmt.Printf("consent:       %d recorded\n", n.consents)
 	fmt.Printf("lifecycle:     %d changed\n", n.lifecycles)
 	fmt.Printf("owners:        %d organization(s), %d person/people\n", n.ownedOrgs, n.ownedPeople)
@@ -231,7 +250,7 @@ func seedCompany(c *client, comp company, dryRun bool) (counts, error) {
 			got.skipped++
 			continue
 		}
-		personID, existed, err := ensurePerson(c, person, email, dryRun)
+		personID, existed, err := ensurePerson(c, person, email, seedSource, dryRun)
 		if err != nil {
 			return got, fmt.Errorf("person %q: %w", person.Name, err)
 		}
@@ -353,7 +372,13 @@ func findOrganization(c *client, comp company) (id string, found bool, err error
 
 // ensurePerson finds someone by their address and creates them if absent.
 // The address is the natural key the product itself dedupes on.
-func ensurePerson(c *client, person datasetPers, email string, dryRun bool) (id string, existed bool, err error) {
+//
+// source says where this person came from, and is a parameter rather than a
+// constant because the answer is load-bearing: almost everyone here was read
+// off their employer's own website, while the twelve invented for companies
+// that publish no staff carry inventedPersonSource. A query must always be
+// able to tell the two apart.
+func ensurePerson(c *client, person datasetPers, email, source string, dryRun bool) (id string, existed bool, err error) {
 	if id, found, err := findPerson(c, email); err != nil {
 		return "", false, err
 	} else if found {
@@ -366,7 +391,7 @@ func ensurePerson(c *client, person datasetPers, email string, dryRun bool) (id 
 	first, last := splitName(person.Name)
 	body := jsonBody{
 		"full_name": person.Name,
-		"source":    seedSource,
+		"source":    source,
 		"emails":    []jsonBody{{"email": email, "email_type": "work", "is_primary": true}},
 	}
 	addIfSet(body, "first_name", first)
