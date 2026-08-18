@@ -287,8 +287,8 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    FOR UPDATE SKIP LOCKED)
 			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(left(p.display_name, $5), ''),
 			          p.activity_id, p.owner_id,
-			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), $6), ''),
-			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id), $7), '')`,
+			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id AND a.restricted_at IS NULL), $6), ''),
+			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id AND a.restricted_at IS NULL), $7), '')`,
 			limit, pendingLease.Seconds(), PendingMaxAttempts, claim,
 			MaxCapturedNameChars, MaxCapturedSubjectChars, MaxCapturedBodyChars)
 		if err != nil {

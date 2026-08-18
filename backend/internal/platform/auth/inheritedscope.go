@@ -22,6 +22,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// ActivityAvailableClause is the predicate under which an activity is in the
+// readable world at all: not held under a statutory retention obligation
+// (A165/ADR-0114 §2). A restricted row is unavailable in EVERY ordinary read
+// path — lists, timelines, search, exports, embeddings, agent grounding — for
+// every principal, the unbounded admin included, because the obligation
+// justifies storage and nothing else. It is composed into ActivityScopeClause
+// so the ~30 readers that carry the scope get it for free, and it is exported
+// for the readers that legitimately bypass the scope (an engine-internal
+// aggregate, a capture-side gate) and must still exclude what is held.
+// alias names the activity table in the outer query.
+func ActivityAvailableClause(alias string) string {
+	return alias + ".restricted_at IS NULL"
+}
+
 // ActivityScopeClause is the activity analogue of ScopeClause:
 // activities have no owner, but their free-text inherits the
 // sensitivity of the records they attach to. An activity is visible when
@@ -32,13 +46,19 @@ import (
 // both the activities timeline and people's promotion-evidence check
 // enforce it — scope policy has exactly one spelling (ADR-0054 §8).
 // alias names the activity table in the outer query.
+//
+// It is never empty: an unbounded principal is spared the link-walk, not the
+// availability test (ActivityAvailableClause). Callers written for the older
+// "empty means unscoped" contract keep working — an always-present clause is
+// what they append when it is present.
 func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
 	p, err := rbacActor(ctx)
 	if err != nil {
 		return "", err
 	}
+	available := ActivityAvailableClause(alias)
 	if UnboundedFor(p, linkTargetTables...) {
-		return "", nil
+		return available, nil
 	}
 	// One correlated pass over the activity's links, not two. bool_or is
 	// exactly the ANY-link rule, and its empty-set answer — NULL, coalesced
@@ -52,9 +72,9 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 	// caller has been paying it; it only surfaced as a budget failure when
 	// capture privacy stopped exempting the all-scope reader the perf
 	// fixture happens to run as.
-	return fmt.Sprintf(`coalesce((SELECT bool_or(%[2]s)
+	return fmt.Sprintf(`%[3]s AND coalesce((SELECT bool_or(%[2]s)
 	   FROM activity_link l WHERE l.activity_id = %[1]s.id), true)`,
-		alias, linkTargetVisible(p, "l", arg)), nil
+		alias, linkTargetVisible(p, "l", arg), available), nil
 }
 
 // SignalScopeClause is the signal analogue of ActivityScopeClause: a
@@ -160,9 +180,9 @@ func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 	if err != nil {
 		return err
 	}
-	if clause == "" {
-		return nil
-	}
+	// Never skipped, even for an unbounded principal: the clause always
+	// carries the availability test, and a restricted row must read as gone
+	// to everyone.
 	var visible bool
 	err = tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM activity a WHERE a.id = $%d AND %s)`, idPos, clause),

@@ -117,6 +117,7 @@ func (s *Sink) correspondencePositiveTx(ctx context.Context, tx pgx.Tx, email st
 		SELECT COALESCE(subject, ''), COALESCE(body, '')
 		  FROM activity
 		 WHERE counterparty_email = $1 AND counterparty_outbound_attested
+		   AND restricted_at IS NULL
 		 LIMIT 2`, normalized)
 	if err != nil {
 		return false, fmt.Errorf("capture: correspondence-positive gate: %w", err)
