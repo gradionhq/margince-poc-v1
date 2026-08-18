@@ -3936,6 +3936,60 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 	}
 }
 
+// Defines values for FilterPreviewResource.
+const (
+	FilterPreviewResourceDeal         FilterPreviewResource = "deal"
+	FilterPreviewResourceLead         FilterPreviewResource = "lead"
+	FilterPreviewResourceOrganization FilterPreviewResource = "organization"
+	FilterPreviewResourcePerson       FilterPreviewResource = "person"
+	FilterPreviewResourceProject      FilterPreviewResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the FilterPreviewResource enum.
+func (e FilterPreviewResource) Valid() bool {
+	switch e {
+	case FilterPreviewResourceDeal:
+		return true
+	case FilterPreviewResourceLead:
+		return true
+	case FilterPreviewResourceOrganization:
+		return true
+	case FilterPreviewResourcePerson:
+		return true
+	case FilterPreviewResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterPreviewRequestResource.
+const (
+	FilterPreviewRequestResourceDeal         FilterPreviewRequestResource = "deal"
+	FilterPreviewRequestResourceLead         FilterPreviewRequestResource = "lead"
+	FilterPreviewRequestResourceOrganization FilterPreviewRequestResource = "organization"
+	FilterPreviewRequestResourcePerson       FilterPreviewRequestResource = "person"
+	FilterPreviewRequestResourceProject      FilterPreviewRequestResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the FilterPreviewRequestResource enum.
+func (e FilterPreviewRequestResource) Valid() bool {
+	switch e {
+	case FilterPreviewRequestResourceDeal:
+		return true
+	case FilterPreviewRequestResourceLead:
+		return true
+	case FilterPreviewRequestResourceOrganization:
+		return true
+	case FilterPreviewRequestResourcePerson:
+		return true
+	case FilterPreviewRequestResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FilterVocabularyResource.
 const (
 	FilterVocabularyResourceDeal         FilterVocabularyResource = "deal"
@@ -14204,6 +14258,54 @@ type FieldHistoryListResponse struct {
 	Data []FieldHistoryEntry `json:"data"`
 	Page PageInfo            `json:"page"`
 }
+
+// FilterPreview What a candidate filter would select for this caller (LVS-EXT-9).
+type FilterPreview struct {
+	// Columns The column order the rows below are keyed by, schema-derived and
+	// identical to the JSON filtered export's for the same resource.
+	Columns []string `json:"columns"`
+
+	// MatchCount Every row the filter selects that this caller may see — not the
+	// length of `rows`. This is the number a builder shows a human while
+	// they decide whether the filter is right, so it is a full count rather
+	// than a page size dressed up as one.
+	MatchCount int                   `json:"match_count"`
+	Resource   FilterPreviewResource `json:"resource"`
+
+	// Rows Up to `limit` matching rows as column→value maps, ordered by id.
+	// Deliberately the export's projection rather than a shape invented for
+	// this screen: a preview that showed different columns than the export
+	// of the same filter would be a preview of something else.
+	Rows []map[string]interface{} `json:"rows"`
+
+	// Truncated Whether `match_count` exceeds the rows returned — so a caller can say
+	// "showing 25 of 812" without comparing lengths and guessing.
+	Truncated bool `json:"truncated"`
+}
+
+// FilterPreviewResource defines model for FilterPreview.Resource.
+type FilterPreviewResource string
+
+// FilterPreviewRequest A candidate filter to evaluate without saving it.
+type FilterPreviewRequest struct {
+	// Filter The canonical filter tree — the same representation a dynamic list's
+	// `definition` and a saved view's `query` carry, and untyped here for
+	// the same reason they are. The grammar's authority is the predicate
+	// engine, which validates the tree and answers a precise 422 naming the
+	// offending field and reason; a recursive schema here would be a second
+	// statement of that grammar, free to drift from the one that decides.
+	// One engine evaluates all three, so a tree this operation accepts is
+	// one a list or view accepts.
+	Filter map[string]interface{} `json:"filter"`
+
+	// Limit How many rows to sample. The COUNT is unaffected by this — it is the
+	// full match count for the caller, not the size of the page.
+	Limit    *int                         `json:"limit,omitempty"`
+	Resource FilterPreviewRequestResource `json:"resource"`
+}
+
+// FilterPreviewRequestResource defines model for FilterPreviewRequest.Resource.
+type FilterPreviewRequestResource string
 
 // FilterVocabulary What a filter may say about one record type (LVS-EXT-8). Read from the
 // engine that evaluates filters, so the set here and the set the engine
@@ -24626,6 +24728,9 @@ type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
+// PreviewFilterJSONRequestBody defines body for PreviewFilter for application/json ContentType.
+type PreviewFilterJSONRequestBody = FilterPreviewRequest
+
 // SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
 type SetFxRateJSONRequestBody = SetFxRateRequest
 
@@ -31206,6 +31311,9 @@ type ServerInterface interface {
 	// Per-field change history for one record, projected from audit_log before/after diffs.
 	// (GET /field-history)
 	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
+	// Count and sample what a filter would select, before it is saved (LVS-EXT-9).
+	// (POST /filters/preview)
+	PreviewFilter(w http.ResponseWriter, r *http.Request)
 	// Read what a new filter clause may name on one record type (LVS-EXT-8).
 	// (GET /filters/vocabulary)
 	GetFilterVocabulary(w http.ResponseWriter, r *http.Request, params GetFilterVocabularyParams)
@@ -32811,6 +32919,12 @@ func (_ Unimplemented) ListExtensions(w http.ResponseWriter, r *http.Request) {
 // Per-field change history for one record, projected from audit_log before/after diffs.
 // (GET /field-history)
 func (_ Unimplemented) GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Count and sample what a filter would select, before it is saved (LVS-EXT-9).
+// (POST /filters/preview)
+func (_ Unimplemented) PreviewFilter(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40198,6 +40312,26 @@ func (siw *ServerInterfaceWrapper) GetFieldHistory(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetFieldHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewFilter operation middleware
+func (siw *ServerInterfaceWrapper) PreviewFilter(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewFilter(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52902,6 +53036,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/filters/preview", wrapper.PreviewFilter)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/filters/vocabulary", wrapper.GetFilterVocabulary)
