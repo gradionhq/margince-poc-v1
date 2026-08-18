@@ -11,7 +11,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AssistantPanel } from "./assistant";
@@ -541,7 +541,10 @@ function stubFetch(
     rollup?: unknown | Response;
     brief?: unknown;
   }>,
-): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
+): {
+  fetchMock: Mock<(request: Request) => Promise<Response>>;
+  urls: string[];
+} {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
