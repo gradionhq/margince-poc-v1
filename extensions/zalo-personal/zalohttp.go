@@ -71,6 +71,19 @@ func isZaloHost(host string) bool {
 	return false
 }
 
+// isTLSScheme reports whether a cookie-bearing request on this scheme is
+// encrypted. Two schemes qualify, and they are the two this layer speaks:
+// `https` for every REST call and `wss` for the message socket, whose handshake
+// is hand-built and asks the jar for its header directly.
+func isTLSScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "https", "wss":
+		return true
+	default:
+		return false
+	}
+}
+
 // cookieScope resolves the domain a Set-Cookie may claim, or reports that it may
 // claim none.
 //
@@ -218,6 +231,16 @@ func isCleared(c *http.Cookie, now time.Time) bool {
 }
 
 func (j *jar) Cookies(u *url.URL) []*http.Cookie {
+	// Every cookie in here is live session credential, so the TRANSPORT is part
+	// of a cookie's scope: a plaintext request puts `zpw_sek` on the wire for
+	// anyone on the path. Zalo is HTTPS-only and its socket is wss, so the rule
+	// belongs to the jar rather than to a Secure attribute some response would
+	// forget — which also makes it hold for a URL nobody here audited, since the
+	// hosts in `zpw_service_map_v3` are chosen by the server, not by this source.
+	if !isTLSScheme(u.Scheme) {
+		return nil
+	}
+
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
@@ -350,6 +373,13 @@ func newClient(opts zaloOptions) *client {
 				// session to whoever named it.
 				if !isZaloHost(req.URL.Hostname()) {
 					return fmt.Errorf("refusing to follow a redirect to %s: it is not a Zalo host, and this request carries the member's session", req.URL.Hostname())
+				}
+				// Downgrading the scheme is something a response gets to
+				// propose. The jar refuses to attach cookies to a plaintext
+				// hop; refusing the hop too means the request does not instead
+				// proceed silently stripped of its session.
+				if !isTLSScheme(req.URL.Scheme) {
+					return fmt.Errorf("refusing to follow a redirect to a %s:// URL: this request carries the member's session and Zalo is HTTPS-only", req.URL.Scheme)
 				}
 				req.Header.Set("Referer", "https://id.zalo.me/")
 				return nil

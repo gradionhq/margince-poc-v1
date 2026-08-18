@@ -23,6 +23,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -334,13 +335,22 @@ func TestTheTwoErrorKindsSayWhichOneHappened(t *testing.T) {
 // id.zalo.me and chat.zalo.me, and Zalo serves a challenge page rather than a
 // session to a hop whose referer it does not recognise.
 func TestARedirectChainCarriesTheRefererZaloExpects(t *testing.T) {
-	var refererOnLastHop string
+	// The handler runs on net/http's goroutine and this test reads what it
+	// recorded on its own; the response crossing a socket is not a
+	// happens-before edge the memory model gives us, so the observation is
+	// guarded. An unguarded fake reports a race in the code under test.
+	var (
+		mu               sync.Mutex
+		refererOnLastHop string
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/hop" {
 			http.Redirect(w, r, "/landed", http.StatusFound)
 			return
 		}
+		mu.Lock()
 		refererOnLastHop = r.Header.Get("Referer")
+		mu.Unlock()
 		if _, err := w.Write([]byte(`{"error_code":0}`)); err != nil {
 			t.Errorf("write response: %v", err)
 		}
@@ -351,6 +361,8 @@ func TestARedirectChainCarriesTheRefererZaloExpects(t *testing.T) {
 	if _, err := c.doJSON(t.Context(), http.MethodGet, "https://id.zalo.me/hop", nil, nil); err != nil {
 		t.Fatalf("follow redirect: %v", err)
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if refererOnLastHop != "https://id.zalo.me/" {
 		t.Errorf("referer after the hop = %q, want id.zalo.me", refererOnLastHop)
 	}
@@ -427,9 +439,15 @@ func TestACookieSetByAHostZaloDoesNotOwnIsNotStored(t *testing.T) {
 // carries the member's session, so the destination of a hop the RESPONSE chose
 // is a place that session would be handed to.
 func TestARedirectOffZalosDomainsIsRefused(t *testing.T) {
-	var reached []string
+	// Guarded for the reason given at TestARedirectChainCarriesTheRefererZaloExpects.
+	var (
+		mu      sync.Mutex
+		reached []string
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		reached = append(reached, r.Host)
+		mu.Unlock()
 		if r.URL.Path == "/account/checksession" {
 			w.Header().Set("Location", "https://collect.attacker.example/steal")
 			w.WriteHeader(http.StatusFound)
@@ -449,10 +467,69 @@ func TestARedirectOffZalosDomainsIsRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), "attacker.example") {
 		t.Errorf("error %q does not name the host that was refused", err)
 	}
-	for _, host := range reached {
+	mu.Lock()
+	contacted := append([]string(nil), reached...)
+	mu.Unlock()
+	for _, host := range contacted {
 		if strings.Contains(host, "attacker") {
 			t.Errorf("the off-allowlist host was actually contacted: %q", host)
 		}
+	}
+}
+
+// TestTheJarNeverPutsASessionCookieOnAPlaintextWire: a cookie's scope includes
+// the TRANSPORT. Every value in this jar is live session credential, so a
+// request on a plaintext scheme would hand `zpw_sek` to anyone on the path —
+// and the scheme of a URL this layer dials is not always chosen here, since the
+// per-capability hosts come out of the server's own `zpw_service_map_v3`.
+func TestTheJarNeverPutsASessionCookieOnAPlaintextWire(t *testing.T) {
+	j := testJar()
+	j.SetCookies(mustParse(t, "https://chat.zalo.me/index.html"), []*http.Cookie{
+		{Name: "zpw_sek", Value: "the-session-key", Domain: ".zalo.me", Path: "/"},
+	})
+
+	for _, rawURL := range []string{"http://chat.zalo.me/api", "ws://ws4-msg.chat.zalo.me/"} {
+		if got := cookieValues(t, j, rawURL, "zpw_sek"); len(got) != 0 {
+			t.Errorf("the session key was sent to %s: %q", rawURL, got)
+		}
+	}
+	// And the two encrypted schemes this layer actually speaks still get it —
+	// wss because the socket handshake is hand-built and asks the jar directly,
+	// so a scheme check that missed it would silently break the message drain.
+	for _, rawURL := range []string{"https://chat.zalo.me/api", "wss://ws4-msg.chat.zalo.me/"} {
+		if got := cookieValues(t, j, rawURL, "zpw_sek"); len(got) != 1 {
+			t.Errorf("the session key did not reach %s: %q", rawURL, got)
+		}
+	}
+}
+
+// TestARedirectOntoPlaintextIsRefused covers the downgrade a hostile or merely
+// misconfigured answer can propose: the destination is a Zalo host, so the
+// allowlist admits it, and only the scheme says no. The jar would withhold the
+// cookies, which makes silently proceeding the other bad outcome — a request
+// stripped of its session reads as an expired login.
+func TestARedirectOntoPlaintextIsRefused(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The downgraded hop answers perfectly well, which is the point: only
+		// the scheme is wrong, so nothing but the guard can stop the request.
+		if r.URL.Path == "/index.html" {
+			if _, err := w.Write([]byte(`{"error_code":0}`)); err != nil {
+				t.Errorf("write response: %v", err)
+			}
+			return
+		}
+		w.Header().Set("Location", "http://chat.zalo.me/index.html")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+
+	c := newClient(testOptions(t, srv, time.Second))
+	_, err := c.doJSON(t.Context(), http.MethodGet, "https://id.zalo.me/account/checksession", nil, nil)
+	if err == nil {
+		t.Fatal("a redirect that downgraded the scheme to http was followed")
+	}
+	if !strings.Contains(err.Error(), "http") {
+		t.Errorf("error %q does not say the scheme was what was refused", err)
 	}
 }
 

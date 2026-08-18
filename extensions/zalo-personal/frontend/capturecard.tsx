@@ -256,7 +256,7 @@ export function CaptureCard() {
           and nothing happened" was a real report about a system working
           perfectly: the run had drained, found nothing and backed off, and no
           screen said so. */}
-      <CaptureState connection={connection} />
+      <CaptureState connection={connection} canCheckNow={canChoose} />
       <CaptureChoice
         canChoose={canChoose}
         savedMode={savedShape(connection.capture_mode)}
@@ -277,10 +277,20 @@ export function CaptureCard() {
  *
  * `next_check_after` is the state that reads as a broken feature. It is present
  * only while a quiet-period backoff is still in the future, and the honest thing
- * to say about it has two halves: nothing is wrong, and saving looks again
- * sooner. Naming the wait is what stops a rep concluding the connector is dead.
+ * to say about it has two halves: nothing is wrong, and there is a way to be
+ * looked at sooner. Naming the wait is what stops a rep concluding the connector
+ * is dead; naming the way out is what stops them reconnecting to get it.
+ *
+ * THE WAY OUT USED TO BE THE SAVE, and that was the defect: a rep who has
+ * already chosen the right list has nothing to save, so the button carrying the
+ * remedy was greyed out at exactly the moment the sentence above sent them to it.
+ * It is its own control now, and the sentence has two spellings — a seat that may
+ * only read is told the fact without being pointed at a control it does not have.
  */
-function CaptureState({ connection }: Readonly<{ connection: Connection }>) {
+function CaptureState({
+  connection,
+  canCheckNow,
+}: Readonly<{ connection: Connection; canCheckNow: boolean }>) {
   const t = useT();
   const { locale } = useLocale();
   // The READER's own zone: "last checked" is only useful against the clock on the
@@ -299,10 +309,23 @@ function CaptureState({ connection }: Readonly<{ connection: Connection }>) {
       {facts.length > 0 ? <FactList numeric facts={facts} /> : null}
       {connection.next_check_after ? (
         <p className="t-caption">
-          {t("extZaloPersonal.capture.waiting", {
-            at: formatDateTime(connection.next_check_after, locale, zone),
-          })}
+          {t(
+            canCheckNow
+              ? "extZaloPersonal.capture.waitingCheckNow"
+              : "extZaloPersonal.capture.waiting",
+            {
+              at: formatDateTime(connection.next_check_after, locale, zone),
+            },
+          )}
         </p>
+      ) : null}
+      {/* Gated on `connected` as well as on the grant, because that is what the
+          server admits: a scheduled check visits only a connected account, so
+          offering this beside a `needs_reconnect` notice would advertise a check
+          the tick will never make — and the remedy there is a phone, not a
+          button. */}
+      {canCheckNow && connection.status === "connected" ? (
+        <CheckNowAction waiting={Boolean(connection.next_check_after)} />
       ) : null}
       {/* The connector's own vocabulary, translated — never Zalo's message. The
           same `error.<class>` convention the sibling units use, so the four
@@ -310,6 +333,83 @@ function CaptureState({ connection }: Readonly<{ connection: Connection }>) {
       {connection.last_error_class ? (
         <Callout tone="warn">
           {t(`extZaloPersonal.error.${connection.last_error_class}`)}
+        </Callout>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The way out of a quiet-period wait.
+ *
+ * IT DOES NOT FETCH ANYTHING, and the copy is written so that nobody reads it as
+ * if it did. The call clears the backoff on the rep's own connection and returns;
+ * the scheduled run — at least once a minute — is what looks. So the label asks
+ * for a check and the sentence afterwards says when it happens, and nothing here
+ * ever says "checking…" over a request that is only moving a schedule.
+ *
+ * WHY IT IS NOT THE SAVE, restated where somebody might be tempted to merge them:
+ * a save states a rep's consent, and re-stating consent as a side effect of asking
+ * for a refresh is the wrong thing to have happened. The save also has an honest
+ * reason to be inert — there is nothing to save — and relaxing that to carry this
+ * remedy would leave a button that says Save and saves nothing.
+ *
+ * THE BUTTON GOES WHEN THE WAIT DOES and the confirmation stays: the re-read that
+ * follows a successful press reports no wait, so the control has nothing left to
+ * do while the rep still needs to be told what they achieved. It is the same
+ * component either way so that the confirmation survives the state change, and
+ * the confirmation hides again if a later run backs them off afresh — a wait and
+ * an "already asked for" on screen together would be two answers to one question.
+ */
+function CheckNowAction({ waiting }: Readonly<{ waiting: boolean }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const checkNow = useMutation({
+    mutationFn: async () => {
+      const { error, response } = await api.POST(
+        "/ext/zalo-personal/check-now",
+        { body: {} },
+      );
+      if (error || !response.ok) {
+        throwProblem(error);
+      }
+    },
+    // Only the connection's own read: this changes when the next check happens
+    // and nothing about the roster or the verdicts. onSettled rather than
+    // onSuccess for the same reason the save uses it — a request whose response
+    // was lost may well have landed, and `was_waiting` is not a fact this screen
+    // renders, so the row itself is the answer.
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: STATUS_KEY });
+    },
+  });
+  return (
+    <>
+      {waiting ? (
+        <div className="card-actions">
+          {/* `pending` rather than `disabled`: the press that started this is
+              where the rep's focus is, and disabling the control they are on
+              drops that focus to the body — so the second press is swallowed by
+              Button itself while the state is announced from where they stand. */}
+          <Button
+            pending={checkNow.isPending}
+            busyLabel={t("extZaloPersonal.capture.checkNowBusy")}
+            onClick={() => checkNow.mutate()}
+          >
+            {t("extZaloPersonal.capture.checkNow")}
+          </Button>
+        </div>
+      ) : (
+        checkNow.isSuccess && (
+          <p className="t-caption">{t("extZaloPersonal.capture.checkNowDone")}</p>
+        )
+      )}
+      {/* role="alert": it appears after the press that caused it, and a rep who
+          believes the check was brought forward stops watching for the message
+          that is still not arriving. */}
+      {checkNow.isError ? (
+        <Callout tone="danger" live="alert">
+          {t("extZaloPersonal.capture.checkNowFailed")}
         </Callout>
       ) : null}
     </>

@@ -36,6 +36,22 @@
       "digest": "sha256:ac048df12ebf6dcdeeabf07e56a5d3f7ff7a749c9f458348734eb3bded6203a7"
     },
     {
+      "id": "tool/zalo_personal_check_now",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalCheckNow",
+      "route": "/ext/zalo-personal/check-now",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:e79213ba9743ca97426d0518f1168e269ca948c8e0366ad785c57972e62ffea0",
+      "digest": "sha256:e1f18440f17df931932ec823c4ba79a86c897d856e9b744009c69e6018d58e5c"
+    },
+    {
       "id": "tool/zalo_personal_connect_start",
       "unit": "zalo-personal",
       "kind": "agent_tool",

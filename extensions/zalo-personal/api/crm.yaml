@@ -8,9 +8,9 @@
 # document — not the Go — is where every operation's risk tier, Passport scope,
 # RBAC object, prose and I/O schemas are declared.
 #
-# SIX OPERATIONS, all about the CALLER's own account: four that connect, report
-# and withdraw it, and two that decide which of its conversations this CRM may
-# read. NONE of them takes a user id, and that absence is the load-bearing part of this document. This unit's
+# SEVEN OPERATIONS, all about the CALLER's own account: four that connect, report
+# and withdraw it, two that decide which of its conversations this CRM may read,
+# and one that brings the next scheduled check forward. NONE of them takes a user id, and that absence is the load-bearing part of this document. This unit's
 # credential is a personal Zalo login: it reads the member's family, their
 # doctor, their other employer. An operation that let one holder of this RBAC
 # object start a login, confirm one, inspect one or withdraw one for ANOTHER
@@ -670,4 +670,90 @@ actions:
           # verdict table cannot hold.
           '404': { $ref: '#/components/responses/NotFound' }
           '409': { $ref: '#/components/responses/Conflict' }
+          '422': { $ref: '#/components/responses/ValidationError' }
+
+  - target: $.paths['/ext/zalo-personal/check-now']
+    update:
+      # POST, and it must not be the GET it reads like: it WRITES the connection
+      # row's schedule, and the seat ceiling classifies a mutation by method, so
+      # a GET carrying `write` would be a read seat's route to a write. The seam
+      # refuses one outright.
+      #
+      # WHY THIS OPERATION EXISTS, because the mechanism is smaller than the name
+      # suggests. A member who has been quiet sits inside a capped quiet-period
+      # backoff — up to fifteen minutes — and their own screen tells them so, and
+      # the remedy it used to name was "save your list again". A member who has
+      # already chosen the right list has nothing to save, so the button that
+      # would have carried the remedy was greyed out at exactly the moment they
+      # reached for it. Observed twice in live testing, on a connector that was
+      # working perfectly.
+      #
+      # IT DOES NOT FETCH ANYTHING, and no part of this document may imply that
+      # it does. It clears the backoff and returns; the scheduled dispatcher —
+      # which runs at least once a minute — is what actually looks. Anything that
+      # promised a fetch would be promising something this seam cannot deliver:
+      # an extension has no way to enqueue a job, and an inline drain from a
+      # request is refused (the credential's drain is an unattended act).
+      post:
+        operationId: zaloPersonalCheckNow
+        summary: Bring the calling member's next Zalo check forward to the next tick.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        x-rbac-action: update
+        x-mcp-tool:
+          verb: zalo_personal_check_now
+          version: 1.0.0
+          title: Check a Zalo account again sooner
+          # 🟢 auto_execute, and here that is the tier this operation DESERVES
+          # rather than the one the seam forces. What it changes is when a check
+          # that was already going to happen happens: no credential is created
+          # or destroyed, no consent is changed, nothing new becomes readable
+          # that the member had not already chosen. The worst an agent talked
+          # into calling it repeatedly can do is spend one extra handshake per
+          # call — which is why it carries no ledger row either (see the Go).
+          tier: auto_execute
+          scope: write
+          description: >-
+            Make the calling person's next Zalo check due now, so it happens on
+            the next scheduled run instead of after the quiet-period wait. Use it
+            when they say a message they just received has not appeared yet. It
+            does NOT fetch anything itself and nothing arrives while this call is
+            open — it moves the schedule, and the check follows within about a
+            minute. It only ever affects whoever is calling, and it changes
+            nothing about which conversations are captured.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                # The empty object; see the note on connect/start.
+                type: object
+                additionalProperties: false
+                properties: {}
+        responses:
+          '200':
+            description: Whether this call is what ended a wait.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [was_waiting]
+                  properties:
+                    was_waiting:
+                      type: boolean
+                      description: >-
+                        True when this person was inside a quiet-period wait that
+                        this call cleared. False means their next check was
+                        already due, which is not an error and not a failure to
+                        act — asking for a check that is already coming is a
+                        reasonable thing to do.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+          # 404 when the caller has connected no Zalo account, and 422 when they
+          # have one that no scheduled check would visit — a session Zalo stopped
+          # accepting, or an account whose conversations nobody has chosen yet.
+          # Both are states where reporting a check that will not happen would be
+          # the lie this operation exists to remove.
+          '404': { $ref: '#/components/responses/NotFound' }
           '422': { $ref: '#/components/responses/ValidationError' }

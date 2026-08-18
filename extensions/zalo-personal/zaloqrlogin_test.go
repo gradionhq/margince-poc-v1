@@ -93,6 +93,16 @@ func (s *loginServer) start(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// respond is the guarded [loginServer.answer] for the tests that wrap the fake in
+// a handler of their own rather than using [loginServer.start]. answer advances
+// the fake's script, so an unlocked call from a handler goroutine is the same
+// race start() already guards against.
+func (s *loginServer) respond(path string, w http.ResponseWriter) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.answer(path, w)
+}
+
 // answer assumes the caller holds the lock.
 func (s *loginServer) answer(path string, w http.ResponseWriter) string {
 	switch path {
@@ -202,7 +212,7 @@ func TestStartQRSaysSoWhenTheLoginPageIsNotTheLoginPage(t *testing.T) {
 			}
 			return
 		}
-		if _, err := w.Write([]byte(fake.answer(r.URL.Path, w))); err != nil {
+		if _, err := w.Write([]byte(fake.respond(r.URL.Path, w))); err != nil {
 			t.Errorf("write response: %v", err)
 		}
 	}))
@@ -216,7 +226,7 @@ func TestStartQRSaysSoWhenTheLoginPageIsNotTheLoginPage(t *testing.T) {
 func TestStartQRSurfacesARefusalFromTheGenerateCall(t *testing.T) {
 	fake := &loginServer{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body := fake.answer(r.URL.Path, w)
+		body := fake.respond(r.URL.Path, w)
 		if r.URL.Path == "/account/authen/qr/generate" {
 			body = `{"error_code":-2,"error_message":"too many devices"}`
 		}
@@ -552,7 +562,7 @@ func TestABudgetThatExpiresMidRequestIsAskAgainRatherThanAVerdict(t *testing.T) 
 			<-blocked
 			return
 		}
-		if _, err := w.Write([]byte(fake.answer(r.URL.Path, w))); err != nil {
+		if _, err := w.Write([]byte(fake.respond(r.URL.Path, w))); err != nil {
 			t.Errorf("write response: %v", err)
 		}
 	}))
@@ -588,7 +598,7 @@ func TestACallersOwnCancellationIsTheirAnswerToHave(t *testing.T) {
 			<-blocked
 			return
 		}
-		if _, err := w.Write([]byte(fake.answer(r.URL.Path, w))); err != nil {
+		if _, err := w.Write([]byte(fake.respond(r.URL.Path, w))); err != nil {
 			t.Errorf("write response: %v", err)
 		}
 	}))

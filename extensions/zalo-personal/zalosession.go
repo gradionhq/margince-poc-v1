@@ -88,7 +88,6 @@ type zaloSession struct {
 	uid      string
 	service  map[string][]string
 	wsURLs   []string
-	sealed   zaloSealed
 	resumeAt time.Time
 
 	// The two seams the message socket runs on, carried here because the drain
@@ -142,7 +141,6 @@ func zaloResume(ctx context.Context, sealed zaloSealed, opts zaloOptions) (*zalo
 		uid:      info.UID,
 		service:  info.ZPWServiceV3,
 		wsURLs:   info.ZPWWS,
-		sealed:   sealed,
 		resumeAt: c.now(),
 		dial:     dialZaloSocket,
 		after:    opts.afterFunc(),

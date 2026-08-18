@@ -9,6 +9,7 @@ import {
 import {
   Badge,
   Button,
+  Callout,
   Card,
   type Fact,
   FactList,
@@ -30,12 +31,21 @@ import {
 //
 // THE CONSENT PANEL IS THE PRODUCT HERE, not decoration around the button. The
 // credential this screen mints can read the member's entire personal chat life
-// — their family, their doctor, their other employer — so the three things they
-// have to know before they scan are stated as prose they read once: that
-// nothing is captured until they choose which conversations to allow, that this
-// is their own account and they can withdraw it whenever they like, and that
-// Zalo WEB and this connection evict each other (their phone does not, which is
-// the half that makes the warning actionable rather than frightening).
+// — their family, their doctor, their other employer — so the things they have
+// to know before they scan are stated as prose they read once: that nothing is
+// captured until they choose which conversations to allow, that this is their
+// own account and they can withdraw it whenever they like, and what they do and
+// do not get on the timeline.
+//
+// AND TWO DISCLOSURES OUTLIVE IT ({@link ConnectionLimits}), which is why they are
+// not paragraphs in that panel: a constraint that only appears while somebody is
+// deciding to connect is a constraint they meet for the first time after it has
+// already cost them something. The browser conflict is the one a connected rep
+// walks into on an ordinary Tuesday, and a disclaimer that vanishes once you have
+// agreed to it is a disclaimer nobody read. Both are therefore on the card in
+// EVERY state, and they are two separate notices because they have nothing to do
+// with each other — one is a thing to avoid doing, the other is what this
+// connector is.
 //
 // AND THE CHOOSER IS WHERE THAT PROMISE IS KEPT — in capturecard.tsx, which owns
 // the second card and the whole argument about what goes into the CRM. This file
@@ -211,6 +221,10 @@ function ConnectionCard() {
         )}
       </QueryStates>
 
+      {/* In EVERY state, and above the invitation to scan rather than inside it:
+          see the note on ConnectionLimits. */}
+      <ConnectionLimits />
+
       {/* Only once the read has ANSWERED ONCE, and only while the connection is
           not working: an invitation to scan drawn before anything established
           the account's state is an invitation to replace a session that is
@@ -255,6 +269,51 @@ function ConnectionCard() {
         </>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * The two things about this connector that are true whether or not anybody is
+ * connected right now.
+ *
+ * THE BROWSER CONFLICT IS THE OPERATIONAL FACT OF THIS WHOLE UNIT, and it was
+ * measured in both directions inside ten minutes: our QR login bounced the
+ * member's open Zalo Web tab back to the sign-in page, and the member signing
+ * back in on that tab killed our session six minutes into its life. Zalo admits
+ * one browser-shaped session per account and this connector IS one, so the two
+ * evict each other — and every eviction costs a QR re-scan, because nothing
+ * re-establishes a personal credential without the human and their phone.
+ *
+ * The PHONE AND ZALO PC DO NOT CONFLICT, and that half is load-bearing rather
+ * than a softener: "stop using Zalo" would be false, a rep would find it false
+ * within a day, and they would then discount everything else this screen says.
+ * So the notice is written as what to do — keep using the two clients that work
+ * — with the browser named as the one exception.
+ *
+ * THE DISCLAIMER CLAIMS ONLY WHAT WE CAN SUPPORT. Zalo publishes no interface
+ * for personal accounts and this speaks the web client's own protocol, so it can
+ * stop working when Zalo changes something, and it is not endorsed by them.
+ * Nothing here says anything about account bans or terms of service: we have no
+ * evidence in either direction, and a frightening claim we cannot substantiate
+ * would be worse than the silence.
+ *
+ * `warn` for the first and `info` for the second, which is the tones' published
+ * meaning rather than a choice about emphasis: one says something will go wrong
+ * if you do nothing, the other carries no urgency at all. Neither is `live` —
+ * both render with the page rather than in response to anything, and a notice
+ * that interrupts a reader for a standing fact teaches them to ignore notices.
+ */
+function ConnectionLimits() {
+  const t = useT();
+  return (
+    <>
+      <Callout tone="warn" title={t("extZaloPersonal.limits.browserTag")}>
+        {t("extZaloPersonal.limits.browser")}
+      </Callout>
+      <Callout tone="info" title={t("extZaloPersonal.limits.unofficialTag")}>
+        {t("extZaloPersonal.limits.unofficial")}
+      </Callout>
+    </>
   );
 }
 
@@ -322,12 +381,16 @@ function ConnectionFacts({
 /**
  * What the member is agreeing to, before they are offered a code to scan.
  *
- * Prose rather than a bulleted notice, and four short paragraphs rather than
+ * Prose rather than a bulleted notice, and three short paragraphs rather than
  * one: a salesperson reads this once, standing up, with a phone in their hand.
  * Each paragraph is one fact they would otherwise learn the expensive way — by
- * finding a private conversation on a colleague's screen, by losing their Zalo
- * Web session mid-conversation, or by opening the timeline expecting last
- * month and finding today.
+ * finding a private conversation on a colleague's screen, or by opening the
+ * timeline expecting last month and finding today.
+ *
+ * THE BROWSER CONFLICT USED TO BE A FOURTH PARAGRAPH HERE and is now a notice on
+ * the card itself, because this panel is drawn only while nobody is connected:
+ * the fact it states is one a connected rep needs on the day they open Zalo in a
+ * browser, which is exactly the day this panel is not on screen.
  */
 function ConsentPanel() {
   const t = useT();
@@ -337,7 +400,6 @@ function ConsentPanel() {
       <p>{t("extZaloPersonal.consent.capture")}</p>
       <p>{t("extZaloPersonal.consent.noHistory")}</p>
       <p>{t("extZaloPersonal.consent.personal")}</p>
-      <p>{t("extZaloPersonal.consent.zaloWeb")}</p>
     </Card>
   );
 }

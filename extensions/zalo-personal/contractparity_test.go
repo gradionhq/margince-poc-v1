@@ -224,3 +224,84 @@ func TestTheSaveShapeTheHandlerRequiresIsTheShapeTheContractPublishes(t *testing
 		t.Fatal("the contract still describes last_msg_id on the connection; the reading positions live in ext_zalo_personal_conversation_cursor, one row per conversation")
 	}
 }
+
+// THE GOVERNANCE FIELDS, DERIVED FROM THE DOCUMENT RATHER THAN LISTED.
+//
+// Two mistakes are worth a fitness function here because both have already been made
+// in this unit's own history, and neither shows up as a failing build:
+//
+//   - A SERVED 🟡. compose/extensiontools.go refuses a confirmation_required tool that
+//     ships a handler outright, because the admission gate stages an approval only for
+//     tools implementing the registry's staging seam and the data-only extension
+//     adapter does not — so a 🟡 declared here is not a staged operation, it is one
+//     refused on every call, behind a route that answers 501. That is issue #1651, and
+//     it was declared and reverted once on this branch.
+//   - A MUTATING GET. The human seat ceiling classifies a mutation by its METHOD, so a
+//     GET carrying a non-`read` scope is a read seat's route to a write.
+//     validateMethodAuthority refuses one, again at boot rather than in a test.
+//
+// Every operation in the fragment is checked rather than a remembered list of them, so
+// the operation added next is covered by the fact that it exists.
+func TestEveryOperationDeclaresATierAndMethodTheSeamWillServe(t *testing.T) {
+	t.Parallel()
+	governance := publishedGovernance(t, "api/crm.yaml")
+	if len(governance) != len(New().Tools) {
+		t.Fatalf("the fragment declares %d operation(s) and the unit ships %d tool handler(s); a declared verb with no handler mounts a route that answers 501, and a handler with no declaration is unreachable",
+			len(governance), len(New().Tools))
+	}
+	for operation, declared := range governance {
+		if declared.tier != "auto_execute" {
+			t.Fatalf("%s declares tier %q: the extension seam cannot stage an approval for a served tool (issue #1651), so this is not a staged operation but one refused on every call",
+				operation, declared.tier)
+		}
+		if declared.method == "get" && declared.scope != "read" {
+			t.Fatalf("%s is a GET carrying scope %q — the seat ceiling classifies a mutation by method, so this is a read seat's route to a write",
+				operation, declared.scope)
+		}
+		if declared.method != "get" && declared.scope == "read" {
+			t.Fatalf("%s is a %s carrying scope read, so an operation that changes something is billed to a read seat",
+				operation, strings.ToUpper(declared.method))
+		}
+	}
+}
+
+// governanceOf is the three fields the seam judges an operation by.
+type governanceOf struct{ method, tier, scope string }
+
+// publishedGovernance reads each operation's method, tier and scope out of the
+// fragment, keyed by operationId. It scans lines for the reason publishedEnums does:
+// this module imports only the published extension surface, and a YAML dependency in a
+// unit's go.mod to check its own contract widens every build to buy one test.
+//
+// The METHOD is the key that opens an operation's block, which is the line before its
+// operationId — so it is remembered as it goes past rather than searched for backwards.
+func publishedGovernance(t *testing.T, path string) map[string]governanceOf {
+	t.Helper()
+	fragment, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading the contract fragment: %v", err)
+	}
+	found, method, at := map[string]governanceOf{}, "", ""
+	verb := regexp.MustCompile(`^\s{6}(get|put|post|patch|delete):\s*$`)
+	field := regexp.MustCompile(`^\s*(operationId|tier|scope):\s*(\S+)`)
+	for _, line := range strings.Split(string(fragment), "\n") {
+		if opened := verb.FindStringSubmatch(line); opened != nil {
+			method = opened[1]
+			continue
+		}
+		named := field.FindStringSubmatch(line)
+		if named == nil {
+			continue
+		}
+		switch named[1] {
+		case "operationId":
+			at = named[2]
+			found[at] = governanceOf{method: method}
+		case "tier":
+			found[at] = governanceOf{method: found[at].method, tier: named[2], scope: found[at].scope}
+		case "scope":
+			found[at] = governanceOf{method: found[at].method, tier: found[at].tier, scope: named[2]}
+		}
+	}
+	return found
+}

@@ -218,14 +218,59 @@ describe("the personal Zalo screen", () => {
     expect(
       screen.getByText(/your own personal account, not a company one/),
     ).toBeTruthy();
-    // Zalo WEB specifically — their phone coexists, and saying otherwise would
-    // tell a rep to stop using the app they work from.
-    expect(screen.getByText(/rather than Zalo Web/)).toBeTruthy();
+    // And what they actually get: a few days at most, stated as a CEILING rather
+    // than as the 3-day figure the server reports, because that figure is one
+    // observation from one account and "3 days" read as a promise is a bug report.
+    expect(screen.getByText(/which is a few days at most/)).toBeTruthy();
 
     expect(connectButton()).toBeTruthy();
     // No code before they ask for one, and nothing to withdraw.
     expect(screen.queryByAltText(/QR code/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
+  });
+
+  // THE TWO STANDING DISCLOSURES, asserted in BOTH states on purpose: each one is
+  // a fact about the connector rather than about a moment in it, and a case that
+  // only checked the connected screen would pass while the not-connected screen
+  // quietly lost them — which is precisely how the browser conflict came to be
+  // stated only in a panel that disappears the moment somebody connects.
+  it("states the browser conflict and the disclaimer whether or not anybody is connected", async () => {
+    for (const connected of [false, true]) {
+      const { fetchStub } = stubTransport(FULL_GRANT, {
+        "/ext/zalo-personal/status": () =>
+          connected ? CONNECTED : NOT_CONNECTED,
+      });
+      vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+      renderScreen();
+      await flush();
+
+      // WHAT TO DO, not "stop using Zalo": the phone and Zalo PC do not conflict,
+      // and a rep who finds that half false discounts everything else here.
+      const browser = screen.getByText(
+        /Do not sign in to Zalo in a web browser/,
+      );
+      expect(browser.textContent).toContain("phone and Zalo PC");
+      // Both directions, because it was measured in both: our login evicts the
+      // browser and the browser evicts us.
+      expect(browser.textContent).toContain("signs this connection out");
+      expect(browser.textContent).toContain("signs your browser out");
+      // And the cost, which is what makes it worth avoiding rather than a curio.
+      expect(browser.textContent).toContain("new QR scan");
+
+      // The disclaimer claims only what we can support. Nothing about bans or
+      // terms of service: we have no evidence either way, and a frightening claim
+      // we cannot substantiate is worse than the silence.
+      const unofficial = screen.getByText(/not built or endorsed by Zalo/);
+      expect(unofficial.textContent).toContain("stop working without notice");
+      expect(unofficial.textContent).toContain(
+        "disconnect it here at any time",
+      );
+      expect(screen.queryByText(/ban|terms of service|suspend/i)).toBeNull();
+
+      cleanup();
+      vi.unstubAllGlobals();
+    }
   });
 
   it("walks a member from the code on screen to a connected account", async () => {
@@ -264,8 +309,15 @@ describe("the personal Zalo screen", () => {
     await flush();
 
     // The provider's own data URL, in an img the member can actually scan.
-    const code = screen.getByAltText(/QR code/) as HTMLImageElement;
-    expect(code.getAttribute("src")).toBe(QR_IMAGE);
+    const code = screen.getByAltText(/QR code/);
+    // Narrowed by a real check rather than an assertion: the claim under test is
+    // that this IS an <img>, so a cast would assume the thing being proved.
+    if (!(code instanceof HTMLImageElement)) {
+      throw new Error(
+        `the QR code rendered as <${code.tagName.toLowerCase()}>, not an <img> the member can scan`,
+      );
+    }
+    expect(code.src).toBe(QR_IMAGE);
     expect(screen.getByText(/Waiting for you to scan/)).toBeTruthy();
     expect(
       calls.some(

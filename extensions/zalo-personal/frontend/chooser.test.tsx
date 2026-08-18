@@ -273,6 +273,53 @@ function rosterServer(
   };
 }
 
+/** The way out of a quiet-period wait, by the words on it. */
+function checkNowButton() {
+  return screen.getByRole("button", { name: "Check now" });
+}
+
+/** The same control when a case expects it to be absent. */
+function checkNowQuery() {
+  return screen.queryByRole("button", { name: "Check now" });
+}
+
+/**
+ * A rep who is sitting inside a quiet-period wait, on a server that REMEMBERS
+ * being asked to look sooner.
+ *
+ * The wait clearing is the server's answer and not this fixture's opinion: a
+ * screen that showed the confirmation without the row having moved would pass a
+ * case about a control that did nothing.
+ */
+function backedOffServer(state: { waiting: boolean; status?: string }) {
+  return {
+    ...rosterServer(new Map([[CONTACT_IDS.mai, "allow"]])),
+    "/ext/zalo-personal/status": () => ({
+      connected: true,
+      session_deposited: true,
+      allowed_count: 1,
+      connection: {
+        ...CONNECTION,
+        status: state.status ?? "connected",
+        capture_enabled: true,
+        capture_mode: "only_chosen",
+        last_polled_at: "2026-08-18T09:14:00Z",
+        // Absent means "due now", which is exactly what the contract says: the
+        // database answers the comparison, so the field is only ever present
+        // while a wait is still in the future.
+        ...(state.waiting
+          ? { next_check_after: "2026-08-18T09:29:00Z" }
+          : {}),
+      },
+    }),
+    "/ext/zalo-personal/check-now": () => {
+      const answer = { was_waiting: state.waiting };
+      state.waiting = false;
+      return answer;
+    },
+  };
+}
+
 /** The button that takes one named person off the list. */
 function takeOffButton(name: string) {
   return screen.getByRole("button", { name: `Take ${name} off the list` });
@@ -740,12 +787,88 @@ describe("choosing which Zalo conversations go into the CRM", () => {
 
     // The sibling connectors' own term, not a variant of it.
     expect(screen.getByText("Last checked")).toBeTruthy();
-    // Both halves of the honest answer: nothing is wrong, and saving looks again
-    // sooner. Without the second half a rep waits, or reconnects for no reason.
+    // Both halves of the honest answer: nothing is wrong, and there is a way to
+    // be looked at sooner. Without the second half a rep waits, or reconnects for
+    // no reason — and the way out it names must be one that is actually on screen,
+    // which is the whole reason it no longer names the save.
     const wait = screen.getByText(/All quiet, so the next check/);
-    expect(wait.textContent).toContain("Saving checks again sooner");
+    expect(wait.textContent).toContain("ask for a check sooner below");
+    expect(wait.textContent).not.toContain("Saving");
+    expect(checkNowButton()).toBeTruthy();
     // Nothing failed, so nothing claims anything did.
     expect(screen.queryByText(/could not be reached/)).toBeNull();
+  });
+
+  // THE DEFECT THIS CONTROL EXISTS FOR, and it was hit twice in live testing on a
+  // connector that was working perfectly: the sentence above used to send a rep to
+  // the save, and a rep who has already chosen the right list has nothing to save,
+  // so the button carrying the remedy was greyed out at exactly that moment. The
+  // control is therefore asserted WITH a save that is inert.
+  it("offers a way out of the wait when there is nothing to save", async () => {
+    const { calls, fetchStub } = stubTransport(
+      FULL_GRANT,
+      backedOffServer({ waiting: true }),
+    );
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    // Nothing has been changed, so the save is refused — and the way out is not.
+    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    const check = checkNowButton();
+    expect(check.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(check);
+    await flush();
+    await flush();
+
+    const asked = calls.filter(
+      (call) => call.path === "/ext/zalo-personal/check-now",
+    );
+    // POST, not GET: the seat ceiling classifies a mutation by its method, and
+    // this one writes the connection's schedule.
+    expect(asked.map((call) => call.method)).toEqual(["POST"]);
+    // The re-read now reports no wait, so the control has nothing left to do and
+    // the confirmation says what was achieved. It promises no fetch: this screen
+    // moved a schedule, and the scheduled run is what looks.
+    expect(screen.queryByText(/All quiet, so the next check/)).toBeNull();
+    expect(checkNowQuery()).toBeNull();
+    const done = screen.getByText(/The next check is due/);
+    expect(done.textContent).toContain("nothing is fetched by this screen");
+  });
+
+  // A seat that may only read is told the FACT and pointed at nothing: a sentence
+  // naming a control that seat does not have sends them looking for a button that
+  // is not there, which is the same defect one rung down.
+  it("names no way out to a seat that may not ask for one", async () => {
+    const { fetchStub } = stubTransport(
+      READ_ONLY_GRANT,
+      backedOffServer({ waiting: true }),
+    );
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    const wait = screen.getByText(/All quiet, so the next check/);
+    expect(wait.textContent).toContain("checks are spaced further apart");
+    expect(wait.textContent).not.toContain("ask for a check");
+    expect(checkNowQuery()).toBeNull();
+  });
+
+  // The remedy for a session Zalo stopped accepting is a human with a phone. A
+  // scheduled check visits only a CONNECTED account, so offering the control here
+  // would advertise a check the tick will never make — the server refuses it too.
+  it("offers no way out for a connection no scheduled check would visit", async () => {
+    const { fetchStub } = stubTransport(
+      FULL_GRANT,
+      backedOffServer({ waiting: true, status: "needs_reconnect" }),
+    );
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    expect(screen.getByText(/All quiet, so the next check/)).toBeTruthy();
+    expect(checkNowQuery()).toBeNull();
   });
 
   // A failure is reported in the connector's OWN vocabulary — never Zalo's

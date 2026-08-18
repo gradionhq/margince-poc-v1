@@ -39,6 +39,10 @@
 //     Connect is TWO of them because the QR handshake's own steps are a 100s
 //     and a 120s long-poll, which cannot live inside one HTTP call; the
 //     in-flight jar is sealed under a second secret between them.
+//   - checknow.go — one more operation a member drives from the same screen:
+//     clear the quiet-period backoff so the next scheduled tick visits them. It
+//     fetches nothing itself — there is no way for a request to — which is why it
+//     is one UPDATE and a paragraph explaining that.
 //   - allowlist.go — the chooser: the member's roster with their verdicts against
 //     it, and the save that records them. It is the ONLY writer of
 //     capture_enabled, so there is one place to look when asking how this
@@ -132,6 +136,7 @@ func New() extension.Extension {
 			{Name: "zalo_personal_disconnect", Handle: disconnect},
 			{Name: "zalo_personal_contacts", Handle: contacts},
 			{Name: "zalo_personal_allowlist_save", Handle: saveAllowlist},
+			{Name: "zalo_personal_check_now", Handle: checkNow},
 		},
 		// One scheduled job. Its cadence and wall clocks are api/jobs.yaml's,
 		// which is also where the two River kinds are declared: a cadenced

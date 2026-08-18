@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -25,9 +26,16 @@ const (
 
 func TestSendTextSendsExactlyFiveParameters(t *testing.T) {
 	fake := newChatServer()
-	var sent map[string]any
+	// The handler runs on the server's goroutine and the assertions on the
+	// test's, so what it observed is guarded rather than read across them.
+	var (
+		mu   sync.Mutex
+		sent map[string]any
+	)
 	fake.calls[sendPath] = func(_ *testing.T, params map[string]any) string {
+		mu.Lock()
 		sent = params
+		mu.Unlock()
 		return `{"error_code":0,"data":{"msgId":8158866752417,"clientId":0,"ts":0}}`
 	}
 
@@ -37,6 +45,8 @@ func TestSendTextSendsExactlyFiveParameters(t *testing.T) {
 		t.Fatalf("send: %v", err)
 	}
 
+	mu.Lock()
+	defer mu.Unlock()
 	want := []string{"clientId", "imei", "message", "toid", "ttl"}
 	got := make([]string, 0, len(sent))
 	for k := range sent {
@@ -173,15 +183,23 @@ func TestASessionStillCallsTheHostsZaloActuallyIssues(t *testing.T) {
 		t.Run(host, func(t *testing.T) {
 			fake := newChatServer()
 			fake.chatHost = host
-			var reached bool
+			// Written on the server's goroutine, read on the test's.
+			var (
+				mu      sync.Mutex
+				reached bool
+			)
 			fake.calls[sendPath] = func(_ *testing.T, _ map[string]any) string {
+				mu.Lock()
 				reached = true
+				mu.Unlock()
 				return `{"error_code":0,"data":{"msgId":8158866752417}}`
 			}
 
 			if _, err := resumeAgainst(t, fake).SendText(t.Context(), "9876543210", "xin chào"); err != nil {
 				t.Fatalf("send to a host Zalo issues: %v", err)
 			}
+			mu.Lock()
+			defer mu.Unlock()
 			if !reached {
 				t.Error("the send never arrived")
 			}

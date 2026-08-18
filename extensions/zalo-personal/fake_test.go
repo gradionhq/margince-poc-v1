@@ -239,6 +239,11 @@ type fakeTx struct {
 	// result, which every handler here reads as "there is no such connection"
 	// rather than as a failure.
 	noRows map[int]bool
+	// rowErr makes the nth QueryRow (1-based) FAIL, which is a different thing
+	// from matching nothing and has to be scriptable separately: an empty result
+	// is an answer a handler acts on, while a read that could not be performed is
+	// one it must propagate rather than mistake for "there is nothing there".
+	rowErr map[int]error
 
 	// queryRows is what a multi-row read hands back, keyed by the TABLE the
 	// statement names rather than by the order the reads happen in.
@@ -384,6 +389,9 @@ func (t *fakeTx) QueryRow(_ context.Context, sql string, args ...any) extension.
 	t.rowCalls++
 	if t.noRows[t.rowCalls] {
 		return fakeRow{err: extension.ErrNoRows}
+	}
+	if err := t.rowErr[t.rowCalls]; err != nil {
+		return fakeRow{err: err}
 	}
 	var values []any
 	if len(t.singleRows) > 0 {
