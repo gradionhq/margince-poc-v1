@@ -281,10 +281,14 @@ function AutomationForm({
         />
       ))}
       <div className="approval-gate auto-form-actions">
-        <Button type="submit" variant="primary" small disabled={pending}>
+        {/* Save STARTED the write, so it goes busy and keeps the focus the
+            reader is standing on; Cancel started nothing and is simply not
+            available while the write is out, since backing out of something
+            already on its way to the server would say it was stopped. */}
+        <Button type="submit" variant="primary" small pending={pending}>
           {submitLabel}
         </Button>
-        <Button small onClick={onCancel}>
+        <Button small disabled={pending} onClick={onCancel}>
           {t("deals.cancel")}
         </Button>
       </div>
@@ -408,6 +412,19 @@ type AutomationPatchBody = {
   status?: "enabled" | "paused";
 };
 
+// The whole write, row identity included. The `mutationFn` used to close over
+// `automation.id` and `automation.version` instead, which is the pattern this
+// tree has a rule against: the click handler belongs to the committed render,
+// so anything it PASSES cannot be older than the control the reader pressed,
+// while anything it CLOSES OVER can be. Here the stale value would be the
+// `If-Match` version, and a write carrying one is refused as a concurrent edit
+// — the reader is told someone else changed the automation when nobody did.
+type AutomationPatch = {
+  id: string;
+  version: number | undefined;
+  body: AutomationPatchBody;
+};
+
 // Which of a row's two writes is in flight. One mutation serves the enable
 // switch and the edit form, so `isPending` alone makes each of them announce
 // the other's write — a switch reporting a flip nobody made while the reader
@@ -415,12 +432,12 @@ type AutomationPatchBody = {
 // flip carries `status`.
 function rowWriteInFlight(
   isPending: boolean,
-  body: AutomationPatchBody | undefined,
+  write: AutomationPatch | undefined,
 ): "none" | "status" | "definition" {
   if (!isPending) {
     return "none";
   }
-  return body?.status === undefined ? "definition" : "status";
+  return write?.body.status === undefined ? "definition" : "status";
 }
 
 export function AutomationRow({
@@ -452,14 +469,11 @@ export function AutomationRow({
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const patch = useMutation({
-    mutationFn: async (body: AutomationPatchBody) => {
+    mutationFn: async ({ id, version, body }: AutomationPatch) => {
       const { data, error } = await api.PATCH("/automations/{id}", {
         params: {
-          path: { id: automation.id },
-          header:
-            automation.version === undefined
-              ? {}
-              : { "If-Match": String(automation.version) },
+          path: { id },
+          header: version === undefined ? {} : { "If-Match": String(version) },
         },
         body,
       });
@@ -516,7 +530,11 @@ export function AutomationRow({
             checked={enabled}
             pending={writeInFlight === "status"}
             onChange={(next) =>
-              patch.mutate({ status: next ? "enabled" : "paused" })
+              patch.mutate({
+                id: automation.id,
+                version: automation.version,
+                body: { status: next ? "enabled" : "paused" },
+              })
             }
           />
         ) : (
@@ -561,7 +579,13 @@ export function AutomationRow({
           initialParams={automation.params}
           submitLabel={t("trust.save")}
           pending={writeInFlight === "definition"}
-          onSubmit={(name, params) => patch.mutate({ name, params })}
+          onSubmit={(name, params) =>
+            patch.mutate({
+              id: automation.id,
+              version: automation.version,
+              body: { name, params },
+            })
+          }
           onCancel={() => setEditing(false)}
         />
       )}
