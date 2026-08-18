@@ -157,8 +157,6 @@ needs the whole file to start a session.
 - [Upstream spec reconciliation](#upstream-spec-reconciliation)
 - [Decisions owed](#decisions-owed)
 
-- Shipped 2026-08-18 (Leads V2 completion): the reviewed Leads screen is now a rep workbench rather than an all-records table. It waits for the session and opens on the current rep's queue; the server's default composite keyset is SLA band → score descending → oldest, including a full continuation cursor. Rows expose score reason, response state, next task and open-task count, last activity, source and owner. The board uses lead-specific counts, carries work context and owns its continuation rather than showing the table pager. Creation defaults owner/source visibly, filters service identities, and probes exact email/LinkedIn duplicates before writing. The record renders LinkedIn, source and project; qualification evidence reads the exact stored band/effect/classification/confidence/reason/author/time/supersession lifecycle and translates its internal enum. The board/presentation behavior and tests live in their own feature module. The human-only evidence read and queue fields/order landed contract-first in [foundation#1352](https://github.com/gradionhq/margince-foundation/pull/1352). The earlier note that a combined queue was not built is historical and superseded by this entry.
-
 ## Blocked on ratification — the transport axis leaves the activity kind (SP5, 2026-08-14)
 
 `activity.kind` has been carrying two different facts at once: what kind of
