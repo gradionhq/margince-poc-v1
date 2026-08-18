@@ -26,6 +26,11 @@ import (
 // an attributable trail even though no request performed them.
 const extensionCompositionObserved = "extension.composition_observed"
 
+// extensionLedgerFact names this fact in the advisory-lock key, so an inventory
+// observation serializes against other inventory observations and against nothing
+// else.
+const extensionLedgerFact = "extension-inventory"
+
 // observedExtension is one unit of the recorded set. It gains the
 // manifest digest when the governance slice embeds digests into the
 // composed binary; until then name+version identify the unit in the log
@@ -63,10 +68,10 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		// api and worker boot concurrently and both observe: without a
 		// lock the two check-and-insert transactions each read the same
-		// previous inventory and one change lands twice. Same idiom as
-		// identity's admin guard (users.go).
-		if _, err := tx.Exec(ctx,
-			`SELECT pg_advisory_xact_lock(hashtext('margince:extension-inventory:' || current_setting('app.workspace_id', true))::bigint)`); err != nil {
+		// previous inventory and one change lands twice. bootLedgerLock
+		// carries why the statement coalesces the GUC — a NULL argument
+		// takes no lock at all and says nothing.
+		if _, err := tx.Exec(ctx, bootLedgerLock, extensionLedgerFact); err != nil {
 			return err
 		}
 		last, err := lastObservedExtensions(ctx, tx)

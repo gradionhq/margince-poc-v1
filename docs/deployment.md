@@ -199,7 +199,8 @@ from different releases — most easily with `latest`. The OCI distribution
 protocol cannot express "these three manifests, or none", so a registry has no
 way to refuse it at the pull. So the roles refuse it at the run:
 
-- **api** — the authority, because it is the role that applies the migrations:
+- **api** — the authority, because its image ships `cmd/migrate` and its
+  entrypoint applies the schema before it serves:
   the schema your installation runs on is the schema its release brought. At boot
   it records its own release as the installation's, and logs
   `installation release recorded from=… to=…` when that changes.

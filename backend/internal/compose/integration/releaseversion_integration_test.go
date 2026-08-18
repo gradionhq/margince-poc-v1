@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
 // TestReleaseGuardStopsATornSetAndLetsAnUpgradeThrough walks the whole life of
@@ -105,4 +106,45 @@ func TestReleaseGuardStopsATornSetAndLetsAnUpgradeThrough(t *testing.T) {
 	}
 	mustStart("1970.42")
 	mustRefuse("1970.43")
+}
+
+// TestReleaseGuardIsInertOnAnUnbootstrappedInstallation: the arm the guard takes
+// before an installation has an organization at all.
+//
+// It is the arm worth a test of its own precisely because nothing would report it
+// wrong. A first boot has no workspace to record against, so there is nothing to
+// write and nothing to compare — and if either function treated that as an error
+// the api would refuse to bootstrap the installation it was about to create,
+// while if the read treated an absent record as a VALUE the worker would refuse
+// over a release nobody ever recorded. Both failures look like the guard working.
+func TestReleaseGuardIsInertOnAnUnbootstrappedInstallation(t *testing.T) {
+	env := Setup(t)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Empty the database the harness just seeded, workspace included: this is the
+	// genuine pre-bootstrap state, reached through the reset the harness itself
+	// uses rather than by deleting rows by hand.
+	if err := testdb.Reset(ctx, OwnerConn(t)); err != nil {
+		t.Fatalf("resetting to the pre-bootstrap state: %v", err)
+	}
+
+	if err := compose.RecordInstallationRelease(ctx, env.Pool, logger, "1970.42"); err != nil {
+		t.Fatalf("recording a release before bootstrap is an error, and must not be: %v", err)
+	}
+	if err := compose.AssertInstallationRelease(ctx, env.Pool, logger, "1970.42"); err != nil {
+		t.Fatalf("a role refused to start on an unbootstrapped installation: %v", err)
+	}
+	// And nothing was written against no workspace. Counted on the OWNER
+	// connection with row security off, because the app pool's workspace-bound
+	// read could not see such a row even if one existed — which is the whole
+	// failure this assertion is here to be able to see.
+	var rows int
+	if err := OwnerConn(t).QueryRow(ctx,
+		`SELECT count(*) FROM system_log WHERE action = 'release.version_observed'`).Scan(&rows); err != nil {
+		t.Fatalf("counting release observations: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("a pre-bootstrap boot wrote %d release observations, want 0", rows)
+	}
 }

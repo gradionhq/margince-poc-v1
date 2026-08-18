@@ -61,18 +61,8 @@ export interface paths {
          *     listed only when its end-to-end flow is wired and healthy. Discloses nothing beyond
          *     what the login UI needs — no secrets, endpoints, allowlists, or bootstrap state.
          *
-         *     It also reports the release this api was built from, because the web tier needs it
-         *     before anyone is signed in. A customer pulls each role image by tag and two tag
-         *     pulls are two requests, so a publish landing between them yields a set whose roles
-         *     come from different releases; the OCI distribution protocol gives the registry no
-         *     way to refuse that at the pull, so the tiers refuse it at run time. The api and the
-         *     worker settle it between themselves against the database, but the web tier is a
-         *     static bundle in a browser and can only ask — and it has to be able to ask on the
-         *     login screen, which is exactly where a mixed set breaks first.
-         *
-         *     The release version is not a secret. The same value is compiled into the anonymously
-         *     served SPA bundle, so publishing it here discloses nothing the document root does
-         *     not already.
+         *     It also reports the release this api was built from, which a client compares
+         *     against its own before it renders anything (see `release_version`).
          */
         get: operations["getAuthCapabilities"];
         put?: never;

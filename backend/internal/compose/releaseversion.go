@@ -14,8 +14,11 @@ package compose
 // where the set first exists as a whole, which is at run time.
 //
 // THE API IS THE AUTHORITY, and it is the authority because it already is one:
-// it is the role that applies the migrations, so the schema the installation
-// runs on is the schema ITS release brought. Recording its own release as the
+// the api image ships cmd/migrate and its entrypoint applies the schema before it
+// serves, so the schema the installation runs on is the schema THIS role's release
+// brought. (cmd/migrate is its own process role and the only caller of the
+// migrator; what makes the api the authority is that the two ship and run
+// together, not that this binary migrates.) Recording its own release as the
 // installation's is therefore a statement of fact, not an election. Every other
 // role compares itself against that record and refuses to start when it
 // disagrees.
@@ -35,6 +38,20 @@ package compose
 // versions in its log is visible, where a worker quietly running the wrong
 // release is not. It does not resolve itself, because nothing about a torn pull
 // resolves itself — an operator has to re-pull the set.
+//
+// TWO PROPERTIES ARE BOUNDED RATHER THAN ABSOLUTE, and a reader has to know which:
+//
+//   - The check happens AT BOOT, once. A worker already running when the api
+//     records a new release is not re-checked, so an api-only restart leaves the
+//     old worker serving until something else restarts it.
+//   - The record is LAST WRITER WINS. During a rollout that has api replicas from
+//     two releases alive at once, either may be the last to record, so the release
+//     the installation reports can move backwards on its own.
+//
+// What holds regardless is the invariant this exists for: whichever release wins
+// the record, the roles that disagree with it refuse, so no mixed set serves.
+// Closing either bound is a design change rather than a fix — a monotonic record
+// would cost rollback — so both are tracked rather than worked around here.
 
 import (
 	"context"
@@ -55,12 +72,11 @@ import (
 // the installation's upgrade history rather than one row per restart.
 const installationReleaseObserved = "release.version_observed"
 
-// releaseObservationLock serializes the read-then-insert below. Several api
-// replicas boot at once during a rollout, and without it each reads the same
-// previous release and every one of them writes the change.
-const releaseObservationLock = `
-	SELECT pg_advisory_xact_lock(
-		hashtext('margince:release-version:' || current_setting('app.workspace_id', true))::bigint)`
+// releaseLedgerFact names this fact in the advisory-lock key, so the release
+// observation serializes against other release observations and against nothing
+// else — the extension inventory takes its own key and the two never wait on each
+// other.
+const releaseLedgerFact = "release-version"
 
 // lastObservedReleaseQuery reads the release the api recorded most recently.
 //
@@ -88,6 +104,11 @@ const lastObservedReleaseQuery = `
 // api has not migrated yet.
 func RecordInstallationRelease(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, version string) error {
 	if !buildinfo.Comparable(version) {
+		// Said out loud, symmetric with the assert path below. An unstamped api
+		// disarms the guard for the WHOLE installation — every role that boots
+		// after it has nothing to compare against — and an operator reading this
+		// log must be able to tell that apart from a guard that is working.
+		log.Info("release guard inactive: this api carries no release version")
 		return nil
 	}
 	ctx, bootstrapped, err := bootLedgerScope(ctx, pool, "system:release-version")
@@ -101,15 +122,19 @@ func RecordInstallationRelease(ctx context.Context, pool *pgxpool.Pool, log *slo
 
 	var previous string
 	recorded := false
-	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, releaseObservationLock); err != nil {
+	// The closure declares its own error at every step. Assigning the enclosing
+	// err from in here would leave two variables of that name meaning different
+	// things, one of which this call is about to overwrite.
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, bootLedgerLock, releaseLedgerFact); err != nil {
 			return err
 		}
-		previous, err = lastObservedRelease(ctx, tx)
+		last, err := lastObservedRelease(ctx, tx)
 		if err != nil {
 			return err
 		}
-		if previous == version {
+		previous = last
+		if last == version {
 			return nil
 		}
 		if _, err := storekit.LogSystem(ctx, tx, installationReleaseObserved, map[string]any{
@@ -119,8 +144,7 @@ func RecordInstallationRelease(ctx context.Context, pool *pgxpool.Pool, log *slo
 		}
 		recorded = true
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("compose: recording the installation's release: %w", err)
 	}
 	// Logged only after the transaction COMMITTED, so the line never reports a
@@ -162,7 +186,8 @@ func AssertInstallationRelease(ctx context.Context, pool *pgxpool.Pool, log *slo
 
 	var installation string
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		installation, err = lastObservedRelease(ctx, tx)
+		recorded, err := lastObservedRelease(ctx, tx)
+		installation = recorded
 		return err
 	}); err != nil {
 		return fmt.Errorf("compose: reading the installation's release: %w", err)
@@ -208,7 +233,9 @@ func lastObservedRelease(ctx context.Context, tx pgx.Tx) (string, error) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("compose: reading the last recorded release: %w", err)
+		// Returned unwrapped: both callers already name what they were doing, and
+		// wrapping here made the boot failure an operator reads say it twice.
+		return "", err
 	}
 	return version, nil
 }

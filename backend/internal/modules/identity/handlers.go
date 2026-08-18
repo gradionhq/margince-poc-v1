@@ -222,22 +222,19 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 // "Forgot password?" link is a misleading affordance — and discloses
 // nothing beyond what the login UI needs.
 //
-// The release version is part of what the login UI needs. The web tier is a
-// static bundle in a browser: it can refuse to render against an api from
-// another release, but only if something tells it which release the api is, and
-// it has to be able to ask before anyone is signed in — a mixed set breaks the
-// login request itself. An unstamped build reports NOTHING rather than an empty
-// string, because absence is what the contract gives a client permission to
-// ignore, and an empty value would be a version the client then has to know is
-// not one.
+// The release version is part of what the login UI needs, because the web tier
+// cannot compare without it (compose/releaseversion.go carries why there is
+// anything to compare). An unstamped build reports NOTHING rather than an empty
+// string: absence is what the contract gives a client permission to ignore, and
+// an empty value would be a version the client then has to know is not one.
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
 		Password:      true,
 		PasswordReset: h.canSendPasswordLink(),
 	}
 	if buildinfo.Comparable(buildinfo.ReleaseVersion) {
-		// A copy, not the address of the package var: the response must not hand
-		// a pointer into link-time state out to a serializer.
+		// A local copy because the contract field is optional and therefore a
+		// pointer; absence is the answer for an unstamped build.
 		release := buildinfo.ReleaseVersion
 		caps.ReleaseVersion = &release
 	}
@@ -245,6 +242,14 @@ func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 		Key   string `json:"key"`
 		Label string `json:"label"`
 	}, 0)
+	// NO-STORE, and the release version is what makes it mandatory rather than
+	// tidy. This response is not per-principal, so a shared cache leaks nothing —
+	// but the SPA refuses to render at all when the release it reads here differs
+	// from its own, so one stale copy held by any cache on this origin turns a
+	// healthy installation into the mixed-release screen for every reader served
+	// from it, and reloading cannot clear it. A validator-less 200 GET is exactly
+	// what an intermediary assigns heuristic freshness to.
+	w.Header().Set("Cache-Control", "no-store")
 	httperr.WriteJSON(w, http.StatusOK, caps)
 }
 

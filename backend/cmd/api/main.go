@@ -101,8 +101,8 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// What this binary IS, recorded before it serves anything. AFTER
 	// bindInstallation, because a pre-bootstrap installation has no workspace to
 	// record against; BEFORE the server is assembled, which loads the transport
-	// directory from the rows this writes. boot.go holds the two facts.
-	if err := recordBootFacts(ctx, pool, logger, extensions); err != nil {
+	// directory from the rows this writes. boot.go holds the phase.
+	if err := recordBootLedger(ctx, pool, logger, extensions); err != nil {
 		return err
 	}
 

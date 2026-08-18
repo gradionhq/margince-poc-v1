@@ -30,26 +30,19 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// recordBootFacts writes the two things this binary knows about ITSELF, both of
-// which no request could ever cause and neither of which any other phase owns.
+// recordBootLedger writes what this binary is, into the ledger no request could
+// ever cause a row in: the release it was published as, then the extension set it
+// composed.
 //
-// The RELEASE first, and the api is the one role that records it rather than
-// checking it: this is the role that applies the migrations, so the schema the
-// installation runs on is the schema this binary's release brought — recording it
-// is a statement of fact. Every other role compares itself against the record and
-// refuses to start when it disagrees, which is how a torn tag pull stops instead
-// of serving half of one release beside half of another
-// (compose/releaseversion.go carries the whole argument).
+// The api is the one role that RECORDS the release rather than checking it against
+// the record; compose/releaseversion.go carries why, and is the only place that
+// argument is written down.
 //
-// Then the COMPOSITION: the extension inventory (install, upgrade and removal all
-// happen in source, so a boot observation is where they become observable) and
-// the channel vocabulary those units declare.
-//
-// One phase because the two share a precondition and a deadline — each needs the
-// installation's workspace to exist, and each must land before the server is
-// assembled, which loads the transport directory from the rows the second one
+// One phase because the ordering between the two is not a caller's to choose. Both
+// need the installation's workspace to exist, and both must land before the server
+// is assembled, which loads the transport directory from the rows the second one
 // writes.
-func recordBootFacts(
+func recordBootLedger(
 	ctx context.Context, pool *pgxpool.Pool, logger *slog.Logger, extensions []extension.Extension,
 ) error {
 	if err := compose.RecordInstallationRelease(ctx, pool, logger, buildinfo.ReleaseVersion); err != nil {

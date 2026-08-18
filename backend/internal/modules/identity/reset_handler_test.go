@@ -101,6 +101,21 @@ func TestCapabilitiesCarryTheReleaseOnlyWhenThereIsOne(t *testing.T) {
 	}
 }
 
+// TestCapabilitiesAreNeverStored: the release version turned this probe into a
+// kill switch — the SPA refuses to render when what it reads here differs from
+// its own build — so one stale copy in any cache on this origin is a healthy
+// installation serving the mixed-release screen to every reader behind it, and no
+// reload clears it. The response is not per-principal, so this is not about
+// leaking; it is about a validator-less 200 GET being exactly what an
+// intermediary assigns heuristic freshness to.
+func TestCapabilitiesAreNeverStored(t *testing.T) {
+	rec := httptest.NewRecorder()
+	NewHandlers(&Service{}).GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+}
+
 func TestResetRequestRefusesMalformedInput(t *testing.T) {
 	h := NewHandlers(&Service{}).WithPasswordReset(nopMailer{}).WithPasswordLinkBase("https://crm.example.test")
 	if rec := post(h.RequestPasswordReset, "/v1/auth/forgot-password", `{`); rec.Code != http.StatusUnprocessableEntity {

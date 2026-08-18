@@ -15,14 +15,11 @@
 // reports rather than refuses — a rolling deploy would otherwise take the views
 // down for the length of the rollout.
 //
-// THE RELEASE VERSION DOES REFUSE, and that is deliberate. A customer pulls each
-// role image by tag, and two tag pulls are two requests: a publish landing
-// between them serves a set whose roles come from different releases. The OCI
-// distribution protocol gives the registry no way to refuse that at the pull, so
-// the refusal has to happen at the run — a role that finds itself in a
-// mixed-release set stops instead of serving half of one release beside half of
-// another. Skew here is not a rolling deploy passing through; it is a set that
-// will stay wrong until somebody re-pulls it.
+// THE RELEASE VERSION DOES REFUSE, and that is the difference to hold on to. A
+// set whose roles come from different releases will stay wrong until somebody
+// re-pulls it, so skew here is not a rolling deploy passing through and reporting
+// it would not be enough. Why such a set can exist at all, and which role decides
+// what, is written down once in internal/compose/releaseversion.go.
 //
 // UNKNOWN IS THE DEFAULT AND IT DISABLES BOTH COMPARISONS. A developer's binary
 // is built from a dirty worktree, where a commit SHA describes nothing and there
@@ -51,9 +48,7 @@ var Revision string
 //
 // The value is the constellation release version (`YYYY.<edition>`; the PoC
 // pipeline cuts `1970.<build>`). It is compared for EQUALITY only — never
-// ordered. A set is either one release or it is not, and an ordering would invite
-// the question of which side is newer, which is not a question a role in a torn
-// set can answer about itself.
+// ordered. A set is either one release or it is not.
 var ReleaseVersion string
 
 // Unknown is the value a comparison must not be made against — either side

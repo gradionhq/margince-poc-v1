@@ -12,11 +12,11 @@ package compose
 // correlation scope. No request supplied any of them, because no request caused
 // the write, so the boot has to bind them itself.
 //
-// Spelled once because the pre-bootstrap case is the subtle half and it is easy
-// to get wrong in a way nothing notices: an installation with no organization
-// yet has no workspace to record against, so there is nothing to write and
-// nothing to compare — a boot step must treat that as "not yet", never as an
-// error and never as an empty answer it then acts on.
+// Spelled once because the pre-bootstrap case is the subtle half: an
+// installation with no organization yet has no workspace to record against, so
+// there is nothing to write and nothing to compare — a boot step must treat that
+// as "not yet", never as an error and never as an empty answer it then acts on.
+// The integration lane covers that arm for both facts.
 
 import (
 	"context"
@@ -51,3 +51,23 @@ func bootLedgerScope(ctx context.Context, pool *pgxpool.Pool, actor string) (con
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return ctx, true, nil
 }
+
+// bootLedgerLock is the transaction-scoped advisory lock a boot observation takes
+// before it reads the last one and decides whether to write. Every process role
+// boots concurrently, and several api replicas boot at once during a rollout;
+// without it each transaction reads the same previous observation and every one
+// of them writes the change.
+//
+// ONE statement for both facts, parameterized by the fact's name — which is the
+// half worth spelling once, because COALESCE is load-bearing in a way that fails
+// silently. pg_advisory_xact_lock is strict: a NULL argument takes NO LOCK and
+// returns NULL rather than raising. An unset app.workspace_id GUC makes
+// current_setting(…, true) empty, `||` against NULL would be NULL, and the
+// serialization this exists for would simply be absent — a guard that reports
+// success while holding nothing. WithWorkspaceTx refuses an unbound transaction
+// before any closure runs, so it is not reachable today; it is spelled this way
+// because nothing downstream would say so if it became reachable, and because
+// storekit already spells it this way.
+const bootLedgerLock = `
+	SELECT pg_advisory_xact_lock(
+		hashtext($1 || coalesce(current_setting('app.workspace_id', true), ''))::bigint)`

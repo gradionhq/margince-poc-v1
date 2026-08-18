@@ -88,12 +88,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Before this role does ANY work: a worker built from a different release
-	// than the api that migrated this installation is half of a torn tag pull,
-	// and it stops rather than run the outbox relay, the retention evaluator and
-	// the agent runner against a schema and a contract that are not its own
-	// (compose/releaseversion.go). Ahead of the composition record below, because
-	// a role that must not run must not write either.
+	// Before this role does ANY work: a worker from a different release than the
+	// one this installation records is half of a torn tag pull, and it stops
+	// rather than run the outbox relay, the retention evaluator and the agent
+	// runner against a schema and a contract that are not its own
+	// (compose/releaseversion.go carries why). Ahead of the composition record
+	// below, because a role that must not run must not write either.
 	if err := compose.AssertInstallationRelease(ctx, pool, logger, buildinfo.ReleaseVersion); err != nil {
 		return err
 	}
