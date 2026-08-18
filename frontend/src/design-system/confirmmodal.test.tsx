@@ -150,11 +150,9 @@ describe("ConfirmModal", () => {
         <p>Body copy</p>
       </ConfirmModal>,
     );
-    expect((screen.getByText("Cancel") as HTMLButtonElement).disabled).toBe(
-      true,
-    );
-    const confirm = screen.getByText("Archive") as HTMLButtonElement;
-    expect(confirm.disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    const confirm = screen.getByRole("button", { name: "Archive" });
+    expect(confirm).toBeEnabled();
     expect(confirm).toHaveAttribute("aria-disabled", "true");
     expect(confirm).toHaveAttribute("aria-busy", "true");
   });

@@ -233,7 +233,11 @@ function PolicyRow({
             <Switch
               label={t("retention.enabled")}
               checked={policy.enabled}
-              pending={patch.isPending}
+              // `intent` is already on the write for exactly this reason: one
+              // `patch` serves this switch and the row's save form, so without
+              // it a saved edit made the pause switch announce a flip nobody
+              // made.
+              pending={patch.isPending && patch.variables?.intent === "switch"}
               onChange={(next) =>
                 patch.mutate({ intent: "switch", body: { enabled: next } })
               }

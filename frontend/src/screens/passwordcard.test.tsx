@@ -220,6 +220,42 @@ describe("ChangePasswordCard", () => {
     );
   });
 
+  // The fields stay editable while the change is in flight, so `ready` — the
+  // precondition that decides whether the change may START — can go false in
+  // the middle of a request that has already left. Read as a refusal at that
+  // point it would natively disable the button, and a natively disabled button
+  // drops the focus the reader is standing on and stops exposing the busy
+  // state, mid-change.
+  it("stays busy when a field is cleared after the change is already going", async () => {
+    const user = userEvent.setup();
+    // Never settles: the in-flight state is a state to look at rather than a
+    // window this test has to race.
+    vi.spyOn(globalThis, "fetch").mockReturnValue(new Promise(() => {}));
+    renderCard();
+    await user.type(
+      screen.getByLabelText(/current password/i),
+      "old-password-1",
+    );
+    await user.type(
+      screen.getByLabelText(/^new password/i),
+      "new-password-long",
+    );
+    await user.type(
+      screen.getByLabelText(/confirm new password/i),
+      "new-password-long",
+    );
+    await user.click(submitButton());
+
+    await waitFor(() =>
+      expect(submitButton()).toHaveAttribute("aria-busy", "true"),
+    );
+    await user.clear(screen.getByLabelText(/current password/i));
+
+    // Still going, still focusable, still saying so.
+    expect(submitButton()).toHaveAttribute("aria-busy", "true");
+    expect(submitButton()).toBeEnabled();
+  });
+
   it("clears the fields on success so the old password does not linger on screen", async () => {
     const user = userEvent.setup();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

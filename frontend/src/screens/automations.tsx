@@ -495,7 +495,12 @@ export function AutomationRow({
             label={t("auto.enabledFor", { name: automation.name })}
             labelHidden
             checked={enabled}
-            pending={patch.isPending}
+            // Scoped to THIS row's status write, not to the row's mutation.
+            // One `patch` serves the switch and the edit form below, so a bare
+            // `isPending` makes the switch claim a write the reader started by
+            // pressing Save — a control announcing that a flip nobody made is
+            // going through.
+            pending={patch.isPending && patch.variables?.status !== undefined}
             onChange={(next) =>
               patch.mutate({ status: next ? "enabled" : "paused" })
             }
@@ -541,7 +546,9 @@ export function AutomationRow({
           initialName={automation.name}
           initialParams={automation.params}
           submitLabel={t("trust.save")}
-          pending={patch.isPending}
+          // The other half of the same split: the form is unavailable while ITS
+          // write is out, not while the switch beside it is being flipped.
+          pending={patch.isPending && patch.variables?.status === undefined}
           onSubmit={(name, params) => patch.mutate({ name, params })}
           onCancel={() => setEditing(false)}
         />

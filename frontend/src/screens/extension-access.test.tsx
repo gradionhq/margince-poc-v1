@@ -400,6 +400,35 @@ describe("ExtensionAccessCard", () => {
     );
   });
 
+  // One `useSetGrant` serves the whole matrix, so an in-flight flag read
+  // straight off it belongs to no particular cell. Drawn that way, every switch
+  // for every role turns at once and announces `aria-busy` — each one claiming
+  // a write its reader never made, and refusing a press over it.
+  it("marks only the role whose grant is being written, not the whole matrix", async () => {
+    const user = userEvent.setup();
+    const calls: Call[] = [];
+    // The PATCH never settles, so the in-flight state is a state to look at
+    // rather than a window this test has to race.
+    const reads = backend(calls);
+    vi.stubGlobal("fetch", (req: Request) =>
+      req.method === "PATCH" ? new Promise<Response>(() => {}) : reads(req),
+    );
+    render(<ExtensionAccessCard />);
+    await waitFor(() => expect(screen.getByText("notes")).toBeTruthy());
+
+    await user.click(cell("ext_notes_note", "Rep", "Read").control);
+
+    const busy = (role: string, action: string) =>
+      cell("ext_notes_note", role, action).control.getAttribute("aria-busy");
+    await waitFor(() => expect(busy("Rep", "Read")).toBe("true"));
+    // The whole ROLE row is honest — the write carries that role's entire
+    // grant record, so every action in it really is in flight.
+    expect(busy("Rep", "Create")).toBe("true");
+    // Another role is not, and this is the assertion the defect fails: nothing
+    // about Admin's grant ever left the browser.
+    expect(busy("Admin", "Read")).toBeNull();
+  });
+
   it("re-reads and says who changed it when a concurrent edit refuses the write", async () => {
     // Someone else granted Rep read on the note object between this screen's
     // read and this write, so the PATCH's If-Match no longer matches: the

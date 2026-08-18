@@ -204,11 +204,18 @@ export function ChangePasswordCard({
                 yet and `change.isPending` is a write already on its way, and
                 folding them into one `disabled` drew them the same: the reader
                 could not tell "I still have to type something" from "it is
-                going". */}
+                going".
+
+                The precondition stops applying once the write is out, and that
+                guard is load bearing rather than tidy: these fields stay
+                editable during the request, so clearing one mid-flight would
+                otherwise flip `ready` false, hand the button `disabled` on top
+                of `pending`, and — since refusal outranks busy — drop both the
+                focus and the busy state in the middle of the change. */}
             <Button
               type="submit"
               variant="primary"
-              disabled={!ready}
+              disabled={!change.isPending && !ready}
               pending={change.isPending}
               busyLabel={t("password.changing")}
             >

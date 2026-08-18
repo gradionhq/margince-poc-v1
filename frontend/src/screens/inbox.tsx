@@ -744,7 +744,12 @@ export function ApprovalRow({
               {t("trust.accept")}
             </Button>
             {strings.length > 0 && (
-              <Button small onClick={startEdit}>
+              // Disabled with Reject, and for a sharper reason than symmetry:
+              // this opens an editor whose own Cancel is disabled while the
+              // verdict is out, so a press here during the write left the
+              // reader inside a form they could not leave until the request
+              // came back.
+              <Button small disabled={decide.isPending} onClick={startEdit}>
                 {t("trust.edit")}
               </Button>
             )}
