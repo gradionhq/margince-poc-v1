@@ -163,7 +163,14 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	// the unbounded principal — the availability test (a held record reads
 	// as gone, admin included) runs for everyone. One indexed read by primary
 	// key, flat in the size of the account.
-	const budget = 32
+	// 34 since the companies list gained its two roll-up columns (#1621): the
+	// single organization read attaches contact_count and open_deal_count so
+	// the page a row opens into agrees with the row it came from, and the 360
+	// assembles through that read. Two queries, and both are FLAT — one per
+	// count for the whole page, which is one organization here — so the
+	// property this budget protects is untouched. The flatness assertion above
+	// is what proves that, and it passes; only the ceiling moved.
+	const budget = 34
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

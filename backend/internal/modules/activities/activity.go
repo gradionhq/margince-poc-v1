@@ -280,8 +280,13 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	// visible person and a lead the caller may not read passes it — and
 	// filtering on that lead's id would then answer "this lead exists, and here
 	// is what happened on it" to someone with no right to either fact.
-	if err := ensureNarrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
+	switch visible, err := narrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID); {
+	case err != nil:
 		return nil, storekit.Page{}, err
+	case !visible:
+		// Nothing the caller may see is linked to it, which is what an empty
+		// page says — and all it says.
+		return nil, storekit.Page{}, nil
 	}
 	limit := storekit.ClampLimit(in.Limit)
 	join, where, args, err := listActivitiesFilter(ctx, in)

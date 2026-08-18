@@ -23,14 +23,20 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// A lead owned by another rep is not readable, so asking for its timeline is
-// answered not-found — the same as an id that names nothing. Any other answer,
-// including an empty page, tells the caller the lead is there.
-func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
+// A lead owned by another rep is not readable, so its timeline comes back
+// EMPTY — the same answer an id that names nothing gets, and the same one a
+// readable lead with no activities gets. That is what makes it existence-hiding:
+// the caller cannot tell the three apart.
+//
+// It reads empty rather than not-found because listActivities documents 200 and
+// 403 and no 404 (crm.yaml), and because on a list "nothing you may see matches"
+// is the honest shape. An earlier version answered not-found on the reasoning
+// that an empty page "tells the caller the lead is there" — it does not, for the
+// reason above, and the 404 was an answer the contract never admitted.
+func TestNarrowingTheTimelineToAnUnreadableLeadIsEmpty(t *testing.T) {
 	e := setupPromises(t)
 	hiddenLeadID, visiblePersonID, activityID := ids.NewV7(), ids.NewV7(), ids.NewV7()
 
@@ -53,13 +59,19 @@ func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
 
 	leadType := "lead"
 	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
-	_, _, err := store.ListActivities(e.as(), ListActivitiesInput{
+	got, _, err := store.ListActivities(e.as(), ListActivitiesInput{
 		EntityType: &leadType, EntityID: &hiddenLeadID,
 	})
-	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("narrowing the timeline to a lead owned by another rep → %v, want "+
-			"ErrNotFound — an answer of any kind confirms the lead exists and that "+
-			"this activity happened on it", err)
+	if err != nil {
+		t.Fatalf("narrowing the timeline to another rep's lead → %v, want an empty page", err)
+	}
+	// The activity IS readable through the visible person, so the any-link
+	// scope alone would hand it back. Empty proves the narrowing TARGET was
+	// gated, which is the whole point of the check.
+	if len(got) != 0 {
+		t.Fatalf("narrowing to a lead owned by another rep returned %d activities — "+
+			"the any-link scope admitted one through the person, and the narrowing "+
+			"target was never gated", len(got))
 	}
 }
 

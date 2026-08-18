@@ -38,6 +38,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -114,7 +115,7 @@ func (s *Store) ListOpenTasks(ctx context.Context, in ListOpenTasksInput) ([]Ope
 }
 
 func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]OpenTask, bool, error) {
-	if err := ensureNarrowingVisible(ctx, tx, in); err != nil {
+	if err := narrowingVisible(ctx, tx, in); err != nil {
 		return nil, false, err
 	}
 	limit := openTasksLimit(in.Limit)
@@ -163,26 +164,44 @@ func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]Ope
 // narrowing record is visible is a different question from whether the task is,
 // and it is asked here rather than left to whichever caller remembers.
 //
-// Out of scope answers ErrNotFound, the same as an id that names nothing —
+// Out of scope answers ErrNotFound here, the same as an id that names nothing —
 // existence-hiding, exactly as reading the record directly would.
-func ensureNarrowingVisible(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) error {
-	return ensureNarrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID)
+//
+// The TIMELINE answers the same question with an empty page instead, and the
+// difference is the surface rather than the rule: listActivities is a documented
+// HTTP list whose contract admits 200 and 403 and no 404, while this sweep feeds
+// an agent seam with no such published shape. Both hide existence — an empty
+// page is what a nonexistent id returns too — so each surface answers in the
+// shape its own callers are promised.
+func narrowingVisible(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) error {
+	visible, err := narrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID)
+	if err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
 }
 
-// ensureNarrowingTargetVisible is the gate itself, over the (type, id) pair
-// alone, so the timeline read and the open-task sweep ask the identical
-// question. Held in one place because two spellings of an existence-hiding
-// rule is how one of them ends up missing a record type the other has.
-func ensureNarrowingTargetVisible(ctx context.Context, tx pgx.Tx, entityType *string, entityID *ids.UUID) error {
+// narrowingTargetVisible is the gate itself, over the (type, id) pair alone, so
+// the timeline read and the open-task sweep ask the identical question. Held in
+// one place because two spellings of an existence-hiding rule is how one of
+// them ends up missing a record type the other has.
+//
+// A filter naming no record at all is visible=true: there is nothing to gate,
+// and the filter simply matches nothing downstream. An unknown TYPE stays an
+// error, because that is a malformed request rather than an empty answer.
+func narrowingTargetVisible(ctx context.Context, tx pgx.Tx, entityType *string, entityID *ids.UUID) (bool, error) {
 	if entityType == nil || entityID == nil {
-		return nil
+		return true, nil
 	}
 	if linkColumn(*entityType) == "" {
-		return &InvalidLinkTypeError{EntityType: *entityType}
+		return false, &InvalidLinkTypeError{EntityType: *entityType}
 	}
 	// The record type IS the table name for every arm of this vocabulary, which
 	// is the same identity linkNameCoalesce reads.
-	return auth.EnsureVisible(ctx, tx, *entityType, *entityID)
+	return auth.VisibleTo(ctx, tx, *entityType, *entityID)
 }
 
 // openTasksFilter builds the predicate: the two columns that define an open
