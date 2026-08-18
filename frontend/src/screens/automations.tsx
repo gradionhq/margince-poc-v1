@@ -401,6 +401,28 @@ function DeleteAutomationAction({
 // reports it. Predicting it here would mean encoding the catalog's table
 // mapping in the client, which is the kind of server knowledge this change
 // exists to stop duplicating.
+// What a row PATCHes: the automation's definition, or just its on/off status.
+type AutomationPatchBody = {
+  name?: string;
+  params?: Record<string, unknown>;
+  status?: "enabled" | "paused";
+};
+
+// Which of a row's two writes is in flight. One mutation serves the enable
+// switch and the edit form, so `isPending` alone makes each of them announce
+// the other's write — a switch reporting a flip nobody made while the reader
+// was pressing Save. The request body already tells them apart: only a status
+// flip carries `status`.
+function rowWriteInFlight(
+  isPending: boolean,
+  body: AutomationPatchBody | undefined,
+): "none" | "status" | "definition" {
+  if (!isPending) {
+    return "none";
+  }
+  return body?.status === undefined ? "definition" : "status";
+}
+
 export function AutomationRow({
   automation,
   entry,
@@ -430,11 +452,7 @@ export function AutomationRow({
   const [previewOpen, setPreviewOpen] = useState(false);
 
   const patch = useMutation({
-    mutationFn: async (body: {
-      name?: string;
-      params?: Record<string, unknown>;
-      status?: "enabled" | "paused";
-    }) => {
+    mutationFn: async (body: AutomationPatchBody) => {
       const { data, error } = await api.PATCH("/automations/{id}", {
         params: {
           path: { id: automation.id },
@@ -457,6 +475,7 @@ export function AutomationRow({
   });
 
   const enabled = automation.status === "enabled";
+  const writeInFlight = rowWriteInFlight(patch.isPending, patch.variables);
   // The row offers at least one verb worth folding away. With none of the three
   // grants there is nothing behind the control, and a menu that opens on an
   // empty panel is worse than no menu.
@@ -495,12 +514,7 @@ export function AutomationRow({
             label={t("auto.enabledFor", { name: automation.name })}
             labelHidden
             checked={enabled}
-            // Scoped to THIS row's status write, not to the row's mutation.
-            // One `patch` serves the switch and the edit form below, so a bare
-            // `isPending` makes the switch claim a write the reader started by
-            // pressing Save — a control announcing that a flip nobody made is
-            // going through.
-            pending={patch.isPending && patch.variables?.status !== undefined}
+            pending={writeInFlight === "status"}
             onChange={(next) =>
               patch.mutate({ status: next ? "enabled" : "paused" })
             }
@@ -546,9 +560,7 @@ export function AutomationRow({
           initialName={automation.name}
           initialParams={automation.params}
           submitLabel={t("trust.save")}
-          // The other half of the same split: the form is unavailable while ITS
-          // write is out, not while the switch beside it is being flipped.
-          pending={patch.isPending && patch.variables?.status === undefined}
+          pending={writeInFlight === "definition"}
           onSubmit={(name, params) => patch.mutate({ name, params })}
           onCancel={() => setEditing(false)}
         />
