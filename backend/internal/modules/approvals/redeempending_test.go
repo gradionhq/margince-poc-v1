@@ -46,11 +46,25 @@ func TestRedeemingAnUndecidedApprovalIsRetryableAndNotAnInvalidToken(t *testing.
 	// staged one. A mismatched tool or hash against a pending row is a bad token,
 	// not a call to retry — telling it to wait would send it back for a decision
 	// that could never release the call it is actually making.
-	for name, mismatch := range map[string]struct{ tool, hash string }{
-		"another tool":   {"deepread", "c276f789"},
-		"another change": {"enrich", "20be9e19"},
+	// The same holds for the credential: a caller whose passport cannot spend this
+	// approval is holding a bad token whatever a human later decides, and telling
+	// it to wait would send it back to stage the question again after the
+	// decision it waited for refuses it.
+	mine := ids.NewV7()
+	bound := ids.From[ids.PassportKind](ids.NewV7())
+	boundPending := pending
+	boundPending.PassportID = &bound
+	for name, tc := range map[string]struct {
+		a          row
+		p          principal.Principal
+		tool, hash string
+	}{
+		"another tool":     {pending, principal.Principal{}, "deepread", "c276f789"},
+		"another change":   {pending, principal.Principal{}, "enrich", "20be9e19"},
+		"unbound passport": {pending, principal.Principal{PassportID: mine}, "enrich", "c276f789"},
+		"another passport": {boundPending, principal.Principal{PassportID: mine}, "enrich", "c276f789"},
 	} {
-		err := validateRedemption(pending, principal.Principal{}, mismatch.tool, mismatch.hash, now)
+		err := validateRedemption(tc.a, tc.p, tc.tool, tc.hash, now)
 		if !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
 			t.Fatalf("%s against a pending approval → %v, want ErrApprovalTokenInvalid", name, err)
 		}

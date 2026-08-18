@@ -106,6 +106,10 @@ func validateRedemption(a row, p principal.Principal, tool, diffHash string, now
 		return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
 	case a.DiffHash != diffHash:
 		return fmt.Errorf("call differs from the approved change: %w", apperrors.ErrApprovalTokenInvalid)
+	case !p.PassportID.IsZero() && a.PassportID == nil:
+		return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
+	case !p.PassportID.IsZero() && *a.PassportID != ids.From[ids.PassportKind](p.PassportID):
+		return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
 	// Undecided is not a bad token, and the two must not share a sentinel. An
 	// agent whose retry lands before the human clicks is told the token is
 	// INVALID by any answer that wraps ErrApprovalTokenInvalid, and the only
@@ -114,12 +118,12 @@ func validateRedemption(a row, p principal.Principal, tool, diffHash string, now
 	// honest answer is the one the staging already gave: this call still
 	// requires the approval, and the id to spend is the one it is holding.
 	//
-	// AFTER the tool and hash comparisons, because "retry this exact call" is
-	// only true advice for a caller whose call IS the staged one. A caller
-	// presenting the id of a still-pending approval against a DIFFERENT call
-	// would otherwise be told to wait and retry, and its retry would then be
-	// refused for differing from the approved change — the same wrong-advice
-	// loop one branch over.
+	// AFTER every check that does not depend on the decision — the tool, the
+	// hash, the passport binding — because "retry this exact call" is only true
+	// advice for a caller whose call IS the staged one AND whose credential could
+	// spend it. Told to wait on any of those, a caller waits, retries, is refused
+	// for a reason that was already true before the human clicked, and stages the
+	// question again: the same wrong-advice loop, one branch over.
 	case a.effectiveStatus(now) == statusPending:
 		return fmt.Errorf(
 			"approval %s has not been decided yet — do not stage another, wait for a human and retry this exact call with the same approval_id: %w",
@@ -130,10 +134,6 @@ func validateRedemption(a row, p principal.Principal, tool, diffHash string, now
 		return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
 	case a.DecidedAt != nil && now.Sub(*a.DecidedAt) > redemptionTTL:
 		return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
-	case !p.PassportID.IsZero() && a.PassportID == nil:
-		return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
-	case !p.PassportID.IsZero() && *a.PassportID != ids.From[ids.PassportKind](p.PassportID):
-		return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
 	default:
 		return nil
 	}

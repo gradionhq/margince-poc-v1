@@ -360,13 +360,9 @@ func TestATaskWhoseExecutionLeftNoOutcomeFailsRatherThanRunningAgain(t *testing.
 // to do — answers the handle that already exists, because it is answered with the
 // approval that already exists (approvals.StageAgentCall).
 //
-// One act, one authority object, one handle. A fresh proposal per attempt is what
-// left four approvals against one organization, every one of them answered by a
-// human and none ever spent; a fresh HANDLE per attempt is the same fault one
-// layer up, and it is what the one-task-per-approval index has always said must
-// not happen. The index is now a dedupe rather than an error path: a second call
-// that fails the insert would drop the agent back to a bare refusal and lose the
-// handle it was holding.
+// One act, one authority object, one handle, which is what idx_agent_task_approval
+// says. The index is a dedupe rather than an error path: an insert that failed here
+// would drop the agent back to a bare refusal and lose the handle it holds.
 func TestRepeatingAStagedCallAnswersTheHandleItAlreadyHas(t *testing.T) {
 	e := setupConnector(t)
 	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
@@ -535,4 +531,55 @@ func disqualifiedCount(t *testing.T, e *apptest.AppEnv) int {
 		t.Fatalf("counting disqualified leads: %v", err)
 	}
 	return n
+}
+
+// The two conditions on answering an EXISTING handle, both of which decide
+// whether a real client gets its own live task or somebody else's, or a dead one.
+//
+// A handle is answered only to the passport that holds it, and only while it is
+// live. Neither is a hypothetical: a second passport reaches Create with a shared
+// approval id the moment the approval probe widens past one credential, and a
+// CANCELLED row sits against a still-approved approval whenever an agent cancels
+// after the human clicked (Withdraw is a no-op against a decided approval). In
+// both cases the honest answer is the plain refusal, which names the approval and
+// the header that redeems it — never a handle that is not this caller's, and never
+// a terminal one standing in for a decision still waiting to be spent.
+func TestAnExistingTaskHandleIsAnsweredOnlyToItsOwnPassportAndOnlyWhileLive(t *testing.T) {
+	e := setupConnector(t)
+	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
+	leadID := createDisqualifiableLead(t, e.AppEnv)
+	call := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{%s,
+		"name":"disqualify_lead","arguments":{"lead_id":%q}}}`, tasksMeta, leadID)
+
+	first := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", call,
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+	taskID, _ := first["taskId"].(string)
+	if taskID == "" {
+		t.Fatalf("the first call answered no handle: %v", first)
+	}
+
+	// Terminal: the agent cancels, the approval stays live, and the identical call
+	// must not be answered with the dead handle.
+	if _, err := e.Owner.Exec(t.Context(),
+		`UPDATE agent_task SET status = 'cancelled' WHERE id = $1`, taskID); err != nil {
+		t.Fatalf("cancelling the task: %v", err)
+	}
+	afterCancel := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", call,
+		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
+	if afterCancel["taskId"] == taskID {
+		t.Errorf("a cancelled handle (%v) was answered for a live approval", taskID)
+	}
+
+	// Another credential: the row belongs to the first passport, so the second is
+	// not handed it — whatever the approval probe hands over.
+	if _, err := e.Owner.Exec(t.Context(),
+		`UPDATE agent_task SET status = 'working' WHERE id = $1`, taskID); err != nil {
+		t.Fatalf("restoring the task: %v", err)
+	}
+	otherBearer := apptest.PassportBearer(t, e.AppEnv, "other task client", "read", "write")
+	other := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", call,
+		modernHeaders(otherBearer, "tools/call", "disqualify_lead")).Body)
+	if other["taskId"] == taskID {
+		t.Errorf("a second passport was answered the first passport's handle (%v)", taskID)
+	}
 }

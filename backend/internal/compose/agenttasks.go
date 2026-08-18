@@ -75,9 +75,14 @@ func taskPassport(ctx context.Context, verb string) (ids.UUID, error) {
 // insert fail would drop the agent back to a bare refusal and lose the handle it
 // had.
 //
-// The existing row is returned UNCHANGED. Its status is whatever the executor
-// has since made it, and overwriting that with this call's "created" would erase
-// a completion or a failure the agent is entitled to read.
+// Only a LIVE row is answered, and the existing one is returned UNCHANGED. A
+// terminal row is not an answer to a live approval: an agent that cancels its
+// task leaves the approval approved and unspent — Withdraw is a no-op against a
+// decided one — so within the redemption window the identical call is handed that
+// same approval, and answering it with a "cancelled" handle would hide a decision
+// the agent can still spend behind a dead one, for every re-issue until the window
+// closed. A terminal row therefore fails the predicate and the caller gets the
+// plain refusal, which names the approval and the header that redeems it.
 func (t agentTasks) Create(ctx context.Context, in agents.NewTask) (agents.Task, error) {
 	passport, err := taskPassport(ctx, "creating")
 	if err != nil {
@@ -90,20 +95,21 @@ func (t agentTasks) Create(ctx context.Context, in agents.NewTask) (agents.Task,
 		// makes RETURNING fire; approval_id is the conflict key, so the write is a
 		// no-op by construction.
 		//
-		// The WHERE is the credential guard, and it is here rather than trusted
-		// upstream: a task id is worthless to anyone but its owner (taskPassport),
-		// so a handle is only ever answered to the passport that holds it. A row
-		// belonging to another passport fails the predicate, RETURNING yields
-		// nothing, and the caller gets the plain refusal instead of somebody
-		// else's handle. Reachable only if the approval probe ever widened past
-		// one credential, which is exactly the assumption worth not depending on.
+		// The WHERE carries both conditions on answering an existing row. The
+		// credential half is here rather than trusted upstream: a task id is
+		// worthless to anyone but its owner (taskPassport), so a handle is only
+		// ever answered to the passport that holds it — a row belonging to another
+		// passport fails the predicate, RETURNING yields nothing, and the caller
+		// gets the plain refusal instead of somebody else's handle. The status half
+		// keeps a terminal row from standing in for a live decision (see above).
+		// Either way the no-row path is the pre-existing fallback, not a new one.
 		row := tx.QueryRow(ctx, `
 			INSERT INTO agent_task (approval_id, passport_id, tool, status_message, expires_at)
 			VALUES ($1, $2, $3, NULLIF($4, ''), $5)
 			ON CONFLICT (approval_id) DO UPDATE SET approval_id = agent_task.approval_id
-			  WHERE agent_task.passport_id = $2
+			  WHERE agent_task.passport_id = $2 AND agent_task.status = $6
 			RETURNING `+taskColumns,
-			in.ApprovalID, passport, in.Tool, in.StatusMessage, in.ExpiresAt)
+			in.ApprovalID, passport, in.Tool, in.StatusMessage, in.ExpiresAt, agents.TaskWorking)
 		return scanTask(row, &task)
 	})
 	if err != nil {
