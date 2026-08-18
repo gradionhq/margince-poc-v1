@@ -27,9 +27,9 @@ func (e *promoteConsentEnv) seedLeadCreatedAt(t *testing.T, email string, create
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO lead (id, workspace_id, full_name, email, status, source, captured_by, owner_id, created_at)
-		 VALUES ($1, $2, 'Lena Lead', lower($3), 'new', 'inbound', 'human:x', $4, $5)`,
-		id, e.ws, email, e.user, createdAt); err != nil {
+		`INSERT INTO lead (id, full_name, email, status, source, captured_by, owner_id, created_at)
+		 VALUES ($1, 'Lena Lead', lower($2), 'new', 'inbound', 'human:x', $3, $4)`,
+		id, email, e.user, createdAt); err != nil {
 		t.Fatal(err)
 	}
 	return ids.From[ids.LeadKind](id)
@@ -116,6 +116,80 @@ func TestSLAStateReadsAndFiltersAlike(t *testing.T) {
 	}
 	if len(page) != 1 || page[0].Id == lead.Id {
 		t.Errorf("sla_state=within_target lists %d leads incl. the overdue one", len(page))
+	}
+}
+
+func TestDefaultLeadQueueOrdersSLAThenScoreDeterministically(t *testing.T) {
+	e := setupPromoteConsent(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	previousClock := leadSLAClock
+	leadSLAClock = func() time.Time { return now }
+	t.Cleanup(func() { leadSLAClock = previousClock })
+
+	breachedLow := e.seedLeadCreatedAt(t, "breached-low@example.test", now.Add(-FirstResponseTarget-time.Hour))
+	breachedHigh := e.seedLeadCreatedAt(t, "breached-high@example.test", now.Add(-FirstResponseTarget-2*time.Hour))
+	atRisk := e.seedLeadCreatedAt(t, "at-risk@example.test", now.Add(-FirstResponseTarget+30*time.Minute))
+	within := e.seedLeadCreatedAt(t, "within@example.test", now.Add(-time.Hour))
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE lead SET score = CASE id WHEN $1 THEN 10 WHEN $2 THEN 80 WHEN $3 THEN 100 ELSE 100 END
+		  WHERE id IN ($1, $2, $3, $4)`, breachedLow, breachedHigh, atRisk, within); err != nil {
+		t.Fatalf("setting queue scores: %v", err)
+	}
+
+	limit := 2
+	rows, page, err := e.store.ListLeads(e.ctx, ListLeadsInput{Limit: &limit})
+	if err != nil {
+		t.Fatalf("list default queue: %v", err)
+	}
+	if !page.HasMore || page.NextCursor == "" {
+		t.Fatalf("first queue page = %+v, want a continuation cursor", page)
+	}
+	cursor := page.NextCursor
+	// The queue is one snapshot across pages. Without the as-of time in the
+	// cursor, atRisk crosses into breached here, moves ahead of the cursor and
+	// disappears from the result set.
+	leadSLAClock = func() time.Time { return now.Add(2 * time.Hour) }
+	next, lastPage, err := e.store.ListLeads(e.ctx, ListLeadsInput{Limit: &limit, Cursor: &cursor})
+	if err != nil {
+		t.Fatalf("list second queue page: %v", err)
+	}
+	if lastPage.HasMore {
+		t.Fatalf("second queue page = %+v, want the final page", lastPage)
+	}
+	rows = append(rows, next...)
+	want := []ids.LeadID{breachedHigh, breachedLow, atRisk, within}
+	if len(rows) != len(want) {
+		t.Fatalf("queue rows = %d, want %d", len(rows), len(want))
+	}
+	for i, id := range want {
+		if ids.UUID(rows[i].Id) != id.UUID {
+			t.Errorf("queue[%d] = %s, want %s", i, rows[i].Id, id)
+		}
+	}
+}
+
+func TestLeadQuickFindIncludesExactEmailAndLinkedIn(t *testing.T) {
+	e := setupPromoteConsent(t)
+	now := time.Now().UTC()
+	emailLead := e.seedLeadCreatedAt(t, "find-me@example.test", now)
+	linkedInLead := e.seedLeadCreatedAt(t, "other@example.test", now)
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE lead SET linkedin_url = 'https://www.linkedin.com/in/find-me'
+		  WHERE id = $1`, linkedInLead); err != nil {
+		t.Fatalf("setting LinkedIn URL: %v", err)
+	}
+
+	for query, want := range map[string]ids.LeadID{
+		"find-me@example.test":                 emailLead,
+		"https://www.linkedin.com/in/find-me/": linkedInLead,
+	} {
+		rows, _, err := e.store.ListLeads(e.ctx, ListLeadsInput{Query: &query})
+		if err != nil {
+			t.Fatalf("quick-find %q: %v", query, err)
+		}
+		if len(rows) != 1 || ids.UUID(rows[0].Id) != want.UUID {
+			t.Errorf("quick-find %q = %+v, want %s", query, rows, want)
+		}
 	}
 }
 

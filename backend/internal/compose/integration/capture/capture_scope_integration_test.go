@@ -82,8 +82,8 @@ func newScopeCaptureRegistry(t *testing.T, e *integration.SearchEnv, fake *scope
 func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 	e := integration.SetupSearch(t)
 	// A lead owned by team2's rep — outside the team1 granting human's scope.
-	e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, email, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Hidden Prospect', 'collide@scope.test', $3, 'manual', 'human:x')`, e.Rep3)
+	e.SeedID(t, `INSERT INTO lead (id, full_name, email, owner_id, source, captured_by)
+		VALUES ($1, 'Hidden Prospect', 'collide@scope.test', $2, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityLead,
@@ -120,8 +120,8 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 
 func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t *testing.T) {
 	e := integration.SetupSearch(t)
-	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Foreign Counterparty', $3, 'manual', 'human:x')`, e.Rep3)
+	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, 'Foreign Counterparty', $2, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityActivity,
@@ -148,7 +148,7 @@ func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t 
 	}
 	if _, err := e.Owner.Exec(context.Background(), `
 		INSERT INTO activity_link (activity_id, entity_type, person_id)
-		VALUES ( $1, 'person', $2)`, activityID, foreign); err != nil {
+		VALUES ($1, 'person', $2)`, activityID, foreign); err != nil {
 		t.Fatal(err)
 	}
 

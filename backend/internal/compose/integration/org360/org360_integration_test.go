@@ -139,10 +139,10 @@ func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
-	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, 'dana@acme.test', true, 'manual', 'human:x')`, e.WS, contact)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+		VALUES ('employment', $1, $2, 'manual', 'human:x')`, contact, org)
+	e.WsExec(t, `INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ($1, 'dana@acme.test', true, 'manual', 'human:x')`, contact)
 
 	// Two qualifying interactions inside the §4 window, one each way, so
 	// the score is non-zero and reciprocity is balanced.
@@ -204,8 +204,8 @@ func TestOrganization360ConsentReportsEveryPurposeEvenWithoutARow(t *testing.T) 
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Silent Contact", &e.Rep1)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+		VALUES ('employment', $1, $2, 'manual', 'human:x')`, contact, org)
 	seedConsentPurpose(t, owner, "product_updates", "Product updates")
 
 	view, err := svc.Assemble(e.Admin(), ids.From[ids.OrganizationKind](org))
@@ -234,8 +234,8 @@ func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
 	for _, person := range []ids.UUID{mine, theirs} {
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+		e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+			VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
 	}
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
@@ -309,8 +309,8 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, mine, org)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+		VALUES ('employment', $1, $2, 'manual', 'human:x')`, mine, org)
 	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirDeal, org)
 
@@ -410,15 +410,15 @@ func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirs := e.SeedPerson(t, "Another Team's Contact", &e.Rep3)
 	for _, person := range []ids.UUID{mine, theirs} {
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+		e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+			VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
 	}
 
 	meeting := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(24*time.Hour))
 	integration.LinkActivity(t, owner, meeting, "person", mine)
 	for _, person := range []ids.UUID{mine, theirs} {
 		e.WsExec(t, `INSERT INTO activity_participant (activity_id, person_id, role)
-			VALUES ( $1, $2, 'attendee')`, meeting, person)
+			VALUES ($1, $2, 'attendee')`, meeting, person)
 	}
 	// The visible contact ALSO holds a second role. uq_activity_participant is
 	// unique on (activity, role, person), so one person legitimately has several
@@ -426,7 +426,7 @@ func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
 	// `attendee`. Without this the fixture has one row per person and cannot
 	// tell a correct answer from one that lists somebody once per role.
 	e.WsExec(t, `INSERT INTO activity_participant (activity_id, person_id, role)
-		VALUES ( $1, $2, 'from')`, meeting, mine)
+		VALUES ($1, $2, 'from')`, meeting, mine)
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -469,8 +469,8 @@ func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
 	reached := e.SeedPerson(t, "Reached Contact", &e.Rep1)
 	untried := e.SeedPerson(t, "Untried Contact", &e.Rep1)
 	for _, person := range []ids.UUID{reached, untried} {
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+		e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+			VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
 	}
 	// One colleague has a real two-way exchange with the first contact. The
 	// second has none at all, which is the state under test.
@@ -516,8 +516,8 @@ func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Popular Contact", &e.Rep1)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+		VALUES ('employment', $1, $2, 'manual', 'human:x')`, contact, org)
 
 	// Eight colleagues, each stronger than the last, so the ordering is not the
 	// insert order and a scan that returned "the first three" would be caught.
@@ -575,8 +575,8 @@ func TestOrganization360OmitsRoutesWithoutTheActivityGrant(t *testing.T) {
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	person := e.SeedPerson(t, "Reached Contact", &e.Rep1)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, person, org)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+		VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
 	e.WsExec(t, `INSERT INTO graph_interaction_edge
 			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
 		VALUES ($1, $2, $3, $4, 20, 10, 10)`,

@@ -27,8 +27,8 @@ import (
 // owned by the given user (nil = ownerless, i.e. workspace-shared).
 func (e *SearchEnv) seedProjects(t *testing.T, phase string, owner *ids.UUID, n int) (orgID ids.UUID) {
 	t.Helper()
-	orgID = e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Project Org', 'manual', 'human:x')`)
+	orgID = e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Project Org', 'manual', 'human:x')`)
 	for i := 0; i < n; i++ {
 		e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, phase, source, captured_by)
 			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`,

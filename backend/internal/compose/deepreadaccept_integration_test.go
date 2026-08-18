@@ -67,12 +67,10 @@ func TestDeepReadOfferingsDedupeOnValueKeyAndAcceptRespectsHumanPrecedence(t *te
 	// product beside it and leave the human's row untouched.
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_fact
-			  (workspace_id, organization_id, category, field, value, value_key,
-			   evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, 'offering', 'service', 'CRM Rollout (human curated)', 'crm rollout',
-			        'set by hand', '', 1, 'human', $3)`,
-			e.WS, org, "human:"+e.Rep1.String())
+			INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ( $1, 'offering', 'service', 'CRM Rollout (human curated)', 'crm rollout',
+			        'set by hand', '', 1, 'human', $2)`,
+			org, "human:"+e.Rep1.String())
 		return err
 	})
 	if err != nil {
@@ -191,12 +189,10 @@ func TestAcceptedEmployeeRangeFactFillsSizeBandWhenUnambiguous(t *testing.T) {
 	claimed := insertOrg(t, e, e.Rep1, "claimed.example", "")
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_fact
-			  (workspace_id, organization_id, category, field, value, value_key,
-			   evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, 'company', 'employee_range', '11-50', '',
-			        'set by hand', '', 1, 'human', $3)`,
-			e.WS, claimed, "human:"+e.Rep1.String())
+			INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ( $1, 'company', 'employee_range', '11-50', '',
+			        'set by hand', '', 1, 'human', $2)`,
+			claimed, "human:"+e.Rep1.String())
 		return err
 	}); err != nil {
 		t.Fatal(err)

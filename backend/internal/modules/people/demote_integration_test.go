@@ -156,7 +156,7 @@ func TestDemoteRefusesWhenThePersonIsOnALiveDeal(t *testing.T) {
 		{`INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`, []any{pipeline}},
 		{`INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, []any{stage, pipeline}},
 		{`INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, source, captured_by) VALUES ($1, $2, 'Rollout', $3, $4, 'manual', 'human:x')`, []any{deal, e.user, pipeline, stage}},
-		{`INSERT INTO relationship (workspace_id, kind, person_id, deal_id, source, captured_by) VALUES ($1, 'deal_stakeholder', $2, $3, 'manual', 'human:x')`, []any{e.ws, ids.UUID(person.Id), deal}},
+		{`INSERT INTO relationship (kind, person_id, deal_id, source, captured_by) VALUES ('deal_stakeholder', $1, $2, 'manual', 'human:x')`, []any{ids.UUID(person.Id), deal}},
 	} {
 		if _, err := e.owner.Exec(ctx, q.sql, q.args...); err != nil {
 			t.Fatalf("seed deal graph: %v", err)

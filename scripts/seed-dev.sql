@@ -97,15 +97,25 @@ BEGIN
   END IF;
 
   -- The API seed (seed-dev.sh) creates people/orgs/deals with NO owner, and an
-  -- ownerless row is workspace-shared — visible at EVERY row scope. That would
-  -- let the own-scoped Rep Two (below) see everything and make record sharing
+  -- ownerless row is shared — visible at EVERY row scope. That would let the
+  -- own-scoped Rep Two (below) see everything and make record sharing
   -- unobservable. Make Demo Admin the owner of every ownerless seeded record so
   -- row scope actually bites (captured_by is already the admin). Idempotent —
   -- only touches rows that are still ownerless.
-  UPDATE person       SET owner_id = admin_id WHERE workspace_id = ws AND owner_id IS NULL;
-  UPDATE organization SET owner_id = admin_id WHERE workspace_id = ws AND owner_id IS NULL;
+  --
+  -- These reach every ownerless row in the INSTALLATION, not a tenant's subset:
+  -- ADR-0091 §8 phase D is taking the tenant column off these tables, and where
+  -- it is already gone there is no narrower set to name. What bounds the blast
+  -- radius is the guard at the top of this block, not a predicate here — the
+  -- whole DO block returns unless a workspace with slug 'demo-workspace' and an
+  -- admin@demo.test user both exist, which is the demo installation and not
+  -- anything else. A seed that creates users with a published password was
+  -- never safe to point at real data; the tenant predicate narrowed the damage
+  -- but was never what made it safe.
+  UPDATE person       SET owner_id = admin_id WHERE owner_id IS NULL;
+  UPDATE organization SET owner_id = admin_id WHERE owner_id IS NULL;
   UPDATE deal         SET owner_id = admin_id WHERE owner_id IS NULL;
-  UPDATE lead         SET owner_id = admin_id WHERE workspace_id = ws AND owner_id IS NULL;
+  UPDATE lead         SET owner_id = admin_id WHERE owner_id IS NULL;
 
   -- 2nd full-seat user so the Share picker / "who has access" have a real
   -- subject beyond the lone admin.
@@ -222,7 +232,7 @@ BEGIN
   -- ledger behind a company we have never billed.
   FOR org IN
     SELECT id, display_name FROM organization
-     WHERE workspace_id = ws AND archived_at IS NULL
+     WHERE archived_at IS NULL
        AND lifecycle = 'customer'
   LOOP
     INSERT INTO finance_customer_link

@@ -87,9 +87,9 @@ func setupLeadConsent(t *testing.T) *leadConsentEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO lead (id, workspace_id, full_name, email, status, source, captured_by)
-		 VALUES ($1, $2, 'Lena Lead', lower($3), 'working', 'inbound', 'human:x')`,
-		e.lead, e.ws, e.leadEmail); err != nil {
+		`INSERT INTO lead (id, full_name, email, status, source, captured_by)
+		 VALUES ($1, 'Lena Lead', lower($2), 'working', 'inbound', 'human:x')`,
+		e.lead, e.leadEmail); err != nil {
 		t.Fatal(err)
 	}
 

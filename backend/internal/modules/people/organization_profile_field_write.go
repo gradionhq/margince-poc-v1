@@ -224,8 +224,8 @@ func readProfileFieldRow(
 	err := tx.QueryRow(ctx, `
 		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by, captured_by
 		  FROM organization_profile_field
-		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3`,
-		workspaceID(ctx), orgID, field,
+		 WHERE organization_id = $1 AND field = $2`,
+		orgID, field,
 	).Scan(&r.ID, &r.Value, &r.Source, &r.EvidenceSnippet, &r.SourceURL, &r.Confidence,
 		&r.VerifiedAt, &r.VerifiedBy, &r.CapturedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -249,8 +249,8 @@ func readProfileFieldWire(
 		SELECT id, field, value, source, captured_by, evidence_snippet, source_url, confidence,
 		       retrieved_at, verified_at, verified_by, updated_at
 		  FROM organization_profile_field
-		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3`,
-		workspaceID(ctx), orgID, field,
+		 WHERE organization_id = $1 AND field = $2`,
+		orgID, field,
 	).Scan(&rowID, &fieldV, &pf.Value, &srcV, &pf.CapturedBy, &pf.EvidenceSnippet, &pf.SourceUrl,
 		&pf.Confidence, &pf.RetrievedAt, &pf.VerifiedAt, &pf.VerifiedBy, &pf.UpdatedAt)
 	if err != nil {

@@ -145,9 +145,9 @@ func (e *privacyEnv) capturePerson(t *testing.T, visibility string) ids.PersonID
 	ctx := e.as(e.owner, principal.RowScopeOwn)
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, 'Captured Contact', $3, 'gmail:seed', 'connector:gmail', $4)`,
-			id, e.ws, e.owner, visibility)
+			INSERT INTO person (id, full_name, owner_id, source, captured_by, visibility)
+			VALUES ($1, 'Captured Contact', $2, 'gmail:seed', 'connector:gmail', $3)`,
+			id, e.owner, visibility)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding a %s person: %v", visibility, err)

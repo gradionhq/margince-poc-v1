@@ -227,13 +227,13 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	if err := database.WithWorkspaceTx(wsCtx, e.Pool, func(tx pgx.Tx) error {
 		orgID := ids.NewV7()
 		if _, err := tx.Exec(wsCtx, `
-			INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
-			VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, e.WS); err != nil {
+			INSERT INTO organization (id, display_name, is_anchor, source, captured_by)
+			VALUES ($1, 'Our Company', true, 'manual', 'human:test')`, orgID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(wsCtx, `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, 'myco.example', true, 'manual', 'human:test')`, e.WS, orgID)
+			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+			VALUES ( $1, 'myco.example', true, 'manual', 'human:test')`, orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the anchor company: %v", err)

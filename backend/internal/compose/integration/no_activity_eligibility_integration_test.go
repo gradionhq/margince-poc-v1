@@ -103,7 +103,7 @@ func TestTwoRecordsSharingOneLastTouchInstantEachGetTheirOwnReminder(t *testing.
 	deal := e.SeedDeal(t, "Shared Anchor Deal", pipeline, open, nil)
 	attachDealToOrg(t, owner, deal, org)
 	person := e.SeedPerson(t, "Champion", nil)
-	seedStakeholderSeat(t, owner, e.WS, person, deal)
+	seedStakeholderSeat(t, owner, person, deal)
 	for _, row := range []struct {
 		table string
 		id    ids.UUID
@@ -163,12 +163,12 @@ func TestOnlyAStakeholderSeatMakesAPersonACandidate(t *testing.T) {
 	deal := e.SeedDeal(t, "Busy Account Deal", pipeline, open, nil)
 	attachDealToOrg(t, owner, deal, org)
 	stakeholder := e.SeedPerson(t, "Champion", nil)
-	seedStakeholderSeat(t, owner, e.WS, stakeholder, deal)
+	seedStakeholderSeat(t, owner, stakeholder, deal)
 	// An employee of the same busy account with no seat on the deal. If
 	// employment alone made a candidate, every colleague would earn a
 	// reminder duplicating the account's own.
 	colleague := e.SeedPerson(t, "Colleague", nil)
-	seedEmployment(t, owner, e.WS, colleague, org)
+	seedEmployment(t, owner, colleague, org)
 	for _, row := range []struct {
 		table string
 		id    ids.UUID
@@ -193,8 +193,8 @@ func TestOnlyALeadStillInPlayIsACandidate(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 
-	working := seedLeadInStatus(t, owner, e.WS, "working")
-	disqualified := seedLeadInStatus(t, owner, e.WS, "disqualified")
+	working := seedLeadInStatus(t, owner, "working")
+	disqualified := seedLeadInStatus(t, owner, "disqualified")
 	for _, id := range []ids.UUID{working, disqualified} {
 		backdateCreatedAt(t, owner, "lead", id, longEstablished)
 		linkQuietTouch(t, owner, e.WS, "lead", id)
@@ -254,7 +254,7 @@ func linkTouch(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityType 
 		t.Fatalf("no activity_link column for entity type %q", entityType)
 	}
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_link (activity_id, entity_type, `+column+`) VALUES ( $1, $2, $3)`, activity, entityType, entity); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, `+column+`) VALUES ($1, $2, $3)`, activity, entityType, entity); err != nil {
 		t.Fatalf("linking the touch to %s %s: %v", entityType, entity, err)
 	}
 }
@@ -297,36 +297,39 @@ func attachDealToOrg(t *testing.T, owner *pgx.Conn, deal, org ids.UUID) {
 }
 
 // seedStakeholderSeat gives a person a live seat on a deal.
-func seedStakeholderSeat(t *testing.T, owner *pgx.Conn, ws, person, deal ids.UUID) {
+func seedStakeholderSeat(t *testing.T, owner *pgx.Conn, person, deal ids.UUID) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
-		 VALUES ($1, 'deal_stakeholder', $2, $3, 'champion', 'manual', 'human:x')`,
-		ws, person, deal); err != nil {
+		`INSERT INTO relationship (kind, person_id, deal_id, role, source, captured_by)
+		 VALUES ('deal_stakeholder', $1, $2, 'champion', 'manual', 'human:x')`, person, deal); err != nil {
 		t.Fatalf("seeding the stakeholder seat: %v", err)
 	}
 }
 
 // seedEmployment employs a person at an organization — a relationship the
 // candidate query deliberately does NOT treat as live work.
-func seedEmployment(t *testing.T, owner *pgx.Conn, ws, person, org ids.UUID) {
+func seedEmployment(t *testing.T, owner *pgx.Conn, person, org ids.UUID) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-		 VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`,
-		ws, person, org); err != nil {
+		`INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+		 VALUES ('employment', $1, $2, 'manual', 'human:x')`,
+		person, org); err != nil {
 		t.Fatalf("seeding the employment edge: %v", err)
 	}
 }
 
-// seedLeadInStatus inserts one lead in the given lifecycle status.
-func seedLeadInStatus(t *testing.T, owner *pgx.Conn, ws ids.UUID, status string) ids.UUID {
+// seedLeadInStatus plants a lead in one named lifecycle status, so a suite can
+// put two leads either side of the in-play boundary and assert that only the
+// one still in play is a candidate. The status is the whole variable — every
+// other column is held constant so a difference in the result can only come
+// from it.
+func seedLeadInStatus(t *testing.T, owner *pgx.Conn, status string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO lead (id, workspace_id, full_name, status, source, captured_by)
-		 VALUES ($1, $2, 'Inbound Lead', $3, 'manual', 'human:x')`,
-		id, ws, status); err != nil {
+		`INSERT INTO lead (id, full_name, status, source, captured_by)
+		 VALUES ($1, 'Inbound Lead', $2, 'manual', 'human:x')`,
+		id, status); err != nil {
 		t.Fatalf("seeding a %s lead: %v", status, err)
 	}
 	return id

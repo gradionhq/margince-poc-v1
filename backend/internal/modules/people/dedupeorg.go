@@ -115,7 +115,7 @@ func exactOrgByDomain(ctx context.Context, tx pgx.Tx, domains []string, exclude 
 	err := tx.QueryRow(ctx, `
 		SELECT organization_id FROM organization_domain
 		WHERE domain = ANY($1) AND archived_at IS NULL
-		  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  
 		  AND ($2::uuid IS NULL OR organization_id <> $2)
 		ORDER BY organization_id
 		LIMIT 1`, lowered, exclude).Scan(&id)
@@ -156,8 +156,7 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 	// name matching a captured record is a coincidence, not a fact.
 	rows, err := tx.Query(ctx, `
 		SELECT id, display_name, coalesce(legal_name, '') FROM organization
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND archived_at IS NULL
+		 WHERE archived_at IS NULL
 		   -- The installation's own company is never a duplicate of a captured
 		   -- one: proposing that merge offers an action that would erase the
 		   -- workspace's identity (ADR-0082/A127).

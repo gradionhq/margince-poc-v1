@@ -83,14 +83,14 @@ func insertDomainOrg(t *testing.T, e *integration.Env, domain string) ids.Organi
 	orgID := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, owner_id, display_name, name_source, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'domain', 'connector:gmail', 'connector:gmail')`,
-			orgID, e.WS, e.Rep1, domain); err != nil {
+			INSERT INTO organization (id, owner_id, display_name, name_source, source, captured_by)
+			VALUES ($1, $2, $3, 'domain', 'connector:gmail', 'connector:gmail')`,
+			orgID, e.Rep1, domain); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, $3, true, 'connector:gmail', 'connector:gmail')`, e.WS, orgID, domain)
+			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+			VALUES ( $1, $2, true, 'connector:gmail', 'connector:gmail')`, orgID, domain)
 		return err
 	}); err != nil {
 		t.Fatal(err)

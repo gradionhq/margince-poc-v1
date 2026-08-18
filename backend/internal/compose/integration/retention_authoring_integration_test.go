@@ -556,14 +556,13 @@ func TestRetentionAnonymizesAnUnattachedPersonAndArchivesAnAgedNote(t *testing.T
 	SeedRetentionPolicies(t, e)
 
 	personID, noteID := ids.NewV7(), ids.NewV7()
-	wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 	// A person past the 730-day window with no granted consent and no deal
 	// stakeholder role — the selector's whole definition of unattached.
-	e.WsExec(t, `INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, source, captured_by, created_at)
-		VALUES ($1, `+wsClause+`, 'Old Contact', 'Old', 'Contact', 'Buyer', 'manual', 'human:x', now() - interval '800 days')`,
+	e.WsExec(t, `INSERT INTO person (id, full_name, first_name, last_name, title, source, captured_by, created_at)
+		VALUES ($1, 'Old Contact', 'Old', 'Contact', 'Buyer', 'manual', 'human:x', now() - interval '800 days')`,
 		personID)
-	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-		VALUES (`+wsClause+`, $1, 'old.contact@example.test', 'manual', 'human:x')`, personID)
+	e.WsExec(t, `INSERT INTO person_email (person_id, email, source, captured_by)
+		VALUES ( $1, 'old.contact@example.test', 'manual', 'human:x')`, personID)
 	// A NOTE, deliberately: an internal note is not commercial correspondence, so
 	// it carries no statutory floor and the 1095-day archive reaches it. An email
 	// of the same age would be shielded, which is the boundary

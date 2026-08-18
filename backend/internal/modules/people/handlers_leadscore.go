@@ -42,6 +42,18 @@ func (h Handlers) ExplainLeadScore(w http.ResponseWriter, r *http.Request, id cr
 	httperr.WriteJSON(w, http.StatusOK, out)
 }
 
+// ListLeadManualSignals serves the qualification evidence read model. It
+// carries the exact band and provenance rather than asking the client to infer
+// them from a score factor whose points are not a unique band key.
+func (h Handlers) ListLeadManualSignals(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	data, err := h.store.ListLeadManualSignals(r.Context(), pathID[ids.LeadKind](id))
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.LeadManualSignalListResponse{Data: data})
+}
+
 // SetLeadManualSignal serves PUT /leads/{id}/manual-signals, where a rep
 // supplies what capture cannot fetch.
 func (h Handlers) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {

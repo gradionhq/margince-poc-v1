@@ -100,28 +100,27 @@ func seedOfflineDemoAccount(t *testing.T, e *integration.Env, owner ids.UUID, sl
 	ctx := context.Background()
 	var orgID ids.UUID
 	err := e.Pool.QueryRow(ctx, `
-		INSERT INTO organization (workspace_id, display_name, lifecycle, owner_id, source, captured_by)
-		VALUES ($1, $3, 'customer', $2, 'test', 'human:test')
-		RETURNING id`, e.WS, owner, slug+" GmbH").Scan(&orgID)
+		INSERT INTO organization (display_name, lifecycle, owner_id, source, captured_by)
+		VALUES ($2, 'customer', $1, 'test', 'human:test')
+		RETURNING id`, owner, slug+" GmbH").Scan(&orgID)
 	if err != nil {
 		t.Fatalf("seeding an organization: %v", err)
 	}
 	var personID ids.UUID
 	err = e.Pool.QueryRow(ctx, `
-		INSERT INTO person (workspace_id, full_name, source, captured_by)
-		VALUES ($1, $2, 'test', 'human:test') RETURNING id`, e.WS, "Petra "+slug).Scan(&personID)
+		INSERT INTO person (full_name, source, captured_by)
+		VALUES ($1, 'test', 'human:test') RETURNING id`, "Petra "+slug).Scan(&personID)
 	if err != nil {
 		t.Fatalf("seeding a person: %v", err)
 	}
 	if _, err := e.Pool.Exec(ctx, `
-		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, $3, true, 'test', 'human:test')`, e.WS, personID, "petra@"+slug+".example"); err != nil {
+		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ($1, $2, true, 'test', 'human:test')`, personID, "petra@"+slug+".example"); err != nil {
 		t.Fatalf("seeding an address: %v", err)
 	}
 	if _, err := e.Pool.Exec(ctx, `
-		INSERT INTO relationship (workspace_id, kind, person_id, organization_id, role, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'Head of IT', 'test', 'human:test')`,
-		e.WS, personID, orgID); err != nil {
+		INSERT INTO relationship (kind, person_id, organization_id, role, source, captured_by)
+		VALUES ('employment', $1, $2, 'Head of IT', 'test', 'human:test')`, personID, orgID); err != nil {
 		t.Fatalf("seeding an employment: %v", err)
 	}
 	return orgID

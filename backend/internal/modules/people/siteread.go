@@ -206,11 +206,11 @@ func (s *Store) createOrJoinSiteRead(ctx context.Context, orgID *ids.Organizatio
 		// transaction alive, so the join SELECT below sees the winning row
 		// in the same tx — no second-transaction gap for it to finish in.
 		inserted := tx.QueryRow(ctx, `
-			INSERT INTO site_read (id, workspace_id, organization_id, target_kind, seed_url, requested_by)
-			VALUES ($1, $2, $3, $4, $5, $6)
+			INSERT INTO site_read (id, organization_id, target_kind, seed_url, requested_by)
+			VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT DO NOTHING
 			RETURNING `+siteReadColumns,
-			readID, workspaceID(ctx), orgID, targetKind, seedURL, requestedBy)
+			readID, orgID, targetKind, seedURL, requestedBy)
 		var err error
 		out, err = scanSiteRead(inserted)
 		if err == nil {

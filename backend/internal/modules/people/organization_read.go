@@ -127,7 +127,7 @@ func readOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, arc
 // list's cursor key).
 func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Organization, error) {
 	var o crmcontracts.Organization
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var ownerID, parentID, mergedInto *ids.UUID
 	var classification, lifecycle string
 	var relevance *int16
@@ -137,7 +137,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Description, &o.Industry, &o.SizeBand, &ownerID,
+		&id, &o.DisplayName, &o.LegalName, &o.Description, &o.Industry, &o.SizeBand, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&classification, &lifecycle, &relevance, &parentID, &mergedInto, &logoObjectKey, &linkedinURL, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt, &o.IsAnchor,

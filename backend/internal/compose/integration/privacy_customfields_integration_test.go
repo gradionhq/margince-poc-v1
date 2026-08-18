@@ -127,8 +127,8 @@ func TestErasureScrubsCustomFieldColumns(t *testing.T) {
 	leadID := ids.NewV7()
 	err := database.WithWorkspaceTx(f.e.Admin(), f.e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), fmt.Sprintf(
-			`INSERT INTO lead (id, workspace_id, full_name, email, source, captured_by, %s)
-			 VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			`INSERT INTO lead (id, full_name, email, source, captured_by, %s)
+			 VALUES ($1,
 			         'Selma Subject', $2, 'manual', 'human:x', 'about the subject')`,
 			quoted(leadCol),
 		), leadID, subjectEmail)

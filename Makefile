@@ -32,7 +32,7 @@ SEED_DSN ?= postgres://margince_owner:dev@localhost:15432/margince
 # every company renders as a placeholder initial.
 MINIO_PORT ?= 29000
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down migrate-create run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-demo verify-demo seed-reset verify-boot frontend-check frontend-e2e bench-mobile perfdoc e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc test-golangci-guard test-scheduled-report secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down migrate-create run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-demo verify-demo seed-reset verify-boot frontend-check frontend-e2e bench-mobile perfdoc e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc test-golangci-guard test-scheduled-report secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check contract-frontend-drift test-contract-frontend-drift migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -65,9 +65,16 @@ ai-routing-local:
 
 ## check-backend — the backend half of the gate: the root deterministic script
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
-## tests, contract drift). No frontend toolchain needed — this is what the CI
-## deterministic-gates job runs.
-check-backend: check-craft-doc craft-test test-golangci-guard test-scheduled-report check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze
+## tests, contract drift). This is what the CI deterministic-gates job runs.
+##
+## It still needs no frontend toolchain: contract-frontend-drift is the one leg
+## that would, and it skips LOUDLY when pnpm is absent — which is what CI's
+## deterministic-gates job does, since it installs Go and nothing else. With pnpm
+## present (any `make install` checkout) the leg runs, and that is the case
+## #1639 is about: a backend-only author never runs the lane that would
+## otherwise catch a stranded frontend schema. On a pull request CI covers the
+## same ground from the other side, through fe-quality's fe-drift.
+check-backend: check-craft-doc craft-test test-golangci-guard test-scheduled-report check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check contract-frontend-drift test-contract-frontend-drift migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
 ## check — the full merge gate: backend + frontend
@@ -325,10 +332,15 @@ fe-ds-gates:
 
 ## fe-drift — the TS type-drift gate on its own: regenerate from the contract
 ## and fail if the committed types moved.
+##
+## One spelling, shared with check-backend's contract-frontend-drift leg: the
+## artifact list and the "did the generator actually rewrite it" census live in
+## the script, so the two lanes cannot come to disagree about what a contract
+## change owes. The script skips only when pnpm is absent, which cannot happen
+## on this lane — check-fe fails first if the frontend deps are missing.
 fe-drift:
-	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
-		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
-			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; }
+	cd frontend && pnpm install --frozen-lockfile
+	@./scripts/check-contract-frontend-drift.sh
 
 ## fe-unit — the vitest suite. FE_COVERAGE=1 instruments the run so it also
 ## writes frontend/coverage/lcov.info for the `sonarcloud` job — ONE execution
@@ -560,6 +572,20 @@ make-target-parity:
 ## changes pass. A deliberate spec re-sync runs with CONTRACT_STABILITY=pre-live.
 contract-breaking-check:
 	@./scripts/check-contract-breaking.sh
+
+## contract-frontend-drift — the THIRD regeneration a crm.yaml change owes.
+## `make gen` covers the Go artifacts and a unit test covers the MCP surface
+## docs; frontend/src/api/schema.d.ts was enforced only by the frontend lane, so
+## a backend-only author could go green through this whole gate and strand the
+## frontend types (#1573, #1639). Skips LOUDLY without pnpm and never in CI.
+contract-frontend-drift:
+	@./scripts/check-contract-frontend-drift.sh
+
+## test-contract-frontend-drift — the gate's own test. A gate that may skip is a
+## gate that can skip silently, which is the defect it was written for one level
+## up, so the skip path's rules are asserted rather than trusted.
+test-contract-frontend-drift:
+	@./scripts/check-contract-frontend-drift.test.sh
 
 ## migration-versions — a migration this branch adds claims a version no
 ## migration on origin/main already claims, and sorts after all of them. Two

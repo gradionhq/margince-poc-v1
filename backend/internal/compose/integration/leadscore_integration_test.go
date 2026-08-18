@@ -34,8 +34,8 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	// A working lead with a decision-maker title from a high-intent
 	// source: fit = 15 + 8 = 23 (§3.1). Inserted with score 0 so the
 	// recompute demonstrably rebuilds fit AND behavior.
-	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, title, status, source, score, captured_by)
-	                     VALUES ($1, $2, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
+	leadID := e.SeedID(t, `INSERT INTO lead (id, full_name, title, status, source, score, captured_by)
+	                     VALUES ($1, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
 
 	// An inbound email linked to the lead = one fresh reply (+25).
 	subject := "Re: your offer"

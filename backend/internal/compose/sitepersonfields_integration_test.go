@@ -28,22 +28,20 @@ func seatEmployee(t *testing.T, e *integration.Env, org ids.UUID, fullName, emai
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'gmail:seed', 'connector:gmail')`, person, e.WS, fullName); err != nil {
+			INSERT INTO person (id, full_name, source, captured_by)
+			VALUES ($1, $2, 'gmail:seed', 'connector:gmail')`, person, fullName); err != nil {
 			return err
 		}
 		if email != "" {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, source, captured_by)
-				VALUES ($1, $2, $3, 'work', true, 'gmail:seed', 'connector:gmail')`,
-				e.WS, person, email); err != nil {
+				INSERT INTO person_email (person_id, email, email_type, is_primary, source, captured_by)
+				VALUES ($1, $2, 'work', true, 'gmail:seed', 'connector:gmail')`, person, email); err != nil {
 				return err
 			}
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, is_current_primary, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, true, 'gmail:seed', 'connector:gmail')`,
-			e.WS, person, org)
+			INSERT INTO relationship (kind, person_id, organization_id, is_current_primary, source, captured_by)
+			VALUES ('employment', $1, $2, true, 'gmail:seed', 'connector:gmail')`, person, org)
 		return err
 	})
 	if err != nil {

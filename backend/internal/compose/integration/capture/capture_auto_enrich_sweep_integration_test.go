@@ -39,14 +39,14 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 	// by default (migration 0121), so no toggle is needed.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, owner_id, display_name, name_source, source, captured_by)
-			VALUES ($1, $2, $3, 'Gitex', 'domain', 'connector:gmail', 'connector:gmail')`,
-			orgID, e.WS, e.Rep1); err != nil {
+			INSERT INTO organization (id, owner_id, display_name, name_source, source, captured_by)
+			VALUES ($1, $2, 'Gitex', 'domain', 'connector:gmail', 'connector:gmail')`,
+			orgID, e.Rep1); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, 'gitex.com', true, 'connector:gmail', 'connector:gmail')`, e.WS, orgID)
+			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+			VALUES ( $1, 'gitex.com', true, 'connector:gmail', 'connector:gmail')`, orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the captured org: %v", err)

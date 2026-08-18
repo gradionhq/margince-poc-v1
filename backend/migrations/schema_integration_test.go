@@ -197,8 +197,8 @@ func TestVersionBumpAndSkewSemantics(t *testing.T) {
 	var version int64
 	if err := withGUC(t, app, ws, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`INSERT INTO person (workspace_id, full_name, source, captured_by) VALUES ($1, 'Vera', 'test', 'human:test') RETURNING id, version`,
-			ws).Scan(&id, &version)
+			`INSERT INTO person (full_name, source, captured_by) VALUES ('Vera', 'test', 'human:test') RETURNING id, version`,
+		).Scan(&id, &version)
 	}); err != nil {
 		t.Fatalf("inserting person: %v", err)
 	}

@@ -21,6 +21,16 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-18 — Leads V2 review closure (foundation#1352)
+
+The product review found that strong backend mechanics had been surfaced as a generic record list instead of a daily sales queue. This session closed that delivery gap contract-first: the default list is now an SLA-band/score/age composite keyset, and the list response carries the next task plus its deadline and the leading score reason. A new human-only manual-signal read returns the exact stored evidence rather than forcing the client to reconstruct a lossy approximation.
+
+The screen waits for the session and opens on My records; rows show score context, SLA, next task and count, last activity, source and owner. The board says leads, not deals, shows the same decision context and no longer combines all cards with the table's page-one footer. Creation visibly defaults owner/source, excludes service identities, and probes exact email/LinkedIn duplicates before POST. The record shows LinkedIn/source/project, moves facts ahead of the composer, and qualification evidence uses Verified/Estimated/My assessment while preserving confidence, author, timestamp and supersession. Low score is neutral; response breach owns danger styling. Board/presentation code and focused tests moved to their own feature module.
+
+The pre-push red-team pass added composite-cursor continuation coverage, malformed-cursor rejection, row-scope denial for the evidence read, exact email/LinkedIn quick-find coverage and alternate-board paging/count tests. It also caught a moving-clock pagination hole: a lead could cross an SLA band between pages and disappear, so the opaque cursor now freezes the queue's `as_of` instant and the regression advances the clock by two hours between requests. The PR review then caught two retained-score hard cases: equal history timestamps now use the same id tie-breaker as the explanation read, and malformed legacy factor JSON can no longer break the entire lead read. The exact product commit passed `make check`, 2,754 real-Postgres integration tests with zero skips, the 30-story visual gate, and all 91 local end-to-end scenarios (with 14 explicitly live-only scenarios skipped). Desktop and 390 px mobile browser checks covered Mine, All, board, creation, detail evidence and horizontal overflow.
+
+The final quality-gate pass exposed a configuration omission: copy/paste detection already excluded the English and German translation catalogs because their parity-enforced key structure is data rather than duplicated logic, but not the Vietnamese catalog. Sonar consequently ignored the translated literals and classified 29 new catalog rows as duplication. The exclusion now names all three catalogs; hand-written product code remains measured.
+
 ## 2026-08-17 — the filter vocabulary's own follow-ups, and what two review rounds found in the fixes for them (PRs #1476, #1477, #1485, #1490, #1473; foundation#1327)
 
 The four issues #1286's review filed against itself, plus #920. What is worth

@@ -81,7 +81,7 @@ func enableLeadRouting(t *testing.T, e *SearchEnv, params map[string]any) {
 func TestWorkflowRouteLeadAssignsExactlyOnce(t *testing.T) {
 	e := SetupSearch(t)
 	enableLeadRouting(t, e, map[string]any{"owners": []string{e.Rep1.String()}})
-	leadID := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Fresh Lead', 'manual', 'human:x')`)
+	leadID := e.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'Fresh Lead', 'manual', 'human:x')`)
 	engine := compose.NewWorkflowEngine(e.DB())
 
 	env := kevents.Envelope{
@@ -176,7 +176,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	}
 
 	// No automation rows at all: the registered handler stays silent.
-	first := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Ungated Lead', 'manual', 'human:x')`)
+	first := e.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'Ungated Lead', 'manual', 'human:x')`)
 	dispatch(first)
 	if got := ownerOf(first); got != nil {
 		t.Fatalf("unconfigured workspace assigned owner %v, want none", got)
@@ -194,7 +194,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Paused Lead', 'manual', 'human:x')`)
+	second := e.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'Paused Lead', 'manual', 'human:x')`)
 	dispatch(second)
 	if got := ownerOf(second); got != nil {
 		t.Fatalf("paused instance assigned owner %v, want none", got)
@@ -209,7 +209,7 @@ func TestWorkflowEngineHonorsAutomationInstances(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	third := e.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Live Lead', 'manual', 'human:x')`)
+	third := e.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'Live Lead', 'manual', 'human:x')`)
 	dispatch(third)
 	dispatch(third) // redelivery still applies exactly once
 	if got := ownerOf(third); got == nil || *got != e.Rep3 {

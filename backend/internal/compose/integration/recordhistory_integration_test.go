@@ -333,8 +333,8 @@ func TestRecordHistoryErasureBoundsCollateralScrubs(t *testing.T) {
 	const twinEmail = "selma.twin@example.test"
 	// The subject's address is what ties the twin to the person: the
 	// eraser wipes any lead carrying one of the subject's emails.
-	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-		 VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'manual', 'human:x')`,
+	e.WsExec(t, `INSERT INTO person_email (person_id, email, source, captured_by)
+		 VALUES ( $1, $2, 'manual', 'human:x')`,
 		personID, twinEmail)
 	leadID := seedLead(t, e, "Selma Subject", twinEmail, nil)
 

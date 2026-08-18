@@ -370,13 +370,13 @@ func seedAcmeOrgWithHumanIndustry(t *testing.T, e *integration.Env, admin contex
 	orgID := ids.NewV7()
 	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, display_name, industry, source, captured_by)
-			VALUES ($1, $2, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID, e.WS); err != nil {
+			INSERT INTO organization (id, display_name, industry, source, captured_by)
+			VALUES ($1, 'Acme', 'Handcrafted Industry', 'manual', 'human:owner')`, orgID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, 'acme.example', true, 'manual', 'human:owner')`, e.WS, orgID)
+			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+			VALUES ( $1, 'acme.example', true, 'manual', 'human:owner')`, orgID)
 		return err
 	})
 	if err != nil {

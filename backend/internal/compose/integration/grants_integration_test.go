@@ -34,7 +34,7 @@ import (
 // the store layer where scoped principals are cheap to mint.
 func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	e := SetupSearch(t)
-	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Shared Secret', $3, 'manual', 'human:x')`, e.Rep3)
+	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Shared Secret', $2, 'manual', 'human:x')`, e.Rep3)
 
 	repCtx := e.AsTeamRep(e.Rep1, e.Team1)
 	peopleStore := people.NewStore(e.DB())
@@ -99,7 +99,7 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 func TestAReadShareCanBePassedOnButNotWidened(t *testing.T) {
 	e := SetupSearch(t)
 	// Owned by rep3 in team2, so rep1 in team1 has no path to it but a share.
-	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Out Of Scope', $3, 'manual', 'human:x')`, e.Rep3)
+	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Out Of Scope', $2, 'manual', 'human:x')`, e.Rep3)
 	colleague := e.Seed(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'colleague@search.test', 'Colleague')`)
 	svc := identity.NewService(e.Pool)
 

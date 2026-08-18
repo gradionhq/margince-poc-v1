@@ -67,9 +67,9 @@ func setupFinance(t *testing.T) *financeEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO organization (id, workspace_id, display_name, lifecycle, source, captured_by)
-		 VALUES ($1, $2, 'Ledger GmbH', 'customer', 'manual', 'human:test')`,
-		e.org, e.ws); err != nil {
+		`INSERT INTO organization (id, display_name, lifecycle, source, captured_by)
+		 VALUES ($1, 'Ledger GmbH', 'customer', 'manual', 'human:test')`,
+		e.org); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx, `

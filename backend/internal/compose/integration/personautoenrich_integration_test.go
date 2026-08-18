@@ -56,21 +56,21 @@ func seedEmployedPerson(t *testing.T, e *Env, name string) (ids.PersonID, ids.Or
 	personID, orgID := ids.NewV7(), ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Gitex', 'manual', 'user:seed')`, orgID, e.WS, e.Rep1); err != nil {
+			INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+			VALUES ($1, $2, 'Gitex', 'manual', 'user:seed')`, orgID, e.Rep1); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'manual', 'user:seed')`,
-			personID, e.WS, e.Rep1, name); err != nil {
+			INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, $3, 'manual', 'user:seed')`,
+			personID, e.Rep1, name); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO relationship (id, workspace_id, person_id, organization_id, kind,
+			INSERT INTO relationship (id, person_id, organization_id, kind,
 			                          is_current_primary, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'employment', true, 'manual', 'user:seed')`,
-			ids.NewV7(), e.WS, personID, orgID)
+			VALUES ($1, $2, $3, 'employment', true, 'manual', 'user:seed')`,
+			ids.NewV7(), personID, orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the employed contact: %v", err)
@@ -245,8 +245,8 @@ func TestPersonAutoEnrichStopsAtAContactWithNoEmployer(t *testing.T) {
 	personID := ids.From[ids.PersonKind](ids.NewV7())
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Anna Muster', 'manual', 'user:seed')`, personID, e.WS, e.Rep1)
+			INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, 'Anna Muster', 'manual', 'user:seed')`, personID, e.Rep1)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the unemployed contact: %v", err)
@@ -271,8 +271,8 @@ func TestPersonAutoEnrichFollowsAMergeToTheSurvivor(t *testing.T) {
 	mergedAway := ids.From[ids.PersonKind](ids.NewV7())
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by, archived_at)
-			VALUES ($1, $2, $3, 'A. Muster', 'manual', 'user:seed', now())`, mergedAway, e.WS, e.Rep1)
+			INSERT INTO person (id, owner_id, full_name, source, captured_by, archived_at)
+			VALUES ($1, $2, 'A. Muster', 'manual', 'user:seed', now())`, mergedAway, e.Rep1)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the merged-away contact: %v", err)

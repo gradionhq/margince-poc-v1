@@ -16,8 +16,14 @@ package people
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
+	"time"
 
+	openapitypes "github.com/oapi-codegen/runtime/types"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -89,6 +95,56 @@ func TestACreatedLeadCarriesItsOwnExplanation(t *testing.T) {
 	}
 	if out.Current.OverrideReason != nil {
 		t.Errorf("a machine-computed score carries no override reason: %v", *out.Current.OverrideReason)
+	}
+}
+
+func TestLeadReasonUsesTheCurrentTiedHistoryAndToleratesMalformedFactors(t *testing.T) {
+	ctx, store := newLeadScoreEnv(t)
+	leadID := seedScoredLead(ctx, t, store)
+	if _, err := store.SetLeadManualSignal(ctx, leadID, SetLeadManualSignalInput{
+		Factor: "employees", Band: "201+", SignalKind: "assumption", Reason: "team estimate",
+	}); err != nil {
+		t.Fatalf("adding a second score history entry: %v", err)
+	}
+
+	sharedTime := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	if _, err := store.db.Pool().Exec(ctx,
+		`UPDATE lead_score_history SET computed_at = $2 WHERE lead_id = $1`, leadID, sharedTime); err != nil {
+		t.Fatalf("giving the history entries a shared timestamp: %v", err)
+	}
+	explanation, err := store.ExplainLeadScore(ctx, leadID, ExplainLeadScoreInput{Limit: 10})
+	if err != nil || explanation.Current == nil || explanation.Current.Factors == nil {
+		t.Fatalf("reading the current tied explanation: out=%+v err=%v", explanation, err)
+	}
+	wantReason := ""
+	maxImpact := -1.0
+	for _, factor := range *explanation.Current.Factors {
+		if impact := math.Abs(float64(factor.Points)); impact > maxImpact {
+			maxImpact = impact
+			wantReason = factor.Factor
+		}
+	}
+	lead, err := store.GetLead(ctx, leadID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("reading a lead with tied score history: %v", err)
+	}
+	if lead.ScoreReason == nil || *lead.ScoreReason != wantReason {
+		t.Fatalf("score reason = %v, want current history factor %q", lead.ScoreReason, wantReason)
+	}
+
+	if _, err := store.db.Pool().Exec(ctx, `
+		UPDATE lead_score_history
+		   SET factors = '[{"factor":"broken","points":"not-a-number"}]'::jsonb
+		 WHERE id = (SELECT id FROM lead_score_history WHERE lead_id = $1
+		             ORDER BY computed_at DESC, id DESC LIMIT 1)`, leadID); err != nil {
+		t.Fatalf("simulating malformed retained factors: %v", err)
+	}
+	lead, err = store.GetLead(ctx, leadID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("malformed retained factors broke the lead read: %v", err)
+	}
+	if lead.ScoreReason != nil {
+		t.Fatalf("malformed retained factors produced score reason %q", *lead.ScoreReason)
 	}
 }
 
@@ -219,6 +275,36 @@ func TestAManualSignalCountsAndStaysItsOwnFactor(t *testing.T) {
 	}
 }
 
+func TestManualSignalReadReturnsTheStoredQualificationEvidence(t *testing.T) {
+	ctx, store := newLeadScoreEnv(t)
+	leadID := seedScoredLead(ctx, t, store)
+	confidence := float32(0.7)
+	if _, err := store.SetLeadManualSignal(ctx, leadID, SetLeadManualSignalInput{
+		Factor: "employees", Band: "51-200", SignalKind: "assumption",
+		Confidence: &confidence, Reason: "the careers page lists about eighty people",
+	}); err != nil {
+		t.Fatalf("entering a manual signal: %v", err)
+	}
+
+	signals, err := store.ListLeadManualSignals(ctx, leadID)
+	if err != nil {
+		t.Fatalf("reading manual signals: %v", err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("manual signals = %d, want 1", len(signals))
+	}
+	got := signals[0]
+	if got.Band != "51-200" || got.Points != 8 || got.SignalKind != crmcontracts.LeadManualSignalKindAssumption {
+		t.Errorf("stored band, points or kind were lost: %+v", got)
+	}
+	if got.Confidence == nil || *got.Confidence != confidence {
+		t.Errorf("confidence = %v, want %v", got.Confidence, confidence)
+	}
+	if got.Reason != "the careers page lists about eighty people" || got.SetBy == (openapitypes.UUID{}) {
+		t.Errorf("provenance was lost: %+v", got)
+	}
+}
+
 // Scoring a lead is a WRITE to it, and naming one in the request is a read of
 // it: a rep who cannot see a lead must not be able to score it, and must not
 // learn it exists by being told so.
@@ -280,6 +366,9 @@ func TestARepCannotScoreALeadTheyCannotSee(t *testing.T) {
 	// real, which is the existence disclosure the row-scope rule forbids.
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("want ErrNotFound so the refusal hides existence, got %v", err)
+	}
+	if _, err := store.ListLeadManualSignals(stranger, leadID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("manual signal read exposed an out-of-scope lead: got %v, want ErrNotFound", err)
 	}
 
 	// And nothing was written: the refusal must land before the insert, not
