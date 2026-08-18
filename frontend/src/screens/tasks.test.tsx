@@ -62,7 +62,15 @@ function openTask(overrides: Partial<Activity>): Activity {
 
 type Mutation = { method: string; url: string; body: unknown };
 
-function tasksBackend(tasks: Activity[], mutations: Mutation[]) {
+function tasksBackend(
+  tasks: Activity[],
+  mutations: Mutation[],
+  // The records a row's links point at, keyed by the path that reads one
+  // (`/leads/l-1`). A named row resolves its record through EntityRef, off that
+  // record's own GET — unanswered, the row falls back to the raw id and an
+  // assertion about the name would be asserting the fallback.
+  records: Record<string, unknown> = {},
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
@@ -76,6 +84,10 @@ function tasksBackend(tasks: Activity[], mutations: Mutation[]) {
         openTask(method === "POST" ? { id: "t-new" } : {}),
         method === "POST" ? 201 : 200,
       );
+    }
+    const record = Object.entries(records).find(([path]) => url.includes(path));
+    if (record) {
+      return jsonResponse(record[1]);
     }
     return jsonResponse({ data: tasks, page: { next_cursor: null } });
   });
@@ -183,5 +195,78 @@ describe("TasksScreen reminders (B-E16.1)", () => {
     expect(mutations[0].method).toBe("PATCH");
     expect(mutations[0].url).toContain("/activities/t1");
     expect(mutations[0].body).toMatchObject({ remind_at: null });
+  });
+});
+
+// Task subjects are generated ("Follow up with the new lead"), so a queue of
+// them is a column of the same sentence and the only way to tell two apart is
+// to open both. The row names WHICH record it is about — the first link the app
+// can route to. `project` is not one of those: it has no 360 to send anyone to.
+describe("TaskRow — the record the task is about (UI polish)", () => {
+  const due = "2026-07-04T10:00:00Z";
+  // The formatter itself is pinned in format.test.ts; the row must show the
+  // stored instant rendered for the en locale in Europe/Berlin.
+  const dueLabel = formatDateTime(due, "en", "Europe/Berlin");
+
+  // The row's identity cell read as the one line it is: subject, then the
+  // record, then the due date. Asserting the whole line is what proves a
+  // reference is ABSENT — a queried-for-nothing assertion cannot.
+  function taskLine(): string {
+    const cell = screen.getByText("Call Anna").parentElement;
+    if (!cell) {
+      throw new Error("the task subject rendered outside a row");
+    }
+    return cell.textContent ?? "";
+  }
+
+  it("names the linked lead between the subject and the due date", async () => {
+    vi.stubGlobal(
+      "fetch",
+      tasksBackend(
+        [
+          openTask({
+            due_at: due,
+            links: [{ entity_type: "lead", entity_id: "l-1" }],
+          }),
+        ],
+        [],
+        { "/leads/l-1": { id: "l-1", full_name: "Jordan Lee" } },
+      ),
+    );
+    render(<TasksScreen />);
+    // The resolved name is a link to the record, so the queue is somewhere to
+    // work FROM rather than a list of rows to open one by one.
+    expect(
+      await screen.findByRole("button", { name: "Jordan Lee" }),
+    ).toBeTruthy();
+    expect(taskLine()).toBe(`Call Anna · Jordan Lee · ${dueLabel}`);
+  });
+
+  it("names no record when the only link is a kind the app cannot route to", async () => {
+    vi.stubGlobal(
+      "fetch",
+      tasksBackend(
+        [
+          openTask({
+            due_at: due,
+            links: [{ entity_type: "project", entity_id: "p-1" }],
+          }),
+        ],
+        [],
+      ),
+    );
+    render(<TasksScreen />);
+    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
+    // Not even the id: every EntityRef render path titles itself with the id it
+    // was handed, so a titleless row is one that never reached for a reference.
+    expect(screen.queryByTitle("p-1")).toBeNull();
+    expect(taskLine()).toBe(`Call Anna · ${dueLabel}`);
+  });
+
+  it("leaves an unlinked task's row as its subject and due date", async () => {
+    vi.stubGlobal("fetch", tasksBackend([openTask({ due_at: due })], []));
+    render(<TasksScreen />);
+    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
+    expect(taskLine()).toBe(`Call Anna · ${dueLabel}`);
   });
 });

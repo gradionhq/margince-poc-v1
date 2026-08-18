@@ -15,6 +15,7 @@ import { FactList } from "../design-system/factlist";
 import type { ConfidenceLevel } from "../design-system/trust";
 import { useT } from "../i18n";
 import { provenanceOf, throwProblem } from "./common";
+import { dealRoleLabel } from "./company360";
 import { EntityRef } from "./entityref";
 
 export type Person360 = components["schemas"]["Person360"];
@@ -314,7 +315,10 @@ export function IdentityRail({
                 term: t("person.identity.buyingRole"),
                 value: (
                   <>
-                    <Badge tone="accent">{r.role}</Badge>
+                    {/* The wire spells a buying role `economic_buyer`; the
+                        product has always had the words for it, one screen
+                        over on the account this deal belongs to. */}
+                    <Badge tone="accent">{dealRoleLabel(r.role, t)}</Badge>
                     {r.deal_title && <> · {r.deal_title}</>}
                   </>
                 ),

@@ -144,7 +144,6 @@ export const en = {
   // extensions/<unit>/frontend/i18n/, namespaced `ext<Unit>.` and merged into
   // the catalogue by gen-composition (see i18n/index.tsx).
 
-  "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",
   "search.empty": "No matches for “{q}”.",
   "search.group.person": "People",
@@ -152,9 +151,6 @@ export const en = {
   "search.group.deal": "Deals",
   "search.group.activity": "Activities",
   "search.group.lead": "Leads",
-  "search.why": "Why this result",
-  "search.relevance": "relevance {pct}%",
-  "search.tier.authoritative": "verified",
   "search.tier.mirrored": "from HubSpot",
 
   "context.title": "Related evidence",
@@ -829,7 +825,9 @@ export const en = {
   "finance.col.issued": "Issued",
   "finance.col.due": "Due",
   "finance.col.paid": "Paid",
+  "finance.paidDayLate": "{days} day late",
   "finance.paidDaysLate": "{days} days late",
+  "finance.overdueDay": "{days} day overdue",
   "finance.overdueDays": "{days} days overdue",
   "finance.col.amount": "Amount",
   "finance.col.status": "Status",
@@ -4571,6 +4569,8 @@ export const en = {
   "aiexport.previewLabel": "Scenario preview",
   "aiexport.responseLabel": "Model response",
 
+  "countdown.daysHours": "{days}d {hours}h",
+  "countdown.hoursMinutes": "{hours}h {minutes}m",
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",
 

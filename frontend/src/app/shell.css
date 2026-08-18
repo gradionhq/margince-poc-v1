@@ -170,6 +170,15 @@
   display: flex;
   gap: var(--space-2);
 }
+/* A head whose only child is its actions: the page's name is printed by the
+   shell, so there is no title beside them to push them across. The `flex: 1`
+   above is for the TITLE stack that is normally first — left on a lone button
+   it stretches the control the full width of the page. */
+.list-head > .list-head-actions:only-child,
+.list-head > button:only-child {
+  flex: none;
+  margin-left: auto;
+}
 
 /* ===== sidebar =====
  * The ground is the matte near-white surface in BOTH states. The collapsed
@@ -792,6 +801,16 @@
      are translated strings, so wrapping here is a guard against a long
      translation, not against user data. */
   overflow-wrap: anywhere;
+}
+/* The line under the page's name, for a page whose name alone does not say what
+   it is for. Quiet and one step down the type scale: it explains the heading,
+   so reading it must never compete with reading the heading. */
+.pagesub {
+  margin: 0;
+  max-width: 68ch;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--textSecondary);
 }
 /* The trail on a record route, standing where the heading stands on every other
    one. It is quiet on purpose: the record's own name, at full size, is the next

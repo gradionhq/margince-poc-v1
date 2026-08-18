@@ -1018,6 +1018,57 @@ describe("PageHead", () => {
     expect(document.body.textContent).not.toContain("notes");
   });
 
+  // A page whose name alone does not say what it is for carries one quiet line
+  // under the heading, and the head is where it belongs: a screen that printed
+  // its own subtitle had to print its own title above it to hang it on, and the
+  // shell was already printing that title.
+  it("prints the page's subtitle under the heading", () => {
+    const { container } = render(<PageHead route={{ screen: "inbox" }} />);
+    const heading = screen.getByRole("heading", {
+      level: 1,
+      name: "Approvals",
+    });
+    const sub = container.querySelector(".pagesub");
+    expect(sub?.textContent).toBe(
+      "everything staged, waiting on your call — nothing runs without it",
+    );
+    // Directly under the name it explains, in the title column — not in the
+    // aside beside the SoR chip, where it would read as product chrome.
+    expect(heading.nextElementSibling).toBe(sub);
+    expect(container.querySelector(".pagetitle")?.contains(sub)).toBe(true);
+  });
+
+  // Only the screens the map names. Most headings say what the page is for on
+  // their own, and a subtitle there is a line of copy nobody needed to read.
+  it("prints no subtitle on a screen the map does not name", () => {
+    const { container } = render(<PageHead route={{ screen: "deals" }} />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Pipeline" }),
+    ).toBeTruthy();
+    expect(container.querySelector(".pagesub")).toBeNull();
+  });
+
+  // The subtitle belongs to the branch that prints an h1. Where the head yields
+  // — a record route, showing the trail instead — a line under that trail would
+  // describe the LIST the trail leads back to rather than the record on screen.
+  //
+  // No record screen carries a subtitle key today (the map names `inbox` and
+  // `ai`, and neither has a record segment), so what this pins is the structure:
+  // the crumb branch renders no subtitle element at all. Give a record screen a
+  // subtitle and this is the case that says where it may not appear.
+  it("prints no subtitle on a record route, where the trail stands instead", () => {
+    const client = newClient();
+    client.setQueryData(["person", "ref", "p-anna"], "Anna Weber");
+    const { container } = renderWith(
+      client,
+      <PageHead route={{ screen: "contacts", id: "p-anna" }} />,
+    );
+    expect(container.querySelector(".pagecrumb")?.textContent).toContain(
+      "Anna Weber",
+    );
+    expect(container.querySelector(".pagesub")).toBeNull();
+  });
+
   // A record names itself: its surface prints the identity block, and that is
   // the page's one h1. The head yields — it prints the trail that leads here
   // and nothing at heading level, or the document would offer two page titles
@@ -1252,6 +1303,24 @@ describe("Shell", () => {
     const headings = screen.getAllByRole("heading", { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0].textContent).toBe("Contacts");
+  });
+
+  // The same rule for the line under that heading: the screens whose subtitle
+  // was lost when they stopped printing their own title get it from the shell,
+  // and it arrives with exactly one h1 above it rather than a second title to
+  // hang it on. Asserted through the real shell because the head is what mounts
+  // it — the subtitle is only as reachable as the route that carries it.
+  it("mints the page's subtitle beneath that one heading", () => {
+    window.location.hash = "#/ai";
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0].textContent).toBe("Ask Margince");
+    expect(container.querySelector(".pagesub")?.textContent).toBe(
+      "bring your own agent — governed by the two-tier contract",
+    );
   });
 
   // The other half of the same rule: a record surface prints the identity block

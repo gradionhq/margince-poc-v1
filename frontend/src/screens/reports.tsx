@@ -223,32 +223,29 @@ export function ReportsScreen() {
   // quotas surface; factored so the report body below stays at one depth
   // (quotas takes an early return rather than nesting the whole report tree).
   const header = (
-    <>
-      <SectionHeader
-        title={t("nav.reports")}
-        sub={segment === "quotas" ? t("quotas.sub") : t("reports.sub")}
+    <div className="filter-tabs">
+      <SegmentedControl
+        options={
+          [
+            "deals-by-stage",
+            "forecast",
+            "open-deals-per-company",
+            "quotas",
+          ] as const
+        }
+        value={segment}
+        onChange={setSegment}
+        labels={{
+          "deals-by-stage": t("reports.reportDeals"),
+          forecast: t("reports.reportForecast"),
+          "open-deals-per-company": t("reports.reportOpenByCompany"),
+          quotas: t("quotas.tab"),
+        }}
       />
-      <div className="filter-tabs">
-        <SegmentedControl
-          options={
-            [
-              "deals-by-stage",
-              "forecast",
-              "open-deals-per-company",
-              "quotas",
-            ] as const
-          }
-          value={segment}
-          onChange={setSegment}
-          labels={{
-            "deals-by-stage": t("reports.reportDeals"),
-            forecast: t("reports.reportForecast"),
-            "open-deals-per-company": t("reports.reportOpenByCompany"),
-            quotas: t("quotas.tab"),
-          }}
-        />
-      </div>
-    </>
+      <span className="sub">
+        {segment === "quotas" ? t("quotas.sub") : t("reports.sub")}
+      </span>
+    </div>
   );
 
   if (segment === "quotas") {

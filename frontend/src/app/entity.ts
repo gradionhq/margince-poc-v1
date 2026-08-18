@@ -13,6 +13,13 @@ export const ENTITY_KINDS = [
   "lead",
 ] as const satisfies readonly EntityKind[];
 
+// Whether a kind that arrived as free-form wire text is one this app can route
+// to. Activity links and audit rows both carry kinds beyond the routable set
+// (`project`), so a caller that wants to LINK a record has to ask first.
+export function isEntityKind(kind: string): kind is EntityKind {
+  return (ENTITY_KINDS as readonly string[]).includes(kind);
+}
+
 export type EntityDescriptor = {
   route: (id: string) => Route;
 };

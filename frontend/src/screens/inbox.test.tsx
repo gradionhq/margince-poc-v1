@@ -131,6 +131,22 @@ function inboxBackend(
   });
 }
 
+// The card's headline and the line under it. Neither carries a heading ROLE —
+// the card styles paragraphs — so which one LEADS is readable only off the class.
+function cardLines(container: HTMLElement): {
+  headline: string | null;
+  why: string | null;
+} {
+  const card = container.querySelector(".staging-card");
+  if (!card) {
+    throw new Error("no approval card rendered");
+  }
+  return {
+    headline: card.querySelector(".t-h2")?.textContent ?? null,
+    why: card.querySelector(".approval-why")?.textContent ?? null,
+  };
+}
+
 describe("InboxScreen (B-EP09.12a)", () => {
   it("approves a queued item", async () => {
     const calls: { url: string; body: unknown }[] = [];
@@ -346,6 +362,60 @@ describe("InboxScreen (B-EP09.12a)", () => {
     await waitFor(() =>
       expect(screen.getByText("via send_email")).toBeTruthy(),
     );
+  });
+});
+
+// ── The headline that tells one staged row from the next ────────────────
+// A held draft's summary is composed out of the addressee alone, so a queue of
+// drafts to the same counterparties is a column of one sentence. The subject the
+// automation wrote is the line that differs, and it already rides on the wire.
+describe("InboxScreen — the staged subject leads the card", () => {
+  const summary =
+    "an automation drafted a reply to Anna Weber — read it before it goes";
+  // The held-draft payload the editor test above stages; each case overrides
+  // only `subject`.
+  const heldDraft = (subject: Record<string, unknown>): Approval =>
+    ({
+      ...approval,
+      kind: "held_draft",
+      summary,
+      proposed_change: {
+        anchor_activity_id: "018f3a1b-0000-7000-8000-000000000010",
+        to: "anna@example.com",
+        body: "Hi Anna — here is what we agreed.",
+        consent_purpose: "business_correspondence",
+        intent: "recap the meeting",
+        ...subject,
+      },
+    }) as Approval;
+
+  it("headlines the drafted subject and demotes the summary to the why line", async () => {
+    const held = heldDraft({ subject: "Re: kickoff" });
+    vi.stubGlobal("fetch", inboxBackend([], [], held));
+    const { container } = render(<InboxScreen />);
+    await waitFor(() => expect(screen.getByText("Re: kickoff")).toBeTruthy());
+    // Demoted, never dropped: the summary is the only line that says an
+    // automation wrote this, and why.
+    expect(cardLines(container)).toEqual({
+      headline: "Re: kickoff",
+      why: summary,
+    });
+  });
+
+  it("leaves the summary as the headline when the payload stages no subject", async () => {
+    vi.stubGlobal("fetch", inboxBackend([], [], heldDraft({})));
+    const { container } = render(<InboxScreen />);
+    await waitFor(() => expect(screen.getByText(summary)).toBeTruthy());
+    expect(cardLines(container)).toEqual({ headline: summary, why: null });
+  });
+
+  // proposed_change is an open map in the contract: a kind that puts something
+  // other than a string under `subject` falls through rather than headline it.
+  it("falls through to the summary when `subject` is not a string", async () => {
+    vi.stubGlobal("fetch", inboxBackend([], [], heldDraft({ subject: 42 })));
+    const { container } = render(<InboxScreen />);
+    await waitFor(() => expect(screen.getByText(summary)).toBeTruthy());
+    expect(cardLines(container)).toEqual({ headline: summary, why: null });
   });
 });
 

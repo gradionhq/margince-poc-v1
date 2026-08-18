@@ -133,7 +133,6 @@ export const de = {
     "Auf dieser Installation ist keine Erweiterung namens „{name}“ aktiviert.",
   "ext.operations": "Veröffentlichte Operationen",
 
-  "search.title": "Suche",
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
   "search.empty": "Keine Treffer für „{q}“.",
@@ -142,9 +141,6 @@ export const de = {
   "search.group.deal": "Deals",
   "search.group.activity": "Aktivitäten",
   "search.group.lead": "Leads",
-  "search.why": "Warum dieses Ergebnis",
-  "search.relevance": "Relevanz {pct}%",
-  "search.tier.authoritative": "verifiziert",
   "search.tier.mirrored": "aus HubSpot",
 
   "context.title": "Verwandte Belege",
@@ -811,7 +807,9 @@ export const de = {
   "finance.col.issued": "Ausgestellt",
   "finance.col.due": "Fällig",
   "finance.col.paid": "Bezahlt",
+  "finance.paidDayLate": "{days} Tag zu spät",
   "finance.paidDaysLate": "{days} Tage zu spät",
+  "finance.overdueDay": "{days} Tag überfällig",
   "finance.overdueDays": "{days} Tage überfällig",
   "finance.col.amount": "Betrag",
   "finance.col.status": "Status",
@@ -4586,6 +4584,8 @@ export const de = {
   "aiexport.previewLabel": "Szenariovorschau",
   "aiexport.responseLabel": "Modellantwort",
 
+  "countdown.daysHours": "{days}d {hours}h",
+  "countdown.hoursMinutes": "{hours}h {minutes}m",
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",
 

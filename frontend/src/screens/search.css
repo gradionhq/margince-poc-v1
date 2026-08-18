@@ -33,6 +33,3 @@
   color: var(--textSecondary);
   font-size: 13px;
 }
-.search-hit-score {
-  color: var(--textTertiary);
-}

@@ -142,7 +142,6 @@ export const vi = {
     "Bản cài đặt này không bật tiện ích mở rộng nào tên “{name}”.",
   "ext.operations": "Các thao tác đã công bố",
 
-  "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
   "search.empty": "Không có kết quả cho “{q}”.",
   "search.group.person": "Người",
@@ -150,9 +149,6 @@ export const vi = {
   "search.group.deal": "Deal",
   "search.group.activity": "Hoạt động",
   "search.group.lead": "Lead",
-  "search.why": "Vì sao có kết quả này",
-  "search.relevance": "độ liên quan {pct}%",
-  "search.tier.authoritative": "đã xác minh",
   "search.tier.mirrored": "từ HubSpot",
 
   "context.title": "Bằng chứng liên quan",
@@ -803,7 +799,9 @@ export const vi = {
   "finance.col.issued": "Ngày xuất",
   "finance.col.due": "Hạn",
   "finance.col.paid": "Đã trả",
+  "finance.paidDayLate": "trễ {days} ngày",
   "finance.paidDaysLate": "trễ {days} ngày",
+  "finance.overdueDay": "quá hạn {days} ngày",
   "finance.overdueDays": "quá hạn {days} ngày",
   "finance.col.amount": "Số tiền",
   "finance.col.status": "Trạng thái",
@@ -4558,6 +4556,8 @@ export const vi = {
   "aiexport.previewLabel": "Xem trước kịch bản",
   "aiexport.responseLabel": "Phản hồi của mô hình",
 
+  "countdown.daysHours": "{days} ngày {hours} giờ",
+  "countdown.hoursMinutes": "{hours} giờ {minutes} phút",
   "countdown.minutesSeconds": "{minutes} phút {seconds} giây",
   "countdown.expired": "Đã hết hạn",
 

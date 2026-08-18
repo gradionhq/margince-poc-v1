@@ -610,6 +610,20 @@ function SettingsPageHead({
   );
 }
 
+// The line under the page's name, for the screens whose name alone does not
+// say what the page is for. It belongs to the page rather than to anything on
+// it, which is why it lives beside the title keys: a screen that printed its
+// own subtitle had to print its own title above it to hang it on, and the
+// shell was already printing that title — the page then named itself twice.
+//
+// Only a subtitle true of the WHOLE page qualifies. Copy that describes the
+// current tab, filter or segment belongs beside that control, where it changes
+// with it; the page head cannot see those and would go stale.
+const PAGE_SUB_KEYS: Record<string, MessageKey> = {
+  inbox: "inbox.sub",
+  ai: "ai.sub",
+};
+
 // Off-rail screens (reached from Settings, not the NAV rail) carry their own
 // title key. Every authenticated route resolves to real copy — a raw screen
 // slug is never shown as a page title.
@@ -847,6 +861,10 @@ export function PageHead({
   // level a unit publishes BELOW its own screen, and none does.
   const unitNamesPage =
     route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;
+  // Read only on the branch that prints an h1: a record surface and a composed
+  // unit name themselves, and a subtitle under a crumb would describe the list
+  // the crumb leads back to rather than the record on screen.
+  const subKey = PAGE_SUB_KEYS[route.screen];
 
   return (
     <>
@@ -878,7 +896,10 @@ export function PageHead({
               <RecordName kind={recordKind} id={route.id} />
             </p>
           ) : (
-            <h1 className="t-display">{title}</h1>
+            <>
+              <h1 className="t-display">{title}</h1>
+              {subKey && <p className="pagesub">{t(subKey)}</p>}
+            </>
           )}
         </div>
         <div className="pageaside">
