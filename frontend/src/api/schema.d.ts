@@ -10210,9 +10210,9 @@ export interface components {
             readonly logo_url?: string | null;
             /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
             readonly strength?: components["schemas"]["RelationshipStrength"];
-            /** @description How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied. */
+            /** @description How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column, and ABSENT entirely for a role without `person:read` (the object grant comes first, as on the person list); write responses (create, update, archive, merge) omit it. Never client-supplied. */
             readonly contact_count?: number;
-            /** @description How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it. */
+            /** @description How many open, live deals belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted across the WHOLE workspace — the same population the account's `computed_fields` open-pipeline row sums (founder decision 2026-08-18: a pipeline figure on an account is a fact about the account, not about who may open each deal). The key is ABSENT entirely, not 0, for a role without `deal:read` or without `computed_field:read` (STATE-4, the `computed_fields` gate). Present on `listOrganizations` and `getOrganization`; write responses omit it. */
             readonly open_deal_count?: number;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
@@ -22972,6 +22972,20 @@ export interface operations {
                 ai_written?: components["parameters"]["AiWritten"];
                 status?: "new" | "working" | "promoted" | "disqualified";
                 owner_id?: string;
+                /**
+                 * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+                 *     a team the caller cannot see returns their own visible rows filtered to nothing, not a
+                 *     wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+                 *     and rows reached by a record grant (AAD-ROLE-2). One dial for every owner-scoped list
+                 *     (DM-VOCAB-OWN-1).
+                 */
+                owner_team_id?: string;
+                /**
+                 * @description `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+                 *     (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+                 *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+                 */
+                unassigned?: boolean;
                 /** @description Filter by capture source (inbound, webform, referral, import, crawl, manual, ...). */
                 source?: string;
                 /** @description Triage by score. */

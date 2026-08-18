@@ -380,6 +380,39 @@ func TestTheOrganizationListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
 	}
 }
 
+// The lead list carries the SAME ownership dial as person and organization
+// (DM-VOCAB-OWN-1) — bound through the one shared clause, so the three cannot
+// drift. Its absence here is what once made the UI grow a second owner chip.
+func TestTheLeadListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
+	e := Setup(t)
+	held := seedLead(t, e, "Owned By Rep1", "rep1@lead.test", &e.Rep1)
+	seedLead(t, e, "Owned By Rep3", "rep3@lead.test", &e.Rep3)
+	unowned := seedLead(t, e, "Owned By Nobody", "nobody@lead.test", nil)
+
+	team := ids.From[ids.TeamKind](e.Team1)
+	page, _, err := e.People.ListLeads(e.Admin(), people.ListLeadsInput{OwnerTeamID: &team})
+	if err != nil {
+		t.Fatalf("listing leads by owner team: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != held.UUID {
+		t.Fatalf("owner_team_id returned %d leads, want only the one Team1 owns", len(page))
+	}
+
+	yes := true
+	queue, _, err := e.People.ListLeads(e.Admin(), people.ListLeadsInput{Unassigned: &yes})
+	if err != nil {
+		t.Fatalf("listing the unowned leads: %v", err)
+	}
+	if len(queue) != 1 || ids.UUID(queue[0].Id) != unowned.UUID {
+		t.Fatalf("unassigned=true returned %d leads, want only the unowned one", len(queue))
+	}
+
+	// The shared clause refuses two dials at once, for leads as for the rest.
+	if _, _, err := e.People.ListLeads(e.Admin(), people.ListLeadsInput{OwnerTeamID: &team, Unassigned: &yes}); err == nil {
+		t.Fatal("owner_team_id AND unassigned must be refused — they name two different sets")
+	}
+}
+
 func TestThePersonListNarrowsToOneEmployer(t *testing.T) {
 	e := Setup(t)
 	acme := e.SeedOrg(t, "Acme", nil)

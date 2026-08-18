@@ -22,7 +22,6 @@ import {
   RecordView,
 } from "../design-system/composed";
 import { InlineText } from "../design-system/inlinechoice";
-import type { ListChip } from "../design-system/listtable";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
@@ -55,6 +54,7 @@ import {
   ListTable,
   listFetchLimit,
   useListQuery,
+  useOwnerChips,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { ShareAction } from "./share";
@@ -239,31 +239,6 @@ const LEAD_SCORE_BANDS = [
   { value: "60", label: "lead.filterScoreWarm" },
   { value: "40", label: "lead.filterScoreCool" },
 ] as const;
-
-/**
- * useLeadOwnerChips is the owner dial listLeads can actually answer.
- *
- * The shared `useOwnerChips` offers team and unassigned entries under
- * `owner_team_id` and `unassigned`; listLeads takes neither, so those options
- * would 422 rather than narrow. Until the endpoint learns that vocabulary the
- * honest dial is the one question it does answer: mine, or anyone's.
- */
-function useLeadOwnerChips(): readonly ListChip[] {
-  const t = useT();
-  const me = useMe();
-  const viewerId = me.data?.user.id;
-  if (!viewerId) {
-    return [];
-  }
-  return [
-    {
-      key: "owner_id",
-      label: t("list.owner"),
-      allLabel: t("list.filterOwnerAll"),
-      options: [{ value: viewerId, label: t("list.filterOwnerMe") }],
-    },
-  ];
-}
 
 /**
  * statusLabel is the ONE spelling of a lead status for a reader.
@@ -526,7 +501,7 @@ function LeadBoard({
 }
 
 export function LeadsScreen() {
-  const ownerChips = useLeadOwnerChips();
+  const ownerChips = useOwnerChips();
   const t = useT();
   const { locale } = useLocale();
   const cf = useObjectCustomFields("lead");
@@ -652,11 +627,8 @@ export function LeadsScreen() {
             options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
           },
         ]}
-        // Owner is a DATA chip: its options are people, read at runtime.
-        // Deliberately not the shared `useOwnerChips` dial, which also offers
-        // team and unassigned options spelled `owner_team_id`/`unassigned` —
-        // parameters listLeads does not take, so those choices would 422
-        // rather than narrow the list.
+        // The one ownership dial every record list carries (DM-VOCAB-OWN-1):
+        // mine, my team's, the unowned queue.
         dataChips={ownerChips}
         views={[
           { label: "list.viewAll", sort: "-created_at" },

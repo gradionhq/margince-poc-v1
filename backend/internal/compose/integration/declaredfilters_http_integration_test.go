@@ -180,6 +180,19 @@ func TestThePersonListNarrowsToTheUnownedQueueOnTheWire(t *testing.T) {
 	onlyRecord(t, e, "/v1/people?unassigned=true", unowned, "the unowned person")
 }
 
+func TestTheLeadListNarrowsToTheUnownedQueueOnTheWire(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	owner := callerUserID(t, e)
+
+	createdRecord(t, e, "/v1/leads", apptest.AnyMap{"full_name": "Owned Lead", "email": "owned@lead.test", "owner_id": owner})
+	unowned := createdRecord(t, e, "/v1/leads", apptest.AnyMap{"full_name": "Unowned Lead", "email": "unowned@lead.test"})
+
+	// The same dial the person and company lists answer (DM-VOCAB-OWN-1): a
+	// lead queue nobody has claimed is the first thing a rep asks a lead list.
+	onlyRecord(t, e, "/v1/leads?unassigned=true", unowned, "the unowned lead")
+}
+
 func TestTheOwnerDialsRefuseEachOtherOnTheWire(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.BootstrapWorkspace(t)
