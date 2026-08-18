@@ -102,7 +102,14 @@ export function RecordContextPanel({
                               )}
                             </>
                           ) : (
-                            <span>{item.summary ?? item.ref.id}</span>
+                            // A kind with no record page of its own has
+                            // nothing to link to, and its id is not a reading:
+                            // it names the kind, which is what a reader can
+                            // actually do something with. The ref stays on
+                            // `title` for whoever is debugging a walk.
+                            <span title={`${item.ref.type}:${item.ref.id}`}>
+                              {item.summary ?? item.ref.type}
+                            </span>
                           )}
                           {evidenceList.map((evidence) => (
                             <EvidenceChip

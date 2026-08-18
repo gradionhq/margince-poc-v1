@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CustomField } from "./customfields.form";
 import {
   customFieldDisplay,
+  customFieldHref,
   customFieldsRecordSlice,
   customFieldsToBody,
   customFieldToFormField,
@@ -188,5 +189,39 @@ describe("customFieldsRecordSlice", () => {
       cf_renewal_date: "2026-03-01",
       cf_ceiling: 1250,
     });
+  });
+});
+
+describe("customFieldHref", () => {
+  it("follows a value that is a web address", () => {
+    expect(customFieldHref("https://wiki.example.com/globex")).toBe(
+      "https://wiki.example.com/globex",
+    );
+    expect(customFieldHref("http://erp.internal/orders/44")).toBe(
+      "http://erp.internal/orders/44",
+    );
+  });
+
+  it("refuses every value that is not http or https", () => {
+    // The guard, not a formality: a custom field holds whatever somebody typed
+    // or an import wrote, and each of these in an href is either code that runs
+    // on click or a destination this client would have to invent.
+    for (const value of [
+      "javascript:alert(1)",
+      // Leading whitespace is stripped by every URL parser, the browser's
+      // included, so a padded scheme is the same scheme.
+      "  javascript:alert(1)",
+      "JavaScript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "mailto:sales@example.com",
+      "file:///etc/passwd",
+      "example.com",
+      "www.example.com/pricing",
+      "/records/deals/44",
+      "Reseller",
+      "2026-03-01",
+    ]) {
+      expect(customFieldHref(value)).toBeNull();
+    }
   });
 });

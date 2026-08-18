@@ -5,8 +5,39 @@
 
 import { Card } from "../design-system/atoms";
 import { useLocale, useT } from "../i18n";
-import { customFieldDisplay, useObjectCustomFields } from "./customfields.form";
+import {
+  customFieldDisplay,
+  customFieldHref,
+  useObjectCustomFields,
+} from "./customfields.form";
 import type { CfObject } from "./customfields.logic";
+
+/**
+ * One field's value, as a link where the value IS a web address and as plain
+ * text everywhere else. A field holding the ticket, the wiki page or the ERP
+ * entry a record belongs to is the commonest thing anybody puts in a text
+ * field, and copy-and-paste was the only way to follow it.
+ *
+ * `noreferrer noopener` and a new tab: the destination is a foreign origin
+ * nobody in this workspace vouched for, so it learns nothing about where the
+ * reader came from and gets no handle on the window it was opened from.
+ */
+function CustomFieldValue({ value }: Readonly<{ value: string }>) {
+  const href = customFieldHref(value);
+  if (!href) {
+    return value;
+  }
+  return (
+    <a
+      className="link-button"
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+    >
+      {value}
+    </a>
+  );
+}
 
 export function CustomFieldsCard({
   object,
@@ -42,7 +73,9 @@ export function CustomFieldsCard({
         {rows.map(({ field, value }) => (
           <div key={field.column_name}>
             <dt className="t-eyebrow">{field.label}</dt>
-            <dd>{value}</dd>
+            <dd>
+              <CustomFieldValue value={value} />
+            </dd>
           </div>
         ))}
       </dl>
