@@ -69,6 +69,7 @@ components:
         - lead.promoted
         - lead.demoted
         - lead.merged
+        - lead.sla_breached
         - lead.updated
         - activity.captured
         - activity.archived
@@ -1183,6 +1184,32 @@ components:
           type: string
           format: uuid
           description: The surviving lead.
+      additionalProperties: false
+
+    PublicEventLeadSlaBreached:
+      type: object
+      x-event-type: lead.sla_breached
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.sla_breached (formulas §18.2) — the first scan on
+        which a lead's first-response deadline passed unanswered. Emitted at
+        most once per breach occurrence; the escalation hangs off it.
+      required:
+        - deadline
+      properties:
+        owner_id:
+          type: string
+          format: uuid
+          description: The lead's owner at breach time (absent when unrouted).
+        deadline:
+          type: string
+          format: date-time
+          description: The first-response deadline that passed.
+        escalation_target:
+          type: string
+          format: uuid
+          description: The user the escalation task is assigned to (absent when nobody owns the lead).
       additionalProperties: false
 
     PublicEventLeadUpdated:

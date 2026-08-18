@@ -84,6 +84,9 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 			if in.Source != nil {
 				where = append(where, storekit.SQLf(leadSourceColumn+" = $%d", arg(*in.Source)))
 			}
+			if in.SLAState != nil {
+				where = append(where, slaStateClause(*in.SLAState, arg))
+			}
 			return where, nil
 		},
 		scan: scanLeadPage,

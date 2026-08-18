@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -204,6 +205,8 @@ func (s *Store) RouteLead(ctx context.Context, leadID ids.LeadID, cfg RoutingCon
 
 		p := storekit.NewPatch()
 		p.Set("owner_id", nil, chosen)
+		// Routing starts the §18 first-response clock.
+		p.Set("routed_at", nil, time.Now().UTC())
 		if err := p.ApplyLocked(ctx, tx, lock); err != nil {
 			return err
 		}
