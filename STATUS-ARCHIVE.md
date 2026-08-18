@@ -78,6 +78,17 @@ test cannot have been passing. And the three webhooks stories that `fe-uat`
 reported were reproduced on a clean detached `origin/main`, which is #476,
 whose own stated cause is also stale.
 
+**And one of my own conclusions was wrong, found by testing it on a live stack.** The fresh-org
+crash (#1250) had a mechanism that explained every symptom — two effects rewriting the hash at
+each other, with `Shell` blamed only for being the deepest `useRoute` subscriber. It needed one
+precondition: the onboarding state row saying `complete` while `GET /company` 404s. Driving
+`PUT /v1/onboarding/state` directly against a live unseeded org showed the server refuses exactly
+that, and has since PR #131 — `confirm → voice` is a 409 while the company 404s and a 200 the
+moment a profile exists. So the mechanism cannot fire, the fix shipped for it is defence in depth
+rather than a crash fix, and #1250's cause is still unfound. **A mechanism that explains every
+symptom is not evidence that it happened.** The reachability of its precondition is the part worth
+testing first, and it is the part a code-reading audit cannot answer.
+
 **Process, learned the hard way.** A subagent's shell starts in the SESSION
 working directory, not in the worktree its file scope names. Two sessions lost
 uncommitted work to agents running `git stash` from there — "stash only file X"
