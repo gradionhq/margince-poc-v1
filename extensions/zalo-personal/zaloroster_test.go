@@ -10,6 +10,7 @@ package zalopersonal
 import (
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -125,15 +126,23 @@ func TestARosterThatIsNotAListIsReportedRatherThanReadAsEmpty(t *testing.T) {
 
 func TestTheRosterAsksForOnePageOfTheSizeThisUnitPins(t *testing.T) {
 	fake := newChatServer()
-	var asked map[string]any
+	// Written on the server's goroutine, read on the test's.
+	var (
+		mu    sync.Mutex
+		asked map[string]any
+	)
 	fake.calls[rosterPath] = func(_ *testing.T, params map[string]any) string {
+		mu.Lock()
 		asked = params
+		mu.Unlock()
 		return `{"error_code":0,"data":[]}`
 	}
 
 	if _, err := resumeAgainst(t, fake).friends(t.Context()); err != nil {
 		t.Fatalf("read the roster: %v", err)
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if got, want := asked["count"], float64(friendsPageSize); got != want {
 		t.Errorf("the roster asked for count %v, want %v", got, want)
 	}
