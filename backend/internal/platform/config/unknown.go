@@ -67,9 +67,15 @@ var consumedByTheContainerNotTheProcess = map[string]bool{
 func (r *Registry) Undeclared(environ []string) []string {
 	var unknown []string
 	for _, entry := range environ {
-		name, _, ok := strings.Cut(entry, "=")
+		name, value, ok := strings.Cut(entry, "=")
 		switch {
 		case !ok, !strings.HasPrefix(name, namespace):
+			continue
+		// Set to nothing IS unset: .env.template ships its optional lines as
+		// bare NAME= placeholders, both entrypoints export them with `set -a`,
+		// and cliflags.Apply already treats an empty value as absent. There is
+		// no value being ignored, so there is nothing to report.
+		case value == "":
 			continue
 		// The suite's own plumbing — where its database is, whether to record a
 		// benchmark. Not installation configuration, and present in every

@@ -66,7 +66,10 @@ func TestTheReportIgnoresWhatIsNotOursToJudge(t *testing.T) {
 		ns + "ADMIN_PASSWORD=x",          // the container entrypoint's
 		ns + "BUILD_REVISION=abc123",     // stamped into the image
 		ns + "COMPOSITION_FRONTEND=stub", // likewise
-		ns + "REDIS=",                    // set to empty IS unset, not a mistake
+		// UNDECLARED and empty, which is the case that isolates the rule: a
+		// declared name would be excluded before the empty value mattered, so
+		// the test would pass with the rule deleted.
+		ns + "NOT_A_DECLARED_NAME=",
 	})
 	if len(got) != 0 {
 		t.Errorf("Undeclared = %v; a report that cries wolf gets ignored, which costs it the typo it exists to catch", got)
