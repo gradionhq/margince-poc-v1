@@ -23,8 +23,12 @@
   align-items: stretch;
 }
 
-/* The overview's own main column: one vertical stack of same-shaped panels. */
-.co-overview-stack {
+/* A tab's main column: one vertical stack of same-shaped panels, the gap owned
+   HERE rather than by each panel — a panel carrying its own bottom margin
+   spaces itself differently depending on what it is stacked with. The
+   overview's column and the documents tab's agreements-then-library pair are
+   the same shape, so the name is the shape rather than the overview. */
+.co-panel-stack {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
@@ -1382,30 +1386,109 @@
   margin-bottom: var(--space-5);
 }
 
-/* The document and contract rows: a name that can run long, its meta held to
-   the right of it, and the row's verbs last. `docs-row` is the class both cards
-   were already asking for and nothing defined — they rendered as bare list
-   items until this landed. */
-.docs-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.docs-name,
-.docs-row .co-rowlink {
-  flex: 1 1 12rem;
-  min-width: 0;
-  font-weight: var(--fw-medium);
-  overflow-wrap: anywhere;
-}
-/* The verbs sit at the far end, so a reader's eye lands on the agreement rather
-   than on what can be done to it. */
-.docs-row > *:last-child {
-  margin-left: auto;
-}
 .docs-filters {
   display: flex;
   gap: var(--space-2);
   flex-wrap: wrap;
+}
+
+/* An agreement or a document as a LIST ITEM: what it is on the left, what it is
+   worth or what state it is in on the right. Not a table — the two panels hold
+   different facts of different widths, and columns sized for one row leave the
+   next row's heading standing over the wrong thing. The reader gets a name they
+   can find and the readings that qualify it, in the same two places on every
+   row. */
+.rec-row {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.rec-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+/* The readings that belong to the row rather than to its name, held at the far
+   end so the eye lands on what the row IS before what can be done to it. */
+.rec-end {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+.rec-title {
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+/* One quiet line under the name for everything that qualifies it. The
+   separators are drawn rather than typed, so a fact that is absent takes its
+   separator with it instead of leaving a stranded dot. */
+.rec-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--textMeta);
+  overflow-wrap: anywhere;
+}
+.rec-meta > * + *::before {
+  content: "·";
+  margin-right: var(--space-2);
+  color: var(--textMeta);
+}
+.rec-term-dates {
+  font-variant-numeric: tabular-nums;
+}
+/* A figure and what it is stated on, stacked and right-aligned: the amount is
+   read first, and the two never separate — a figure without its basis is a
+   number a reader will misuse. */
+.rec-num {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+}
+.rec-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+}
+/* The paper sits under the agreement's own line, as its own row of cards: a
+   label that stays put, and the cards wrapping in their own column beside it so
+   a second file lines up under the first rather than under the word "Files". */
+.rec-files {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.rec-files-label {
+  flex: none;
+  min-width: 3rem;
+}
+.rec-files-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
+}
+/* A count on a filter chip: the same word, one shade back, so the chip reads
+   as "Legal, of which there are two" rather than as two labels. */
+.rec-chip-count {
+  margin-left: var(--space-2);
+  color: var(--textMeta);
+  font-variant-numeric: tabular-nums;
+}
+.rec-foot-action {
+  margin-left: auto;
+}
+/* The staged reading is about the row above it and spans the whole panel. */
+.rec-reading {
+  display: block;
 }

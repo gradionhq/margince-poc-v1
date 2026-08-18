@@ -867,7 +867,12 @@ export const de = {
     "Eine Laufzeit kann nicht vor ihrem Beginn enden.",
   "contracts.add": "Vertrag hinzuf\u00fcgen",
   "contracts.rowMenu": "Vertragsaktionen",
-  "contracts.paper": "Unterschriebenes PDF",
+  "contracts.value.perYear": "pro Jahr",
+  "contracts.value.total": "für die gesamte Laufzeit",
+  "contracts.files": "Dateien",
+  "contracts.noTerm": "Keine Daten erfasst",
+  "contracts.openStart": "Offener Beginn",
+  "contracts.openEnd": "Unbefristet",
   "contracts.edit": "Bearbeiten",
   "contracts.archive": "Archivieren",
   "contracts.archive.title": "Diesen Vertrag archivieren?",
@@ -1773,6 +1778,19 @@ export const de = {
   "docs.title": "Dokumente",
   "docs.empty": "Noch keine Dokumente zu diesem Account.",
   "docs.noneInCategory": "Keine Dokumente dieser Art zu diesem Account.",
+  "docs.allOnAgreements":
+    "Alle Dokumente hier sind einem Vertrag oben zugeordnet.",
+  "docs.allSuperseded":
+    "Hier stehen nur noch ersetzte Dokumente. Einblenden, um die Historie zu lesen.",
+  "docs.superseded.show": "Ersetzte einblenden",
+  "docs.superseded.hide": "Ersetzte ausblenden",
+  "docs.superseded.hiddenOne": "1 ersetztes Dokument ist ausgeblendet.",
+  "docs.superseded.hiddenMany": "{count} ersetzte Dokumente sind ausgeblendet.",
+  "docs.superseded.shownOne": "1 ersetztes Dokument steht unten in der Liste.",
+  "docs.superseded.shownMany":
+    "{count} ersetzte Dokumente stehen unten in der Liste.",
+  "docs.reading.show": "Dokument auslesen",
+  "docs.reading.hide": "Auslesung ausblenden",
   "docs.pinned": "Angeheftet",
 
   // Ein Dokument hinzufügen. Die Frage „Wozu gehört es?" trägt die eigentliche

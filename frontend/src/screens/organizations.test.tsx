@@ -2068,7 +2068,7 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     await screen.findByText("Brandt Automotive GmbH");
 
     await waitFor(() =>
-      expect(container.querySelector(".co-overview-stack")).toBeTruthy(),
+      expect(container.querySelector(".co-panel-stack")).toBeTruthy(),
     );
     // Two columns, not three: the context beside the work. A right-hand
     // aside would be a third place to look, and the mockups draw none.
@@ -2092,7 +2092,7 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     // figures, and the money. "Worth doing next" is not asserted here — it is
     // advice, and this fixture's account has none to give; the suggestions
     // suite above exercises its own presence.
-    const stack = container.querySelector(".co-overview-stack");
+    const stack = container.querySelector(".co-panel-stack");
     expect(stack).toBeTruthy();
     for (const panel of ["The account, in short", "Commercial", "Finance"]) {
       expect(stack?.textContent).toContain(panel);
@@ -2158,7 +2158,7 @@ describe("CompanyScreen — State D's one column and its card grid", () => {
     const { container } = render(<CompanyScreen id="o-1" />);
     await screen.findByText("Brandt Automotive GmbH");
 
-    const stack = container.querySelector(".co-overview-stack");
+    const stack = container.querySelector(".co-panel-stack");
     await waitFor(() =>
       expect(stack?.textContent).toContain("Recent activity"),
     );

@@ -2521,12 +2521,18 @@ function CompanyRecordBody({
           gives them. The grid keeps its compact card for the reader who only
           wants to know whether there IS paperwork. */}
       {!overlay && tab === "documents" && (
-        <>
+        // The same stacked column the overview uses, so the two panels are
+        // spaced like every other pair of panels in this record rather than
+        // touching at the border.
+        <div className="co-panel-stack">
           {/* The agreements come first: contract paper is what a reader opens
-              this tab for, and the library beneath it is everything else. */}
+              this tab for, and the library beneath it is everything else —
+              literally everything else, since the library withholds the paper
+              already read on an agreement's own row. Two panels, and no file on
+              both of them. */}
           <CompanyContractsCard orgId={org.id} />
           <CompanyDocumentsCard orgId={org.id} />
-        </>
+        </div>
       )}
       {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
           Partner put a panel from one tab on top of another, and a reader who
@@ -2601,7 +2607,7 @@ function CompanyOverviewStack({
   onPerform: (action: SuggestionAction) => void;
 }>) {
   return (
-    <div className="co-overview-stack">
+    <div className="co-panel-stack">
       {/* What needs a person today leads the column: the readings above
           describe the account, this asks for a move on it. It belongs to the
           overview rather than to the record, because a rep who has opened

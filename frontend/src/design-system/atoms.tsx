@@ -12,6 +12,7 @@ import {
   type InputHTMLAttributes,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
+  type RefObject,
   type TextareaHTMLAttributes,
   useEffect,
   useId,
@@ -1252,6 +1253,13 @@ export function DataTable<Row>({
 // user roster and the custom-field catalogue — and every reader of every
 // record page was paying for them without ever opening the menu. Once opened
 // they STAY mounted, so a dialog survives the panel being hidden again.
+//
+// The PANEL is portalled to the body and positioned against the trigger. A
+// menu that opened inside its own container was clipped by whatever that
+// container clips — a Panel hides its overflow so full-bleed rows respect its
+// radius — and a row near the bottom edge of a card lost the actions the menu
+// exists to offer. Positioning against the trigger keeps it under the button
+// it belongs to wherever that button has moved to.
 export function OverflowMenu({
   label,
   children,
@@ -1262,8 +1270,10 @@ export function OverflowMenu({
   const [open, setOpen] = useState(false);
   const [everOpened, setEverOpened] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
+  const panel = useRef<HTMLDivElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const panelId = useId();
+  const at = useAnchoredToTrigger(open, trigger, panel);
 
   useEffect(() => {
     if (!open) {
@@ -1293,7 +1303,13 @@ export function OverflowMenu({
       if (event.target instanceof Element && event.target.closest(".overlay")) {
         return;
       }
-      if (!wrap.current?.contains(event.target)) {
+      // The panel lives at the body, not inside the wrapper, so "outside" is
+      // outside BOTH — without the second test every click on an item would
+      // read as a click away from the menu.
+      if (
+        !wrap.current?.contains(event.target) &&
+        !panel.current?.contains(event.target)
+      ) {
         setOpen(false);
       }
     };
@@ -1338,12 +1354,98 @@ export function OverflowMenu({
           that is no longer there. Leaving the panel open keeps the return
           target visible; the outside-click below then closes it on the
           reader's next move. */}
-      <div id={panelId} className="overflow-menu-items" hidden={!open}>
-        {everOpened && children}
-      </div>
+      {createPortal(
+        <div
+          id={panelId}
+          ref={panel}
+          className="overflow-menu-items"
+          hidden={!open}
+          style={{
+            top: `${at.top}px`,
+            left: `${at.left}px`,
+            maxHeight: `${at.maxHeight}px`,
+          }}
+        >
+          {everOpened && children}
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }
+
+// Where the portalled panel sits: beside the trigger, right edge to right edge,
+// and INSIDE the viewport on both axes.
+//
+// The panel is fixed, so the viewport is all the room there is — a panel placed
+// below a trigger near the bottom edge puts its actions where no amount of page
+// scrolling reaches them. So it opens upward when the space below cannot hold
+// it, takes whichever side has more room when neither can, and is capped to
+// that space so a panel with many items scrolls inside itself.
+//
+// Measured on OPEN and again whenever anything moves it. Scroll is listened to
+// in the CAPTURE phase because a scroll event does not bubble — the trigger may
+// sit inside a scrolling region, and a panel that stayed at the coordinates it
+// was opened at would drift away from the button it belongs to.
+function useAnchoredToTrigger(
+  open: boolean,
+  trigger: RefObject<HTMLButtonElement | null>,
+  panel: RefObject<HTMLDivElement | null>,
+): { top: number; left: number; maxHeight: number } {
+  const [at, setAt] = useState({ top: 0, left: 0, maxHeight: 0 });
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const place = () => {
+      const anchor = trigger.current?.getBoundingClientRect();
+      if (!anchor) {
+        return;
+      }
+      const width = panel.current?.offsetWidth ?? 0;
+      const room = globalThis.innerWidth - width - MENU_EDGE_GAP;
+      setAt({
+        ...verticalPlacement(anchor, panel.current?.offsetHeight ?? 0),
+        left: Math.max(MENU_EDGE_GAP, Math.min(anchor.right - width, room)),
+      });
+    };
+    place();
+    globalThis.addEventListener("resize", place);
+    globalThis.addEventListener("scroll", place, true);
+    return () => {
+      globalThis.removeEventListener("resize", place);
+      globalThis.removeEventListener("scroll", place, true);
+    };
+  }, [open, trigger, panel]);
+  return at;
+}
+
+// Below the trigger while the panel fits there, above it when it does not, and
+// on the roomier side when neither fits — capped to that side either way.
+//
+// Exported for its own test: jsdom gives every element a zero-sized rectangle,
+// so the only way to state this rule as a test is to state it over the
+// measurements themselves.
+export function verticalPlacement(
+  anchor: DOMRect,
+  height: number,
+): { top: number; maxHeight: number } {
+  const below = globalThis.innerHeight - anchor.bottom - MENU_EDGE_GAP * 2;
+  const above = anchor.top - MENU_EDGE_GAP * 2;
+  const opensDown = height <= below || below >= above;
+  if (opensDown) {
+    return { top: anchor.bottom + MENU_EDGE_GAP, maxHeight: below };
+  }
+  return {
+    top: Math.max(MENU_EDGE_GAP, anchor.top - MENU_EDGE_GAP - height),
+    maxHeight: above,
+  };
+}
+
+// The breathing room between the panel and both the trigger above it and the
+// viewport edge beside it, in px because it is arithmetic rather than a
+// stylesheet value: --space-1.
+const MENU_EDGE_GAP = 4;
 
 export function Disclosure({
   summary,

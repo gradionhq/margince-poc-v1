@@ -864,7 +864,12 @@ export const vi = {
     "K\u1ef3 h\u1ea1n kh\u00f4ng th\u1ec3 k\u1ebft th\u00fac tr\u01b0\u1edbc khi b\u1eaft \u0111\u1ea7u.",
   "contracts.add": "Th\u00eam h\u1ee3p \u0111\u1ed3ng",
   "contracts.rowMenu": "Thao t\u00e1c h\u1ee3p \u0111\u1ed3ng",
-  "contracts.paper": "PDF \u0111\u00e3 k\u00fd",
+  "contracts.value.perYear": "m\u1ed7i n\u0103m",
+  "contracts.value.total": "cho to\u00e0n b\u1ed9 th\u1eddi h\u1ea1n",
+  "contracts.files": "T\u1ec7p",
+  "contracts.noTerm": "Ch\u01b0a ghi nh\u1eadn ng\u00e0y",
+  "contracts.openStart": "Kh\u00f4ng r\u00f5 ng\u00e0y b\u1eaft \u0111\u1ea7u",
+  "contracts.openEnd": "Kh\u00f4ng th\u1eddi h\u1ea1n",
   "contracts.edit": "S\u1eeda",
   "contracts.archive": "L\u01b0u tr\u1eef",
   "contracts.archive.title":
@@ -1765,6 +1770,19 @@ export const vi = {
   "docs.title": "Tài liệu",
   "docs.empty": "Chưa có tài liệu nào cho tài khoản này.",
   "docs.noneInCategory": "Không có tài liệu loại đó cho tài khoản này.",
+  "docs.allOnAgreements":
+    "Mọi tài liệu ở đây đều đã được gắn vào một hợp đồng bên trên.",
+  "docs.allSuperseded":
+    "Ở đây chỉ còn tài liệu đã thay thế. Hiện chúng để xem lịch sử.",
+  "docs.superseded.show": "Hiện bản đã thay thế",
+  "docs.superseded.hide": "Ẩn bản đã thay thế",
+  "docs.superseded.hiddenOne": "1 tài liệu đã thay thế đang được ẩn.",
+  "docs.superseded.hiddenMany": "{count} tài liệu đã thay thế đang được ẩn.",
+  "docs.superseded.shownOne": "1 tài liệu đã thay thế được liệt kê bên dưới.",
+  "docs.superseded.shownMany":
+    "{count} tài liệu đã thay thế được liệt kê bên dưới.",
+  "docs.reading.show": "Đọc tài liệu này",
+  "docs.reading.hide": "Ẩn phần đọc",
   "docs.pinned": "Đã ghim",
 
   // Thêm một tài liệu. Câu hỏi "Thuộc về đâu" mới là quyết định thật: chỉ tài

@@ -59,7 +59,7 @@ describe("contractValues", () => {
   });
 });
 
-import { contractValue } from "./companycontracts";
+import { basisLabel, contractAmount } from "./companycontracts";
 
 // A contract as the wire actually carries it: every server-owned field present,
 // so a fixture cannot pass a check the real payload would fail.
@@ -85,40 +85,35 @@ function contractRow(
 // A row's value must say which KIND of figure it is. A reader who cannot tell a
 // three-year total from a per-year figure has been handed a number they will
 // misuse, and the row is the last place that distinction can be drawn.
-describe("contractValue", () => {
-  it("marks an annualized figure so it cannot read as a total", () => {
-    const annual = contractValue(
+describe("a contract's value", () => {
+  it("names the basis an annualized figure is stated on", () => {
+    const annual = basisLabel(
       contractRow({
         value_basis: "annualized_12m",
         value_minor: 12_000_000,
         currency: "EUR",
       }),
-      "en",
-      (amount) => `${amount} / year`,
     );
-    const total = contractValue(
+    const total = basisLabel(
       contractRow({
         value_basis: "total",
         value_minor: 30_000_000,
         currency: "EUR",
       }),
-      "en",
-      (amount) => `${amount} / year`,
     );
 
-    expect(annual).toMatch(/\/ year$/);
-    expect(total).not.toMatch(/\/ year$/);
+    // Two figures of the same size mean different money, and the row is the
+    // last place that can be said.
+    expect(annual).toBe("contracts.value.perYear");
+    expect(total).toBe("contracts.value.total");
   });
 
   it("draws nothing rather than a bare number when the currency is missing", () => {
     // Half a money pair cannot be rendered: an amount with no currency is a
-    // figure the reader would supply their own units for.
-    expect(
-      contractValue(
-        contractRow({ value_basis: "total", value_minor: 5_000 }),
-        "en",
-        (amount) => `${amount} / year`,
-      ),
-    ).toBe("");
+    // figure the reader would supply their own units for — and a basis with no
+    // figure to qualify is a caption under an empty cell.
+    const half = contractRow({ value_basis: "total", value_minor: 5_000 });
+    expect(contractAmount(half, "en")).toBe("");
+    expect(basisLabel(half)).toBe("");
   });
 });

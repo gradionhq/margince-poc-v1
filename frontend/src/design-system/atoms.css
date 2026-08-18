@@ -1021,10 +1021,12 @@
 .overflow-menu-trigger {
   padding-inline: var(--space-2);
 }
+/* Fixed and portalled to the body: the panel is positioned against the
+   trigger's viewport rectangle by the component, so it is not clipped by a
+   card that hides its own overflow and cannot be trapped by a stacking context
+   between the two. */
 .overflow-menu-items {
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  right: 0;
+  position: fixed;
   /* Above the phone layout's fixed bottom rail (shell.css, z-index 30) and
      below the modal overlay (50): a record's actions opening BEHIND the
      navigation are unreachable, and only on the layout where the record page
@@ -1035,6 +1037,10 @@
      grows the page instead of itself: the panel goes off the right edge and
      takes its actions with it. */
   max-width: calc(100vw - 2 * var(--space-3));
+  /* The component caps the height to the room on whichever side it opened
+     toward; a panel with more items than that room scrolls inside itself rather
+     than running past an edge no page scrolling reaches. */
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -1052,7 +1058,10 @@
   display: none;
 }
 /* The items are whatever the caller renders — buttons of every variant. They
-   read as a menu here: full width, left-aligned, no competing fills. */
+   read as a menu here: full width, left-aligned, no competing fills. An item is
+   a `Button`, which is why this styles the class: a caller who hands the menu a
+   bare <button> gets centred unstyled text, and the fix is the atom at the call
+   site rather than a second spelling of a button defined here. */
 .overflow-menu-items .btn {
   width: 100%;
   justify-content: flex-start;
