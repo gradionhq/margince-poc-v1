@@ -108,14 +108,7 @@ func run() error {
 		return err
 	}
 
-	anchorRead, err := loadCompany(*dataset, demo.Anchor.Domain)
-	if err != nil {
-		return err
-	}
-	if err := seedAnchor(client, demo.Anchor, anchorRead, modeFor(*dryRun)); err != nil {
-		return err
-	}
-	if err := seed(client, companies, *dryRun); err != nil {
+	if err := seedTheCompanies(client, *dataset, demo, companies, modeFor(*dryRun)); err != nil {
 		return err
 	}
 
@@ -161,6 +154,33 @@ func loginAllowingAnEarlierSeed(baseURL, email string, password *string) (*clien
 	}
 	*password = seedAdminPassword
 	return client, nil
+}
+
+// seedTheCompanies writes every organization the installation holds: the
+// company it IS, the companies it sells TO, and the companies it sells WITH.
+//
+// The order is the dependency order. The anchor is first because it answers
+// "who are we?", and the channel is last of the three but still ahead of the
+// pipeline — ownership walks the organizations the pipeline refs find, and a
+// partner seeded after that pass would be the one ownerless company in the
+// installation, visible at every row scope.
+func seedTheCompanies(client *client, dataset string, demo demoConfig, companies []company, mode runMode) error {
+	anchorRead, err := loadCompany(dataset, demo.Anchor.Domain)
+	if err != nil {
+		return err
+	}
+	if err := seedAnchor(client, demo.Anchor, anchorRead, mode); err != nil {
+		return err
+	}
+	if err := seed(client, companies, mode == modeDryRun); err != nil {
+		return err
+	}
+	partners, err := seedPartners(client, demo, mode)
+	if err != nil {
+		return err
+	}
+	reportPartners(partners)
+	return nil
 }
 
 // seedWhatNeedsSQLAfterCompanies runs everything that needs the companies on
