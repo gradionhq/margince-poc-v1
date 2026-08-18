@@ -8,7 +8,13 @@
 -- them. An account's clock is the newest occurred_at of a live activity that
 -- REACHES it — filed against it, against one of its deals, or against a
 -- contact it currently employs — the same three arms activities.OrgReachSet
--- walks for the account timeline, so the column and the timeline agree.
+-- walks for the account timeline, so the column and the timeline agree on
+-- what reaches the account. A stored column carries no per-reader clause:
+-- a reader who may open the account sees its clock even when the newest
+-- reaching activity is one on an owner-private contact they may not open —
+-- a bare timestamp, the same population the account's 30-day activity count
+-- and open-pipeline tile already answer, and an account fact by the same
+-- founder decision that made those workspace-wide (PO-EXT-10, 2026-08-18).
 --
 -- The clocks are maintained HERE, by triggers on the writes that move them,
 -- rather than at a call site in Go. The activity_link row is written by more
@@ -54,18 +60,36 @@ $$ LANGUAGE plpgsql;
 -- Every clock UPDATE goes through this, so the flag is set and cleared in one
 -- place. Cleared explicitly rather than left to transaction end: the same
 -- transaction usually goes on to write real edits that MUST bump.
+--
+-- The row is locked BEFORE the derivation runs. Under READ COMMITTED a writer
+-- that waited on another's row lock re-checks its WHERE against a fresh
+-- snapshot but does not re-evaluate its SET, so a recompute folded into the
+-- UPDATE would store the value derived before the wait — the older one, over
+-- the newer one the first writer just stored. Two mails from one poll landing
+-- on one contact is exactly that race. Locking first makes the derivation run
+-- after the wait, so the last writer stores the true max.
 CREATE OR REPLACE FUNCTION move_last_activity(tbl regclass, rid uuid) RETURNS void
 LANGUAGE plpgsql AS $$
+DECLARE
+  v timestamptz;
 BEGIN
   IF rid IS NULL THEN RETURN; END IF;
-  PERFORM set_config('margince.last_activity_move', 'on', true);
   CASE tbl
     WHEN 'person'::regclass THEN
-      UPDATE person SET last_activity_at = last_activity_of_person(rid) WHERE id = rid;
+      PERFORM 1 FROM person WHERE id = rid FOR UPDATE;
+      v := last_activity_of_person(rid);
+      PERFORM set_config('margince.last_activity_move', 'on', true);
+      UPDATE person SET last_activity_at = v WHERE id = rid;
     WHEN 'deal'::regclass THEN
-      UPDATE deal SET last_activity_at = last_activity_of_deal(rid) WHERE id = rid;
+      PERFORM 1 FROM deal WHERE id = rid FOR UPDATE;
+      v := last_activity_of_deal(rid);
+      PERFORM set_config('margince.last_activity_move', 'on', true);
+      UPDATE deal SET last_activity_at = v WHERE id = rid;
     WHEN 'organization'::regclass THEN
-      UPDATE organization SET last_activity_at = last_activity_of_organization(rid) WHERE id = rid;
+      PERFORM 1 FROM organization WHERE id = rid FOR UPDATE;
+      v := last_activity_of_organization(rid);
+      PERFORM set_config('margince.last_activity_move', 'on', true);
+      UPDATE organization SET last_activity_at = v WHERE id = rid;
   END CASE;
   PERFORM set_config('margince.last_activity_move', 'off', true);
 END;
@@ -108,11 +132,15 @@ DECLARE
 BEGIN
   PERFORM move_last_activity('person', pid);
   PERFORM move_last_activity('deal', did);
+  -- Ordered by id: two writers reaching the same accounts lock them in the
+  -- same order, so they queue rather than deadlock.
   FOR reached IN
-     SELECT oid WHERE oid IS NOT NULL
-     UNION SELECT d.organization_id FROM deal d WHERE d.id = did AND d.organization_id IS NOT NULL
-     UNION SELECT r.organization_id FROM relationship r
-            WHERE r.person_id = pid AND r.kind = 'employment' AND r.ended_at IS NULL AND r.archived_at IS NULL
+     SELECT x FROM (
+       SELECT oid AS x WHERE oid IS NOT NULL
+       UNION SELECT d.organization_id FROM deal d WHERE d.id = did AND d.organization_id IS NOT NULL
+       UNION SELECT r.organization_id FROM relationship r
+              WHERE r.person_id = pid AND r.kind = 'employment' AND r.ended_at IS NULL AND r.archived_at IS NULL
+     ) reach ORDER BY x
   LOOP
     PERFORM move_last_activity('organization', reached);
   END LOOP;

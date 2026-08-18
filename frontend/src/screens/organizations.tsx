@@ -32,11 +32,7 @@ import {
   ConfidenceMeter,
   EvidenceChip,
 } from "../design-system/trust";
-import {
-  formatDateAbbrev,
-  formatDateTime,
-  formatMoney,
-} from "../format/format";
+import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -100,7 +96,6 @@ import {
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
-import { OwnerName } from "./entityref";
 import {
   EvidenceVerdict,
   factClaim,
@@ -119,6 +114,12 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
+import {
+  createdColumn,
+  lastActivityColumn,
+  ownerColumn,
+  standardViews,
+} from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
@@ -670,40 +671,9 @@ export function CompaniesScreen() {
                 </span>
               ) : null,
           },
-          {
-            key: "owner",
-            header: t("list.owner"),
-            cell: (org: Organization) => (
-              <OwnerName ownerId={org.owner_id} unowned={t("list.unowned")} />
-            ),
-            sort: "owner_id",
-          },
-          {
-            // The timeline's clock, maintained in the schema so the server
-            // can sort on it; empty until something has happened.
-            key: "lastActivity",
-            header: t("list.lastActivity"),
-            cell: (org: Organization) => (
-              <span className="t-caption">
-                {org.last_activity_at
-                  ? formatDateAbbrev(org.last_activity_at, locale, RECORD_ZONE)
-                  : ""}
-              </span>
-            ),
-            sort: "last_activity_at",
-          },
-          {
-            key: "created",
-            header: t("list.created"),
-            cell: (org: Organization) => (
-              <span className="t-caption">
-                {org.created_at
-                  ? formatDateAbbrev(org.created_at, locale, RECORD_ZONE)
-                  : ""}
-              </span>
-            ),
-            sort: "created_at",
-          },
+          ownerColumn<Organization>(t),
+          lastActivityColumn<Organization>(t, locale),
+          createdColumn<Organization>(t, locale),
         ]}
         tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
@@ -730,16 +700,7 @@ export function CompaniesScreen() {
         ]}
         dataViews={savedViews}
         views={[
-          { label: "list.viewAll", sort: "-created_at" },
-          ...(viewerId
-            ? [
-                {
-                  label: "list.viewMine" as const,
-                  sort: "-created_at",
-                  filters: { owner_id: viewerId },
-                },
-              ]
-            : []),
+          ...standardViews(viewerId),
           {
             label: "list.viewCustomers",
             sort: "display_name",

@@ -15,8 +15,11 @@ package integration
 // a clock move is not an edit (no version bump); and the two lists sort by it.
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -162,5 +165,80 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	}
 	if len(order) != 3 || order[0] != acme || order[1] != other || order[2] != quiet {
 		t.Fatalf("sort=-last_activity_at ordered %v, want acme, other, quiet (NULLS LAST)", order)
+	}
+}
+
+// Two writers on one contact, the newer committing first and the older having
+// waited on its row lock: the clock must end at the NEWER value. A recompute
+// folded into a plain UPDATE stores the value it derived before the wait —
+// the older one — because READ COMMITTED re-checks WHERE but not SET after a
+// lock wait; move_last_activity locks the row first for exactly this reason.
+// Driven with two owner connections and hand-written activity rows because
+// the race is between transactions, and the real writer commits each of its
+// own before returning.
+func TestLastActivity_ConcurrentWritersConvergeOnTheNewest(t *testing.T) {
+	e := Setup(t)
+	staff := e.SeedPerson(t, "Raced Contact", nil)
+	a := OwnerConn(t)
+	b := OwnerConn(t)
+	ctx := context.Background()
+	newest := time.Date(2026, 12, 1, 12, 0, 0, 0, time.UTC)
+	older := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	insert := func(tx pgx.Tx, when time.Time) error {
+		id := ids.NewV7()
+		if _, err := tx.Exec(ctx, `INSERT INTO activity
+			(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
+			VALUES ($1, $2, 'note', 'race', $3, $3, 'manual', 'human:x')`, id, e.WS, when); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+			VALUES ($1, $2, 'person', $3)`, e.WS, id, staff)
+		return err
+	}
+
+	txA, err := a.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := insert(txA, newest); err != nil {
+		t.Fatalf("A: %v", err)
+	}
+	// B starts after A holds the row lock and blocks inside its trigger.
+	done := make(chan error, 1)
+	go func() {
+		txB, err := b.Begin(ctx)
+		if err != nil {
+			done <- err
+			return
+		}
+		if err := insert(txB, older); err != nil {
+			done <- err
+			return
+		}
+		done <- txB.Commit(ctx)
+	}()
+	// Let B reach the lock, then release it by committing A. A fixed pause is
+	// the only handle on "B is now waiting" from outside Postgres; if B has not
+	// reached the lock yet the test still passes for the RIGHT reason (no race
+	// occurred), it just proves less on that run.
+	select {
+	case err := <-done:
+		t.Fatalf("B finished before A committed — it should have been blocked: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+	if err := txA.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("B: %v", err)
+	}
+
+	got, err := e.People.GetPerson(e.Admin(), ids.From[ids.PersonKind](staff), storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastActivityAt == nil || !got.LastActivityAt.Equal(newest) {
+		t.Fatalf("last_activity_at = %v after the race, want %v — the waiting writer stored a stale derivation", got.LastActivityAt, newest)
 	}
 }
