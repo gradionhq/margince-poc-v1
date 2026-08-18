@@ -1291,6 +1291,9 @@ export const en = {
   "lead.filterScoreHot": "80 and up",
   "lead.filterScoreWarm": "60 and up",
   "lead.filterScoreCool": "40 and up",
+  "lead.details": "Details",
+  "lead.detailsUnset": "Not set",
+  "lead.terminalReadOnly": "This lead is closed and takes no changes.",
   "lead.boardTerminalOnly":
     "The board shows open leads only. These leads are promoted or disqualified.",
   "person.fromLead": "From lead",

@@ -1283,6 +1283,10 @@ export const vi = {
   "lead.filterScoreHot": "Từ 80",
   "lead.filterScoreWarm": "Từ 60",
   "lead.filterScoreCool": "Từ 40",
+  "lead.details": "Chi tiết",
+  "lead.detailsUnset": "Chưa đặt",
+  "lead.terminalReadOnly":
+    "Khách hàng tiềm năng này đã đóng và không nhận thay đổi.",
   "lead.boardTerminalOnly":
     "Bảng chỉ hiện khách hàng tiềm năng đang mở. Những mục này đã chuyển hoặc bị loại.",
   "person.fromLead": "Từ khách hàng tiềm năng",
