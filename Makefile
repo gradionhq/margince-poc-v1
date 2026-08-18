@@ -496,7 +496,7 @@ check-craft-doc:
 ## secret-scan — no hardcoded credential reaches main: gitleaks over a clean
 ## `git archive HEAD` export, policy in .gitleaks.toml. Scans the COMMITTED
 ## tree, not the working tree, so a sibling worktree or a local .env.local
-## cannot change the verdict (gitleaks does not honour .gitignore). Needs
+## cannot change the verdict (gitleaks does not honour .gitignore).
 ## Needs nothing installed: scripts/gitleaks-pin.sh fetches and checksum-verifies
 ## the one pinned binary, so CI's secret-scan job and a laptop run the same
 ## scanner and therefore reach the same verdict.
