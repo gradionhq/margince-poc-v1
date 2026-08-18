@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 const fullConfig = `
@@ -141,7 +143,7 @@ func TestCompanyContextRolloutDefaultsToOnboarding(t *testing.T) {
 }
 
 func TestLoadMissingFileBootsExistingInstallation(t *testing.T) {
-	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.yaml"))
+	cfg, err := Load(filepath.Join(t.TempDir(), "does-not-exist.yaml"), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("missing file must not be an error (it cannot bootstrap, only bind): %v", err)
 	}
@@ -195,7 +197,7 @@ func TestParseRatesFxCurrencies(t *testing.T) {
 // new deployment (and every `make dev`, which copies it) a config that fails at
 // boot. It also guards the now-active rates block against a typo.
 func TestShippedExampleConfigParses(t *testing.T) {
-	cfg, err := Load("../../../../config/margince.example.yaml")
+	cfg, err := Load("../../../../config/margince.example.yaml", runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("config/margince.example.yaml no longer parses: %v", err)
 	}
@@ -242,14 +244,14 @@ func writeTemp(t *testing.T, doc string) string {
 }
 
 func TestMCPConnectorGateDefaultsOff(t *testing.T) {
-	cfg, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\n"))
+	cfg, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\n"), runtimeenv.Production)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.MCP.ConnectorEnabled {
 		t.Fatal("the connector gate must default OFF — an unset flag must never expose /mcp")
 	}
-	on, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\nmcp:\n  connector_enabled: true\n"))
+	on, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\nmcp:\n  connector_enabled: true\n"), runtimeenv.Production)
 	if err != nil {
 		t.Fatal(err)
 	}
