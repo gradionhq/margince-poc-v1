@@ -35,7 +35,7 @@ beforeEach(() => {
 // screen). Below that: the same P-14/15/16/1 shared-block wiring as contacts
 // (people.test.tsx) and companies (organizations.test.tsx) — search/sort/
 // pagination + a status filter, the rich create modal (full_name/email/
-// linkedin_url/company_name/candidate_org_key), the lead-360 If-Match edit
+// linkedin_url/company_name), the lead-360 If-Match edit
 // (Promote + badges preserved), and the duplicate_email dedupe link.
 
 afterEach(() => {
@@ -91,7 +91,7 @@ describe("score thresholds (AC-leads colour bands)", () => {
     expect(scoreTone(95)).toBe("success");
     expect(scoreTone(59)).toBe("warn");
     expect(scoreTone(40)).toBe("warn");
-    expect(scoreTone(39)).toBe("danger");
+    expect(scoreTone(39)).toBeUndefined();
   });
 });
 
@@ -112,6 +112,13 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (request: Request) => {
+        if (request.url.endsWith("/v1/me")) {
+          return jsonResponse({
+            user: { id: "u-9", display_name: "Me" },
+            roles: ["rep"],
+            teams: [],
+          });
+        }
         if (request.url.includes("/users")) {
           return jsonResponse({
             data: [
@@ -134,8 +141,14 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
   it("a lead row navigates to the LEAD detail, not the person screen", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        jsonResponse({ data: [lead], page: { next_cursor: null } }),
+      vi.fn(async (request: Request) =>
+        request.url.endsWith("/v1/me")
+          ? jsonResponse({
+              user: { id: "u-9", display_name: "Me" },
+              roles: ["rep"],
+              teams: [],
+            })
+          : jsonResponse({ data: [lead], page: { next_cursor: null } }),
       ),
     );
     render(<LeadsScreen />);
@@ -313,7 +326,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Board" }));
 
     // The dials the board obeys are still on screen.
-    expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add a filter" })).toBeTruthy();
     expect(screen.getByRole("searchbox")).toBeTruthy();
     // And it admits there is more than it is showing.
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
@@ -781,7 +794,30 @@ function stubFetch(
         sections: [],
       });
     }
-    return responder(request.url, request.method, request);
+    const answer = await responder(request.url, request.method, request);
+    if (request.url.endsWith("/v1/me")) {
+      const body: unknown = await answer.clone().json();
+      if (typeof body === "object" && body !== null && "user" in body) {
+        return answer;
+      }
+      return jsonResponse({
+        user: { id: "u-9", display_name: "Me" },
+        roles: ["rep"],
+        teams: [],
+      });
+    }
+    if (request.method === "GET" && request.url.includes("/manual-signals")) {
+      const body: unknown = await answer.clone().json();
+      if (
+        typeof body !== "object" ||
+        body === null ||
+        !("data" in body) ||
+        !Array.isArray(body.data)
+      ) {
+        return jsonResponse({ data: [] });
+      }
+    }
+    return answer;
   });
   vi.stubGlobal("fetch", fetchMock);
   return { fetchMock, urls };
@@ -795,7 +831,9 @@ function stubFetch(
 // the attribute once one is picked — so each click is scoped to the menu as it
 // stands at that moment rather than to a class name.
 async function pickFilter(attribute: string, value: string) {
-  await userEvent.click(screen.getByRole("button", { name: "Filter" }));
+  await userEvent.click(
+    await screen.findByRole("button", { name: "Add a filter" }),
+  );
   const step = (name: string) => screen.getByRole("group", { name });
   await userEvent.click(
     within(step("Filter")).getByRole("button", { name: attribute }),
@@ -816,11 +854,11 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
   it("carries the debounced search term into the next fetch", async () => {
     const { urls } = stubFetch(async () => emptyPage());
     render(<LeadsScreen />);
-    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+    const search = await screen.findByPlaceholderText("Search");
 
     vi.useFakeTimers();
     try {
-      fireEvent.change(screen.getByPlaceholderText("Search"), {
+      fireEvent.change(search, {
         target: { value: "jonas" },
       });
       act(() => {
@@ -999,7 +1037,7 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
 });
 
 describe("LeadsScreen — rich create (P-15)", () => {
-  it("posts full_name + email + linkedin_url + company_name + source:manual + status:new", async () => {
+  it("creates a manual lead owned by the current rep", async () => {
     let posted: unknown = null;
     stubFetch(async (url, method, request) => {
       if (method === "POST" && url.includes("/leads")) {
@@ -1009,7 +1047,7 @@ describe("LeadsScreen — rich create (P-15)", () => {
       return emptyPage();
     });
     render(<LeadsScreen />);
-    await userEvent.click(screen.getByTestId("new-record"));
+    await userEvent.click(await screen.findByTestId("new-record"));
     await userEvent.type(screen.getByLabelText("Full name *"), "Otto Fischer");
     await userEvent.type(screen.getByLabelText("Email"), "otto@example.test");
     await userEvent.type(
@@ -1025,9 +1063,45 @@ describe("LeadsScreen — rich create (P-15)", () => {
       email: "otto@example.test",
       linkedin_url: "https://linkedin.com/in/otto",
       company_name: "Otto Fischer GmbH",
+      owner_id: "u-9",
       source: "manual",
       status: "new",
     });
+  });
+
+  it("finds an exact email duplicate before POST and links to it", async () => {
+    let postCount = 0;
+    stubFetch(async (url, method) => {
+      if (method === "POST" && url.includes("/leads")) {
+        postCount += 1;
+      }
+      if (
+        method === "GET" &&
+        url.includes("/leads?") &&
+        url.includes("q=duplicate%40example.test")
+      ) {
+        return jsonResponse({
+          data: [
+            { ...lead, id: "existing-lead", email: "duplicate@example.test" },
+          ],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return emptyPage();
+    });
+    render(<LeadsScreen />);
+    await userEvent.click(await screen.findByTestId("new-record"));
+    await userEvent.type(screen.getByLabelText("Full name *"), "Duplicate");
+    await userEvent.type(
+      screen.getByLabelText("Email"),
+      "duplicate@example.test",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("View existing record")).toBeTruthy();
+    expect(postCount).toBe(0);
+    await userEvent.click(screen.getByText("View existing record"));
+    expect(window.location.hash).toBe("#/leads/existing-lead");
   });
 });
 
@@ -1220,6 +1294,41 @@ describe("LeadsScreen — archived marking (P-3)", () => {
 });
 
 describe("LeadsScreen — the one ownership dial (DM-VOCAB-OWN-1)", () => {
+  it("opens on my queue and sends the source filter to the server", async () => {
+    const { urls } = stubFetchWithMe(async (url) => {
+      if (url.includes("/leads")) {
+        return jsonResponse({
+          data: [lead],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      if (url.includes("/teams")) {
+        return jsonResponse({ data: [], page: { next_cursor: null } });
+      }
+      return undefined;
+    });
+    render(<LeadsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
+    );
+
+    const leadReads = urls.filter((url) => url.includes("/leads?"));
+    expect(leadReads.length).toBeGreaterThan(0);
+    expect(leadReads.every((url) => url.includes("owner_id=u-9"))).toBe(true);
+
+    await pickFilter("Source", "Web form");
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            url.includes("/leads?") &&
+            url.includes("owner_id=u-9") &&
+            url.includes("source=webform"),
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("offers the unowned queue and asks the server for it as unassigned=true", async () => {
     // The lead list once carried its own owner chip with only "mine", because
     // listLeads lacked owner_team_id/unassigned. It binds the SAME dial the
@@ -1232,6 +1341,9 @@ describe("LeadsScreen — the one ownership dial (DM-VOCAB-OWN-1)", () => {
           page: { next_cursor: null, has_more: false },
         });
       }
+      if (url.includes("/teams")) {
+        return jsonResponse({ data: [], page: { next_cursor: null } });
+      }
       return undefined;
     });
     render(<LeadsScreen />);
@@ -1239,17 +1351,13 @@ describe("LeadsScreen — the one ownership dial (DM-VOCAB-OWN-1)", () => {
       expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
     );
 
-    await user.click(await screen.findByRole("button", { name: "Filter" }));
-    // Two "Owner" buttons: the column chooser's toggle (aria-pressed) and the
-    // filter dial. The dial is the one that opens the option list.
-    const dial = (await screen.findAllByRole("button", { name: "Owner" })).find(
-      (b) => !b.hasAttribute("aria-pressed"),
-    );
-    if (!dial) {
-      throw new Error("the owner dial must be in the filter menu");
-    }
-    await user.click(dial);
-    await user.click(await screen.findByRole("button", { name: "Unassigned" }));
+    const owner = await screen.findByRole("group", { name: /Owner:/ });
+    const valueButton = within(owner)
+      .getAllByRole("button", { name: "My records" })
+      .find((button) => button.hasAttribute("aria-expanded"));
+    if (!valueButton) throw new Error("owner value control is missing");
+    await user.click(valueButton);
+    await user.click(within(owner).getByRole("button", { name: "Unassigned" }));
 
     await waitFor(() =>
       expect(
@@ -1279,7 +1387,7 @@ describe("LeadsScreen — dedupe view-existing link (P-16)", () => {
       return emptyPage();
     });
     render(<LeadsScreen />);
-    await userEvent.click(screen.getByTestId("new-record"));
+    await userEvent.click(await screen.findByTestId("new-record"));
     await userEvent.type(screen.getByLabelText("Full name *"), "Dup Lead");
     await userEvent.type(screen.getByLabelText("Email"), "dup@example.test");
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -1323,6 +1431,21 @@ function stubFetchWithMe(
         });
       }
       const answer = await responder(request.url, request.method, request);
+      if (
+        request.method === "GET" &&
+        request.url.includes("/manual-signals") &&
+        answer
+      ) {
+        const body: unknown = await answer.clone().json();
+        if (
+          typeof body !== "object" ||
+          body === null ||
+          !("data" in body) ||
+          !Array.isArray(body.data)
+        ) {
+          return jsonResponse({ data: [] });
+        }
+      }
       return answer ?? jsonResponse(lead);
     }),
   );
@@ -1713,9 +1836,8 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
   });
 
   it("shows a manual signal from the breakdown, and lets a rep enter one with a reason", async () => {
-    // S-E13.6 / ADR-0105 §4: the human half of the score. What is set reads
-    // off the decomposition's manual:<factor> row (there is no list endpoint);
-    // a new one is entered with a band, a kind and a written reason.
+    // S-E13.6 / ADR-0105 §4: the human half of the score reads its exact
+    // stored band and provenance, rather than guessing them from points.
     let putBody: unknown = null;
     stubFetchWithMe(async (url, method, request) => {
       if (method === "PUT" && url.includes("/manual-signals")) {
@@ -1736,26 +1858,20 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
           page: { next_cursor: null },
         });
       }
-      if (url.includes("/score")) {
+      if (url.includes("/manual-signals")) {
         return jsonResponse({
-          score: 12,
-          explained: true,
-          current: {
-            score: 12,
-            score_computed: 12,
-            raw_sum: 12,
-            rounded_sum: 12,
-            computed_at: "2026-06-04T00:00:00Z",
-            factors: [
-              {
-                factor: "manual:budget_hint",
-                points: 4,
-                signal_kind: "fact",
-                reason: "CFO named a Q4 line item",
-                set_by: "u-9",
-              },
-            ],
-          },
+          data: [
+            {
+              factor: "budget_hint",
+              band: "some",
+              points: 4,
+              signal_kind: "fact",
+              confidence: 0.9,
+              reason: "CFO named a Q4 line item",
+              set_by: "u-9",
+              set_at: "2026-06-04T00:00:00Z",
+            },
+          ],
         });
       }
       return jsonResponse(lead);
@@ -1773,9 +1889,9 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     await userEvent.click(
       await screen.findByRole("option", { name: "51–200" }),
     );
-    await userEvent.click(screen.getByLabelText("This is a…"));
+    await userEvent.click(screen.getByLabelText("How reliable is this?"));
     await userEvent.click(
-      await screen.findByRole("option", { name: "assumption" }),
+      await screen.findByRole("option", { name: "Estimated" }),
     );
     const save = screen.getByRole("button", { name: "Add to the score" });
     expect((save as HTMLButtonElement).disabled).toBe(true);
@@ -1789,12 +1905,16 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
       factor: "employees",
       band: "51-200",
       signal_kind: "assumption",
+      confidence: 0.9,
       reason: "Their careers page lists ~80 open roles",
     });
   });
 
   it("a closed lead shows its manual signals read-only, with the reason", async () => {
     stubFetchWithMe(async (url) => {
+      if (url.includes("/manual-signals")) {
+        return jsonResponse({ data: [] });
+      }
       if (url.includes("/score")) {
         return jsonResponse({ score: 0, explained: false });
       }
@@ -1829,9 +1949,9 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByText(
+        screen.getAllByText(
           "No source on record — nothing says where this lead came from.",
-        ),
+        ).length,
       ).toBeTruthy(),
     );
     expect(screen.queryByText(/undefined/)).toBeNull();

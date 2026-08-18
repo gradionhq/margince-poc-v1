@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -15,18 +15,13 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
-import {
-  type BoardColumn,
-  type BoardDeal,
-  PipelineBoard,
-  RecordView,
-} from "../design-system/composed";
+import { RecordView } from "../design-system/composed";
+import { FieldGrid, FieldRow } from "../design-system/fieldgrid";
 import { InlineText } from "../design-system/inlinechoice";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
-import { ProvenanceTag } from "../design-system/trust";
-import { formatDateAbbrev, formatDateTime } from "../format/format";
+import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -34,7 +29,6 @@ import {
   OverlayUnavailable,
   ProblemError,
   problemMessageOf,
-  provenanceOf,
   QueryGate,
   throwProblem,
   useMe,
@@ -48,6 +42,16 @@ import { EditAction } from "./edit";
 import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
 import { LeadBulkBar } from "./leadbulk";
+import {
+  FirstResponseLine,
+  LEAD_SOURCES,
+  LEAD_STATUS_FILTER_OPTIONS,
+  LeadBoard,
+  SlaBadge,
+  StatusBadge,
+  scoreTone,
+  sourceLabel,
+} from "./leadpresentation";
 import { LeadManualSignals } from "./leadsignals";
 import {
   type ListPage,
@@ -58,8 +62,9 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
-import { createdColumn, ownerColumn, standardViews } from "./recordlist";
+import { lastActivityColumn, ownerColumn, standardViews } from "./recordlist";
 import { ShareAction } from "./share";
+import "./leads.css";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
 // lead surface is accent-tinted, lead detail is its own screen (never
@@ -77,15 +82,7 @@ type UpdateLeadRequest = components["schemas"]["UpdateLeadRequest"];
 type PromoteLeadRequest = components["schemas"]["PromoteLeadRequest"];
 type PromoteTrigger = PromoteLeadRequest["trigger"];
 
-export function scoreTone(score: number): "success" | "warn" | "danger" {
-  if (score >= 60) {
-    return "success";
-  }
-  if (score >= 40) {
-    return "warn";
-  }
-  return "danger";
-}
+export { scoreTone } from "./leadpresentation";
 
 export function promoteEligible(lead: Lead): boolean {
   return (
@@ -184,9 +181,9 @@ export function mapLeadBody(values: Record<string, string>): CreateLeadRequest {
     linkedin_url: values.linkedin_url?.trim() || undefined,
     title: values.title?.trim() || undefined,
     company_name: values.company_name?.trim() || undefined,
-    candidate_org_key: values.candidate_org_key?.trim() || undefined,
+    owner_id: values.owner_id?.trim() || undefined,
     status: "new",
-    source: "manual",
+    source: values.source?.trim() || "manual",
   };
 }
 
@@ -204,8 +201,6 @@ export function mapLeadUpdate(
     email: stringField(values.email).trim() || undefined,
     title: stringField(values.title).trim() || undefined,
     company_name: stringField(values.company_name).trim() || undefined,
-    candidate_org_key:
-      stringField(values.candidate_org_key).trim() || undefined,
   };
 }
 
@@ -215,7 +210,6 @@ const leadCreateFields: CreateField[] = [
   { key: "linkedin_url", label: "create.linkedinUrl" },
   { key: "title", label: "create.personTitle" },
   { key: "company_name", label: "create.companyName" },
-  { key: "candidate_org_key", label: "create.candidateOrgKey" },
 ];
 
 const leadEditFields: CreateField[] = [
@@ -223,15 +217,9 @@ const leadEditFields: CreateField[] = [
   { key: "email", label: "create.email", type: "email" },
   { key: "title", label: "create.personTitle" },
   { key: "company_name", label: "create.companyName" },
-  { key: "candidate_org_key", label: "create.candidateOrgKey" },
 ];
 
-const leadStatusFilterOptions = [
-  { value: "new", label: "lead.statusNew" },
-  { value: "working", label: "lead.statusWorking" },
-  { value: "promoted", label: "lead.statusPromoted" },
-  { value: "disqualified", label: "lead.statusDisqualified" },
-] as const;
+const leadStatusFilterOptions = LEAD_STATUS_FILTER_OPTIONS;
 
 // The score bands a reader triages by. `min_score` is a floor, so each band
 // names the bottom of a range rather than a bucket — "60+" and "80+" overlap
@@ -241,84 +229,6 @@ const LEAD_SCORE_BANDS = [
   { value: "60", label: "lead.filterScoreWarm" },
   { value: "40", label: "lead.filterScoreCool" },
 ] as const;
-
-/**
- * statusLabel is the ONE spelling of a lead status for a reader.
- *
- * Read from the filter options rather than a second table: the chips and the
- * cells naming the same status differently is exactly how a German UI came to
- * print the chip "In Bearbeitung" beside a cell reading the raw enum
- * "working".
- */
-function statusLabel(status: Lead["status"]): MessageKey | null {
-  const option = leadStatusFilterOptions.find((o) => o.value === status);
-  // Null, not a stand-in key: a status the contract adds and this list has not
-  // learned yet has no honest translation, and every candidate for one lies.
-  // The callers render the raw value instead, which is wrong-LOOKING rather
-  // than wrong — a reader seeing an untranslated word can report it, where a
-  // badge reading "Status" looks deliberate and hides the gap.
-  return option?.label ?? null;
-}
-
-/** The status as a reader should see it: translated, or the raw value. */
-function StatusBadge({ status }: Readonly<{ status: Lead["status"] }>) {
-  const t = useT();
-  const label = statusLabel(status);
-  return <Badge>{label ? t(label) : status}</Badge>;
-}
-
-// The first-response SLA (formulas §18.1) as a reader sees it: overdue,
-// running out, or nothing — a lead within its target carries no badge, so the
-// list stays quiet until something needs a hand.
-function SlaBadge({ state }: Readonly<{ state: Lead["sla_state"] }>) {
-  const t = useT();
-  if (state === "breached") {
-    return <Badge tone="danger">{t("lead.sla.breached")}</Badge>;
-  }
-  if (state === "at_risk") {
-    return <Badge tone="warn">{t("lead.sla.atRisk")}</Badge>;
-  }
-  return null;
-}
-
-// The clock, on the lead's own page: when the first response was given, or
-// when it is due and how that stands. Nothing on a closed lead, which owes
-// no first response.
-function FirstResponseLine({ lead }: Readonly<{ lead: Lead }>) {
-  const t = useT();
-  const { locale } = useLocale();
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  if (lead.first_response_at) {
-    return (
-      <span className="t-caption">
-        {t("lead.sla.answeredAt", {
-          at: formatDateTime(lead.first_response_at, locale, zone),
-        })}
-      </span>
-    );
-  }
-  if (!lead.sla_deadline_at || !lead.sla_state) {
-    return null;
-  }
-  return (
-    <span
-      className="t-caption"
-      style={{
-        display: "inline-flex",
-        gap: "var(--space-2)",
-        alignItems: "baseline",
-      }}
-    >
-      <SlaBadge state={lead.sla_state} />
-      {t(
-        lead.sla_state === "breached"
-          ? "lead.sla.overdueSince"
-          : "lead.sla.dueBy",
-        { at: formatDateTime(lead.sla_deadline_at, locale, zone) },
-      )}
-    </span>
-  );
-}
 
 const LEAD_SLA_STATES = [
   { value: "breached", label: "lead.sla.breached" },
@@ -331,8 +241,34 @@ async function createLead(
   customFields: Record<string, unknown>,
   t: (key: MessageKey) => string,
 ): Promise<Lead> {
+  const body = mapLeadBody(values);
+  const probes = [body.email, body.linkedin_url].filter(
+    (value): value is string => Boolean(value),
+  );
+  for (const probe of probes) {
+    const { data: matches, error: probeError } = await api.GET("/leads", {
+      params: { query: { q: probe, limit: 10 } },
+    });
+    if (probeError) throwProblem(probeError, t);
+    const normalized = probe.toLowerCase().replace(/\/$/, "");
+    const existing = matches.data.find(
+      (lead) =>
+        lead.email?.toLowerCase() === normalized ||
+        lead.linkedin_url?.toLowerCase().replace(/\/$/, "") === normalized,
+    );
+    if (existing) {
+      throw new ProblemError(
+        {
+          code: "duplicate_lead",
+          detail: t("lead.duplicateFound"),
+          details: { existing_id: existing.id },
+        },
+        t,
+      );
+    }
+  }
   const { data, error } = await api.POST("/leads", {
-    body: { ...mapLeadBody(values), ...customFields },
+    body: { ...body, ...customFields },
   });
   if (error) {
     throwProblem(error, t);
@@ -340,239 +276,29 @@ async function createLead(
   return data;
 }
 
-/**
- * The two columns a lead can be dragged between.
- *
- * Only the LIVE statuses. `promoted` and `disqualified` are terminal and
- * reachable only through their own audited verbs — a board column for either
- * would offer a drag that ends in a 422, and worse, would imply a lead can be
- * promoted by moving a card, which is the one thing ADR-0008's trigger set
- * exists to prevent.
- */
-const LEAD_BOARD_STAGES = [
-  { stage: "new", label: "lead.statusNew" },
-  { stage: "working", label: "lead.statusWorking" },
-] as const;
-
-/** A lead as the board's card reads it. */
-function LeadCard({
-  lead,
-  onOpen,
-  dragHandlers,
-}: Readonly<{
-  lead: Lead;
-  onOpen: (lead: Lead) => void;
-  dragHandlers?: {
-    draggable: true;
-    onDragStart: (event: React.DragEvent) => void;
-    onDragEnd: () => void;
-  };
-}>) {
-  const t = useT();
-  return (
-    <button
-      type="button"
-      className="deal-card"
-      data-lead={lead.id}
-      onClick={() => onOpen(lead)}
-      {...dragHandlers}
-    >
-      <span className="deal-name">
-        {lead.full_name ?? lead.email ?? t("nav.leads")}
-      </span>
-      {lead.company_name && (
-        <span className="deal-org">
-          <span className="deal-org-name">{lead.company_name}</span>
-        </span>
-      )}
-      <span className="deal-meta">
-        <Badge tone={scoreTone(lead.score)}>
-          {t("lead.score")}: {lead.score}
-        </Badge>
-        {lead.title && <span>{lead.title}</span>}
-      </span>
-    </button>
-  );
-}
-
-/**
- * LeadBoard is the triage surface: the live leads, in the two columns they can
- * actually move between, dragged from one to the other.
- *
- * It renders the rows the LIST already fetched rather than asking again, so a
- * reader's filters and search narrow the board exactly as they narrow the
- * table — a board that ignored the filter bar above it would be a second,
- * silently different answer to the same question.
- */
-function LeadBoard({
-  rows,
-  onMoved,
-  hasMore,
-  loadMore,
-}: Readonly<{
-  rows: Lead[];
-  onMoved: () => void;
-  hasMore: boolean;
-  loadMore: () => void;
-}>) {
-  const t = useT();
-  const queryClient = useQueryClient();
-  const dragging = useRef<string | null>(null);
-  const lastDragEnd = useRef(0);
-
-  const move = useMutation({
-    // The lead's version rides the variables, not a closure: the card that
-    // carried it belongs to the committed render, so it cannot be stale.
-    mutationFn: async (moved: {
-      id: string;
-      // Optional exactly as the contract has it. ifMatch omits the header when
-      // it is absent, which is the honest behaviour: a row the server did not
-      // version is one this client cannot make a concurrency claim about.
-      version?: number;
-      // The two the contract accepts. `promoted` and `disqualified` are
-      // reachable only through their own verbs, and typing the board's write
-      // this way is what stops a third column being added without noticing.
-      status: "new" | "working";
-    }) => {
-      const { data, error } = await api.PATCH("/leads/{id}", {
-        params: { path: { id: moved.id }, ...ifMatch(moved.version) },
-        body: { status: moved.status },
-      });
-      if (error) {
-        throwProblem(error, t);
-      }
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
-      onMoved();
-    },
-    onError: () => {
-      // A 409 means the card's version is stale. Without a refetch the reader
-      // retries with the same doomed If-Match and the drag never takes.
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
-    },
-  });
-
-  const live = rows.filter(
-    (lead) => lead.status === "new" || lead.status === "working",
-  );
-  const columns: BoardColumn[] = LEAD_BOARD_STAGES.map((stage) => {
-    const held = live.filter((lead) => lead.status === stage.stage);
-    return {
-      stage: stage.stage,
-      label: t(stage.label),
-      count: held.length,
-      // The board's card type is the deal's, so each lead rides as one and the
-      // renderCard hook reads it back out of `leadsById` below. Only `id` is
-      // ever read off this object.
-      deals: held.map((lead) => ({ id: lead.id, name: "" }) as BoardDeal),
-    };
-  });
-  const leadsById = new Map(live.map((lead) => [lead.id, lead]));
-
-  return (
-    <>
-      {move.isError && (
-        <p className="t-caption" style={{ color: "var(--danger)" }}>
-          {problemMessageOf(move.error, t)}
-        </p>
-      )}
-      {/* The board holds the live statuses only, so a filter narrowed to a
-          terminal one leaves it empty — and an empty board with no reason
-          reads as a broken render rather than a filter doing its job. */}
-      {rows.length > 0 && live.length === 0 && (
-        <p className="t-caption">{t("lead.boardTerminalOnly")}</p>
-      )}
-      <PipelineBoard
-        variant="plain"
-        columns={columns}
-        renderCard={(card) => {
-          const lead = leadsById.get(card.id);
-          if (!lead) {
-            return null;
-          }
-          return (
-            <LeadCard
-              lead={lead}
-              onOpen={(opened) => {
-                // A drag ends in a click the browser also reports; opening the
-                // record on it would navigate away from the board every time a
-                // card was moved.
-                if (Date.now() - lastDragEnd.current > 250) {
-                  navigate({ screen: "leads", id: opened.id });
-                }
-              }}
-              dragHandlers={{
-                draggable: true,
-                onDragStart: (event) => {
-                  dragging.current = lead.id;
-                  event.dataTransfer.setData("text/plain", lead.id);
-                },
-                // Recorded on END, not on drop: a drag cancelled off the board
-                // never reaches a drop handler, and the click the browser then
-                // reports would navigate away from the board.
-                onDragEnd: () => {
-                  dragging.current = null;
-                  lastDragEnd.current = Date.now();
-                },
-              }}
-            />
-          );
-        }}
-        columnDropHandlers={(column) => ({
-          onDragOver: (event) => {
-            event.preventDefault();
-            (event.currentTarget as HTMLElement).classList.add("droptarget");
-          },
-          onDragLeave: (event) => {
-            (event.currentTarget as HTMLElement).classList.remove("droptarget");
-          },
-          onDrop: (event) => {
-            event.preventDefault();
-            (event.currentTarget as HTMLElement).classList.remove("droptarget");
-            const id =
-              event.dataTransfer.getData("text/plain") || dragging.current;
-            dragging.current = null;
-            lastDragEnd.current = Date.now();
-            const lead = id ? leadsById.get(id) : undefined;
-            // A card dropped on the column it already sits in is not a move.
-            const target = LEAD_BOARD_STAGES.find(
-              (stage) => stage.stage === column.stage,
-            );
-            if (lead && target && lead.status !== target.stage) {
-              move.mutate({
-                id: lead.id,
-                version: lead.version,
-                status: target.stage,
-              });
-            }
-          },
-        })}
-      />
-      {/* A board that showed page one while looking like the whole pipeline
-          would be a confident wrong answer about how much work is waiting. */}
-      {hasMore && (
-        <Button small onClick={loadMore}>
-          {t("list.loadMore")}
-        </Button>
-      )}
-    </>
-  );
-}
-
 export function LeadsScreen() {
+  const me = useMe();
+  return (
+    <QueryGate query={me}>
+      {(session) => <LeadsWorkbench viewerId={session.user.id} />}
+    </QueryGate>
+  );
+}
+
+function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
   const ownerChips = useOwnerChips();
+  const roster = useRoster("user", true);
   const t = useT();
   const { locale } = useLocale();
-  const viewerId = useViewerId();
+  const overlay = useSorMode() === "overlay";
   // Bulk selection, by lead id; cleared after any bulk run, since the rows
   // and their versions have moved.
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
-    initialSort: "-created_at",
+    initialSort: "",
+    initialFilters: { owner_id: viewerId },
     fetchPage: fetchLeadsPage,
   });
   // Only ids the list currently holds count as selected: a row that left the
@@ -582,8 +308,18 @@ export function LeadsScreen() {
   const liveSelection = new Set(selectedRows.map((lead) => lead.id));
   // The board writes status, which the mirror refuses (a lead's lifecycle is
   // not a field write-back), so overlay gets the table and no toggle.
-  const overlay = useSorMode() === "overlay";
   const [view, setView] = useState<"table" | "board">("table");
+  const ownerOptions = [
+    { value: viewerId, label: t("lead.assignToMe") },
+    ...(roster.data ?? [])
+      .filter((entry) => !("is_agent" in entry && entry.is_agent))
+      .filter((entry) => entry.id !== viewerId)
+      .map((entry) => ({
+        value: entry.id,
+        label:
+          ("display_name" in entry ? entry.display_name : null) ?? entry.id,
+      })),
+  ];
 
   return (
     <div className="wrap lead-surface">
@@ -615,6 +351,7 @@ export function LeadsScreen() {
             />
           ) : undefined
         }
+        bodyOwnsPaging={view === "board" && !overlay}
         state={state}
         unit="unit.leads"
         caption="lead.segregated"
@@ -625,7 +362,27 @@ export function LeadsScreen() {
             screen="leads"
             create={(values) => createLead(values, cf.toBody(values), t)}
             resolveExisting={(_code, id) => ({ screen: "leads", id })}
-            fields={[...leadCreateFields, ...cf.formFields]}
+            fields={[
+              ...leadCreateFields,
+              {
+                key: "owner_id",
+                label: "lead.ownerLabel",
+                type: "select",
+                required: true,
+                options: ownerOptions,
+              },
+              {
+                key: "source",
+                label: "lead.source",
+                type: "select",
+                required: true,
+                options: LEAD_SOURCES.map((source) => ({
+                  value: source.value,
+                  label: t(source.label),
+                })),
+              },
+              ...cf.formFields,
+            ]}
           />
         }
         columns={[
@@ -652,7 +409,20 @@ export function LeadsScreen() {
             key: "score",
             header: t("lead.score"),
             cell: (lead: Lead) => (
-              <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
+              <span
+                style={{
+                  display: "flex",
+                  gap: "var(--space-1)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
+                <span className="t-caption">
+                  {lead.score_reason
+                    ? scoreFactorLabel(lead.score_reason, t)
+                    : t("lead.scoreNoSignals")}
+                </span>
+              </span>
             ),
             sort: "score",
             numeric: true,
@@ -673,8 +443,30 @@ export function LeadsScreen() {
               </span>
             ),
           },
+          {
+            key: "nextTask",
+            header: t("lead.nextTask"),
+            cell: (lead: Lead) => (
+              <span className="t-caption">
+                {lead.next_task_subject ?? t("lead.noNextTask")}
+                {lead.open_task_count
+                  ? ` · ${t("lead.openTaskCount", { count: lead.open_task_count })}`
+                  : ""}
+                {lead.next_task_due_at
+                  ? ` · ${formatDateAbbrev(lead.next_task_due_at, locale, Intl.DateTimeFormat().resolvedOptions().timeZone)}`
+                  : ""}
+              </span>
+            ),
+          },
+          lastActivityColumn<Lead>(t, locale),
+          {
+            key: "source",
+            header: t("lead.source"),
+            cell: (lead: Lead) => (
+              <span className="t-caption">{sourceLabel(lead.source, t)}</span>
+            ),
+          },
           ownerColumn<Lead>(t),
-          createdColumn<Lead>(t, locale),
         ]}
         rowKey={(lead) => lead.id}
         selection={{
@@ -729,12 +521,18 @@ export function LeadsScreen() {
             allLabel: "lead.filterSlaAll",
             options: LEAD_SLA_STATES.map((state) => ({ ...state })),
           },
+          {
+            key: "source",
+            label: "lead.filterSource",
+            allLabel: "lead.filterSourceAll",
+            options: LEAD_SOURCES.map((source) => ({ ...source })),
+          },
         ]}
         // The one ownership dial every record list carries (DM-VOCAB-OWN-1):
         // mine, my team's, the unowned queue.
         dataChips={ownerChips}
         views={[
-          ...standardViews(viewerId),
+          ...standardViews(viewerId, { sort: "", mineFirst: true }),
           // The overdue queue (formulas §18.1): breached first-response
           // deadlines, warmest first — what a rep opens before anything else.
           {
@@ -975,6 +773,7 @@ function LeadOwner({
   // yourself is the common case on a small team, and it is now an option in
   // this one control rather than a button of its own (ADR-0108 §5).
   const candidates = (roster.data ?? [])
+    .filter((entry) => !("is_agent" in entry) || !entry.is_agent)
     .filter((entry) => entry.id !== lead.owner_id)
     .sort((a, b) => {
       if (a.id === meId) return -1;
@@ -1268,35 +1067,61 @@ function LeadIdentityFields({
   return (
     <Panel title={t("lead.details")}>
       <PanelBody>
-        <InlineText
-          label={t("create.fullName")}
-          value={lead.full_name ?? ""}
-          placeholder={t("lead.detailsUnset")}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          onSave={(next) => save({ full_name: next.trim() || null })}
-        />
-        <InlineText
-          label={t("create.personTitle")}
-          value={lead.title ?? ""}
-          placeholder={t("lead.detailsUnset")}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          onSave={(next) => save({ title: next.trim() || null })}
-        />
-        <InlineText
-          label={t("create.companyName")}
-          value={lead.company_name ?? ""}
-          placeholder={t("lead.detailsUnset")}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          onSave={(next) => save({ company_name: next.trim() || null })}
-        />
-        {/* Email is NOT here. It is the lead's dedupe key: changing it can
-            collide with a live lead and answer 409 with an incumbent id, which
-            is a conversation (view the existing record) rather than a field
-            edit. The Edit modal owns it, where that answer has somewhere to
-            render. */}
+        <FieldGrid>
+          <FieldRow label={t("create.fullName")}>
+            <InlineText
+              label={t("create.fullName")}
+              value={lead.full_name ?? ""}
+              placeholder={t("lead.detailsUnset")}
+              canEdit={canEdit}
+              readOnlyReason={readOnlyReason}
+              onSave={(next) => save({ full_name: next.trim() || null })}
+            />
+          </FieldRow>
+          <FieldRow label={t("create.personTitle")}>
+            <InlineText
+              label={t("create.personTitle")}
+              value={lead.title ?? ""}
+              placeholder={t("lead.detailsUnset")}
+              canEdit={canEdit}
+              readOnlyReason={readOnlyReason}
+              onSave={(next) => save({ title: next.trim() || null })}
+            />
+          </FieldRow>
+          <FieldRow label={t("create.companyName")}>
+            <InlineText
+              label={t("create.companyName")}
+              value={lead.company_name ?? ""}
+              placeholder={t("lead.detailsUnset")}
+              canEdit={canEdit}
+              readOnlyReason={readOnlyReason}
+              onSave={(next) => save({ company_name: next.trim() || null })}
+            />
+          </FieldRow>
+          <FieldRow label={t("create.email")}>
+            {lead.email ?? t("lead.detailsUnset")}
+          </FieldRow>
+          <FieldRow label={t("create.linkedinUrl")}>
+            {lead.linkedin_url ? (
+              <a href={lead.linkedin_url} target="_blank" rel="noreferrer">
+                {t("lead.openLinkedIn")}
+              </a>
+            ) : (
+              t("lead.detailsUnset")
+            )}
+          </FieldRow>
+          <FieldRow label={t("lead.source")}>
+            {sourceLabel(lead.source, t)}
+          </FieldRow>
+          {lead.project_id && (
+            <FieldRow label={t("lead.project")}>
+              <span className="t-mono">{lead.project_id}</span>
+            </FieldRow>
+          )}
+        </FieldGrid>
+        {/* Email is read-only here because it is the lead's dedupe key. The Edit
+            modal owns the write so a 409 collision with a live lead has a place
+            to link the incumbent record. */}
       </PanelBody>
     </Panel>
   );
@@ -1447,7 +1272,6 @@ function LeadLifecycle({
 // the terminal-state labelling lives in one place (terminalBadge).
 function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
   const t = useT();
-  const viewerId = useViewerId();
   const terminal = terminalBadge(lead.status);
   return (
     <div
@@ -1459,8 +1283,8 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
       {lead.score_override_reason && <Badge>{t("lead.overriddenBadge")}</Badge>}
       <StatusBadge status={lead.status} />
       {lead.company_name && <Badge>{lead.company_name}</Badge>}
+      {lead.source && <Badge>{sourceLabel(lead.source, t)}</Badge>}
       {terminal && <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>}
-      <ProvenanceTag provenance={provenanceOf(lead.captured_by, viewerId)} />
     </div>
   );
 }
@@ -1929,19 +1753,17 @@ function LeadOverviewPane({
       {lead.promoted_person_id && (
         <PromotedLeadPanel lead={lead} promotion={promotion} />
       )}
-      {/* Working the lead (ADR-0118/A169): a note or a task about the
-          prospect, in the one composer the person and deal pages use. Absent
-          on a terminal lead, whose record is closed, and in overlay, where
-          the mirror owns the activity. */}
-      {!lead.archived_at && !overlay && (
-        <LogActivity entityType="lead" entityId={id} />
-      )}
       <LeadLifecycle
         lead={lead}
         id={id}
         onChanged={onLifecycleChanged}
         terminalReasonId={terminalReasonId}
       />
+      {/* The qualification facts lead; the composer follows them so opening a
+          lead answers "what should I do" before asking the rep to type. */}
+      {!lead.archived_at && !overlay && (
+        <LogActivity entityType="lead" entityId={id} />
+      )}
       <CustomFieldsCard object="lead" record={lead} />
     </>
   );
@@ -2005,7 +1827,6 @@ function LeadActions({
           email: lead.email ?? "",
           title: lead.title ?? "",
           company_name: lead.company_name ?? "",
-          candidate_org_key: lead.candidate_org_key ?? "",
           ...cf.recordSlice(lead),
         }}
         update={async (values) => {
@@ -2169,7 +1990,9 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
             // BEFORE they read anything else about them (ADR-0108 §1).
             subtitle={<Badge tone="accent">{t("lead.marker")}</Badge>}
             pulse={
-              lead.email ? <span className="t-mono">{lead.email}</span> : null
+              lead.email ? (
+                <span className="t-mono lead-email">{lead.email}</span>
+              ) : null
             }
             actions={
               <LeadActions

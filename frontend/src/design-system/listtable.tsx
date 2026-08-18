@@ -236,6 +236,7 @@ function sortState(
   return value === `-${column.sort}` ? "desc" : null;
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the alternate body owns one guarded paging branch while the table keeps the shared query controls
 export function ListTable<Row>({
   rows,
   columns,
@@ -266,6 +267,7 @@ export function ListTable<Row>({
   widthsKey,
   tools,
   body,
+  bodyOwnsPaging = false,
   selection,
 }: Readonly<{
   rows: readonly Row[];
@@ -290,6 +292,8 @@ export function ListTable<Row>({
    * see or change what narrowed it, which is worse than showing no board.
    */
   body?: ReactNode;
+  /** The alternate body carries its own count and continuation control. */
+  bodyOwnsPaging?: boolean;
   onRowClick?: (row: Row) => void;
   /**
    * Where this row lives, as a URL. Turns the identity cell into a link, so a
@@ -593,7 +597,8 @@ export function ListTable<Row>({
       activeView={activeView}
       onViewChange={applyView}
       count={
-        !pending && (
+        !pending &&
+        !bodyOwnsPaging && (
           <CountLine
             unit={unit}
             first={from + 1}
@@ -639,14 +644,16 @@ export function ListTable<Row>({
       footer={
         <>
           {footer && <div className="lt-agg">{footer}</div>}
-          <Pager
-            current={current}
-            lastPage={lastPage}
-            hasMore={hasMore}
-            perPage={perPage}
-            onGoto={goto}
-            onPerPage={onPerPage}
-          />
+          {!bodyOwnsPaging && (
+            <Pager
+              current={current}
+              lastPage={lastPage}
+              hasMore={hasMore}
+              perPage={perPage}
+              onGoto={goto}
+              onPerPage={onPerPage}
+            />
+          )}
         </>
       }
     >

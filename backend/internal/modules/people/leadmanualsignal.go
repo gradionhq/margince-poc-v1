@@ -110,7 +110,8 @@ func (s *Store) SetLeadManualSignal(ctx context.Context, leadID ids.LeadID, in S
 		row := tx.QueryRow(ctx,
 			`INSERT INTO lead_manual_signal (lead_id, factor, band, points, signal_kind, confidence, reason, set_by)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			 RETURNING factor, band, points, signal_kind, confidence, reason, set_by, set_at`,
+			 RETURNING factor, band, points, signal_kind, confidence, reason, set_by, set_at,
+			           superseded_at, superseded_by`,
 			leadID, in.Factor, in.Band, points, in.SignalKind, in.Confidence, in.Reason, setBy)
 		if err := scanManualSignal(row, &out); err != nil {
 			return err
@@ -133,6 +134,42 @@ func (s *Store) SetLeadManualSignal(ctx context.Context, leadID ids.LeadID, in S
 		return crmcontracts.LeadManualSignal{}, err
 	}
 	return out, nil
+}
+
+// ListLeadManualSignals returns the stored qualification evidence exactly as
+// entered, including retained rows an automatic source later superseded.
+func (s *Store) ListLeadManualSignals(ctx context.Context, leadID ids.LeadID) ([]crmcontracts.LeadManualSignal, error) {
+	if err := auth.Require(ctx, "lead", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	var signals []crmcontracts.LeadManualSignal
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if err := auth.EnsureVisible(ctx, tx, "lead", leadID.UUID); err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx,
+			`SELECT factor, band, points, signal_kind, confidence, reason, set_by, set_at,
+			        superseded_at, superseded_by
+			   FROM lead_manual_signal
+			  WHERE lead_id = $1
+			  ORDER BY (superseded_at IS NULL) DESC, set_at DESC, factor`, leadID)
+		if err != nil {
+			return fmt.Errorf("read manual signals: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var signal crmcontracts.LeadManualSignal
+			if err := scanManualSignal(rows, &signal); err != nil {
+				return err
+			}
+			signals = append(signals, signal)
+		}
+		return rows.Err()
+	})
+	if signals == nil {
+		signals = []crmcontracts.LeadManualSignal{}
+	}
+	return signals, err
 }
 
 // ClearLeadManualSignal withdraws a rep's live input for one factor.
@@ -216,7 +253,8 @@ func leadManualFactors(ctx context.Context, tx pgx.Tx, leadID ids.LeadID) ([]Sco
 func scanManualSignal(row pgx.Row, out *crmcontracts.LeadManualSignal) error {
 	var kind string
 	err := row.Scan(&out.Factor, &out.Band, &out.Points, &kind,
-		&out.Confidence, &out.Reason, &out.SetBy, &out.SetAt)
+		&out.Confidence, &out.Reason, &out.SetBy, &out.SetAt,
+		&out.SupersededAt, &out.SupersededBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return apperrors.ErrNotFound
 	}
