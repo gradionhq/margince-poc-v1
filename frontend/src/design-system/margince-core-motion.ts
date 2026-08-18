@@ -319,6 +319,33 @@ export function dotTarget(
 }
 
 /**
+ * The liquid's current at a given moment: where the body of fluid inside the
+ * glass has drifted to, as a fraction of the working radius.
+ *
+ * Three frequencies per axis, none a multiple of another, so the fluid never
+ * returns to the same place on a beat a viewer can learn. It is slow — an order
+ * below the slowest formation — because liquid in a sealed ball moves because the
+ * ball moved, not because the liquid wants to.
+ *
+ * The same value moves the liquid layer AND is added to every dot's placement,
+ * which is the whole trick: the dots are not drawn on top of the fluid, they are
+ * carried by it. Decouple the two and the ball reads as dots in front of a
+ * texture — the thing this replaced.
+ */
+export function current(time: number): Readonly<{ x: number; y: number }> {
+  return {
+    x:
+      Math.sin(time * 0.11) * 0.5 +
+      Math.sin(time * 0.19 + 1.3) * 0.28 +
+      Math.sin(time * 0.07 + 2.7) * 0.22,
+    y:
+      Math.cos(time * 0.13 + 0.6) * 0.46 +
+      Math.cos(time * 0.23 + 2.1) * 0.24 +
+      Math.sin(time * 0.05 + 4.2) * 0.3,
+  };
+}
+
+/**
  * The breath: two frequencies through an asymmetric curve, so the inhale is
  * quicker than the exhale.
  *

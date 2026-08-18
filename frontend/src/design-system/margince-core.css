@@ -349,6 +349,56 @@
   opacity: 0.34;
 }
 
+/* ---- the liquid ---------------------------------------------------------- */
+/*
+ * The ball is FULL, and this is what fills it: two soft masses of the state's own
+ * colours, heavily blurred, drifting on the current the engine also carries the
+ * dots on. Two and not one, because a single mass is a vignette — it is the
+ * SECOND mass moving against the first that a reader sees as fluid.
+ *
+ * Under the dots and above the well's tint, so the order reads as depth: glass,
+ * fluid, things suspended in the fluid, glass again. Blurred hard enough that no
+ * edge of it is ever visible, since an edge would be the surface of a
+ * half-filled ball and this one is full.
+ *
+ * Not fused with the dots: the goo filter is what makes the dots one material,
+ * and putting the fluid through it would weld them into the body — the dots would
+ * stop being suspended in something and become lumps of it.
+ */
+.core-liquid {
+  position: absolute;
+  /* Oversized on purpose: it travels a few percent of the ball, and the inset
+     keeps its own boundary outside the glass at every point of that travel. */
+  inset: -18%;
+  border-radius: var(--r-full);
+  pointer-events: none;
+  filter: blur(14px);
+  will-change: transform;
+  background:
+/* the lighter mass, up and left, where the light enters */
+    radial-gradient(
+      circle at 36% 34%,
+      color-mix(in srgb, var(--coreC3) 42%, transparent) 0%,
+      color-mix(in srgb, var(--coreC3) 16%, transparent) 38%,
+      transparent 62%
+    ),
+    /* the denser mass, low and right, so the fluid has a bottom */
+    radial-gradient(
+      circle at 64% 68%,
+      color-mix(in srgb, var(--coreC2) 38%, transparent) 0%,
+      color-mix(in srgb, var(--coreC2) 14%, transparent) 42%,
+      transparent 68%
+    );
+}
+/* At small sizes the blur is a bigger share of the ball than the fluid is, so the
+   two masses smear into one wash. One less thing on eleven pixels of colour. */
+@container (max-width: 90px) {
+  .core-liquid {
+    filter: blur(6px);
+    opacity: 0.7;
+  }
+}
+
 /* ---- the liquid dots ---------------------------------------------------- */
 /*
  * Four dots, fused by the goo filter the component renders (a tight blur plus an

@@ -7,6 +7,7 @@ import {
   BEHAVIOUR,
   breath,
   type CoreMotion,
+  current,
   DOTS,
   dotTarget,
 } from "./margince-core-motion";
@@ -194,10 +195,17 @@ function easeDots(
 ) {
   const rhythm = breath(time);
   const settle = dt * (motion === "alert" ? 9 : 5);
+  const flow = current(time);
   for (let index = 0; index < dots.length; index += 1) {
     const dot = dots[index];
     const target = dotTarget(motion, index, time, rhythm);
-    let { x, y } = target;
+    // Carried by the fluid: the current the liquid layer is drawn at, added to
+    // every placement. `alert` and `fail` take a third of it — a state that is
+    // deliberately going nowhere must not be seen to drift, but a mass in liquid
+    // that is perfectly still reads as a mass in glue.
+    const carried = motion === "alert" || motion === "fail" ? 0.34 : 1;
+    let x = target.x + flow.x * 16 * carried;
+    let y = target.y + flow.y * 16 * carried;
     if (lean.strength > 0.01) {
       // The nearest dots reach toward the cursor and the goo stretches between
       // them, which is the whole of the interaction: the Core notices, it does
@@ -221,6 +229,26 @@ function easeDots(
         ? target.rotation
         : lerp(dot.rotation, target.rotation, dt * 7);
   }
+}
+
+/**
+ * The body of liquid inside the glass.
+ *
+ * It drifts on the current and turns slowly, and it is ONE element: two blurred
+ * masses painted on it (see the stylesheet) are enough for a reader to see the
+ * fluid move, and moving one element is one composited transform rather than a
+ * second animation to keep in phase.
+ */
+function writeLiquid(liquid: HTMLElement | null, time: number, box: Box) {
+  if (!liquid) {
+    return;
+  }
+  const flow = current(time);
+  // A fraction of the ball, so the fluid always fills it — a liquid that travels
+  // far enough to show its own edge is a liquid sloshing in a half-empty ball,
+  // which is a different (and much noisier) idea.
+  const travel = box.width * 0.06;
+  liquid.style.transform = `translate3d(${(flow.x * travel).toFixed(2)}px,${(flow.y * travel).toFixed(2)}px,0) rotate(${(time * 3.4).toFixed(2)}deg)`;
 }
 
 function writeShell(
@@ -268,6 +296,7 @@ function runOrbLoop(
   let onScreen = true;
   let windowFocused = isWindowFocused();
   let box = measure(shell, dots[0]?.el);
+  const liquid = shell.querySelector<HTMLElement>(".core-liquid");
   // The filter lives in the component's own subtree, so it is found rather than
   // passed: the engine drives the DOM the component rendered, and threading an
   // element reference through for one attribute would be a second contract
@@ -299,6 +328,7 @@ function runOrbLoop(
     // Under reduced motion the easing is instant: a settle animation IS motion,
     // however small, so the one frame drawn has to be the settled one.
     easeDots(dots, behaviour.motion, time, box, lean, reduced ? 1 : dt);
+    writeLiquid(liquid, time, box);
     for (const dot of dots) {
       writeDot(dot, box, lineMode);
     }

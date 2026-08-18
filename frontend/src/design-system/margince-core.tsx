@@ -4,16 +4,16 @@
 import { useId, useRef } from "react";
 import { useCoreEngine } from "./margince-core-engine";
 import { CoreFeed } from "./margince-core-feed";
-import { DOTS } from "./margince-core-motion";
 import "./margince-core.css";
 
 /**
  * The Margince Core — WDS-CORE-1..4 (ADR-0076).
  *
  * The product's one piece of AI identity, shown by the unauthenticated surface,
- * the session splash, onboarding and the in-app workbench: four liquid dots
- * sealed in a glass ball, fused by a goo filter so they merge and split like one
- * material. Four things about it are load-bearing rather than stylistic:
+ * the session splash, onboarding and the in-app workbench: a glass ball full of
+ * liquid, with four dots suspended in it that fuse and split like one material.
+ * The fluid and the dots ride the same slow current (`margince-core-motion.ts`),
+ * so what moves is the body of liquid and the dots go with it. Four things about it are load-bearing rather than stylistic:
  *
  *  - **One implementation** (WDS-CORE-1). A caller passes `state` and never
  *    restyles. Sizing through the documented `--coreSize` / `--coreGlass` custom
@@ -79,13 +79,22 @@ export function MarginceCoreScene({
             above and is what light happens on. Two elements because a ball whose
             interior is not clipped is a disc with dots wandering off it. */}
         <div className="core-well">
+          {/* The fluid the ball is FULL of. It sits under the dots and drifts on
+              the same current they are carried by, which is what makes them read
+              as suspended in it rather than drawn over it. */}
+          <div className="core-liquid" />
+          {/* Written out rather than mapped, and the count is not a variable: a
+              dot's POSITION in this list is its identity in the motion table
+              (which one leaves the mass, which stroke of the check mark it
+              draws), so these four are four distinct things that happen to look
+              alike. The engine refuses to run against a
+              markup that does not carry exactly `DOTS` of them, which is what
+              keeps this list and the motion table agreeing. */}
           <div className="core-goo" style={{ filter: `url(#${goo})` }}>
-            {Array.from({ length: DOTS }, (_, index) => (
-              // Fixed count, fixed order: index IS the dot's identity in the
-              // motion table (which one leaves the mass, which stroke it draws),
-              // so the key is the index by design rather than for want of an id.
-              <i className="core-dot" key={index} />
-            ))}
+            <i className="core-dot" />
+            <i className="core-dot" />
+            <i className="core-dot" />
+            <i className="core-dot" />
           </div>
           <div className="core-rim" />
         </div>
