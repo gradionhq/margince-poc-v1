@@ -31,7 +31,21 @@ type Activity = components["schemas"]["Activity"];
 
 export type TaskGroup = "overdue" | "today" | "upcoming" | "undated";
 
-export function groupTask(task: Activity, now: Date): TaskGroup {
+// The calendar day an instant falls on, in a named zone. `en-CA` is the one
+// locale whose short date is already ISO-ordered, so two of these compare as
+// strings without a second parse.
+function calendarDay(at: Date, zone: string): string {
+  return at.toLocaleDateString("en-CA", { timeZone: zone });
+}
+
+// Which bucket a task belongs in, decided in the READER's zone.
+//
+// It used to compare UTC calendar days while `dueInstant` below mints the wire
+// instant from LOCAL wall time — the two disagreed for any reader west of UTC.
+// Pick "today" in UTC-5 and the instant is today 23:59:59 local, which is
+// tomorrow in UTC, so the task a reader had just filed for today appeared under
+// Upcoming. The zone has to be the same one on both sides of that comparison.
+export function groupTask(task: Activity, now: Date, zone: string): TaskGroup {
   if (!task.due_at) {
     return "undated";
   }
@@ -39,9 +53,9 @@ export function groupTask(task: Activity, now: Date): TaskGroup {
   if (due.getTime() < now.getTime()) {
     return "overdue";
   }
-  const sameDay =
-    due.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
-  return sameDay ? "today" : "upcoming";
+  return calendarDay(due, zone) === calendarDay(now, zone)
+    ? "today"
+    : "upcoming";
 }
 
 const GROUP_ORDER: TaskGroup[] = ["overdue", "today", "upcoming", "undated"];
@@ -82,7 +96,11 @@ function ReminderControl({
           style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
         >
           <Bell aria-hidden style={{ width: 12, height: 12 }} />
-          {formatDateTime(task.remind_at, locale, "Europe/Berlin")}
+          {formatDateTime(
+            task.remind_at,
+            locale,
+            Intl.DateTimeFormat().resolvedOptions().timeZone,
+          )}
         </span>
         <Button small onClick={() => onSet(task.id, null)}>
           {t("tasks.clearReminder")}
@@ -123,6 +141,15 @@ function ReminderControl({
   );
 }
 
+// A row does NOT name the record its task is about, and that is a gap rather
+// than a choice: subjects are generated ("Follow up with the new lead"), so a
+// queue of them is a column of the same sentence. The activity carries `links[]`
+// with the record's id but no display name, and there is no batch-by-ids read in
+// the contract — so naming them costs one request per row, up to the query's
+// hundred. That is the same missing field the contacts list needs for an
+// employer column: a list read should carry the linked record's display name,
+// which is a contract change first (P3).
+//
 // One open task, with its complete / snooze / reminder actions. Extracted so
 // the grouped render tree above stays legible instead of nesting these
 // handlers deeply.
@@ -141,6 +168,11 @@ function TaskRow({
 }>) {
   const t = useT();
   const { locale } = useLocale();
+  // A due date is a PERSONAL deadline, so it reads in the viewer's own zone —
+  // as does the reminder time above it, or one row would state two zones. Pinned
+  // to Europe/Berlin it told a reader in another zone a different day than the
+  // one their task is actually due on.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
     <Card as="div" style={{ marginBottom: "var(--space-2)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -149,7 +181,7 @@ function TaskRow({
           {task.due_at && (
             <span className="t-caption">
               {" "}
-              · {formatDateTime(task.due_at, locale, "Europe/Berlin")}
+              · {formatDateTime(task.due_at, locale, zone)}
             </span>
           )}
         </span>
@@ -259,9 +291,6 @@ export function TasksScreen() {
   if (overlay) {
     return (
       <div className="wrap">
-        <div className="list-head">
-          <SectionHeader title={t("nav.tasks")} />
-        </div>
         <OverlayUnavailable />
       </div>
     );
@@ -270,7 +299,6 @@ export function TasksScreen() {
   return (
     <div className="wrap">
       <div className="list-head">
-        <SectionHeader title={t("nav.tasks")} />
         <NewRecordButton
           label={t("tasks.new")}
           onClick={() => setCreating(true)}
@@ -295,12 +323,15 @@ export function TasksScreen() {
       >
         {(page) => {
           const now = new Date();
+          // The same zone the rows print their dates in, so a task filed for
+          // today cannot appear under Upcoming.
+          const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const open = page.data.filter((task) => !task.is_done);
           return (
             <div>
               {GROUP_ORDER.map((group) => {
                 const tasks = open.filter(
-                  (task) => groupTask(task, now) === group,
+                  (task) => groupTask(task, now, zone) === group,
                 );
                 if (tasks.length === 0) {
                   return null;

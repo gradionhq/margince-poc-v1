@@ -128,7 +128,9 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     render(
       <WorkspaceRail route={{ screen: "deals" }} onOpenSearch={ignoreSearch} />,
     );
-    const brand = within(screen.getByRole("navigation")).getByRole("link", {
+    const brand = within(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).getByRole("link", {
       name: "Margince",
     });
     expect(brand.getAttribute("href")).toBe("#/home");
@@ -876,7 +878,9 @@ describe("Rail levels (a section's entries as the second level)", () => {
     // for the bar to be rearranged by.
     expect(screen.queryByRole("link", { name: "Privacy & audit" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Back/ })).toBeNull();
-    expect(screen.getByRole("navigation").className).not.toContain("leveled");
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }).className,
+    ).not.toContain("leveled");
 
     // And the sheet is what it was before levels existed: the destinations plus
     // the account rows.
@@ -897,7 +901,9 @@ describe("Rail levels (a section's entries as the second level)", () => {
       />,
     );
     expect(levelLabels()).toEqual(["Account", "Privacy & audit"]);
-    expect(screen.getByRole("navigation").className).toContain("leveled");
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }).className,
+    ).toContain("leveled");
   });
 });
 
@@ -1016,6 +1022,57 @@ describe("PageHead", () => {
       screen.getByRole("heading", { level: 1, name: "Not found" }),
     ).toBeTruthy();
     expect(document.body.textContent).not.toContain("notes");
+  });
+
+  // A page whose name alone does not say what it is for carries one quiet line
+  // under the heading, and the head is where it belongs: a screen that printed
+  // its own subtitle had to print its own title above it to hang it on, and the
+  // shell was already printing that title.
+  it("prints the page's subtitle under the heading", () => {
+    const { container } = render(<PageHead route={{ screen: "inbox" }} />);
+    const heading = screen.getByRole("heading", {
+      level: 1,
+      name: "Approvals",
+    });
+    const sub = container.querySelector(".pagesub");
+    expect(sub?.textContent).toBe(
+      "everything staged, waiting on your call — nothing runs without it",
+    );
+    // Directly under the name it explains, in the title column — not in the
+    // aside beside the SoR chip, where it would read as product chrome.
+    expect(heading.nextElementSibling).toBe(sub);
+    expect(container.querySelector(".pagetitle")?.contains(sub)).toBe(true);
+  });
+
+  // Only the screens the map names. Most headings say what the page is for on
+  // their own, and a subtitle there is a line of copy nobody needed to read.
+  it("prints no subtitle on a screen the map does not name", () => {
+    const { container } = render(<PageHead route={{ screen: "deals" }} />);
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Pipeline" }),
+    ).toBeTruthy();
+    expect(container.querySelector(".pagesub")).toBeNull();
+  });
+
+  // The subtitle belongs to the branch that prints an h1. Where the head yields
+  // — a record route, showing the trail instead — a line under that trail would
+  // describe the LIST the trail leads back to rather than the record on screen.
+  //
+  // No record screen carries a subtitle key today (the map names `inbox` and
+  // `ai`, and neither has a record segment), so what this pins is the structure:
+  // the crumb branch renders no subtitle element at all. Give a record screen a
+  // subtitle and this is the case that says where it may not appear.
+  it("prints no subtitle on a record route, where the trail stands instead", () => {
+    const client = newClient();
+    client.setQueryData(["person", "ref", "p-anna"], "Anna Weber");
+    const { container } = renderWith(
+      client,
+      <PageHead route={{ screen: "contacts", id: "p-anna" }} />,
+    );
+    expect(container.querySelector(".pagecrumb")?.textContent).toContain(
+      "Anna Weber",
+    );
+    expect(container.querySelector(".pagesub")).toBeNull();
   });
 
   // A record names itself: its surface prints the identity block, and that is
@@ -1246,12 +1303,52 @@ describe("Shell", () => {
   // One h1 per railed page, and exactly one — on a list, a report, a settings
   // surface, the shell mints it, so a screen that also prints its own title at
   // heading level is printing a duplicate rather than filling a gap.
+  // Which pages keep the reading column, and the one distinction that is easy to
+  // get wrong: a company RECORD is capped, the company LIST is not, and the only
+  // thing separating them is the id. The marker is what the stylesheet keys the
+  // cap on, so a route landing in the wrong family is a layout regression that
+  // nothing else would catch. The set itself is GRIDDED_RECORD_SCREENS.
+  it.each([
+    ["#/settings/account", true],
+    ["#/companies/o-1", true],
+    ["#/contacts/p-1", true],
+    ["#/companies", false],
+    ["#/contacts", false],
+    ["#/deals", false],
+    ["#/reports", false],
+  ])("reads the column policy off the route: %s", (hash, capped) => {
+    window.location.hash = String(hash);
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const main = container.querySelector("main");
+    expect(main?.className.includes("main-gridded")).toBe(capped);
+  });
+
   it("mints the page-level heading on a route that names no record", () => {
     window.location.hash = "#/contacts";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     const headings = screen.getAllByRole("heading", { level: 1 });
     expect(headings).toHaveLength(1);
     expect(headings[0].textContent).toBe("Contacts");
+  });
+
+  // The same rule for the line under that heading: the screens whose subtitle
+  // was lost when they stopped printing their own title get it from the shell,
+  // and it arrives with exactly one h1 above it rather than a second title to
+  // hang it on. Asserted through the real shell because the head is what mounts
+  // it — the subtitle is only as reachable as the route that carries it.
+  it("mints the page's subtitle beneath that one heading", () => {
+    window.location.hash = "#/ai";
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const headings = screen.getAllByRole("heading", { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0].textContent).toBe("Ask Margince");
+    expect(container.querySelector(".pagesub")?.textContent).toBe(
+      "bring your own agent — governed by the two-tier contract",
+    );
   });
 
   // The other half of the same rule: a record surface prints the identity block
@@ -1313,7 +1410,9 @@ describe("Shell", () => {
   it("renders the rail on core screens", () => {
     window.location.hash = "#/contacts";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    expect(screen.getByRole("navigation")).toBeTruthy();
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).toBeTruthy();
   });
 });
 

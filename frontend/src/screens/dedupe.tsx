@@ -1,12 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { GitMerge, Undo2, X } from "lucide-react";
+import { GitMerge } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, Radio } from "../design-system/atoms";
+import { Badge, Button, Card, Radio } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
+import "./dedupe.css";
 
 // The dedupe review queue (M4, DH-EXT-1/2): confidence-sorted open pairs
 // with the detection-time evidence the detector actually saw — never
@@ -78,73 +81,150 @@ export function DedupeScreen() {
     },
   });
 
+  const candidates = queue.data?.data ?? [];
+  // A decision that LANDED, narrowed once here rather than at each of the two
+  // places the notice reads it: `status` is what says the server took it, and
+  // an "open" pair came back undecided.
+  const decided =
+    dispose.data && dispose.data.status !== "open" ? dispose.data : undefined;
+  const writeError = dispose.isError || undo.isError;
+
   return (
     <div className="wrap">
-      {/* The shell's page head owns this route's h1. */}
-      <h2 className="t-display">{t("dedupe.title")}</h2>
-      <p className="t-small">{t("dedupe.intro")}</p>
-      {queue.isPending && <p className="t-small">{t("dedupe.loading")}</p>}
       {queue.isError && (
-        <p className="t-small dedupe-error">
+        <Callout tone="danger" live="alert" className="dedupe-notice">
           {problemMessageOf(queue.error, t)}
-        </p>
+        </Callout>
       )}
-      {queue.data && queue.data.data.length === 0 && (
-        <p className="t-small">{t("dedupe.empty")}</p>
-      )}
-      {(dispose.isError || undo.isError) && (
-        <p className="t-small dedupe-error">
+      {writeError && (
+        <Callout tone="danger" live="alert" className="dedupe-notice">
           {problemMessageOf(dispose.error ?? undo.error, t)}
-        </p>
+        </Callout>
       )}
-      {queue.data?.data.map((c) => (
-        <CandidateCard
-          key={c.id}
-          candidate={c}
-          busy={dispose.isPending || undo.isPending}
-          onDispose={(disposition, winner) =>
-            dispose.mutate({ id: c.id, disposition, winner_id: winner })
-          }
-        />
-      ))}
-      {undo.data && (
-        <p className="t-small">
-          {t("dedupe.undone")}{" "}
-          <button
-            type="button"
-            className="dedupe-undo"
-            onClick={() => undo.reset()}
+      {/* A failed read says what the server said and nothing else: drawn as one
+          of SurfaceState's states it would either claim the queue is clear or
+          replace the server's own sentence with the generic "could not be
+          loaded". The three states below are the ones the read can honestly be
+          in, and `empty` — the only one allowed to say there is none — is
+          reached only once the queue has actually answered. */}
+      {!queue.isError && (
+        <div className="dedupe-queue">
+          {/* SurfaceState's loading state is a shimmer bar, which carries no
+              text at all — the same gap QueryStates covers with a spoken line
+              beside its skeletons. Without it a reader who cannot see the bar
+              hears nothing between mount and the first pair. */}
+          {queue.isPending && (
+            <span className="sr-only" role="status">
+              {t("dedupe.loading")}
+            </span>
+          )}
+          <SurfaceState
+            state={queueState(queue.isPending, candidates.length)}
+            emptyLabel={t("dedupe.empty")}
           >
-            <X aria-hidden /> {t("dedupe.dismissNote")}
-          </button>
-        </p>
+            {candidates.map((c) => (
+              <CandidateCard
+                key={c.id}
+                candidate={c}
+                // The two states the README keeps apart. `deciding` names the
+                // verb whose own write is in flight — react-query's `variables`
+                // carry both the pair and the disposition it was fired for, so
+                // only the button the reader actually pressed turns. `blocked` is
+                // somebody else's write, and reads as refusal.
+                deciding={
+                  dispose.isPending && dispose.variables?.id === c.id
+                    ? dispose.variables.disposition
+                    : undefined
+                }
+                blocked={dispose.isPending || undo.isPending}
+                onDispose={(disposition, winner) =>
+                  dispose.mutate({ id: c.id, disposition, winner_id: winner })
+                }
+              />
+            ))}
+          </SurfaceState>
+        </div>
       )}
-      {dispose.data && dispose.data.status !== "open" && (
-        <p className="t-small">
-          {t("dedupe.decided")}{" "}
-          {dispose.data.status === "not_a_duplicate" && (
+      {undo.data && (
+        <Callout
+          tone="success"
+          live="status"
+          className="dedupe-notice"
+          actions={
+            // No glyph: `.link-button` is a TEXT affordance and carries no
+            // icon-sizing rule of its own (unlike `.btn` / `.iconbtn`), so a
+            // lucide default of 24px lands above a 12px label. Sizing it here
+            // would be the per-caller drift base.css warns about.
             <button
               type="button"
-              className="dedupe-undo"
-              disabled={undo.isPending}
-              onClick={() => undo.mutate(dispose.data.id)}
+              className="link-button"
+              onClick={() => undo.reset()}
             >
-              <Undo2 aria-hidden /> {t("dedupe.undoCta")}
+              {t("dedupe.dismissNote")}
             </button>
-          )}
-        </p>
+          }
+        >
+          {t("dedupe.undone")}
+        </Callout>
+      )}
+      {decided && (
+        <Callout
+          tone="success"
+          live="status"
+          className="dedupe-notice"
+          actions={
+            // The design system's Button, not `.link-button`: this control
+            // has TWO unavailable states and the class can only draw one of
+            // them. Its own undo in flight is `pending` — aria-disabled, so
+            // the reader keeps the focus they just put here. A disposition in
+            // flight is refusal: that write is about to replace this notice
+            // outright, and letting both run left the two onSuccess handlers
+            // resetting each other's state, so the reader saw whichever
+            // landed second.
+            decided.status === "not_a_duplicate" ? (
+              <Button
+                small
+                pending={undo.isPending}
+                disabled={dispose.isPending}
+                onClick={() => undo.mutate(decided.id)}
+              >
+                {t("dedupe.undoCta")}
+              </Button>
+            ) : undefined
+          }
+        >
+          {t("dedupe.decided")}
+        </Callout>
       )}
     </div>
   );
 }
 
+// Which of the three states the queue read is in. Pending is `loading` rather
+// than an empty list, because a read still in flight knows nothing about how
+// many pairs are waiting.
+function queueState(pending: boolean, count: number): SectionState {
+  if (pending) {
+    return "loading";
+  }
+  return count === 0 ? "empty" : "ready";
+}
+
 function CandidateCard({
   candidate,
-  busy,
+  deciding,
+  blocked,
   onDispose,
 }: {
   candidate: Candidate;
-  busy: boolean;
+  // Which of this pair's own verbs is mid-write, if either: that button keeps
+  // focus and draws in full ink with a turning mark.
+  deciding: "merge" | "not_a_duplicate" | undefined;
+  // SOME write is in flight — this pair's, another pair's, or an undo. Every
+  // verb except the one that is turning refuses until it lands, including this
+  // pair's other verb: a reader who could still dismiss the pair they are
+  // merging would have two dispositions racing on one row.
+  blocked: boolean;
   onDispose: (
     disposition: "merge" | "not_a_duplicate",
     winner?: string,
@@ -155,15 +235,18 @@ function CandidateCard({
   const pct = Math.round(candidate.confidence * 100);
 
   return (
-    <div className="dedupe-card">
-      <div className="dedupe-head">
-        <span className="dedupe-kind">
-          {t(kindLabel(candidate.entity_type))}
-        </span>
-        <span className="dedupe-conf">
+    // level={2}: the shell's head carries the h1 and this screen's own title is
+    // the h2 above, so a pair is a section INSIDE that rather than beside it.
+    <Card
+      as="article"
+      level={2}
+      title={t(kindLabel(candidate.entity_type))}
+      actions={
+        <Badge>
           {t("dedupe.confidence")} {pct}%
-        </span>
-      </div>
+        </Badge>
+      }
+    >
       {/* Both records by name, openable — the evidence rows show what the
           detector saw, and a reviewer often wants to see the whole record
           before deciding. */}
@@ -172,55 +255,67 @@ function CandidateCard({
         {" · "}
         <EntityRef kind={candidate.entity_type} id={candidate.right_id} />
       </p>
-      <table className="dedupe-evidence">
-        <thead>
-          <tr>
-            <th>{t("dedupe.field")}</th>
-            <th>
-              <Radio
-                name={`winner-${candidate.id}`}
-                checked={winner === candidate.left_id}
-                onChange={() => setWinner(candidate.left_id)}
-                label={t("dedupe.left")}
-              />
-            </th>
-            <th>
-              <Radio
-                name={`winner-${candidate.id}`}
-                checked={winner === candidate.right_id}
-                onChange={() => setWinner(candidate.right_id)}
-                label={t("dedupe.right")}
-              />
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {candidate.evidence.map((e) => (
-            <tr key={e.field} data-signal={e.signal}>
-              <td>{e.field}</td>
-              <td>{e.left_value ?? "—"}</td>
-              <td>{e.right_value ?? "—"}</td>
+      {/* The design system's table, not a second one: DataTable cannot express
+          either of the two things this table needs — a column header that IS
+          the winner radio, and a row carrying the detector's signal — so the
+          caller draws the rows and `.table` / `.table-scroll` keep the chrome
+          one spelling. */}
+      <div className="table-scroll">
+        <table className="table dedupe-evidence">
+          <thead>
+            <tr>
+              <th>{t("dedupe.field")}</th>
+              <th>
+                <Radio
+                  name={`winner-${candidate.id}`}
+                  checked={winner === candidate.left_id}
+                  onChange={() => setWinner(candidate.left_id)}
+                  label={t("dedupe.left")}
+                />
+              </th>
+              <th>
+                <Radio
+                  name={`winner-${candidate.id}`}
+                  checked={winner === candidate.right_id}
+                  onChange={() => setWinner(candidate.right_id)}
+                  label={t("dedupe.right")}
+                />
+              </th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="dedupe-actions">
+          </thead>
+          <tbody>
+            {candidate.evidence.map((e) => (
+              <tr key={e.field} data-signal={e.signal}>
+                <td>{e.field}</td>
+                <td>{e.left_value ?? "—"}</td>
+                <td>{e.right_value ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="card-actions">
         <Button
           variant="primary"
-          disabled={busy}
+          pending={deciding === "merge"}
+          // The README is explicit that refusal outranks pending: a control
+          // nobody may press cannot also be mid-press. So the turning button
+          // takes `pending` alone and every other one takes the refusal.
+          disabled={blocked && deciding !== "merge"}
           onClick={() => onDispose("merge", winner)}
         >
           <GitMerge aria-hidden /> {t("dedupe.mergeCta")}
         </Button>
         <Button
           variant="ghost"
-          disabled={busy}
+          pending={deciding === "not_a_duplicate"}
+          disabled={blocked && deciding !== "not_a_duplicate"}
           onClick={() => onDispose("not_a_duplicate")}
         >
           {t("dedupe.notDuplicateCta")}
         </Button>
       </div>
-    </div>
+    </Card>
   );
 }
 

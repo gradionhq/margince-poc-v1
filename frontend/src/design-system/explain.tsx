@@ -34,6 +34,9 @@ export function ExplainNumber({
         <Info aria-hidden />
       </button>
       {open && (
+        // The card surface by class: this popover is a role="note", and Card
+        // admits only role="status" — a card may not claim to be something
+        // else. `.explain-pop` places it; `card` is the ground it stands on.
         <div className="explain-pop card" role="note">
           <p className="t-label">{t("explain.title")}</p>
           <ul className="explain-rows">

@@ -519,7 +519,9 @@ describe("password-reset deep link", () => {
     // The rail is proof the app reached home, not proof merely that /v1/me
     // now resolves — a stale reset hash would instead leave login re-rendered
     // with nowhere for the post-login redirect to go.
-    expect(await screen.findByRole("navigation")).toBeTruthy();
+    expect(
+      await screen.findByRole("navigation", { name: "Primary navigation" }),
+    ).toBeTruthy();
   });
 
   it("reaches home on a sign-in from a bare reset link that never carried a token", async () => {
@@ -579,7 +581,9 @@ describe("password-reset deep link", () => {
     // The rail is proof the sign-in actually landed the reader on the app —
     // the non-empty "#/reset-password" hash LoginForm's own redirect check
     // preserves would otherwise leave this render stuck on the login form.
-    expect(await screen.findByRole("navigation")).toBeTruthy();
+    expect(
+      await screen.findByRole("navigation", { name: "Primary navigation" }),
+    ).toBeTruthy();
   });
 });
 
@@ -670,7 +674,7 @@ describe("onboarding gate", () => {
     mount();
     // The company resolves before this settles, so a gate that redirected
     // would have replaced the hash by now.
-    await screen.findByRole("navigation");
+    await screen.findByRole("navigation", { name: "Primary navigation" });
     expect(window.location.hash).toBe("#/contacts");
   });
 

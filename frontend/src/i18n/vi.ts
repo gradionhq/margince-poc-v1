@@ -142,7 +142,6 @@ export const vi = {
     "Bản cài đặt này không bật tiện ích mở rộng nào tên “{name}”.",
   "ext.operations": "Các thao tác đã công bố",
 
-  "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
   "search.empty": "Không có kết quả cho “{q}”.",
   "search.group.person": "Người",
@@ -150,9 +149,6 @@ export const vi = {
   "search.group.deal": "Deal",
   "search.group.activity": "Hoạt động",
   "search.group.lead": "Lead",
-  "search.why": "Vì sao có kết quả này",
-  "search.relevance": "độ liên quan {pct}%",
-  "search.tier.authoritative": "đã xác minh",
   "search.tier.mirrored": "từ HubSpot",
 
   "context.title": "Bằng chứng liên quan",
@@ -379,6 +375,8 @@ export const vi = {
   "list.viewHot": "Tiềm năng cao",
   "list.overlayReadOnly": "Sắp xếp và bộ lọc đọc qua HubSpot — hãy mở bên đó",
   "table.range": "{first}–{last} trong {count} {unit}",
+  "table.pagination": "Trang",
+  "table.page": "Trang {number}",
   "table.prev": "‹ Trước",
   "table.next": "Sau ›",
   "table.rowsPerPage": "Số dòng mỗi trang",
@@ -806,7 +804,9 @@ export const vi = {
   "finance.col.issued": "Ngày xuất",
   "finance.col.due": "Hạn",
   "finance.col.paid": "Đã trả",
+  "finance.paidDayLate": "trễ {days} ngày",
   "finance.paidDaysLate": "trễ {days} ngày",
+  "finance.overdueDay": "quá hạn {days} ngày",
   "finance.overdueDays": "quá hạn {days} ngày",
   "finance.col.amount": "Số tiền",
   "finance.col.status": "Trạng thái",
@@ -943,6 +943,8 @@ export const vi = {
   "co.growthFit.title": "Họ có giá trị gì với bạn",
   "co.growthFit.unavailable":
     "Không đọc được đánh giá này. Thông tin công ty không thay đổi.",
+  "co.growthFit.assembling":
+    "Đang xác định giá trị của khách hàng này — lần đánh giá đầu tiên phải đọc toàn bộ hồ sơ nên mất một lát.",
   "co.growthFit.reassess": "Đánh giá lại",
   "co.growthFit.reassessing": "Đang đánh giá…",
   "co.growthFit.band.strong": "Rất phù hợp",
@@ -1705,6 +1707,8 @@ export const vi = {
   "create.legalName": "Tên pháp lý",
   "create.industry": "Ngành",
   "create.sizeBand": "Quy mô công ty",
+  "co.address.summary": "Địa chỉ",
+  "co.address.add": "Thêm địa chỉ",
   "create.addressLine1": "Số nhà và tên đường",
   "create.addressLine2": "Địa chỉ bổ sung",
   "create.city": "Thành phố",
@@ -2754,7 +2758,6 @@ export const vi = {
   "ob.s4.googleOkBody":
     "Việc thu thập đang chạy nền — email mới lên timeline trong khoảng một phút, và từ giờ tự giữ đồng bộ.",
   "ob.s4.googleLive": "Đã xác minh kết nối — thu thập nền đang bật",
-  "dedupe.title": "Có thể trùng lặp",
   "dedupe.intro":
     "Những cặp mà luồng thu thập đánh dấu là nhiều khả năng cùng một người hay cùng một công ty. Việc gộp giữ lại lịch sử của cả hai bản ghi; việc bỏ qua báo cho hệ thống đừng hỏi về cặp này nữa.",
   "dedupe.loading": "Đang tải hàng đợi rà soát…",
@@ -4628,12 +4631,18 @@ export const vi = {
   "aiexport.previewLabel": "Xem trước kịch bản",
   "aiexport.responseLabel": "Phản hồi của mô hình",
 
+  "countdown.daysHours": "{days} ngày {hours} giờ",
+  "countdown.hoursMinutes": "{hours} giờ {minutes} phút",
   "countdown.minutesSeconds": "{minutes} phút {seconds} giây",
   "countdown.expired": "Đã hết hạn",
 
   // Quotas & attainment (RD-T06): human-set revenue targets with
   // server-computed attainment, surfaced under the Reports "Quotas" segment.
   "quotas.tab": "Chỉ tiêu",
+  // The selector panel's own title. The Reports segment picker directly above
+  // it already reads "Quotas", so this names what the LIST holds — one row per
+  // owner or team carrying a target — rather than repeating the page.
+  "quotas.selector.title": "Ai đang có chỉ tiêu",
   "quotas.sub": "mục tiêu doanh thu — do người đặt, mức đạt do hệ thống tính",
   "quotas.role.owner": "Chỉ tiêu cá nhân",
   "quotas.role.team": "Chỉ tiêu nhóm",

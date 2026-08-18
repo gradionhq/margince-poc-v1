@@ -3,6 +3,7 @@
 
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
+import { Disclosure } from "../design-system/atoms";
 import { FieldGrid, FieldRow } from "../design-system/fieldgrid";
 import { InlineChoice, InlineText } from "../design-system/inlinechoice";
 import { useT } from "../i18n";
@@ -406,6 +407,7 @@ function DescriptionRow({
 function DetailsGridBody({
   organization,
 }: Readonly<{ organization: Organization }>) {
+  const t = useT();
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(organization);
   const patch = useCompanyFieldPatch(organization);
@@ -415,19 +417,49 @@ function DetailsGridBody({
     readOnlyReason,
     patch,
   };
+  // The postal address, behind one row until it has something in it.
+  //
+  // The six parts are one fact spelled six ways, and on a crawled record none
+  // of them is filled: a reader publishes their team page, not their registered
+  // address, so the panel opened with six consecutive invitations to type and
+  // the account's actual facts started below the fold. Six empty rows are not
+  // six facts, and a rail whose first screen is mostly absence teaches a reader
+  // to scroll past the part that does say something.
+  //
+  // Open whenever ANY part is set, so a filled or half-filled address reads
+  // exactly as it did before — the collapse is for the empty case, which is the
+  // one the data actually produces. Native `<details>`, so the open state is
+  // the browser's and nothing here holds it.
+  const anyAddressPartSet = ADDRESS_PARTS.some((field) =>
+    Boolean(organization.address?.[field.part]),
+  );
   return (
-    <FieldGrid>
-      <LegalNameRow {...row} />
-      <OwnerRow organization={organization} />
-      <LifecycleRow organization={organization} />
-      <DomainRow {...row} />
-      {ADDRESS_PARTS.map((field) => (
-        <AddressPartRow key={field.part} {...row} {...field} />
-      ))}
-      <IndustryRow {...row} />
-      <SizeBandRow {...row} />
-      <LinkedinRow {...row} />
-      <DescriptionRow {...row} />
-    </FieldGrid>
+    <>
+      {/* The address block sits last rather than in its old slot between the
+          domain and the industry: it is its own grid now, and two grids with a
+          third between them put two seams through a panel that reads best as
+          one block. Both grids stand on the same 112px label rung, so the
+          values still share one left edge down the whole panel. */}
+      <FieldGrid>
+        <LegalNameRow {...row} />
+        <OwnerRow organization={organization} />
+        <LifecycleRow organization={organization} />
+        <DomainRow {...row} />
+        <IndustryRow {...row} />
+        <SizeBandRow {...row} />
+        <LinkedinRow {...row} />
+        <DescriptionRow {...row} />
+      </FieldGrid>
+      <Disclosure
+        summary={t(anyAddressPartSet ? "co.address.summary" : "co.address.add")}
+        open={anyAddressPartSet}
+      >
+        <FieldGrid>
+          {ADDRESS_PARTS.map((field) => (
+            <AddressPartRow key={field.part} {...row} {...field} />
+          ))}
+        </FieldGrid>
+      </Disclosure>
+    </>
   );
 }

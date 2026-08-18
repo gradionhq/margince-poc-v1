@@ -33,6 +33,7 @@ import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
 import { EXTENSION_SCREEN, findExtension } from "./extensions";
 import {
+  GRIDDED_RECORD_SCREENS,
   MOBILE_PRIMARY,
   NAV,
   type NavCounts,
@@ -610,6 +611,21 @@ function SettingsPageHead({
   );
 }
 
+// The line under the page's name, for the screens whose name alone does not
+// say what the page is for. It belongs to the page rather than to anything on
+// it, which is why it lives beside the title keys: a screen that printed its
+// own subtitle had to print its own title above it to hang it on, and the
+// shell was already printing that title — the page then named itself twice.
+//
+// Only a subtitle true of the WHOLE page qualifies. Copy that describes the
+// current tab, filter or segment belongs beside that control, where it changes
+// with it; the page head cannot see those and would go stale.
+const PAGE_SUB_KEYS: Record<string, MessageKey> = {
+  inbox: "inbox.sub",
+  ai: "ai.sub",
+  dedupe: "dedupe.intro",
+};
+
 // Off-rail screens (reached from Settings, not the NAV rail) carry their own
 // title key. Every authenticated route resolves to real copy — a raw screen
 // slug is never shown as a page title.
@@ -847,6 +863,10 @@ export function PageHead({
   // level a unit publishes BELOW its own screen, and none does.
   const unitNamesPage =
     route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;
+  // Read only on the branch that prints an h1: a record surface and a composed
+  // unit name themselves, and a subtitle under a crumb would describe the list
+  // the crumb leads back to rather than the record on screen.
+  const subKey = PAGE_SUB_KEYS[route.screen];
 
   return (
     <>
@@ -878,7 +898,10 @@ export function PageHead({
               <RecordName kind={recordKind} id={route.id} />
             </p>
           ) : (
-            <h1 className="t-display">{title}</h1>
+            <>
+              <h1 className="t-display">{title}</h1>
+              {subKey && <p className="pagesub">{t(subKey)}</p>}
+            </>
           )}
         </div>
         <div className="pageaside">
@@ -916,6 +939,11 @@ export function Shell({
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
   const leveled = route.screen === SETTINGS_SCREEN;
+  // Record pages only: the id is what makes it one. `#/companies` is the list,
+  // and a list belongs to the other family.
+  const griddedRecord =
+    route.id !== undefined && GRIDDED_RECORD_SCREENS.has(route.screen);
+  const gridded = leveled || griddedRecord;
   const [collapsed, setCollapsed] = useState(
     () => readStored(COLLAPSE_KEY) === "1",
   );
@@ -1003,7 +1031,11 @@ export function Shell({
       {/* Focusable only as the skip link's destination — never a tab stop of its
           own, which is what tabIndex -1 buys. A reader who takes the skip lands
           here, and the next Tab continues into the page's own controls. */}
-      <main className="main" ref={contentRegion} tabIndex={-1}>
+      <main
+        className={gridded ? "main main-gridded" : "main"}
+        ref={contentRegion}
+        tabIndex={-1}
+      >
         {leveled ? (
           <SettingsPageHead
             route={route}

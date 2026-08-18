@@ -144,7 +144,6 @@ export const en = {
   // extensions/<unit>/frontend/i18n/, namespaced `ext<Unit>.` and merged into
   // the catalogue by gen-composition (see i18n/index.tsx).
 
-  "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",
   "search.empty": "No matches for “{q}”.",
   "search.group.person": "People",
@@ -152,9 +151,6 @@ export const en = {
   "search.group.deal": "Deals",
   "search.group.activity": "Activities",
   "search.group.lead": "Leads",
-  "search.why": "Why this result",
-  "search.relevance": "relevance {pct}%",
-  "search.tier.authoritative": "verified",
   "search.tier.mirrored": "from HubSpot",
 
   "context.title": "Related evidence",
@@ -399,6 +395,8 @@ export const en = {
   // rather than a total on purpose: paging is a keyset cursor, so the number
   // of rows in hand is the only figure the client can state honestly.
   "table.range": "{first}–{last} of {count} {unit}",
+  "table.pagination": "Pages",
+  "table.page": "Page {number}",
   "table.prev": "‹ Prev",
   "table.next": "Next ›",
   "table.rowsPerPage": "Rows per page",
@@ -832,7 +830,9 @@ export const en = {
   "finance.col.issued": "Issued",
   "finance.col.due": "Due",
   "finance.col.paid": "Paid",
+  "finance.paidDayLate": "{days} day late",
   "finance.paidDaysLate": "{days} days late",
+  "finance.overdueDay": "{days} day overdue",
   "finance.overdueDays": "{days} days overdue",
   "finance.col.amount": "Amount",
   "finance.col.status": "Status",
@@ -959,6 +959,8 @@ export const en = {
   "co.growthFit.title": "What they are worth to you",
   "co.growthFit.unavailable":
     "This assessment could not be read. Nothing about the company has changed.",
+  "co.growthFit.assembling":
+    "Working out what this account is worth — the first assessment reads the record and takes a moment.",
   "co.growthFit.reassess": "Assess it again",
   "co.growthFit.reassessing": "Assessing…",
   "co.growthFit.band.strong": "Strong fit",
@@ -1709,6 +1711,8 @@ export const en = {
   "create.legalName": "Legal name",
   "create.industry": "Industry",
   "create.sizeBand": "Company size",
+  "co.address.summary": "Address",
+  "co.address.add": "Add an address",
   "create.addressLine1": "Street and number",
   "create.addressLine2": "Address line 2",
   "create.city": "City",
@@ -2753,7 +2757,6 @@ export const en = {
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
   "ob.s4.googleLive": "Connection verified — background capture is on",
-  "dedupe.title": "Possible duplicates",
   "dedupe.intro":
     "Pairs the capture pipeline flagged as likely the same person or company. Merging keeps both records' history; dismissing tells the system to never ask about this pair again.",
   "dedupe.loading": "Loading the review queue…",
@@ -4640,12 +4643,18 @@ export const en = {
   "aiexport.previewLabel": "Scenario preview",
   "aiexport.responseLabel": "Model response",
 
+  "countdown.daysHours": "{days}d {hours}h",
+  "countdown.hoursMinutes": "{hours}h {minutes}m",
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",
 
   // Quotas & attainment (RD-T06): human-set revenue targets with
   // server-computed attainment, surfaced under the Reports "Quotas" segment.
   "quotas.tab": "Quotas",
+  // The selector panel's own title. The Reports segment picker directly above
+  // it already reads "Quotas", so this names what the LIST holds — one row per
+  // owner or team carrying a target — rather than repeating the page.
+  "quotas.selector.title": "Who has a quota",
   "quotas.sub": "revenue targets — human-set, attainment computed",
   "quotas.role.owner": "Individual quota",
   "quotas.role.team": "Team quota",
