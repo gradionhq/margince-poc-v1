@@ -178,6 +178,19 @@ export function PersonPageV2({
   // "Draft a follow-up" and "Write an email" did exactly the same thing.
   const [composerIntent, setComposerIntent] = useState("");
 
+  // Every path to the composer goes through here, and the intent it opens with
+  // is decided ONCE, on the way in. Two rules the two callers each get wrong on
+  // their own: the generic "Write an email" must clear the reason the last rung
+  // left behind, or it inherits a subject nobody asked for; and a composer
+  // already on screen keeps what it holds, because a reader mid-sentence is not
+  // asking to have their words replaced.
+  const openComposer = (intent: string) => {
+    if (drawer !== "composer") {
+      setComposerIntent(intent);
+    }
+    setDrawer("composer");
+  };
+
   if (view.isLoading) {
     return <div className="wrap">{t("person.page.loading")}</div>;
   }
@@ -222,15 +235,13 @@ export function PersonPageV2({
       // An action with no destination is its own destination — the composer is
       // the sensible home for the drafting kinds.
       if (action.kind === "draft_reply") {
-        setComposerIntent("");
-        setDrawer("composer");
+        openComposer("");
       }
       return;
     }
     switch (destination.surface) {
       case "composer":
-        setComposerIntent(composerIntentOf(destination.prefill, t));
-        setDrawer("composer");
+        openComposer(composerIntentOf(destination.prefill, t));
         return;
       case "research":
         setDrawer("research");
@@ -262,7 +273,7 @@ export function PersonPageV2({
           <PersonActions
             guardAllows={emailAllowed}
             personId={id}
-            onEmail={() => setDrawer("composer")}
+            onEmail={() => openComposer("")}
             onResearch={() => setDrawer("research")}
           />
         }
