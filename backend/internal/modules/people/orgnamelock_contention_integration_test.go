@@ -112,19 +112,8 @@ func TestAnEvidenceApplyClearingANameWaitsOnTheNameLock(t *testing.T) {
 
 	// WHERE it is blocked is the whole question, and "it waited" cannot answer
 	// it: an apply that takes the row lock first also ends up waiting, just one
-	// statement too late. So the holder — which owns the name lock a human
-	// rename would hold — reaches for the row that rename would edit. If the
-	// apply is parked before touching the row, this succeeds at once. If it is
-	// parked while holding the row, the two are in the cycle that deadlocks and
-	// this blocks until the timeout.
-	if _, err := holder.Exec(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
-		t.Fatalf("arming the lock timeout: %v", err)
-	}
-	if _, err := holder.Exec(ctx,
-		`SELECT id FROM organization WHERE id = $1 FOR UPDATE`, orgID); err != nil {
-		t.Fatalf("the rename could not take the organization row while the apply waited (%v) — "+
-			"the apply is holding that row and waiting for the name lock, the ordering that deadlocks", err)
-	}
+	// statement too late.
+	assertParkedBeforeTheOrganizationRow(ctx, t, holder, pid)
 
 	// Releasing the holder must let it through, or the wait was on something
 	// else entirely.
@@ -183,5 +172,118 @@ func TestAnEvidenceApplyWithoutANameDoesNotWaitOnTheNameLock(t *testing.T) {
 	}
 	if finished != nil {
 		t.Fatalf("the apply failed: %v", finished)
+	}
+}
+
+// assertParkedBeforeTheOrganizationRow states the invariant DIRECTLY, by asking
+// Postgres's lock manager where the waiter is — and it contains no clock.
+//
+// It replaces a `SET LOCAL lock_timeout = '5s'` and a `SELECT … FOR UPDATE` from
+// the holder, which inferred the answer from whether that statement returned
+// within five seconds. That inference had the timeout doing two jobs at once —
+// bounding the test AND being the assertion — so a busy cluster produced a red
+// run whose message said the lock ordering had regressed. The observed failure
+// took 4.67s, right at the boundary, under a lane running 29 packages against
+// one server. A flake that cries wolf about a deadlock ordering is worse than a
+// plain flake: the next person either burns a day on a live bug that is not
+// there, or learns to disbelieve the one message that must never be disbelieved.
+//
+// pg_locks is exempt from the frozen-snapshot trap that #970 fixed in this
+// package's other probes: it reads the lock manager directly and is NOT the
+// pg_stat_activity statistics snapshot, which is materialized once per
+// transaction and cached until it ends. That is why this is the honest fix
+// rather than merely a different poll, and the next author will otherwise
+// assume the two views behave alike.
+//
+// Two facts are asserted, and both are needed. That the waiter is parked on the
+// advisory lock says it reached the name lock at all; that it holds no write
+// lock on `organization` says it had not touched the row first. Either alone
+// passes over the defect: an apply parked on the row lock is also "waiting", and
+// an apply that never reached the lock holds no organization lock either.
+func assertParkedBeforeTheOrganizationRow(ctx context.Context, t *testing.T, holder pgx.Tx, holderPID int) {
+	t.Helper()
+
+	// The waiter, found through the lock manager rather than through
+	// pg_blocking_pids: every backend queued on an advisory lock this holder
+	// has been granted. The holder's own row is excluded by `granted`.
+	// The database predicate is not decoration: pg_locks is CLUSTER-wide, an
+	// advisory lock's identity includes the database it was taken in, and the
+	// parallel lane runs a clone per package on one server. Without it a backend
+	// queued on the same key in a neighbouring clone can be selected — and the
+	// organization lookup below resolves an OID local to THIS database, so it
+	// would find nothing and the assertion would pass having examined the wrong
+	// backend. A false green on the exact ordering this exists to catch.
+	// The join below matches a waiter through any advisory lock this holder has
+	// been granted, so it is unambiguous only while the holder holds exactly one.
+	// It does today — holdOrgNameLock takes the name lock and nothing else — and
+	// asserting it is what keeps that true: a second advisory lock added to that
+	// transaction would silently let a waiter on the OTHER key answer here.
+	var advisoryHeld int
+	if err := holder.QueryRow(ctx, `
+		SELECT count(*) FROM pg_locks
+		 WHERE pid = $1 AND locktype = 'advisory' AND granted`, holderPID).Scan(&advisoryHeld); err != nil {
+		t.Fatalf("counting the holder's advisory locks: %v", err)
+	}
+	if advisoryHeld != 1 {
+		t.Fatalf("the lock holder holds %d advisory locks, want exactly 1 — with more than one, "+
+			"the waiter lookup below cannot tell which key a backend is queued on, and could report "+
+			"a waiter on the wrong lock as parked on the name lock", advisoryHeld)
+	}
+
+	var waiter int
+	err := holder.QueryRow(ctx, `
+		SELECT w.pid
+		  FROM pg_locks w
+		  JOIN pg_locks h
+		    ON h.locktype = 'advisory' AND h.granted AND h.database = w.database
+		   AND h.classid = w.classid AND h.objid = w.objid AND h.objsubid = w.objsubid
+		 WHERE w.locktype = 'advisory' AND NOT w.granted
+		   AND w.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		   AND h.pid = $1
+		 LIMIT 1`, holderPID).Scan(&waiter)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Distinguished from a read failure on purpose. The caller has already
+		// established that SOMETHING is waiting on this holder; if nothing is
+		// queued on the ADVISORY lock, the apply is blocked somewhere else —
+		// which is the ordering defect showing up one statement earlier, not an
+		// infrastructure fault. Reporting both as "reading the lock manager
+		// failed" is the misattribution this whole change is removing.
+		t.Fatalf("the apply is waiting, but on no advisory lock this holder holds — " +
+			"it reached a different lock first, so it is not parked on the name lock at all")
+	case err != nil:
+		t.Fatalf("reading the lock manager for a backend queued on the name lock: %v", err)
+	}
+
+	// Which locks that backend holds on the organization table. AccessShareLock
+	// is a plain read and does not block a rename; RowShareLock and anything
+	// above it means it has taken the row a rename would edit, which is the
+	// cycle. Reported as the set, so a failure names what it found rather than
+	// asserting a boolean.
+	rows, err := holder.Query(ctx, `
+		SELECT mode FROM pg_locks
+		 WHERE pid = $1 AND locktype = 'relation' AND granted
+		   AND relation = 'organization'::regclass
+		   AND mode <> 'AccessShareLock'
+		 ORDER BY mode`, waiter)
+	if err != nil {
+		t.Fatalf("reading backend %d's locks on the organization table: %v", waiter, err)
+	}
+	defer rows.Close()
+	var held []string
+	for rows.Next() {
+		var mode string
+		if err := rows.Scan(&mode); err != nil {
+			t.Fatalf("scanning backend %d's lock modes: %v", waiter, err)
+		}
+		held = append(held, mode)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("reading backend %d's lock modes: %v", waiter, err)
+	}
+	if len(held) > 0 {
+		t.Fatalf("the apply is parked on the name lock while already holding %v on the organization table — "+
+			"it took the row a concurrent rename would edit BEFORE the lock that rename waits on, "+
+			"which is the cycle that deadlocks", held)
 	}
 }
