@@ -37,7 +37,7 @@ const (
 	createdAtColumn   = "created_at"
 	updatedAtColumn   = "updated_at"
 	// lastActivityColumn is the timeline clock person and organization carry
-	// (DM-VOCAB-1/2), maintained by activities on the link write.
+	// (DM-VOCAB-1/2), maintained in the schema on the activity-link write.
 	lastActivityColumn = "last_activity_at"
 )
 

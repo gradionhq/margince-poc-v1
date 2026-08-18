@@ -79,11 +79,10 @@ type LogActivityInput struct {
 	Source                       string
 }
 
-// LogActivity writes the activity + links; the last_activity_at clocks on
-// deal, person and organization (data-model §7: kept current on write, the
-// deal's driving the stalled flag) move on the link row itself, by
-// migration 1787030814's triggers. Idempotent on (source_system, source_id): replaying
-// a capture returns the existing activity.
+// LogActivity writes the activity + links; the last_activity_at clocks
+// (data-model §7) are maintained in the schema, not here. Idempotent on
+// (source_system, source_id): replaying a capture returns the existing
+// activity.
 func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontracts.Activity, bool, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return crmcontracts.Activity{}, false, err

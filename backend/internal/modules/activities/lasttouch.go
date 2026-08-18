@@ -6,8 +6,10 @@ package activities
 // The one read the automation module's clock scan needs (Task 14a,
 // automation/seams.go's ActivityScan): which linked entities have gone
 // quiet. Sourced from this module's OWN tables (activity + activity_link)
-// rather than a sibling's denormalized last_activity_at column
-// (deal.last_activity_at, activity.go's insertActivityLinks) — a module
+// rather than the schema-maintained last_activity_at columns (deal, person,
+// organization; migration 1787030814's triggers), because this scan asks a
+// narrower question those columns do not — it excludes automation-engine
+// writes and wants live-work eligibility — and a module
 // reaches records only through seams (ADR-0054 §9), and this file is the
 // seam's implementation, adapted onto automation.ActivityScan in
 // compose/timescan.go.

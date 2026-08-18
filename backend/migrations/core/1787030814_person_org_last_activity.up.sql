@@ -16,9 +16,15 @@
 -- reach set changes without any activity being written at all — an employment
 -- starts or ends, a deal moves account, an activity is archived or re-dated.
 -- A clock kept at one call site is stale on every other path; a clock kept on
--- the row is right for every writer, present and future. Each maintenance is
--- a recompute from the timeline (max over live linked activities), never an
--- increment, so it is idempotent and converges under concurrent writers.
+-- the row moves for every writer of that row. The writes covered are exactly:
+-- activity_link insert/update/delete, activity occurred_at or archived_at
+-- change, employment insert/update/delete, and a deal changing account. Not
+-- covered, and not covered by the timeline either: a person merge does not
+-- re-point activity_link at the survivor (people/ensure.go), so a merged-away
+-- contact's history stays on the loser's clock as it stays on the loser's
+-- timeline. Each maintenance is a recompute from the timeline (max over live
+-- linked activities), never an increment, so it is idempotent and converges
+-- under concurrent writers.
 --
 -- The deal clock joins the same mechanism: activities.insertActivityLinks used
 -- to advance it in Go, on the logging path only, and capture never did.

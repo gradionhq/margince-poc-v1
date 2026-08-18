@@ -63,9 +63,12 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 // insertActivityLinks writes the polymorphic link rows. The last_activity_at
 // clocks on deal, person and organization move with them, but not from here:
 // migration 1787030814 keeps them on the activity_link row itself (a trigger
-// recomputing from the timeline), because this is not the only writer of that
-// row — capture files links too, and the reach set moves without any link
-// being written. A clock kept at a call site was stale everywhere else. The FK alone is not enough: it is
+// recomputing from the timeline), because this is one of several writers of
+// that row — capture, ensure, relink and message identity insert links too —
+// and the reach set also moves with no link written at all (an employment
+// starts or ends, a deal moves account, an activity is archived or re-dated).
+//
+// The FK alone is not enough: it is
 // checked as the table owner, bypassing RLS, so it would accept a
 // guessed cross-tenant or out-of-scope UUID as a link target — every
 // target passes the row-scope link check first.

@@ -421,9 +421,8 @@ export function ContactsScreen() {
             sort: "owner_id",
           },
           {
-            // When something last happened with this record — the timeline's
-            // clock, kept by the activity write, so it can be sorted on the
-            // server. Empty when nothing has, which is a fact, not a gap.
+            // The timeline's clock, maintained in the schema so the server
+            // can sort on it; empty until something has happened.
             key: "lastActivity",
             header: t("list.lastActivity"),
             cell: (person: Person) => (

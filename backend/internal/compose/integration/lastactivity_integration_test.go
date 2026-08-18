@@ -27,9 +27,11 @@ import (
 
 func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	e := Setup(t)
+	// Seeded FIRST: on the default recency tie-break quiet would sort ahead of
+	// the others, so its place at the end below can only be NULLS LAST.
+	quiet := e.SeedOrg(t, "Quiet Clock", nil)
 	acme := e.SeedOrg(t, "Acme Clock", nil)
 	other := e.SeedOrg(t, "Other Clock", nil)
-	quiet := e.SeedOrg(t, "Quiet Clock", nil)
 	late := e.SeedOrg(t, "Late Employer Clock", nil)
 	staff := e.SeedPerson(t, "Works At Acme", nil)
 	personID := ids.From[ids.PersonKind](staff)
@@ -59,9 +61,22 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 		}
 		return ids.UUID(logged.Id)
 	}
+	before, err := e.People.GetPerson(e.Admin(), personID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Version == nil {
+		t.Fatal("a created person carries a version")
+	}
+	versionBefore := *before.Version
+
 	newest := time.Date(2026, 8, 10, 12, 0, 0, 0, time.UTC)
 	older := newest.Add(-72 * time.Hour)
-	newestNote := log(newest, activities.ActivityLinkInput{EntityType: "person", EntityID: staff})
+	// The newest note carries TWO links (person and deal account), so archiving
+	// it must move both clocks — the trigger recomputes per link row.
+	newestNote := log(newest,
+		activities.ActivityLinkInput{EntityType: "person", EntityID: staff},
+		activities.ActivityLinkInput{EntityType: "organization", EntityID: other})
 	// A back-dated capture arriving later must not move a clock backwards.
 	log(older, activities.ActivityLinkInput{EntityType: "person", EntityID: staff})
 	log(older, activities.ActivityLinkInput{EntityType: "deal", EntityID: ids.UUID(deal.Id)})
@@ -84,8 +99,8 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	if got := clock(acme); got == nil || !got.Equal(newest) {
 		t.Fatalf("employer's last_activity_at = %v, want %v via the live employment", got, newest)
 	}
-	if got := clock(other); got == nil || !got.Equal(older) {
-		t.Fatalf("deal account's last_activity_at = %v, want %v via the deal", got, older)
+	if got := clock(other); got == nil || !got.Equal(newest) {
+		t.Fatalf("other's last_activity_at = %v, want %v via the direct link", got, newest)
 	}
 	if got := clock(quiet); got != nil {
 		t.Fatalf("an account nothing reached has last_activity_at = %v, want NULL", got)
@@ -93,8 +108,8 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 
 	// A clock move is the timeline's, not an edit of the record: the person's
 	// version is still what creation stamped, so an editor's If-Match holds.
-	if person.Version == nil || *person.Version != 1 {
-		t.Fatalf("person.version = %d after two notes, want 1 — a clock move must not bump the version", *person.Version)
+	if person.Version == nil || *person.Version != versionBefore {
+		t.Fatalf("person.version = %v after two notes, want %d unchanged — a clock move must not bump the version", person.Version, versionBefore)
 	}
 
 	// An employment that starts AFTER the notes brings the contact's history to
@@ -124,6 +139,10 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	}
 	if got := clock(acme); got == nil || !got.Equal(older) {
 		t.Fatalf("employer's last_activity_at after the archive = %v, want %v", got, older)
+	}
+	// The second link on the archived note: other falls back to its deal note.
+	if got := clock(other); got == nil || !got.Equal(older) {
+		t.Fatalf("other's last_activity_at after the archive = %v, want %v via the deal", got, older)
 	}
 	// Re-log the newest so the sort below has three distinct clocks again.
 	log(newest, activities.ActivityLinkInput{EntityType: "person", EntityID: staff})

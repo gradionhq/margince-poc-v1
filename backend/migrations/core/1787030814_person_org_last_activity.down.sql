@@ -1,6 +1,8 @@
--- Reverse: the clocks stop being maintained and the two columns go; the
--- timeline they were derived from is untouched. deal.last_activity_at stays
--- (0006) and goes back to being unmaintained, as it was.
+-- Reverse: the clocks stop being maintained and the two new columns go; the
+-- timeline they were derived from is untouched. deal.last_activity_at (0006)
+-- stays and KEEPS the values the up migration recomputed from the live
+-- timeline — a recompute is the better residue than the monotone high-water
+-- mark the removed Go writer left, and nothing maintains it again after this.
 DROP TRIGGER IF EXISTS deal_last_activity ON deal;
 DROP TRIGGER IF EXISTS relationship_last_activity ON relationship;
 DROP TRIGGER IF EXISTS activity_last_activity ON activity;
