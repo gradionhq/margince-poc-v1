@@ -24,9 +24,10 @@ import "./tokeninput.css";
  *  - **Backspace on an empty box removes the last token**, which is the
  *    convention every tag input shares and the only way to correct a typo
  *    without reaching for the mouse.
- *  - **A duplicate is dropped silently.** `in` is a set — admitting `DE` twice
- *    would change nothing about what matches, so refusing it with a message
- *    would be noise about a distinction the engine does not make.
+ *  - **A duplicate is dropped silently**, including one a single commit repeats
+ *    to itself (`DE, DE`). `in` is a set — admitting `DE` twice would change
+ *    nothing about what matches, so refusing it with a message would be noise
+ *    about a distinction the engine does not make.
  *  - **Blank is dropped.** Enter on an empty box does nothing rather than adding
  *    an empty token, which would compile to a predicate matching the empty
  *    string.
@@ -61,10 +62,22 @@ export function TokenInput({
     // One paste can carry several values; one keystroke carries one. Splitting
     // both ways through here keeps the two paths from disagreeing about what a
     // token is.
-    const fresh = raw
-      .split(",")
-      .map((part) => part.trim())
-      .filter((part) => part !== "" && !values.includes(part));
+    //
+    // A value already spoken for is skipped whether it collides with a token on
+    // screen or with an earlier part of the SAME commit — `DE, DE` is one value
+    // said twice. Hence one `seen` set covering both: admitting the second would
+    // render two tokens under one React key, and give the reader a remove
+    // control that takes away a token it does not name.
+    const seen = new Set(values);
+    const fresh: string[] = [];
+    for (const part of raw.split(",")) {
+      const value = part.trim();
+      if (value === "" || seen.has(value)) {
+        continue;
+      }
+      seen.add(value);
+      fresh.push(value);
+    }
     if (fresh.length > 0) {
       onChange([...values, ...fresh]);
     }

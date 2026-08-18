@@ -168,13 +168,49 @@ export function encode(tree: Node): EncodedPredicate {
 }
 
 /**
- * Whether this tree is worth sending. An empty group compiles to a shape the
- * engine refuses (`filter_shape_invalid`), so the save button asks this rather
- * than letting the server answer it — the one refusal a caller can see coming.
+ * Whether this tree is worth sending — the refusals a caller can see coming, so
+ * the save button answers them instead of the server.
+ *
+ * There are two. An empty group compiles to a shape the engine refuses
+ * (`filter_shape_invalid`), and a leaf whose operand does not suit its operator
+ * is refused per-leaf (`filter_value_invalid`).
  */
 export function isComplete(tree: Node): boolean {
-  if (!isGroup(tree)) {
-    return tree.field !== "" && tree.op !== undefined;
+  if (isGroup(tree)) {
+    return tree.children.length > 0 && tree.children.every(isComplete);
   }
-  return tree.children.length > 0 && tree.children.every(isComplete);
+  return tree.field !== "" && hasUsableOperand(tree.op, tree.value);
+}
+
+/**
+ * Whether this operand can satisfy this operator.
+ *
+ * This is the field-type-INDEPENDENT half of what storekit checks, which is all
+ * this module can know: `exists` takes a boolean, `in` a non-empty list,
+ * `contains` a non-empty string. Whether a comparison's operand suits its
+ * particular field — a date that parses, a currency in whole minor units — needs
+ * the field catalogue the server owns, so those stay the server's 422. The `in`
+ * list's length cap stays there too: the limit is storekit's own constant, and a
+ * copy of it here would be a second number with nothing holding the two equal.
+ *
+ * `false` is a complete answer for `exists` — it is how a reader asks for rows
+ * with nothing in that field — so this asks about the operand's TYPE, never its
+ * truthiness.
+ *
+ * For the comparisons a blank box reads as unfilled rather than as a value, and
+ * that is deliberately stricter than the server, which would accept `name eq ""`
+ * on a text field. A reader who means "no value here" has `exists` for it, and
+ * counting a blank as an answer would enable Save by tabbing past a field.
+ */
+function hasUsableOperand(op: FilterOp, value: LeafValue): boolean {
+  switch (op) {
+    case "exists":
+      return typeof value === "boolean";
+    case "in":
+      return Array.isArray(value) && value.length > 0;
+    case "contains":
+      return typeof value === "string" && value !== "";
+    default:
+      return !Array.isArray(value) && value !== "";
+  }
 }

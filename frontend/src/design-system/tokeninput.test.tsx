@@ -27,8 +27,11 @@ function Harness({ start = [] }: Readonly<{ start?: readonly string[] }>) {
   );
 }
 
+// The query's own type argument, rather than an assertion on its result: the
+// value assertions below need the input's `value`, and naming the element type
+// here asks the query for it instead of overriding what it answered.
 const box = () =>
-  screen.getByRole("textbox", { name: "Region" }) as HTMLInputElement;
+  screen.getByRole<HTMLInputElement>("textbox", { name: "Region" });
 
 describe("committing a value", () => {
   it("turns typed text into a token on Enter", async () => {
@@ -93,6 +96,19 @@ describe("committing a value", () => {
     // One token, and no refusal shown — admitting DE twice would change nothing
     // about what matches, so a message would be noise.
     expect(screen.getAllByRole("button", { name: /^Remove/ })).toHaveLength(1);
+  });
+
+  it("drops a value a single commit repeats to itself", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    // The colliding value is not on screen yet, so checking the committed set
+    // alone admits both halves. What the reader would then see is two DE tokens
+    // sharing one React key, and a remove control that takes away both.
+    await user.type(box(), "DE, AT, DE{Enter}");
+
+    expect(screen.getAllByRole("button", { name: /^Remove/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Remove DE" })).toBeTruthy();
   });
 });
 

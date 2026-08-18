@@ -4,6 +4,33 @@
 import type { ComponentPropsWithRef } from "react";
 
 /**
+ * A calendar date written the way this control and the contract's `format: date`
+ * fields both spell it.
+ *
+ * A type cannot rule out `2026-02-30`, and the element itself sanitizes anything
+ * it cannot read down to `""` — so this is not validation. What it does rule out
+ * is the class of mistake a caller actually makes: handing over a `Date`, an
+ * epoch number, or a locale-formatted string like `18/07/2026`, each of which
+ * would blank the field at runtime with nothing to say why.
+ */
+export type ISODate = `${number}-${number}-${number}`;
+
+/**
+ * `value` and `defaultValue` are narrowed from React's
+ * `string | number | readonly string[]`; the rest of an input's props pass
+ * through. `""` is admitted because a cleared date field is the ordinary empty
+ * state, and it is what the element reports for a value it rejected.
+ */
+export type DateInputProps = Omit<
+  ComponentPropsWithRef<"input">,
+  "type" | "value" | "defaultValue"
+> &
+  Readonly<{
+    value?: ISODate | "";
+    defaultValue?: ISODate | "";
+  }>;
+
+/**
  * The one date field.
  *
  * A native `type="date"` rather than a hand-rolled calendar, and that is a
@@ -27,7 +54,7 @@ import type { ComponentPropsWithRef } from "react";
  * No label of its own, exactly like `TextInput` — the label is composed outside
  * by `Field` or a screen's own shell.
  */
-export function DateInput(props: Omit<ComponentPropsWithRef<"input">, "type">) {
+export function DateInput(props: DateInputProps) {
   return (
     <input
       {...props}

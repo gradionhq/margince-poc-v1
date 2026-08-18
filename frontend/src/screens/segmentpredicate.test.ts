@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   addToGroup,
   encode,
+  type Group,
   isComplete,
   isGroup,
+  type Node,
   newGroup,
   newLeaf,
   removeNode,
@@ -23,6 +25,19 @@ beforeEach(() => {
   resetIDsForTest();
 });
 
+/**
+ * The tree operations answer a `Node`, so a test reaching for `children` or
+ * `join` proves it got a group first. Asserting the type instead would let a
+ * regression that returns a leaf — or the `null` `replaceNode` uses for removal —
+ * surface as an undefined property rather than a failure naming what it got.
+ */
+function asGroup(node: Node | null): Group {
+  if (node === null || !isGroup(node)) {
+    throw new Error(`expected a group, got ${JSON.stringify(node)}`);
+  }
+  return node;
+}
+
 describe("editing the tree", () => {
   it("adds a clause to the group named, not to the root", () => {
     const inner = newGroup("or", [newLeaf("status", "eq", "open")]);
@@ -30,11 +45,11 @@ describe("editing the tree", () => {
 
     const next = addToGroup(root, inner.id, newLeaf("stage_id", "eq", "s1"));
 
-    const nextInner = (next as ReturnType<typeof newGroup>).children[1];
-    expect(isGroup(nextInner) && nextInner.children).toHaveLength(2);
+    const nextRoot = asGroup(next);
+    expect(asGroup(nextRoot.children[1] ?? null).children).toHaveLength(2);
     // The root gained nothing: an add that lands in the wrong group silently
     // changes what the filter means.
-    expect((next as ReturnType<typeof newGroup>).children).toHaveLength(2);
+    expect(nextRoot.children).toHaveLength(2);
   });
 
   it("leaves the original tree untouched, so an edit can be discarded", () => {
@@ -50,7 +65,7 @@ describe("editing the tree", () => {
     const twin = newLeaf("status", "eq", "open");
     const root = newGroup("and", [first, twin]);
 
-    const next = removeNode(root, twin.id) as ReturnType<typeof newGroup>;
+    const next = asGroup(removeNode(root, twin.id));
 
     // Identity, not value, is what distinguishes them — which is the whole
     // reason nodes carry an id the wire never sees.
@@ -68,20 +83,21 @@ describe("editing the tree", () => {
     const inner = newGroup("or", [newLeaf("status", "eq", "open")]);
     const root = newGroup("and", [inner]);
 
-    const next = toggleJoin(root, inner.id) as ReturnType<typeof newGroup>;
+    const next = asGroup(toggleJoin(root, inner.id));
 
     expect(next.join).toBe("and");
-    const nextInner = next.children[0];
-    expect(isGroup(nextInner) && nextInner.join).toBe("and");
+    expect(asGroup(next.children[0] ?? null).join).toBe("and");
   });
 
   it("retypes a clause in place through the same primitive removal uses", () => {
     const leaf = newLeaf("owner_id", "eq", "u1");
     const root = newGroup("and", [leaf]);
 
-    const next = replaceNode(root, leaf.id, () =>
-      newLeaf("cf_tier", "in", ["gold", "silver"]),
-    ) as ReturnType<typeof newGroup>;
+    const next = asGroup(
+      replaceNode(root, leaf.id, () =>
+        newLeaf("cf_tier", "in", ["gold", "silver"]),
+      ),
+    );
 
     const changed = next.children[0];
     expect(isGroup(changed)).toBe(false);
@@ -158,5 +174,37 @@ describe("knowing when a tree is worth sending", () => {
         newGroup("and", [newGroup("or", [newLeaf("status", "eq", "open")])]),
       ),
     ).toBe(true);
+  });
+
+  // Each operand rule below matches a refusal storekit issues per leaf
+  // (`filter_value_invalid`). Calling one of these complete would enable Save
+  // for a filter the server then rejects, which is the one thing this function
+  // exists to prevent.
+  it.each([
+    ["contains with nothing typed", newLeaf("name", "contains", "")],
+    ["in with an empty list", newLeaf("cf_tier", "in", [])],
+    ["a comparison with an empty box", newLeaf("city", "eq", "")],
+    ["a comparison handed a list", newLeaf("city", "eq", ["Berlin"])],
+    [
+      "exists handed something other than a boolean",
+      newLeaf("tag", "exists", "yes"),
+    ],
+    ["a leaf naming no field", newLeaf("", "eq", "open")],
+  ])("calls %s incomplete", (_name, leaf) => {
+    expect(isComplete(newGroup("and", [leaf]))).toBe(false);
+  });
+
+  it("calls `exists: false` complete, since absence is what the reader asked for", () => {
+    // The one operand a truthiness check would get wrong: `false` is the answer,
+    // not a missing one.
+    expect(isComplete(newGroup("and", [newLeaf("tag", "exists", false)]))).toBe(
+      true,
+    );
+  });
+
+  it("calls a zero complete, for the same reason", () => {
+    expect(isComplete(newGroup("and", [newLeaf("cf_score", "gte", 0)]))).toBe(
+      true,
+    );
   });
 });
