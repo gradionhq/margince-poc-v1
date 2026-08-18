@@ -3292,7 +3292,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/segments/vocabulary": {
+    "/filters/vocabulary": {
         parameters: {
             query?: never;
             header?: never;
@@ -3300,18 +3300,26 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read what a filter may say about one record type (LVS-EXT-8).
+         * Read what a new filter clause may name on one record type (LVS-EXT-8).
          * @description The per-resource filter vocabulary: every field a dynamic list, saved view
          *     or filtered export may name for this record type, each with the operator
          *     subset its type admits (LVS-PARAM-1).
          *
-         *     This is the server's own vocabulary, read rather than restated. A field
-         *     this operation omits is one the engine refuses, and a field it lists is
-         *     one the engine accepts — that equivalence is what lets a filter builder
-         *     offer a field picker without keeping a second copy of the vocabulary,
-         *     which is the whole point of the vocabulary being closed.
+         *     This is the server's own vocabulary, read rather than restated, so a
+         *     filter builder can offer a field picker without keeping a second copy of
+         *     it — which is the whole point of the vocabulary being closed.
+         *
+         *     What that guarantees, stated as the subset relation it is rather than the
+         *     equality it resembles: **everything listed here is accepted by the
+         *     engine**, so a clause composed from this operation cannot be refused as
+         *     unknown. The converse does not hold, and the gap is exactly the RETIRED
+         *     set. A retired field keeps its column and its values, so a saved segment
+         *     naming one keeps evaluating — while retire means "hidden from API and
+         *     filtering" (CUSTOM-FIELDS-AC-13), so nothing offers it for a NEW clause.
+         *     The admin catalog read is the one surface that still shows retired fields
+         *     (CUSTOM-FIELDS-AC-14); this is not that surface.
          */
-        get: operations["getSegmentVocabulary"];
+        get: operations["getFilterVocabulary"];
         put?: never;
         post?: never;
         delete?: never;
@@ -14309,18 +14317,20 @@ export interface components {
          *     engine that evaluates filters, so the set here and the set the engine
          *     accepts are the same set.
          */
-        SegmentVocabulary: {
+        FilterVocabulary: {
             /** @enum {string} */
             resource: "person" | "organization" | "deal" | "lead" | "project";
             /**
-             * @description Every nameable field, core and custom together — a filter names them
+             * @description Every offerable field, core and custom together — a filter names them
              *     the same way, so splitting them here would invite a caller to treat
-             *     one kind as second class.
+             *     one kind as second class. A retired field of either kind is absent
+             *     (see `custom`); a core field retired by an ADR is absent for the same
+             *     reason and has no catalog row a client could learn that from.
              */
-            fields: components["schemas"]["SegmentVocabularyField"][];
+            fields: components["schemas"]["FilterVocabularyField"][];
         };
         /** @description One field a filter clause may name, with what it accepts. */
-        SegmentVocabularyField: {
+        FilterVocabularyField: {
             /**
              * @description The name a filter clause uses. For a custom field this is the
              *     physical `cf_`-prefixed column, which is the same `column_name` the
@@ -14342,16 +14352,13 @@ export interface components {
             operators: ("eq" | "neq" | "gt" | "lt" | "gte" | "lte" | "in" | "contains" | "exists")[];
             /**
              * @description Whether this is a workspace-defined custom-field column. Where true,
-             *     `name` is the catalog's `column_name`, and the catalog carries the
-             *     rest: an admin's `label`, and the `status` that tells a builder a
-             *     column is retired.
+             *     `name` is the catalog's `column_name` — join on it to show an admin's
+             *     `label`, which the catalog owns and this vocabulary does not.
              *
-             *     Retired columns ARE listed here. They stay filterable so a saved
-             *     segment built on one keeps evaluating, and omitting them would break
-             *     this operation's equivalence with the engine, which still accepts
-             *     them. Distinguishing them is the catalog's `status`, read through the
-             *     same join as `label` — this vocabulary answers what a filter MAY
-             *     name, not what a picker SHOULD offer for a new clause.
+             *     Only ACTIVE custom fields appear, which is the same set a record write
+             *     may set. A retired one is absent here and still accepted by the
+             *     engine, so no `status` lookup is needed to know whether to offer a
+             *     field: if this operation listed it, it is offerable.
              */
             custom: boolean;
         };
@@ -23887,7 +23894,7 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
-    getSegmentVocabulary: {
+    getFilterVocabulary: {
         parameters: {
             query: {
                 /** @description The record type whose vocabulary to read. */
@@ -23905,11 +23912,12 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SegmentVocabulary"];
+                    "application/json": components["schemas"]["FilterVocabulary"];
                 };
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listSavedViews: {

@@ -128,7 +128,7 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 // against in that case, so the subset relation still holds.
 func (s *Store) offerableCustomColumns(ctx context.Context, resource string) (map[string]bool, error) {
 	if s.catalog == nil {
-		return nil, nil
+		return map[string]bool{}, nil
 	}
 	active, err := s.catalog.ActiveColumns(ctx, resource)
 	if err != nil {
