@@ -143,25 +143,32 @@ export function MarginceCoreScene({
             in="fused"
             mode="matrix"
             values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 32 -14"
+            result="mass"
           />
+          {/*
+            The dots painted back over the mass they formed. Without this every
+            shape wears a dark halo: the blur mixes each dot's colour with the
+            transparent black around it, the ramp pulls that mixture back to
+            opaque, and what returns is a dimmer ring — grime on the glass rather
+            than fusion. Compositing the original graphic `atop` the fused shape
+            keeps the dots their own colour and leaves the blur doing the one thing
+            it is here for, which is the JOINS between them.
+          */}
+          <feComposite in="SourceGraphic" in2="mass" operator="atop" />
         </filter>
         {/*
-          The liquid's own fusion, with a wider blur and a gentler ramp than the
-          dots': the masses are several times larger, and the same steep ramp gave
-          them hard edges — a hard edge inside a full ball is the surface of
-          something, and there is no surface in a vessel with no air in it.
+          The liquid's own fusion, and it is a BLUR ALONE — no alpha ramp. The ramp
+          is what gives the dots an edge, and an edge is exactly what a full vessel
+          must not show: it would be the surface of a liquid with air above it. It
+          also darkens whatever it snaps back to opaque, which on masses this large
+          read as a stain. Blurred, the three masses mix where they overlap and
+          reach the glass without ever drawing a boundary.
         */}
         <filter id={pool}>
           <feGaussianBlur
             className="core-pool-blur"
             in="SourceGraphic"
-            stdDeviation="14"
-            result="pooled"
-          />
-          <feColorMatrix
-            in="pooled"
-            mode="matrix"
-            values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 14 -5"
+            stdDeviation="16"
           />
         </filter>
       </svg>
