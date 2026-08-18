@@ -1,0 +1,108 @@
+# Build the macOS desktop bundle and publish it as a downloadable artifact.
+#
+# The sibling of desktop-windows.yml, and it exists for the same reason: this
+# lane cannot be built anywhere but the platform it targets. Postgres and the
+# event bus are compiled from source against the Xcode tools, every Mach-O load
+# command is rewritten to @rpath, and each patched file is re-signed — none of
+# which a Linux or Windows runner can do.
+#
+# It also closes a gap the Windows lane had already closed for itself. The macOS
+# scripts changed after they were last run by hand (the deployment target and
+# its assert_min_os check, the Mach-O filter in the assembly step, installing
+# frontend dependencies at the workspace root), and a build lane nothing executes
+# is a lane whose green is an assertion.
+name: desktop-macos
+
+on:
+  # Runs when the desktop lane changes, which is the only time the question
+  # "does this still build on macOS?" has a new answer. Path-scoped so an
+  # ordinary backend or frontend PR never pays for a Postgres compile.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - desktop/**
+      - .github/workflows/desktop-macos.yml
+  # On demand, once this workflow is on the default branch — GitHub resolves a
+  # dispatch against the default branch only.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build the portable macOS folder
+    # macos-latest is Apple silicon, which is what the bundle targets. The
+    # architecture is the builder's — an Intel bundle would need an Intel runner,
+    # and build-dist.sh prints which one it produced rather than leaving it to be
+    # discovered.
+    runs-on: macos-latest
+    # Postgres and pgvector compile from source here (~5 minutes), then Valkey,
+    # then the Go roles and the composed frontend.
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Empty on a pull_request, where checkout's own default (the PR merge
+          # ref) is what should be built.
+          ref: ${{ inputs.ref || '' }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+        with:
+          version: 11
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: pnpm
+          # Root, not frontend/: the lockfile is a root pnpm workspace so a
+          # unit's frontend layer can join it.
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Build the bundle
+        run: make desktop
+
+      # A tarball, not the folder. actions/upload-artifact does not preserve the
+      # executable bit, so uploading the tree directly would hand a macOS user a
+      # `margince` and a `Start Margince.command` they cannot run and no reason
+      # why. tar keeps the mode, and the ad-hoc signatures ride along inside the
+      # Mach-O either way.
+      - name: Pack the folder, preserving modes
+        run: tar -czf margince-macos.tar.gz -C build/desktop margince
+
+      - name: Publish the portable folder
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: margince-macos-${{ github.sha }}
+          path: margince-macos.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+      # On failure the staged tree is the only evidence of how far it got: which
+      # extensions were built, whether the relocation ran, what the signatures
+      # looked like. Uploading it makes a partial build inspectable instead of
+      # gone. The compiled Postgres is large, so only the parts that answer
+      # questions travel.
+      - name: Publish the staging tree on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: staging-on-failure-${{ github.sha }}
+          path: |
+            build/desktop/.stage/pgsql/bin
+            build/desktop/.stage/pgsql/share/extension
+            build/desktop/.stage/valkey
+            build/desktop/.stage/bin
+          if-no-files-found: warn
+          retention-days: 3

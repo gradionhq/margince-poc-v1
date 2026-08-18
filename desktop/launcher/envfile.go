@@ -135,8 +135,15 @@ const envTemplate = `# Margince settings.
 # AI (bring your own key)
 #
 # Without a key the AI surfaces run on the offline fake model: they respond,
-# but the answers are canned. Set the key for the provider you use AND create
-# ai-routing.yaml next to this file to bind tasks to models.
+# but the answers are canned. Two things turn that off: the key below, and an
+# ai-routing.yaml next to this file binding tasks to models.
+#
+# ai-routing.example.yaml is already in this folder, ready to copy:
+#
+#   copy "ai-routing.example.yaml" "ai-routing.yaml"     Windows
+#   cp ai-routing.example.yaml ai-routing.yaml           macOS
+#
+# It is bound to Gemini, so GEMINI_API_KEY below is the only other edit.
 # ---------------------------------------------------------------------------
 # ANTHROPIC_API_KEY=
 # OPENAI_API_KEY=

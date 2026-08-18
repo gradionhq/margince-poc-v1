@@ -91,6 +91,21 @@ build_postgres() {
       CFLAGS="-O2"
   )
 
+  # The generated headers FIRST, and serially, because world-bin does not ask
+  # for them. src/Makefile.global.in attaches submake-generated-headers to
+  # `all`, `install`, `check` and `installcheck` — not to `world-bin` — so under
+  # -j nothing orders the generator before the compiles that need its output.
+  # src/common/hashfn.c reaches for utils/errcodes.h, which is generated, and a
+  # parallel build races it:
+  #
+  #   ../../src/include/utils/errcodes.h: file not found
+  #
+  # It is a race, so it passes as often as it fails, which is how this lane was
+  # believed to work. Running the generator by hand is what submake-generated-
+  # headers itself does at MAKELEVEL 0.
+  log "generating postgresql's generated headers"
+  make -C "$src/src/backend" generated-headers
+
   log "building postgresql (-j$JOBS)"
   make -C "$src" -j"$JOBS" world-bin
   make -C "$src" install-strip

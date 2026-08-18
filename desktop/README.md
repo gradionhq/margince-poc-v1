@@ -59,6 +59,8 @@ there is one copy to keep true:
 | `build/build-app.ps1` | Windows: api, worker, migrate, frontend, launcher |
 | `build/build-dist.ps1` | Windows: assemble and verify the distributable folder |
 | `build/build-windows.ps1` | Windows: all four in order — the entry point, since a Windows host need not have `make` |
+| `../.github/workflows/desktop-macos.yml` | The macOS lane on a runner — the only thing that proves these scripts still work, since they cannot run elsewhere |
+| `../.github/workflows/desktop-windows.yml` | The same for Windows |
 | `launcher/` | The Go supervisor — stdlib-only, deliberately outside `go.work`; it starts the shipped binaries as child processes and imports none of them |
 
 ### The launcher is one program, split where the platforms genuinely differ

@@ -32,6 +32,29 @@ Both need roughly 1 GB free for the folder plus the database, and neither
 writes a single byte outside its own folder — no installer, no registry keys,
 no `~/Library`, no `%APPDATA%`.
 
+## Or download one already built
+
+Each platform has a CI lane that builds the folder and publishes it, so testing
+a bundle needs no toolchain at all — and the runner IS the proof the lane still
+works, since neither half can be built on the other platform.
+
+| Workflow | Runner | Artifact |
+|---|---|---|
+| `desktop-macos` | `macos-latest` (Apple silicon) | `margince-macos-<sha>` — a **tarball**, because artifact upload does not preserve the executable bit |
+| `desktop-windows` | `windows-latest` (x64) | `margince-windows-<sha>` — a plain folder |
+
+Both run automatically when `desktop/**` changes on a pull request, and by hand
+from the Actions tab once they are on the default branch. Download from the run
+page, or:
+
+```
+gh run download <run-id> -n margince-macos-<sha>
+tar -xzf margince-macos.tar.gz          # keeps the +x bit and the signatures
+```
+
+Neither build is signed for distribution, so the first launch still needs the
+Gatekeeper or SmartScreen step below.
+
 ## What building it needs
 
 **Each platform builds on itself.** Neither half cross-builds: the macOS lane
