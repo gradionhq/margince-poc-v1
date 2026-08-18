@@ -247,9 +247,10 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
 	"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
 	// The dedupe review queue (DH-DDL-1): pair ids are server-derived —
-	// recordDedupeCandidate stamps them from the ensure chokepoint's own fuzzy
-	// query, never from a request body; the disposition endpoints address the
-	// candidate row, not the pair ids.
+	// recordDedupeCandidate stamps them from an internal match query, never from a
+	// request body; the disposition endpoints address the candidate row, not the
+	// pair ids. WHICH query differs by entity type, so each entry below names its
+	// own rather than this line naming one for all of them.
 	//
 	// The detector is deliberately NOT row-scoped: it filters on the workspace and
 	// archived_at only, so it does pair a caller's record with one they cannot see
