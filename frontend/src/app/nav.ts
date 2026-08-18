@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import type { MessageKey } from "../i18n/en";
 import { EXTENSION_SCREEN } from "./extensions";
-import type { Route } from "./router";
+import type { Route, Screen } from "./router";
 import { type NavSection, type NavTrailLevel, navTrail } from "./subnav";
 
 // The level registry lives beside this list and is reached through it: a caller
@@ -43,7 +43,7 @@ export { navLevelHref, navLevelRoute } from "./subnav";
 // Pipeline (it routes to the pipeline surface) and `inbox` presents as
 // Approvals (it is a governance surface, not a mailbox).
 export type NavItem = {
-  screen: string;
+  screen: Screen;
   labelKey: MessageKey;
   icon: LucideIcon;
 };
@@ -95,13 +95,13 @@ export const NAV: readonly NavItem[] = NAV_GROUPS.flatMap(
 // waiting). Ambient totals are deliberately absent: the list endpoints are
 // keyset-paginated and are not known to return one, and a decorative count
 // contradicts the badge rule.
-export const BADGE_SCREENS: ReadonlySet<string> = new Set(["tasks", "inbox"]);
+export const BADGE_SCREENS: ReadonlySet<Screen> = new Set(["tasks", "inbox"]);
 
 // At phone width the sidebar becomes a bottom bar, which fits four thumb-sized
 // destinations plus More — ten would need horizontal scrolling, and a nav you
 // have to scroll is a nav you cannot see. Approvals is non-negotiable here: the
 // 390px approval path is required for V1.
-export const MOBILE_PRIMARY: ReadonlySet<string> = new Set([
+export const MOBILE_PRIMARY: ReadonlySet<Screen> = new Set([
   "home",
   "contacts",
   "deals",
@@ -123,7 +123,7 @@ export const MOBILE_PRIMARY: ReadonlySet<string> = new Set([
 //
 // Keyed on the screen, applied only when the route carries an id: `#/companies`
 // is the list and belongs to the other family, `#/companies/<id>` is the record.
-export const GRIDDED_RECORD_SCREENS: ReadonlySet<string> = new Set([
+export const GRIDDED_RECORD_SCREENS: ReadonlySet<Screen> = new Set([
   "companies",
   "contacts",
 ]);
@@ -132,7 +132,7 @@ export const GRIDDED_RECORD_SCREENS: ReadonlySet<string> = new Set([
 // the public booking page, the extension client surfaces, and the OAuth
 // consent screen — a human lending an agent their authority reads it apart
 // from the rest of the app, not framed inside it.
-export const RAIL_LESS_SCREENS: ReadonlySet<string> = new Set([
+export const RAIL_LESS_SCREENS: ReadonlySet<Screen> = new Set([
   "onboarding",
   "book",
   "client",

@@ -22,6 +22,7 @@ import {
 } from "../screens/story-utils";
 import type { NavSection } from "./nav";
 import { CommandPalette, useBuiltinCommands } from "./palette";
+import type { Route } from "./router";
 import { PageHead, Shell, WorkspaceRail } from "./shell";
 
 // fullscreen: the shell sizes itself to the viewport, so Storybook's default
@@ -346,7 +347,7 @@ export const ThirdLevel: Story = {
  * one in Storybook itself, or by narrowing the browser.
  */
 function PhoneSectionExample() {
-  const route = { screen: "settings", id: "privacy" };
+  const route: Route = { screen: "settings", id: "privacy" };
   const { openSearch, palette } = usePaletteSeam();
   return (
     <div className="app railexpanded">

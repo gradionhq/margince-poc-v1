@@ -24,7 +24,7 @@ import {
   readPendingAuthorize,
   stashPendingAuthorize,
 } from "./pendingauthorize";
-import { navigate } from "./router";
+import { navigate, parseHash, type Route } from "./router";
 import { PageHead, Shell, WorkspaceRail } from "./shell";
 
 function memoryStorage(): Storage {
@@ -1003,7 +1003,7 @@ describe("PageHead", () => {
   // put whatever the reader typed in the page's heading, which reads as a page
   // by that name existing.
   it("names an unknown route rather than echoing the hash", () => {
-    render(<PageHead route={{ screen: "nope" }} />);
+    render(<PageHead route={parseHash("#/nope")} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Not found" }),
     ).toBeTruthy();
@@ -1184,7 +1184,7 @@ describe("PageHead", () => {
 // The page head's half of the phone model: the sidebar shows the destinations
 // there, so a section's own entries are reached from here.
 describe("Section switcher (the page head at phone width)", () => {
-  const deepRoute = { screen: "settings", id: "deep" };
+  const deepRoute: Route = { screen: "settings", id: "deep" };
 
   // Above the breakpoint the sidebar's level carries the section, so the head
   // names the ENTRY and mints no control at all — a switcher there would be a

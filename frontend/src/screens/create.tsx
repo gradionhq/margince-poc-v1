@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { type ReactNode, useId, useState } from "react";
-import { navigate, type Route } from "../app/router";
+import { navigate, type Route, type Screen } from "../app/router";
 import {
   Button,
   Card,
@@ -148,7 +148,7 @@ export function useCreateRecord<Created extends { id: string }>({
 }: Readonly<{
   create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
-  screen: string;
+  screen: Screen;
   onDone: () => void;
   // `stay` keeps the reader where they are instead of opening what was just
   // created. It is for creates whose result is a PROPERTY of the record on
@@ -193,7 +193,7 @@ export function CreateAction<Created extends { id: string }>({
   fields: CreateField[];
   create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
-  screen: string;
+  screen: Screen;
   startOpen?: boolean;
   // See useCreateRecord: keep the reader on this record when what was created
   // belongs TO it rather than being somewhere to go.
