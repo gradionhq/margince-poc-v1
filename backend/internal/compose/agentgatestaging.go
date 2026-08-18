@@ -188,7 +188,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 	// target_version NULL — a NULL the redemption skew check short-circuits
 	// on. A create (no target id) has nothing to pin, and says so by carrying
 	// a zero id.
-	approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
+	approvalID, alreadyApproved, sErr := staging.StageCall(ctx, agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
@@ -198,6 +198,16 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 	})
 	if sErr != nil {
 		httperr.Write(w, r, sErr)
+		return
+	}
+	// A decision this caller already holds is not a decision to wait for. An
+	// agent told to wait re-sends the request, and re-sending used to mint a
+	// second approval for the identical call — four of them, on the loop this
+	// door's MCP twin was reported on.
+	if alreadyApproved {
+		httperr.Write(w, r, fmt.Errorf(
+			"a human has already approved this exact request as approval %s — repeat it with the %s: %s header and do not stage another: %w",
+			approvalID, approvalTokenHeader, approvalID, apperrors.ErrRequiresApproval))
 		return
 	}
 	httperr.Write(w, r, fmt.Errorf(

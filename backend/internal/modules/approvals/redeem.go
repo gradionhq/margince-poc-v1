@@ -102,6 +102,17 @@ func (s *Service) RedeemInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, 
 
 func validateRedemption(a row, p principal.Principal, tool, diffHash string, now time.Time) error {
 	switch {
+	// Undecided is not a bad token, and the two must not share a sentinel. An
+	// agent whose retry lands before the human clicks is told the token is
+	// INVALID by any answer that wraps ErrApprovalTokenInvalid, and the only
+	// recovery it can infer from that is to ask the question again — which
+	// stages a second authority object for the same call, then a third. The
+	// honest answer is the one the staging already gave: this call still
+	// requires the approval, and the id to spend is the one it is holding.
+	case a.effectiveStatus(now) == statusPending:
+		return fmt.Errorf(
+			"approval %s has not been decided yet — do not stage another, wait for a human and retry this exact call with the same approval_id: %w",
+			a.ID, apperrors.ErrRequiresApproval)
 	case a.Status != approvalStatusApproved:
 		return fmt.Errorf("approval is %s: %w", a.effectiveStatus(now), apperrors.ErrApprovalTokenInvalid)
 	case a.ConsumedAt != nil:

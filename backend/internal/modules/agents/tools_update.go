@@ -147,11 +147,11 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		if err != nil {
 			return nil, err
 		}
-		id, err := t.stageConflicts(ctx, args, split, canonical, hash)
+		id, alreadyApproved, err := t.stageConflicts(ctx, args, split, canonical, hash)
 		if err != nil {
 			return nil, err
 		}
-		return nil, &workflow.StagedApprovalError{ApprovalID: id}
+		return nil, &workflow.StagedApprovalError{ApprovalID: id, AlreadyApproved: alreadyApproved}
 	}
 	return t.applySplit(ctx, args, split)
 }
@@ -179,7 +179,7 @@ func (t updateRecord) applySplit(ctx context.Context, args updateRecordArgs, spl
 	if err != nil {
 		return nil, err
 	}
-	id, err := t.stageConflicts(ctx, args, split, canonical, hash)
+	id, alreadyApproved, err := t.stageConflicts(ctx, args, split, canonical, hash)
 	if err != nil {
 		return nil, fmt.Errorf("the other fields were updated, but staging the human-edited fields (%s) failed: %w",
 			strings.Join(split.Conflicts, ", "), err)
@@ -190,26 +190,42 @@ func (t updateRecord) applySplit(ctx context.Context, args updateRecordArgs, spl
 			ApprovalID: id,
 			Fields:     split.Conflicts,
 			Replay:     canonical,
-			Message: fmt.Sprintf(
-				"fields %s were last edited by a human and were NOT applied; staged as approval %s — once a human approves it, call update_record with exactly the replay arguments plus \"approval_id\": %q",
-				strings.Join(split.Conflicts, ", "), id, id.String()),
+			Message:    splitStagingNote(split.Conflicts, id, alreadyApproved),
 		},
 	})
+}
+
+// splitStagingNote is what the agent reads about the fields that were withheld.
+//
+// The already-approved half is not a nicety: an agent told to wait for a human
+// who has already answered re-sends the call, which used to stage a second
+// approval for the same withheld fields — so the line that says which of the two
+// happened is the line that keeps one act to one authority object.
+func splitStagingNote(conflicts []string, id ids.ApprovalID, alreadyApproved bool) string {
+	fields := strings.Join(conflicts, ", ")
+	if alreadyApproved {
+		return fmt.Sprintf(
+			"fields %s were last edited by a human and were NOT applied; a human has already approved this exact overwrite as approval %s — call update_record with exactly the replay arguments plus \"approval_id\": %q",
+			fields, id, id.String())
+	}
+	return fmt.Sprintf(
+		"fields %s were last edited by a human and were NOT applied; staged as approval %s — once a human approves it, call update_record with exactly the replay arguments plus \"approval_id\": %q",
+		fields, id, id.String())
 }
 
 // stageConflicts records the 🟡 residue of one split update. The read
 // here runs AFTER any auto-execute remainder landed, so the pinned version
 // (ADR-0036 §2) is the state the approving human will actually judge —
 // this call's own auto-execute half cannot invalidate its staged half.
-func (t updateRecord) stageConflicts(ctx context.Context, args updateRecordArgs, split PatchSplit, canonical json.RawMessage, hash string) (ids.ApprovalID, error) {
+func (t updateRecord) stageConflicts(ctx context.Context, args updateRecordArgs, split PatchSplit, canonical json.RawMessage, hash string) (ids.ApprovalID, bool, error) {
 	rec, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.ID})
 	if err != nil {
-		return ids.ApprovalID{}, err
+		return ids.ApprovalID{}, false, err
 	}
 	if err := refuseStagingElsewhere(rec); err != nil {
-		return ids.ApprovalID{}, err
+		return ids.ApprovalID{}, false, err
 	}
-	return t.staging.Stage(ctx, StageRequest{
+	return t.staging.StageCall(ctx, StageRequest{
 		Tool:           "update_record",
 		ProposedChange: canonical,
 		DiffHash:       hash,

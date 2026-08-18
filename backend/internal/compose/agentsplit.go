@@ -245,7 +245,7 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 	// the post-write one, and this call's own successful half cannot invalidate
 	// its own staged half. A pin named here would not survive the trip anyway:
 	// approvalsAdapter.Stage (registry.go) forwards none, deliberately.
-	approvalID, sErr := staging.Stage(r.Context(), agents.StageRequest{
+	approvalID, alreadyApproved, sErr := staging.StageCall(r.Context(), agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
@@ -267,11 +267,27 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		"approval_id": approvalID,
 		"fields":      split.Conflicts,
 		"replay":      json.RawMessage(split.Staged),
-		"message": fmt.Sprintf(
-			"fields %s were last edited by a human and were NOT applied; staged as approval %s — once a human approves it, repeat this request with ONLY those fields and the %s: %s header",
-			strings.Join(split.Conflicts, ", "), approvalID, approvalTokenHeader, approvalID),
+		"message":     splitStagingNote(split.Conflicts, approvalID, alreadyApproved),
 	}
 	buffered.flushJSON(w, r, record)
+}
+
+// splitStagingNote is what the agent reads about the fields this door withheld.
+//
+// The already-approved half is the same distinction the MCP twin draws
+// (agents.splitStagingNote): an agent told to wait for a human who has already
+// answered re-sends the request, and re-sending used to stage a second approval
+// for the identical withheld fields.
+func splitStagingNote(conflicts []string, approvalID ids.ApprovalID, alreadyApproved bool) string {
+	fields := strings.Join(conflicts, ", ")
+	if alreadyApproved {
+		return fmt.Sprintf(
+			"fields %s were last edited by a human and were NOT applied; a human has already approved this exact overwrite as approval %s — repeat this request with ONLY those fields and the %s: %s header, and do not stage another",
+			fields, approvalID, approvalTokenHeader, approvalID)
+	}
+	return fmt.Sprintf(
+		"fields %s were last edited by a human and were NOT applied; staged as approval %s — once a human approves it, repeat this request with ONLY those fields and the %s: %s header",
+		fields, approvalID, approvalTokenHeader, approvalID)
 }
 
 // bufferedResponse holds a handler's answer so the gate can decide

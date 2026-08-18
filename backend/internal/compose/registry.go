@@ -298,15 +298,15 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 // onto the approvals module.
 type approvalsAdapter struct{ svc *approvals.Service }
 
-// Stage forwards a refused 🟡 tool call to the approvals engine. It passes
+// StageCall forwards a refused 🟡 tool call to the approvals engine. It passes
 // NO target_version: the engine resolves the pin itself inside the staging
 // transaction, for every target type that has a version column to read. This
 // adapter used to nil a caller-supplied pin for the types redemption could
 // not re-verify — correct as far as it went, but it also meant the pin was
 // whatever the caller happened to offer for the types it COULD, which on the
 // REST path was an optional request header.
-func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
-	return a.svc.Stage(ctx, approvals.StageInput{
+func (a approvalsAdapter) StageCall(ctx context.Context, in agents.StageRequest) (ids.ApprovalID, bool, error) {
+	return a.svc.StageAgentCall(ctx, approvals.StageInput{
 		Kind:           in.Tool,
 		ProposedChange: in.ProposedChange,
 		DiffHash:       in.DiffHash,
