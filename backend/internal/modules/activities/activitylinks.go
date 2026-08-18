@@ -62,7 +62,7 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 
 // insertActivityLinks writes the polymorphic link rows. The last_activity_at
 // clocks on deal, person and organization move with them, but not from here:
-// migration 1787030814 keeps them on the activity_link row itself (a trigger
+// migration 1787032690 keeps them on the activity_link row itself (a trigger
 // recomputing from the timeline), because this is one of several writers of
 // that row — capture, ensure, relink and message identity insert links too —
 // and the reach set also moves with no link written at all (an employment

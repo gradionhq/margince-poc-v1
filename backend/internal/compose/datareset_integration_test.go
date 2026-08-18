@@ -309,7 +309,7 @@ var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
 	// deleting, or the sweep aborts on the first held activity. This entry is
 	// that obligation, not a record of one already met.
 	"activity": "a row-conditional statutory hold, not a protected store: preserving it would leave every activity behind on a reset meant to clear them, and no writer can set the restriction yet (#1557) — when one lands the reset must lift before it sweeps",
-	// Not guards at all (migration 1787030814).
+	// Not guards at all (migration 1787032690).
 	"activity_link": "a clock-maintenance trigger, not a guard: it recomputes the last_activity_at of the records the deleted link reached and refuses no delete; the sweep deletes those records too, so the recompute is discarded with them",
 	"relationship":  "a clock-maintenance trigger, not a guard: it recomputes the employer's last_activity_at and refuses no delete",
 })

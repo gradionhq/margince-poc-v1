@@ -7,7 +7,7 @@ package activities
 // automation/seams.go's ActivityScan): which linked entities have gone
 // quiet. Sourced from this module's OWN tables (activity + activity_link)
 // rather than the schema-maintained last_activity_at columns (deal, person,
-// organization; migration 1787030814's triggers), because this scan asks a
+// organization; migration 1787032690's triggers), because this scan asks a
 // narrower question those columns do not — it excludes automation-engine
 // writes and wants live-work eligibility — and a module
 // reaches records only through seams (ADR-0054 §9), and this file is the

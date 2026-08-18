@@ -6,7 +6,7 @@
 package integration
 
 // last_activity_at on person and organization (PO-DDL-1/-4 as amended
-// 2026-08-18): kept on the writes themselves by migration 1787030814's
+// 2026-08-18): kept on the writes themselves by migration 1787032690's
 // triggers, over a real migrated Postgres. A note on a contact moves the
 // contact's clock and the clock of every account currently employing them; a
 // note on a deal moves the deal's account; a back-dated capture never moves a
