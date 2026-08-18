@@ -41,23 +41,21 @@ func evidenceOrg(ctx context.Context, t *testing.T, e *dedupeEnv) ids.Organizati
 	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by, retrieved_at)
-			VALUES ($1,$2,'display_name','Voltaq Systems','"Voltaq Systems"','https://voltaq.test/',0.7,'site_read','agent:deepread',now()),
-			       ($1,$2,'icp','Energy-intensive manufacturers','"…for energy-intensive manufacturers"','https://voltaq.test/about',0.9,'site_read','agent:deepread',now())`,
-			e.ws, orgID); err != nil {
+			INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by, retrieved_at)
+			VALUES ($1,'display_name','Voltaq Systems','"Voltaq Systems"','https://voltaq.test/',0.7,'site_read','agent:deepread',now()),
+			       ($1,'icp','Energy-intensive manufacturers','"…for energy-intensive manufacturers"','https://voltaq.test/about',0.9,'site_read','agent:deepread',now())`,
+			orgID); err != nil {
 			return err
 		}
 		// Both company facts carry value_key '' — the cardinality check requires
 		// it — so field alone is what tells them apart.
 		_, err := tx.Exec(ctx, `
-			INSERT INTO organization_fact
-			  (workspace_id, organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1,$2,'company','phone','+49 30 1234','','"+49 30 1234"','https://voltaq.test/impressum',0.95,'site_read','agent:deepread'),
-			       ($1,$2,'company','founded_year','1998','','"gegründet 1998"','https://voltaq.test/about',0.8,'site_read','agent:deepread'),
-			       ($1,$2,'signal','named_customer','Acme Inc','acme-inc','"trusted by Acme Inc"','https://voltaq.test/customers',0.6,'site_read','agent:deepread'),
-			       ($1,$2,'signal','named_customer','Brandt AG','brandt-ag','"and Brandt AG"','https://voltaq.test/customers',0.6,'site_read','agent:deepread')`,
-			e.ws, orgID)
+			INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1,'company','phone','+49 30 1234','','"+49 30 1234"','https://voltaq.test/impressum',0.95,'site_read','agent:deepread'),
+			       ($1,'company','founded_year','1998','','"gegründet 1998"','https://voltaq.test/about',0.8,'site_read','agent:deepread'),
+			       ($1,'signal','named_customer','Acme Inc','acme-inc','"trusted by Acme Inc"','https://voltaq.test/customers',0.6,'site_read','agent:deepread'),
+			       ($1,'signal','named_customer','Brandt AG','brandt-ag','"and Brandt AG"','https://voltaq.test/customers',0.6,'site_read','agent:deepread')`,
+			orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seed evidence: %v", err)

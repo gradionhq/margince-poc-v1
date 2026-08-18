@@ -152,10 +152,10 @@ func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDis
 // hundred companies on the backfill that produced one.
 func recordPendingDispositionTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) (bool, error) {
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO organization_domain_disposition (workspace_id, domain, status, owner_id)
-		VALUES ($1, $2, 'pending', $3)
+		INSERT INTO organization_domain_disposition (domain, status, owner_id)
+		VALUES ( $1, 'pending', $2)
 		ON CONFLICT (domain) DO NOTHING`,
-		workspaceID(ctx), domain, ownerID)
+		domain, ownerID)
 	if err != nil {
 		return false, fmt.Errorf("people: opening the disposition question for %s: %w", domain, err)
 	}

@@ -198,10 +198,9 @@ func reconcileOrgRelationshipTypes(
 			continue
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO organization_relationship_type
-			   (workspace_id, organization_id, relationship_type, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5)`,
-			wsID, orgID, t, source, by); err != nil {
+			`INSERT INTO organization_relationship_type (organization_id, relationship_type, source, captured_by)
+			 VALUES ( $1, $2, $3, $4)`,
+			orgID, t, source, by); err != nil {
 			return nil, fmt.Errorf("insert relationship type %q: %w", t, err)
 		}
 	}
@@ -224,16 +223,16 @@ func reconcileOrgRelationshipTypes(
 // same transaction that writes the partner row — the classification flip it
 // replaces did exactly this, for exactly this reason.
 func ensureOrgRelationshipType(
-	ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgID ids.OrganizationID, relType, source, by string,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, relType, source, by string,
 ) error {
 	_, err := tx.Exec(ctx,
 		`INSERT INTO organization_relationship_type
-		   (workspace_id, organization_id, relationship_type, source, captured_by)
-		 SELECT $1, $2, $3, $4, $5
+		   (organization_id, relationship_type, source, captured_by)
+		 SELECT $1, $2, $3, $4
 		 WHERE NOT EXISTS (
 		   SELECT 1 FROM organization_relationship_type
-		   WHERE organization_id = $2 AND relationship_type = $3 AND archived_at IS NULL)`,
-		wsID, orgID, relType, source, by)
+		   WHERE organization_id = $1 AND relationship_type = $2 AND archived_at IS NULL)`,
+		orgID, relType, source, by)
 	if err != nil {
 		return fmt.Errorf("ensure relationship type %q: %w", relType, err)
 	}

@@ -30,17 +30,16 @@ func TestEveryExtractionFieldIsAccepted_ByTheLiveCheckConstraint(t *testing.T) {
 	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		orgID := ids.New[ids.OrganizationKind]()
 		if _, err := tx.Exec(context.Background(),
-			`INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-			 VALUES ($1, $2, 'Vocab Probe', 'manual', 'human:test')`,
-			orgID, e.WS); err != nil {
+			`INSERT INTO organization (id, display_name, source, captured_by)
+			 VALUES ($1, 'Vocab Probe', 'manual', 'human:test')`,
+			orgID); err != nil {
 			return err
 		}
 		for _, field := range extractionFieldNames {
 			if _, err := tx.Exec(context.Background(),
-				`INSERT INTO organization_profile_field
-				   (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
-				 VALUES ($1, $2, $3, 'v', 'e', 'https://example.test', 0.9, 'agent:test')`,
-				e.WS, orgID, field); err != nil {
+				`INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
+				 VALUES ( $1, $2, 'v', 'e', 'https://example.test', 0.9, 'agent:test')`,
+				orgID, field); err != nil {
 				t.Errorf("the live CHECK constraint refuses extraction field %q — widen it with the vocabulary (see 0084's pattern)", field)
 				return err
 			}

@@ -55,24 +55,27 @@ func setCompanyDomain(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE organization_domain SET is_primary = false
-		  WHERE workspace_id = $1 AND organization_id = $2
-		    AND is_primary AND archived_at IS NULL AND domain <> lower($3)`,
-		workspaceID(ctx), orgID, host); err != nil {
+		  WHERE organization_id = $1
+		    AND is_primary AND archived_at IS NULL AND domain <> lower($2)`,
+		orgID, host); err != nil {
 		return fmt.Errorf("demote previous company domain: %w", err)
 	}
 
-	// A domain is unique per workspace: re-saving the same site re-primaries the
-	// row we already have, and a domain some CUSTOMER org already owns is a
-	// conflict — claiming it here would silently move a record off its company.
+	// A live domain is unique across the INSTALLATION — uq is on (domain) where
+	// archived_at IS NULL, with no tenant term — so re-saving the same site
+	// re-primaries the row we already have, and a domain some CUSTOMER org
+	// already owns is a conflict: claiming it here would silently move a record
+	// off its company. Anything that narrows this back to a subset of the
+	// installation has to change the index, not just this statement.
 	var owner ids.OrganizationID
 	err = tx.QueryRow(ctx,
-		`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-		 VALUES ($1, $2, lower($3), true, 'manual', $4)
+		`INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+		 VALUES ( $1, lower($2), true, 'manual', $3)
 		 ON CONFLICT (domain) WHERE archived_at IS NULL
 		 DO UPDATE SET is_primary = true
 		 WHERE organization_domain.organization_id = EXCLUDED.organization_id
 		 RETURNING organization_id`,
-		workspaceID(ctx), orgID, host, by).Scan(&owner)
+		orgID, host, by).Scan(&owner)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("the domain %s already belongs to another organization: %w", host, apperrors.ErrConflict)
 	}
@@ -127,10 +130,10 @@ func companyDomainWouldChange(ctx context.Context, tx pgx.Tx, orgID ids.Organiza
 	var current string
 	err := tx.QueryRow(ctx,
 		`SELECT domain FROM organization_domain
-		  WHERE workspace_id = $1 AND organization_id = $2
+		  WHERE organization_id = $1
 		    AND is_primary AND archived_at IS NULL
 		    FOR UPDATE`,
-		workspaceID(ctx), orgID).Scan(&current)
+		orgID).Scan(&current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// No domain yet: the first one is a change from nothing.
 		return true, nil

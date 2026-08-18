@@ -44,8 +44,8 @@ func openQuestion(t *testing.T, e *integration.Env, domain string) {
 	t.Helper()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain_disposition (workspace_id, domain, status, owner_id)
-			VALUES ($1, $2, 'pending', $3)`, e.WS, domain, e.Rep1)
+			INSERT INTO organization_domain_disposition (domain, status, owner_id)
+			VALUES ( $1, 'pending', $2)`, domain, e.Rep1)
 		return err
 	}); err != nil {
 		t.Fatal(err)

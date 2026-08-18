@@ -155,8 +155,8 @@ func seatConnectorOrg(t *testing.T, e *integration.Env, name, nameSource string)
 	id := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, owner_id, display_name, name_source, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, 'test', 'connector:gmail')`, id, e.WS, e.Rep1, name, nameSource)
+			INSERT INTO organization (id, owner_id, display_name, name_source, source, captured_by)
+			VALUES ($1, $2, $3, $4, 'test', 'connector:gmail')`, id, e.Rep1, name, nameSource)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding %s: %v", name, err)

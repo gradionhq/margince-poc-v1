@@ -241,9 +241,9 @@ func applySelectedSiteReadFacts(
 			continue
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM organization_fact
-			WHERE workspace_id = $1 AND organization_id = $2 AND category = $3
-			  AND field = $4 AND value_key = $5 AND source = $6`,
-			workspaceID(ctx), orgID, fact.Category, fact.Field, fact.ValueKey, companySourceHuman); err != nil {
+			WHERE organization_id = $1 AND category = $2
+			  AND field = $3 AND value_key = $4 AND source = $5`,
+			orgID, fact.Category, fact.Field, fact.ValueKey, companySourceHuman); err != nil {
 			return nil, fmt.Errorf("replace accepted human organization fact %s.%s: %w",
 				fact.Category, fact.Field, err)
 		}

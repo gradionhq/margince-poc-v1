@@ -228,25 +228,22 @@ func createOrganization(ctx context.Context, tx pgx.Tx, match OrganizationMatch,
 	if match.Decision == DecisionExactCollision {
 		return ids.OrganizationID{}, refusedOrgCreate(ctx, tx, match, spec)
 	}
-	wsID := workspaceID(ctx)
 	id := ids.New[ids.OrganizationKind]()
 	addr := addressColumns(spec.Address)
 	cfCols, cfHolders, args := storekit.InsertFragments(spec.Active, spec.CustomFields, []any{
-		id, wsID, spec.DisplayName, spec.LegalName, spec.Description, spec.Industry, spec.SizeBand, spec.OwnerID, spec.ParentOrgID,
+		id, spec.DisplayName, spec.LegalName, spec.Description, spec.Industry, spec.SizeBand, spec.OwnerID, spec.ParentOrgID,
 		addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
 		spec.Source, spec.CapturedBy, spec.NameSource, spec.Visibility, spec.IsAnchor,
 	})
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO organization (id, workspace_id, display_name, legal_name, description, industry, size_band, owner_id, parent_org_id,
-		                           address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-		                           source, captured_by, name_source, visibility, is_anchor`+cfCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-		         coalesce(NULLIF($18, ''), 'human'),
-		         coalesce(NULLIF($19, ''), 'workspace'), $20`+cfHolders+`)`,
+		`INSERT INTO organization (id, display_name, legal_name, description, industry, size_band, owner_id, parent_org_id, address_line1, address_line2, address_city, address_region, address_postal_code, address_country, source, captured_by, name_source, visibility, is_anchor`+cfCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+		         coalesce(NULLIF($17, ''), 'human'),
+		         coalesce(NULLIF($18, ''), 'workspace'), $19`+cfHolders+`)`,
 		args...); err != nil {
 		return ids.OrganizationID{}, fmt.Errorf("insert organization: %w", err)
 	}
-	if err := insertOrgDomains(ctx, tx, wsID, id, spec.Source, spec.CapturedBy, spec.Domains); err != nil {
+	if err := insertOrgDomains(ctx, tx, id, spec.Source, spec.CapturedBy, spec.Domains); err != nil {
 		return ids.OrganizationID{}, err
 	}
 	return id, nil

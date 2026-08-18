@@ -63,8 +63,8 @@ func TestIntroPathNamesBothEndsOfTheRouteAndSaysWhenItWasCapped(t *testing.T) {
 	var orgID ids.UUID
 	seedAsAdmin(t, e, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			INSERT INTO organization (workspace_id, display_name, source, captured_by)
-			VALUES (`+wsGUC+`, 'Acme GmbH', 'manual', 'human:test') RETURNING id`).Scan(&orgID)
+			INSERT INTO organization (display_name, source, captured_by)
+			VALUES ( 'Acme GmbH', 'manual', 'human:test') RETURNING id`).Scan(&orgID)
 	}, "seeding the account")
 	person, err := e.People.CreatePerson(ctx, people.CreatePersonInput{
 		FullName: "Jonas Bach", Source: "manual",

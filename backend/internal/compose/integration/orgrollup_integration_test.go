@@ -52,9 +52,9 @@ func seedRollupStages(t *testing.T, e *Env) rollupStages {
 func seedRollupOrg(t *testing.T, e *Env, name string, owner, parent *ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	e.WsExec(t, `INSERT INTO organization (id, workspace_id, display_name, owner_id, parent_org_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, 'manual', 'human:test')`,
-		id, e.WS, name, owner, parent)
+	e.WsExec(t, `INSERT INTO organization (id, display_name, owner_id, parent_org_id, source, captured_by)
+		VALUES ($1, $2, $3, $4, 'manual', 'human:test')`,
+		id, name, owner, parent)
 	return id
 }
 

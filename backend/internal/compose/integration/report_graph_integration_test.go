@@ -33,7 +33,7 @@ func (e *SearchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) {
 	t.Helper()
 	pipelineID := e.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
 	stageID := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipelineID)
-	orgID := e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Report Org', 'manual', 'human:x')`)
+	orgID := e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Report Org', 'manual', 'human:x')`)
 	for i := 0; i < n; i++ {
 		e.SeedID(t, fmt.Sprintf(`INSERT INTO deal (id, name, pipeline_id, stage_id, organization_id, owner_id, amount_minor, currency, source, captured_by)
 			VALUES ($1, 'Deal %d', $2, $3, $4, $5, 100000, 'EUR', 'manual', 'human:x')`, i),

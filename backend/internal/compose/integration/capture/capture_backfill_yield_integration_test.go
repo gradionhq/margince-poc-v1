@@ -241,8 +241,8 @@ func seedForeignCounterparties(t *testing.T, e *integration.SearchEnv) {
 			          (current_setting('app.workspace_id')::uuid, 'Other Connection Three', 'capture', 'connector:gmail')`,
 			`INSERT INTO person (workspace_id, full_name, source, captured_by)
 			   VALUES (current_setting('app.workspace_id')::uuid, 'Manually Typed', 'manual', 'human:someone')`,
-			`INSERT INTO organization (workspace_id, display_name, source, captured_by)
-			   VALUES (current_setting('app.workspace_id')::uuid, 'Other Connection Co', 'capture', 'connector:gmail')`,
+			`INSERT INTO organization (display_name, source, captured_by)
+			   VALUES ( 'Other Connection Co', 'capture', 'connector:gmail')`,
 		} {
 			if _, execErr := tx.Exec(e.Admin(), q); execErr != nil {
 				return execErr

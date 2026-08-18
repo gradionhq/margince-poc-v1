@@ -71,8 +71,8 @@ func TestAReadShareOfADealCannotRewriteItsContracts(t *testing.T) {
 	holder := e.As(e.Rep1, []ids.UUID{e.Team1}, grantsAtTeamScope("deal", "organization", "contract"))
 
 	org := ids.NewV7()
-	e.WsExec(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Anchor GmbH', 'manual', 'human:x')`, org, e.WS, e.Rep3)
+	e.WsExec(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Anchor GmbH', 'manual', 'human:x')`, org, e.Rep3)
 	deal := ids.NewV7()
 	e.WsExec(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
 		VALUES ($1, $2, 'Anchored Deal', $3, $4, $5, 'manual', 'human:x')`,
@@ -239,8 +239,8 @@ func TestAReadShareOfACompanyCannotMakeItAPartner(t *testing.T) {
 	holder := e.As(e.Rep1, []ids.UUID{e.Team1}, grantsAtTeamScope("organization", "partner"))
 
 	org := ids.NewV7()
-	e.WsExec(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Reseller GmbH', 'manual', 'human:x')`, org, e.WS, e.Rep3)
+	e.WsExec(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Reseller GmbH', 'manual', 'human:x')`, org, e.Rep3)
 
 	promote := func(as context.Context) error {
 		_, err := people.NewStore(e.DB()).UpsertPartner(as, people.UpsertPartnerInput{

@@ -68,8 +68,8 @@ func (e *stagingEnv) organization(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Acme', 'gmail:seed', 'connector:gmail')`, id, e.ws); err != nil {
+		INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Acme', 'gmail:seed', 'connector:gmail')`, id); err != nil {
 		t.Fatalf("seeding the target organization: %v", err)
 	}
 	return id

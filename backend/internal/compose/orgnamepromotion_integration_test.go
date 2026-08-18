@@ -30,8 +30,8 @@ func seedProvisionalOrg(t *testing.T, e *integration.Env, name, nameSource strin
 	org := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, display_name, name_source, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'gmail:seed', 'connector:gmail')`, org, e.WS, name, nameSource)
+			INSERT INTO organization (id, display_name, name_source, source, captured_by)
+			VALUES ($1, $2, $3, 'gmail:seed', 'connector:gmail')`, org, name, nameSource)
 		return err
 	})
 	if err != nil {
@@ -75,9 +75,9 @@ func seedSigningEmployee(t *testing.T, e *integration.Env, org ids.UUID, fullNam
 func seedDossierName(t *testing.T, e *integration.Env, org ids.UUID, legalName string) {
 	t.Helper()
 	e.WsExec(t, `
-		INSERT INTO organization_profile_field (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-		VALUES ($1, $2, 'legal_name', $3, $3, 'https://gitex.example', 0.9, 'site_read', 'agent:siteread')`,
-		e.WS, org, legalName)
+		INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+		VALUES ( $1, 'legal_name', $2, $2, 'https://gitex.example', 0.9, 'site_read', 'agent:siteread')`,
+		org, legalName)
 }
 
 func orgNameAndSource(t *testing.T, e *integration.Env, org ids.UUID) (string, string) {

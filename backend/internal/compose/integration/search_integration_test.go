@@ -27,7 +27,7 @@ import (
 func TestSearchHonorsObjectRBAC(t *testing.T) {
 	e := SetupSearch(t)
 	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Rostock Person', 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Rostock Werft', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Rostock Werft', 'manual', 'human:x')`)
 
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	orgOnly := principal.WithActor(ctx, principal.Principal{
@@ -55,7 +55,7 @@ func TestSearchHonorsObjectRBAC(t *testing.T) {
 func TestSearchRanksAcrossObjectTypes(t *testing.T) {
 	e := SetupSearch(t)
 	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Heike Hamburg', 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Hamburg Logistics GmbH', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Hamburg Logistics GmbH', 'manual', 'human:x')`)
 	e.Seed(t, `INSERT INTO lead (id, workspace_id, company_name, email, source, captured_by) VALUES ($1, $2, 'Hamburg Freight', 'lead@hamburg.test', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO activity (id, kind, subject, body, source, captured_by) VALUES ($1, 'note', 'Hamburg visit', 'Met the Hamburg team at the Hamburg office in Hamburg', 'manual', 'human:x')`)
 	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unrelated Munich', 'manual', 'human:x')`)
@@ -127,8 +127,8 @@ func TestSearchExcludesArchivedRows(t *testing.T) {
 // narrows is discovery.
 func TestSearchExcludesTheOwnCompany(t *testing.T) {
 	e := SetupSearch(t)
-	e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by) VALUES ($1, $2, 'Rostock Consulting GmbH', true, 'manual', 'human:x')`)
-	customer := e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Rostock Freight AG', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO organization (id, display_name, is_anchor, source, captured_by) VALUES ($1, 'Rostock Consulting GmbH', true, 'manual', 'human:x')`)
+	customer := e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Rostock Freight AG', 'manual', 'human:x')`)
 
 	page, err := e.Store.Search(e.Admin(), search.Input{Query: "rostock"})
 	if err != nil {

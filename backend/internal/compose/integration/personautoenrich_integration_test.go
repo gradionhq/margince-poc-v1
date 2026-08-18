@@ -56,8 +56,8 @@ func seedEmployedPerson(t *testing.T, e *Env, name string) (ids.PersonID, ids.Or
 	personID, orgID := ids.NewV7(), ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Gitex', 'manual', 'user:seed')`, orgID, e.WS, e.Rep1); err != nil {
+			INSERT INTO organization (id, owner_id, display_name, source, captured_by)
+			VALUES ($1, $2, 'Gitex', 'manual', 'user:seed')`, orgID, e.Rep1); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(context.Background(), `
