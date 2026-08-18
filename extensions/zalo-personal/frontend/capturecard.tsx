@@ -618,12 +618,13 @@ function PeopleSection({
 /**
  * Who is on the list, each with a way off it.
  *
- * A plain list plus a button per row, because no removable-token control is
- * published on the extension surface and a unit ships no stylesheet of its own —
- * so this is composed from what is published rather than invented as a second
- * spelling of a chip. The accessible name of each button carries the PERSON:
- * eight buttons all announcing "take off" tell a screen-reader reader nothing
- * about which one they are on.
+ * `TokenList` renders it: a labelled thing with a remove action already exists
+ * in the design system, and a unit ships no stylesheet of its own, so the token
+ * has one home rather than a second spelling here.
+ *
+ * An empty list is not one empty state but two, because the two modes make
+ * opposite claims about what an empty list MEANS — everything goes in, or
+ * nothing does.
  */
 function PeopleOnList({
   people,
