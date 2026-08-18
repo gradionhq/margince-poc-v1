@@ -1082,8 +1082,8 @@ export async function mockApi(
             id: "u1",
             email: "lena@seed.test",
             display_name: "Lena Fischer",
-            seat_type: "full",
             status: "active",
+            is_agent: false,
           },
         ]),
       );
