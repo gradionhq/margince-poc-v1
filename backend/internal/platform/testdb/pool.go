@@ -29,9 +29,8 @@ import (
 // server has is not a fact this file may assume: it is the lane's arithmetic,
 // declared in scripts/lib-testdb.sh and provisioned in
 // infra/docker-compose.dev.yml, and this pool's part in it is the ceiling it is
-// handed (see PoolMaxConnsEnv). It used to say "max_connections=100" here, which
-// was the stock default nobody had set and is now wrong in the file that would
-// be read first.
+// handed (see PoolMaxConnsEnv). Naming a figure here instead puts a second copy
+// of it in the file a reader opens first.
 
 // ErrSchemaNotReady is returned when a pool is asked for before EnsureSchema has
 // migrated the database.
@@ -70,12 +69,10 @@ var (
 //	                          Setup, which is the cost this change removes.
 //	pool_max_conns            the ceiling, and the ONE parameter here the lane
 //	                          rather than this file decides — see PoolMaxConnsEnv.
-//	                          It used to be left at database.NewPool's 16 on the
-//	                          argument that a shared pool cannot exceed what each
-//	                          per-test pool already had. True per package, and
-//	                          the wrong quantity: the lane's peak is that ceiling
-//	                          times INTEGRATION_JOBS, and nothing related the two
-//	                          until #1109.
+//	                          "A shared pool cannot exceed what each per-test pool
+//	                          already had" is true per package and is the wrong
+//	                          quantity: the lane's peak is that ceiling times
+//	                          INTEGRATION_JOBS, so only the lane can choose it.
 //	pool_max_conn_idle_time   a package that spiked hands its connections back
 //	                          promptly instead of holding its high-water mark
 //	                          for the rest of the run.

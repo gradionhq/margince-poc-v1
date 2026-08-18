@@ -178,8 +178,8 @@ different package set every run (#1109).`,
 // The gate above is only a gate if it can fail, and there are two ways it can
 // quietly stop being able to.
 //
-// The first is the arithmetic: it has to still refuse the configuration this
-// repo actually shipped — CI's 16 jobs against a cluster nobody had sized.
+// The first is the arithmetic: it must still refuse a configuration this lane is
+// known to outgrow — CI's 16 jobs against an unsized cluster's stock 100.
 //
 // The second is the COMPARISON, and it is the one an inline `if` hides. A test
 // that only ever asserts "today's configuration passes" passes just as happily

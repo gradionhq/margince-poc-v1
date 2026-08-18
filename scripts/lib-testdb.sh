@@ -110,9 +110,8 @@ db_admin() {
 #                             applied, and 24 is that plus half again. #1744
 #                             carries bringing those pools under the pin, which
 #                             is what would make this a ceiling.
-#                         An earlier revision set this to 16, which is EXACTLY
-#                         the observed peak. A budget equal to its own
-#                         measurement is not a budget.
+#                         It must EXCEED the measured peak, not equal it: a
+#                         budget equal to its own measurement is not a budget.
 #   LANE_FIXED_CONNS      what the lane costs beyond the packages: one admin
 #                         connection per slot for CREATE/DROP DATABASE is counted
 #                         per job below (cmd/migrate's db verbs open one
