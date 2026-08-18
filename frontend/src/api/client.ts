@@ -33,3 +33,11 @@ export const api = createClient<paths>({
   // resolve the CURRENT global fetch per call (test stubs, SW interception)
   fetch: (request) => globalThis.fetch(request),
 });
+
+// The cursor a first page asks with: none. Named and typed once, because
+// `initialPageParam: null` on its own narrows the page param to `null` and then
+// rejects the string cursors every page after the first carries — so each call
+// site that spelled the plain literal had to assert its way out, and seven of
+// them did. A keyset walk is an API shape, so the value it starts from lives
+// beside the client rather than being reinvented per screen.
+export const FIRST_PAGE: string | null = null;

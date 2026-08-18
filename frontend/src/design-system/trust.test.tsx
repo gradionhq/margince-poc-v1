@@ -11,6 +11,7 @@ import {
   type Proposal,
   ProvenanceTag,
   StagedProposal,
+  toEvidence,
 } from "./trust";
 
 // These tests are the B-EP09.3a acceptance: the universal Accept/Edit/Dismiss
@@ -236,6 +237,40 @@ describe("the source an evidence chip names", () => {
       const chip = container.querySelector(".evidence-chip");
       expect(chip?.textContent).toBe(`"…offer of 48k…" · ${source}`);
       expect(chip?.hasAttribute("title")).toBe(false);
+    }
+  });
+});
+
+// toEvidence is the boundary the untyped contract value crosses, so it owes the
+// narrowing to every caller rather than trusting one: a screen that has to
+// assert a shape before handing it over has done the checking itself, unchecked.
+describe("narrowing a contract value to evidence", () => {
+  it("accepts an object carrying both fields as strings", () => {
+    expect(
+      toEvidence({ snippet: "…48k as discussed…", source: "email" }),
+    ).toEqual({ snippet: "…48k as discussed…", source: "email" });
+  });
+
+  it("keeps only the trust vocabulary's two fields", () => {
+    expect(
+      toEvidence({ snippet: "s", source: "email", confidence: 0.9 }),
+    ).toEqual({ snippet: "s", source: "email" });
+  });
+
+  it("reads anything else as no evidence rather than guessing one", () => {
+    // A missing field, a field of the wrong type, and the values a free-form
+    // contract field can carry that are no object with those two fields at all.
+    for (const raw of [
+      { snippet: "s" },
+      { source: "email" },
+      { snippet: 12, source: "email" },
+      "email 12 Jun",
+      42,
+      null,
+      undefined,
+      ["snippet", "source"],
+    ]) {
+      expect(toEvidence(raw)).toBeNull();
     }
   });
 });

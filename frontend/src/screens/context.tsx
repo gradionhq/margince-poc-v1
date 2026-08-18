@@ -101,11 +101,7 @@ export function RecordContextPanel({
                     {section.items.map((item) => {
                       const self = `${item.ref.type}:${item.ref.id}`;
                       const evidenceList = (item.evidence ?? [])
-                        .map((entry) =>
-                          toEvidence(
-                            entry as { [k: string]: unknown } | undefined,
-                          ),
-                        )
+                        .map((entry) => toEvidence(entry))
                         .filter((entry) => entry != null)
                         // A record is not evidence for itself. The walk cites
                         // every item by its own ref, which the model needs — an

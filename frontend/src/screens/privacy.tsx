@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api } from "../api/client";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useHoldsAdminRole, useHoldsConsentAdminRole } from "../app/capability";
 import {
@@ -931,7 +931,7 @@ export function PrivacyInboxCard() {
   const query = useInfiniteQuery({
     queryKey: ["dsrs", facet],
     enabled: isAdmin,
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/data-subject-requests", {
         params: {

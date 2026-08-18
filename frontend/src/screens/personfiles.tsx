@@ -1,5 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge } from "../design-system/atoms";
 import { Panel, PanelRow } from "../design-system/panel";
@@ -38,7 +38,7 @@ export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
 
   const query = useInfiniteQuery({
     queryKey: ["attachments", "person", personId],
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/attachments", {
         params: {

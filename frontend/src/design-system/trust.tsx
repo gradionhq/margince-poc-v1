@@ -57,13 +57,18 @@ export function formatSourceLines(lines: readonly number[]): string {
 // vocabulary's Evidence before handing it to EvidenceChip. Anything that
 // doesn't carry both fields is treated as "no evidence" rather than guessed.
 // Shared by every screen that renders an audit/history row's evidence
-// (settings' audit log, the record History timelines) so there is one
-// narrowing, not a copy per call site.
-export function toEvidence(
-  raw: { [key: string]: unknown } | null | undefined,
-): Evidence | null {
+// (settings' audit log, the record History timelines, the context panel) so
+// there is one narrowing, not a copy per call site.
+//
+// The parameter is `unknown` because this function IS the boundary: a caller
+// that has to assert its value into a shape before handing it over has done the
+// narrowing itself, unchecked, which is what this function exists to prevent.
+export function toEvidence(raw: unknown): Evidence | null {
   if (
-    raw &&
+    typeof raw === "object" &&
+    raw !== null &&
+    "snippet" in raw &&
+    "source" in raw &&
     typeof raw.snippet === "string" &&
     typeof raw.source === "string"
   ) {

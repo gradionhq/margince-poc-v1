@@ -12,33 +12,6 @@ import {
 } from "./customfields.form";
 import type { CfObject } from "./customfields.logic";
 
-/**
- * One field's value, as a link where the value IS a web address and as plain
- * text everywhere else. A field holding the ticket, the wiki page or the ERP
- * entry a record belongs to is the commonest thing anybody puts in a text
- * field, and copy-and-paste was the only way to follow it.
- *
- * `noreferrer noopener` and a new tab: the destination is a foreign origin
- * nobody in this workspace vouched for, so it learns nothing about where the
- * reader came from and gets no handle on the window it was opened from.
- */
-function CustomFieldValue({ value }: Readonly<{ value: string }>) {
-  const href = customFieldHref(value);
-  if (!href) {
-    return value;
-  }
-  return (
-    <a
-      className="link-button"
-      href={href}
-      target="_blank"
-      rel="noreferrer noopener"
-    >
-      {value}
-    </a>
-  );
-}
-
 export function CustomFieldsCard({
   object,
   record,
@@ -70,14 +43,38 @@ export function CustomFieldsCard({
       style={{ marginBottom: "var(--space-4)" }}
     >
       <dl className="firmo">
-        {rows.map(({ field, value }) => (
-          <div key={field.column_name}>
-            <dt className="t-eyebrow">{field.label}</dt>
-            <dd>
-              <CustomFieldValue value={value} />
-            </dd>
-          </div>
-        ))}
+        {rows.map(({ field, value }) => {
+          // A value that IS a web address becomes a link, and everything else
+          // stays text. A field holding the ticket, the wiki page or the ERP
+          // entry a record belongs to is the commonest thing anybody puts in a
+          // text field, and copy-and-paste was the only way to follow it. The
+          // scheme check inside customFieldHref is what keeps this from turning
+          // a stored string into something executable on click.
+          const href = customFieldHref(value);
+          return (
+            <div key={field.column_name}>
+              <dt className="t-eyebrow">{field.label}</dt>
+              <dd>
+                {href ? (
+                  // `noreferrer noopener` and a new tab: the destination is a
+                  // foreign origin nobody in this workspace vouched for, so it
+                  // learns nothing about where the reader came from and gets no
+                  // handle on the window it was opened from.
+                  <a
+                    className="link-button"
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                  >
+                    {value}
+                  </a>
+                ) : (
+                  value
+                )}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
     </Card>
   );

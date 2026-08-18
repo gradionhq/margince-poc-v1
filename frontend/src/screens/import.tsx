@@ -7,6 +7,7 @@ import { useCan, useCanWrite } from "../app/capability";
 import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
+import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useMe } from "./common";
@@ -265,7 +266,11 @@ function ImportOutcome({
       {resumed ? (
         <Callout tone="info">
           {t("import.resumedRun", {
-            when: new Date(run.created_at).toLocaleString(locale),
+            when: formatDateTime(
+              run.created_at,
+              locale,
+              Intl.DateTimeFormat().resolvedOptions().timeZone,
+            ),
           })}
         </Callout>
       ) : null}
