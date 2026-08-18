@@ -69,17 +69,28 @@ untracked() {
   git -C "$REPO_ROOT" ls-files --others --exclude-standard -- "$@" 2>/dev/null || true
 }
 
-# Read-loop rather than mapfile — the CI/dev host ships bash 3.2 (no mapfile),
-# same portability constraint as check-ds-purity.sh.
 # The unit trees join the pathspecs: a unit's screen is shipped UI in the same
 # bundle, and a spacing gate that stopped at frontend/src would hold the core to
 # a scale the extension tier escapes.
+#
+# A git pathspec `**/` requires an intermediate directory, so `<tree>/**/*.tsx`
+# does NOT match a file sitting directly in <tree> — and every unit screen sits
+# directly at extensions/<unit>/frontend/screen.tsx. Each recursive pattern
+# therefore carries its direct-child sibling. The lists are spelled ONCE and
+# shared by the tracked and untracked collectors below: two copies is how the
+# extensions entry lost its sibling while the frontend/src entry kept one.
+# check-ds-spacing.test.sh holds the census these have to keep collecting.
+TSX_PATHSPEC=('frontend/src/**/*.tsx' 'frontend/src/*.tsx' 'extensions/*/frontend/**/*.tsx' 'extensions/*/frontend/*.tsx')
+CSS_PATHSPEC=('frontend/src/**/*.css' 'frontend/src/*.css' 'extensions/*/frontend/**/*.css' 'extensions/*/frontend/*.css')
+
+# Read-loop rather than mapfile — the CI/dev host ships bash 3.2 (no mapfile),
+# same portability constraint as check-ds-purity.sh.
 CHANGED_TSX=()
 while IFS= read -r f; do
   [[ -n "$f" ]] && CHANGED_TSX+=("$f")
 done < <(
-  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.tsx' 'frontend/src/*.tsx' 'extensions/*/frontend/**/*.tsx' 2>/dev/null || true
-  untracked 'frontend/src/**/*.tsx' 'frontend/src/*.tsx' 'extensions/*/frontend/**/*.tsx'
+  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- "${TSX_PATHSPEC[@]}" 2>/dev/null || true
+  untracked "${TSX_PATHSPEC[@]}"
 )
 
 CHANGED_CSS=()
@@ -88,8 +99,8 @@ while IFS= read -r f; do
   [[ "$f" == frontend/src/design-system/* ]] && continue
   CHANGED_CSS+=("$f")
 done < <(
-  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- 'frontend/src/**/*.css' 'frontend/src/*.css' 'extensions/*/frontend/**/*.css' 2>/dev/null || true
-  untracked 'frontend/src/**/*.css' 'frontend/src/*.css' 'extensions/*/frontend/**/*.css'
+  git -C "$REPO_ROOT" diff --name-only --diff-filter=d "$BASE" -- "${CSS_PATHSPEC[@]}" 2>/dev/null || true
+  untracked "${CSS_PATHSPEC[@]}"
 )
 
 # The added-lines diff for one file, tracked or not. `--no-index` exits non-zero

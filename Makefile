@@ -215,8 +215,12 @@ icon-lint:
 ## ds-spacing — spacing gate: no NEW raw-px margin/padding/gap, in inline styles
 ## (*.tsx) or in stylesheets (*.css outside the design-system tier, which defines
 ## the scale). Diff-scoped vs origin/main; use the --space-* scale or a layout class.
+## check-ds-spacing.test.sh runs beside it because the gate reports success both
+## when it inspected everything and when its pathspecs reached nothing: the census
+## is the only thing that can tell those two apart.
 ds-spacing:
 	frontend/scripts/check-ds-spacing.sh
+	bash frontend/scripts/check-ds-spacing.test.sh
 
 ## space-tokens — every --space-* token a stylesheet USES is DEFINED. An
 ## undefined custom property resolves to nothing rather than to a smaller
@@ -314,6 +318,7 @@ fe-ds-gates:
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
 	frontend/scripts/check-ds-spacing.sh
+	bash frontend/scripts/check-ds-spacing.test.sh
 	frontend/scripts/check-space-tokens.sh
 	frontend/scripts/check-native-controls.sh
 	frontend/scripts/check-ext-imports.sh
