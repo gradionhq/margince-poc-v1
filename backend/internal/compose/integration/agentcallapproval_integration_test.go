@@ -25,6 +25,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -201,4 +202,95 @@ func TestAnApprovalStagedByOnePassportIsNeverOfferedToAnother(t *testing.T) {
 		t.Fatal("a second passport was handed the approval granted to the first")
 	}
 	c.assertApprovalCount(t, 2, "a second passport asked the same question")
+}
+
+// The REST door's own loop. It hashes a call through its own spelling
+// (canonicalRESTCall, not the tool surface's diffhash) and writes its own
+// refusal prose, so "the gate collects one approval per call" is a claim about
+// both doors or about neither — and the recurring reviewer catch here is a fix
+// that landed on the case under review and missed the sibling copy.
+func TestTheRESTDoorAlsoCollectsExactlyOneApprovalPerIdenticalCall(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+
+	var person struct {
+		ID string `json:"id"`
+	}
+	if status := e.Call(t, "POST", "/v1/people", apptest.AnyMap{"full_name": "Greta Human"}, nil, &person); status != http.StatusCreated {
+		t.Fatalf("human create → %d", status)
+	}
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := e.Call(t, "POST", "/v1/passports", apptest.AnyMap{
+		"label": "duplicate-approval agent", "scopes": []string{"read", "write"},
+	}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
+	overwrite := apptest.AnyMap{"full_name": "Greta Machine"}
+
+	stage := func(what string) (id, detail string) {
+		t.Helper()
+		var problem struct {
+			Code   string `json:"code"`
+			Detail string `json:"detail"`
+		}
+		status := e.Call(t, "PATCH", "/v1/people/"+person.ID, overwrite, bearer, &problem)
+		if status != http.StatusForbidden || problem.Code != "approval_required" {
+			t.Fatalf("%s → %d %q, want 403 approval_required", what, status, problem.Code)
+		}
+		return ExtractStagedApprovalID(t, problem.Detail), problem.Detail
+	}
+
+	first, _ := stage("the first refused overwrite")
+	second, secondDetail := stage("the identical overwrite, still undecided")
+	if second != first {
+		t.Fatalf("re-sending staged approval %s, want the live one (%s)", second, first)
+	}
+	if !strings.Contains(secondDetail, "staged as approval") {
+		t.Fatalf("undecided refusal %q does not tell the agent to wait for a human", secondDetail)
+	}
+	assertPersonApprovalCount(t, e, 1, "two identical refused PATCHes")
+
+	if status := e.Call(t, "POST", "/v1/approvals/"+first+"/approve", apptest.AnyMap{}, nil, nil); status != http.StatusOK {
+		t.Fatalf("human approve → %d", status)
+	}
+
+	// The identical request WITHOUT the token, after the decision: pointed at
+	// the approval it already has, and told so in words it can act on.
+	released, releasedDetail := stage("the identical overwrite after approval")
+	if released != first {
+		t.Fatalf("after approval the door answered %s, want the approved one (%s)", released, first)
+	}
+	if !strings.Contains(releasedDetail, "already approved this exact request") {
+		t.Fatalf("refusal %q does not tell the agent its request is already approved", releasedDetail)
+	}
+	assertPersonApprovalCount(t, e, 1, "an identical PATCH after the approval")
+
+	withToken := map[string]string{"Authorization": "Bearer " + minted.Token, "X-Approval-Token": first}
+	if status := e.Call(t, "PATCH", "/v1/people/"+person.ID, overwrite, withToken, nil); status != http.StatusOK {
+		t.Fatalf("approved retry → %d, want the patch to execute", status)
+	}
+	var current struct {
+		FullName string `json:"full_name"`
+	}
+	if status := e.Call(t, "GET", "/v1/people/"+person.ID, nil, bearer, &current); status != http.StatusOK || current.FullName != "Greta Machine" {
+		t.Fatalf("approved overwrite did not land: %d %q", status, current.FullName)
+	}
+}
+
+// assertPersonApprovalCount counts the update_record approvals in the workspace.
+func assertPersonApprovalCount(t *testing.T, e *apptest.AppEnv, want int, after string) {
+	t.Helper()
+	var got int
+	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM approval WHERE kind = 'update_record'`).Scan(&got)
+	}); err != nil {
+		t.Fatalf("counting the staged approvals: %v", err)
+	}
+	if got != want {
+		t.Fatalf("%d update_record approvals after %s, want %d", got, after, want)
+	}
 }

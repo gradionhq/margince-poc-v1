@@ -76,11 +76,22 @@ var CustomFieldAdminPerms = principal.Permissions{
 // Reading it out of the message is deliberate: it is the only reference a 🟡
 // caller is given, so a suite that resolved the id any other way would stop
 // proving that the refusal hands back something actionable.
+//
+// TWO markers, because a 🟡 refusal names an approval for two different reasons
+// and both hand back a live id: the call was just staged, or a human had already
+// approved this exact call and the gate is pointing at that decision rather than
+// asking again (approvals.StageAgentCall). A suite that could only read the first
+// would report the second as "no approval reference", which is the opposite of
+// what happened.
 func ExtractStagedApprovalID(t *testing.T, detail string) string {
 	t.Helper()
 	const marker = "staged as approval "
 	i := strings.Index(detail, marker)
 	if i < 0 {
+		const approved = "already approved this exact "
+		if j := strings.Index(detail, approved); j >= 0 {
+			return approvalIDAfter(t, detail, detail[j:], "as approval ")
+		}
 		t.Fatalf("no staged approval reference in %q", detail)
 	}
 	// Fields rather than a scan to the next space, so a marker with nothing after
@@ -88,7 +99,23 @@ func ExtractStagedApprovalID(t *testing.T, detail string) string {
 	// /v1/approvals/ with no id, and the 404 that came back would be reported as
 	// the approval not existing — which is the one thing the suite is trying to
 	// find out.
-	rest := strings.Fields(detail[i+len(marker):])
+	return approvalIDAfter(t, detail, detail[i:], marker)
+}
+
+// approvalIDAfter reads the id that follows marker in segment, reporting against
+// the whole detail so a failure names what the caller actually received.
+//
+// Fields rather than a scan to the next space, so a marker with nothing after it
+// fails HERE. Returning the empty remainder would send the caller to
+// /v1/approvals/ with no id, and the 404 that came back would be reported as the
+// approval not existing — which is the one thing the suite is trying to find out.
+func approvalIDAfter(t *testing.T, detail, segment, marker string) string {
+	t.Helper()
+	i := strings.Index(segment, marker)
+	if i < 0 {
+		t.Fatalf("the approval reference in %q does not name an approval", detail)
+	}
+	rest := strings.Fields(segment[i+len(marker):])
 	if len(rest) == 0 {
 		t.Fatalf("the staged-approval reference in %q names no id", detail)
 	}
