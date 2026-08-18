@@ -21,7 +21,9 @@ test("AC-leads-list: a row names its owner and opens the lead's own page", async
   // The owner column answers "whose lead is this" — the same column the
   // people and company lists carry, never "typed by a person".
   await expect(row).toContainText("Lena Fischer");
-  await row.getByText("Jonas Petersen").click();
+  // The lead's own link, not any text bearing the name: the row also carries
+  // the bulk-select checkbox's screen-reader label, which names the lead too.
+  await row.getByRole("link", { name: /Jonas Petersen/ }).click();
   await expect(page).toHaveURL(/#\/leads\/l-1$/);
   await expect(
     page.getByRole("heading", { level: 1, name: "Jonas Petersen" }),
