@@ -42,6 +42,23 @@ function story(candidates: Record<string, unknown>[]) {
       "GET /me": () => jsonResponse(meFixture({ allow: {} })),
       "GET /dedupe/candidates": () =>
         jsonResponse({ data: candidates, page: { next_cursor: null } }),
+      // A reviewer decides which record survives, so both sides have to read as
+      // records. Left unrouted, EntityRef falls back to the raw id and the
+      // catalog shows somebody comparing two UUIDs — a screen nobody could act
+      // on, under the name of one they can. The route keys are concrete paths
+      // because the stub matches the URL it was actually given, not a template.
+      // A person's name is `full_name`; an organization's is `display_name`.
+      // EntityRef reads a differently-named field per kind, and the wrong one
+      // resolves to null, which it renders as the raw id — the same output as
+      // routing nothing at all.
+      [`GET /people/${LEFT}`]: () =>
+        jsonResponse({ id: LEFT, full_name: "Dana Buyer" }),
+      [`GET /people/${RIGHT}`]: () =>
+        jsonResponse({ id: RIGHT, full_name: "Dana K. Buyer" }),
+      [`GET /organizations/${LEFT}`]: () =>
+        jsonResponse({ id: LEFT, display_name: "Acme GmbH" }),
+      [`GET /organizations/${RIGHT}`]: () =>
+        jsonResponse({ id: RIGHT, display_name: "Acme Gesellschaft mbH" }),
     });
     return (
       <StoryProviders>
@@ -51,11 +68,14 @@ function story(candidates: Record<string, unknown>[]) {
   };
 }
 
+const LEFT = "00000000-0000-7000-8000-000000000001";
+const RIGHT = "00000000-0000-7000-8000-000000000002";
+
 const candidate = {
   id: "dc1",
   entity_type: "person",
-  left_id: "00000000-0000-7000-8000-000000000001",
-  right_id: "00000000-0000-7000-8000-000000000002",
+  left_id: LEFT,
+  right_id: RIGHT,
   confidence: 0.87,
   evidence,
   status: "open",
