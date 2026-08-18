@@ -63,17 +63,12 @@ import { fetchSetupStatus, SetupClaimScreen } from "./screens/setupclaim";
 // and forgotten here.
 const ROUTE_CHUNKS: Array<() => Promise<unknown>> = [];
 
-// A routed screen, split from the entry chunk and able to render without
-// suspending once its chunk is in memory.
-//
-// `lazy` alone cannot do the second half. It calls its factory at first render
-// and throws the promise whatever the module cache holds, so the boundary shows
-// its fallback — and React then THROTTLES the reveal that follows a committed
-// fallback, to keep a flash of loading from turning into a flicker. On a warm
-// chunk that throttle is the whole cost: a record open measured 64ms unsplit and
-// 813ms split, with no extra request on the wire either time. So a screen already
-// in memory renders directly, and the suspending form is kept for the one case it
-// describes honestly — a chunk this session has not fetched yet.
+// Registers a screen's chunk for warming and hands the factory back unchanged,
+// so `lazy` keeps the loading and this keeps the list. A warmed chunk still
+// SUSPENDS on its first render — `lazy` calls its factory and throws the promise
+// whatever the module cache holds — so warming alone does not make a navigation
+// cheap. What does is ScreenView deferring the route, which keeps React from
+// committing the fallback it would then have to hold on screen.
 function routed<T>(factory: () => Promise<T>): () => Promise<T> {
   ROUTE_CHUNKS.push(factory);
   return factory;
