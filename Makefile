@@ -65,8 +65,15 @@ ai-routing-local:
 
 ## check-backend — the backend half of the gate: the root deterministic script
 ## gates plus the backend gate (build, vet, lint, arch-lint, unit + fitness
-## tests, contract drift). No frontend toolchain needed — this is what the CI
-## deterministic-gates job runs.
+## tests, contract drift). This is what the CI deterministic-gates job runs.
+##
+## It still needs no frontend toolchain: contract-frontend-drift is the one leg
+## that would, and it skips LOUDLY when pnpm is absent — which is what CI's
+## deterministic-gates job does, since it installs Go and nothing else. With pnpm
+## present (any `make install` checkout) the leg runs, and that is the case
+## #1639 is about: a backend-only author never runs the lane that would
+## otherwise catch a stranded frontend schema. On a pull request CI covers the
+## same ground from the other side, through fe-quality's fe-drift.
 check-backend: check-craft-doc craft-test test-golangci-guard test-scheduled-report check-image-pins check-host-ports ci-doc-parity make-target-parity contract-breaking-check contract-frontend-drift test-contract-frontend-drift migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze
 	$(MAKE) -C backend check
 
@@ -325,10 +332,14 @@ fe-ds-gates:
 
 ## fe-drift — the TS type-drift gate on its own: regenerate from the contract
 ## and fail if the committed types moved.
+##
+## One spelling, shared with check-backend's contract-frontend-drift leg: the
+## artifact list and the "did the generator actually rewrite it" census live in
+## the script, so the two lanes cannot come to disagree about what a contract
+## change owes. The script skips only when pnpm is absent, which cannot happen
+## on this lane — check-fe fails first if the frontend deps are missing.
 fe-drift:
-	cd frontend && pnpm install --frozen-lockfile && pnpm gen:api && \
-		{ git diff --exit-code -- src/api/schema.d.ts src/api/public-events.ts || \
-			{ echo "frontend types drifted from the backend contracts — commit the regenerated src/api/*.d.ts (printed above)"; exit 1; }; }
+	@./scripts/check-contract-frontend-drift.sh
 
 ## fe-unit — the vitest suite. FE_COVERAGE=1 instruments the run so it also
 ## writes frontend/coverage/lcov.info for the `sonarcloud` job — ONE execution

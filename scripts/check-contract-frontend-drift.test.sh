@@ -6,17 +6,23 @@
 # check-backend` must run on a bare Go checkout with no Node toolchain. That is
 # also the whole risk: Wave 1's #1637 was a pathspec that matched nothing and
 # reported PASS, and a pnpm-absent skip that nobody notices is the same failure
-# wearing a different coat. So the three rules that hold the skip shut are
-# asserted here rather than trusted:
+# wearing a different coat. So the rules that hold the skip shut are asserted
+# here rather than trusted:
 #
-#   1. Without pnpm, it skips — and says so LOUDLY, naming the leg, the reason
-#      and the artifacts it did not check.
-#   2. Without pnpm IN CI, it does not skip at all: it fails. CI has the frontend
-#      toolchain, so a missing pnpm there means the toolchain moved, and the day
-#      that happens the gate must report it instead of quietly stopping work.
-#   3. The skip's only trigger is pnpm's absence. A gate that skips for any other
-#      reason — an empty artifact list, a missing directory — is a gate that can
-#      report success having compared nothing.
+#   1. Without pnpm it skips — LOUDLY, on stderr, naming the leg, the reason and
+#      the artifacts it did not check.
+#   2. The skip's ONLY trigger is pnpm's absence. Every other early success is a
+#      path that reports green having compared nothing, and this checks for the
+#      class rather than for one spelling of it — the first version matched a
+#      bare `exit 0` on its own line and let `[[ -d node_modules ]] || exit 0`
+#      straight through.
+#   3. The census runs BEFORE any exit, so an emptied artifact list cannot exit
+#      0 down the skip path saying it checked nothing.
+#
+# Not asserted here, because it is not this file's job: whether CI meets the
+# check at all. CI's deterministic-gates job has no pnpm and takes the skip; the
+# pull-request path is covered by fe-quality's `make fe-drift`, and that routing
+# is pinned by TestTheContractReachesTheFrontendLane in the backend suite.
 #
 # Usage: bash scripts/check-contract-frontend-drift.test.sh
 set -uo pipefail
@@ -27,22 +33,28 @@ FAILURES=0
 
 fail() { echo "FAIL: $*" >&2; FAILURES=$((FAILURES + 1)); }
 
-# A PATH with no pnpm on it, but with the ordinary tools the gate uses, so the
-# absence under test is pnpm's alone and not the shell's.
+# A PATH holding ONLY the tools the gate needs, and deliberately not /usr/bin:
+# a host with a system-wide pnpm would otherwise resolve it and this test would
+# assert nothing while reporting success. Every tool is linked in explicitly, so
+# a missing one is named rather than surfacing as a confusing gate failure.
 TMPBIN="$(mktemp -d)"
 trap 'rm -rf "$TMPBIN"' EXIT
-for tool in bash git find mktemp touch dirname cd; do
-  p="$(command -v "$tool" 2>/dev/null)" && ln -sf "$p" "$TMPBIN/$tool" 2>/dev/null
+for tool in bash git find mktemp touch sed awk cat rm dirname basename cd pwd; do
+  p="$(command -v "$tool" 2>/dev/null)" || continue
+  ln -sf "$p" "$TMPBIN/$tool"
 done
-NOPNPM_PATH="$TMPBIN:/usr/bin:/bin:/usr/sbin:/sbin"
+for required in bash git find mktemp; do
+  [[ -x "$TMPBIN/$required" ]] || { echo "FAIL: $required is not on PATH, so this test cannot build a pnpm-free environment" >&2; exit 1; }
+done
+NOPNPM_PATH="$TMPBIN"
 if PATH="$NOPNPM_PATH" command -v pnpm >/dev/null 2>&1; then
-  echo "FAIL: this test's pnpm-free PATH still resolves pnpm, so cases 1 and 2 would" >&2
-  echo "      assert nothing. Point NOPNPM_PATH somewhere pnpm is genuinely absent." >&2
+  echo "FAIL: this test's pnpm-free PATH still resolves pnpm, so case 1 would" >&2
+  echo "      assert nothing. NOPNPM_PATH must contain no pnpm." >&2
   exit 1
 fi
 
-# ---- 1. no pnpm, not CI: skips, exit 0, and says all of it out loud ----------
-out="$(env -u CI -u GITHUB_ACTIONS PATH="$NOPNPM_PATH" bash "$GATE" 2>&1)"
+# ---- 1. no pnpm: skips, exit 0, and says all of it out loud on stderr --------
+out="$(PATH="$NOPNPM_PATH" bash "$GATE" 2>&1)"
 rc=$?
 if (( rc != 0 )); then
   fail "without pnpm the gate exited $rc; a bare Go checkout must still be able to run \`make check-backend\`"
@@ -55,42 +67,57 @@ $out" ;;
   esac
 done
 
-# The skip must be on stderr. A message on stdout is swallowed by the `@`-quiet
-# recipe and by every caller that pipes the gate's output somewhere.
-stdout_only="$(env -u CI -u GITHUB_ACTIONS PATH="$NOPNPM_PATH" bash "$GATE" 2>/dev/null)"
+stdout_only="$(PATH="$NOPNPM_PATH" bash "$GATE" 2>/dev/null)"
 if [[ -n "$stdout_only" ]]; then
   fail "the skip printed to stdout ('$stdout_only'); it must go to stderr so a quiet caller cannot swallow it"
 fi
 
-# ---- 2. no pnpm, IN CI: refuses ---------------------------------------------
-for var in CI GITHUB_ACTIONS; do
-  out="$(env -u CI -u GITHUB_ACTIONS "$var=true" PATH="$NOPNPM_PATH" bash "$GATE" 2>&1)"
-  rc=$?
-  if (( rc == 0 )); then
-    fail "with $var set and pnpm absent the gate exited 0 — CI would silently stop checking the frontend contract types, which is the exact failure this gate exists to prevent:
-$out"
-  fi
-  case "$out" in
-    *SKIPPED*) fail "with $var set the gate still reported a SKIP; in CI a missing pnpm is a broken toolchain, not an exemption" ;;
-  esac
-done
+# ---- 2. pnpm's absence is the ONLY early success ----------------------------
+# Read from the gate itself. Comments are stripped first and the match is by
+# SUBSTRING, because the mutation that escaped the first version of this check
+# was `[[ -d node_modules ]] || exit 0` — the shape a well-meaning "be tolerant
+# of an uninstalled tree" edit takes — and an anchored whole-line pattern read it
+# as absent. `exit` with no status and `exit $?` are counted too: both exit 0
+# when the preceding command succeeded.
+# Only WHOLE-LINE comments are dropped. A blanket `s/#.*$//` also eats the `#`
+# in `${#ARTIFACTS[@]}`, which silently removed the census line this file then
+# reported as missing — a stripper that damages code is a reader that cannot be
+# trusted about what the code does.
+stripped="$(sed '/^[[:space:]]*#/d' "$GATE")"
 
-# ---- 3. pnpm's absence is the ONLY skip trigger ------------------------------
-# Read from the gate itself: a second `exit 0` reachable before the diff is a
-# second way to report success having compared nothing.
-# Comments are stripped first, and the match is a SUBSTRING rather than a whole
-# line: the mutation that got past the first version of this check was
-# `[[ -d node_modules ]] || exit 0`, which is exactly the shape a well-meaning
-# "be tolerant of an uninstalled tree" edit takes, and an anchored pattern read
-# it as absent.
-early_exits="$(sed 's/#.*$//' "$GATE" \
-  | awk '/^if ! command -v pnpm/,/^fi$/ {next} /exit 0/ {n++} END {print n+0}')"
+# The pnpm-absent branch is located by its own two anchors, and the range is
+# required to CLOSE. An unterminated range would swallow the rest of the file and
+# report zero early exits — a census that passes by seeing nothing, which is the
+# defect this whole gate is about.
+branch_lines="$(printf '%s\n' "$stripped" | awk '/^if ! command -v pnpm/,/^fi$/ {n++} END {print n+0}')"
+total_lines="$(printf '%s\n' "$stripped" | wc -l | tr -d ' ')"
+if (( branch_lines == 0 )); then
+  fail "could not find the pnpm-absent branch in $GATE (its \`if ! command -v pnpm\` … \`fi\` anchors); this check is reading something else"
+elif (( branch_lines >= total_lines / 2 )); then
+  fail "the pnpm-absent branch spans $branch_lines of $total_lines lines in $GATE — the range did not close, so the early-exit census below would exempt most of the file"
+fi
+
+early_exits="$(printf '%s\n' "$stripped" \
+  | awk '/^if ! command -v pnpm/,/^fi$/ {next} /(^|[^_[:alnum:]])exit([[:space:]]+(0|\$\?))?[[:space:]]*($|;|&|\|)/ {n++} END {print n+0}')"
 if [[ "$early_exits" != "0" ]]; then
-  fail "$GATE has $early_exits \`exit 0\` outside the pnpm-absent branch — every one of them is a path that reports success without running the diff"
+  fail "$GATE has $early_exits success-exit(s) outside the pnpm-absent branch — every one of them is a path that reports green without running the diff"
+fi
+
+# ---- 3. the census precedes every exit --------------------------------------
+# An empty artifact list must fail, and it must fail on the skip path too — that
+# is the path a bare checkout takes, where nobody is watching.
+census_line="$(printf '%s\n' "$stripped" | grep -n 'ARTIFACTS\[@\]} -eq 0' | head -1 | cut -d: -f1)"
+skip_line="$(printf '%s\n' "$stripped" | grep -n '^if ! command -v pnpm' | head -1 | cut -d: -f1)"
+if [[ -z "$census_line" ]]; then
+  fail "$GATE no longer refuses an empty artifact list; an emptied list would report success having compared nothing"
+elif [[ -z "$skip_line" ]]; then
+  fail "$GATE no longer has a pnpm-absent branch, so this test cannot order it against the census"
+elif (( census_line > skip_line )); then
+  fail "$GATE checks the artifact list at line $census_line, AFTER the skip at line $skip_line — on a bare checkout an empty list would print '0 artifact(s) NOT checked' and exit 0"
 fi
 
 if (( FAILURES > 0 )); then
   echo "check-contract-frontend-drift.test: $FAILURES failure(s)" >&2
   exit 1
 fi
-echo "check-contract-frontend-drift.test: OK — the skip is loud, stderr-bound, CI-proof, and the only one"
+echo "check-contract-frontend-drift.test: OK — the skip is loud, stderr-bound, the only early exit, and the census precedes it"

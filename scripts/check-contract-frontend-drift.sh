@@ -22,18 +22,35 @@
 # The Makefile already STATED this invariant in frontend-check's own comment
 # while enforcing it nowhere. This makes the claim true rather than softening it.
 #
-# THE TRAP THIS GATE IS ITSELF EXPOSED TO. The backend lane must run on a bare Go
-# checkout, so this leg has to be skippable — and a gate that skips cleanly is a
-# gate that can skip silently, which is the same defect one level up. Three rules
+# WHERE THIS RUNS, AND WHERE IT DOES NOT. This is the LOCAL half. CI already
+# covers the same ground from the other side and it is worth being exact about
+# which, because #1639 assumed otherwise:
+#
+#   - CI's `fe-quality` job runs `make fe-drift`, and the change classifier
+#     routes `backend/api/**` to the frontend lane — so a contract change on a
+#     pull request does meet this check there.
+#   - CI's `deterministic-gates` job, which runs `make check-backend`, installs
+#     Go and nothing else. There is no pnpm on it and it does not need one.
+#
+# So the environment this leg exists for is a developer's: `make check-backend`
+# or the pre-push hook, where a backend-only author never runs the lane that
+# would catch it. That is exactly the gap #1639 describes.
+#
+# The CI half is not left to trust either — it is pinned by
+# TestTheContractReachesTheFrontendLane (backend/contractfrontendlane_test.go),
+# which fails when the classifier stops routing `backend/api/**` to the
+# frontend lane. Dropping that one line is what would actually reopen #1573,
+# and it would otherwise be invisible.
+#
+# THE TRAP THIS GATE IS ITSELF EXPOSED TO. It has to be skippable, because the
+# backend lane must run on a bare Go checkout — and a gate that skips cleanly is
+# a gate that can skip silently, which is the same defect one level up. Two rules
 # hold it shut, and each is tested by check-contract-frontend-drift.test.sh:
 #
-#   1. The skip is LOUD. It names the leg and the reason, on stderr, every time.
-#   2. An environment that HAS pnpm cannot take the skip path — the only skip
-#      condition is pnpm's absence — and CI cannot take it at all: with
-#      GITHUB_ACTIONS or CI set, a missing pnpm is a hard failure, because the
-#      day CI's toolchain shifts the gate must report it rather than quietly
-#      stop working.
-#   3. Census, not verdict. `pnpm gen:api` is required to have actually REWRITTEN
+#   1. The skip is LOUD. It names the leg, the reason and the artifacts it did
+#      not check, on stderr, every time. Its only trigger is pnpm's absence, so
+#      an environment that HAS pnpm cannot skip.
+#   2. Census, not verdict. `pnpm gen:api` is required to have actually REWRITTEN
 #      every artifact named below before the diff is trusted. A generator that
 #      silently wrote nothing and a tree with no drift produce the same clean
 #      diff, and "checked nothing successfully" must not read as green.
@@ -46,28 +63,23 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # failure mode this gate exists to make impossible.
 ARTIFACTS=(src/api/schema.d.ts src/api/public-events.ts)
 
-in_ci() { [[ -n "${GITHUB_ACTIONS:-}" || -n "${CI:-}" ]]; }
-
-if ! command -v pnpm >/dev/null 2>&1; then
-  if in_ci; then
-    echo "check-contract-frontend-drift: FAIL — pnpm is not on PATH in a CI environment." >&2
-    echo "  This leg regenerates frontend/src/api/*.d.ts from backend/api/crm.yaml and" >&2
-    echo "  fails when the committed types drifted. CI has the frontend toolchain, so a" >&2
-    echo "  missing pnpm here means the toolchain moved — not that the check is optional." >&2
-    echo "  Restore pnpm on this job, or move the leg deliberately. Do not let it skip." >&2
-    exit 1
-  fi
-  echo "check-contract-frontend-drift: SKIPPED — pnpm is not on PATH." >&2
-  echo "  ${#ARTIFACTS[@]} artifact(s) NOT checked: ${ARTIFACTS[*]}" >&2
-  echo "  A contract change that skips \`pnpm gen:api\` will not be caught by this run." >&2
-  echo "  Install the frontend toolchain (\`make install\`) to arm this leg." >&2
-  exit 0
-fi
-
+# The census comes FIRST, before any exit. An empty list on the skip path would
+# print "0 artifact(s) NOT checked" and exit 0, which is the vacuous pass this
+# gate is about — reachable on a bare checkout, where nobody would look.
 if [[ ${#ARTIFACTS[@]} -eq 0 ]]; then
   echo "check-contract-frontend-drift: FAIL — the artifact list is empty, so this leg" >&2
   echo "  would report success having compared nothing." >&2
   exit 1
+fi
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "check-contract-frontend-drift: SKIPPED — pnpm is not on PATH." >&2
+  echo "  ${#ARTIFACTS[@]} artifact(s) NOT checked: ${ARTIFACTS[*]}" >&2
+  echo "  A contract change that skips \`pnpm gen:api\` will not be caught by this run." >&2
+  echo "  Install the frontend toolchain (\`make install\`) to arm this leg." >&2
+  echo "  On a pull request CI still covers it: fe-quality runs make fe-drift, and the" >&2
+  echo "  change classifier routes backend/api/** to the frontend lane." >&2
+  exit 0
 fi
 
 cd "$ROOT/frontend"
