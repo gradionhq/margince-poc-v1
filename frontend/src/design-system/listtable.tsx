@@ -74,6 +74,8 @@ export type ListSelection<Row> = {
   onToggle: (row: Row) => void;
   /** The checkbox's accessible name for a row — "Select Anna Weber". */
   label: (row: Row) => string;
+  /** Rows the verbs cannot act on carry no checkbox. Default: every row. */
+  selectable?: (row: Row) => boolean;
   /** The bulk bar: the count and the verbs. Rendered while anything is selected. */
   bar: ReactNode;
 };
@@ -94,7 +96,7 @@ function RowSelect<Row>({
   rowKey: (row: Row) => string;
   selection?: ListSelection<Row>;
 }>) {
-  if (!selection || !identity) {
+  if (!selection || !identity || selection.selectable?.(row) === false) {
     return null;
   }
   return (

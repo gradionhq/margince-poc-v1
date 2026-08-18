@@ -575,6 +575,11 @@ export function LeadsScreen() {
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
+  // Only ids the list currently holds count as selected: a row that left the
+  // result set (refetched away, paged out, filtered out) must not linger as
+  // an invisible selection nobody can clear.
+  const selectedRows = state.rows.filter((lead) => selected.has(lead.id));
+  const liveSelection = new Set(selectedRows.map((lead) => lead.id));
   // The board writes status, which the mirror refuses (a lead's lifecycle is
   // not a field write-back), so overlay gets the table and no toggle.
   const overlay = useSorMode() === "overlay";
@@ -673,7 +678,9 @@ export function LeadsScreen() {
         ]}
         rowKey={(lead) => lead.id}
         selection={{
-          selected,
+          selected: liveSelection,
+          // A closed lead takes no writes (STATE-4a): no checkbox, no verb.
+          selectable: (lead) => !lead.archived_at,
           onToggle: (lead) =>
             setSelected((prev) => {
               const next = new Set(prev);
@@ -690,7 +697,7 @@ export function LeadsScreen() {
             }),
           bar: (
             <LeadBulkBar
-              leads={state.rows.filter((lead) => selected.has(lead.id))}
+              leads={selectedRows}
               // The rows that went through leave the selection; the ones that
               // refused stay in it, named, so the reader can retry them once
               // the list has refetched their versions.

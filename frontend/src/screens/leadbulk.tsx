@@ -65,8 +65,12 @@ export function LeadBulkBar({
         }
         return done;
       }, Promise.resolve([])),
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
+    onSuccess: async (result) => {
+      // Awaited: the rows that refused keep their selection so they can be
+      // retried, and a retry that fired before the refetch landed would
+      // resend the very version that just conflicted. The run stays pending
+      // — and the verbs disabled — until the list holds fresh versions.
+      await queryClient.invalidateQueries({ queryKey: ["leads"] });
       setOutcomes(result);
       onDone(result);
     },
