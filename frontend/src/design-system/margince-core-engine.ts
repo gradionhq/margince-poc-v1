@@ -190,6 +190,7 @@ type Lean = { strength: number; x: number; y: number };
 function easeDots(
   dots: readonly Dot[],
   motion: CoreMotion,
+  amp: number,
   time: number,
   box: Box,
   lean: Lean,
@@ -223,8 +224,14 @@ function easeDots(
     }
     dot.x = lerp(dot.x, x * box.scale * box.spread, settle);
     dot.y = lerp(dot.y, y * box.scale * box.spread, settle);
-    dot.sx = lerp(dot.sx, target.sx, dt * 6);
-    dot.sy = lerp(dot.sy, target.sy, dt * 6);
+    // The dots breathe with the ball, on the same rhythm rather than a rhythm of
+    // their own: two close periods beat against each other, and what a reader
+    // sees then is the ball and its contents disagreeing about when to swell. The
+    // depth follows the state's own `amp`, so `dormant` is a slow settle and
+    // `drafting` visibly pumps.
+    const swell = 1 + (rhythm - 0.5) * 0.16 * (0.5 + amp * 0.7);
+    dot.sx = lerp(dot.sx, target.sx * swell, dt * 6);
+    dot.sy = lerp(dot.sy, target.sy * swell, dt * 6);
     // Rotation must not ease the long way round when a target flips sign.
     dot.rotation =
       Math.abs(target.rotation - dot.rotation) > 90
@@ -335,7 +342,15 @@ function runOrbLoop(
     tilt.y = lerp(tilt.y, lean.y * lean.strength, dt * 7);
     // Under reduced motion the easing is instant: a settle animation IS motion,
     // however small, so the one frame drawn has to be the settled one.
-    easeDots(dots, behaviour.motion, time, box, lean, reduced ? 1 : dt);
+    easeDots(
+      dots,
+      behaviour.motion,
+      behaviour.amp,
+      time,
+      box,
+      lean,
+      reduced ? 1 : dt,
+    );
     writeLiquid(blobs, time, box);
     for (const dot of dots) {
       writeDot(dot, box, lineMode);
