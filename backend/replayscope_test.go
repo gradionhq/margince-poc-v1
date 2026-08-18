@@ -56,6 +56,7 @@ var rowScopedResponses = map[string]expectedTarget{
 	"SavedView":           {table: "saved_view", idPath: "id"},
 	"Automation":          {table: "automation", idPath: "id"},
 	"PromoteLeadResponse": {table: "person", idPath: "person.id"},
+	"DemoteLeadResponse":  {table: "lead", idPath: "lead.id"},
 	// A scheduled message is readable only by the rep who scheduled it, which
 	// the store enforces with its own scheduled_by predicate rather than an
 	// owner column the generic probe could read. It still carries an id and

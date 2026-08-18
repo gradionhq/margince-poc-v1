@@ -42,11 +42,12 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
+import { RECORD_ZONE } from "./company360";
 import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, useRoster } from "./entityref";
+import { EntityRef, OwnerName, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
 import {
   type ListPage,
@@ -526,7 +527,7 @@ function LeadBoard({
 export function LeadsScreen() {
   const ownerChips = useLeadOwnerChips();
   const t = useT();
-  const viewerId = useViewerId();
+  const { locale } = useLocale();
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
@@ -616,13 +617,22 @@ export function LeadsScreen() {
             cell: (lead: Lead) => <StatusBadge status={lead.status} />,
           },
           {
-            key: "provenance",
-            header: t("people.capturedBy"),
+            key: "owner",
+            header: t("list.owner"),
             cell: (lead: Lead) => (
-              <ProvenanceTag
-                provenance={provenanceOf(lead.captured_by, viewerId)}
-              />
+              <OwnerName ownerId={lead.owner_id} unowned={t("list.unowned")} />
             ),
+            sort: "owner_id",
+          },
+          {
+            key: "created",
+            header: t("list.created"),
+            cell: (lead: Lead) => (
+              <span className="t-caption">
+                {formatDateAbbrev(lead.created_at, locale, RECORD_ZONE)}
+              </span>
+            ),
+            sort: "created_at",
           },
         ]}
         rowKey={(lead) => lead.id}
@@ -1462,6 +1472,154 @@ function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
 }
 
 /**
+ * PromotePreviewLine says what promoting will DO before the rep commits
+ * (ADR-0119/A170): merge into a contact we already hold, or create one. It
+ * reads GET /leads/{id}/promote-preview, which runs the promotion's own dedupe
+ * ladder without writing.
+ *
+ * An absent person on a `merge` never means "no match" — it means the matched
+ * contact is outside the reader's row scope, and the line says so rather than
+ * promising a new contact the server will not create.
+ */
+function PromotePreviewLine({
+  id,
+  open,
+}: Readonly<{ id: string; open: boolean }>) {
+  const t = useT();
+  const preview = useQuery({
+    queryKey: ["lead-promote-preview", id],
+    enabled: open,
+    // Always fresh: the answer is about the workspace as it stands the moment
+    // the dialog opens, and a 30s-old "create" can be a merge by now.
+    staleTime: 0,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/leads/{id}/promote-preview", {
+        params: { path: { id } },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+  });
+  if (preview.isPending) {
+    return <p className="t-caption">{t("lead.previewPending")}</p>;
+  }
+  // A failed preview does not block the promotion; the confirm still runs
+  // the same ladder. It just cannot be described in advance.
+  if (preview.isError || !preview.data) {
+    return null;
+  }
+  if (preview.data.outcome === "create") {
+    return <p className="t-caption">{t("lead.previewCreate")}</p>;
+  }
+  if (!preview.data.person) {
+    return <p className="t-caption">{t("lead.previewMergeWithheld")}</p>;
+  }
+  return (
+    <p className="t-caption">
+      {t("lead.previewMerge")}{" "}
+      <EntityRef kind="person" id={preview.data.person.id} />
+    </p>
+  );
+}
+
+/**
+ * DemoteAction is the reversal ADR-0008 §4 promises, from the one page that
+ * can honestly host it. A reason is required and recorded: an undo nobody
+ * explained is later indistinguishable from a mistake.
+ */
+function DemoteAction({ id }: Readonly<{ id: string }>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const headingId = useId();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const demote = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/leads/{id}/demote", {
+        params: { path: { id } },
+        body: { reason: reason.trim() },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["lead", id] });
+      queryClient.invalidateQueries({
+        queryKey: ["record-history", "lead", id],
+      });
+      setOpen(false);
+      setReason("");
+    },
+  });
+  const close = () => {
+    setOpen(false);
+    demote.reset();
+  };
+  return (
+    <>
+      <Button small onClick={() => setOpen(true)}>
+        {t("lead.demote")}
+      </Button>
+      <Modal open={open} onClose={close} labelledBy={headingId}>
+        <h2
+          id={headingId}
+          className="t-h2"
+          style={{ marginBottom: "var(--space-3)" }}
+        >
+          {t("lead.demoteDialog")}
+        </h2>
+        <p className="t-body" style={{ marginBottom: "var(--space-3)" }}>
+          {t("lead.demoteExplain")}
+        </p>
+        <label
+          className="t-caption field"
+          style={{ marginBottom: "var(--space-4)" }}
+        >
+          {t("lead.demoteReason")}
+          <Textarea
+            aria-label={t("lead.demoteReason")}
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </label>
+        {demote.isError && (
+          <p
+            className="t-caption"
+            style={{ color: "var(--danger)", marginBottom: "var(--space-3)" }}
+          >
+            {problemMessageOf(demote.error, t)}
+          </p>
+        )}
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <Button small onClick={close} disabled={demote.isPending}>
+            {t("create.cancel")}
+          </Button>
+          <Button
+            small
+            variant="primary"
+            disabled={demote.isPending || reason.trim() === ""}
+            onClick={() => demote.mutate()}
+          >
+            {t("lead.demoteConfirm")}
+          </Button>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+/**
  * PromotedLeadPanel is what a promoted lead's page is FOR (ADR-0119/A170).
  *
  * The page used to redirect to the person, which told the reader the lead had
@@ -1476,6 +1634,7 @@ function PromotedLeadPanel({
   lead,
   promotion,
 }: Readonly<{ lead: Lead; promotion: PromotionRecord }>) {
+  const overlay = useSorMode() === "overlay";
   const t = useT();
   const { locale } = useLocale();
   const triggerLabel = PROMOTE_TRIGGERS.find(
@@ -1531,6 +1690,14 @@ function PromotedLeadPanel({
           <p className="t-caption">
             {t("lead.promotedEvidence")} {promotion.evidenceNote}
           </p>
+        )}
+        {/* The reversal lives here and nowhere else: this is the record the
+            promotion is a fact about. Not in overlay, where the mirror owns
+            the person. */}
+        {!overlay && (
+          <div style={{ marginTop: "var(--space-3)" }}>
+            <DemoteAction id={lead.id} />
+          </div>
         )}
       </PanelBody>
     </Panel>
@@ -1629,6 +1796,9 @@ function LeadOverviewPane({
                     onChange={(event) => setNote(event.target.value)}
                   />
                 </label>
+              </div>
+              <div style={{ marginBottom: "var(--space-3)" }}>
+                <PromotePreviewLine id={id} open={promoteOpen} />
               </div>
               {promoteErrorMessage && (
                 <p

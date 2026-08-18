@@ -105,6 +105,32 @@ describe("promote eligibility gate", () => {
 });
 
 describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
+  it("names the owner on each row, the way the people and company lists do", async () => {
+    // The column this replaced rendered "typed by a person" for every
+    // human-captured row — the bug #1577 fixed on People and Companies while
+    // this list kept its own copy of the column. Same column, same test.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [
+              { id: "u-9", email: "lena@x.test", display_name: "Lena F." },
+            ],
+            page: { next_cursor: null },
+          });
+        }
+        return jsonResponse({
+          data: [{ ...lead, owner_id: "u-9" }],
+          page: { next_cursor: null },
+        });
+      }),
+    );
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Lena F.")).toBeTruthy());
+    expect(screen.queryByText(/typed by a person/i)).toBeNull();
+  });
+
   it("a lead row navigates to the LEAD detail, not the person screen", async () => {
     vi.stubGlobal(
       "fetch",
@@ -396,6 +422,98 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     ).toBeTruthy();
     expect(screen.getByText(/Inbound reply/)).toBeTruthy();
     expect(screen.getByText(/Replied asking for a quote\./)).toBeTruthy();
+  });
+
+  it("the promote dialog says what promotion will do before the rep commits", async () => {
+    // ADR-0119/A170: merge-into-existing vs create is the difference between
+    // "my prospect is now a contact" and "my prospect was already someone we
+    // knew". The preview runs the same ladder the promotion runs.
+    stubFetch(async (url) => {
+      if (url.includes("/promote-preview")) {
+        return jsonResponse({ outcome: "merge", person: anna });
+      }
+      if (url.includes("/people/")) {
+        return jsonResponse(anna);
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    expect(
+      await screen.findByText(/Promoting will merge into the existing contact/),
+    ).toBeTruthy();
+  });
+
+  it("a withheld merge target is never read as 'create'", async () => {
+    // An absent person on a merge means "outside your row scope", not "no
+    // match": promising a new contact here would be the wrong half to guess.
+    stubFetch(async (url) => {
+      if (url.includes("/promote-preview")) {
+        return jsonResponse({
+          outcome: "merge",
+          person_withheld: true,
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    expect(
+      await screen.findByText(
+        "Promoting will merge into an existing contact you cannot see.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Promoting will create a new contact."),
+    ).toBeNull();
+  });
+
+  it("a promoted lead can be demoted from its own page, with a recorded reason", async () => {
+    // The reversal ADR-0008 §4 promises, from the one page that is a fact about
+    // the promotion. The reason is required — the button stays disabled until
+    // one is typed — and the request carries it verbatim.
+    const promoted = {
+      ...lead,
+      status: "promoted",
+      promoted_person_id: "p-42",
+      promoted_at: "2026-06-20T08:00:00Z",
+      archived_at: "2026-06-20T08:00:00Z",
+    };
+    let demoteBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/leads/l-1/demote")) {
+        demoteBody = JSON.parse(await request.text());
+        return jsonResponse({
+          lead: { ...lead, status: "working" },
+          unwind: "reversed",
+          person_id: "p-42",
+        });
+      }
+      if (url.includes("/records/lead/")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse(promoted);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Reverse promotion" }),
+    );
+    const confirm = screen.getByRole("button", { name: "Reverse" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(
+      screen.getByLabelText("Reason (recorded in the audit trail)"),
+      "Promoted the wrong prospect",
+    );
+    await userEvent.click(confirm);
+    await waitFor(() => expect(demoteBody).not.toBeNull());
+    expect(demoteBody).toEqual({ reason: "Promoted the wrong prospect" });
   });
 
   it("a promoted lead reads as promoted, not disqualified", async () => {

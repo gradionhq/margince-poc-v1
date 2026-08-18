@@ -33,6 +33,7 @@ const (
 	leadCompanyColumn = "company_name"
 	leadStatusColumn  = "status"
 	leadScoreColumn   = "score"
+	leadSourceColumn  = "source"
 	createdAtColumn   = "created_at"
 	updatedAtColumn   = "updated_at"
 )
@@ -77,6 +78,9 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 			}
 			if in.MinScore != nil {
 				where = append(where, storekit.SQLf(leadScoreColumn+" >= $%d", arg(*in.MinScore)))
+			}
+			if in.Source != nil {
+				where = append(where, storekit.SQLf(leadSourceColumn+" = $%d", arg(*in.Source)))
 			}
 			return where, nil
 		},

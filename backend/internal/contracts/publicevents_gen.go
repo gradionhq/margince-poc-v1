@@ -80,6 +80,7 @@ const (
 	IncumbentConnected        SubscribableEventType = "incumbent.connected"
 	IncumbentDisconnected     SubscribableEventType = "incumbent.disconnected"
 	LeadCreated               SubscribableEventType = "lead.created"
+	LeadDemoted               SubscribableEventType = "lead.demoted"
 	LeadDisqualified          SubscribableEventType = "lead.disqualified"
 	LeadPromoted              SubscribableEventType = "lead.promoted"
 	LeadUpdated               SubscribableEventType = "lead.updated"
@@ -190,6 +191,8 @@ func (e SubscribableEventType) Valid() bool {
 	case IncumbentDisconnected:
 		return true
 	case LeadCreated:
+		return true
+	case LeadDemoted:
 		return true
 	case LeadDisqualified:
 		return true
@@ -648,6 +651,15 @@ type PublicEventIncumbentDisconnected struct {
 type PublicEventLeadCreated struct {
 	// SourceSystem The originating source system (capture auto-create only; absent on a direct create).
 	SourceSystem *string `json:"source_system,omitempty"`
+}
+
+// PublicEventLeadDemoted Payload for lead.demoted — the audited reverse of lead.promoted (formulas §26): the lead is back in the segregated pool and the person-side lineage is nulled. Its own verb, because a lead.updated cannot say a person node lost its lineage.
+type PublicEventLeadDemoted struct {
+	// FromPersonId The person the promotion had created or merged into.
+	FromPersonId openapi_types.UUID `json:"from_person_id"`
+
+	// Unwind reversed (the created person is archived) or merge_lineage_only (the pre-existing person is untouched; only lineage pointers are nulled).
+	Unwind string `json:"unwind"`
 }
 
 // PublicEventLeadDisqualified Payload for lead.disqualified — a lead was disqualified. Carries no data.
@@ -1449,6 +1461,10 @@ func (PublicEventLeadCreated) EventType() string { return "lead.created" }
 
 func (PublicEventLeadCreated) EntityType() string { return "lead" }
 
+func (PublicEventLeadDemoted) EventType() string { return "lead.demoted" }
+
+func (PublicEventLeadDemoted) EntityType() string { return "lead" }
+
 func (PublicEventLeadDisqualified) EventType() string { return "lead.disqualified" }
 
 func (PublicEventLeadDisqualified) EntityType() string { return "lead" }
@@ -1690,6 +1706,7 @@ var PublicEventVersions = map[string]int{
 	"incumbent.connected":          1,
 	"incumbent.disconnected":       1,
 	"lead.created":                 1,
+	"lead.demoted":                 1,
 	"lead.disqualified":            1,
 	"lead.promoted":                1,
 	"lead.updated":                 1,

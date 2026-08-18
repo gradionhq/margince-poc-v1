@@ -1304,6 +1304,17 @@ export const en = {
   "lead.promotedAt": "Promoted",
   "lead.promotedTrigger": "Trigger:",
   "lead.promotedEvidence": "Evidence:",
+  "lead.previewPending": "Checking whether we already know this person…",
+  "lead.previewCreate": "Promoting will create a new contact.",
+  "lead.previewMerge": "Promoting will merge into the existing contact",
+  "lead.previewMergeWithheld":
+    "Promoting will merge into an existing contact you cannot see.",
+  "lead.demote": "Reverse promotion",
+  "lead.demoteDialog": "Reverse this promotion?",
+  "lead.demoteExplain":
+    "The lead returns to the queue as “Working”. A contact the promotion created is archived; a contact it merged into stays as it is. A contact on a live deal cannot be reversed.",
+  "lead.demoteReason": "Reason (recorded in the audit trail)",
+  "lead.demoteConfirm": "Reverse",
   "lead.promotedOutcomePending": "Reading what this promotion did…",
   "lead.promotedOutcomeUnavailable":
     "We cannot show whether this merged or created a contact.",

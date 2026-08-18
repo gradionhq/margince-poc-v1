@@ -319,6 +319,7 @@ func (s Server) ListLeads(w http.ResponseWriter, r *http.Request, params crmcont
 			{paramStatus, params.Status != nil},
 			{paramOwnerID, params.OwnerId != nil},
 			{"min_score", params.MinScore != nil},
+			{"source", params.Source != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
 			{paramAiWritten, params.AiWritten != nil},
 		},

@@ -1296,6 +1296,18 @@ export const de = {
   "lead.promotedAt": "Übernommen am",
   "lead.promotedTrigger": "Auslöser:",
   "lead.promotedEvidence": "Beleg:",
+  "lead.previewPending": "Prüfe, ob wir diese Person schon kennen …",
+  "lead.previewCreate": "Die Übernahme legt einen neuen Kontakt an.",
+  "lead.previewMerge":
+    "Die Übernahme führt mit dem bestehenden Kontakt zusammen:",
+  "lead.previewMergeWithheld":
+    "Die Übernahme führt mit einem bestehenden Kontakt zusammen, den Sie nicht sehen können.",
+  "lead.demote": "Übernahme rückgängig machen",
+  "lead.demoteDialog": "Übernahme rückgängig machen?",
+  "lead.demoteExplain":
+    "Der Lead kehrt als „In Bearbeitung“ in die Liste zurück. Ein Kontakt, den die Übernahme angelegt hat, wird archiviert; ein Kontakt, mit dem zusammengeführt wurde, bleibt unverändert. Bei einem Kontakt an einem laufenden Deal ist die Rücknahme nicht möglich.",
+  "lead.demoteReason": "Grund (wird im Protokoll festgehalten)",
+  "lead.demoteConfirm": "Rückgängig machen",
   "lead.promotedOutcomePending":
     "Wird gelesen, was diese Übernahme bewirkt hat …",
   "lead.promotedOutcomeUnavailable":

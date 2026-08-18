@@ -248,7 +248,7 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 		outcome = "merged"
 	}
 	after := map[string]any{
-		"status": "promoted", "promoted_person_id": personID,
+		leadStatusColumn: "promoted", fieldKeyPromotedPerson: personID,
 		"trigger": in.Trigger, "dedupe_outcome": outcome,
 	}
 	if in.EvidenceActivityID != nil {
@@ -258,7 +258,7 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 		after["evidence_note"] = *in.EvidenceNote
 	}
 	auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
-		map[string]any{"status": lead.Status}, after)
+		map[string]any{leadStatusColumn: lead.Status}, after)
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("audit lead promote: %w", err)
 	}
