@@ -134,3 +134,113 @@ func TestDedupeLeadMergeArm(t *testing.T) {
 		t.Errorf("loser's note links %v; want the survivor %s", linkedTo, winner)
 	}
 }
+
+// seedPurpose adds one consent purpose to the dedupe env's workspace.
+func (e *dedupeEnv) seedPurpose(ctx context.Context, t *testing.T, key string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `INSERT INTO consent_purpose (id, key, label) VALUES ($1, $2, $2)`, id, key)
+		return err
+	}); err != nil {
+		t.Fatalf("seed purpose: %v", err)
+	}
+	return id
+}
+
+// seedLeadConsent writes a lead-scoped consent state row plus its proof event.
+func (e *dedupeEnv) seedLeadConsent(ctx context.Context, t *testing.T, lead ids.LeadID, purpose ids.UUID, state string) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO person_consent (lead_id, purpose_id, state, captured_at, source) VALUES ($1, $2, $3, now(), 'form')`,
+			lead, purpose, state); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO consent_event (lead_id, purpose_id, new_state, source, policy_text, policy_version, captured_at, captured_by)
+			 VALUES ($1, $2, $3, 'form', 'seeded wording', 'v1', now(), 'human:x')`,
+			lead, purpose, state)
+		return err
+	}); err != nil {
+		t.Fatalf("seed lead consent: %v", err)
+	}
+}
+
+// A merge never turns an opt-out back into a grant: the loser's withdrawal
+// flips the survivor's grant, with a proof event; and the proof rows travel
+// with the state, so the survivor's grants stay actionable.
+func TestLeadMergeCarriesWithdrawalAndProof(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	newsletter := e.seedPurpose(ctx, t, "newsletter")
+	updates := e.seedPurpose(ctx, t, "product_updates")
+	survivor := e.createLead(ctx, t, "Karin Vogt", "karin@vogt.test", "Vogt KG")
+	loser := e.createLead(ctx, t, "Karin Voigt", "", "Vogt KG")
+	e.seedLeadConsent(ctx, t, survivor, newsletter, "granted")
+	e.seedLeadConsent(ctx, t, loser, newsletter, "withdrawn")
+	e.seedLeadConsent(ctx, t, loser, updates, "granted")
+
+	if _, err := e.store.MergeLead(ctx, loser, survivor); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	var newsletterState, updatesState string
+	var proofOnSurvivor, proofOnLoser int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `SELECT state FROM person_consent WHERE lead_id = $1 AND purpose_id = $2`, survivor, newsletter).Scan(&newsletterState); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT state FROM person_consent WHERE lead_id = $1 AND purpose_id = $2`, survivor, updates).Scan(&updatesState); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM consent_event WHERE lead_id = $1`, survivor).Scan(&proofOnSurvivor); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, `SELECT count(*) FROM consent_event WHERE lead_id = $1`, loser).Scan(&proofOnLoser)
+	}); err != nil {
+		t.Fatalf("read consent after merge: %v", err)
+	}
+	if newsletterState != "withdrawn" {
+		t.Errorf("newsletter on the survivor = %q; the loser's withdrawal must win", newsletterState)
+	}
+	if updatesState != "granted" {
+		t.Errorf("product_updates on the survivor = %q; the loser's grant must carry", updatesState)
+	}
+	if proofOnLoser != 0 || proofOnSurvivor < 4 {
+		t.Errorf("proof rows: survivor=%d loser=%d; every event must sit on the live lead", proofOnSurvivor, proofOnLoser)
+	}
+}
+
+// Merging {A,B} leaves no open pair naming A: {A,C} can no longer be decided
+// and is retired rather than offered as a merge that can only fail.
+func TestLeadMergeRetiresOtherPairsNamingTheLoser(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	a := e.createLead(ctx, t, "Tomas Berg", "tomas@berg.test", "Berg Bau")
+	b := e.createLead(ctx, t, "Tomas Bergg", "", "Berg Bau")
+	e.createLead(ctx, t, "Thomas Berg", "", "Berg Bau")
+	open := openCandidates(ctx, t, e, entityLead)
+	if len(open) < 2 {
+		t.Fatalf("expected at least two lead pairs on the queue, got %d", len(open))
+	}
+	// Merge A into B through whichever pair names them both.
+	var ab ids.UUID
+	for _, row := range open {
+		got := map[string]bool{row.LeftID.String(): true, row.RightID.String(): true}
+		if got[a.String()] && got[b.String()] {
+			ab = row.ID
+		}
+	}
+	if ab.IsZero() {
+		t.Fatalf("no {A,B} pair on the queue")
+	}
+	winner := b.UUID
+	if _, err := e.store.DisposeDedupeCandidate(ctx, ab, "merge", &winner); err != nil {
+		t.Fatalf("merge dispose: %v", err)
+	}
+	for _, row := range openCandidates(ctx, t, e, entityLead) {
+		if row.LeftID == a.UUID || row.RightID == a.UUID {
+			t.Errorf("an open pair still names the merged-away lead %s (%s)", a, row.ID)
+		}
+	}
+}

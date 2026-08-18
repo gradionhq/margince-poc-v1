@@ -6,6 +6,7 @@ package people
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -34,6 +35,10 @@ func (s *Store) MergeLead(ctx context.Context, sourceID, targetID ids.LeadID) (c
 	if sourceID == targetID {
 		return crmcontracts.Lead{}, &MergeSelfError{}
 	}
+	by, err := storekit.CapturedBy(ctx)
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	active, err := s.activeColumns(ctx, entityLead)
 	if err != nil {
 		return crmcontracts.Lead{}, err
@@ -41,7 +46,7 @@ func (s *Store) MergeLead(ctx context.Context, sourceID, targetID ids.LeadID) (c
 	var out crmcontracts.Lead
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
-		out, err = mergeLeadTx(ctx, tx, sourceID, targetID, active)
+		out, err = mergeLeadTx(ctx, tx, sourceID, targetID, active, by)
 		return err
 	})
 	return out, err
@@ -51,7 +56,7 @@ func (s *Store) MergeLead(ctx context.Context, sourceID, targetID ids.LeadID) (c
 // fills the survivor's gaps, retires the loser and lands the write shape —
 // all inside the caller's transaction, under the pair lock that keeps the
 // survivor live until commit.
-func mergeLeadTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.LeadID, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
+func mergeLeadTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.LeadID, active []fieldcatalog.Column, by string) (crmcontracts.Lead, error) {
 	_, tgtLock, err := storekit.LockPair(ctx, tx, entityLead, sourceID.UUID, targetID.UUID)
 	if err != nil {
 		return crmcontracts.Lead{}, err
@@ -63,15 +68,18 @@ func mergeLeadTx(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.LeadID, 
 	if err := carryLeadActivitiesToLead(ctx, tx, sourceID, targetID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	if err := carryLeadConsentToLead(ctx, tx, sourceID, targetID); err != nil {
+	if err := carryLeadConsentToLead(ctx, tx, sourceID, targetID, by); err != nil {
 		return crmcontracts.Lead{}, err
 	}
 	if err := carryLeadMembershipsToLead(ctx, tx, sourceID, targetID); err != nil {
 		return crmcontracts.Lead{}, err
 	}
-	// The loser retires BEFORE the survivor takes its keys: email and
-	// linkedin_url are unique among LIVE leads, so a fill that ran first
-	// would collide with the row about to be archived.
+	if err := retireStaleCandidates(ctx, tx, sourceID); err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	// The loser retires BEFORE the survivor takes its keys: email is unique
+	// among LIVE leads, so a fill that ran first would collide with the row
+	// about to be archived.
 	if err := archiveMergedAway(ctx, tx, entityLead, sourceID.UUID, targetID.UUID); err != nil {
 		return crmcontracts.Lead{}, fmt.Errorf("retire merged-away lead: %w", err)
 	}
@@ -157,11 +165,38 @@ func carryLeadActivitiesToLead(ctx context.Context, tx pgx.Tx, sourceID, targetI
 	return nil
 }
 
-// carryLeadConsentToLead re-points the loser's consent rows to the survivor
-// where the survivor holds none for that purpose; a colliding row is dropped
-// and the survivor's state stands (the promotion carry's rule, lead-to-lead).
-// Historical consent_event rows stay as written — they are the proof.
-func carryLeadConsentToLead(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.LeadID) error {
+// carryLeadConsentToLead re-points the loser's consent onto the survivor,
+// under the same rules the promotion carry keeps (carryLeadConsent):
+//
+//   - withdrawal wins: a withdrawn state on the loser flips the survivor's
+//     grant for that purpose, with an appended consent_event as proof — a
+//     merge must never turn an opt-out back into a grant;
+//   - where the survivor already holds a row for a purpose its state stands
+//     otherwise, and the colliding loser row is dropped;
+//   - the rest re-point.
+//
+// The consent_event proof rows re-home WITH the state: the delivery gate
+// reads the double-opt-in proof off the live lead, so a grant that moved
+// while its confirmation stayed on the archived row would be a grant nobody
+// can act on.
+func carryLeadConsentToLead(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.LeadID, by string) error {
+	if _, err := tx.Exec(ctx, `
+		WITH flipped AS (
+		  UPDATE person_consent b SET state = 'withdrawn', captured_at = $3, source = 'merge'
+		  FROM person_consent a
+		  WHERE a.lead_id = $1 AND b.lead_id = $2
+		    AND a.purpose_id = b.purpose_id
+		    AND a.state = 'withdrawn' AND b.state <> 'withdrawn'
+		  RETURNING b.purpose_id
+		)
+		INSERT INTO consent_event (lead_id, purpose_id, new_state, source,
+		                           policy_text, policy_version, captured_at, captured_by)
+		SELECT $2, purpose_id, 'withdrawn', 'merge',
+		       'withdrawal carried over from the merged-away lead', 'merge', $3, $4
+		FROM flipped`,
+		sourceID, targetID, time.Now().UTC(), by); err != nil {
+		return fmt.Errorf("carry lead consent withdrawals: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM person_consent a
 		WHERE a.lead_id = $1 AND EXISTS (
@@ -171,6 +206,24 @@ func carryLeadConsentToLead(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 	}
 	if _, err := tx.Exec(ctx, `UPDATE person_consent SET lead_id = $2 WHERE lead_id = $1`, sourceID, targetID); err != nil {
 		return fmt.Errorf("carry lead consent: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE consent_event SET lead_id = $2 WHERE lead_id = $1`, sourceID, targetID); err != nil {
+		return fmt.Errorf("carry lead consent proof: %w", err)
+	}
+	return nil
+}
+
+// retireStaleCandidates archives every OTHER open pair naming the loser: its
+// endpoint is gone, so the pair can no longer be decided, and a queue row
+// that can only fail on merge is worse than none. Archived, not disposed —
+// nobody judged those pairs, and the row survives as the pair-unique fact.
+func retireStaleCandidates(ctx context.Context, tx pgx.Tx, loser ids.LeadID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE dedupe_candidate SET archived_at = $2
+		WHERE entity_type = 'lead' AND disposition = 'open' AND archived_at IS NULL
+		  AND (left_lead_id = $1 OR right_lead_id = $1)`,
+		loser, time.Now().UTC()); err != nil {
+		return fmt.Errorf("retire stale lead candidates: %w", err)
 	}
 	return nil
 }
