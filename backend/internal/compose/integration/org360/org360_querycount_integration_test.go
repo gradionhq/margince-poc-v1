@@ -186,16 +186,16 @@ func seedAccount(t *testing.T, e *integration.Env, owner *pgx.Conn, name string,
 	org := e.SeedOrg(t, name, &e.Rep1)
 	for range n {
 		contact := e.SeedPerson(t, name+" contact", &e.Rep1)
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
+		e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+			VALUES ('employment', $1, $2, 'manual', 'human:x')`, contact, org)
 		activity := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
 			VALUES ($1, 'email', 'touch', '2026-05-28T09:00:00Z', 'inbound', 'manual', 'human:x')`)
 		integration.LinkActivity(t, owner, activity, "person", contact)
 
 		deal := e.SeedDeal(t, name+" deal", pipeline, stage, &e.Rep1)
 		e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
-			VALUES ($1, 'deal_stakeholder', $2, $3, 'champion', 'manual', 'human:x')`, e.WS, contact, deal)
+		e.WsExec(t, `INSERT INTO relationship (kind, person_id, deal_id, role, source, captured_by)
+			VALUES ('deal_stakeholder', $1, $2, 'champion', 'manual', 'human:x')`, contact, deal)
 	}
 	return ids.From[ids.OrganizationKind](org)
 }

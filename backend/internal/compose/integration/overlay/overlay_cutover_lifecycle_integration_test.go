@@ -182,7 +182,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%'`, 3)
 	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`, 2)
-	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
+	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed deal→org FK", `
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id
@@ -246,28 +246,14 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 	// cascade from it, and this fixture only has to clear what now collides
 	// installation-wide.
 	// The order is the foreign keys' — a deal points at its stage, its pipeline
-	// and its organization — and the predicate is per table because ADR-0091 §8
-	// phase D has reached some of these and not others. A `workspace_id = $1`
-	// spelled for all seven fails outright on the six that no longer have it.
-	for _, t2 := range []struct {
-		table        string
-		tenantScoped bool
-	}{
-		{"deal", false},
-		{"stage", false},
-		{"pipeline", false},
-		{"organization", false},
-		{"person", false},
-		{"lead", true},
-		{"activity", false},
+	// and its organization. No workspace predicate on any of them: ADR-0091 §8
+	// phase D has now taken the column off all seven, so the estate IS every
+	// row of these tables.
+	for _, table := range []string{
+		"deal", "stage", "pipeline", "organization", "person", "lead", "activity",
 	} {
-		sql, args := "DELETE FROM "+t2.table, []any(nil)
-		if t2.tenantScoped {
-			sql += " WHERE workspace_id = $1"
-			args = []any{f.wsID}
-		}
-		if _, err := f.e.Owner.Exec(ctx, sql, args...); err != nil {
-			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", t2.table, err)
+		if _, err := f.e.Owner.Exec(ctx, "DELETE FROM "+table); err != nil {
+			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", table, err)
 		}
 	}
 	// The identity ledger goes with the estate, for the same reason and by the

@@ -123,12 +123,20 @@ func failEmbeddingWritesFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 			t.Errorf("dropping the fault-injection function: %v", err)
 		}
 	})
+	// The condition names the tenant the WRITE IS RUNNING AS, not the tenant on
+	// the row. Phase B keyed embedding on (entity_type, entity_id, chunk_ix)
+	// alone, so a row belongs to the installation and carries whichever tenant
+	// happened to write it first — a NEW.workspace_id test would then fire or
+	// not depending on which pass won the race, which is not what "this
+	// tenant's writes cannot land" means. The GUC is set by the pass's own
+	// WithWorkspaceTx, so this fires for every write that tenant attempts.
+	//
 	// CREATE TRIGGER takes no bind parameters, so the tenant is interpolated;
 	// it is a UUID rendered by ids.UUID.String(), never caller text.
 	if _, err := owner.Exec(ctx, `
 		CREATE TRIGGER embedding_write_fault_trigger
 		BEFORE INSERT OR UPDATE ON embedding
-		FOR EACH ROW WHEN (NEW.workspace_id = '`+ws.String()+`'::uuid)
+		FOR EACH ROW WHEN (current_setting('app.workspace_id', true) = '`+ws.String()+`')
 		EXECUTE FUNCTION embedding_write_fault()`); err != nil {
 		t.Fatalf("arming the fault-injection trigger: %v", err)
 	}

@@ -27,13 +27,6 @@ import (
 type pendingSource struct {
 	table string
 	text  string // expression over the aliased table t
-	// tenantScoped says whether this table still carries workspace_id.
-	// ADR-0091 §8 phase D removes it table by table, and this query is ONE
-	// statement templated over all six — so the predicate has to be per-source
-	// while they disagree, or it fails outright for whichever has already lost
-	// the column. Every entry goes false as its slice lands, and the field goes
-	// with the last one.
-	tenantScoped bool
 }
 
 // pendingSources is the set-form counterpart to embedgen.go's embedText —
@@ -45,17 +38,20 @@ var pendingSources = map[string]pendingSource{
 	entityPerson:       {table: entityPerson, text: "t.full_name"},
 	entityOrganization: {table: entityOrganization, text: "concat_ws(' ', t.display_name, t.legal_name, t.industry)"},
 	entityDeal:         {table: entityDeal, text: "t.name"},
-	entityLead:         {table: entityLead, text: "concat_ws(' ', t.full_name, t.company_name, t.title)", tenantScoped: true},
+	entityLead:         {table: entityLead, text: "concat_ws(' ', t.full_name, t.company_name, t.title)"},
 	entityActivity:     {table: entityActivity, text: "concat_ws(' ', t.subject, t.body)"},
 	entityProject:      {table: entityProject, text: "concat_ws(' ', t.name, t.key, t.description)"},
 }
 
-// PendingByWorkspace is the per-workspace count of live, non-empty-text
-// embeddable entities that lack a current-identity embedding row — the
-// same set EntitiesPending totals and TokenSumByWorkspace prices. system-
-// principal enumeration (mirrors embedgen.go:51-56): this is an index-
-// maintenance rollup, not a user-facing read, so it must see every live
-// entity regardless of any one caller's row scope.
+// PendingByWorkspace is what a re-embed pass for each enumerated workspace will
+// rebuild: live, non-empty-text embeddable entities lacking a current-identity
+// embedding row. Since phase D every entry holds the SAME number — no entity
+// table carries a tenant, so every pass rebuilds the installation's one corpus
+// — and the map collapses to a single figure when the fan-out does. Do not sum
+// it for a total; EntitiesPending says why. system-principal enumeration
+// (mirrors embedgen.go:51-56): this is an index-maintenance rollup, not a
+// user-facing read, so it must see every live entity regardless of any one
+// caller's row scope.
 func (s *Store) PendingByWorkspace(ctx context.Context, currentIdentity string) (map[ids.WorkspaceID]int, error) {
 	counts, _, err := s.pendingStats(ctx, currentIdentity)
 	return counts, err
@@ -73,18 +69,36 @@ func (s *Store) TokenSumByWorkspace(ctx context.Context, currentIdentity string)
 	return tokens, err
 }
 
-// EntitiesPending is the fleet-wide total — the sum of PendingByWorkspace,
-// and the second operand of ReindexNeeded's OR.
+// EntitiesPending is the installation's backlog, and it is deliberately NOT the
+// sum of PendingByWorkspace. Since ADR-0091 §8 phase D no embeddable entity
+// carries a tenant, so every workspace's rollup is the SAME set of rows;
+// summing would multiply the backlog by the number of workspaces enumerated and
+// report an installation with two of them as having twice the work. That number
+// reaches an operator as `entities_pending` and prices the re-embed's token
+// estimate, so the exaggeration would be a bill, not just a display.
+//
+// One pass, therefore, over the same query the per-workspace rollup runs. It is
+// the second operand of ReindexNeeded's OR, which only asks whether the count
+// is above zero — but the status read shows the figure itself.
 func (s *Store) EntitiesPending(ctx context.Context, currentIdentity string) (int, error) {
-	counts, err := s.PendingByWorkspace(ctx, currentIdentity)
+	count, _, err := s.installationPending(ctx, currentIdentity)
+	return count, err
+}
+
+// installationPending counts the backlog once, as the system principal and
+// bound to no particular tenant — which is what every entity table now is.
+func (s *Store) installationPending(ctx context.Context, currentIdentity string) (int, int64, error) {
+	workspaces, err := s.fleetWorkspaceIDs(ctx)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	total := 0
-	for _, c := range counts {
-		total += c
+	if len(workspaces) == 0 {
+		return 0, 0, nil
 	}
-	return total, nil
+	// Any workspace answers for the installation, because the query names none;
+	// the binding exists only so the read has a store handle to run through.
+	return s.forWorkspace(workspaces[0]).workspacePending(
+		systemWorkspaceContext(ctx, workspaces[0].UUID), currentIdentity)
 }
 
 // pendingStats enumerates the fleet and, per workspace, counts and sums
@@ -128,32 +142,21 @@ func (s *Store) pendingStats(ctx context.Context, currentIdentity string) (map[i
 func (s *Store) workspacePending(ctx context.Context, currentIdentity string) (count int, length int64, err error) {
 	txErr := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		for entityType, src := range pendingSources {
-			// The workspace predicates are the query's own — tenant isolation
-			// used to supply them, so this counted one tenant's backlog without
-			// saying so, and an unscoped count reports the whole installation's
-			// under every workspace the caller enumerates. They are conditional
-			// only because phase D has reached some of these tables and not
-			// others; see pendingSource.tenantScoped.
-			// Two fragments, not one: the entity predicate belongs in the OUTER
-			// where, and the embedding leg inside the NOT EXISTS. Folding the
-			// entity predicate into the subquery would invert it — a row of
-			// another workspace would match nothing there, so NOT EXISTS would
-			// be true and the row would be counted rather than excluded.
-			entityScope, embeddingScope := "", ""
-			if src.tenantScoped {
-				entityScope = `
-				  AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`
-				embeddingScope = ` AND e.workspace_id = t.workspace_id`
-			}
+			// Every embeddable entity is installation-wide since ADR-0091 §8
+			// phase D, so the backlog has no tenant to narrow to: one embedding
+			// at the current identity covers a row wherever this rollup counts
+			// it. The per-workspace shape survives only because the re-embed
+			// fan-out still enqueues one pass per workspace; the two collapse
+			// together.
 			sql := fmt.Sprintf(`
 				SELECT count(*), coalesce(sum(octet_length(btrim(%s))), 0)
 				FROM %s t
 				WHERE t.archived_at IS NULL
-				  AND btrim(%s) <> ''%s
+				  AND btrim(%s) <> ''
 				  AND NOT EXISTS (
 				        SELECT 1 FROM embedding e
-				        WHERE e.entity_type = '%s' AND e.entity_id = t.id AND e.model = $1%s)`,
-				src.text, src.table, src.text, entityScope, entityType, embeddingScope)
+				        WHERE e.entity_type = '%s' AND e.entity_id = t.id AND e.model = $1)`,
+				src.text, src.table, src.text, entityType)
 			var c int
 			var l int64
 			if err := tx.QueryRow(ctx, sql, currentIdentity).Scan(&c, &l); err != nil {

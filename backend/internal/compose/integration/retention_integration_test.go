@@ -34,19 +34,18 @@ func seedOverAgeRecords(t *testing.T, e *Env) (staleLead, heldLead, staleDeal, t
 	staleDeal = ids.NewV7()
 	transcript = ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		for _, stmt := range []struct {
 			sql  string
 			args []any
 		}{
 			{
-				`INSERT INTO lead (id, workspace_id, full_name, email, status, source, captured_by, created_at)
-			  VALUES ($1, ` + wsClause + `, 'Old Cold Lead', 'cold@old.example', 'new', 'manual', 'human:x', now() - interval '400 days')`,
+				`INSERT INTO lead (id, full_name, email, status, source, captured_by, created_at)
+			  VALUES ($1, 'Old Cold Lead', 'cold@old.example', 'new', 'manual', 'human:x', now() - interval '400 days')`,
 				[]any{staleLead},
 			},
 			{
-				`INSERT INTO lead (id, workspace_id, full_name, status, legal_hold, source, captured_by, created_at)
-			  VALUES ($1, ` + wsClause + `, 'Held Lead', 'new', true, 'manual', 'human:x', now() - interval '400 days')`,
+				`INSERT INTO lead (id, full_name, status, legal_hold, source, captured_by, created_at)
+			  VALUES ($1, 'Held Lead', 'new', true, 'manual', 'human:x', now() - interval '400 days')`,
 				[]any{heldLead},
 			},
 			{

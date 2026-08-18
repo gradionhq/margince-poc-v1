@@ -108,9 +108,9 @@ func (e *SearchEnv) seedEmployedContact(t *testing.T, orgID ids.UUID, name, emai
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
-		 VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`,
-		ids.NewV7(), e.WS, personID, orgID); err != nil {
+		`INSERT INTO relationship (id, kind, person_id, organization_id, source, captured_by)
+		 VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`,
+		ids.NewV7(), personID, orgID); err != nil {
 		t.Fatal(err)
 	}
 	return personID

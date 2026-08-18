@@ -259,7 +259,7 @@ func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UserID) (act
 	rows, err := tx.Query(ctx, `
 		SELECT u.id, count(l.id)
 		  FROM app_user u
-		  LEFT JOIN lead l ON l.workspace_id = u.workspace_id AND l.owner_id = u.id
+		  LEFT JOIN lead l ON l.owner_id = u.id
 		       AND l.status IN ('new','working') AND l.archived_at IS NULL
 		 WHERE u.id = ANY($1) AND u.status = 'active' AND u.archived_at IS NULL
 		 GROUP BY u.id`, candidates)

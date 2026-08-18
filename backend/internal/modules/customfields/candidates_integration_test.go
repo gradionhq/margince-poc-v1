@@ -134,9 +134,9 @@ func setupCandidates(t *testing.T) *candidatesFixture {
 func (f *candidatesFixture) seedLead(t *testing.T, value time.Time) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	query := `INSERT INTO lead (id, workspace_id, source, captured_by, ` + quoteIdentifier(f.dateCol) + `)
-		VALUES ($1, $2, 'ui', 'human:test', $3)`
-	if _, err := f.owner.Exec(context.Background(), query, id, f.ws, value); err != nil {
+	query := `INSERT INTO lead (id, source, captured_by, ` + quoteIdentifier(f.dateCol) + `)
+		VALUES ($1, 'ui', 'human:test', $2)`
+	if _, err := f.owner.Exec(context.Background(), query, id, value); err != nil {
 		t.Fatalf("seeding lead: %v", err)
 	}
 	return id

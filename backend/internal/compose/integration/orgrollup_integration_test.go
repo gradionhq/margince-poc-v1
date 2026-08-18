@@ -92,7 +92,7 @@ func seedRollupOrgActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.T
 		VALUES ($1, 'note', 'rollup touch', $2, 'manual', 'human:test')`,
 		activityID, occurredAt)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, activityID, org)
+		VALUES ($1, 'organization', $2)`, activityID, org)
 }
 
 // seedRollupDealLinkedActivity files one activity against a DEAL of the
@@ -109,7 +109,7 @@ func seedRollupDealLinkedActivity(t *testing.T, e *Env, st rollupStages, org ids
 		VALUES ($1, 'email', 'deal thread', $2, 'manual', 'human:test')`,
 		activityID, occurredAt)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
-		VALUES ( $1, 'deal', $2)`, activityID, dealID)
+		VALUES ($1, 'deal', $2)`, activityID, dealID)
 }
 
 // seedRollupPersonLinkedActivity files one activity against a PERSON
@@ -122,15 +122,15 @@ func seedRollupPersonLinkedActivity(t *testing.T, e *Env, org ids.UUID, occurred
 	personID := ids.NewV7()
 	e.WsExec(t, `INSERT INTO person (id, full_name, source, captured_by)
 		VALUES ($1, 'Rollup Contact', 'manual', 'human:test')`, personID)
-	e.WsExec(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:test')`,
-		ids.NewV7(), e.WS, personID, org)
+	e.WsExec(t, `INSERT INTO relationship (id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:test')`,
+		ids.NewV7(), personID, org)
 	activityID := ids.NewV7()
 	e.WsExec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'email', 'contact thread', $2, 'connector:gmail', 'connector:gmail')`,
 		activityID, occurredAt)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
-		VALUES ( $1, 'person', $2)`, activityID, personID)
+		VALUES ($1, 'person', $2)`, activityID, personID)
 }
 
 // rollupOrgReadPerms is the minimal caller the rollup admits: read on
@@ -510,9 +510,9 @@ func TestOrgRollupCountsAnActivityReachingTheTreeTwiceOnlyOnce(t *testing.T) {
 		VALUES ($1, 'email', 'filed twice', $2, 'manual', 'human:test')`,
 		activityID, now.Add(-24*time.Hour))
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, activityID, org)
+		VALUES ($1, 'organization', $2)`, activityID, org)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
-		VALUES ( $1, 'deal', $2)`, activityID, dealID)
+		VALUES ($1, 'deal', $2)`, activityID, dealID)
 
 	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, org, "self", fixedClock(now))
 	if err != nil {
