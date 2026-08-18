@@ -366,3 +366,33 @@ func TestWrite_anUnsetInstallationSettingIsAnOperatorFaultNotAMissingRow(t *test
 		t.Errorf("body %q does not name which setting is unset", body)
 	}
 }
+
+// TestRetentionHoldIsLockedNotValueNotAllowed pins the one CHECK refusal that
+// is not the caller's input to fix: the data-layer guard on a held activity
+// (A165/ADR-0114). It answers 423 locked with the deadline the guard named,
+// so a caller learns when the hold lifts rather than being told to change a
+// value that no value would satisfy.
+func TestRetentionHoldIsLockedNotValueNotAllowed(t *testing.T) {
+	err := fmt.Errorf("activities: rewriting the subject: %w", &pgconn.PgError{
+		Severity: "ERROR", Code: "23514", ConstraintName: "activity_restricted_immutable",
+		Message: "activity 0192e0c8-4b0e-7cbb-9c1a-b1c9d54c1a2f is restricted under a statutory retention obligation until 2032-01-01 00:00:00+00",
+	})
+	fault, ok := Classify(err)
+	if !ok || fault.Status != http.StatusLocked || fault.Code != "locked" {
+		t.Fatalf("Classify → %+v, %v; want 423 locked", fault, ok)
+	}
+	if fault.Details["retain_until"] != "2032-01-01 00:00:00+00" {
+		t.Errorf("retain_until = %v, want the guard's deadline", fault.Details["retain_until"])
+	}
+	if !strings.Contains(fault.Detail, "Do not retry") {
+		t.Errorf("the refusal invites a retry that can never succeed: %q", fault.Detail)
+	}
+	if fault.InfraCause == nil {
+		t.Error("the constraint name goes to the operator's log, not the client — InfraCause must carry it")
+	}
+	// Any other CHECK is still the caller's value to fix.
+	other, _ := Classify(&pgconn.PgError{Code: "23514", ConstraintName: "organization_size_band_check"})
+	if other.Status != http.StatusUnprocessableEntity {
+		t.Errorf("an ordinary CHECK became %d", other.Status)
+	}
+}

@@ -15,10 +15,12 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"regexp"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
 // constraintFault answers a foreign-key or CHECK violation that reached the
@@ -39,6 +41,9 @@ import (
 // this answers the ones that do not, and the constraint goes to the operator's
 // log through InfraCause instead.
 func constraintFault(err error) (Fault, bool) {
+	if fault, ok := retentionHoldFault(err); ok {
+		return fault, true
+	}
 	switch {
 	case storekit.IsForeignKeyViolation(err):
 		return Fault{
@@ -56,6 +61,42 @@ func constraintFault(err error) (Fault, bool) {
 	default:
 		return Fault{}, false
 	}
+}
+
+// activityRestrictedImmutable is the constraint name the data-layer guard
+// raises for any write to a held activity (core migration 0289's trigger).
+// Named here so the ONE guard maps to the ONE sentinel for every writer —
+// an update, a delete, a relink — rather than each store translating it.
+const activityRestrictedImmutable = "activity_restricted_immutable"
+
+// retentionHoldUntil reads the deadline out of the guard's own message
+// ("… restricted under a statutory retention obligation until <instant>"),
+// which is the only place the refusing statement carries it.
+var retentionHoldUntil = regexp.MustCompile(` until (\S.*)$`)
+
+// retentionHoldFault answers the guard's refusal as ErrRetentionHold (423): a
+// business rule like the other CHECKs, but not one the caller's input can fix
+// — nothing changes until the recorded date, so it must not read as
+// value_not_allowed with advice to fix a value. The deadline rides Details as
+// `retain_until` (interfaces.md §0) so the refusal states when it lifts.
+func retentionHoldFault(err error) (Fault, bool) {
+	constraint, ok := storekit.CheckViolation(err)
+	if !ok || constraint != activityRestrictedImmutable {
+		return Fault{}, false
+	}
+	fault := Fault{
+		Status: http.StatusLocked, Code: "locked",
+		Detail: apperrors.ErrRetentionHold.Error() + " and cannot be changed or deleted until its window " +
+			"closes. Do not retry: an administrator holding the retention authority may release it, which is its own audited operation.",
+		InfraCause: err,
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if m := retentionHoldUntil.FindStringSubmatch(pgErr.Message); m != nil {
+			fault.Details = map[string]any{"retain_until": m[1]}
+		}
+	}
+	return fault, true
 }
 
 // isConstrainedValue covers the two ways the schema refuses a VALUE: a CHECK on

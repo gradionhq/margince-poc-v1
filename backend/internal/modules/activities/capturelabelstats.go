@@ -26,7 +26,7 @@ func (s *Store) LabeledCaptureCountSince(ctx context.Context, since time.Time) (
 		return tx.QueryRow(ctx,
 			`SELECT count(*) FROM activity
 			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND capture_labeled_at >= $1`, since,
+			   AND capture_labeled_at >= $1 AND restricted_at IS NULL`, since,
 		).Scan(&count)
 	})
 	if err != nil {

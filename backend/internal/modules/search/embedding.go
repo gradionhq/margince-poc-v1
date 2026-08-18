@@ -106,9 +106,17 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 		// read (a redelivered event racing this one, or another identity
 		// swap) already won — leave fresh=false rather than clobbering a
 		// row fresher than the one this call started from.
+		//
+		// The activity arm re-checks the RESTRICTION on write, not only on
+		// the read that produced the text: a worker that read the body just
+		// before an erasure held the row would otherwise reinsert a vector of
+		// hidden content after the erasure deleted it (A165/ADR-0114). The
+		// restriction commits before this statement runs or it does not; either
+		// way this statement sees the row as it is now.
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 0, $3, $4, $5::vector)
+			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 0, $3, $4, $5::vector
+			 WHERE NOT EXISTS (SELECT 1 FROM activity a WHERE $1 = 'activity' AND a.id = $2 AND a.restricted_at IS NOT NULL)
 			ON CONFLICT (entity_type, entity_id, chunk_ix)
 			DO UPDATE SET chunk_hash = EXCLUDED.chunk_hash, model = EXCLUDED.model,
 			              embedding = EXCLUDED.embedding, created_at = now()

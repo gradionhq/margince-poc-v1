@@ -24,8 +24,11 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -361,6 +364,59 @@ func TestARestrictedRowRefusesEveryOrdinaryWrite(t *testing.T) {
 	// nothing fails on the guard.
 	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), f.person, "test"); err != nil && !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("a second erasure over a held record failed: %v", err)
+	}
+}
+
+// TestARestrictedRowLeavesEveryOrdinaryReadPath is A165 §2 from the reader's
+// side, for the UNBOUNDED principal — the admin the link-walk spares is the
+// one the availability test must still stop. The single-row read, the
+// timeline including archived rows, and the record history all answer as if
+// the row were gone; the Art. 15 package alone still reaches it; and a write
+// surfaces as the 423 the contract promises, with the deadline attached.
+func TestARestrictedRowLeavesEveryOrdinaryReadPath(t *testing.T) {
+	e := Setup(t)
+	f := seedRestrictionFixture(t, e)
+	admin := e.Admin()
+	if err := privacy.NewEraser(e.DB()).ErasePerson(admin, f.person, "test"); err != nil {
+		t.Fatalf("erasing the subject → %v", err)
+	}
+	held := ids.From[ids.ActivityKind](f.email)
+
+	if _, err := e.Activities.GetActivity(admin, held, storekit.IncludeArchived); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("a held record is readable by id, archived included: %v", err)
+	}
+	listed, _, err := e.Activities.ListActivities(admin, activities.ListActivitiesInput{IncludeArchived: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range listed {
+		if ids.UUID(a.Id) == f.email {
+			t.Errorf("a held record is on the timeline when archived rows are included")
+		}
+	}
+	if _, err := privacy.ListRecordHistory(admin, e.DB(), privacy.RecordHistoryFilter{EntityType: "activity", EntityID: f.email}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("a held record's history (which carries its pre-redaction images) is readable: %v", err)
+	}
+
+	// The store's own write path never reaches the guard: it reads first,
+	// and a held row reads as gone. A writer that skips the read — a raw
+	// statement, a lifecycle path that addresses the row by id — meets the
+	// guard, and the transport answers the refusal as the contract's 423 with
+	// the deadline, never as a value the caller could fix.
+	subject := "rewritten"
+	if _, err := e.Activities.UpdateActivity(admin, held, activities.UpdateActivityInput{Subject: &subject}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("the store's write path found a held record: %v", err)
+	}
+	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE activity SET subject = 'rewritten' WHERE id = $1`, f.email)
+		return err
+	})
+	fault, ok := httperr.Classify(err)
+	if !ok || fault.Status != http.StatusLocked || fault.Code != "locked" {
+		t.Fatalf("a write to a held record → %v (fault %+v), want 423 locked", err, fault)
+	}
+	if fault.Details["retain_until"] == nil {
+		t.Errorf("the 423 does not say when the hold lifts: %+v", fault)
 	}
 }
 
