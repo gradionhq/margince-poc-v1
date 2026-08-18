@@ -318,8 +318,8 @@ func TestACapturedFileRollsUpToTheCompanyItsMessageIsFiledUnder(t *testing.T) {
 	orgID := ids.NewV7()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-			VALUES ($1, current_setting('app.workspace_id')::uuid, 'Voltaq', 'manual', 'human:test')`,
+			INSERT INTO organization (id, display_name, source, captured_by)
+			VALUES ($1, 'Voltaq', 'manual', 'human:test')`,
 			orgID)
 		return err
 	}); err != nil {

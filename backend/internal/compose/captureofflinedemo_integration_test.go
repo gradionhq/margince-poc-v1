@@ -100,9 +100,9 @@ func seedOfflineDemoAccount(t *testing.T, e *integration.Env, owner ids.UUID, sl
 	ctx := context.Background()
 	var orgID ids.UUID
 	err := e.Pool.QueryRow(ctx, `
-		INSERT INTO organization (workspace_id, display_name, lifecycle, owner_id, source, captured_by)
-		VALUES ($1, $3, 'customer', $2, 'test', 'human:test')
-		RETURNING id`, e.WS, owner, slug+" GmbH").Scan(&orgID)
+		INSERT INTO organization (display_name, lifecycle, owner_id, source, captured_by)
+		VALUES ( $2, 'customer', $1, 'test', 'human:test')
+		RETURNING id`, owner, slug+" GmbH").Scan(&orgID)
 	if err != nil {
 		t.Fatalf("seeding an organization: %v", err)
 	}

@@ -518,7 +518,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		WHERE p.source = 'mirror:hubspot:person:p-1' AND pe.email = 'mor@baer-pharma.test'`)
 	assertOne("imported organization's domain", `
 		SELECT count(*) FROM organization_domain od
-		JOIN organization o ON o.id = od.organization_id AND o.workspace_id = od.workspace_id
+		JOIN organization o ON o.id = od.organization_id
 		WHERE o.source = 'mirror:hubspot:organization:org-1' AND od.domain = 'baer-pharma.test'`)
 	// Owners survive the flip: every estate row named incumbent owner
 	// "owner-1", which mirror_user_map binds to the admin.

@@ -134,8 +134,8 @@ func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenDealID ids.UUID)
 	pipelineID, stageID := ids.NewV7(), ids.NewV7()
 	hiddenDealID, taskID = ids.NewV7(), ids.NewV7()
 
-	e.exec(t, `INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Zeta GmbH', $3, 'seed', 'system')`, orgID, e.ws, e.rep)
+	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, source, captured_by)
+		VALUES ($1, 'Zeta GmbH', $2, 'seed', 'system')`, orgID, e.rep)
 	e.exec(t, `INSERT INTO pipeline (id, name, is_default, position)
 		VALUES ($1, 'Default', true, 1)`, pipelineID)
 	e.exec(t, `INSERT INTO stage (id, pipeline_id, name, position, win_probability)
@@ -208,8 +208,8 @@ func TestAPromiseNamesOnlyTheRecordsItsReaderMaySee(t *testing.T) {
 func TestNarrowingToAnUnreadableRecordAnswersNotFound(t *testing.T) {
 	e := setupPromises(t)
 	orgID, hiddenProjectID, taskID := ids.NewV7(), ids.NewV7(), ids.NewV7()
-	e.exec(t, `INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Zeta GmbH', $3, 'seed', 'system')`, orgID, e.ws, e.rep)
+	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, source, captured_by)
+		VALUES ($1, 'Zeta GmbH', $2, 'seed', 'system')`, orgID, e.rep)
 	e.exec(t, `INSERT INTO project (id, name, organization_id, owner_id, source, captured_by)
 		VALUES ($1, $2, $3, $4, 'seed', 'system')`,
 		hiddenProjectID, hiddenProjectNam, orgID, e.other)

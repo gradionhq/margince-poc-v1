@@ -280,8 +280,8 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO organization (id, workspace_id, display_name, legal_hold, source, captured_by)
-			 VALUES ($1, `+ws+`, 'Counterparty GmbH', true, 'manual', 'human:x')`, orgID); err != nil {
+			`INSERT INTO organization (id, display_name, legal_hold, source, captured_by)
+			 VALUES ($1, 'Counterparty GmbH', true, 'manual', 'human:x')`, orgID); err != nil {
 			return err
 		}
 		// The held-evidence note: subject-only to the person, but also linked

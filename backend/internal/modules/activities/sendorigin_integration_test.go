@@ -44,9 +44,9 @@ func (e *sendEnv) seedOrganization(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Buyer GmbH', $3, 'manual', 'human:x')`,
-		id, e.ws, e.rep); err != nil {
+		`INSERT INTO organization (id, display_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Buyer GmbH', $2, 'manual', 'human:x')`,
+		id, e.rep); err != nil {
 		t.Fatalf("seeding the organization: %v", err)
 	}
 	return id

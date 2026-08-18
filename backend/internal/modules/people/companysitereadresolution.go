@@ -218,20 +218,18 @@ func applyResolvedHumanFacts(
 			newKey = NormalizeFactValueKey(edit.value)
 		}
 		if _, err := tx.Exec(ctx, `DELETE FROM organization_fact
-			WHERE workspace_id = $1 AND organization_id = $2 AND category = $3
-			  AND field = $4 AND value_key = $5`, workspaceID(ctx), orgID,
+			WHERE organization_id = $1 AND category = $2
+			  AND field = $3 AND value_key = $4`, orgID,
 			edit.proposal.Category, edit.proposal.Field, oldKey); err != nil {
 			return nil, fmt.Errorf("replace human organization fact %s.%s: %w",
 				edit.proposal.Category, edit.proposal.Field, err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO organization_fact
-			(workspace_id, organization_id, category, field, value, value_key,
-			 evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
-			VALUES ($1, $2, $3, $4, $5, $6, '', '', 1, 'human', $7, NULL)
+		if _, err := tx.Exec(ctx, `INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
+			VALUES ($1, $2, $3, $4, $5, '', '', 1, 'human', $6, NULL)
 			ON CONFLICT (organization_id, category, field, value_key)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = '', source_url = '',
 			 confidence = 1, source = 'human', captured_by = EXCLUDED.captured_by,
-			 site_read_id = NULL, captured_at = now()`, workspaceID(ctx), orgID,
+			 site_read_id = NULL, captured_at = now()`, orgID,
 			edit.proposal.Category, edit.proposal.Field, edit.value, newKey, by); err != nil {
 			return nil, fmt.Errorf("save human organization fact %s.%s: %w",
 				edit.proposal.Category, edit.proposal.Field, err)

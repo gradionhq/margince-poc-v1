@@ -76,7 +76,7 @@ func ensureOrgDomainsUnclaimed(ctx context.Context, tx pgx.Tx, domains []OrgDoma
 		err := tx.QueryRow(ctx,
 			`SELECT organization_id FROM organization_domain
 			  WHERE domain = lower($1) AND archived_at IS NULL
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			    `,
 			d.Domain).Scan(&existing)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
@@ -100,12 +100,12 @@ func ensureOrgDomainsUnclaimed(ctx context.Context, tx pgx.Tx, domains []OrgDoma
 // insertOrgDomains lands the org's domains; the unique index remains the
 // structural guarantee under races, mapping uq_org_domain to the typed
 // 409 and a second primary domain to a plain conflict.
-func insertOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, orgID ids.OrganizationID, source, by string, domains []OrgDomainInput) error {
+func insertOrgDomains(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, source, by string, domains []OrgDomainInput) error {
 	for _, d := range domains {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			 VALUES ($1, $2, lower($3), $4, $5, $6)`,
-			wsID, orgID, d.Domain, d.IsPrimary, source, by); err != nil {
+			`INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+			 VALUES ($1, lower($2), $3, $4, $5)`,
+			orgID, d.Domain, d.IsPrimary, source, by); err != nil {
 			if name, ok := storekit.UniqueViolation(err); ok {
 				if name == "uq_org_domain" {
 					return &DuplicateDomainError{Domain: d.Domain}
@@ -128,7 +128,7 @@ func ensureOrgDomainsUnclaimedExcept(ctx context.Context, tx pgx.Tx, self ids.Or
 		err := tx.QueryRow(ctx,
 			`SELECT organization_id FROM organization_domain
 			  WHERE domain = lower($1) AND archived_at IS NULL
-			    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+			    `,
 			d.Domain).Scan(&existing)
 		if errors.Is(err, pgx.ErrNoRows) || existing == self {
 			continue
@@ -256,7 +256,7 @@ func reconcileOrgDomains(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, o
 		return nil, err
 	}
 	if len(adds) > 0 {
-		if err := insertOrgDomains(ctx, tx, wsID, orgID, "manual", by, adds); err != nil {
+		if err := insertOrgDomains(ctx, tx, orgID, "manual", by, adds); err != nil {
 			return nil, err
 		}
 	}

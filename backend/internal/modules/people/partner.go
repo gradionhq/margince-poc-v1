@@ -192,7 +192,7 @@ func (s *Store) UpsertPartner(ctx context.Context, in UpsertPartnerInput) (partn
 		// this one transaction, so the two can never disagree — the
 		// classification flip this replaces did the same job for the same
 		// reason, against a column that could hold only one answer.
-		if err := ensureOrgRelationshipType(ctx, tx, workspaceID(ctx), in.OrganizationID,
+		if err := ensureOrgRelationshipType(ctx, tx, in.OrganizationID,
 			relationshipTypePartner, "system", capturedBy); err != nil {
 			return err
 		}

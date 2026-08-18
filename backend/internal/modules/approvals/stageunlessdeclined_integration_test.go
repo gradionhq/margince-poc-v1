@@ -104,8 +104,8 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 	// to do with the ordering under test.
 	target := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Gitex', 'gmail:seed', 'connector:gmail')`, target, e.ws); err != nil {
+		INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Gitex', 'gmail:seed', 'connector:gmail')`, target); err != nil {
 		t.Fatal(err)
 	}
 	in := StageInput{
@@ -231,8 +231,8 @@ func TestStageUnlessDeclinedStagesWhenNothingWasRefused(t *testing.T) {
 	e := setupStaging(t)
 	target := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Gitex', 'gmail:seed', 'connector:gmail')`, target, e.ws); err != nil {
+		INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Gitex', 'gmail:seed', 'connector:gmail')`, target); err != nil {
 		t.Fatal(err)
 	}
 	in := StageInput{
@@ -297,8 +297,8 @@ func TestStageUnlessDeclinedRefusesWithoutJoinPending(t *testing.T) {
 	e := setupStaging(t)
 	target := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Gitex', 'gmail:seed', 'connector:gmail')`, target, e.ws); err != nil {
+		INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Gitex', 'gmail:seed', 'connector:gmail')`, target); err != nil {
 		t.Fatal(err)
 	}
 	in := StageInput{

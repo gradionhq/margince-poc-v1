@@ -180,8 +180,8 @@ func TestMergeOrganization_partnerExtensionMovesIntoVacancy(t *testing.T) {
 	srcID, tgtID := orgIDOf(ids.UUID(source.Id)), orgIDOf(ids.UUID(target.Id))
 	// The source carries the partner program; the target has none.
 	e.WsExec(t, `INSERT INTO partner (workspace_id, organization_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:test')`, e.WS, srcID)
-	e.WsExec(t, `INSERT INTO organization_relationship_type (workspace_id, organization_id, relationship_type, source, captured_by)
-		VALUES ($1, $2, 'partner', 'manual', 'human:test')`, e.WS, srcID)
+	e.WsExec(t, `INSERT INTO organization_relationship_type (organization_id, relationship_type, source, captured_by)
+		VALUES ( $1, 'partner', 'manual', 'human:test')`, srcID)
 
 	if _, err := e.People.MergeOrganization(admin, srcID, tgtID); err != nil {
 		t.Fatalf("merge: %v", err)

@@ -302,9 +302,9 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	exec(`INSERT INTO person (workspace_id, full_name, source, captured_by)
 	      SELECT $1, 'Person ' || i || CASE WHEN i % 97 = 0 THEN ' Hamburg' ELSE '' END, 'manual', 'human:bench'
 	      FROM generate_series(1, $2) AS i`, ws, spec.persons)
-	exec(`INSERT INTO organization (workspace_id, display_name, source, captured_by)
-	      SELECT $1, 'Org ' || i || CASE WHEN i % 89 = 0 THEN ' Hamburg GmbH' ELSE '' END, 'manual', 'human:bench'
-	      FROM generate_series(1, $2) AS i`, ws, spec.organizations)
+	exec(`INSERT INTO organization (display_name, source, captured_by)
+	      SELECT 'Org ' || i || CASE WHEN i % 89 = 0 THEN ' Hamburg GmbH' ELSE '' END, 'manual', 'human:bench'
+	      FROM generate_series(1, $1) AS i`, spec.organizations)
 
 	// Background timeline volume: activities linked cyclically across
 	// the person population — the activity_link fan the recursive walk
@@ -335,12 +335,12 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 
 	// Employment edges for the ADR-0021 edge-count evidence.
 	exec(`WITH total AS (
-	        SELECT count(*) AS n FROM organization WHERE workspace_id = $1
+	        SELECT count(*) AS n FROM organization
 	      ), people AS (
 	        SELECT id, (row_number() OVER () - 1) % (SELECT n FROM total) + 1 AS target_rn
 	        FROM person WHERE workspace_id = $1 LIMIT $2
 	      ), orgs AS (
-	        SELECT id, row_number() OVER () AS rn FROM organization WHERE workspace_id = $1
+	        SELECT id, row_number() OVER () AS rn FROM organization
 	      )
 	      INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
 	      SELECT $1, 'employment', p.id, o.id, 'manual', 'human:bench'
@@ -369,21 +369,21 @@ func seedBenchAnchor(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierS
 	               'Anchor touch ' || i, 'Anchor body ' || i,
 	               now() - (i || ' hours')::interval,
 	               'manual', 'human:bench'
-	        FROM generate_series(1, $3) AS i
+	        FROM generate_series(1, $2) AS i
 	        RETURNING id
 	      ), total AS (
-	        SELECT count(*) AS n FROM organization WHERE workspace_id = $1
+	        SELECT count(*) AS n FROM organization
 	      ), numbered AS (
 	        SELECT id, (row_number() OVER () - 1) % (SELECT n FROM total) + 1 AS target_rn FROM act
 	      ), links AS (
 	        INSERT INTO activity_link (activity_id, entity_type, person_id)
-	        SELECT id, 'person', $2 FROM numbered
+	        SELECT id, 'person', $1 FROM numbered
 	        RETURNING activity_id
 	      ), orgs AS (
-	        SELECT id, row_number() OVER () AS rn FROM organization WHERE workspace_id = $1
+	        SELECT id, row_number() OVER () AS rn FROM organization
 	      )
 	      INSERT INTO activity_link (activity_id, entity_type, organization_id)
 	      SELECT n.id, 'organization', o.id
-	      FROM numbered n JOIN orgs o ON o.rn = n.target_rn`, ws, anchor, spec.anchorTouches)
+	      FROM numbered n JOIN orgs o ON o.rn = n.target_rn`, anchor, spec.anchorTouches)
 	return anchor
 }

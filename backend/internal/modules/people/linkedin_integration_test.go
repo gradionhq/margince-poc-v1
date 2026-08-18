@@ -188,9 +188,9 @@ func (e *dedupeEnv) seedOrgNamed(t *testing.T, name string) ids.OrganizationID {
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, name_source, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, $3, 'human', $4, 'manual', 'human:test', 'workspace')`,
-			id, e.ws, name, e.rep)
+			INSERT INTO organization (id, display_name, name_source, owner_id, source, captured_by, visibility)
+			VALUES ($1, $2, 'human', $3, 'manual', 'human:test', 'workspace')`,
+			id, name, e.rep)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding org %s: %v", name, err)

@@ -459,7 +459,9 @@ func TestApplyResolvedHumanFactsWritesAuditableValues(t *testing.T) {
 	if len(applied) != 2 || len(tx.calls) != 4 {
 		t.Fatalf("applied = %#v, SQL calls = %d", applied, len(tx.calls))
 	}
-	if got := tx.calls[1].args[5]; got != NormalizeFactValueKey("New Customer") {
+	// args[4] is value_key: the write's arguments are (orgID, category, field,
+	// value, value_key, by) since ADR-0091 §8 phase D took the leading workspace.
+	if got := tx.calls[1].args[4]; got != NormalizeFactValueKey("New Customer") {
 		t.Fatalf("multi-value key = %v, want normalized custom value", got)
 	}
 	if got := applied[0][auditKeySource]; got != companySourceHuman {
