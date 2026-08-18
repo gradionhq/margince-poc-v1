@@ -374,20 +374,28 @@
   pointer-events: none;
   filter: blur(14px);
   will-change: transform;
+  /*
+   * Both masses are the BODY tone, and both are thin. Two rules came out of
+   * seeing it dense: a fluid painted in the DOT colours makes the dots vanish
+   * into it — they have to stay the brightest thing in the ball, so the fluid
+   * takes the darker end of the triple and they keep the light one — and a fluid
+   * past roughly a fifth opacity stops reading as liquid and starts reading as
+   * paint filling a shape.
+   */
   background:
-/* the lighter mass, up and left, where the light enters */
+    /* the upper mass, where the light enters, the lighter of the two */
     radial-gradient(
       circle at 36% 34%,
-      color-mix(in srgb, var(--coreC3) 42%, transparent) 0%,
-      color-mix(in srgb, var(--coreC3) 16%, transparent) 38%,
-      transparent 62%
+      color-mix(in srgb, var(--coreC2) 15%, transparent) 0%,
+      color-mix(in srgb, var(--coreC2) 6%, transparent) 40%,
+      transparent 64%
     ),
-    /* the denser mass, low and right, so the fluid has a bottom */
+    /* the lower mass, denser, so the fluid has a bottom to settle into */
     radial-gradient(
       circle at 64% 68%,
-      color-mix(in srgb, var(--coreC2) 38%, transparent) 0%,
-      color-mix(in srgb, var(--coreC2) 14%, transparent) 42%,
-      transparent 68%
+      color-mix(in srgb, var(--coreC2) 22%, transparent) 0%,
+      color-mix(in srgb, var(--coreC2) 9%, transparent) 44%,
+      transparent 70%
     );
 }
 /* At small sizes the blur is a bigger share of the ball than the fluid is, so the
@@ -437,7 +445,7 @@
  * three of four dots is a rendering fault, not a design.
  */
 .core-dot:nth-child(3) {
-  background: color-mix(in oklab, var(--coreC2) 68%, var(--coreC1));
+  background: color-mix(in oklab, var(--coreC2) 45%, var(--coreC1));
 }
 .core-dot:nth-child(4) {
   background: var(--coreC3);
