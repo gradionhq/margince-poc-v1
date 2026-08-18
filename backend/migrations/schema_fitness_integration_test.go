@@ -247,27 +247,24 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
 	"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
 	// The dedupe review queue (DH-DDL-1): pair ids are server-derived —
-	// recordDedupeCandidate stamps them from an internal match query, never from a
-	// request body; the disposition endpoints address the candidate row, not the
-	// pair ids. WHICH query differs by entity type, so each entry below names its
-	// own rather than this line naming one for all of them.
+	// recordDedupeCandidate stamps them inline in the transaction that writes the
+	// record, from that path's own fuzzy match query, never from a request body.
+	// The disposition endpoints accept only a winner_id already equal to one of the
+	// stored pair ids, both of which the read below has just gated.
 	//
-	// The detector is deliberately NOT row-scoped: it filters on the workspace and
-	// archived_at only, so it does pair a caller's record with one they cannot see
-	// — a duplicate you cannot see is still a duplicate, and scoping the detector
-	// would blind it to exactly the pairs worth catching. What keeps such a pair
-	// from being DISCLOSED is the queue read, which requires BOTH sides to pass
-	// the caller's row scope (dedupeVisibilityClause, and EnsureVisible per side
-	// in GetDedupeCandidate). These six entries rest on that read, so nothing here
-	// is licence to relax it, and TestDedupeQueueHides*PairsOutsideTheCallersRowScope
-	// is what holds it for each entity type.
-	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
-	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
-	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
-	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
-	// The lead pair reaches the same writer, but not from a sweep: fuzzyLead runs
-	// inline in the transaction that writes the lead, so the left id is the row
-	// that transaction just created or updated.
+	// The detector applies NO row-scope predicate — no auth.ScopeClauseFor, no owner
+	// term — so it does pair a caller's record with one they cannot see. That is
+	// deliberate: a duplicate you cannot see is still a duplicate, and scoping the
+	// detector would blind it to exactly the pairs worth catching. What keeps such a
+	// pair from being DISCLOSED is the queue read, which requires BOTH sides to pass
+	// the caller's row scope (dedupeVisibilityClause, and EnsureVisible per side in
+	// GetDedupeCandidate). All six entries rest on that read, held by
+	// TestDedupeQueueHidesPairsOutsideTheCallersRowScope and, per entity type and
+	// per side, TestDedupeQueueHidesAPairTheCallerCanOnlyHalfSee.
+	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the writing path's own fuzzy match query",
+	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the writing path's own fuzzy match query",
+	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the writing path's own fuzzy match query",
+	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the writing path's own fuzzy match query",
 	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query, inline in the transaction that wrote the lead",
 	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
 	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
