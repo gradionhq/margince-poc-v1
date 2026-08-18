@@ -367,11 +367,21 @@ export function liquidBlob(index: number, time: number): DotTarget {
   const phase = index * 2.1;
   const speed = 0.5 + index * 0.11;
   const slow = time * 0.07 * speed;
+  // Each mass keeps a HOME third of the ball and wanders around it. Left to roam
+  // the whole vessel all three converge on the same middle and stack into one
+  // dark clot there — a stain behind the dots rather than a full ball, which then
+  // reads as empty at the glass and dirty at the centre.
+  const home = (index / BLOBS) * Math.PI * 2;
+  const homeX = Math.cos(home) * 0.4;
+  const homeY = Math.sin(home) * 0.4;
   const x =
-    Math.sin(slow * 1.7 + phase) * 0.42 + Math.cos(slow * 0.9 + phase) * 0.2;
+    homeX +
+    Math.sin(slow * 1.7 + phase) * 0.26 +
+    Math.cos(slow * 0.9 + phase) * 0.14;
   const y =
-    Math.cos(slow * 1.3 + phase * 1.4) * 0.4 +
-    Math.sin(slow * 2.1 + phase) * 0.18;
+    homeY +
+    Math.cos(slow * 1.3 + phase * 1.4) * 0.24 +
+    Math.sin(slow * 2.1 + phase) * 0.12;
   // The velocity, taken a beat later: the stretch has to follow where the mass is
   // GOING, and a mass that stretches across its own path reads as a wobbling blob
   // rather than as something moving through liquid.
