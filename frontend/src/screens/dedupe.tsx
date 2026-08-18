@@ -8,6 +8,7 @@ import { Callout } from "../design-system/callout";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
+import { EntityRef } from "./entityref";
 import "./dedupe.css";
 
 // The dedupe review queue (M4, DH-EXT-1/2): confidence-sorted open pairs
@@ -220,6 +221,14 @@ function CandidateCard({
         </Badge>
       }
     >
+      {/* Both records by name, openable — the evidence rows show what the
+          detector saw, and a reviewer often wants to see the whole record
+          before deciding. */}
+      <p className="t-caption dedupe-pair">
+        <EntityRef kind={candidate.entity_type} id={candidate.left_id} />
+        {" · "}
+        <EntityRef kind={candidate.entity_type} id={candidate.right_id} />
+      </p>
       {/* The design system's table, not a second one: DataTable cannot express
           either of the two things this table needs — a column header that IS
           the winner radio, and a row carrying the detector's signal — so the
@@ -281,8 +290,13 @@ function CandidateCard({
 
 function kindLabel(
   entityType: Candidate["entity_type"],
-): "dedupe.kindPerson" | "dedupe.kindOrganization" {
-  return entityType === "person"
-    ? "dedupe.kindPerson"
-    : "dedupe.kindOrganization";
+): "dedupe.kindPerson" | "dedupe.kindOrganization" | "dedupe.kindLead" {
+  switch (entityType) {
+    case "person":
+      return "dedupe.kindPerson";
+    case "organization":
+      return "dedupe.kindOrganization";
+    case "lead":
+      return "dedupe.kindLead";
+  }
 }

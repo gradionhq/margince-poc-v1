@@ -11,6 +11,7 @@ package compose
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -76,5 +77,10 @@ func (w *timeScanWorkspaceWorker) Work(ctx context.Context, job *river.Job[TimeS
 		return jobs.FaultContext(ctx, err)
 	}
 	scanner := NewTimeScanner(db, w.log)
-	return jobs.FaultContext(ctx, scanner.ScanWorkspace(wsCtx, job.Args.Workspace))
+	if err := scanner.ScanWorkspace(wsCtx, job.Args.Workspace); err != nil {
+		return jobs.FaultContext(ctx, err)
+	}
+	// The lead first-response SLA is clock-triggered too (formulas §18.2)
+	// and rides this pass rather than a job of its own.
+	return jobs.FaultContext(ctx, scanLeadSLA(wsCtx, db, time.Now, w.log))
 }

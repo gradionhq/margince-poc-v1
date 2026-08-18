@@ -148,7 +148,7 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		// they can address, so echoing it discloses nothing new (the
 		// AlreadyPromoted precedent).
 		if !alreadyMerged.IntoID.IsZero() {
-			e.Details = map[string]any{"merged_into_id": alreadyMerged.IntoID.String()}
+			e.Details = map[string]any{auditKeyMergedInto: alreadyMerged.IntoID.String()}
 		}
 		httperr.Write(w, r, e)
 		return

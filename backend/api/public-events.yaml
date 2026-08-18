@@ -68,6 +68,8 @@ components:
         - lead.disqualified
         - lead.promoted
         - lead.demoted
+        - lead.merged
+        - lead.sla_breached
         - lead.updated
         - activity.captured
         - activity.archived
@@ -1156,6 +1158,58 @@ components:
         unwind:
           type: string
           description: 'reversed (the created person is archived) or merge_lineage_only (the pre-existing person is untouched; only lineage pointers are nulled).'
+      additionalProperties: false
+
+    PublicEventLeadMerged:
+      type: object
+      x-event-type: lead.merged
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.merged — two leads the review queue judged one
+        prospect (ADR-0118/A169 §2) collapsed into the survivor. The
+        merged-away lead is archived and carries merged_into_id; its
+        activities and consent now sit on the survivor. Its own verb,
+        because neither lead.updated nor a disqualification says two
+        prospects became one.
+      required:
+        - merged_from_id
+        - merged_into_id
+      properties:
+        merged_from_id:
+          type: string
+          format: uuid
+          description: The lead that was folded in and archived.
+        merged_into_id:
+          type: string
+          format: uuid
+          description: The surviving lead.
+      additionalProperties: false
+
+    PublicEventLeadSlaBreached:
+      type: object
+      x-event-type: lead.sla_breached
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.sla_breached (formulas §18.2) — the first scan on
+        which a lead's first-response deadline passed unanswered. Emitted at
+        most once per breach occurrence; the escalation hangs off it.
+      required:
+        - deadline
+      properties:
+        owner_id:
+          type: string
+          format: uuid
+          description: The lead's owner at breach time (absent when unrouted).
+        deadline:
+          type: string
+          format: date-time
+          description: The first-response deadline that passed.
+        escalation_target:
+          type: string
+          format: uuid
+          description: The user the escalation task is assigned to (absent when nobody owns the lead).
       additionalProperties: false
 
     PublicEventLeadUpdated:

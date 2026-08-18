@@ -31,6 +31,9 @@ type demoConfig struct {
 	Lifecycle        map[string][]string `json:"lifecycle"`
 	Partners         []demoPartner       `json:"partners"`
 	PartnerEdges     []demoPartnerEdge   `json:"partner_edges"`
+	DualRolePartners []demoDualPartner   `json:"dual_role_partners"`
+	InventedStaff    []demoInventedStaff `json:"invented_staff"`
+	RelTypes         demoRelTypes        `json:"relationship_types"`
 }
 
 // anchorCompany is the installation's own company — the record that answers
@@ -276,4 +279,43 @@ type demoPartnerEdge struct {
 	Partner      string `json:"partner"`      // a partner's domain
 	Organization string `json:"organization"` // the account's domain
 	Kind         string `json:"kind"`         // partner_of | referred_by | co_sell_with
+}
+
+// demoDualPartner promotes a REAL crawled company to a partner while it
+// stays a customer.
+//
+// The three synthetic <Country>Partner companies prove the Partners screen
+// renders; this proves a partner need not be a separate record from the
+// customer, which ADR-0079 calls the basis of the partner program. The
+// company keeps its invoices, deals, contracts and contacts and gains a
+// partner row on top.
+type demoDualPartner struct {
+	Company           string `json:"company"` // a domain under siteresults/
+	PartnerRole       string `json:"partner_role"`
+	CertStatus        string `json:"cert_status"`
+	MarginTier        string `json:"margin_tier"`
+	RelationshipStage string `json:"relationship_stage"`
+	NextStep          string `json:"next_step"`
+}
+
+// demoInventedStaff is people invented for a real company that publishes
+// none — the dataset's one deliberate exception to "real people come only
+// from the website reader".
+//
+// It is confined to five Asian customers that carry signed contracts and no
+// contacts, and every person it writes is marked: source is
+// inventedPersonSource rather than seedSource, so a query can always tell
+// them from the people the reader actually found.
+type demoInventedStaff struct {
+	Company string            `json:"company"`
+	People  []demoPartnerPers `json:"people"`
+}
+
+// demoRelTypes says what each company IS to us, as against where it stands.
+//
+// Only the exceptions are listed. The base type is derived from lifecycle so
+// a company ingested next month is covered with no edit — see
+// relationshipTypesFor.
+type demoRelTypes struct {
+	Overrides map[string][]string `json:"overrides"`
 }

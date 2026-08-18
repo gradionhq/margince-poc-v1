@@ -22,12 +22,11 @@ import {
   RecordView,
 } from "../design-system/composed";
 import { InlineText } from "../design-system/inlinechoice";
-import type { ListChip } from "../design-system/listtable";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
 import { ProvenanceTag } from "../design-system/trust";
-import { formatDateAbbrev } from "../format/format";
+import { formatDateAbbrev, formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -42,20 +41,24 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, OwnerName, useRoster } from "./entityref";
+import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
+import { LeadBulkBar } from "./leadbulk";
+import { LeadManualSignals } from "./leadsignals";
 import {
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
+  useOwnerChips,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
+import { createdColumn, ownerColumn, standardViews } from "./recordlist";
 import { ShareAction } from "./share";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
@@ -152,7 +155,7 @@ async function fetchLeadsPage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: query.perPage,
+        limit: listFetchLimit(query.perPage),
         ...query.filters,
       },
     },
@@ -240,31 +243,6 @@ const LEAD_SCORE_BANDS = [
 ] as const;
 
 /**
- * useLeadOwnerChips is the owner dial listLeads can actually answer.
- *
- * The shared `useOwnerChips` offers team and unassigned entries under
- * `owner_team_id` and `unassigned`; listLeads takes neither, so those options
- * would 422 rather than narrow. Until the endpoint learns that vocabulary the
- * honest dial is the one question it does answer: mine, or anyone's.
- */
-function useLeadOwnerChips(): readonly ListChip[] {
-  const t = useT();
-  const me = useMe();
-  const viewerId = me.data?.user.id;
-  if (!viewerId) {
-    return [];
-  }
-  return [
-    {
-      key: "owner_id",
-      label: t("list.owner"),
-      allLabel: t("list.filterOwnerAll"),
-      options: [{ value: viewerId, label: t("list.filterOwnerMe") }],
-    },
-  ];
-}
-
-/**
  * statusLabel is the ONE spelling of a lead status for a reader.
  *
  * Read from the filter options rather than a second table: the chips and the
@@ -288,6 +266,65 @@ function StatusBadge({ status }: Readonly<{ status: Lead["status"] }>) {
   const label = statusLabel(status);
   return <Badge>{label ? t(label) : status}</Badge>;
 }
+
+// The first-response SLA (formulas §18.1) as a reader sees it: overdue,
+// running out, or nothing — a lead within its target carries no badge, so the
+// list stays quiet until something needs a hand.
+function SlaBadge({ state }: Readonly<{ state: Lead["sla_state"] }>) {
+  const t = useT();
+  if (state === "breached") {
+    return <Badge tone="danger">{t("lead.sla.breached")}</Badge>;
+  }
+  if (state === "at_risk") {
+    return <Badge tone="warn">{t("lead.sla.atRisk")}</Badge>;
+  }
+  return null;
+}
+
+// The clock, on the lead's own page: when the first response was given, or
+// when it is due and how that stands. Nothing on a closed lead, which owes
+// no first response.
+function FirstResponseLine({ lead }: Readonly<{ lead: Lead }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (lead.first_response_at) {
+    return (
+      <span className="t-caption">
+        {t("lead.sla.answeredAt", {
+          at: formatDateTime(lead.first_response_at, locale, zone),
+        })}
+      </span>
+    );
+  }
+  if (!lead.sla_deadline_at || !lead.sla_state) {
+    return null;
+  }
+  return (
+    <span
+      className="t-caption"
+      style={{
+        display: "inline-flex",
+        gap: "var(--space-2)",
+        alignItems: "baseline",
+      }}
+    >
+      <SlaBadge state={lead.sla_state} />
+      {t(
+        lead.sla_state === "breached"
+          ? "lead.sla.overdueSince"
+          : "lead.sla.dueBy",
+        { at: formatDateTime(lead.sla_deadline_at, locale, zone) },
+      )}
+    </span>
+  );
+}
+
+const LEAD_SLA_STATES = [
+  { value: "breached", label: "lead.sla.breached" },
+  { value: "at_risk", label: "lead.sla.atRisk" },
+  { value: "within_target", label: "lead.sla.withinTarget" },
+] as const;
 
 async function createLead(
   values: Record<string, string>,
@@ -525,15 +562,24 @@ function LeadBoard({
 }
 
 export function LeadsScreen() {
-  const ownerChips = useLeadOwnerChips();
+  const ownerChips = useOwnerChips();
   const t = useT();
   const { locale } = useLocale();
+  const viewerId = useViewerId();
+  // Bulk selection, by lead id; cleared after any bulk run, since the rows
+  // and their versions have moved.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
+  // Only ids the list currently holds count as selected: a row that left the
+  // result set (refetched away, paged out, filtered out) must not linger as
+  // an invisible selection nobody can clear.
+  const selectedRows = state.rows.filter((lead) => selected.has(lead.id));
+  const liveSelection = new Set(selectedRows.map((lead) => lead.id));
   // The board writes status, which the mirror refuses (a lead's lifecycle is
   // not a field write-back), so overlay gets the table and no toggle.
   const overlay = useSorMode() === "overlay";
@@ -614,28 +660,55 @@ export function LeadsScreen() {
           {
             key: "status",
             header: t("lead.status"),
-            cell: (lead: Lead) => <StatusBadge status={lead.status} />,
-          },
-          {
-            key: "owner",
-            header: t("list.owner"),
             cell: (lead: Lead) => (
-              <OwnerName ownerId={lead.owner_id} unowned={t("list.unowned")} />
-            ),
-            sort: "owner_id",
-          },
-          {
-            key: "created",
-            header: t("list.created"),
-            cell: (lead: Lead) => (
-              <span className="t-caption">
-                {formatDateAbbrev(lead.created_at, locale, RECORD_ZONE)}
+              <span
+                style={{
+                  display: "inline-flex",
+                  gap: "var(--space-1)",
+                  alignItems: "center",
+                }}
+              >
+                <StatusBadge status={lead.status} />
+                <SlaBadge state={lead.sla_state} />
               </span>
             ),
-            sort: "created_at",
           },
+          ownerColumn<Lead>(t),
+          createdColumn<Lead>(t, locale),
         ]}
         rowKey={(lead) => lead.id}
+        selection={{
+          selected: liveSelection,
+          // A closed lead takes no writes (STATE-4a): no checkbox, no verb.
+          selectable: (lead) => !lead.archived_at,
+          onToggle: (lead) =>
+            setSelected((prev) => {
+              const next = new Set(prev);
+              if (next.has(lead.id)) {
+                next.delete(lead.id);
+              } else {
+                next.add(lead.id);
+              }
+              return next;
+            }),
+          label: (lead) =>
+            t("lead.bulkSelectRow", {
+              name: lead.full_name ?? lead.email ?? lead.id,
+            }),
+          bar: (
+            <LeadBulkBar
+              leads={selectedRows}
+              // The rows that went through leave the selection; the ones that
+              // refused stay in it, named, so the reader can retry them once
+              // the list has refetched their versions.
+              onDone={(outcomes) =>
+                setSelected(
+                  new Set(outcomes.filter((o) => o.error).map((o) => o.id)),
+                )
+              }
+            />
+          ),
+        }}
         rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
         chips={[
           {
@@ -650,15 +723,25 @@ export function LeadsScreen() {
             allLabel: "lead.filterScoreAll",
             options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
           },
+          {
+            key: "sla_state",
+            label: "lead.filterSla",
+            allLabel: "lead.filterSlaAll",
+            options: LEAD_SLA_STATES.map((state) => ({ ...state })),
+          },
         ]}
-        // Owner is a DATA chip: its options are people, read at runtime.
-        // Deliberately not the shared `useOwnerChips` dial, which also offers
-        // team and unassigned options spelled `owner_team_id`/`unassigned` —
-        // parameters listLeads does not take, so those choices would 422
-        // rather than narrow the list.
+        // The one ownership dial every record list carries (DM-VOCAB-OWN-1):
+        // mine, my team's, the unowned queue.
         dataChips={ownerChips}
         views={[
-          { label: "list.viewAll", sort: "-created_at" },
+          ...standardViews(viewerId),
+          // The overdue queue (formulas §18.1): breached first-response
+          // deadlines, warmest first — what a rep opens before anything else.
+          {
+            label: "list.viewOverdue",
+            sort: "-score",
+            filters: { sla_state: "breached" },
+          },
           { label: "list.viewHighestScore", sort: "-score" },
           {
             label: "list.viewHot",
@@ -1290,6 +1373,7 @@ function LeadLifecycle({
         gap: "var(--space-3)",
       }}
     >
+      <FirstResponseLine lead={lead} />
       <LeadIdentityFields
         lead={lead}
         save={saveField}
@@ -1332,6 +1416,14 @@ function LeadLifecycle({
         scoreFieldId={scoreFieldId}
         reasonFieldId={reasonFieldId}
         patch={patch}
+      />
+
+      <LeadManualSignals
+        // Keyed by lead: a half-typed input for one lead must not be
+        // submitted against the next one the reader navigates to.
+        key={id}
+        id={id}
+        readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
       />
 
       <LeadOwner

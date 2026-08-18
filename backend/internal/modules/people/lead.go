@@ -63,7 +63,10 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, created, err = createLeadInTx(ctx, tx, in, by, active)
-		return err
+		if err != nil || !created {
+			return err
+		}
+		return s.recordLeadNearMatch(ctx, tx, out, by)
 	})
 	return out, created, err
 }
@@ -88,7 +91,11 @@ func (s *Store) CreateLeadTx(ctx context.Context, tx pgx.Tx, in CreateLeadInput)
 	if err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
-	return createLeadInTx(ctx, tx, in, by, nil)
+	out, created, err := createLeadInTx(ctx, tx, in, by, nil)
+	if err != nil || !created {
+		return out, created, err
+	}
+	return out, created, s.recordLeadNearMatch(ctx, tx, out, by)
 }
 
 // readyLeadCreate runs what a create settles BEFORE any transaction opens —
@@ -322,10 +329,15 @@ func (s *Store) GetLead(ctx context.Context, id ids.LeadID, archived storekit.Ar
 }
 
 type ListLeadsInput struct {
-	Cursor          *string
-	Limit           *int
-	Status          *string
+	Cursor *string
+	Limit  *int
+	Status *string
+	// OwnerID, OwnerTeamID and Unassigned are the ONE ownership dial every
+	// owner-scoped list carries (DM-VOCAB-OWN-1), bound through the shared
+	// listFilters.ownershipClause exactly as person and organization bind it.
 	OwnerID         *ids.UserID
+	OwnerTeamID     *ids.TeamID
+	Unassigned      *bool
 	Query           *string
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
@@ -339,6 +351,9 @@ type ListLeadsInput struct {
 	// Source narrows to one capture source (inbound, webform, referral,
 	// import, crawl, manual, ...): the exact stored value, no prefix match.
 	Source *string
+	// SLAState narrows to leads in one first-response state (formulas
+	// §18.1); breached is the overdue queue.
+	SLAState *crmcontracts.ListLeadsParamsSlaState
 	// Sort is the contract's sort spec, validated against the lead
 	// vocabulary plus the workspace's active cf_ columns.
 	Sort *string
@@ -384,7 +399,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'disqualified', archived_at = now() WHERE id = $1 AND archived_at IS NULL`,
+			`UPDATE lead SET status = 'disqualified', archived_at = now(), `+firstResponseSet+` WHERE id = $1 AND archived_at IS NULL`,
 			id); err != nil {
 			return err
 		}

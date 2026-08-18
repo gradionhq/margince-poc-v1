@@ -8984,8 +8984,11 @@ export interface components {
         DedupeCandidate: {
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            entity_type: "person" | "organization";
+            /**
+             * @description A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.
+             * @enum {string}
+             */
+            entity_type: "person" | "organization" | "lead";
             /**
              * Format: uuid
              * @description Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.
@@ -10034,6 +10037,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             version?: components["schemas"]["RowVersion"];
+            /**
+             * Format: date-time
+             * @description When something last happened with this person — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
+             */
+            readonly last_activity_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -10210,9 +10218,9 @@ export interface components {
             readonly logo_url?: string | null;
             /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
             readonly strength?: components["schemas"]["RelationshipStrength"];
-            /** @description How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied. */
+            /** @description How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column, and ABSENT entirely for a role without `person:read` (the object grant comes first, as on the person list); write responses (create, update, archive, merge) omit it. Never client-supplied. */
             readonly contact_count?: number;
-            /** @description How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it. */
+            /** @description How many open, live deals belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted across the WHOLE workspace — the same population the account's `computed_fields` open-pipeline row sums (founder decision 2026-08-18: a pipeline figure on an account is a fact about the account, not about who may open each deal). The key is ABSENT entirely, not 0, for a role without `deal:read` or without `computed_field:read` (STATE-4, the `computed_fields` gate). Present on `listOrganizations` and `getOrganization`; write responses omit it. */
             readonly open_deal_count?: number;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
@@ -10222,6 +10230,11 @@ export interface components {
             } | null;
             partner?: components["schemas"]["Partner"];
             version?: components["schemas"]["RowVersion"];
+            /**
+             * Format: date-time
+             * @description When something last happened with this account — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
+             */
+            readonly last_activity_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -13734,6 +13747,33 @@ export interface components {
             promoted_person_id?: string | null;
             /** Format: date-time */
             promoted_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.
+             */
+            readonly routed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description First genuine response to this lead (formulas §18): an outbound activity, a human status change off `new`, or an explicit disposition. A cold-outbound auto-touch does NOT satisfy it.
+             */
+            readonly first_response_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.
+             */
+            readonly sla_deadline_at?: string | null;
+            /**
+             * @description Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
+             * @enum {string|null}
+             */
+            readonly sla_state?: "within_target" | "at_risk" | "breached" | null;
+            /**
+             * Format: date-time
+             * @description Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.
+             */
+            readonly last_activity_at?: string | null;
+            /** @description Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169). */
+            readonly open_task_count?: number | null;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
@@ -21506,6 +21546,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description The `entity_type`/`entity_id` this read was narrowed TO is outside the caller's row scope, or names nothing. Filtering BY a record is a read OF it, so an unreadable one owes the same existence-hiding answer a direct read would — the caller cannot tell "not yours" from "not there". Note this is the NARROWING TARGET, not the activities: a readable target with no activities answers 200 with an empty page. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     logActivity: {
@@ -22963,8 +23012,24 @@ export interface operations {
                 ai_written?: components["parameters"]["AiWritten"];
                 status?: "new" | "working" | "promoted" | "disqualified";
                 owner_id?: string;
+                /**
+                 * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+                 *     a team the caller cannot see returns their own visible rows filtered to nothing, not a
+                 *     wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+                 *     and rows reached by a record grant (AAD-ROLE-2). One dial for every owner-scoped list
+                 *     (DM-VOCAB-OWN-1).
+                 */
+                owner_team_id?: string;
+                /**
+                 * @description `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+                 *     (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+                 *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+                 */
+                unassigned?: boolean;
                 /** @description Filter by capture source (inbound, webform, referral, import, crawl, manual, ...). */
                 source?: string;
+                /** @description Triage by first-response SLA state (formulas §18.1). `breached` is the overdue queue. */
+                sla_state?: "within_target" | "at_risk" | "breached";
                 /** @description Triage by score. */
                 min_score?: number;
                 q?: string;
@@ -25971,7 +26036,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "open" | "merged" | "not_a_duplicate";
-                entity_type?: "person" | "organization";
+                entity_type?: "person" | "organization" | "lead";
                 /** @description Opaque keyset cursor. */
                 cursor?: string;
                 limit?: number;

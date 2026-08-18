@@ -794,6 +794,19 @@
   user-select: none;
 }
 
+/* A skipped-page marker, and the bare room for one. Both hold a button's width
+ * so the strip is the same size at every page: a pager that changed width would
+ * move Next out from under the reader between clicks. */
+.lt-gap {
+  min-width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  color: var(--textTertiary);
+}
+
 .lt-perpage .select-control {
   font: inherit;
   font-size: 12px;
@@ -999,4 +1012,24 @@
   .lt > .board .board-col {
     scroll-snap-align: start;
   }
+}
+
+/* Row selection (a bulk action): the checkbox sits in the identity cell, before
+ * the name, and the bar above the grid carries the count and the verbs. */
+.lt-select {
+  display: inline-flex;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+}
+
+.lt-bulkbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  margin-bottom: var(--space-2);
 }

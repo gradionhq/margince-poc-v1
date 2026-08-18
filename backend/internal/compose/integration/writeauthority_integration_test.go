@@ -332,13 +332,13 @@ func TestAnExpiredWriteShareConfersNothing(t *testing.T) {
 // not on the record being written but on the record it belongs to.
 func TestAReadShareOfADealCannotEditItsOffer(t *testing.T) {
 	e := SetupSearch(t)
-	pipeline := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position)
-		VALUES ($1, $2, 'Sales', true, 0)`)
-	stage := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipeline)
-	deal := e.Seed(t,
-		`INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, source, captured_by)
-		 VALUES ($1, $2, $3, 'Shared Deal', $4, $5, 'manual', 'human:x')`, e.Rep3, pipeline, stage)
+	pipeline := e.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position)
+		VALUES ($1, 'Sales', true, 0)`)
+	stage := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipeline)
+	deal := e.SeedID(t,
+		`INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, source, captured_by)
+		 VALUES ($1, $2, 'Shared Deal', $3, $4, 'manual', 'human:x')`, e.Rep3, pipeline, stage)
 	offer := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO offer (id, deal_id, offer_number, currency, source, captured_by)

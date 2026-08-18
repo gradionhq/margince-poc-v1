@@ -177,13 +177,12 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	}
 	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 3)
 	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 2)
-	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 2)
+	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed deal→org FK", `
-		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id AND o.workspace_id = d.workspace_id
-		WHERE d.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
+		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id
+		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
 	assertCount("reconstructed employment", `
 		SELECT count(*) FROM relationship r JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
 		WHERE r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
@@ -243,10 +242,29 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 	// Named tables rather than the workspace row: app_user and the rest do not
 	// cascade from it, and this fixture only has to clear what now collides
 	// installation-wide.
-	for _, table := range []string{"deal", "stage", "pipeline", "organization", "person", "lead", "activity"} {
-		if _, err := f.e.Owner.Exec(ctx,
-			"DELETE FROM "+table+" WHERE workspace_id = $1", f.wsID); err != nil {
-			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", table, err)
+	// The order is the foreign keys' — a deal points at its stage, its pipeline
+	// and its organization — and the predicate is per table because ADR-0091 §8
+	// phase D has reached some of these and not others. A `workspace_id = $1`
+	// spelled for all seven fails outright on the three that no longer have it.
+	for _, t2 := range []struct {
+		table        string
+		tenantScoped bool
+	}{
+		{"deal", false},
+		{"stage", false},
+		{"pipeline", false},
+		{"organization", true},
+		{"person", true},
+		{"lead", true},
+		{"activity", true},
+	} {
+		sql, args := "DELETE FROM "+t2.table, []any(nil)
+		if t2.tenantScoped {
+			sql += " WHERE workspace_id = $1"
+			args = []any{f.wsID}
+		}
+		if _, err := f.e.Owner.Exec(ctx, sql, args...); err != nil {
+			t.Fatalf("retiring the source estate's %s rows before the rebuild: %v", t2.table, err)
 		}
 	}
 	// The identity ledger goes with the estate, for the same reason and by the

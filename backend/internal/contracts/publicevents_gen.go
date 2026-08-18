@@ -82,7 +82,9 @@ const (
 	LeadCreated               SubscribableEventType = "lead.created"
 	LeadDemoted               SubscribableEventType = "lead.demoted"
 	LeadDisqualified          SubscribableEventType = "lead.disqualified"
+	LeadMerged                SubscribableEventType = "lead.merged"
 	LeadPromoted              SubscribableEventType = "lead.promoted"
+	LeadSlaBreached           SubscribableEventType = "lead.sla_breached"
 	LeadUpdated               SubscribableEventType = "lead.updated"
 	LinkedinAccountChanged    SubscribableEventType = "linkedin_account.changed"
 	LinkedinMatchDecided      SubscribableEventType = "linkedin_match.decided"
@@ -196,7 +198,11 @@ func (e SubscribableEventType) Valid() bool {
 		return true
 	case LeadDisqualified:
 		return true
+	case LeadMerged:
+		return true
 	case LeadPromoted:
+		return true
+	case LeadSlaBreached:
 		return true
 	case LeadUpdated:
 		return true
@@ -665,6 +671,15 @@ type PublicEventLeadDemoted struct {
 // PublicEventLeadDisqualified Payload for lead.disqualified — a lead was disqualified. Carries no data.
 type PublicEventLeadDisqualified struct{}
 
+// PublicEventLeadMerged Payload for lead.merged — two leads the review queue judged one prospect (ADR-0118/A169 §2) collapsed into the survivor. The merged-away lead is archived and carries merged_into_id; its activities and consent now sit on the survivor. Its own verb, because neither lead.updated nor a disqualification says two prospects became one.
+type PublicEventLeadMerged struct {
+	// MergedFromId The lead that was folded in and archived.
+	MergedFromId openapi_types.UUID `json:"merged_from_id"`
+
+	// MergedIntoId The surviving lead.
+	MergedIntoId openapi_types.UUID `json:"merged_into_id"`
+}
+
 // PublicEventLeadPromoted Payload for lead.promoted — the lead's genuine-engagement promotion into the context graph (events.md §5.5); its own verb, never a lead.updated, since neither person.created nor person.updated on its own says a lead crossed this line.
 type PublicEventLeadPromoted struct {
 	// DedupeOutcome Whether promotion created a new person or merged into an existing one: created or merged.
@@ -678,6 +693,18 @@ type PublicEventLeadPromoted struct {
 
 	// Trigger The genuine-engagement trigger that authorized promotion: inbound_reply, meeting_booked, meeting_held, or human_qualify.
 	Trigger string `json:"trigger"`
+}
+
+// PublicEventLeadSlaBreached Payload for lead.sla_breached (formulas §18.2) — the first scan on which a lead's first-response deadline passed unanswered. Emitted at most once per breach occurrence; the escalation hangs off it.
+type PublicEventLeadSlaBreached struct {
+	// Deadline The first-response deadline that passed.
+	Deadline time.Time `json:"deadline"`
+
+	// EscalationTarget The user the escalation task is assigned to (absent when nobody owns the lead).
+	EscalationTarget *openapi_types.UUID `json:"escalation_target,omitempty"`
+
+	// OwnerId The lead's owner at breach time (absent when unrouted).
+	OwnerId *openapi_types.UUID `json:"owner_id,omitempty"`
 }
 
 // PublicEventLeadUpdated Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list.
@@ -1469,9 +1496,17 @@ func (PublicEventLeadDisqualified) EventType() string { return "lead.disqualifie
 
 func (PublicEventLeadDisqualified) EntityType() string { return "lead" }
 
+func (PublicEventLeadMerged) EventType() string { return "lead.merged" }
+
+func (PublicEventLeadMerged) EntityType() string { return "lead" }
+
 func (PublicEventLeadPromoted) EventType() string { return "lead.promoted" }
 
 func (PublicEventLeadPromoted) EntityType() string { return "lead" }
+
+func (PublicEventLeadSlaBreached) EventType() string { return "lead.sla_breached" }
+
+func (PublicEventLeadSlaBreached) EntityType() string { return "lead" }
 
 func (PublicEventLeadUpdated) EventType() string { return "lead.updated" }
 
@@ -1708,7 +1743,9 @@ var PublicEventVersions = map[string]int{
 	"lead.created":                 1,
 	"lead.demoted":                 1,
 	"lead.disqualified":            1,
+	"lead.merged":                  1,
 	"lead.promoted":                1,
+	"lead.sla_breached":            1,
 	"lead.updated":                 1,
 	"linkedin_account.changed":     1,
 	"linkedin_match.decided":       1,

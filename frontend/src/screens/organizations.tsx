@@ -32,11 +32,7 @@ import {
   ConfidenceMeter,
   EvidenceChip,
 } from "../design-system/trust";
-import {
-  formatDateAbbrev,
-  formatDateTime,
-  formatMoney,
-} from "../format/format";
+import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -100,7 +96,6 @@ import {
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
-import { OwnerName } from "./entityref";
 import {
   EvidenceVerdict,
   factClaim,
@@ -114,10 +109,17 @@ import {
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
+import {
+  createdColumn,
+  lastActivityColumn,
+  ownerColumn,
+  standardViews,
+} from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
@@ -184,7 +186,7 @@ async function fetchOrganizationsPage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: query.perPage,
+        limit: listFetchLimit(query.perPage),
         ...query.filters,
       },
     },
@@ -669,26 +671,9 @@ export function CompaniesScreen() {
                 </span>
               ) : null,
           },
-          {
-            key: "owner",
-            header: t("list.owner"),
-            cell: (org: Organization) => (
-              <OwnerName ownerId={org.owner_id} unowned={t("list.unowned")} />
-            ),
-            sort: "owner_id",
-          },
-          {
-            key: "created",
-            header: t("list.created"),
-            cell: (org: Organization) => (
-              <span className="t-caption">
-                {org.created_at
-                  ? formatDateAbbrev(org.created_at, locale, RECORD_ZONE)
-                  : ""}
-              </span>
-            ),
-            sort: "created_at",
-          },
+          ownerColumn<Organization>(t),
+          lastActivityColumn<Organization>(t, locale),
+          createdColumn<Organization>(t, locale),
         ]}
         tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
@@ -715,16 +700,7 @@ export function CompaniesScreen() {
         ]}
         dataViews={savedViews}
         views={[
-          { label: "list.viewAll", sort: "-created_at" },
-          ...(viewerId
-            ? [
-                {
-                  label: "list.viewMine" as const,
-                  sort: "-created_at",
-                  filters: { owner_id: viewerId },
-                },
-              ]
-            : []),
+          ...standardViews(viewerId),
           {
             label: "list.viewCustomers",
             sort: "display_name",
@@ -2520,12 +2496,18 @@ function CompanyRecordBody({
           gives them. The grid keeps its compact card for the reader who only
           wants to know whether there IS paperwork. */}
       {!overlay && tab === "documents" && (
-        <>
+        // The same stacked column the overview uses, so the two panels are
+        // spaced like every other pair of panels in this record rather than
+        // touching at the border.
+        <div className="co-panel-stack">
           {/* The agreements come first: contract paper is what a reader opens
-              this tab for, and the library beneath it is everything else. */}
+              this tab for, and the library beneath it is everything else —
+              literally everything else, since the library withholds the paper
+              already read on an agreement's own row. Two panels, and no file on
+              both of them. */}
           <CompanyContractsCard orgId={org.id} />
           <CompanyDocumentsCard orgId={org.id} />
-        </>
+        </div>
       )}
       {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
           Partner put a panel from one tab on top of another, and a reader who
@@ -2600,7 +2582,7 @@ function CompanyOverviewStack({
   onPerform: (action: SuggestionAction) => void;
 }>) {
   return (
-    <div className="co-overview-stack">
+    <div className="co-panel-stack">
       {/* What needs a person today leads the column: the readings above
           describe the account, this asks for a move on it. It belongs to the
           overview rather than to the record, because a rep who has opened

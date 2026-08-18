@@ -140,7 +140,7 @@ func seedPartnerPeople(c *client, orgID string, p demoPartner) (people, links in
 		if email == "" {
 			continue
 		}
-		personID, existed, err := ensurePerson(c, datasetPers{Name: person.Name, Role: person.Role}, email, false)
+		personID, existed, err := ensurePerson(c, datasetPers{Name: person.Name, Role: person.Role}, email, seedSource, false)
 		if err != nil {
 			return people, links, fmt.Errorf("person %q: %w", person.Name, err)
 		}

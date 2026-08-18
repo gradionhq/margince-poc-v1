@@ -123,9 +123,9 @@ type queryFixture struct {
 
 func (q *queryEnv) seedFixture(t *testing.T) queryFixture {
 	t.Helper()
-	pipeline := q.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stage := q.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipeline)
+	pipeline := q.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
+	stage := q.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipeline)
 
 	var f queryFixture
 	f.rep1Org = q.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, address_city, source, captured_by)
@@ -137,17 +137,17 @@ func (q *queryEnv) seedFixture(t *testing.T) queryFixture {
 	f.project = q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
 		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep1, f.rep1Org)
 
-	f.rep1Deal = q.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, project_id, amount_minor, currency, status, expected_close_date, source, captured_by)
-		VALUES ($1, $2, $3, 'Rollout', $4, $5, $6, $7, 100000, 'EUR', 'open', '2026-12-01', 'manual', 'human:x')`,
+	f.rep1Deal = q.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, project_id, amount_minor, currency, status, expected_close_date, source, captured_by)
+		VALUES ($1, $2, 'Rollout', $3, $4, $5, $6, 100000, 'EUR', 'open', '2026-12-01', 'manual', 'human:x')`,
 		q.Rep1, pipeline, stage, f.rep1Org, f.project)
-	f.rep3Deal = q.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, status, expected_close_date, source, captured_by)
-		VALUES ($1, $2, $3, 'Logistik Rahmenvertrag', $4, $5, $6, 250000, 'EUR', 'open', '2026-11-01', 'manual', 'human:x')`,
+	f.rep3Deal = q.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, status, expected_close_date, source, captured_by)
+		VALUES ($1, $2, 'Logistik Rahmenvertrag', $3, $4, $5, 250000, 'EUR', 'open', '2026-11-01', 'manual', 'human:x')`,
 		q.Rep3, pipeline, stage, f.rep3Org)
 	// An ownerless deal is workspace-shared and visible at every tier — the
 	// control that keeps "the rep sees fewer rows" from being read as "the rep
 	// sees only their own".
-	f.sharedDeal = q.Seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, status, source, captured_by)
-		VALUES ($1, $2, 'Unowned Deal', $3, $4, 50000, 'EUR', 'open', 'manual', 'human:x')`, pipeline, stage)
+	f.sharedDeal = q.SeedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, amount_minor, currency, status, source, captured_by)
+		VALUES ($1, 'Unowned Deal', $2, $3, 50000, 'EUR', 'open', 'manual', 'human:x')`, pipeline, stage)
 	return f
 }
 

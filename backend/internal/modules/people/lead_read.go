@@ -24,9 +24,18 @@ import (
 // liveOnlyClause narrows a read to unarchived rows, spelled once.
 const liveOnlyClause = ` AND archived_at IS NULL`
 
+// The two trailing subqueries derive the working-surface facts (ADR-0118/A169)
+// from activity_link rather than storing them on the lead: the last touch,
+// and how many tasks are still open against it. Every lead read is FROM the
+// unaliased table, which is what lets them name lead.id.
 const leadColumns = `id, workspace_id, full_name, email, title, company_name, candidate_org_key,
 	linkedin_url, status, score, score_override_reason, score_computed, owner_id, project_id, source_system, source_id,
-	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at`
+	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at,
+	routed_at, first_response_at,
+	(SELECT max(a.occurred_at) FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL),
+	(SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done)`
 
 // readLead resolves one lead row; active names the custom-field columns
 // to carry alongside the core ones — nil for internal decision reads whose
@@ -53,11 +62,13 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var email *string
 	var status string
 	var version int64
+	var openTasks int
 
 	dests := []any{
 		&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &projectID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
+		&l.RoutedAt, &l.FirstResponseAt, &l.LastActivityAt, &openTasks,
 	}
 	cf := storekit.ScanDests(active)
 	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
@@ -77,5 +88,7 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	}
 	l.Status = crmcontracts.LeadStatus(status)
 	l.Version = &version
+	l.OpenTaskCount = &openTasks
+	l.SlaDeadlineAt, l.SlaState = leadSLAFields(l.RoutedAt, l.CreatedAt, l.FirstResponseAt, l.ArchivedAt)
 	return l, nil
 }

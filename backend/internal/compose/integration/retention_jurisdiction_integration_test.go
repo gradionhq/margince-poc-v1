@@ -103,18 +103,18 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		// hangs off, so the fixture has to supply one or it proves nothing.
 		pipeline, stage, deal := ids.NewV7(), ids.NewV7(), ids.NewV7()
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO pipeline (id, workspace_id, name, is_default, position)
-			VALUES ($1, `+wsClause+`, 'Default', true, 0)`, pipeline); err != nil {
+			INSERT INTO pipeline (id, name, is_default, position)
+			VALUES ($1, 'Default', true, 0)`, pipeline); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-			VALUES ($1, `+wsClause+`, $2, 'Closed Won', 0, 'won', 100)`, stage, pipeline); err != nil {
+			INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+			VALUES ($1, $2, 'Closed Won', 0, 'won', 100)`, stage, pipeline); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO deal (id, workspace_id, name, status, pipeline_id, stage_id, closed_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'Acme rollout', 'won', $2, $3, now(), 'api', 'human:t')`,
+			INSERT INTO deal (id, name, status, pipeline_id, stage_id, closed_at, source, captured_by)
+			VALUES ($1, 'Acme rollout', 'won', $2, $3, now(), 'api', 'human:t')`,
 			deal, pipeline, stage); err != nil {
 			return err
 		}

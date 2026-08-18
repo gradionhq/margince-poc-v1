@@ -3722,6 +3722,7 @@ func (e DealCoverageRiskKind) Valid() bool {
 
 // Defines values for DedupeCandidateEntityType.
 const (
+	DedupeCandidateEntityTypeLead         DedupeCandidateEntityType = "lead"
 	DedupeCandidateEntityTypeOrganization DedupeCandidateEntityType = "organization"
 	DedupeCandidateEntityTypePerson       DedupeCandidateEntityType = "person"
 )
@@ -3729,6 +3730,8 @@ const (
 // Valid indicates whether the value is a known member of the DedupeCandidateEntityType enum.
 func (e DedupeCandidateEntityType) Valid() bool {
 	switch e {
+	case DedupeCandidateEntityTypeLead:
+		return true
 	case DedupeCandidateEntityTypeOrganization:
 		return true
 	case DedupeCandidateEntityTypePerson:
@@ -4341,6 +4344,27 @@ func (e JobFailureState) Valid() bool {
 	case JobFailureStateDiscarded:
 		return true
 	case JobFailureStateRetryable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadSlaState.
+const (
+	LeadSlaStateAtRisk       LeadSlaState = "at_risk"
+	LeadSlaStateBreached     LeadSlaState = "breached"
+	LeadSlaStateWithinTarget LeadSlaState = "within_target"
+)
+
+// Valid indicates whether the value is a known member of the LeadSlaState enum.
+func (e LeadSlaState) Valid() bool {
+	switch e {
+	case LeadSlaStateAtRisk:
+		return true
+	case LeadSlaStateBreached:
+		return true
+	case LeadSlaStateWithinTarget:
 		return true
 	default:
 		return false
@@ -9926,6 +9950,7 @@ func (e ListDedupeCandidatesParamsStatus) Valid() bool {
 
 // Defines values for ListDedupeCandidatesParamsEntityType.
 const (
+	ListDedupeCandidatesParamsEntityTypeLead         ListDedupeCandidatesParamsEntityType = "lead"
 	ListDedupeCandidatesParamsEntityTypeOrganization ListDedupeCandidatesParamsEntityType = "organization"
 	ListDedupeCandidatesParamsEntityTypePerson       ListDedupeCandidatesParamsEntityType = "person"
 )
@@ -9933,6 +9958,8 @@ const (
 // Valid indicates whether the value is a known member of the ListDedupeCandidatesParamsEntityType enum.
 func (e ListDedupeCandidatesParamsEntityType) Valid() bool {
 	switch e {
+	case ListDedupeCandidatesParamsEntityTypeLead:
+		return true
 	case ListDedupeCandidatesParamsEntityTypeOrganization:
 		return true
 	case ListDedupeCandidatesParamsEntityTypePerson:
@@ -10035,6 +10062,27 @@ func (e ListLeadsParamsStatus) Valid() bool {
 	case ListLeadsParamsStatusPromoted:
 		return true
 	case ListLeadsParamsStatusWorking:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListLeadsParamsSlaState.
+const (
+	AtRisk       ListLeadsParamsSlaState = "at_risk"
+	Breached     ListLeadsParamsSlaState = "breached"
+	WithinTarget ListLeadsParamsSlaState = "within_target"
+)
+
+// Valid indicates whether the value is a known member of the ListLeadsParamsSlaState enum.
+func (e ListLeadsParamsSlaState) Valid() bool {
+	switch e {
+	case AtRisk:
+		return true
+	case Breached:
+		return true
+	case WithinTarget:
 		return true
 	default:
 		return false
@@ -13778,10 +13826,12 @@ type DealListResponse struct {
 // DedupeCandidate One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8).
 type DedupeCandidate struct {
 	// Confidence The PO-F-1/PO-F-2 fuzzy score at detection.
-	Confidence float32                   `json:"confidence"`
-	CreatedAt  time.Time                 `json:"created_at"`
-	DisposedAt *time.Time                `json:"disposed_at,omitempty"`
-	DisposedBy *openapi_types.UUID       `json:"disposed_by,omitempty"`
+	Confidence float32             `json:"confidence"`
+	CreatedAt  time.Time           `json:"created_at"`
+	DisposedAt *time.Time          `json:"disposed_at,omitempty"`
+	DisposedBy *openapi_types.UUID `json:"disposed_by,omitempty"`
+
+	// EntityType A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.
 	EntityType DedupeCandidateEntityType `json:"entity_type"`
 
 	// Evidence Per-field agree/collide snapshot captured at detection — what the queue renders (AC-dedupe-2/3); never re-derived against since-edited rows.
@@ -13805,7 +13855,7 @@ type DedupeCandidate struct {
 	Status  DedupeCandidateStatus `json:"status"`
 }
 
-// DedupeCandidateEntityType defines model for DedupeCandidate.EntityType.
+// DedupeCandidateEntityType A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.
 type DedupeCandidateEntityType string
 
 // DedupeCandidateStatus defines model for DedupeCandidate.Status.
@@ -14523,13 +14573,22 @@ type Lead struct {
 	CreatedAt   time.Time `json:"created_at"`
 
 	// Email Lowercased; lead-internal dedupe key.
-	Email    *openapi_types.Email `json:"email,omitempty"`
-	FullName *string              `json:"full_name,omitempty"`
-	Id       openapi_types.UUID   `json:"id"`
+	Email *openapi_types.Email `json:"email,omitempty"`
+
+	// FirstResponseAt First genuine response to this lead (formulas §18): an outbound activity, a human status change off `new`, or an explicit disposition. A cold-outbound auto-touch does NOT satisfy it.
+	FirstResponseAt *time.Time         `json:"first_response_at,omitempty"`
+	FullName        *string            `json:"full_name,omitempty"`
+	Id              openapi_types.UUID `json:"id"`
+
+	// LastActivityAt Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
 
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.
-	LinkedinUrl *string             `json:"linkedin_url,omitempty"`
-	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	LinkedinUrl *string `json:"linkedin_url,omitempty"`
+
+	// OpenTaskCount Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169).
+	OpenTaskCount *int                `json:"open_task_count,omitempty"`
+	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// ProjectId The body of work this lead belongs to; a lead has at most one. NO same-company guard exists on this arm and none can: a lead has no organization_id, only candidate_org_key, so the deal_project_same_org trigger has no lead twin. Promotion is where a mismatch becomes visible.
 	ProjectId  *openapi_types.UUID `json:"project_id,omitempty"`
@@ -14539,6 +14598,9 @@ type Lead struct {
 	PromotedPersonId *openapi_types.UUID     `json:"promoted_person_id,omitempty"`
 	Raw              *map[string]interface{} `json:"raw,omitempty"`
 
+	// RoutedAt When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.
+	RoutedAt *time.Time `json:"routed_at,omitempty"`
+
 	// Score Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).
 	Score int `json:"score"`
 
@@ -14546,13 +14608,19 @@ type Lead struct {
 	ScoreComputed *int `json:"score_computed,omitempty"`
 
 	// ScoreOverrideReason Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.
-	ScoreOverrideReason *string    `json:"score_override_reason,omitempty"`
-	Source              string     `json:"source"`
-	SourceId            *string    `json:"source_id,omitempty"`
-	SourceSystem        *string    `json:"source_system,omitempty"`
-	Status              LeadStatus `json:"status"`
-	Title               *string    `json:"title,omitempty"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	ScoreOverrideReason *string `json:"score_override_reason,omitempty"`
+
+	// SlaDeadlineAt Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.
+	SlaDeadlineAt *time.Time `json:"sla_deadline_at,omitempty"`
+
+	// SlaState Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
+	SlaState     *LeadSlaState `json:"sla_state,omitempty"`
+	Source       string        `json:"source"`
+	SourceId     *string       `json:"source_id,omitempty"`
+	SourceSystem *string       `json:"source_system,omitempty"`
+	Status       LeadStatus    `json:"status"`
+	Title        *string       `json:"title,omitempty"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -14562,6 +14630,9 @@ type Lead struct {
 	Version              *RowVersion            `json:"version,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
+
+// LeadSlaState Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
+type LeadSlaState string
 
 // LeadStatus defines model for Lead.Status.
 type LeadStatus string
@@ -15502,7 +15573,7 @@ type Organization struct {
 	// viewer's role lacks computed_field:read visibility (STATE-4).
 	ComputedFields *[]ComputedField `json:"computed_fields,omitempty"`
 
-	// ContactCount How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied.
+	// ContactCount How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column, and ABSENT entirely for a role without `person:read` (the object grant comes first, as on the person list); write responses (create, update, archive, merge) omit it. Never client-supplied.
 	ContactCount *int      `json:"contact_count,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 
@@ -15517,8 +15588,11 @@ type Organization struct {
 	// It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
 	// *which companies are we selling to* exclude it unless `include_anchor` is set, and it
 	// cannot be archived or merged. A caller that offers company actions should tell it apart.
-	IsAnchor  *bool   `json:"is_anchor,omitempty"`
-	LegalName *string `json:"legal_name,omitempty"`
+	IsAnchor *bool `json:"is_anchor,omitempty"`
+
+	// LastActivityAt When something last happened with this account — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
+	LegalName      *string    `json:"legal_name,omitempty"`
 
 	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
 	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
@@ -15536,7 +15610,7 @@ type Organization struct {
 	LogoUrl      *string             `json:"logo_url,omitempty"`
 	MergedIntoId *openapi_types.UUID `json:"merged_into_id,omitempty"`
 
-	// OpenDealCount How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it.
+	// OpenDealCount How many open, live deals belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted across the WHOLE workspace — the same population the account's `computed_fields` open-pipeline row sums (founder decision 2026-08-18: a pipeline figure on an account is a fact about the account, not about who may open each deal). The key is ABSENT entirely, not 0, for a role without `deal:read` or without `computed_field:read` (STATE-4, the `computed_fields` gate). Present on `listOrganizations` and `getOrganization`; write responses omit it.
 	OpenDealCount *int                `json:"open_deal_count,omitempty"`
 	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
 
@@ -17118,7 +17192,10 @@ type Person struct {
 	// FullName Always present (display name).
 	FullName string             `json:"full_name"`
 	Id       openapi_types.UUID `json:"id"`
-	LastName *string            `json:"last_name,omitempty"`
+
+	// LastActivityAt When something last happened with this person — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
+	LastName       *string    `json:"last_name,omitempty"`
 
 	// MergedIntoId Set when this row was merged away.
 	MergedIntoId *openapi_types.UUID     `json:"merged_into_id,omitempty"`
@@ -21810,8 +21887,23 @@ type ListLeadsParams struct {
 	Status    *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 	OwnerId   *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
+	// OwnerTeamId Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+	// a team the caller cannot see returns their own visible rows filtered to nothing, not a
+	// wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+	// and rows reached by a record grant (AAD-ROLE-2). One dial for every owner-scoped list
+	// (DM-VOCAB-OWN-1).
+	OwnerTeamId *openapi_types.UUID `form:"owner_team_id,omitempty" json:"owner_team_id,omitempty"`
+
+	// Unassigned `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+	// (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+	// Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+	Unassigned *bool `form:"unassigned,omitempty" json:"unassigned,omitempty"`
+
 	// Source Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
 	Source *string `form:"source,omitempty" json:"source,omitempty"`
+
+	// SlaState Triage by first-response SLA state (formulas §18.1). `breached` is the overdue queue.
+	SlaState *ListLeadsParamsSlaState `form:"sla_state,omitempty" json:"sla_state,omitempty"`
 
 	// MinScore Triage by score.
 	MinScore *int    `form:"min_score,omitempty" json:"min_score,omitempty"`
@@ -21823,6 +21915,9 @@ type ListLeadsParamsCapturedByKind string
 
 // ListLeadsParamsStatus defines parameters for ListLeads.
 type ListLeadsParamsStatus string
+
+// ListLeadsParamsSlaState defines parameters for ListLeads.
+type ListLeadsParamsSlaState string
 
 // CreateLeadParams defines parameters for CreateLead.
 type CreateLeadParams struct {
@@ -26662,6 +26757,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "email")
 	}
 
+	if raw, found := object["first_response_at"]; found {
+		err = json.Unmarshal(raw, &a.FirstResponseAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'first_response_at': %w", err)
+		}
+		delete(object, "first_response_at")
+	}
+
 	if raw, found := object["full_name"]; found {
 		err = json.Unmarshal(raw, &a.FullName)
 		if err != nil {
@@ -26678,12 +26781,28 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "id")
 	}
 
+	if raw, found := object["last_activity_at"]; found {
+		err = json.Unmarshal(raw, &a.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_activity_at': %w", err)
+		}
+		delete(object, "last_activity_at")
+	}
+
 	if raw, found := object["linkedin_url"]; found {
 		err = json.Unmarshal(raw, &a.LinkedinUrl)
 		if err != nil {
 			return fmt.Errorf("error reading 'linkedin_url': %w", err)
 		}
 		delete(object, "linkedin_url")
+	}
+
+	if raw, found := object["open_task_count"]; found {
+		err = json.Unmarshal(raw, &a.OpenTaskCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'open_task_count': %w", err)
+		}
+		delete(object, "open_task_count")
 	}
 
 	if raw, found := object["owner_id"]; found {
@@ -26726,6 +26845,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "raw")
 	}
 
+	if raw, found := object["routed_at"]; found {
+		err = json.Unmarshal(raw, &a.RoutedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'routed_at': %w", err)
+		}
+		delete(object, "routed_at")
+	}
+
 	if raw, found := object["score"]; found {
 		err = json.Unmarshal(raw, &a.Score)
 		if err != nil {
@@ -26748,6 +26875,22 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'score_override_reason': %w", err)
 		}
 		delete(object, "score_override_reason")
+	}
+
+	if raw, found := object["sla_deadline_at"]; found {
+		err = json.Unmarshal(raw, &a.SlaDeadlineAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'sla_deadline_at': %w", err)
+		}
+		delete(object, "sla_deadline_at")
+	}
+
+	if raw, found := object["sla_state"]; found {
+		err = json.Unmarshal(raw, &a.SlaState)
+		if err != nil {
+			return fmt.Errorf("error reading 'sla_state': %w", err)
+		}
+		delete(object, "sla_state")
 	}
 
 	if raw, found := object["source"]; found {
@@ -26863,6 +27006,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.FirstResponseAt != nil {
+		object["first_response_at"], err = json.Marshal(a.FirstResponseAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'first_response_at': %w", err)
+		}
+	}
+
 	if a.FullName != nil {
 		object["full_name"], err = json.Marshal(a.FullName)
 		if err != nil {
@@ -26875,10 +27025,24 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'id': %w", err)
 	}
 
+	if a.LastActivityAt != nil {
+		object["last_activity_at"], err = json.Marshal(a.LastActivityAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_activity_at': %w", err)
+		}
+	}
+
 	if a.LinkedinUrl != nil {
 		object["linkedin_url"], err = json.Marshal(a.LinkedinUrl)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'linkedin_url': %w", err)
+		}
+	}
+
+	if a.OpenTaskCount != nil {
+		object["open_task_count"], err = json.Marshal(a.OpenTaskCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'open_task_count': %w", err)
 		}
 	}
 
@@ -26917,6 +27081,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.RoutedAt != nil {
+		object["routed_at"], err = json.Marshal(a.RoutedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'routed_at': %w", err)
+		}
+	}
+
 	object["score"], err = json.Marshal(a.Score)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'score': %w", err)
@@ -26933,6 +27104,20 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		object["score_override_reason"], err = json.Marshal(a.ScoreOverrideReason)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'score_override_reason': %w", err)
+		}
+	}
+
+	if a.SlaDeadlineAt != nil {
+		object["sla_deadline_at"], err = json.Marshal(a.SlaDeadlineAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'sla_deadline_at': %w", err)
+		}
+	}
+
+	if a.SlaState != nil {
+		object["sla_state"], err = json.Marshal(a.SlaState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'sla_state': %w", err)
 		}
 	}
 
@@ -27594,6 +27779,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "is_anchor")
 	}
 
+	if raw, found := object["last_activity_at"]; found {
+		err = json.Unmarshal(raw, &a.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_activity_at': %w", err)
+		}
+		delete(object, "last_activity_at")
+	}
+
 	if raw, found := object["legal_name"]; found {
 		err = json.Unmarshal(raw, &a.LegalName)
 		if err != nil {
@@ -27832,6 +28025,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.LastActivityAt != nil {
+		object["last_activity_at"], err = json.Marshal(a.LastActivityAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_activity_at': %w", err)
+		}
+	}
+
 	if a.LegalName != nil {
 		object["legal_name"], err = json.Marshal(a.LegalName)
 		if err != nil {
@@ -28061,6 +28261,14 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "id")
 	}
 
+	if raw, found := object["last_activity_at"]; found {
+		err = json.Unmarshal(raw, &a.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_activity_at': %w", err)
+		}
+		delete(object, "last_activity_at")
+	}
+
 	if raw, found := object["last_name"]; found {
 		err = json.Unmarshal(raw, &a.LastName)
 		if err != nil {
@@ -28236,6 +28444,13 @@ func (a Person) MarshalJSON() ([]byte, error) {
 	object["id"], err = json.Marshal(a.Id)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	if a.LastActivityAt != nil {
+		object["last_activity_at"], err = json.Marshal(a.LastActivityAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_activity_at': %w", err)
+		}
 	}
 
 	if a.LastName != nil {
@@ -40227,6 +40442,32 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "owner_team_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner_team_id", r.URL.Query(), &params.OwnerTeamId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner_team_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner_team_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "unassigned" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "unassigned", r.URL.Query(), &params.Unassigned, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "unassigned"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "unassigned", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "source" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "source", r.URL.Query(), &params.Source, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -40236,6 +40477,19 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sla_state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sla_state", r.URL.Query(), &params.SlaState, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sla_state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sla_state", Err: err})
 		}
 		return
 	}

@@ -9,7 +9,6 @@ import { Badge, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { ProvenanceTag } from "../design-system/trust";
-import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -21,7 +20,6 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { TimelineActions } from "./compose";
 import { ConsentSection } from "./consent";
 import { RecordContextPanel } from "./context";
@@ -29,12 +27,13 @@ import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, OwnerName } from "./entityref";
+import { EntityRef } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import {
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
   useOwnerChips,
 } from "./listquery";
@@ -51,6 +50,12 @@ import {
 } from "./person360";
 import { EnrichedFields } from "./personcorrections";
 import { PersonGraphPanel } from "./persongraph";
+import {
+  createdColumn,
+  lastActivityColumn,
+  ownerColumn,
+  standardViews,
+} from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
@@ -78,7 +83,7 @@ async function fetchPeoplePage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: query.perPage,
+        limit: listFetchLimit(query.perPage),
         ...query.filters,
       },
     },
@@ -408,29 +413,9 @@ export function ContactsScreen() {
               </span>
             ),
           },
-          {
-            key: "owner",
-            header: t("list.owner"),
-            cell: (person: Person) => (
-              <OwnerName
-                ownerId={person.owner_id}
-                unowned={t("list.unowned")}
-              />
-            ),
-            sort: "owner_id",
-          },
-          {
-            key: "created",
-            header: t("list.created"),
-            cell: (person: Person) => (
-              <span className="t-caption">
-                {person.created_at
-                  ? formatDateAbbrev(person.created_at, locale, RECORD_ZONE)
-                  : ""}
-              </span>
-            ),
-            sort: "created_at",
-          },
+          ownerColumn<Person>(t),
+          lastActivityColumn<Person>(t, locale),
+          createdColumn<Person>(t, locale),
         ]}
         tools={<SaveViewAction resource="people" query={state.query} />}
         rowKey={(person) => person.id}
@@ -438,16 +423,7 @@ export function ContactsScreen() {
         dataChips={ownerChips}
         dataViews={savedViews}
         views={[
-          { label: "list.viewAll", sort: "-created_at" },
-          ...(viewerId
-            ? [
-                {
-                  label: "list.viewMine" as const,
-                  sort: "-created_at",
-                  filters: { owner_id: viewerId },
-                },
-              ]
-            : []),
+          ...standardViews(viewerId),
           { label: "list.viewAZ", sort: "full_name" },
         ]}
       />

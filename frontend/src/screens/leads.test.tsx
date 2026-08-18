@@ -847,6 +847,130 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
     );
   });
 
+  it("an overdue lead wears the badge, and the Overdue view asks for sla_state=breached", async () => {
+    // formulas §18.1: the first-response clock as the list shows it. A lead
+    // within target carries no badge, so the list stays quiet until something
+    // needs a hand.
+    const { urls } = stubFetch(async () =>
+      jsonResponse({
+        data: [
+          {
+            ...lead,
+            sla_state: "breached",
+            sla_deadline_at: "2026-06-01T08:00:00Z",
+          },
+          {
+            ...lead,
+            id: "l-2",
+            full_name: "Otto Fischer",
+            sla_state: "within_target",
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
+    expect(screen.getAllByText("Overdue").length).toBeGreaterThan(0);
+    expect(screen.queryByText("On time")).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Overdue" }));
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("sla_state=breached"))).toBe(true),
+    );
+  });
+
+  it("the lead page says when the first response is due, and when it was given", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        ...lead,
+        sla_state: "at_risk",
+        sla_deadline_at: "2026-06-01T08:00:00Z",
+      }),
+    );
+    render(<LeadScreen id="l-1" />);
+    expect(await screen.findByText(/First response due by/)).toBeTruthy();
+    expect(screen.getByText("Due soon")).toBeTruthy();
+  });
+
+  it("bulk-assigns selected leads one PATCH each, every row with its own If-Match, and names the row that refused", async () => {
+    // A naive fan-out sends one version to every row and 428s/409s on all but
+    // the row it came from. Each row carries the version the list holds; a
+    // row that moved under the reader is reported by name, not swallowed.
+    const patches: Array<{
+      id: string;
+      ifMatch: string | null;
+      body: unknown;
+    }> = [];
+    stubFetch(async (url, method, request) => {
+      if (url.includes("/users")) {
+        return jsonResponse({
+          data: [{ id: "u-9", email: "lena@x.test", display_name: "Lena F." }],
+          page: { next_cursor: null },
+        });
+      }
+      if (method === "PATCH") {
+        const id = url.split("/leads/")[1] ?? "";
+        patches.push({
+          id,
+          ifMatch: request.headers.get("If-Match"),
+          body: JSON.parse(await request.text()),
+        });
+        if (id === "l-2") {
+          return new Response(
+            JSON.stringify({
+              title: "Conflict",
+              status: 409,
+              code: "version_skew",
+              detail: "moved",
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/problem+json" },
+            },
+          );
+        }
+        return jsonResponse({ ...lead, id, owner_id: "u-9", version: 8 });
+      }
+      return jsonResponse({
+        data: [
+          { ...lead, version: 3 },
+          { ...lead, id: "l-2", full_name: "Otto Fischer", version: 7 },
+        ],
+        page: { next_cursor: null, has_more: false },
+      });
+    });
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select Jonas Petersen" }),
+    );
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select Otto Fischer" }),
+    );
+    expect(screen.getByText("2 selected")).toBeTruthy();
+
+    await userEvent.click(screen.getByLabelText("New owner"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Lena F." }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    await waitFor(() => expect(patches).toHaveLength(2));
+    expect(patches.map((p) => [p.id, p.ifMatch])).toEqual([
+      ["l-1", "3"],
+      ["l-2", "7"],
+    ]);
+    expect(
+      patches.every(
+        (p) => JSON.stringify(p.body) === JSON.stringify({ owner_id: "u-9" }),
+      ),
+    ).toBe(true);
+    // The row that refused is named, with the server's reason.
+    expect(await screen.findByText(/1 not applied/)).toBeTruthy();
+    expect(screen.getByText(/Otto Fischer: /)).toBeTruthy();
+  });
+
   it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {
@@ -1092,6 +1216,48 @@ describe("LeadsScreen — archived marking (P-3)", () => {
     expect(
       screen.getByText("Disqualified", { selector: "span.badge-warn" }),
     ).toBeTruthy();
+  });
+});
+
+describe("LeadsScreen — the one ownership dial (DM-VOCAB-OWN-1)", () => {
+  it("offers the unowned queue and asks the server for it as unassigned=true", async () => {
+    // The lead list once carried its own owner chip with only "mine", because
+    // listLeads lacked owner_team_id/unassigned. It binds the SAME dial the
+    // person and company lists use now — the fork is gone.
+    const user = userEvent.setup();
+    const { urls } = stubFetchWithMe(async (url) => {
+      if (url.includes("/leads")) {
+        return jsonResponse({
+          data: [lead],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return undefined;
+    });
+    render(<LeadsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    // Two "Owner" buttons: the column chooser's toggle (aria-pressed) and the
+    // filter dial. The dial is the one that opens the option list.
+    const dial = (await screen.findAllByRole("button", { name: "Owner" })).find(
+      (b) => !b.hasAttribute("aria-pressed"),
+    );
+    if (!dial) {
+      throw new Error("the owner dial must be in the filter menu");
+    }
+    await user.click(dial);
+    await user.click(await screen.findByRole("button", { name: "Unassigned" }));
+
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (u) => u.includes("/leads?") && u.includes("unassigned=true"),
+        ),
+      ).toBe(true),
+    );
   });
 });
 
@@ -1544,6 +1710,110 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     expect(
       screen.getByText("45.60 adds up, rounds to 46, scored 46"),
     ).toBeTruthy();
+  });
+
+  it("shows a manual signal from the breakdown, and lets a rep enter one with a reason", async () => {
+    // S-E13.6 / ADR-0105 §4: the human half of the score. What is set reads
+    // off the decomposition's manual:<factor> row (there is no list endpoint);
+    // a new one is entered with a band, a kind and a written reason.
+    let putBody: unknown = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PUT" && url.includes("/manual-signals")) {
+        putBody = JSON.parse(await request.text());
+        return jsonResponse({
+          factor: "employees",
+          band: "51-200",
+          points: 8,
+          signal_kind: "assumption",
+          reason: "Their careers page lists ~80 open roles",
+          set_by: "u-9",
+          set_at: "2026-06-04T00:00:00Z",
+        });
+      }
+      if (url.includes("/users")) {
+        return jsonResponse({
+          data: [{ id: "u-9", email: "lena@x.test", display_name: "Lena F." }],
+          page: { next_cursor: null },
+        });
+      }
+      if (url.includes("/score")) {
+        return jsonResponse({
+          score: 12,
+          explained: true,
+          current: {
+            score: 12,
+            score_computed: 12,
+            raw_sum: 12,
+            rounded_sum: 12,
+            computed_at: "2026-06-04T00:00:00Z",
+            factors: [
+              {
+                factor: "manual:budget_hint",
+                points: 4,
+                signal_kind: "fact",
+                reason: "CFO named a Q4 line item",
+                set_by: "u-9",
+              },
+            ],
+          },
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("CFO named a Q4 line item")).toBeTruthy(),
+    );
+
+    await userEvent.click(screen.getByLabelText("Factor"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Employees" }),
+    );
+    await userEvent.click(screen.getByLabelText("Value"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "51–200" }),
+    );
+    await userEvent.click(screen.getByLabelText("This is a…"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "assumption" }),
+    );
+    const save = screen.getByRole("button", { name: "Add to the score" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(
+      screen.getByLabelText("Why (recorded with the score)"),
+      "Their careers page lists ~80 open roles",
+    );
+    await userEvent.click(save);
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putBody).toEqual({
+      factor: "employees",
+      band: "51-200",
+      signal_kind: "assumption",
+      reason: "Their careers page lists ~80 open roles",
+    });
+  });
+
+  it("a closed lead shows its manual signals read-only, with the reason", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 0, explained: false });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "disqualified",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("What you know about this lead")).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Add to the score" }),
+    ).toBeNull();
+    expect(
+      screen.getAllByText("This lead is closed and takes no changes.").length,
+    ).toBeGreaterThan(0);
   });
 
   it("never prints an absent source into the sentence about it", async () => {

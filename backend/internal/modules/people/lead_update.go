@@ -154,6 +154,9 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	if err := stampHumanFirstResponse(ctx, p, current, in); err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 	if p.Empty() {
 		return current, nil
@@ -174,6 +177,21 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	// Clearing an override immediately recomputes from current signals
 	// (formulas §3.1): score no longer lags behind the machine value, and
 	// the recompute appends its own history entry.
+	// A rename or a new company/address can make this lead read like another
+	// one; the review trail follows the identity, not just the create.
+	if identityTouched(p, leadNameColumn, leadCompanyColumn, leadEmailColumn) {
+		by, err := storekit.CapturedBy(ctx)
+		if err != nil {
+			return crmcontracts.Lead{}, err
+		}
+		updated, err := readLead(ctx, tx, id, storekit.LiveOnly, nil)
+		if err != nil {
+			return crmcontracts.Lead{}, err
+		}
+		if err := s.recordLeadNearMatch(ctx, tx, updated, by); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	}
 	if resumeRecompute {
 		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC(), true); err != nil {
 			return crmcontracts.Lead{}, err
@@ -296,4 +314,24 @@ func applyScoreOverride(p *storekit.Patch, current crmcontracts.Lead, in UpdateL
 		return false, nil
 	}
 	return false, nil
+}
+
+// stampHumanFirstResponse adds the §18.1 first-response stamp to a patch
+// that moves the lead off `new` by a HUMAN's hand. An agent's status change
+// is not a response, and a lead already answered keeps its first stamp.
+func stampHumanFirstResponse(ctx context.Context, p *storekit.Patch, current crmcontracts.Lead, in UpdateLeadInput) error {
+	if in.Status == nil || current.Status != crmcontracts.LeadStatusNew || current.FirstResponseAt != nil {
+		return nil
+	}
+	if LeadStatus(*in.Status) == LeadStatusNew {
+		return nil
+	}
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return err
+	}
+	if actor.Type == principal.PrincipalHuman {
+		p.Set(firstResponseColumn, nil, time.Now().UTC())
+	}
+	return nil
 }

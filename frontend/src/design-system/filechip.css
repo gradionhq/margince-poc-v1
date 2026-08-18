@@ -1,0 +1,54 @@
+/* A stored file as a small card. Squarer than `.chip` on purpose: a chip is a
+   fact about a record, this is a thing a reader takes away, and the two should
+   not be mistaken for each other at a glance. */
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  color: var(--textPrimary);
+  font-size: 13px;
+  line-height: 1.2;
+  text-decoration: none;
+}
+.file-chip svg {
+  color: var(--textMeta);
+  flex: none;
+}
+/* The kind reads as a stamp on the card rather than as part of the name:
+   smaller, tracked out, and on its own ground. */
+.file-chip-kind {
+  flex: none;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--bgCard);
+  color: var(--textMeta);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.06em;
+}
+/* The name truncates rather than running the row wide: a scanned filename can
+   be sixty characters, and the row it sits in carries other facts. */
+.file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The size is the last thing read and the first thing dropped when the row is
+   tight — it informs the click, it is not what the card is for. */
+.file-chip-size {
+  flex: none;
+  color: var(--textMeta);
+  font-size: 12px;
+}
+.file-chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.file-chip:hover svg {
+  color: var(--accent);
+}

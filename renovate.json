@@ -24,6 +24,11 @@
   },
   "packageRules": [
     {
+      "description": "js-yaml stays on the 4.x line, and this is the only place that can say so. The override in pnpm-workspace.yaml exists solely to lift @redocly/openapi-core's EXACT 4.3.0 pin to 4.3.1 for GHSA-5p4m-2wfm-xmqj; Renovate reads that override as an ordinary range and offers the major like any other range it manages. Taking the major breaks the build instead of the advisory: openapi-typescript 7.x — latest — depends on @redocly/openapi-core ^1.34.6, which reads `js-yaml`'s `types.merge`, removed in 5.x, so `openapi-typescript` dies on require and fe-typecheck-composed fails with no schema to check against. @redocly/openapi-core 2.x is written against js-yaml ^5.2.2, so this rule and the override both go away together, once openapi-typescript adopts that line.",
+      "matchPackageNames": ["js-yaml"],
+      "allowedVersions": "<5"
+    },
+    {
       "description": "A major needs a human to read the changelog, so it can never satisfy automerge on its own and its branch would otherwise sit open indefinitely — the one shape that pays the rebase cost forever while having no path to merge. `conflicted` above still rebases a lockfile major on every main merge that touches the lockfile (24 of the last 100 did), so majors are pinned to `never`: the branch goes stale, which is the correct state for a change waiting on a person. Whoever picks it up rebases it by ticking the PR's own checkbox.",
       "matchUpdateTypes": ["major"],
       "automerge": false,

@@ -88,23 +88,23 @@ type meetingFixture struct {
 func seedMeetingFixture(t *testing.T, e *SearchEnv) meetingFixture {
 	t.Helper()
 	var f meetingFixture
-	f.pipeline = e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position)
-		VALUES ($1, $2, 'Sales', true, 0)`)
-	f.stage = e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, f.pipeline)
+	f.pipeline = e.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position)
+		VALUES ($1, 'Sales', true, 0)`)
+	f.stage = e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, f.pipeline)
 
 	// Seeded rep3-first on purpose: ids are time-ordered, so the record the
 	// caller may NOT see sorts ahead of the one they may. A walk that skipped
 	// the per-subject visibility probe would prep against it.
 	f.rep3Org = e.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Other Team GmbH', 'manual', 'human:x')`, e.Rep3)
-	f.rep3Deal = e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
-		VALUES ($1, $2, $3, 'Other Team Renewal', $4, $5, $6, 'manual', 'human:x')`,
+	f.rep3Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Other Team Renewal', $3, $4, $5, 'manual', 'human:x')`,
 		e.Rep3, f.pipeline, f.stage, f.rep3Org)
 	f.rep1Org = e.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Turbinenbau AG', 'manual', 'human:x')`, e.Rep1)
-	f.rep1Deal = e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
-		VALUES ($1, $2, $3, 'Turbinenbau Renewal', $4, $5, $6, 'manual', 'human:x')`,
+	f.rep1Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Turbinenbau Renewal', $3, $4, $5, 'manual', 'human:x')`,
 		e.Rep1, f.pipeline, f.stage, f.rep1Org)
 	f.organizer = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Annegret Weiss', 'manual', 'human:x')`, e.Rep1)

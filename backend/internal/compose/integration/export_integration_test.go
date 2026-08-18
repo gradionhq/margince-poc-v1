@@ -66,8 +66,8 @@ type exportFixture struct {
 
 func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 	t.Helper()
-	pipelineID := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stageID := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
+	pipelineID := e.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
+	stageID := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipelineID)
 
 	var f exportFixture
 	// rep1 (team1) carries a social row to prove the child relation
@@ -82,10 +82,10 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 		VALUES ($1, $2, $3, 'Rep1 Org', 'manual', 'human:x')`, e.Rep1)
 	f.rep3Org = e.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep3 Org', 'manual', 'human:x')`, e.Rep3)
-	f.rep1Deal = e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep1 Deal', $4, $5, $6, 100000, 'EUR', 'manual', 'human:x')`, e.Rep1, pipelineID, stageID, f.rep1Org)
-	f.rep3Deal = e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep3 Deal', $4, $5, $6, 200000, 'EUR', 'manual', 'human:x')`, e.Rep3, pipelineID, stageID, f.rep3Org)
+	f.rep1Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'Rep1 Deal', $3, $4, $5, 100000, 'EUR', 'manual', 'human:x')`, e.Rep1, pipelineID, stageID, f.rep1Org)
+	f.rep3Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
+		VALUES ($1, $2, 'Rep3 Deal', $3, $4, $5, 200000, 'EUR', 'manual', 'human:x')`, e.Rep3, pipelineID, stageID, f.rep3Org)
 	f.rep1Lead = e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Rep1 Lead', 'manual', 'human:x')`, e.Rep1)
 	f.rep3Lead = e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)

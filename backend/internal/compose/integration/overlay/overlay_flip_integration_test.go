@@ -496,7 +496,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		}
 	}
 	assertOne("deal→organization FK", `
-		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id AND o.workspace_id = d.workspace_id
+		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id
 		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`)
 	assertOne("primary employment relationship", `
 		SELECT count(*) FROM relationship r
@@ -772,11 +772,11 @@ func TestAFlipAdoptsAHalfLandedDealAndFinishesClosingIt(t *testing.T) {
 
 	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
 		_, err := tx.Exec(f.adminCtx, `
-			INSERT INTO deal (workspace_id, name, pipeline_id, stage_id, status, source, captured_by)
-			SELECT p.workspace_id, 'Half-landed estate deal', p.id, s.id, 'open',
+			INSERT INTO deal (name, pipeline_id, stage_id, status, source, captured_by)
+			SELECT 'Half-landed estate deal', p.id, s.id, 'open',
 			       'mirror:hubspot:deal:d-won', $1
 			FROM pipeline p
-			JOIN stage s ON s.pipeline_id = p.id AND s.workspace_id = p.workspace_id
+			JOIN stage s ON s.pipeline_id = p.id
 			WHERE p.is_default AND s.semantic = 'open'
 			ORDER BY s.position LIMIT 1`, f.adminID)
 		return err

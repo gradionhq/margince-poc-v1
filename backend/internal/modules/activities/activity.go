@@ -79,10 +79,10 @@ type LogActivityInput struct {
 	Source                       string
 }
 
-// LogActivity writes the activity + links and maintains
-// deal.last_activity_at (data-model §7: kept current on write, driving
-// the stalled flag). Idempotent on (source_system, source_id): replaying
-// a capture returns the existing activity.
+// LogActivity writes the activity + links; the last_activity_at clocks
+// (data-model §7) are maintained in the schema, not here. Idempotent on
+// (source_system, source_id): replaying a capture returns the existing
+// activity.
 func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontracts.Activity, bool, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return crmcontracts.Activity{}, false, err
@@ -152,7 +152,7 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 		return crmcontracts.Activity{}, false, err
 	}
 
-	if err := insertActivityLinks(ctx, tx, wsID, id, in.Links, occurredAt); err != nil {
+	if err := insertActivityLinks(ctx, tx, wsID, id, in.Links); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
 	// Who was in it (ACT-DDL-3). After the links, because the counterparty is

@@ -188,8 +188,8 @@ func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Org
 		return crmcontracts.Organization{}, fmt.Errorf("retire merged-away organization: %w", err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "merge", "organization", sourceID.UUID,
-		map[string]any{"merged_into_id": nil},
-		map[string]any{"merged_into_id": targetID, "filled": filled})
+		map[string]any{auditKeyMergedInto: nil},
+		map[string]any{auditKeyMergedInto: targetID, auditKeyFilled: filled})
 	if err != nil {
 		return crmcontracts.Organization{}, fmt.Errorf("audit organization merge: %w", err)
 	}

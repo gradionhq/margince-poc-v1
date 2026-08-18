@@ -21,6 +21,7 @@ import {
   type ListColumn,
   ListTable,
   type ListView,
+  pagerSlots,
 } from "./listtable";
 import { pickOption } from "./select-testing";
 
@@ -655,34 +656,10 @@ describe("pagination", () => {
     expect(screen.queryByText(data[0].name)).toBeNull();
   });
 
-  // The reported symptom, and the whole reason the pager changed: one page in
-  // hand and a cursor with 168 more rows behind it drew `‹ Prev [1] Next ›`,
-  // which is byte-for-byte what a list of twelve draws. A reader could not tell
-  // a complete list from a list that had barely started, and each Next revealed
-  // one more number, which reads as a pager repairing itself.
-  it("says the set continues past the page in hand, before anyone clicks", () => {
-    render(
-      <ListTable
-        rows={testRows(25)}
-        columns={columns}
-        rowKey={(row) => row.id}
-        unit="rows"
-        perPage={25}
-        hasMore
-        onLoadMore={() => {}}
-      />,
-    );
-    expect(screen.getByRole("button", { name: "Page 1" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Page 2" })).toBeNull();
-    // The ellipsis IS the statement: there are pages this row is not showing.
-    const pager = screen.getByRole("navigation", { name: "Pages" });
-    expect(pager.querySelectorAll(".lt-gap")).toHaveLength(1);
-    expect(
-      screen.getByRole("button", { name: "Next ›" }).hasAttribute("disabled"),
-    ).toBe(false);
-  });
-
-  it("draws no ellipsis when the pages in hand are all the pages there are", () => {
+  // The pager is navigation, so a reader who moves by region should find it as
+  // one — and a page button named by its bare digit names nothing out of the
+  // row's context, which is exactly the context a screen reader does not have.
+  it("names itself as navigation, and each page as a page", () => {
     render(
       <ListTable
         rows={testRows(60)}
@@ -693,39 +670,11 @@ describe("pagination", () => {
       />,
     );
     const pager = screen.getByRole("navigation", { name: "Pages" });
-    expect(pager.querySelectorAll(".lt-gap")).toHaveLength(0);
-    // Three pages fit without windowing, so all three are reachable directly.
-    expect(screen.getByRole("button", { name: "Page 3" })).toBeTruthy();
-  });
-
-  // A long walk must not become a wall of buttons. The row keeps the way back to
-  // the first page, the current page's neighbours, and the far end of what is
-  // loaded; everything else collapses into the gaps.
-  it("windows a long pager rather than drawing every page it has", async () => {
-    render(
-      <ListTable
-        rows={testRows(250)}
-        columns={columns}
-        rowKey={(row) => row.id}
-        unit="rows"
-        perPage={25}
-      />,
-    );
-    // Page 5 is not reachable in one click and must not be: the window on page
-    // one shows 1, its neighbour, and the far end. Walking there is the reader's
-    // real path.
-    const user = userEvent.setup();
-    for (let step = 0; step < 4; step++) {
-      await user.click(screen.getByRole("button", { name: "Next ›" }));
-    }
-
-    const pager = screen.getByRole("navigation", { name: "Pages" });
-    const drawn = [...pager.querySelectorAll("button")]
-      .map((button) => button.getAttribute("aria-label"))
-      .filter((label): label is string => label !== null);
-    expect(drawn).toEqual(["Page 1", "Page 4", "Page 5", "Page 6", "Page 10"]);
-    // Two runs left out — 2-3 and 7-9 — and one ellipsis for each.
-    expect(pager.querySelectorAll(".lt-gap")).toHaveLength(2);
+    expect(within(pager).getByRole("button", { name: "Page 2" })).toBeTruthy();
+    // The digit is still what a sighted reader sees; only the name is fuller.
+    expect(
+      within(pager).getByRole("button", { name: "Page 2" }).textContent,
+    ).toBe("2");
   });
 
   it("reports a new rows-per-page to the caller instead of re-slicing rows itself", async () => {
@@ -765,6 +714,73 @@ describe("pagination", () => {
     expect(
       screen.getByRole("combobox", { name: "Rows per page" }),
     ).toHaveProperty("disabled", true);
+  });
+
+  it("puts the current page between its neighbours and keeps page one reachable", () => {
+    // Page one is where a reader who has lost their place goes back to, and
+    // walking there one Prev at a time is not going back.
+    expect(pagerSlots(1, 6)).toEqual(["room", "room", 1, 2, 3, "gap"]);
+    expect(pagerSlots(4, 6)).toEqual([1, "gap", 3, 4, 5, "gap"]);
+    expect(pagerSlots(6, 6)).toEqual([1, "gap", 4, 5, 6, "room"]);
+  });
+
+  it("marks skipped pages only, so a gap never stands for a page nobody fetched", () => {
+    // Every page in hand is on the strip, so nothing is being held back. A gap
+    // here would read as hidden pages rather than unfetched ones, which is
+    // Next's to say.
+    expect(pagerSlots(2, 3)).toEqual(["room", "room", 1, 2, 3, "room"]);
+    expect(pagerSlots(1, 2)).toEqual(["room", "room", 1, 2, "room", "room"]);
+  });
+
+  it("holds one width so Next stays where the reader clicked it", () => {
+    for (const [current, lastPage] of [
+      [1, 1],
+      [1, 3],
+      [2, 6],
+      [4, 6],
+      [6, 6],
+      [9, 40],
+    ]) {
+      expect(pagerSlots(current, lastPage)).toHaveLength(6);
+    }
+  });
+
+  it("reaches page one from the strip rather than by walking Prev", async () => {
+    const { container } = render(
+      <ListTable
+        rows={testRows(100)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    const slots = () => container.querySelectorAll(".lt-pager > *").length;
+    const atFirstPage = slots();
+
+    await userEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    // The room a gap would take is rendered, not merely counted, so the strip
+    // holds its width and Next stays where the reader clicked it.
+    expect(slots()).toBe(atFirstPage);
+
+    await userEvent.click(screen.getByRole("button", { name: "Page 1" }));
+    expect(
+      screen
+        .getByRole("button", { name: "Page 1" })
+        .getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
+  it("stops the window at the ends rather than numbering pages it has no rows for", () => {
+    render(
+      <ListTable
+        rows={testRows(60)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Page 3" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Page 4" })).toBeNull();
   });
 
   it("disables Next on the last loaded page when hasMore is false, and enables it (calling onLoadMore) when hasMore is true", async () => {

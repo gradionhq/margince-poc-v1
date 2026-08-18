@@ -5,6 +5,7 @@ package people
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -63,11 +64,19 @@ func (s *Store) PreviewLeadPromotion(ctx context.Context, id ids.LeadID) (crmcon
 			return nil
 		}
 		out.Outcome = crmcontracts.PromoteLeadPreviewOutcomeMerge
+		// Two gates before a person is returned: the object grant (may this
+		// role read people at all) and the row scope (may this caller see
+		// THIS person). Failing either withholds. The outcome still says
+		// merge, which promotion itself already discloses with its 409.
+		grantErr := auth.Require(ctx, "person", principal.ActionRead)
+		if grantErr != nil && !errors.Is(grantErr, apperrors.ErrPermissionDenied) {
+			return grantErr
+		}
 		visible, err := auth.VisibleTo(ctx, tx, "person", match.PersonID.UUID)
 		if err != nil {
 			return err
 		}
-		if !visible {
+		if grantErr != nil || !visible {
 			withheld := true
 			out.PersonWithheld = &withheld
 			return nil

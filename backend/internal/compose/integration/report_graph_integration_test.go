@@ -31,12 +31,12 @@ import (
 // and n open deals owned by the given user (nil = ownerless).
 func (e *SearchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) {
 	t.Helper()
-	pipelineID := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stageID := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
+	pipelineID := e.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
+	stageID := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipelineID)
 	orgID := e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Report Org', 'manual', 'human:x')`)
 	for i := 0; i < n; i++ {
-		e.Seed(t, fmt.Sprintf(`INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, owner_id, amount_minor, currency, source, captured_by)
-			VALUES ($1, $2, 'Deal %d', $3, $4, $5, $6, 100000, 'EUR', 'manual', 'human:x')`, i),
+		e.SeedID(t, fmt.Sprintf(`INSERT INTO deal (id, name, pipeline_id, stage_id, organization_id, owner_id, amount_minor, currency, source, captured_by)
+			VALUES ($1, 'Deal %d', $2, $3, $4, $5, 100000, 'EUR', 'manual', 'human:x')`, i),
 			pipelineID, stageID, orgID, owner)
 	}
 }
@@ -241,8 +241,8 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 	}
 
 	// An anchor outside the caller's row scope assembles nothing.
-	foreignDeal := e.Seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, source, captured_by)
-		SELECT $1, $2, 'Foreign Deal', pipeline_id, stage_id, $3, 'manual', 'human:x' FROM deal LIMIT 1`, e.Rep3)
+	foreignDeal := e.SeedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
+		SELECT $1, 'Foreign Deal', pipeline_id, stage_id, $2, 'manual', 'human:x' FROM deal LIMIT 1`, e.Rep3)
 	if _, err := retriever.AssembleContext(e.AsTeamRep(e.Rep1, e.Team1),
 		datasource.EntityRef{Type: datasource.EntityDeal, ID: foreignDeal}, retrieval.AssembleOptions{}); err == nil {
 		t.Fatal("foreign anchor must be absent, not assembled")

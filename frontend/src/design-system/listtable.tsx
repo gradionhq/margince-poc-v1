@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { useT } from "../i18n";
+import { Checkbox } from "./atoms";
 import {
   CountLine,
   type ListChip,
@@ -67,18 +68,75 @@ export type ListColumn<Row> = {
   fixed?: boolean;
 };
 
+export type ListSelection<Row> = {
+  /** Keys (rowKey) of the selected rows. */
+  selected: ReadonlySet<string>;
+  onToggle: (row: Row) => void;
+  /** The checkbox's accessible name for a row — "Select Anna Weber". */
+  label: (row: Row) => string;
+  /** Rows the verbs cannot act on carry no checkbox. Default: every row. */
+  selectable?: (row: Row) => boolean;
+  /** The bulk bar: the count and the verbs. Rendered while anything is selected. */
+  bar: ReactNode;
+};
+
 /**
- * Never larger than the page the list endpoints return (50). A bigger choice
- * cannot be filled from one response, so the table would hold the reader on a
- * page it has no rows for until enough cursor pages had been walked — a size
- * the server cannot serve is not a size worth offering.
+ * The selection checkbox in the identity cell. Its click is its own: it must
+ * not open the row.
  */
+function RowSelect<Row>({
+  identity,
+  row,
+  rowKey,
+  selection,
+}: Readonly<{
+  /** Only the identity cell carries the checkbox. */
+  identity: boolean;
+  row: Row;
+  rowKey: (row: Row) => string;
+  selection?: ListSelection<Row>;
+}>) {
+  if (!selection || !identity || selection.selectable?.(row) === false) {
+    return null;
+  }
+  return (
+    <Checkbox
+      className="lt-select"
+      label={<span className="sr-only">{selection.label(row)}</span>}
+      checked={selection.selected.has(rowKey(row))}
+      onChange={() => selection.onToggle(row)}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+}
+
+/** The bulk bar over the grid, while anything is selected. */
+function BulkBar<Row>({
+  selection,
+}: Readonly<{ selection?: ListSelection<Row> }>) {
+  if (!selection || selection.selected.size === 0) {
+    return null;
+  }
+  return (
+    <div className="lt-bulkbar" role="region" aria-live="polite">
+      {selection.bar}
+    </div>
+  );
+}
+
 /**
- * Page sizes the footer offers. The table does NOT slice rows to this — it is
- * the size the caller asks the SERVER for, so the page rendered is the page
- * that was fetched.
+ * Page sizes the footer offers. This is the size of a RENDERED page: the caller
+ * fetches several of them per read (`listFetchLimit`) and the table slices the
+ * rows it holds into pages of this size.
+ *
+ * The two numbers stay in step because the fetch is always a whole multiple of
+ * this one. A buffer sized independently of the page is what once made a list
+ * say "1-25 of 50 loaded so far" — two unrelated page sizes on one screen.
  */
 const PAGE_SIZES = [25, 50, 100] as const;
+
+/** Page numbers around the current one, which sits in the middle of them. */
+const PAGE_WINDOW = 3;
 
 /** Narrow enough to tuck a column away, wide enough to still read a header. */
 const MIN_COLUMN_WIDTH = 72;
@@ -208,10 +266,20 @@ export function ListTable<Row>({
   widthsKey,
   tools,
   body,
+  selection,
 }: Readonly<{
   rows: readonly Row[];
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /**
+   * Row selection for a bulk action. The checkbox lives INSIDE the identity
+   * cell — the one that stays put while the rest scrolls — so a selected row
+   * is always recognisable, and the frozen edge, the column widths and the
+   * phone cards need no second column. `bar` renders above the grid while
+   * anything is selected; the screen puts its verbs there and owns what they
+   * do (per-row writes, per-row versions, per-row failures).
+   */
+  selection?: ListSelection<Row>;
   /**
    * Renders INSTEAD of the grid, keeping the surface's header, search, chips,
    * views and page-size dial exactly where they are.
@@ -274,9 +342,8 @@ export function ListTable<Row>({
   hasMore?: boolean;
   onLoadMore?: () => void;
   /**
-   * Rows per page. This is the size the CALLER asked the server for, so the
-   * table renders whole fetched pages rather than re-slicing them: one number
-   * decides both what is fetched and what is shown.
+   * Rows per RENDERED page. The caller fetches a whole multiple of it, so the
+   * table divides the rows it holds on boundaries the fetch already respects.
    */
   perPage?: number;
   /**
@@ -332,11 +399,9 @@ export function ListTable<Row>({
   // dismiss is one a keyboard reader is stuck inside.
   useCloseOnEscape(columnsOpen ? "columns" : null, () => setColumnsOpen(false));
 
-  // Each fetched page is one rendered page. The rows the caller holds are whole
-  // server pages (keyset, `perPage` per request), so slicing them again by a
-  // second, unrelated page size is what made a list say "1-25 of 50 loaded so
-  // far" — two page sizes in one screen, and a pager whose numbers counted the
-  // buffer rather than the list.
+  // One read carries several rendered pages, so the rows the caller holds are a
+  // whole multiple of `perPage` and dividing them here lands on page boundaries
+  // the reader can reach without waiting for a round trip each.
   const lastPage = Math.max(1, Math.ceil(rows.length / perPage));
   const current = Math.min(page, lastPage);
   const from = (current - 1) * perPage;
@@ -585,6 +650,7 @@ export function ListTable<Row>({
         </>
       }
     >
+      <BulkBar selection={selection} />
       {body ?? (
         <div
           className={`lt-scroll${shifted ? " shifted" : ""}`}
@@ -677,6 +743,12 @@ export function ListTable<Row>({
                         // cell is the card's heading and needs none.
                         data-label={column.fixed ? undefined : column.header}
                       >
+                        <RowSelect
+                          identity={Boolean(column.fixed)}
+                          row={row}
+                          rowKey={rowKey}
+                          selection={selection}
+                        />
                         {column.fixed && rowHref ? (
                           // The identity cell is a real link, so the row can be
                           // opened the ways a link can: a new tab, a new window,
@@ -971,59 +1043,50 @@ function TableTools<Row>({
 }
 
 /**
- * The pager: every loaded page as its own button, prev/next either side, and the
- * page size on the right. Next stays enabled on the last loaded page while the
- * cursor still has rows to give, which is how the set grows without a total.
+ * A slot in the pager: a page to jump to, a gap where pages were skipped, or
+ * the room a gap would take.
  */
-// How many pages the pager draws either side of the ones it must always show.
-// A reader walking a long list needs the page they are on and its neighbours,
-// the way back to the first, and the far end of what is loaded — not forty
-// buttons.
-const PAGER_EDGE = 1;
-const PAGER_AROUND = 1;
+export type PagerSlot = number | "gap" | "room";
 
-// A gap names the page it follows, so it has an identity that survives a
-// re-render rather than an array position.
-type PagerItem =
-  | { readonly kind: "page"; readonly page: number }
-  | { readonly kind: "gap"; readonly after: number };
-
-// Which page buttons to draw, and where the pager admits it is not showing every
-// page. A gap is a run this pager left out; the TRAILING gap is the set
-// continuing past what has been loaded, which is the one thing a keyset cursor
-// does know (`hasMore`) and the thing the old pager could not say — it drew a
-// lone "1" on a list of 193 rows, and a reader could not tell that from a list
-// of twelve until they clicked.
-function pageWindow(
-  current: number,
-  lastPage: number,
-  hasMore: boolean,
-): ReadonlyArray<PagerItem> {
-  const shown = new Set<number>();
-  const add = (from: number, to: number) => {
-    for (let page = Math.max(1, from); page <= Math.min(lastPage, to); page++) {
-      shown.add(page);
-    }
-  };
-  add(1, PAGER_EDGE);
-  add(lastPage - PAGER_EDGE + 1, lastPage);
-  add(current - PAGER_AROUND, current + PAGER_AROUND);
-
-  const items: PagerItem[] = [];
-  let previous = 0;
-  for (const page of [...shown].sort((a, b) => a - b)) {
-    if (previous !== 0 && page - previous > 1) {
-      items.push({ kind: "gap", after: previous });
-    }
-    items.push({ kind: "page", page });
-    previous = page;
-  }
-  if (hasMore) {
-    items.push({ kind: "gap", after: lastPage });
-  }
-  return items;
+/**
+ * What the pager shows: page one, then the current page between its two
+ * neighbours, with gaps marking whatever was skipped between them.
+ *
+ * Page one is always reachable because it is where a reader who has lost their
+ * place goes back to, and walking there one Prev at a time is not going back.
+ * The rest is a window rather than every page: a strip that grew a number per
+ * read would end up longer than the table it belongs to.
+ *
+ * A gap marks pages the window skipped and nothing else. Pages the cursor could
+ * still fetch are Next's to speak for: marking those with the same dots would
+ * give one symbol two meanings, and the reader cannot tell from a gap on the
+ * last page whether numbers were hidden or merely never asked for.
+ *
+ * The slots are a fixed six wide at every position — a gap and the bare ROOM
+ * for one are the same width — because a strip that changed width would slide
+ * Next out from under the reader between one click and the next.
+ */
+export function pagerSlots(current: number, lastPage: number): PagerSlot[] {
+  const first = Math.min(
+    Math.max(1, current - Math.floor(PAGE_WINDOW / 2)),
+    Math.max(1, lastPage - PAGE_WINDOW + 1),
+  );
+  const span = Math.min(PAGE_WINDOW, lastPage - first + 1);
+  const window = Array.from({ length: span }, (_, index) => first + index);
+  return [
+    first > 1 ? 1 : "room",
+    first > 2 ? "gap" : "room",
+    ...window,
+    ...Array.from({ length: PAGE_WINDOW - span }, () => "room" as const),
+    window[span - 1] < lastPage ? "gap" : "room",
+  ];
 }
 
+/**
+ * The pager: the pages in hand as numbers, prev/next either side, and the page
+ * size on the right. Next stays enabled on the last loaded page while the
+ * cursor still has rows to give, which is how the set grows without a total.
+ */
 function Pager({
   current,
   lastPage,
@@ -1054,29 +1117,29 @@ function Pager({
         >
           {t("table.prev")}
         </button>
-        {pageWindow(current, lastPage, hasMore).map((item) =>
-          item.kind === "gap" ? (
-            // Not a control and not a page: it says pages are missing from this
-            // row. `aria-hidden` because the count line beside it already states
-            // the honest figure in words, and an announced "ellipsis" is noise.
-            <span
-              className="lt-gap"
-              key={`gap-${item.after}`}
-              aria-hidden="true"
-            >
-              …
-            </span>
-          ) : (
+        {pagerSlots(current, lastPage).map((slot, index) =>
+          typeof slot === "number" ? (
             <button
               type="button"
-              key={item.page}
-              className={item.page === current ? "on" : undefined}
-              aria-current={item.page === current ? "page" : undefined}
-              aria-label={t("table.page", { number: item.page })}
-              onClick={() => onGoto(item.page)}
+              key={slot}
+              className={slot === current ? "on" : undefined}
+              aria-current={slot === current ? "page" : undefined}
+              aria-label={t("table.page", { number: slot })}
+              onClick={() => onGoto(slot)}
             >
-              {item.page}
+              {slot}
             </button>
+          ) : (
+            <span
+              // Slots are positional: two of them can hold the same kind of
+              // nothing, and neither carries an identity of its own.
+              // biome-ignore lint/suspicious/noArrayIndexKey: the position IS the identity
+              key={`${slot}-${index}`}
+              className="lt-gap"
+              aria-hidden="true"
+            >
+              {slot === "gap" ? "…" : ""}
+            </span>
           ),
         )}
         <button

@@ -97,7 +97,17 @@ func TestOrganizationCounts_UngatedRoleSeesContactsButNoDealCount(t *testing.T) 
 	}); err != nil {
 		t.Fatal(err)
 	}
-	ctx := e.As(e.Rep1, nil, computedFieldNoGrantPerms)
+	// person:read and deal:read granted, computed_field:read not: this is the
+	// STATE-4 case for the deal count alone.
+	perms := principal.Permissions{
+		RoleKeys: computedFieldNoGrantPerms.RoleKeys,
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true}, "person": {Read: true}, "deal": {Read: true},
+			"installation_settings": {Read: true},
+		},
+		RowScope: principal.RowScopeAll,
+	}
+	ctx := e.As(e.Rep1, nil, perms)
 
 	page, _, err := e.People.ListOrganizations(ctx, people.ListOrganizationsInput{})
 	if err != nil {
@@ -137,9 +147,10 @@ func TestOrganizationCounts_UngatedRoleSeesContactsButNoDealCount(t *testing.T) 
 	}
 }
 
-// A count is a read. An own-scope rep looking at a shared account sees the
-// contacts and deals THEY may see, not the workspace's: a number that moved
-// when a colleague captured a private contact would disclose that contact.
+// The contact count is a read under the caller's person row scope: a number
+// that moved when a colleague captured a private contact would disclose that
+// contact. The deal count is the account's whole open pipeline, as the
+// company page's tile sums it (PO-EXT-10, founder decision 2026-08-18).
 func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 	e := Setup(t)
 	// The account is unowned, so it is visible at every scope tier.
@@ -186,18 +197,41 @@ func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCounts(t, "own-scope rep sees only their own", own, 1, 1)
+	assertCounts(t, "own-scope rep: own contacts, whole pipeline", own, 1, 2)
 	page, _, err := e.People.ListOrganizations(rep, people.ListOrganizationsInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, o := range page {
 		if ids.UUID(o.Id) == acme {
-			assertCounts(t, "own-scope rep on the list", o, 1, 1)
+			assertCounts(t, "own-scope rep on the list", o, 1, 2)
 			return
 		}
 	}
 	t.Fatal("shared account missing from the rep's page")
+}
+
+// The object grant comes first: no deal:read, no deal count — even with
+// computed_field:read — and no person:read, no contact count. Absent, not 0.
+func TestOrganizationCounts_ObjectGrantGatesEachCount(t *testing.T) {
+	e := Setup(t)
+	acme := e.SeedOrg(t, "Grant Gated", nil)
+	perms := rollupOrgReadPerms(principal.RowScopeAll)
+	perms.Objects["computed_field"] = principal.ObjectGrant{Read: true}
+	// deal:read is in rollupOrgReadPerms; person:read is not.
+	delete(perms.Objects, "deal")
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, perms)
+
+	got, err := e.People.GetOrganization(ctx, orgIDOf(acme), storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OpenDealCount != nil {
+		t.Fatalf("open_deal_count = %d, want it withheld without deal:read", *got.OpenDealCount)
+	}
+	if got.ContactCount != nil {
+		t.Fatalf("contact_count = %d, want it withheld without person:read", *got.ContactCount)
+	}
 }
 
 func assertCounts(t *testing.T, label string, o crmcontracts.Organization, contacts, deals int) {

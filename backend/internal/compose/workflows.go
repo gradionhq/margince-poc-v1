@@ -9,6 +9,7 @@ package compose
 
 import (
 	"context"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -81,6 +82,10 @@ func workflowEngineWithDrafter(db *database.DB, drafter activities.EmailDrafter)
 	for _, handler := range people.LeadScoreWorkflows(peopleStore) {
 		engine.RegisterSystemWorkflow(handler)
 	}
+	for _, handler := range people.LeadSLAWorkflows(peopleStore) {
+		engine.RegisterSystemWorkflow(handler)
+	}
+	engine.RegisterSystemWorkflow(leadSLAEscalation{activities: activities.NewStore(db), now: time.Now})
 	return engine
 }
 

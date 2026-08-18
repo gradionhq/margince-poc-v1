@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
@@ -10,9 +10,10 @@ import {
   OverflowMenu,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { FileChip } from "../design-system/filechip";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
-import { formatDate, formatMoney } from "../format/format";
+import { formatBytes, formatDate, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
@@ -182,18 +183,17 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
             </PanelBody>
           ) : (
             contracts.map((contract) => (
-              <Fragment key={contract.id}>
-                <ContractRow
-                  contract={contract}
-                  orgId={orgId}
-                  mayWrite={mayEdit}
-                  mayArchive={mayArchive}
-                  onEdit={() => {
-                    setEditing(contract);
-                    setFormOpen(true);
-                  }}
-                />
-              </Fragment>
+              <ContractRow
+                key={contract.id}
+                contract={contract}
+                orgId={orgId}
+                mayWrite={mayEdit}
+                mayArchive={mayArchive}
+                onEdit={() => {
+                  setEditing(contract);
+                  setFormOpen(true);
+                }}
+              />
             ))
           )
         ) : (
@@ -225,6 +225,7 @@ function ContractRow({
   const { locale } = useLocale();
   const queryClient = useQueryClient();
   const [asking, setAsking] = useState(false);
+  const basis = basisLabel(contract);
 
   // The id is a VARIABLE, never closed over: a click landing before React
   // re-arms the mutation would otherwise archive whatever the previous render
@@ -246,38 +247,59 @@ function ContractRow({
   });
 
   return (
-    <PanelRow className="docs-row">
-      {/* The title opens the same form the add button does. A row a reader
-          cannot open is a row they cannot correct, and a mistyped value is the
-          most likely thing they came here to fix. */}
-      <button type="button" className="co-rowlink" onClick={onEdit}>
-        {contract.title}
-      </button>
-      {contract.contract_number && (
-        <span className="t-caption">{contract.contract_number}</span>
-      )}
-      <span>{contractValue(contract, locale, perYearLabel(t))}</span>
-      {contract.status && (
-        <Badge tone={STATUS_TONE[contract.status]}>
-          {t(STATUS_LABELS[contract.status])}
-        </Badge>
-      )}
-      <ContractTermState contract={contract} />
-      <ContractPaper contractId={contract.id} orgId={orgId} />
-      {(mayWrite || mayArchive) && (
-        <OverflowMenu label={t("contracts.rowMenu")}>
-          {mayWrite && (
-            <button type="button" onClick={onEdit}>
-              {t("contracts.edit")}
-            </button>
+    <PanelRow className="rec-row">
+      <span className="rec-main">
+        {/* The title opens the same form the add button does. A row a reader
+            cannot open is a row they cannot correct, and a mistyped value is
+            the most likely thing they came here to fix. */}
+        <button type="button" className="co-rowlink rec-title" onClick={onEdit}>
+          {contract.title}
+        </button>
+        {/* Everything that QUALIFIES the agreement on one quiet line under its
+            name: which paper it is, how long it runs, what is about to happen
+            to it. Read after the name, not beside it. */}
+        <span className="rec-meta">
+          {contract.contract_number && (
+            <span className="t-mono">{contract.contract_number}</span>
           )}
-          {mayArchive && (
-            <button type="button" onClick={() => setAsking(true)}>
-              {t("contracts.archive")}
-            </button>
-          )}
-        </OverflowMenu>
-      )}
+          <ContractTerm contract={contract} />
+          <ContractTermState contract={contract} />
+        </span>
+        {/* The paper sits under the agreement's own line: a file is about the
+            agreement, not about any one of the facts beside it. */}
+        <ContractPaper contractId={contract.id} orgId={orgId} />
+      </span>
+      <span className="rec-end">
+        {/* The figure and the basis it is stated on, stacked: the amount is
+            read first and what it means directly under it, instead of parsing
+            "€120,000.00 / year" as one string. */}
+        <span className="rec-num">
+          <span className="rec-amount">{contractAmount(contract, locale)}</span>
+          {basis !== "" && <span className="t-caption">{t(basis)}</span>}
+        </span>
+        {contract.status && (
+          <Badge tone={STATUS_TONE[contract.status]}>
+            {t(STATUS_LABELS[contract.status])}
+          </Badge>
+        )}
+        {(mayWrite || mayArchive) && (
+          <OverflowMenu label={t("contracts.rowMenu")}>
+            {/* Menu items are Buttons, like every other menu in the product.
+                A bare <button> here drew as centred unstyled text inside a
+                panel that was otherwise the design system's. */}
+            {mayWrite && (
+              <Button small onClick={onEdit}>
+                {t("contracts.edit")}
+              </Button>
+            )}
+            {mayArchive && (
+              <Button small variant="danger" onClick={() => setAsking(true)}>
+                {t("contracts.archive")}
+              </Button>
+            )}
+          </OverflowMenu>
+        )}
+      </span>
       <ConfirmModal
         open={asking}
         onClose={() => setAsking(false)}
@@ -309,12 +331,19 @@ function ContractRow({
  * A contract with no paper renders NOTHING, not an error and not an empty
  * word. Recording what was agreed and filing the PDF are separate acts, and a
  * commercial record entered from an invoice is complete without a file.
+ *
+ * Each link is NAMED BY ITS FILE, not by a generic word for paper. This row is
+ * the only place the file is read — the account's library below deliberately
+ * leaves agreement paper to the agreement — so an amendment filed beside a
+ * signed original has to be tellable from it, and two identical links are two
+ * coin flips.
  */
 function ContractPaper({
   contractId,
   orgId,
 }: Readonly<{ contractId: string; orgId: string }>) {
   const t = useT();
+  const { locale } = useLocale();
   const query = useQuery({
     queryKey: ["contractPaper", orgId, contractId],
     queryFn: async () => {
@@ -339,18 +368,29 @@ function ContractPaper({
     return null;
   }
   return (
-    <>
-      {files.map((file) => (
-        <a
-          key={file.id}
-          className="co-rowlink"
-          href={`/v1/attachments/${file.id}`}
-          download={file.filename}
-        >
-          {t("contracts.paper")}
-        </a>
-      ))}
-    </>
+    <span className="rec-files">
+      <span className="t-caption rec-files-label">{t("contracts.files")}</span>
+      {/* The cards wrap as their OWN group. Left in the label's row they wrap
+          back to the panel's edge, so a second file starts to the left of the
+          first and the label stops reading as a label for both. */}
+      <span className="rec-files-items">
+        {files.map((file) => (
+          // The filename, not the title: a paper's title is very often the
+          // agreement's own title, and a link repeating the row it sits on
+          // names nothing.
+          <FileChip
+            key={file.id}
+            href={`/v1/attachments/${file.id}`}
+            filename={file.filename}
+            size={
+              file.byte_size == null
+                ? undefined
+                : formatBytes(file.byte_size, locale)
+            }
+          />
+        ))}
+      </span>
+    </span>
   );
 }
 
@@ -400,25 +440,46 @@ function ContractTermState({ contract }: Readonly<{ contract: Contract }>) {
   return null;
 }
 
-// perYearLabel hands the value formatter its translated suffix, so the "/ year"
-// a reader sees is in their language rather than Latin shorthand.
-function perYearLabel(t: ReturnType<typeof useT>) {
-  return (amount: string) => t("contracts.perYear", { amount });
-}
-
-// One agreement's value, with the basis said in words.
+// One agreement's figure, and separately the basis it is stated on.
 //
-// An annualized figure NEVER renders as a bare amount: a reader who cannot tell
-// a three-year total from a per-year figure has been handed a number they will
-// misuse, and the row is the last place that distinction can be made.
-export function contractValue(
-  contract: Contract,
-  locale: Locale,
-  perYear: (amount: string) => string,
-): string {
+// The two are drawn on their own lines rather than joined into one string, but
+// they are still one fact: an annualized figure NEVER appears without its
+// basis, because a reader who cannot tell a three-year total from a per-year
+// figure has been handed a number they will misuse, and the row is the last
+// place that distinction can be made. An agreement with no figure recorded
+// shows neither — an empty column, not a zero.
+export function contractAmount(contract: Contract, locale: Locale): string {
   if (contract.value_minor == null || !contract.currency) {
     return "";
   }
-  const amount = formatMoney(contract.value_minor, contract.currency, locale);
-  return contract.value_basis === "annualized_12m" ? perYear(amount) : amount;
+  return formatMoney(contract.value_minor, contract.currency, locale);
+}
+
+export function basisLabel(contract: Contract): MessageKey | "" {
+  if (contract.value_minor == null || !contract.currency) {
+    return "";
+  }
+  return contract.value_basis === "annualized_12m"
+    ? "contracts.value.perYear"
+    : "contracts.value.total";
+}
+
+// The term as the two dates that bound it. Absent dates say so in words: a
+// blank column reads as "not loaded", and an agreement whose term nobody
+// recorded is a real and common state — it is entered from an invoice as
+// often as from the paper.
+function ContractTerm({ contract }: Readonly<{ contract: Contract }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const on = (date: string) => formatDate(date, locale, RECORD_ZONE);
+  if (!contract.starts_on && !contract.ends_on) {
+    return <span className="t-caption">{t("contracts.noTerm")}</span>;
+  }
+  return (
+    <span className="rec-term-dates">
+      {contract.starts_on ? on(contract.starts_on) : t("contracts.openStart")}
+      {" – "}
+      {contract.ends_on ? on(contract.ends_on) : t("contracts.openEnd")}
+    </span>
+  );
 }

@@ -50,6 +50,13 @@ import (
 // records are the same human, so a consent that human granted remains
 // proven (the same carry-through the lead→person promotion does).
 
+// The audit keys a merge writes, spelled once so the person, organization
+// and lead merges cannot drift apart in what they record.
+const (
+	auditKeyMergedInto = "merged_into_id"
+	auditKeyFilled     = "filled"
+)
+
 // MergeSelfError maps to 422: a record cannot merge into itself.
 type MergeSelfError struct{}
 
@@ -156,8 +163,8 @@ func (s *Store) mergePersonTx(ctx context.Context, tx pgx.Tx, sourceID, targetID
 		return crmcontracts.Person{}, fmt.Errorf("retire merged-away person: %w", err)
 	}
 	auditID, err := storekit.Audit(ctx, tx, "merge", "person", sourceID.UUID,
-		map[string]any{"merged_into_id": nil},
-		map[string]any{"merged_into_id": targetID, "relinked": counts, "filled": p.After()})
+		map[string]any{auditKeyMergedInto: nil},
+		map[string]any{auditKeyMergedInto: targetID, "relinked": counts, auditKeyFilled: p.After()})
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("audit person merge: %w", err)
 	}

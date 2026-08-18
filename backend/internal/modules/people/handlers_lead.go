@@ -23,6 +23,7 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		AiWritten:       params.AiWritten,
 		MinScore:        params.MinScore,
 		Source:          params.Source,
+		SLAState:        params.SlaState,
 		Sort:            params.Sort,
 	}
 	if params.Status != nil {
@@ -30,6 +31,8 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		in.Status = &s
 	}
 	in.OwnerID = idArg[ids.UserKind](params.OwnerId)
+	in.OwnerTeamID = idArg[ids.TeamKind](params.OwnerTeamId)
+	in.Unassigned = params.Unassigned
 
 	leads, page, err := h.store.ListLeads(r.Context(), in)
 	if err != nil {

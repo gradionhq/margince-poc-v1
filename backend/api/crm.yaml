@@ -3433,6 +3433,17 @@ paths:
               schema: { $ref: '#/components/schemas/ActivityListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: >-
+            The `entity_type`/`entity_id` this read was narrowed TO is outside the caller's
+            row scope, or names nothing. Filtering BY a record is a read OF it, so an
+            unreadable one owes the same existence-hiding answer a direct read would — the
+            caller cannot tell "not yours" from "not there". Note this is the NARROWING
+            TARGET, not the activities: a readable target with no activities answers 200
+            with an empty page.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
     post:
       tags: [Activities]
       operationId: logActivity
@@ -4573,10 +4584,30 @@ paths:
         - name: owner_id
           in: query
           schema: { type: string, format: uuid }
+        - name: owner_team_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+            a team the caller cannot see returns their own visible rows filtered to nothing, not a
+            wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+            and rows reached by a record grant (AAD-ROLE-2). One dial for every owner-scoped list
+            (DM-VOCAB-OWN-1).
+        - name: unassigned
+          in: query
+          schema: { type: boolean }
+          description: |
+            `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+            (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+            Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
         - name: source
           in: query
           schema: { type: string }
           description: Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
+        - name: sla_state
+          in: query
+          schema: { type: string, enum: [within_target, at_risk, breached] }
+          description: 'Triage by first-response SLA state (formulas §18.1). `breached` is the overdue queue.'
         - name: min_score
           in: query
           schema: { type: integer }
@@ -7269,7 +7300,7 @@ paths:
       summary: The dedupe review queue, confidence-sorted.
       parameters:
         - { name: status, in: query, schema: { type: string, enum: [open, merged, not_a_duplicate], default: open } }
-        - { name: entity_type, in: query, schema: { type: string, enum: [person, organization] } }
+        - { name: entity_type, in: query, schema: { type: string, enum: [person, organization, lead] } }
         - { name: cursor, in: query, schema: { type: string }, description: Opaque keyset cursor. }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
       responses:
@@ -13723,7 +13754,7 @@ components:
       required: [id, entity_type, left_id, right_id, confidence, evidence, status, created_at]
       properties:
         id: { type: string, format: uuid }
-        entity_type: { type: string, enum: [person, organization] }
+        entity_type: { type: string, enum: [person, organization, lead], description: 'A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.' }
         left_id: { type: string, format: uuid, description: 'Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.' }
         right_id: { type: string, format: uuid }
         confidence: { type: number, minimum: 0, maximum: 1, description: 'The PO-F-1/PO-F-2 fuzzy score at detection.' }
@@ -14894,6 +14925,15 @@ components:
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: >-
+            When something last happened with this person — the newest `occurred_at` of an activity
+            linked to it, maintained on the activity write exactly as `deal.last_activity_at` is
+            (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must
+            reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -15114,23 +15154,35 @@ components:
             person row scope, exactly as the person list is: a count is a read, and a number that
             moved when a colleague captured a private contact would disclose that contact. Present,
             zero included, on `listOrganizations` and `getOrganization` — the reads that render the
-            column; write responses (create, update, archive, merge) omit it. Never client-supplied.
+            column, and ABSENT entirely for a role without `person:read` (the object grant comes first,
+            as on the person list); write responses (create, update, archive, merge) omit it. Never
+            client-supplied.
         open_deal_count:
           type: integer
           readOnly: true
           minimum: 0
           description: >-
-            How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10;
-            AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It
-            also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely,
-            not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see
-            pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`;
-            write responses omit it.
+            How many open, live deals belong to this account (PO-EXT-10; AC-companies-2/3's
+            Open deals column), counted across the WHOLE workspace — the same population the
+            account's `computed_fields` open-pipeline row sums (founder decision 2026-08-18: a
+            pipeline figure on an account is a fact about the account, not about who may open
+            each deal). The key is ABSENT entirely, not 0, for a role without `deal:read` or
+            without `computed_field:read` (STATE-4, the `computed_fields` gate). Present on
+            `listOrganizations` and `getOrganization`; write responses omit it.
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         partner: { $ref: '#/components/schemas/Partner' }
         version: { $ref: '#/components/schemas/RowVersion' }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: >-
+            When something last happened with this account — the newest `occurred_at` of an activity
+            linked to it, maintained on the activity write exactly as `deal.last_activity_at` is
+            (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must
+            reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -19097,6 +19149,17 @@ components:
         source_id: { type: [string, 'null'] }
         promoted_person_id: { type: [string, 'null'], format: uuid, description: Set on promotion (convenience mirror). }
         promoted_at: { type: [string, 'null'], format: date-time }
+        routed_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.' }
+        first_response_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'First genuine response to this lead (formulas §18): an outbound activity, a human status change off `new`, or an explicit disposition. A cold-outbound auto-touch does NOT satisfy it.' }
+        sla_deadline_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.' }
+        sla_state:
+          type: [string, 'null']
+          enum: [within_target, at_risk, breached]
+          x-enum-varnames: [LeadSlaStateWithinTarget, LeadSlaStateAtRisk, LeadSlaStateBreached]
+          readOnly: true
+          description: 'Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).'
+        last_activity_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.' }
+        open_task_count: { type: [integer, 'null'], readOnly: true, description: 'Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169).' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }

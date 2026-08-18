@@ -60,7 +60,9 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		// A contract's asserted status moved — the same shape as a deal's stage
 		// and a project's phase, one noun further along.
 		"status_changed": true,
-		"promoted":       true, "captured": true, "requested": true,
+		// A lead's first-response deadline passed unanswered (formulas §18.2).
+		"sla_breached": true,
+		"promoted":     true, "captured": true, "requested": true,
 		"decided": true, "failed": true, "appended": true,
 		"changed": true, "applied": true, "sent": true, "accepted": true,
 		"rejected": true, "superseded": true, "disqualified": true, "demoted": true,

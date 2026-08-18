@@ -142,3 +142,42 @@ export const ReadOnlySeat: Story = {
 // An unfiltered zero is the account's own emptiness — the only case the card
 // says "no documents" rather than "no matches in this category".
 export const Empty: Story = { render: () => <Documents data={[]} /> };
+
+// The two things the library holds BACK, and why each is reachable anyway.
+//
+// The signed paper carries a `contract_id`, so it is read on its agreement's row
+// in the contracts card above and does not appear here — one file, one place.
+// The replaced version sits behind the Superseded toggle, because three uploads
+// of one document are one document to a rep.
+export const WithheldRows: Story = {
+  render: () => (
+    <Documents
+      data={[
+        ...documents,
+        {
+          ...documents[0],
+          id: "d-4",
+          filename: "GR-2026-0092.pdf",
+          contract_id: "c-1",
+        } as unknown as Attachment,
+        {
+          ...documents[1],
+          id: "d-5",
+          filename: "scan_0001_v0.pdf",
+          doc_state: "superseded",
+        } as unknown as Attachment,
+      ]}
+    />
+  ),
+};
+
+// Every file on the account is filed against an agreement, so the library has
+// nothing of its own to show. It says exactly that: "no documents on this
+// account" would be a lie about an account that has one.
+export const AllFiledToAgreements: Story = {
+  render: () => (
+    <Documents
+      data={[{ ...documents[0], contract_id: "c-1" } as unknown as Attachment]}
+    />
+  ),
+};

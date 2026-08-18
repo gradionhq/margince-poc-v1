@@ -74,9 +74,9 @@ func TestAReadShareOfADealCannotRewriteItsContracts(t *testing.T) {
 	e.WsExec(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, $3, 'Anchor GmbH', 'manual', 'human:x')`, org, e.WS, e.Rep3)
 	deal := ids.NewV7()
-	e.WsExec(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
-		VALUES ($1, $2, $3, 'Anchored Deal', $4, $5, $6, 'manual', 'human:x')`,
-		deal, e.WS, e.Rep3, pipeline, open, org)
+	e.WsExec(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Anchored Deal', $3, $4, $5, 'manual', 'human:x')`,
+		deal, e.Rep3, pipeline, open, org)
 
 	store := contracts.NewStore(e.DB())
 	// Fixed, because nothing here is about WHEN: the term's dates never reach an
