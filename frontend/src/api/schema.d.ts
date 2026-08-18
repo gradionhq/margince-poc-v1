@@ -3328,6 +3328,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/filters/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Count and sample what a filter would select, before it is saved (LVS-EXT-9).
+         * @description The match count and a bounded first page for a candidate filter tree —
+         *     the filter a human is still editing, which nothing else in the contract
+         *     can evaluate. The object list operations take flat scalar parameters and
+         *     cannot express a tree; membership needs a stored list; and the filtered
+         *     export is audit-logged, so driving a live recount through it would write
+         *     an audit row per keystroke.
+         *
+         *     POST because the filter tree is a structured body, not because anything
+         *     is created. Nothing is: no row, no audit entry, no outbox event. That is
+         *     the property that separates this from the export, and it is deliberate —
+         *     a preview a human triggers by typing must not be indistinguishable from
+         *     an extraction they chose to perform.
+         *
+         *     Row-scoped like every read: the count and the page are what THIS caller
+         *     may see, so two people previewing the same filter can legitimately get
+         *     different numbers. `columns` and `rows` are the same projection the JSON
+         *     filtered export writes for the same filter, so what you preview is what
+         *     an export of it would contain.
+         */
+        post: operations["previewFilter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/views": {
         parameters: {
             query?: never;
@@ -14312,6 +14349,61 @@ export interface components {
             data: components["schemas"]["ListMember"][];
             page: components["schemas"]["PageInfo"];
         };
+        /** @description A candidate filter to evaluate without saving it. */
+        FilterPreviewRequest: {
+            /** @enum {string} */
+            resource: "person" | "organization" | "deal" | "lead" | "project";
+            /**
+             * @description The canonical filter tree — the same representation a dynamic list's
+             *     `definition` and a saved view's `query` carry, and untyped here for
+             *     the same reason they are. The grammar's authority is the predicate
+             *     engine, which validates the tree and answers a precise 422 naming the
+             *     offending field and reason; a recursive schema here would be a second
+             *     statement of that grammar, free to drift from the one that decides.
+             *     One engine evaluates all three, so a tree this operation accepts is
+             *     one a list or view accepts.
+             */
+            filter: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description How many rows to sample. The COUNT is unaffected by this — it is the
+             *     full match count for the caller, not the size of the page.
+             * @default 25
+             */
+            limit: number;
+        };
+        /** @description What a candidate filter would select for this caller (LVS-EXT-9). */
+        FilterPreview: {
+            /** @enum {string} */
+            resource: "person" | "organization" | "deal" | "lead" | "project";
+            /**
+             * @description Every row the filter selects that this caller may see — not the
+             *     length of `rows`. This is the number a builder shows a human while
+             *     they decide whether the filter is right, so it is a full count rather
+             *     than a page size dressed up as one.
+             */
+            match_count: number;
+            /**
+             * @description The column order the rows below are keyed by, schema-derived and
+             *     identical to the JSON filtered export's for the same resource.
+             */
+            columns: string[];
+            /**
+             * @description Up to `limit` matching rows as column→value maps, ordered by id.
+             *     Deliberately the export's projection rather than a shape invented for
+             *     this screen: a preview that showed different columns than the export
+             *     of the same filter would be a preview of something else.
+             */
+            rows: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * @description Whether `match_count` exceeds the rows returned — so a caller can say
+             *     "showing 25 of 812" without comparing lengths and guessing.
+             */
+            truncated: boolean;
+        };
         /**
          * @description What a filter may say about one record type (LVS-EXT-8). Read from the
          *     engine that evaluates filters, so the set here and the set the engine
@@ -23916,6 +24008,34 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewFilter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FilterPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The count and first page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
         };
