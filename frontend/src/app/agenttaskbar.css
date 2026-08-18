@@ -1,0 +1,444 @@
+/* ===== The agent taskbar (UI preview): one bar at the bottom of the viewport,
+ * the Core as its status light, the page on the left and the workspace on the
+ * right. =====
+ *
+ * Unlike the page-head dock, this one IS a floating object — it hovers over a
+ * page that scrolls under it — so it takes the full card chrome the head dock
+ * gives up: all four sides, a radius, a shadow to sit on, and a blur so the
+ * content it covers stays legible as texture rather than as words.
+ *
+ * The bar sizes to its own content and nothing else. The panel is taken out of
+ * the flow above it, so a long finding cannot widen the resting bar to fit
+ * something nobody has opened yet.
+ */
+.tbdock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: var(--space-4);
+  width: max-content;
+  max-width: calc(100% - var(--space-8));
+  /* Level with the Ask FAB (28, shell.css) and under the phone sheet and its
+     scrim (29/30): a bar that stayed lit over a dimmed page would read as the
+     one thing still live while the sheet was open. */
+  z-index: 28;
+}
+
+/* The dock's own copy of the state's leading colour, declared on the dock so
+ * the bar AND the panel above it inherit one tone.
+ *
+ * It cannot read the Core's: `--coreC1` is declared on the `.core` element, so
+ * it resolves inside the orb and nowhere else. The pip, the hairline and the
+ * panel's finding marks all need the same tone, so the state maps to one token
+ * HERE — and `agenttaskbar.test.tsx` asserts every state the Core knows has a
+ * rule in this file, so a tenth state cannot be added and silently draw green.
+ */
+.tbdock {
+  --tbTone: var(--accent);
+  /* How loudly the ring is allowed to speak. At rest it is a tinted hairline —
+     the bar is on every screen, all day, and a lit edge that never goes quiet is
+     an alarm nobody can switch off. The states that want a person, and the ones
+     with work in flight, take the full ring below. */
+  --tbRing: 26%;
+  --tbHalo: 0%;
+}
+.tbdock[data-core-state="flagged"],
+.tbdock[data-core-state="disconnected"],
+.tbdock[data-core-state="error"],
+.tbdock[data-core-state="ingesting"],
+.tbdock[data-core-state="reasoning"],
+.tbdock[data-core-state="drafting"] {
+  --tbRing: 100%;
+  --tbHalo: 9%;
+}
+.tbdock[data-core-state="ingesting"],
+.tbdock[data-core-state="applied"] {
+  --tbTone: var(--orbJade);
+}
+.tbdock[data-core-state="reasoning"],
+.tbdock[data-core-state="drafting"] {
+  --tbTone: var(--orbLime);
+}
+.tbdock[data-core-state="flagged"] {
+  --tbTone: var(--orbAmber);
+}
+.tbdock[data-core-state="disconnected"] {
+  --tbTone: var(--orbGrey);
+}
+.tbdock[data-core-state="error"] {
+  --tbTone: var(--orbRed);
+}
+
+.tbbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 6px 5px 7px; /* ds:ignore optical inset around a 40px orb, so its halo sits inside the bar rather than against the border */
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  /* Glass, not a panel: enough of the page comes through to blur behind the bar,
+     which is what tells a reader the bar is a layer floating over the content
+     rather than a strip cut out of it. */
+  background: color-mix(in srgb, var(--bgElevated) 58%, transparent);
+  /* The gradient outline below paints into the border box, so the fill must be
+     told to stop at the padding box or it covers the ring it sits inside. */
+  background-clip: padding-box;
+  backdrop-filter: blur(26px) saturate(180%);
+  /* The Core's halo is sized for a hero and would leak past a bar this thin. */
+  overflow: hidden;
+  box-shadow:
+    var(--shadow-pop),
+    /* The state's own tone, thrown down onto the page. It is what makes the bar
+       read as lit from inside rather than laid on top. */ 0
+    6px 26px -14px var(--tbTone);
+}
+
+/* ===== The outline =====
+ *
+ * The bar's edge is not a border, it is a ring in the state's own colour — the
+ * same tone the orb inside it is running, so the object reads as one lit thing
+ * rather than a chip with a coloured dot in it.
+ *
+ * Built as a masked fill in the border box: the layer fills the element and the
+ * mask subtracts the padding box, leaving exactly the frame. A `border-image`
+ * cannot do this on a rounded box, and a second inset element would have to
+ * track the radius by hand.
+ *
+ * At rest the ring is EVEN. A gradient ring lights one side and reads as a
+ * highlight somebody forgot to finish; the travel below is a second layer, and it
+ * runs only while work is in flight, because motion on a status surface is a
+ * claim that something is happening.
+ */
+.tbbar::before,
+.tbbar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px; /* ds:ignore the ring's own thickness, which is a stroke weight and not spacing */
+  /* Keyword, not a hex: a mask's colour is a stencil, not a colour of the
+     design system, and the purity gate is right to refuse a literal either way. */
+  mask:
+    linear-gradient(black 0 0) content-box exclude,
+    linear-gradient(black 0 0);
+  pointer-events: none;
+}
+.tbbar::before {
+  /* One tone at one strength, mixed toward the page's own hairline so the quiet
+     end of the scale is a border and not a faint glow. */
+  background: color-mix(
+    in srgb,
+    var(--tbTone) var(--tbRing),
+    var(--borderStrong)
+  );
+}
+/* The travel: one bright pass sweeping the whole frame.
+ *
+ * The state's own tone, BRIGHTENED rather than mixed toward white. One colour per
+ * state is the rule the Core keeps, and a white pass over the red of `error`
+ * would put a colour in the ring that no state owns. */
+.tbbar::after {
+  background:
+    linear-gradient(100deg, transparent 30%, var(--tbTone) 50%, transparent 70%)
+    0 0 / 260% 100% no-repeat;
+  filter: brightness(1.55) saturate(1.3);
+  opacity: 0;
+}
+.tbbar.working::after {
+  opacity: 1;
+  animation: tbtravel 2.4s linear infinite;
+}
+@keyframes tbtravel {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -140% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tbbar.working::after {
+    animation: none;
+    /* Work in flight still reads, without the motion: the ring brightens and
+       stays. A reduced-motion reader loses the sweep, not the signal. */
+    background-position: 50% 0;
+    opacity: 0.5;
+  }
+}
+
+/* The whole bar is the toggle, and this is how it stays valid markup: one
+ * full-bleed button UNDER the content, with the CTA link raised above it. A
+ * clickable wrapper holding a link would be a control inside a control, and a
+ * div with a click handler is a target no keyboard can reach.
+ *
+ * It carries the accessible name and the expanded state, so a screen reader gets
+ * one thing to operate rather than a bar and a chevron that both claim the job.
+ */
+.tbhit {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.tbhit:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+/* Everything the reader looks at sits above the hit area; only the link and the
+   chevron take the pointer back, because they are the two things that are not
+   "expand". */
+.tbbar > *:not(.tbhit) {
+  position: relative;
+  pointer-events: none;
+}
+.tbbar > .tbgo {
+  pointer-events: auto;
+}
+
+/* The Core primitive at bar scale (WDS-CORE-1): sizing through its own custom
+   properties is the one thing a caller may do to it. */
+.tborb {
+  --coreSize: 52px;
+  --coreGlass: 42px;
+  /* The viewport cap is for a hero standing in a column; a bar this size is
+     already the smallest thing on the screen. */
+  --coreCap: 100%;
+  flex: none;
+}
+
+/* The page half. Mono and quiet on purpose — it is the label for what follows,
+   not a thing to read on its own. */
+.tbscope {
+  flex: none;
+  max-width: 128px;
+  padding: 3px 7px; /* ds:ignore chip optics on a 10px mono label, matched to the badge opposite it */
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--textContent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tbline {
+  flex: 1;
+  min-width: 0;
+  max-width: 220px;
+  font-size: 12px;
+  color: var(--textPrimary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The workspace half: a count and a colour, never a sentence. */
+.tbbadge {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px; /* ds:ignore pip-to-number optics inside one pill, not spaced content */
+  padding: 2px 7px; /* ds:ignore pill optics on an 11px count, matched to the scope chip */
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  font-size: 11px;
+  color: var(--textContent);
+  white-space: nowrap;
+}
+.tbbadge b {
+  color: var(--textPrimary);
+  font-weight: 600;
+}
+.tbpip {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  /* The state's own leading colour, so the pip and the orb can never disagree
+     about what is going on. */
+  background: var(--tbTone);
+}
+
+/* The one thing you can do about it, where there is one. */
+.tbgo {
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.tbgo:hover {
+  filter: brightness(1.05);
+}
+
+/* A glyph, not a control: the bar itself is the button now, and a second
+   toggle beside it would be two things claiming one job. */
+.tbchev {
+  flex: none;
+  color: var(--textContent);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.tbdock.open .tbchev {
+  transform: rotate(180deg);
+}
+/* ===== The panel ===== */
+.tbpanel {
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max(100%, 340px);
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  /* Denser than the bar: the panel carries rows a reader has to read, and text
+     over a blurred page is the one place this material stops being free. */
+  background: color-mix(in srgb, var(--bgElevated) 78%, transparent);
+  backdrop-filter: blur(26px) saturate(180%);
+  box-shadow: var(--shadow-pop);
+}
+
+.tbfixture {
+  margin-bottom: var(--space-2);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--textContent);
+}
+
+.tbsect + .tbsect {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--borderSubtle);
+}
+.tbsect h4 {
+  margin-bottom: var(--space-2);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--textContent);
+}
+
+.tbitem {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  font-size: 12.5px;
+  color: var(--textPrimary);
+}
+.tbmark {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-top: 5px; /* ds:ignore drops the 5px mark onto the first line's baseline */
+  border-radius: var(--r-full);
+  background: var(--tbTone);
+}
+.tblink {
+  color: inherit;
+  text-decoration: none;
+}
+.tblink:hover .tbmuted {
+  color: var(--textPrimary);
+}
+.tbempty {
+  color: var(--textContent);
+  font-style: italic;
+}
+.tbmeta i:not([class]) {
+  font-style: italic;
+}
+
+.tbmuted {
+  margin-left: auto;
+  padding-left: var(--space-2);
+  font-size: 11px;
+  color: var(--textContent);
+  white-space: nowrap;
+}
+
+.tbmeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  font-size: 11px;
+  color: var(--textContent);
+}
+.tbmeta b {
+  color: var(--textPrimary);
+  font-weight: 500;
+}
+.tbconn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.tbconn i {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--r-full);
+  background: var(--success);
+}
+.tbconn.down i {
+  background: var(--warn);
+}
+
+/* The state switcher: review scaffolding, and dressed as scaffolding. It sits
+   last, under its own rule, so nobody mistakes it for something the product
+   offers. */
+.tbchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.tbchip {
+  padding: 3px 8px; /* ds:ignore chip optics on a 10px mono label, the same inset the scope chip carries */
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--textContent);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  cursor: pointer;
+}
+.tbchip[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--textOnAccentControl);
+}
+.tbchip:focus-visible {
+  outline: 2px solid transparent;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+/* On a phone the rail IS the bottom bar (shell.css, z-index 30), so the dock
+   stands on top of it rather than under it, and gives up the scope chip — at
+   that width the line is what carries the meaning and the chip only takes room
+   from it. */
+@media (max-width: 700px) {
+  .tbdock {
+    left: var(--space-4);
+    right: var(--space-4);
+    transform: none;
+    width: auto;
+    max-width: none;
+    bottom: calc(66px + max(var(--space-2), env(safe-area-inset-bottom)));
+  }
+  .tbscope {
+    display: none;
+  }
+  .tbline {
+    max-width: none;
+  }
+}

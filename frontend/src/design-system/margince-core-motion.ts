@@ -67,7 +67,7 @@ export type CoreBehaviour = Readonly<{
 export const BEHAVIOUR: Readonly<Record<MarginceCoreState, CoreBehaviour>> = {
   // Nothing staged, nothing running. The Core sits here almost all the time, so
   // it is the one state tuned for being looked at past rather than at.
-  dormant: { motion: "calm", speed: 0.45, amp: 0.28 },
+  dormant: { motion: "calm", speed: 0.45, amp: 0.6 },
   // Captured calls, mail and meetings arriving. Volume taken on, one at a time.
   ingesting: { motion: "absorb", speed: 1.1, amp: 1.0 },
   // Traversing the context graph. The fastest state, and the only one that spins.
@@ -112,7 +112,10 @@ function at(
  */
 function calm(index: number, time: number, breathe: number): DotTarget {
   const angle = (index / DOTS) * Math.PI * 2;
-  const spin = time * 0.42 + angle;
+  // Fast enough that a glance catches the ring turning, slow enough that it is
+  // still a body idling and not one working: `churn` runs this figure five times
+  // over, and reasoning has to stay the fastest thing the Core ever does.
+  const spin = time * 0.62 + angle;
   // Never flat enough for the four to collapse into a lump.
   const tilt = 0.78 + Math.sin(time * 0.16) * 0.16;
   const driftX =
@@ -120,17 +123,19 @@ function calm(index: number, time: number, breathe: number): DotTarget {
   const driftY =
     Math.sin(time * 0.16) * R * 0.06 + Math.sin(time * 0.09) * R * 0.03;
   /*
-   * The breath at rest is deliberately at the edge of noticing: the formation
-   * swells by a few percent and the dots by a little less. Anything larger and
-   * the Core looks like it is doing something, which is the one thing an idle
-   * agent must not look like — and the drift and tilt above are already carrying
-   * the life, so this only has to keep the body from being static.
+   * The breath at rest is what carries the life: the formation opens and closes
+   * and the dots swell with it, on the slow asymmetric curve the engine mixes, so
+   * the ball reads as breathing rather than as drifting. It is still a BREATH and
+   * not work — nothing reorganises, nothing breaks rank, and the whole body moves
+   * as one — but at the edge of noticing it read as static at the sizes the Core
+   * is actually shown at, which is the more dangerous of the two mistakes: an
+   * agent that looks switched off.
    */
-  const radius = R * (0.67 + breathe * 0.025);
+  const radius = R * (0.63 + breathe * 0.11);
   return at(
     Math.cos(spin) * radius + driftX,
     Math.sin(spin) * radius * tilt + driftY,
-    0.86 + breathe * 0.05,
+    0.82 + breathe * 0.14,
   );
 }
 
