@@ -211,13 +211,14 @@ func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 		t.Error("timeline lost a visible or workspace-shared activity")
 	}
 
+	// Filtering BY a record is a read OF it, so a record outside the caller's
+	// row scope owes the existence-hiding not-found rather than an empty page.
+	// An empty page hides the rows but answers "that record has nothing on it",
+	// which is a different sentence and one the caller was not entitled to.
 	entityType, entityID := "person", foreignPerson
-	probed, _, err := e.Activities.ListActivities(rep, activities.ListActivitiesInput{EntityType: &entityType, EntityID: &entityID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(probed) != 0 {
-		t.Errorf("entity-filter probe on a foreign person returned %d activities, want 0", len(probed))
+	_, _, err = e.Activities.ListActivities(rep, activities.ListActivitiesInput{EntityType: &entityType, EntityID: &entityID})
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("entity-filter probe on a foreign person = %v, want ErrNotFound", err)
 	}
 }
 
