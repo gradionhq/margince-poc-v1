@@ -439,9 +439,26 @@
   padding: 2px 4px;
   border-radius: 6px;
   cursor: pointer;
+  /* A flex line rather than inline text, so an icon and its label share one row
+     and one vertical centre. Inline, the glyph sat on the text baseline with a
+     descender gap under it and nothing could space the pair. */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 .link-button:hover {
   text-decoration: underline;
+}
+/* A glyph a caller drops in here arrives from lucide at its own default of
+   24px, twice the label beside it, and at that size it wrapped ABOVE the label
+   instead of leading it. `.btn` and `.iconbtn` each size their own icon for
+   exactly this reason; this class carried the same shape and none of the rule,
+   so a link button was the one affordance in the product where an icon was the
+   caller's problem. The size belongs to the control, not to the call site. */
+.link-button svg {
+  inline-size: 16px;
+  block-size: 16px;
+  flex: none;
 }
 /* A SOLID outline, not the 9%-opacity ring the filled controls use.
  *

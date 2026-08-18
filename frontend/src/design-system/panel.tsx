@@ -9,6 +9,12 @@ import "./panel.css";
 // the same height), full-bleed rows under it, and an optional footer for a
 // figure that belongs to the whole panel rather than to any one row.
 //
+// That height is a FLOOR rather than a fixed measure, and a description under
+// the title is the one thing that raises it: type on two lines wedged into the
+// band would sit against the hairline above and the border below. Everything
+// that shares the title's own line — a badge, a button, a count — reads at the
+// one height, which is the promise the band exists to make.
+//
 // The header and the body are two different rhythms living in one box — the
 // header's own 48px band versus the body's padded content versus a row that
 // wants to touch the panel's own edges — which is why the padded content is a
@@ -17,6 +23,7 @@ import "./panel.css";
 // siblings instead of fighting one slot that tries to be both.
 export function Panel({
   title,
+  sub,
   titleAction,
   tone,
   actions,
@@ -25,6 +32,17 @@ export function Panel({
   className,
 }: Readonly<{
   title?: ReactNode;
+  // One line of description under the title, inside the same header band. It
+  // is here so that a card whose anatomy is otherwise exactly this one's —
+  // header band, full-bleed rows, a footer carrying the total — does not have
+  // to be a `Card` for the sake of one sentence. That trade is how the record
+  // page and settings came to draw two different cards: the sentence was the
+  // only thing Panel could not hold, so the caller changed surface instead of
+  // asking for the slot.
+  //
+  // A caller-translated node, like every other slot in this file. No copy
+  // lives in a primitive.
+  sub?: ReactNode;
   // Rendered right-aligned in the header, beside the title — a badge, a
   // button, a count. Absent leaves the title alone in its row.
   titleAction?: ReactNode;
@@ -64,7 +82,16 @@ export function Panel({
     >
       {title && (
         <header className="panel-head">
-          <h2>{title}</h2>
+          {/* The title and its description are ONE item in the header row, not
+              two: the row's far-end push anchors on this block, so a
+              titleAction lands at the end whether or not a description is
+              there. Rendered even with no `sub`, because a wrapper that comes
+              and goes is a second header shape, and the height the band
+              guarantees is measured on this one. */}
+          <div className="panel-head-text">
+            <h2>{title}</h2>
+            {sub && <span className="panel-head-sub">{sub}</span>}
+          </div>
           {titleAction}
         </header>
       )}

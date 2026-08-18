@@ -67,6 +67,57 @@ export const WithFooter: Story = {
   },
 };
 
+// `sub`: one line of description inside the header band. The band is a floor
+// rather than a fixed measure, so this is the one slot that raises it — put this
+// story beside `WithBody` above and the title-only header is unchanged.
+export const WithSub: Story = {
+  args: {
+    title: "Passports",
+    sub: "Credentials you minted for an agent. Every call re-authenticates.",
+    children: (
+      <PanelBody>
+        <p>Two active, one revoked this morning.</p>
+      </PanelBody>
+    ),
+  },
+};
+
+// A description and an action in the same header. The title block absorbs the
+// row's free space, so the button sits at the far end of a two-line band the
+// same way it does on a one-line one — the layout the old `:last-child` push
+// could not draw once the title stopped being the header's only child.
+export const WithSubAndTitleAction: Story = {
+  args: {
+    title: "Purposes",
+    sub: "Why this installation may hold personal data. Each one is answerable on its own.",
+    titleAction: <Button small>Add a purpose</Button>,
+    children: (
+      <>
+        <PanelRow>Contract performance</PanelRow>
+        <PanelRow>Legitimate interest — account management</PanelRow>
+      </>
+    ),
+  },
+};
+
+// The shape `sub` exists for: a header that explains itself, full-bleed rows,
+// and a footer carrying the figure for the whole panel. Before the slot a card
+// needing that sentence had to be a `Card` and lose the rows and the band.
+export const WithSubRowsAndFooter: Story = {
+  args: {
+    title: "Won deals",
+    sub: "Closed and invoiced. Reporting currency, at the day's rate.",
+    children: (
+      <>
+        <PanelRow>Renewal — €48,000</PanelRow>
+        <PanelRow>Expansion, EU — €12,500</PanelRow>
+        <PanelRow>Pilot — €4,200</PanelRow>
+      </>
+    ),
+    footer: <span className="t-mono">€64,700.00</span>,
+  },
+};
+
 export const Untitled: Story = {
   args: {
     children: (
