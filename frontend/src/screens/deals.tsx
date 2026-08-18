@@ -14,7 +14,7 @@ import {
 } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { approvalDotTier, useAgentTierMap, verbTier } from "../app/autonomy";
 import { navigate } from "../app/router";
 import { useInstallationSettings } from "../app/uploadlimit";
@@ -625,6 +625,10 @@ function dealColumns(
 
 type PendingAdvance = {
   dealId: string;
+  // Carried through the confirm rather than looked up when it closes: the write
+  // pins the deal as it stood on the board the reader dropped it on, so a stage
+  // change made while the dialog was open fails loud instead of being erased.
+  version: number | undefined;
   toStage: Stage;
 };
 
@@ -813,14 +817,23 @@ export function DealsScreen({
   const lastDragEnd = useRef(0);
 
   const advance = useMutation({
+    // An advance is a write like any other, so it is pinned like any other: the
+    // version the reader's own card was drawn from rides the variables, and two
+    // people moving one deal at the same moment no longer both succeed — the
+    // second reads the version the first replaced and fails 409 version_skew
+    // instead of quietly undoing a stage change nobody saw.
     mutationFn: async (input: {
       dealId: string;
+      version: number | undefined;
       toStage: Stage;
       lostReason?: string;
     }) => {
       const terminal = input.toStage.semantic !== "open";
       const { data, error } = await api.POST("/deals/{id}/advance", {
-        params: { path: { id: input.dealId } },
+        params: {
+          path: { id: input.dealId },
+          ...ifMatch(requireVersion(input.version)),
+        },
         body: {
           to_stage_id: input.toStage.id,
           ...(terminal ? { status: input.toStage.semantic } : {}),
@@ -909,12 +922,19 @@ export function DealsScreen({
     if (!toStage) {
       return;
     }
+    // The version the reader saw. The cards and this lookup read the one deal
+    // array this render was handed, so the precondition names the row as it was
+    // drawn on the board rather than whatever it has become since — which is the
+    // whole claim optimistic concurrency makes.
+    const version = dealsQuery.data?.data.find(
+      (deal) => deal.id === dealId,
+    )?.version;
     if (toStage.semantic === "open") {
-      advance.mutate({ dealId, toStage });
+      advance.mutate({ dealId, version, toStage });
     } else {
       // Terminal-stage advance is a 🟡 confirm (AC-deal-6).
       setLostReason("");
-      setPending({ dealId, toStage });
+      setPending({ dealId, version, toStage });
     }
   };
 
@@ -1209,6 +1229,7 @@ export function DealsScreen({
                 onClick={() => {
                   advance.mutate({
                     dealId: pending.dealId,
+                    version: pending.version,
                     toStage: pending.toStage,
                     lostReason: lostReason.trim() || undefined,
                   });
@@ -1395,17 +1416,36 @@ export function FxLine({
 // of DealBadges for the same readability reason as the other header actions.
 function ReopenAction({
   dealId,
+  dealVersion,
   openStages,
-}: Readonly<{ dealId: string; openStages: Stage[] }>) {
+}: Readonly<{
+  dealId: string;
+  // The version the header this button sits in was rendered from, so the reopen
+  // pins the deal the reader was looking at. Stated by the caller rather than
+  // read here: this action holds no query of its own to read a fresh one from,
+  // and a fresh one would be the wrong answer anyway.
+  dealVersion: number | undefined;
+  openStages: Stage[];
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [stageId, setStageId] = useState<string | null>(null);
   const reopen = useMutation({
-    mutationFn: async (toStageId: string) => {
+    // Stage and version both ride the variables: a version read out of the
+    // closure would be the one from the render before this dialog opened, and a
+    // reopen that pins the wrong version either fails for no reason the reader
+    // can see or lands on a deal somebody else has since moved.
+    mutationFn: async (input: {
+      toStageId: string;
+      version: number | undefined;
+    }) => {
       const { data, error } = await api.POST("/deals/{id}/advance", {
-        params: { path: { id: dealId } },
-        body: { to_stage_id: toStageId, status: "open" },
+        params: {
+          path: { id: dealId },
+          ...ifMatch(requireVersion(input.version)),
+        },
+        body: { to_stage_id: input.toStageId, status: "open" },
       });
       if (error) {
         throwProblem(error, t);
@@ -1467,7 +1507,7 @@ function ReopenAction({
             disabled={!stageId || reopen.isPending}
             onClick={() => {
               if (stageId) {
-                reopen.mutate(stageId);
+                reopen.mutate({ toStageId: stageId, version: dealVersion });
               }
             }}
           >
@@ -1540,7 +1580,10 @@ function DealBadges({
         }}
         update={async (values) => {
           const { data, error } = await api.PATCH("/deals/{id}", {
-            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+            params: {
+              path: { id: deal.id },
+              ...ifMatch(requireVersion(deal.version)),
+            },
             body: { ...mapDealUpdate(values), ...cf.toBody(values) },
           });
           if (error) {
@@ -1569,7 +1612,11 @@ function DealBadges({
       />
       {!overlay && <ShareAction recordType="deal" recordId={deal.id} />}
       {!overlay && (deal.status === "won" || deal.status === "lost") && (
-        <ReopenAction dealId={deal.id} openStages={openStages} />
+        <ReopenAction
+          dealId={deal.id}
+          dealVersion={deal.version}
+          openStages={openStages}
+        />
       )}
     </>
   );

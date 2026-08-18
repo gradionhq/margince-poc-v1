@@ -94,6 +94,7 @@ function deal(overrides: Partial<Deal>): Deal {
     status: "open",
     source: "manual",
     captured_by: "human:u1",
+    version: 4,
     created_at: "2026-06-01T00:00:00Z",
     updated_at: "2026-06-01T00:00:00Z",
     ...overrides,
@@ -314,7 +315,7 @@ describe("buildColumns", () => {
 function stubBackend(
   deals: Deal[],
   opts: {
-    onAdvance?: (body: unknown) => void;
+    onAdvance?: (body: unknown, ifMatch: string | null) => void;
     single?: Deal;
     onPatch?: (body: unknown, ifMatch: string | null) => void;
     onDelete?: () => void;
@@ -368,7 +369,7 @@ function stubBackend(
       const body = request
         ? await request.json()
         : JSON.parse(String(init?.body));
-      opts.onAdvance?.(body);
+      opts.onAdvance?.(body, request?.headers.get("If-Match") ?? null);
       return jsonResponse(deal({ stage_id: body.to_stage_id }));
     }
     if (method === "GET" && /\/deals\/[^/?]+(\?.*)?$/.test(url)) {
@@ -514,10 +515,10 @@ describe("DealsScreen", () => {
   });
 
   it("a terminal-stage advance opens the 🟡 confirm and posts only after confirming", async () => {
-    const advances: unknown[] = [];
+    const advances: [unknown, string | null][] = [];
     vi.stubGlobal(
       "fetch",
-      stubBackend([deal({})], { onAdvance: (body) => advances.push(body) }),
+      stubBackend([deal({})], { onAdvance: (b, m) => advances.push([b, m]) }),
     );
     render(<DealsScreen />);
     await waitFor(() =>
@@ -539,7 +540,7 @@ describe("DealsScreen", () => {
     expect(advances).toHaveLength(0); // nothing posted yet — confirm-first
     await userEvent.click(screen.getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(advances).toHaveLength(1));
-    expect(advances[0]).toMatchObject({ to_stage_id: "s3", status: "won" });
+    expect(advances[0]).toEqual([{ to_stage_id: "s3", status: "won" }, "4"]);
   });
 
   it("the advance-confirm dot reads the live catalog tier, not a hardcode", async () => {
@@ -583,10 +584,10 @@ describe("DealsScreen", () => {
   });
 
   it("an open-stage drop advances without a confirm", async () => {
-    const advances: unknown[] = [];
+    const advances: [unknown, string | null][] = [];
     vi.stubGlobal(
       "fetch",
-      stubBackend([deal({})], { onAdvance: (body) => advances.push(body) }),
+      stubBackend([deal({})], { onAdvance: (b, m) => advances.push([b, m]) }),
     );
     render(<DealsScreen />);
     await waitFor(() =>
@@ -603,8 +604,7 @@ describe("DealsScreen", () => {
     proposalColumn.dispatchEvent(dropEvent);
 
     await waitFor(() => expect(advances).toHaveLength(1));
-    expect(advances[0]).toMatchObject({ to_stage_id: "s2" });
-    expect((advances[0] as Record<string, unknown>).status).toBeUndefined();
+    expect(advances[0]).toEqual([{ to_stage_id: "s2" }, "4"]);
     await waitFor(() =>
       expect(screen.getByText("Moved to Proposal")).toBeTruthy(),
     );
@@ -978,18 +978,18 @@ describe("DealScreen reopen", () => {
   beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
 
   it("reopen is shown only for won/lost and advances to an open stage with status open", async () => {
-    const advances: unknown[] = [];
+    const moves: [unknown, string | null][] = [];
     const d = deal({ id: "x", status: "won", stage_id: "s3" });
     vi.stubGlobal(
       "fetch",
-      stubBackend([d], { single: d, onAdvance: (b) => advances.push(b) }),
+      stubBackend([d], { single: d, onAdvance: (b, m) => moves.push([b, m]) }),
     );
     render(<DealScreen id="x" />);
     await userEvent.click(await screen.findByTestId("reopen-open"));
     await userEvent.click(screen.getByTestId("reopen-stage-s1"));
     await userEvent.click(screen.getByTestId("reopen-confirm"));
-    await waitFor(() => expect(advances.length).toBe(1));
-    expect(advances[0]).toMatchObject({ to_stage_id: "s1", status: "open" });
+    await waitFor(() => expect(moves.length).toBe(1));
+    expect(moves[0]).toEqual([{ to_stage_id: "s1", status: "open" }, "4"]);
   });
 
   it("reopen is not offered for an open deal", async () => {

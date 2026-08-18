@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useCallback, useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import {
@@ -156,7 +156,7 @@ async function patchPersonField(
   const { error } = await api.PATCH("/people/{id}", {
     params: {
       path: { id: person.id },
-      ...ifMatch(person.version),
+      ...ifMatch(requireVersion(person.version)),
     },
     body,
   });

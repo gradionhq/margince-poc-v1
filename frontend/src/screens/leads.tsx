@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { isOption } from "../app/options";
 import { navigate } from "../app/router";
 import { activityTimeline } from "../design-system/activitytimeline";
@@ -425,9 +425,9 @@ function LeadBoard({
     // carried it belongs to the committed render, so it cannot be stale.
     mutationFn: async (moved: {
       id: string;
-      // Optional exactly as the contract has it. ifMatch omits the header when
-      // it is absent, which is the honest behaviour: a row the server did not
-      // version is one this client cannot make a concurrency claim about.
+      // Optional exactly as the contract has it, and refused rather than sent
+      // unpinned: a row the server did not version is one this client can make
+      // no concurrency claim about, so it takes no write at all.
       version?: number;
       // The two the contract accepts. `promoted` and `disqualified` are
       // reachable only through their own verbs, and typing the board's write
@@ -435,7 +435,10 @@ function LeadBoard({
       status: "new" | "working";
     }) => {
       const { data, error } = await api.PATCH("/leads/{id}", {
-        params: { path: { id: moved.id }, ...ifMatch(moved.version) },
+        params: {
+          path: { id: moved.id },
+          ...ifMatch(requireVersion(moved.version)),
+        },
         body: { status: moved.status },
       });
       if (error) {
@@ -1337,7 +1340,7 @@ function LeadLifecycle({
         throw new Error("a terminal lead takes no writes");
       }
       const { data, error } = await api.PATCH("/leads/{id}", {
-        params: { path: { id }, ...ifMatch(lead.version) },
+        params: { path: { id }, ...ifMatch(requireVersion(lead.version)) },
         body,
       });
       if (error) {
@@ -2012,7 +2015,7 @@ function LeadActions({
           const { data, error } = await api.PATCH("/leads/{id}", {
             params: {
               path: { id },
-              ...ifMatch(lead.version),
+              ...ifMatch(requireVersion(lead.version)),
             },
             body: {
               ...mapLeadUpdate(values),

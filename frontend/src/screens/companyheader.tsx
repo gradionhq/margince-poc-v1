@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Fragment, type ReactElement } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import { Badge, Button, OverflowMenu } from "../design-system/atoms";
@@ -145,7 +145,7 @@ async function patchCompanyField(
   body: UpdateOrganizationRequest,
 ): Promise<void> {
   const { error } = await api.PATCH("/organizations/{id}", {
-    params: { path: { id: org.id }, ...ifMatch(org.version) },
+    params: { path: { id: org.id }, ...ifMatch(requireVersion(org.version)) },
     body,
   });
   if (error) {
@@ -365,7 +365,7 @@ function CompanyEditAction({
         const { data, error } = await api.PATCH("/organizations/{id}", {
           params: {
             path: { id: org.id },
-            ...ifMatch(org.version),
+            ...ifMatch(requireVersion(org.version)),
           },
           body: {
             ...mapOrgUpdate(values, rows ?? {}, org.domains),
@@ -441,7 +441,7 @@ export function CompanyActionBadges({
                   {
                     params: {
                       path: { id: org.id },
-                      ...ifMatch(org.version),
+                      ...ifMatch(requireVersion(org.version)),
                     },
                     body: { target_id: targetId },
                   },
