@@ -224,3 +224,50 @@ export const PinnedWhileScrolling: Story = {
     </div>
   ),
 };
+
+// Row selection for a bulk action: the checkbox sits in the identity cell —
+// the one that stays put while the rest scrolls — and the bar above the grid
+// carries the count and the verbs. Two rows come pre-selected so the bar is
+// on screen; the screen owns what the verbs do.
+function SelectableSurface() {
+  const rows = companies(8);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(
+    new Set(["c2", "c5"]),
+  );
+  const toggle = (row: Company) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(row.id)) {
+        next.delete(row.id);
+      } else {
+        next.add(row.id);
+      }
+      return next;
+    });
+  return (
+    <ListTable<Company>
+      rows={rows}
+      columns={columns}
+      rowKey={(row) => row.id}
+      unit="companies"
+      selection={{
+        selected,
+        onToggle: toggle,
+        label: (row) => `Select ${row.name}`,
+        bar: (
+          <>
+            <span className="t-caption">{selected.size} selected</span>
+            <Button small>Assign owner</Button>
+            <Button small onClick={() => setSelected(new Set())}>
+              Clear
+            </Button>
+          </>
+        ),
+      }}
+    />
+  );
+}
+
+export const Selectable: Story = {
+  render: () => <SelectableSurface />,
+};
