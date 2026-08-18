@@ -35,6 +35,15 @@ function source(file: string): string {
   return readFileSync(resolve(dir, file), "utf8");
 }
 
+// What the distance below is allowed to count. An explanation between a call
+// and its refusal is not distance: it shortens what a reader must hold at
+// once, which is the same reason the length ceilings ignore comments. Measured
+// on the raw text, a well-commented field mapping reads as a drifted anchor.
+function codeLengthOf(span: string): number {
+  return span.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "")
+    .length;
+}
+
 // Finds the Nth (1-indexed) occurrence of `anchor` — the endpoint call's own
 // literal path — then the nearest `if (error)` after it, and asserts the
 // throw inside that block passes a translator. Anchoring on the endpoint
@@ -62,7 +71,7 @@ function assertTranslatedRefusal(
     `${label}: no "if (error)" found after its endpoint call in ${file}`,
   ).toBeGreaterThanOrEqual(0);
   expect(
-    errorIndex - anchorIndex,
+    codeLengthOf(text.slice(anchorIndex, errorIndex)),
     `${label}: "if (error)" is implausibly far from its anchor in ${file} — the anchor likely matched the wrong call`,
   ).toBeLessThan(600);
   const throwSite = text.slice(errorIndex, errorIndex + 150);
