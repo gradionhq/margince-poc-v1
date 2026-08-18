@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
+// The POSIX half, not the macOS one: the socket, the signals and the path
+// shapes here are the same on any unix. The constraint is explicit because only
+// GOOS filename suffixes are implicit, and "unix" is not one of them.
+//go:build !windows
+
 package main
 
 import (
