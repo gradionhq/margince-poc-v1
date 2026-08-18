@@ -100,6 +100,43 @@ func TestDemoteOfAMergeTouchesOnlyTheLineage(t *testing.T) {
 	}
 }
 
+// A person merge repoints the lead's outcome pointer to the survivor while
+// the promote audit row still says "created". Archiving that survivor would
+// destroy the merged-in person's history, so the demote downgrades to
+// lineage-only — whatever the promotion originally did.
+func TestDemoteNeverArchivesAMergeSurvivor(t *testing.T) {
+	e := setupPromoteConsent(t)
+	lead := e.seedLead(t, "created@example.test")
+	created, merged, err := e.store.PromoteLead(e.ctx, lead, PromoteLeadInput{Trigger: "human_qualify"})
+	if err != nil || merged {
+		t.Fatalf("promote: err=%v merged=%t, want a created person", err, merged)
+	}
+	other, err := e.store.CreatePerson(e.ctx, CreatePersonInput{
+		FullName: "Other Contact",
+		Emails:   []PersonEmailInput{{Email: "other@example.test", EmailType: "work", IsPrimary: true}},
+		Source:   "manual",
+	})
+	if err != nil {
+		t.Fatalf("seed the other person: %v", err)
+	}
+	// The created person survives the merge; the other's history now lives on it.
+	if _, err := e.store.MergePerson(e.ctx, ids.From[ids.PersonKind](ids.UUID(other.Id)), ids.From[ids.PersonKind](ids.UUID(created.Id))); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	out, err := e.store.DemoteLead(e.ctx, lead, "wrong prospect")
+	if err != nil {
+		t.Fatalf("demote: %v", err)
+	}
+	if out.Unwind != crmcontracts.DemoteUnwindMergeLineageOnly {
+		t.Errorf("unwind = %q, want merge_lineage_only: the person is a merge survivor", out.Unwind)
+	}
+	archived, from := e.personState(t, ids.UUID(created.Id))
+	if archived || from != nil {
+		t.Errorf("survivor archived=%t converted_from=%v; want live and unlinked", archived, from)
+	}
+}
+
 // The hard block: a person who is a stakeholder on a live deal keeps their
 // commercial state. Nothing moves, and the refusal names the rule.
 func TestDemoteRefusesWhenThePersonIsOnALiveDeal(t *testing.T) {

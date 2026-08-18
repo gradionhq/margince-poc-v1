@@ -93,9 +93,6 @@ func (s *Store) DemoteLead(ctx context.Context, id ids.LeadID, reason string) (c
 		if err != nil {
 			return err
 		}
-		if err := ensureNoLiveDeal(ctx, tx, personID); err != nil {
-			return err
-		}
 		unwind, err := unwindPerson(ctx, tx, id, personID, outcome)
 		if err != nil {
 			return err
@@ -172,12 +169,39 @@ func ensureNoLiveDeal(ctx context.Context, tx pgx.Tx, personID ids.PersonID) err
 }
 
 // unwindPerson applies the person side of §26.1 and names what it did.
-// Both branches touch the person row (the lineage pointer at least), so both
-// need write authority on it; the created-person branch also archives it and
-// therefore needs the archive grant.
+// Both unwinds write the person (the lineage pointer at least), so the
+// person's grant and row scope are checked and the row locked BEFORE anything
+// is read about it: the deal probe must not tell a caller who cannot see the
+// person whether it sits on a live deal. The created-person branch
+// additionally needs the archive grant.
+//
+// The archive branch has one more guard than the audit outcome: the person
+// must still be ONLY what the promotion minted. A person merge repoints
+// lead.promoted_person_id to its survivor, and a survivor holds other
+// people's history — archiving it would destroy records the promotion never
+// created. A person that has absorbed a merge therefore unwinds lineage-only,
+// whatever the promotion originally did.
 func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID ids.PersonID, outcome promotionOutcome) (crmcontracts.DemoteLeadResponseUnwind, error) {
+	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
+		return "", err
+	}
 	if err := auth.EnsureWritable(ctx, tx, "person", personID.UUID); err != nil {
 		return "", err
+	}
+	if _, err := storekit.LockRow(ctx, tx, "person", personID.UUID, storekit.LiveOnly); err != nil {
+		return "", fmt.Errorf("lock promoted person: %w", err)
+	}
+	if err := ensureNoLiveDeal(ctx, tx, personID); err != nil {
+		return "", err
+	}
+	if outcome == outcomeCreated {
+		survivor, err := isMergeSurvivor(ctx, tx, personID)
+		if err != nil {
+			return "", err
+		}
+		if survivor {
+			outcome = outcomeMerged
+		}
 	}
 	if outcome == outcomeMerged {
 		if _, err := tx.Exec(ctx,
@@ -190,9 +214,6 @@ func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID id
 	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
 		return "", err
 	}
-	if _, err := storekit.LockRow(ctx, tx, "person", personID.UUID, storekit.LiveOnly); err != nil {
-		return "", fmt.Errorf("lock promoted person: %w", err)
-	}
 	if err := archivePersonRows(ctx, tx, personID, time.Now().UTC()); err != nil {
 		return "", fmt.Errorf("archive promoted person: %w", err)
 	}
@@ -201,4 +222,15 @@ func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID id
 		return "", fmt.Errorf("null created lineage: %w", err)
 	}
 	return crmcontracts.DemoteUnwindReversed, nil
+}
+
+// isMergeSurvivor answers whether any person row was merged into this one.
+func isMergeSurvivor(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (bool, error) {
+	var survivor bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM person WHERE merged_into_id = $1)`, personID,
+	).Scan(&survivor); err != nil {
+		return false, fmt.Errorf("check merge lineage: %w", err)
+	}
+	return survivor, nil
 }

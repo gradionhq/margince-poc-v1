@@ -1489,6 +1489,9 @@ function PromotePreviewLine({
   const preview = useQuery({
     queryKey: ["lead-promote-preview", id],
     enabled: open,
+    // Always fresh: the answer is about the workspace as it stands the moment
+    // the dialog opens, and a 30s-old "create" can be a merge by now.
+    staleTime: 0,
     queryFn: async () => {
       const { data, error } = await api.GET("/leads/{id}/promote-preview", {
         params: { path: { id } },
