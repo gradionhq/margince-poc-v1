@@ -56,9 +56,8 @@
      only ever pushed columns off the right edge of a wide display. Which
      screens are in which family is decided in ONE place, `GRIDDED_RECORD_SCREENS`
      in app/nav.ts, because it is a judgement made by opening the page.
-     The page head is never capped: full width on every screen. A capped column
-     is left-aligned rather than centred, so a full-width heading still stands
-     over its own content. */
+     The page head is never capped: full width on every screen, and a capped
+     column is centred under it. */
   --pageColumn: 1280px;
 
   display: grid;
@@ -141,10 +140,14 @@
   width: 100%;
 }
 /* The pages that keep the reading column — see --pageColumn and
-   GRIDDED_RECORD_SCREENS. Left-aligned, so the full-width heading above still
-   stands over its own content. */
+   GRIDDED_RECORD_SCREENS. Centred in the page: the column is the thing being
+   read, so it sits in the middle of the space it is given rather than hugging
+   one edge of it. The page head above stays full width and is therefore wider
+   than it on a big display — deliberately, since the head is the window's
+   chrome and the column is the document. */
 .main-gridded .wrap {
   max-width: var(--pageColumn);
+  margin: 0 auto;
 }
 /* The rail-less surfaces — sign-in, onboarding, a public booking page. These
    render no page head to align with, and they are a single centred column on
@@ -791,7 +794,10 @@
  * the content under it and the page reads as one column. */
 .pagehead {
   display: flex;
-  align-items: flex-start;
+  /* Centred, not top-aligned: the two sides are a heading and a row of chrome
+     of different heights, and hung from a shared top edge the shorter one reads
+     as having slipped. */
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   flex: none;

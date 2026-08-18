@@ -375,6 +375,8 @@ export const vi = {
   "list.viewHot": "Tiềm năng cao",
   "list.overlayReadOnly": "Sắp xếp và bộ lọc đọc qua HubSpot — hãy mở bên đó",
   "table.range": "{first}–{last} trong {count} {unit}",
+  "table.pagination": "Trang",
+  "table.page": "Trang {number}",
   "table.prev": "‹ Trước",
   "table.next": "Sau ›",
   "table.rowsPerPage": "Số dòng mỗi trang",

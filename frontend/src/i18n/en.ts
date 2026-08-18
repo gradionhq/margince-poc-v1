@@ -395,6 +395,8 @@ export const en = {
   // rather than a total on purpose: paging is a keyset cursor, so the number
   // of rows in hand is the only figure the client can state honestly.
   "table.range": "{first}–{last} of {count} {unit}",
+  "table.pagination": "Pages",
+  "table.page": "Page {number}",
   "table.prev": "‹ Prev",
   "table.next": "Next ›",
   "table.rowsPerPage": "Rows per page",

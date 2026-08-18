@@ -378,6 +378,8 @@ export const de = {
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
 
   "table.range": "{first}–{last} von {count} {unit}",
+  "table.pagination": "Seiten",
+  "table.page": "Seite {number}",
   "table.prev": "‹ Zurück",
   "table.next": "Weiter ›",
   "table.rowsPerPage": "Zeilen pro Seite",

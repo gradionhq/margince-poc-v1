@@ -632,10 +632,12 @@ describe("pagination", () => {
     const dataRows = screen.getAllByRole("row").slice(1);
     expect(dataRows).toHaveLength(25);
     expect(
-      screen.getByRole("button", { name: "1" }).getAttribute("aria-current"),
+      screen
+        .getByRole("button", { name: "Page 1" })
+        .getAttribute("aria-current"),
     ).toBe("page");
-    expect(screen.getByRole("button", { name: "3" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "4" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Page 3" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Page 4" })).toBeNull();
   });
 
   it("clicking page 2 renders rows 26 through 50", async () => {
@@ -648,9 +650,82 @@ describe("pagination", () => {
         unit="rows"
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "2" }));
+    await userEvent.click(screen.getByRole("button", { name: "Page 2" }));
     expect(screen.getByText(data[25].name)).toBeTruthy();
     expect(screen.queryByText(data[0].name)).toBeNull();
+  });
+
+  // The reported symptom, and the whole reason the pager changed: one page in
+  // hand and a cursor with 168 more rows behind it drew `‹ Prev [1] Next ›`,
+  // which is byte-for-byte what a list of twelve draws. A reader could not tell
+  // a complete list from a list that had barely started, and each Next revealed
+  // one more number, which reads as a pager repairing itself.
+  it("says the set continues past the page in hand, before anyone clicks", () => {
+    render(
+      <ListTable
+        rows={testRows(25)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+        perPage={25}
+        hasMore
+        onLoadMore={() => {}}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Page 1" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Page 2" })).toBeNull();
+    // The ellipsis IS the statement: there are pages this row is not showing.
+    const pager = screen.getByRole("navigation", { name: "Pages" });
+    expect(pager.querySelectorAll(".lt-gap")).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: "Next ›" }).hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("draws no ellipsis when the pages in hand are all the pages there are", () => {
+    render(
+      <ListTable
+        rows={testRows(60)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+        perPage={25}
+      />,
+    );
+    const pager = screen.getByRole("navigation", { name: "Pages" });
+    expect(pager.querySelectorAll(".lt-gap")).toHaveLength(0);
+    // Three pages fit without windowing, so all three are reachable directly.
+    expect(screen.getByRole("button", { name: "Page 3" })).toBeTruthy();
+  });
+
+  // A long walk must not become a wall of buttons. The row keeps the way back to
+  // the first page, the current page's neighbours, and the far end of what is
+  // loaded; everything else collapses into the gaps.
+  it("windows a long pager rather than drawing every page it has", async () => {
+    render(
+      <ListTable
+        rows={testRows(250)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+        perPage={25}
+      />,
+    );
+    // Page 5 is not reachable in one click and must not be: the window on page
+    // one shows 1, its neighbour, and the far end. Walking there is the reader's
+    // real path.
+    const user = userEvent.setup();
+    for (let step = 0; step < 4; step++) {
+      await user.click(screen.getByRole("button", { name: "Next ›" }));
+    }
+
+    const pager = screen.getByRole("navigation", { name: "Pages" });
+    const drawn = [...pager.querySelectorAll("button")]
+      .map((button) => button.getAttribute("aria-label"))
+      .filter((label): label is string => label !== null);
+    expect(drawn).toEqual(["Page 1", "Page 4", "Page 5", "Page 6", "Page 10"]);
+    // Two runs left out — 2-3 and 7-9 — and one ellipsis for each.
+    expect(pager.querySelectorAll(".lt-gap")).toHaveLength(2);
   });
 
   it("reports a new rows-per-page to the caller instead of re-slicing rows itself", async () => {
@@ -704,7 +779,7 @@ describe("pagination", () => {
         hasMore={false}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "3" }));
+    await userEvent.click(screen.getByRole("button", { name: "Page 3" }));
     expect(
       screen.getByRole("button", { name: "Next ›" }).hasAttribute("disabled"),
     ).toBe(true);

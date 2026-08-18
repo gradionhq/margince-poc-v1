@@ -128,7 +128,9 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     render(
       <WorkspaceRail route={{ screen: "deals" }} onOpenSearch={ignoreSearch} />,
     );
-    const brand = within(screen.getByRole("navigation")).getByRole("link", {
+    const brand = within(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).getByRole("link", {
       name: "Margince",
     });
     expect(brand.getAttribute("href")).toBe("#/home");
@@ -876,7 +878,9 @@ describe("Rail levels (a section's entries as the second level)", () => {
     // for the bar to be rearranged by.
     expect(screen.queryByRole("link", { name: "Privacy & audit" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Back/ })).toBeNull();
-    expect(screen.getByRole("navigation").className).not.toContain("leveled");
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }).className,
+    ).not.toContain("leveled");
 
     // And the sheet is what it was before levels existed: the destinations plus
     // the account rows.
@@ -897,7 +901,9 @@ describe("Rail levels (a section's entries as the second level)", () => {
       />,
     );
     expect(levelLabels()).toEqual(["Account", "Privacy & audit"]);
-    expect(screen.getByRole("navigation").className).toContain("leveled");
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }).className,
+    ).toContain("leveled");
   });
 });
 
@@ -1404,7 +1410,9 @@ describe("Shell", () => {
   it("renders the rail on core screens", () => {
     window.location.hash = "#/contacts";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    expect(screen.getByRole("navigation")).toBeTruthy();
+    expect(
+      screen.getByRole("navigation", { name: "Primary navigation" }),
+    ).toBeTruthy();
   });
 });
 

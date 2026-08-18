@@ -975,6 +975,55 @@ function TableTools<Row>({
  * page size on the right. Next stays enabled on the last loaded page while the
  * cursor still has rows to give, which is how the set grows without a total.
  */
+// How many pages the pager draws either side of the ones it must always show.
+// A reader walking a long list needs the page they are on and its neighbours,
+// the way back to the first, and the far end of what is loaded — not forty
+// buttons.
+const PAGER_EDGE = 1;
+const PAGER_AROUND = 1;
+
+// A gap names the page it follows, so it has an identity that survives a
+// re-render rather than an array position.
+type PagerItem =
+  | { readonly kind: "page"; readonly page: number }
+  | { readonly kind: "gap"; readonly after: number };
+
+// Which page buttons to draw, and where the pager admits it is not showing every
+// page. A gap is a run this pager left out; the TRAILING gap is the set
+// continuing past what has been loaded, which is the one thing a keyset cursor
+// does know (`hasMore`) and the thing the old pager could not say — it drew a
+// lone "1" on a list of 193 rows, and a reader could not tell that from a list
+// of twelve until they clicked.
+function pageWindow(
+  current: number,
+  lastPage: number,
+  hasMore: boolean,
+): ReadonlyArray<PagerItem> {
+  const shown = new Set<number>();
+  const add = (from: number, to: number) => {
+    for (let page = Math.max(1, from); page <= Math.min(lastPage, to); page++) {
+      shown.add(page);
+    }
+  };
+  add(1, PAGER_EDGE);
+  add(lastPage - PAGER_EDGE + 1, lastPage);
+  add(current - PAGER_AROUND, current + PAGER_AROUND);
+
+  const items: PagerItem[] = [];
+  let previous = 0;
+  for (const page of [...shown].sort((a, b) => a - b)) {
+    if (previous !== 0 && page - previous > 1) {
+      items.push({ kind: "gap", after: previous });
+    }
+    items.push({ kind: "page", page });
+    previous = page;
+  }
+  if (hasMore) {
+    items.push({ kind: "gap", after: lastPage });
+  }
+  return items;
+}
+
 function Pager({
   current,
   lastPage,
@@ -993,7 +1042,11 @@ function Pager({
   const t = useT();
   return (
     <div className={`lt-foot${lastPage === 1 && !hasMore ? " single" : ""}`}>
-      <div className="lt-pager">
+      {/* A landmark, because this is navigation and a reader who jumps by region
+          should find it as one. The numbers carry "Page 3" rather than a bare
+          "3": out of the row's context a digit names nothing, and the row's
+          context is exactly what a screen reader does not have. */}
+      <nav className="lt-pager" aria-label={t("table.pagination")}>
         <button
           type="button"
           disabled={current === 1}
@@ -1001,16 +1054,28 @@ function Pager({
         >
           {t("table.prev")}
         </button>
-        {Array.from({ length: lastPage }, (_, index) => index + 1).map(
-          (number) => (
+        {pageWindow(current, lastPage, hasMore).map((item) =>
+          item.kind === "gap" ? (
+            // Not a control and not a page: it says pages are missing from this
+            // row. `aria-hidden` because the count line beside it already states
+            // the honest figure in words, and an announced "ellipsis" is noise.
+            <span
+              className="lt-gap"
+              key={`gap-${item.after}`}
+              aria-hidden="true"
+            >
+              …
+            </span>
+          ) : (
             <button
               type="button"
-              key={number}
-              className={number === current ? "on" : undefined}
-              aria-current={number === current ? "page" : undefined}
-              onClick={() => onGoto(number)}
+              key={item.page}
+              className={item.page === current ? "on" : undefined}
+              aria-current={item.page === current ? "page" : undefined}
+              aria-label={t("table.page", { number: item.page })}
+              onClick={() => onGoto(item.page)}
             >
-              {number}
+              {item.page}
             </button>
           ),
         )}
@@ -1021,7 +1086,7 @@ function Pager({
         >
           {t("table.next")}
         </button>
-      </div>
+      </nav>
       <span className="lt-perpage">
         <Select
           aria-label={t("table.rowsPerPage")}
