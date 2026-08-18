@@ -1095,6 +1095,48 @@ describe("LeadsScreen — archived marking (P-3)", () => {
   });
 });
 
+describe("LeadsScreen — the one ownership dial (DM-VOCAB-OWN-1)", () => {
+  it("offers the unowned queue and asks the server for it as unassigned=true", async () => {
+    // The lead list once carried its own owner chip with only "mine", because
+    // listLeads lacked owner_team_id/unassigned. It binds the SAME dial the
+    // person and company lists use now — the fork is gone.
+    const user = userEvent.setup();
+    const { urls } = stubFetchWithMe(async (url) => {
+      if (url.includes("/leads")) {
+        return jsonResponse({
+          data: [lead],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return undefined;
+    });
+    render(<LeadsScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Jonas Petersen")).toBeTruthy(),
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    // Two "Owner" buttons: the column chooser's toggle (aria-pressed) and the
+    // filter dial. The dial is the one that opens the option list.
+    const dial = (await screen.findAllByRole("button", { name: "Owner" })).find(
+      (b) => !b.hasAttribute("aria-pressed"),
+    );
+    if (!dial) {
+      throw new Error("the owner dial must be in the filter menu");
+    }
+    await user.click(dial);
+    await user.click(await screen.findByRole("button", { name: "Unassigned" }));
+
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (u) => u.includes("/leads?") && u.includes("unassigned=true"),
+        ),
+      ).toBe(true),
+    );
+  });
+});
+
 describe("LeadsScreen — dedupe view-existing link (P-16)", () => {
   it("renders a link to the collided record on a duplicate_email 409", async () => {
     stubFetch(async (url, method) => {

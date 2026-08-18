@@ -65,6 +65,8 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 				AiWritten:       in.AiWritten,
 				entity:          leadEntity,
 				OwnerID:         in.OwnerID,
+				OwnerTeamID:     in.OwnerTeamID,
+				Unassigned:      in.Unassigned,
 				Query:           in.Query,
 				Cursor:          in.Cursor,
 				nameColumn:      leadNameColumn,
