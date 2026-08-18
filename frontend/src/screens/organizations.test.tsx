@@ -16,6 +16,7 @@ import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AssistantPanel } from "./assistant";
 import { SuggestionsSection } from "./company360";
+import { listFetchLimit } from "./listquery";
 import {
   CompaniesScreen,
   CompanyScreen,
@@ -723,12 +724,17 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
     );
   });
 
-  it("requests the page size the reader picked", async () => {
+  it("reads whole rendered pages at whatever size the reader picked", async () => {
     const user = userEvent.setup();
     const { urls } = stubFetch(async () => emptyPage());
     render(<CompaniesScreen />);
+    // One read carries several rendered pages, so the limit is a multiple of
+    // the footer's size and never the size itself — that is what lets the
+    // pager offer page 2 before the reader has asked for it.
     await waitFor(() =>
-      expect(urls.some((url) => url.includes("limit=25"))).toBe(true),
+      expect(
+        urls.some((url) => url.includes(`limit=${listFetchLimit(25)}`)),
+      ).toBe(true),
     );
 
     await pickOption(
@@ -737,17 +743,22 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
       "50 per page",
     );
 
-    // Fetched and rendered are the same number. They were not: the screen
-    // asked for 50 and drew 25, and said so — "1-25 of 50 loaded so far".
+    // The read follows the reader's size rather than a literal. It did not:
+    // the screen asked for 50 and drew 25, and said so — "1-25 of 50 loaded
+    // so far".
+    const resized = `limit=${listFetchLimit(50)}`;
     await waitFor(() =>
-      expect(urls.some((url) => url.includes("limit=50"))).toBe(true),
+      expect(urls.some((url) => url.includes(resized))).toBe(true),
     );
 
     // A new page size restarts the keyset walk. Carrying the old cursor over
     // would continue a walk taken at the previous size, so the reader would
     // resume mid-list while believing they were on page one.
-    const resized = urls.filter((url) => url.includes("limit=50"));
-    expect(resized.every((url) => !url.includes("cursor="))).toBe(true);
+    expect(
+      urls
+        .filter((url) => url.includes(resized))
+        .every((url) => !url.includes("cursor=")),
+    ).toBe(true);
   });
 });
 

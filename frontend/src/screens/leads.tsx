@@ -52,6 +52,7 @@ import {
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
@@ -151,7 +152,7 @@ async function fetchLeadsPage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: query.perPage,
+        limit: listFetchLimit(query.perPage),
         ...query.filters,
       },
     },

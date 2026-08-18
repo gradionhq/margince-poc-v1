@@ -8,11 +8,16 @@ import { describe, expect, it } from "vitest";
 
 // Fitness function for the ONE page size.
 //
-// `ListQuery.perPage` is the size the reader picks in the table footer AND the
-// `limit` the fetcher asks the server for. A screen that keeps a literal limit
+// `ListQuery.perPage` is the size the reader picks in the table footer, and
+// every fetcher's `limit` is derived from it through `listFetchLimit` — a whole
+// number of rendered pages per read. A screen that keeps a literal limit
 // instead renders a page size the server never returned: the footer offers 100,
 // the response holds 50, and the count line says "1-50 of 100 loaded so far" —
 // the exact reading that made the company list look like a broken pager.
+//
+// A limit that is `query.perPage` itself is the same defect in the other
+// direction: one page per read is what leaves the pager unable to offer a
+// second number until the reader has already asked for it.
 //
 // Four screens (leads, partners, products, offer templates) carried that
 // mismatch for a whole release after the shared wrapper had already been fixed,
@@ -66,6 +71,6 @@ describe("every list fetcher asks for the page size the reader picked", () => {
       fetcher?.[1],
       `${file} sends a fixed page limit, so the footer's page size and the ` +
         `server's page size can disagree`,
-    ).toBe("query.perPage");
+    ).toBe("listFetchLimit(query.perPage)");
   });
 });

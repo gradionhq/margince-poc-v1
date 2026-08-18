@@ -68,17 +68,18 @@ export type ListColumn<Row> = {
 };
 
 /**
- * Never larger than the page the list endpoints return (50). A bigger choice
- * cannot be filled from one response, so the table would hold the reader on a
- * page it has no rows for until enough cursor pages had been walked — a size
- * the server cannot serve is not a size worth offering.
- */
-/**
- * Page sizes the footer offers. The table does NOT slice rows to this — it is
- * the size the caller asks the SERVER for, so the page rendered is the page
- * that was fetched.
+ * Page sizes the footer offers. This is the size of a RENDERED page: the caller
+ * fetches several of them per read (`listFetchLimit`) and the table slices the
+ * rows it holds into pages of this size.
+ *
+ * The two numbers stay in step because the fetch is always a whole multiple of
+ * this one. A buffer sized independently of the page is what once made a list
+ * say "1-25 of 50 loaded so far" — two unrelated page sizes on one screen.
  */
 const PAGE_SIZES = [25, 50, 100] as const;
+
+/** Page numbers around the current one, which sits in the middle of them. */
+const PAGE_WINDOW = 3;
 
 /** Narrow enough to tuck a column away, wide enough to still read a header. */
 const MIN_COLUMN_WIDTH = 72;
@@ -274,9 +275,8 @@ export function ListTable<Row>({
   hasMore?: boolean;
   onLoadMore?: () => void;
   /**
-   * Rows per page. This is the size the CALLER asked the server for, so the
-   * table renders whole fetched pages rather than re-slicing them: one number
-   * decides both what is fetched and what is shown.
+   * Rows per RENDERED page. The caller fetches a whole multiple of it, so the
+   * table divides the rows it holds on boundaries the fetch already respects.
    */
   perPage?: number;
   /**
@@ -332,11 +332,9 @@ export function ListTable<Row>({
   // dismiss is one a keyboard reader is stuck inside.
   useCloseOnEscape(columnsOpen ? "columns" : null, () => setColumnsOpen(false));
 
-  // Each fetched page is one rendered page. The rows the caller holds are whole
-  // server pages (keyset, `perPage` per request), so slicing them again by a
-  // second, unrelated page size is what made a list say "1-25 of 50 loaded so
-  // far" — two page sizes in one screen, and a pager whose numbers counted the
-  // buffer rather than the list.
+  // One read carries several rendered pages, so the rows the caller holds are a
+  // whole multiple of `perPage` and dividing them here lands on page boundaries
+  // the reader can reach without waiting for a round trip each.
   const lastPage = Math.max(1, Math.ceil(rows.length / perPage));
   const current = Math.min(page, lastPage);
   const from = (current - 1) * perPage;
@@ -971,8 +969,48 @@ function TableTools<Row>({
 }
 
 /**
- * The pager: every loaded page as its own button, prev/next either side, and the
- * page size on the right. Next stays enabled on the last loaded page while the
+ * A slot in the pager: a page to jump to, a gap where pages were skipped, or
+ * the room a gap would take.
+ */
+export type PagerSlot = number | "gap" | "room";
+
+/**
+ * What the pager shows: page one, then the current page between its two
+ * neighbours, with gaps marking whatever was skipped between them.
+ *
+ * Page one is always reachable because it is where a reader who has lost their
+ * place goes back to, and walking there one Prev at a time is not going back.
+ * The rest is a window rather than every page: a strip that grew a number per
+ * read would end up longer than the table it belongs to.
+ *
+ * A gap marks pages the window skipped and nothing else. Pages the cursor could
+ * still fetch are Next's to speak for: marking those with the same dots would
+ * give one symbol two meanings, and the reader cannot tell from a gap on the
+ * last page whether numbers were hidden or merely never asked for.
+ *
+ * The slots are a fixed six wide at every position — a gap and the bare ROOM
+ * for one are the same width — because a strip that changed width would slide
+ * Next out from under the reader between one click and the next.
+ */
+export function pagerSlots(current: number, lastPage: number): PagerSlot[] {
+  const first = Math.min(
+    Math.max(1, current - Math.floor(PAGE_WINDOW / 2)),
+    Math.max(1, lastPage - PAGE_WINDOW + 1),
+  );
+  const span = Math.min(PAGE_WINDOW, lastPage - first + 1);
+  const window = Array.from({ length: span }, (_, index) => first + index);
+  return [
+    first > 1 ? 1 : "room",
+    first > 2 ? "gap" : "room",
+    ...window,
+    ...Array.from({ length: PAGE_WINDOW - span }, () => "room" as const),
+    window[span - 1] < lastPage ? "gap" : "room",
+  ];
+}
+
+/**
+ * The pager: the pages in hand as numbers, prev/next either side, and the page
+ * size on the right. Next stays enabled on the last loaded page while the
  * cursor still has rows to give, which is how the set grows without a total.
  */
 function Pager({
@@ -1001,17 +1039,28 @@ function Pager({
         >
           {t("table.prev")}
         </button>
-        {Array.from({ length: lastPage }, (_, index) => index + 1).map(
-          (number) => (
+        {pagerSlots(current, lastPage).map((slot, index) =>
+          typeof slot === "number" ? (
             <button
               type="button"
-              key={number}
-              className={number === current ? "on" : undefined}
-              aria-current={number === current ? "page" : undefined}
-              onClick={() => onGoto(number)}
+              key={slot}
+              className={slot === current ? "on" : undefined}
+              aria-current={slot === current ? "page" : undefined}
+              onClick={() => onGoto(slot)}
             >
-              {number}
+              {slot}
             </button>
+          ) : (
+            <span
+              // Slots are positional: two of them can hold the same kind of
+              // nothing, and neither carries an identity of its own.
+              // biome-ignore lint/suspicious/noArrayIndexKey: the position IS the identity
+              key={`${slot}-${index}`}
+              className="lt-gap"
+              aria-hidden="true"
+            >
+              {slot === "gap" ? "…" : ""}
+            </span>
           ),
         )}
         <button
