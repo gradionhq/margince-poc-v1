@@ -143,6 +143,88 @@ describe("the waiter-budget reader", () => {
     expect(probe?.unresolved).toEqual([]);
   });
 
+  it("resolves the shorthand `{ timeout }`, which is how a named budget is written", () => {
+    // The idiomatic spelling once the value has a name, and the one a reader
+    // that only looks at property ASSIGNMENTS records as the 1000ms default.
+    const [probe] = read(
+      `const timeout = 4000;
+       it("x", async () => { await waitFor(() => {}, { timeout }); });`,
+      "shorthand.test.tsx",
+    );
+    expect(probe?.waiterBudgetMs).toBe(4_000);
+    expect(probe?.unresolved).toEqual([]);
+  });
+
+  it("reports an options object it cannot see inside, rather than defaulting", () => {
+    // A spread and an options object passed by name each hide a budget. Saying
+    // "no timeout stated" about them is the same mistake as folding one wrong:
+    // both end as the smallest number that keeps the gate green.
+    const spread = read(
+      `const opts = { timeout: 4000 };
+       it("x", async () => { await waitFor(() => {}, { ...opts }); });`,
+      "spread.test.tsx",
+    )[0];
+    const byName = read(
+      `const opts = { timeout: 4000 };
+       it("x", async () => { await waitFor(() => {}, opts); });`,
+      "byname.test.tsx",
+    )[0];
+    expect(spread?.unresolved.length).toBe(1);
+    expect(byName?.unresolved.length).toBe(1);
+  });
+
+  it("reads past the `undefined` placeholder to the options behind it", () => {
+    // `findByText(matcher, undefined, { timeout })` is the ordinary spelling
+    // when the middle argument is skipped, and a reader that treats any
+    // identifier as an opaque options object reports it unreadable instead of
+    // folding the budget that is right there.
+    const [probe] = read(
+      `it("x", async () => {
+         await screen.findByText(/a/, undefined, { timeout: 4000 });
+       });`,
+      "placeholder.test.tsx",
+    );
+    expect(probe?.unresolved).toEqual([]);
+    expect(probe?.waiterBudgetMs).toBe(4_000);
+  });
+
+  it("does not read a non-string title as the ceiling", () => {
+    // Scanning the arguments from the start finds the title first, and then
+    // reports a test's own name as a timeout it cannot fold.
+    const [probe] = read(
+      `const TITLE = "x";
+       it(TITLE, async () => { await screen.findByText("a"); });`,
+      "title.test.tsx",
+    );
+    expect(probe?.unresolved).toEqual([]);
+    expect(probe?.ceilingIsStated).toBe(false);
+  });
+
+  it("ignores a test vitest never runs", () => {
+    // A skipped body spends nothing. Counting it lets a test that cannot fail
+    // set the ceiling for the thousands that do.
+    const found = read(
+      `it.skip("skipped", async () => { await waitFor(() => {}, { timeout: 30000 }); });
+       it.todo("todo");`,
+      "skipped.test.tsx",
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("counts a helper declared inside the test body once per call", () => {
+    // Collected as a helper AND visited where it is defined, it was charged
+    // once for the declaration plus once per call.
+    const [probe] = read(
+      `it("x", async () => {
+         const settle = () => waitFor(() => {}, { timeout: 1000 });
+         await settle();
+         await settle();
+       });`,
+      "inbody.test.tsx",
+    );
+    expect(probe?.waiterBudgetMs).toBe(2_000);
+  });
+
   it("reports a timeout it cannot fold instead of assuming the default", () => {
     // The one that matters: an unfoldable budget quietly recorded as 1000 hid a
     // live 11000ms violation from the guard.

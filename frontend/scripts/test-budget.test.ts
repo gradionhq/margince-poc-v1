@@ -21,7 +21,7 @@ import { budgetsIn } from "./test-budget";
 
 /**
  * The two `clickRefresh` cases in `company-context.test.tsx` spend 30s of waiter
- * budget under a 10437ms ceiling, and they are LEFT that way on purpose. That
+ * budget under this suite's ceiling, and they are LEFT that way on purpose. That
  * file carries issue 613 — a panel that does not render even with a 10s waiter,
  * which is starvation rather than this arithmetic — and giving those two a
  * ceiling that covers their waiters would turn its fast red into a slow one and

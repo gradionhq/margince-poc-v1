@@ -29,6 +29,27 @@ const WAITER = /^(findBy|findAllBy|waitFor|waitForElementToBeRemoved)/;
 /** `it`, and the forms that wrap it: `it.each(cases)(…)`, `it.only`, `it.for`. */
 const TEST_CALLEE = /^(it|test)$/;
 
+/**
+ * The modifiers that mean vitest never runs the callback. A skipped body spends
+ * nothing, so letting one into the population lets a test that cannot fail set
+ * the ceiling for the thousands that do — or redden the guard while naming a
+ * test nobody executes.
+ */
+const NOT_RUN = /^(skip|todo|skipIf|runIf)$/;
+
+/** Whether any link in the call chain says "do not run this". */
+function isSkipped(node: ts.Node): boolean {
+  let current: ts.Node = node;
+  for (;;) {
+    if (ts.isCallExpression(current)) current = current.expression;
+    else if (ts.isTaggedTemplateExpression(current)) current = current.tag;
+    else if (ts.isPropertyAccessExpression(current)) {
+      if (NOT_RUN.test(current.name.text)) return true;
+      current = current.expression;
+    } else return false;
+  }
+}
+
 export type TestBudget = {
   file: string;
   line: number;
@@ -159,11 +180,21 @@ function numericConsts(
   return declaredConsts(source, imported);
 }
 
-/** The `timeout:` property of one options object, if it has one. */
+/**
+ * The `timeout:` of one options object — `{ timeout: 4000 }` and the shorthand
+ * `{ timeout }` alike, since the shorthand is the idiomatic spelling once the
+ * value has a name. A spread carries properties this reader cannot see, so the
+ * whole object is reported unreadable rather than searched and found wanting.
+ */
 function timeoutExpression(
   options: ts.ObjectLiteralExpression,
-): ts.Expression | undefined {
+): ts.Expression | typeof OPAQUE | undefined {
   for (const property of options.properties) {
+    if (ts.isSpreadAssignment(property)) return OPAQUE;
+    if (ts.isShorthandPropertyAssignment(property)) {
+      if (property.name.text === "timeout") return property.name;
+      continue;
+    }
     if (!ts.isPropertyAssignment(property)) continue;
     if (property.name.getText() !== "timeout") continue;
     return property.initializer;
@@ -171,21 +202,44 @@ function timeoutExpression(
   return undefined;
 }
 
-/** The `timeout:` a call states, wherever among its options objects it sits. */
-function statedTimeout(call: ts.CallExpression): ts.Expression | undefined {
-  return optionArguments(call)
-    .map(timeoutExpression)
-    .find((expression) => expression !== undefined);
+/**
+ * The `timeout:` a waiter states, wherever among its arguments it sits — or
+ * OPAQUE when an argument might carry one this reader cannot read. Only
+ * arguments after the first are considered: a waiter's first argument is its
+ * matcher or callback, and an options object never sits there.
+ */
+function statedTimeout(
+  call: ts.CallExpression,
+): ts.Expression | typeof OPAQUE | undefined {
+  let found: ts.Expression | typeof OPAQUE | undefined;
+  for (const argument of call.arguments.slice(1)) {
+    if (!looksLikeOptions(argument)) continue;
+    if (!ts.isObjectLiteralExpression(argument)) return OPAQUE;
+    const stated = timeoutExpression(argument);
+    if (stated === OPAQUE) return OPAQUE;
+    if (stated !== undefined && found === undefined) found = stated;
+  }
+  return found;
 }
 
-/** Every options object among a call's arguments, in order. */
-function optionArguments(
-  call: ts.CallExpression,
-): ts.ObjectLiteralExpression[] {
-  return call.arguments.filter(
-    (argument): argument is ts.ObjectLiteralExpression =>
-      ts.isObjectLiteralExpression(argument),
-  );
+/**
+ * An options argument this reader cannot see inside — a spread, or an object
+ * handed over by name. Distinguished from "states no timeout" because the two
+ * mean opposite things: one is a default budget, the other is a budget nobody
+ * checked, and collapsing them is what let an 11000ms test read as 4000.
+ */
+const OPAQUE = Symbol("an options argument this reader cannot read");
+
+/**
+ * Whether an argument could be carrying options. A bare `undefined` or `null`
+ * is not: it is the placeholder that skips a positional argument, as in
+ * `findByText(matcher, undefined, { timeout })`, and reading it as an options
+ * object nobody can see turns a perfectly readable waiter into a reported one.
+ */
+function looksLikeOptions(argument: ts.Expression): boolean {
+  if (ts.isIdentifier(argument)) return argument.text !== "undefined";
+  if (argument.kind === ts.SyntaxKind.NullKeyword) return false;
+  return ts.isObjectLiteralExpression(argument) || ts.isSpreadElement(argument);
 }
 
 /**
@@ -217,6 +271,17 @@ function directCallee(call: ts.CallExpression): string {
 
 type Reading = { ms: number; unresolved: string[] };
 
+/** Whether this node is the DEFINITION of a helper, rather than a call to one. */
+function declaresHelper(node: ts.Node, helpers: Map<string, ts.Node>): boolean {
+  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+    return helpers.has(node.name.text);
+  }
+  if (ts.isFunctionDeclaration(node) && node.name) {
+    return helpers.has(node.name.text);
+  }
+  return false;
+}
+
 /**
  * The waiter budget of one node, following awaited calls into the helpers that
  * do the waiting — a suite's render helper is usually where they live, and a
@@ -240,20 +305,29 @@ function budgetOf(
   const helperCost = (name: string): Reading => {
     const cached = memo.get(name);
     if (cached) return cached;
+    // Recursion guard. A helper reached while it is already being computed
+    // contributes nothing to THIS reading, and that truncated answer is not
+    // cached: memoizing it would hand a later direct call the under-count, so
+    // the total would depend on the order the helpers were first reached.
     if (path.has(name)) return { ms: 0, unresolved: [] };
     const body = helpers.get(name);
     if (!body) return { ms: 0, unresolved: [] };
+    const outermost = path.size === 0;
     path.add(name);
     const reading = budgetOf(body, consts, helpers, path, memo);
     path.delete(name);
-    memo.set(name, reading);
+    if (outermost) memo.set(name, reading);
     return reading;
   };
 
   const takeWaiter = (call: ts.CallExpression): void => {
     const stated = statedTimeout(call);
-    if (!stated) {
+    if (stated === undefined) {
       ms += DEFAULT_WAITER_MS;
+      return;
+    }
+    if (stated === OPAQUE) {
+      unresolved.push(call.getText().replace(/\s+/g, " ").slice(0, 80));
       return;
     }
     const folded = value(stated);
@@ -261,15 +335,23 @@ function budgetOf(
     else ms += folded;
   };
 
+  const takeHelper = (name: string): void => {
+    const reading = helperCost(name);
+    ms += reading.ms;
+    for (const item of reading.unresolved) {
+      if (!unresolved.includes(item)) unresolved.push(item);
+    }
+  };
+
   const visit = (current: ts.Node): void => {
+    // A helper DECLARED inside the body being read is counted at each call, so
+    // descending into its definition as well would charge the test once more
+    // for a waiter it may never reach.
+    if (declaresHelper(current, helpers)) return;
     if (ts.isCallExpression(current)) {
       const name = directCallee(current);
       if (WAITER.test(name)) takeWaiter(current);
-      else if (helpers.has(name)) {
-        const reading = helperCost(name);
-        ms += reading.ms;
-        unresolved.push(...reading.unresolved);
-      }
+      else if (helpers.has(name)) takeHelper(name);
     }
     ts.forEachChild(current, visit);
   };
@@ -277,6 +359,29 @@ function budgetOf(
   // the waiter call, and descending past it counts nothing.
   visit(node);
   return { ms, unresolved };
+}
+
+/**
+ * The ceiling a test states for itself, in either form vitest accepts:
+ * `it(name, fn, 500)` and `it(name, { timeout: 500 }, fn)`. The bare number is
+ * only ever AFTER the callback — scanning from argument 0 reads a non-string
+ * title as the ceiling, and then reports a test's own name as a timeout the
+ * reader cannot fold.
+ */
+function statedCeiling(
+  call: ts.CallExpression,
+  body: ts.Expression,
+): ts.Expression | typeof OPAQUE | undefined {
+  const positional = call.arguments
+    .slice(call.arguments.indexOf(body) + 1)
+    .find(
+      (argument) => ts.isNumericLiteral(argument) || ts.isIdentifier(argument),
+    );
+  if (positional) return positional;
+  return call.arguments
+    .filter((argument) => ts.isObjectLiteralExpression(argument))
+    .map((argument) => timeoutExpression(argument))
+    .find((expression) => expression !== undefined);
 }
 
 /** Named `function f() {}` and `const f = () => {}` bodies, by name, anywhere. */
@@ -322,15 +427,13 @@ export function budgetsIn(file: string, globalCeilingMs: number): TestBudget[] {
     const unresolved: string[] = [];
     let ceilingMs = globalCeilingMs;
     let ceilingIsStated = false;
-    const stated =
-      call.arguments.find(
-        (argument) =>
-          ts.isNumericLiteral(argument) || ts.isIdentifier(argument),
-      ) ??
-      optionArguments(call)
-        .map(timeoutExpression)
-        .find((expression) => expression !== undefined);
-    if (stated) {
+    // The bare number is only ever AFTER the callback: `it(name, fn, ms)`.
+    // Scanning from argument 0 reads a non-string title as the ceiling, and
+    // then reports a test's own name as a timeout it cannot fold.
+    const stated = statedCeiling(call, body);
+    if (stated === OPAQUE) {
+      unresolved.push("an options object this reader cannot read");
+    } else if (stated) {
       const folded = value(stated);
       if (folded === undefined) unresolved.push(stated.getText());
       else {
@@ -354,7 +457,11 @@ export function budgetsIn(file: string, globalCeilingMs: number): TestBudget[] {
   };
 
   const visit = (node: ts.Node): void => {
-    if (ts.isCallExpression(node) && TEST_CALLEE.test(rootCallee(node)))
+    if (
+      ts.isCallExpression(node) &&
+      TEST_CALLEE.test(rootCallee(node)) &&
+      !isSkipped(node)
+    )
       record(node);
     ts.forEachChild(node, visit);
   };
