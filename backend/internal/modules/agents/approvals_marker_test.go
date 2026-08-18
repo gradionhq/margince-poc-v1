@@ -28,8 +28,8 @@ func (refusingApprovals) StageQuotaRelease(context.Context, QuotaReleaseRequest)
 	return ids.ApprovalID{}, false, nil
 }
 
-func (refusingApprovals) Stage(context.Context, StageRequest) (ids.ApprovalID, error) {
-	return ids.ApprovalID{}, errRedeemRefused
+func (refusingApprovals) StageCall(context.Context, StageRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, errRedeemRefused
 }
 
 func (refusingApprovals) Redeem(context.Context, ids.ApprovalID, string, string) (int64, bool, error) {

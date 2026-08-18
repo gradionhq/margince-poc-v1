@@ -10,14 +10,28 @@
 # a scoped allowlist (a path AND a pattern) over a bare path exclusion: a whole
 # file waved through stops being scanned for the real thing.
 #
-# Scoping REQUIRES `targetRules`. A global `[[allowlists]]` carrying `paths`
-# makes gitleaks skip the whole file before it reads a line, so `condition =
-# "AND"` never gets the chance to narrow it — the exemption silently widens to
-# the entire file. Binding the allowlist to the rule it excuses keeps it out of
-# that path (config.go: allowlists with targetRules are not added to the global
-# list), so the file stays scanned for everything else. This is covered by the
-# mutation tests in scripts/test-secret-scan.sh — a planted token in one of the
-# files named below must still fail the gate.
+# A scoped exemption takes THREE elements, and dropping any ONE of them widens
+# it to the whole file. Measured against the pinned scanner, by planting a token
+# of the excused rule on a line the allowlist regex does not match:
+#
+#   targetRules       Without it the entry is GLOBAL: gitleaks skips the file
+#                     before it reads a line, so `condition` never gets the
+#                     chance to narrow anything and the exemption covers every
+#                     rule (config.go: allowlists with targetRules are not added
+#                     to the global list). Both scoped entries below were written
+#                     this way first.
+#   regexes           Without it the entry excuses the whole path for its rule —
+#                     `paths` alone is a file exclusion wearing a rule's name.
+#   condition = "AND" Without it the condition defaults to OR, and matching the
+#                     PATH alone is then enough. Same result as no regexes at
+#                     all, from an omission that looks like formatting.
+#
+# With all three, the file stays scanned — for the other rules AND for the
+# excused rule on every line the regex does not name. That is the property
+# scripts/test-secret-scan.sh holds: it derives its plants from the entries
+# below, so every allowlist here owes one token of each rule it targets, in a
+# file its own paths cover, and one of a rule it does not target. An allowlist
+# nobody planted against is exactly the one that is over-broad.
 
 [extend]
 useDefault = true

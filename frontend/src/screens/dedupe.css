@@ -1,62 +1,41 @@
-/* The duplicate review queue's own sheet.
+/* The dedupe review queue (M4): the queue's own rhythm and the ONE tone the
+ * design system's table cannot know about.
  *
- * These rules lived in onboarding.css, which dedupe.tsx does not import — so the
- * screen was styled only because some OTHER screen had already pulled that sheet
- * into the bundle. In the app that reads as working; in an isolated story or a
- * test render it is an unstyled wireframe, and nothing fails when it happens.
- * A screen owns its namespace, declares it here, and imports it itself.
+ * These rules lived in onboarding.css, which this screen never imports — so the
+ * queue was styled only because App.tsx happens to pull an onboarding screen
+ * into the same bundle, and in an isolated story or test render it had no box at
+ * all. The sheet lives beside the screen that draws it, and the screen imports
+ * it itself (same reasoning as backfill.css).
+ *
+ * Everything else the screen used to spell here — the card surface, the
+ * evidence table's hairlines and padding, the action row, the text buttons, the
+ * red error line — is now Card, `.table`, `.card-actions`, `.link-button` and
+ * Callout. What is left is layout and one signal.
  */
 
-/* Dedupe review queue (M4): evidence table + per-pair decision. */
-.dedupe-card {
+/* The queue owns the air between its pairs AND above the first one: the shell's
+   `.wrap > .card + .card` rule spaces siblings, which leaves the first card
+   against the intro line, and the gap has to hold for the loading and empty
+   bodies too — neither of which is a card. */
+.dedupe-queue {
+  display: grid;
+  gap: var(--space-4);
   margin-top: var(--space-4);
-  padding: var(--space-4);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
 }
-.dedupe-head {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: var(--space-3);
+
+/* A notice about the queue — a failed read, a refused decision, a decision that
+   landed — sits directly in `.wrap`, which carries no row gap of its own, so it
+   brings its own step of air (the spelling `.dsr-refusal` and
+   `.connector-add-note` already use for a Callout in the same position). */
+.dedupe-notice {
+  margin-top: var(--space-3);
 }
-.dedupe-evidence {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: var(--space-3);
-  /* FIXED, not content-sized. The queue stacks one card per candidate pair, and
-     a table that sizes its own columns to its own longest value puts the same
-     four headings at four different x positions down the page — so a reviewer
-     scanning for conflicts compares columns that do not line up, and four cards
-     read as four tables. The widths are shared so the queue reads as one. */
-  table-layout: fixed;
-}
-.dedupe-evidence th:nth-child(1),
-.dedupe-evidence td:nth-child(1) {
-  width: 22%;
-}
-.dedupe-evidence th:nth-child(2),
-.dedupe-evidence td:nth-child(2) {
-  width: 14%;
-}
-/* A value can be a long legal name, and under a fixed layout it wraps rather
-   than pushing the column: wrapping keeps the comparison aligned, and the two
-   values being compared are the whole point of the row. */
-.dedupe-evidence td:nth-child(3),
-.dedupe-evidence td:nth-child(4) {
-  overflow-wrap: anywhere;
-}
-.dedupe-evidence th,
-.dedupe-evidence td {
-  text-align: left;
-  padding: var(--space-1) var(--space-2);
-  border-bottom: 1px solid var(--borderSubtle);
-}
-/* Colour REINFORCES the signal word beside it; it never carries the signal on
-   its own. A conflicting row told apart by red text alone says nothing to a
-   reader who cannot see the difference, and nothing at all in print. */
-.dedupe-evidence tr[data-signal="collide"] td {
-  color: var(--danger);
-}
+
+/* An evidence row whose two sides CONTRADICT each other, in the detector's own
+   vocabulary (`signal: "collide"`): a matching field is why the pair is here, a
+   colliding one is the reason to look before merging. The tone rides on the
+   row's data attribute rather than a class the TSX assembles, so the sheet
+   carries exactly the signals the contract names. */
 /* The signal reads as a label on the row rather than as one more value: the two
    values either side of it are the record's own words, and this one is ours. */
 .dedupe-signal {
@@ -64,18 +43,8 @@
   font-size: var(--fs-meta);
   white-space: nowrap;
 }
-.dedupe-actions {
-  display: flex;
-  gap: var(--space-3);
-}
-.dedupe-error {
+/* Colour REINFORCES the signal word beside it; it never carries the signal on
+   its own. */
+.dedupe-evidence tr[data-signal="collide"] td {
   color: var(--danger);
-}
-.dedupe-undo {
-  background: none;
-  border: none;
-  color: var(--textMeta);
-  text-decoration: underline;
-  cursor: pointer;
-  padding: 0;
 }

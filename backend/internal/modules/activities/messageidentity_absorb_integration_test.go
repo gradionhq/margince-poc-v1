@@ -33,7 +33,7 @@ import (
 func (e *sendEnv) seedCapturedEcho(t *testing.T) ids.ActivityID {
 	t.Helper()
 	return e.seedEcho(t, echoSeed{
-		workspace: e.ws, direction: "outbound", kind: "email",
+		direction: "outbound", kind: "email",
 		source: "gmail:" + stampedIdentity, capturedBy: "connector:gmail",
 		counterparty: counterparty,
 	})
@@ -43,7 +43,6 @@ func (e *sendEnv) seedCapturedEcho(t *testing.T) ids.ActivityID {
 // exposes is one the absorb's lookup reads, so a case can seed a row that holds
 // the key and is NOT this message's echo.
 type echoSeed struct {
-	workspace    ids.UUID
 	direction    string
 	kind         string
 	source       string
@@ -55,12 +54,10 @@ func (e *sendEnv) seedEcho(t *testing.T, seed echoSeed) ids.ActivityID {
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction,
-		                      source_system, source_id, source, captured_by, thread_key,
-		                      counterparty_email)
-		VALUES ($1, $2, $3, 'Re: pricing', now(), $4,
-		        'gmail', $5, $6, $7, $5, NULLIF($8, ''))`,
-		id, seed.workspace, seed.kind, seed.direction, stampedIdentity, seed.source, seed.capturedBy,
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email)
+		VALUES ($1, $2, 'Re: pricing', now(), $3,
+		        'gmail', $4, $5, $6, $4, NULLIF($7, ''))`,
+		id, seed.kind, seed.direction, stampedIdentity, seed.source, seed.capturedBy,
 		seed.counterparty); err != nil {
 		t.Fatalf("seeding the row on the stamped identity: %v", err)
 	}
@@ -125,11 +122,10 @@ func (e *sendEnv) seedProject(t *testing.T, name string) ids.UUID {
 func (e *sendEnv) link(t *testing.T, activityID ids.ActivityID, entityType string, target ids.UUID) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id, project_id)
-		VALUES ($1, $2, $3,
-		        CASE WHEN $3 = 'person'  THEN $4::uuid END,
-		        CASE WHEN $3 = 'project' THEN $4::uuid END)`,
-		e.ws, activityID, entityType, target); err != nil {
+		INSERT INTO activity_link (activity_id, entity_type, person_id, project_id)
+		VALUES ( $1, $2,
+		        CASE WHEN $2 = 'person'  THEN $3::uuid END,
+		        CASE WHEN $2 = 'project' THEN $3::uuid END)`, activityID, entityType, target); err != nil {
 		t.Fatalf("linking the activity to a %s: %v", entityType, err)
 	}
 }
@@ -161,8 +157,8 @@ func (e *sendEnv) reconcileAbsorbing(t *testing.T, survivor ids.ActivityID) {
 	var holders int
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM activity
-		 WHERE workspace_id = $1 AND source_system = 'gmail' AND source_id = $2`,
-		e.ws, stampedIdentity).Scan(&holders); err != nil {
+		 WHERE source_system = 'gmail' AND source_id = $1`,
+		stampedIdentity).Scan(&holders); err != nil {
 		t.Fatalf("counting activities on the stamped identity: %v", err)
 	}
 	if holders != 1 {
@@ -397,7 +393,6 @@ func TestAbsorbRefusesARowThatIsNotThisMessagesEcho(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := setupSend(t)
 			survivor := e.seedSentEmail(t, mintedIdentity)
-			tc.seed.workspace = e.ws
 			bystander := e.seedEcho(t, tc.seed)
 
 			if err := e.reconcileExpectingRefusal(t, survivor); err == nil {

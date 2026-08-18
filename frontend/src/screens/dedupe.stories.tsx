@@ -2,141 +2,261 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { meFixture } from "../app/mefixture";
+import { userEvent, within } from "storybook/test";
+import type { components } from "../api/schema";
 import { DedupeScreen } from "./dedupe";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
-// The review queue, whose whole job is to show a reviewer what the detector saw
-// before they merge two records together. The three signals — agree, conflict,
-// one side only — are the reason this screen exists, so each story below carries
-// all three: a queue in which every field agrees is a queue that never needed a
-// reviewer.
-//
-// The screen also owns its own stylesheet now. It did not for a long time, and
-// the symptom was invisible in the app and total here: mounted alone, with no
-// other screen to have pulled the sheet into the bundle, it drew as a wireframe.
-const evidence = [
-  {
-    field: "full_name",
-    left_value: "Dana Buyer",
-    right_value: "Dana Buyer",
-    signal: "agree",
-  },
-  {
-    field: "email",
-    left_value: "dana@acme.example",
-    right_value: "d.buyer@acme.example",
-    signal: "collide",
-  },
-  {
-    field: "phone",
-    left_value: "+49 30 1234567",
-    right_value: null,
-    signal: "one_sided",
-  },
-];
+// DedupeScreen (M4, DH-EXT-1/2): the confidence-sorted queue of open candidate
+// pairs, each a Card carrying the detection-time evidence table and the two
+// dispositions. It reads GET /dedupe/candidates and nothing else — no session
+// probe, so the queue's own states are the whole story surface.
 
-function story(candidates: Record<string, unknown>[]) {
-  return () => {
+type Candidate = components["schemas"]["DedupeCandidate"];
+
+function pair(overrides: Partial<Candidate> = {}): Candidate {
+  return {
+    id: "dc-1",
+    entity_type: "person",
+    left_id: "p-1",
+    right_id: "p-2",
+    confidence: 0.92,
+    evidence: [
+      {
+        field: "full_name",
+        left_value: "Katharina Brandt",
+        right_value: "Katharina Brandt",
+        signal: "agree",
+        score: 1,
+      },
+      {
+        field: "email",
+        left_value: "k.brandt@nordwerk.test",
+        right_value: null,
+        signal: "one_sided",
+      },
+      {
+        field: "org",
+        left_value: "Nordwerk GmbH",
+        right_value: "Nordwerk GmbH",
+        signal: "agree",
+      },
+    ],
+    status: "open",
+    created_at: "2026-08-11T09:20:00Z",
+    ...overrides,
+  };
+}
+
+function queue(...candidates: Candidate[]) {
+  return () => jsonResponse({ data: candidates, page: { next_cursor: null } });
+}
+
+const meta: Meta<typeof DedupeScreen> = {
+  title: "Records/Dedupe",
+  component: DedupeScreen,
+};
+export default meta;
+type Story = StoryObj<typeof DedupeScreen>;
+
+// The ordinary pair: agreeing name, one side-only address, the winner chosen
+// from the table's own column headers.
+export const Pair: Story = {
+  render: () => {
+    installFetchStub({ "GET /dedupe/candidates": queue(pair()) });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+};
+
+// A colliding field is the reason to look before merging, and the row says so
+// in the danger tone (`.dedupe-evidence tr[data-signal="collide"]`) — the one
+// distinction the design system's table cannot know about. Rendered beside an
+// agreeing pair so the two tones can be compared in one screenshot, in both
+// themes.
+export const CollidingSignal: Story = {
+  render: () => {
     installFetchStub({
-      "GET /me": () => jsonResponse(meFixture({ allow: {} })),
-      "GET /dedupe/candidates": () =>
-        jsonResponse({ data: candidates, page: { next_cursor: null } }),
-      // A reviewer decides which record survives, so both sides have to read as
-      // records. Left unrouted, EntityRef falls back to the raw id and the
-      // catalog shows somebody comparing two UUIDs — a screen nobody could act
-      // on, under the name of one they can. The route keys are concrete paths
-      // because the stub matches the URL it was actually given, not a template.
-      // A person's name is `full_name`; an organization's is `display_name`.
-      // EntityRef reads a differently-named field per kind, and the wrong one
-      // resolves to null, which it renders as the raw id — the same output as
-      // routing nothing at all.
-      [`GET /people/${LEFT}`]: () =>
-        jsonResponse({ id: LEFT, full_name: "Dana Buyer" }),
-      [`GET /people/${RIGHT}`]: () =>
-        jsonResponse({ id: RIGHT, full_name: "Dana K. Buyer" }),
-      [`GET /organizations/${LEFT}`]: () =>
-        jsonResponse({ id: LEFT, display_name: "Acme GmbH" }),
-      [`GET /organizations/${RIGHT}`]: () =>
-        jsonResponse({ id: RIGHT, display_name: "Acme Gesellschaft mbH" }),
+      "GET /dedupe/candidates": queue(
+        pair({
+          id: "dc-2",
+          entity_type: "organization",
+          confidence: 0.64,
+          evidence: [
+            {
+              field: "org",
+              left_value: "Nordwerk GmbH",
+              right_value: "Nordwerk AG",
+              signal: "collide",
+              score: 0.71,
+            },
+            {
+              field: "domain",
+              left_value: "nordwerk.test",
+              right_value: "nordwerk.test",
+              signal: "agree",
+            },
+            {
+              field: "vat_id",
+              left_value: "DE111111111",
+              right_value: "DE222222222",
+              signal: "collide",
+            },
+          ],
+        }),
+        pair(),
+      ),
     });
     return (
       <StoryProviders>
         <DedupeScreen />
       </StoryProviders>
     );
-  };
-}
-
-const LEFT = "00000000-0000-7000-8000-000000000001";
-const RIGHT = "00000000-0000-7000-8000-000000000002";
-
-const candidate = {
-  id: "dc1",
-  entity_type: "person",
-  left_id: LEFT,
-  right_id: RIGHT,
-  confidence: 0.87,
-  evidence,
-  status: "open",
+  },
 };
 
-const meta: Meta = {
-  title: "Records/Duplicates",
-  parameters: { layout: "padded" },
-};
-export default meta;
-
-type Story = StoryObj;
-
-export const OnePair: Story = { render: story([candidate]) };
-
-// Two pairs, because a queue is read as a queue: the reviewer's question is
-// which pair to take first, and confidence alone does not answer it.
-export const Queue: Story = {
-  render: story([
-    candidate,
-    {
-      ...candidate,
-      id: "dc2",
-      entity_type: "organization",
-      confidence: 0.61,
-      evidence: [
-        {
-          field: "domain",
-          left_value: "acme.example",
-          right_value: "acme-gmbh.example",
-          signal: "collide",
-        },
-        {
-          field: "name",
-          left_value: "Acme GmbH",
-          right_value: "Acme GmbH",
-          signal: "agree",
-        },
-      ],
-    },
-  ]),
+// The same pair in the dark theme: every derived colour is a color-mix() of a
+// canonical token and follows the dark accent lift, so the danger row and the
+// card's own ground have to be looked at twice.
+export const CollidingSignalDark: Story = {
+  globals: { theme: "dark" },
+  render: CollidingSignal.render,
 };
 
-// A signal the wire carries that this release has no word for. The field is
-// typed as a plain string, not a closed enum, so it renders as itself: a signal
-// we cannot name is still one the detector acted on.
-export const UnknownSignal: Story = {
-  render: story([
-    {
-      ...candidate,
-      id: "dc3",
-      evidence: [
-        {
-          field: "vat_id",
-          left_value: "DE123456789",
-          right_value: "DE123456789",
-          signal: "normalised_match",
-        },
-      ],
-    },
-  ]),
+// An answered read with no rows: the ONE state allowed to say the queue is
+// clear (SurfaceState `empty`).
+export const Empty: Story = {
+  render: () => {
+    installFetchStub({ "GET /dedupe/candidates": queue() });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
 };
 
-export const EmptyQueue: Story = { render: story([]) };
+// A read still in flight: SurfaceState's `loading` shimmer plus the spoken
+// line, and never the empty sentence — a pending queue knows nothing about how
+// many pairs are waiting. The promise deliberately never settles.
+export const Loading: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /dedupe/candidates": () => new Promise<Response>(() => {}),
+    });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+};
+
+// The decision notice: a pair the server answered as not-a-duplicate, with the
+// way back sitting in the Callout's own action slot. A ghost `Button` rather
+// than a link, because only `Button` can spell a write in flight — and it stays
+// quiet enough not to compete with Merge, which is still the page's primary
+// verb. Driven through the control rather than a hand-set flag: the notice
+// exists only after a write lands.
+// A decision mid-flight, which is the state the pending/refusal split exists
+// for: the verb the reader pressed turns in full ink and keeps focus, its
+// sibling on the same pair is refused, and so is every other pair's. The write
+// never resolves here, so the frame holds.
+export const DecidingInFlight: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /dedupe/candidates": queue(pair(), pair({ id: "dc-2" })),
+      "POST /dedupe/candidates/dc-1/disposition": () =>
+        new Promise<Response>(() => {}),
+    });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const merge = await canvas.findAllByRole("button", {
+      name: /merge into selected/i,
+    });
+    await userEvent.click(merge[0]);
+  },
+};
+
+export const DecisionSaved: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /dedupe/candidates": queue(pair()),
+      "POST /dedupe/candidates/dc-1/disposition": () =>
+        jsonResponse({ ...pair(), status: "not_a_duplicate" }),
+    });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Not a duplicate" }),
+    );
+  },
+};
+
+// The write that was REFUSED: the queue still reads, and the failure is a danger
+// Callout above it rather than a bare red line.
+export const DecisionRefused: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /dedupe/candidates": queue(pair()),
+      "POST /dedupe/candidates/dc-1/disposition": () =>
+        jsonResponse(
+          {
+            title: "Conflict",
+            status: 409,
+            detail: "This pair was already decided by someone else.",
+          },
+          409,
+        ),
+    });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Not a duplicate" }),
+    );
+  },
+};
+
+// A failed read reports the server's own sentence in a danger Callout, rather
+// than an empty queue or a generic "could not be loaded".
+export const ReadFailed: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /dedupe/candidates": () =>
+        jsonResponse(
+          {
+            title: "Server error",
+            status: 500,
+            detail: "The dedupe queue could not be read. Try again shortly.",
+          },
+          500,
+        ),
+    });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+};

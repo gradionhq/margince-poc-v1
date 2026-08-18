@@ -579,6 +579,14 @@ func (stubs) GetFieldHistory(w nethttp.ResponseWriter, r *nethttp.Request, param
 	httperr.NotImplemented(w, r, "GetFieldHistory")
 }
 
+func (stubs) PreviewFilter(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "PreviewFilter")
+}
+
+func (stubs) GetFilterVocabulary(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetFilterVocabularyParams) {
+	httperr.NotImplemented(w, r, "GetFilterVocabulary")
+}
+
 func (stubs) ListFxRates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListFxRatesParams) {
 	httperr.NotImplemented(w, r, "ListFxRates")
 }

@@ -69,6 +69,25 @@ if ! git rev-parse --verify -q "$BASE_REF" >/dev/null; then
   echo "skip contract-breaking-check: base ref '$BASE_REF' not found (nothing to diff against)"
   exit 0
 fi
+# Narrow the base to where this branch actually diverged. The tip is the wrong
+# baseline for a branch that does not descend from it: a path merged to the base
+# AFTER the branch left is absent from this checkout, and oasdiff reports it as
+# a removal this branch never made. That is every stacked PR — GitHub builds its
+# merge ref against the PR's own base branch, so main's newer paths are simply
+# not there — and rebasing only holds until the next merge lands.
+#
+# Nothing is weakened for a branch that does descend from the base: its merge
+# base IS the tip, so the comparison is byte-identical. A real removal is still
+# a removal against either baseline, because the branch removed it after the
+# point both sides agree on.
+#
+# A shallow clone can have both refs and still no common ancestor; keep the tip
+# in that case rather than failing, since the check above has already decided
+# whether a missing base is fatal.
+if MERGE_BASE="$(git merge-base HEAD "$BASE_REF" 2>/dev/null)" && [ -n "$MERGE_BASE" ]; then
+  BASE_REF="$MERGE_BASE"
+fi
+
 if ! git cat-file -e "$BASE_REF:$CRM_YAML" 2>/dev/null; then
   echo "skip contract-breaking-check: contract did not exist at $BASE_REF (nothing to diff)"
   exit 0

@@ -35,6 +35,7 @@ import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
 import { interactionIcon } from "./interactionchrome";
 import { consentWord } from "./personstrip";
+import { personTabRoute } from "./persontab";
 
 // The right rail (concept §5.11): one continuous panel, its six slices told
 // apart by a hairline rather than by a gap between cards — the same anatomy
@@ -1289,9 +1290,7 @@ function RecentActivity({ view }: Readonly<{ view: Person360 }>) {
       <Button
         small
         className="pe-rail-more"
-        onClick={() =>
-          navigate({ screen: "contacts", id: view.person.id, id2: "activity" })
-        }
+        onClick={() => navigate(personTabRoute(view.person.id, "timeline"))}
       >
         {t("person.rail.viewAllActivity")}{" "}
         <ChevronRight size={13} aria-hidden="true" />

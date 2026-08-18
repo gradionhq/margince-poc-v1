@@ -9,9 +9,10 @@ import { inlineViews } from "./scripts/vite-inline-views";
 // target, module preloading, asset emission — would have changed the SPA's
 // output rather than only these documents'.
 //
-// ONE SINGLE-INPUT BUILD PER VIEW, and that is not a stylistic choice. Rollup
-// refuses multiple inputs when inlineDynamicImports is set, and a two-entry
-// build would additionally let it extract bridge.ts and view.css into chunks
+// ONE SINGLE-INPUT BUILD PER VIEW, and that is not a stylistic choice.
+// `codeSplitting: false` folds every dynamic import into one bundle, which is
+// what leaves the inliner a single chunk to fold in; a two-entry build would
+// additionally let the bundler extract bridge.ts and view.css into chunks
 // SHARED between the views — which the inliner would then have to traverse. One
 // build per view removes the sharing rather than teaching the inliner about it.
 
@@ -66,7 +67,7 @@ export function mcpAppView(name: string, outDir: string): UserConfig {
       assetsInlineLimit: () => true,
       rollupOptions: {
         input: `src/mcp-apps/${name}/index.html`,
-        output: { inlineDynamicImports: true },
+        output: { codeSplitting: false },
       },
     },
     plugins: [inlineViews()],

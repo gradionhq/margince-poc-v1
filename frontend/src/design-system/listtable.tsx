@@ -1105,7 +1105,11 @@ function Pager({
   const t = useT();
   return (
     <div className={`lt-foot${lastPage === 1 && !hasMore ? " single" : ""}`}>
-      <div className="lt-pager">
+      {/* A landmark, because this is navigation and a reader who jumps by region
+          should find it as one. The numbers carry "Page 3" rather than a bare
+          "3": out of the row's context a digit names nothing, and the row's
+          context is exactly what a screen reader does not have. */}
+      <nav className="lt-pager" aria-label={t("table.pagination")}>
         <button
           type="button"
           disabled={current === 1}
@@ -1120,6 +1124,7 @@ function Pager({
               key={slot}
               className={slot === current ? "on" : undefined}
               aria-current={slot === current ? "page" : undefined}
+              aria-label={t("table.page", { number: slot })}
               onClick={() => onGoto(slot)}
             >
               {slot}
@@ -1144,7 +1149,7 @@ function Pager({
         >
           {t("table.next")}
         </button>
-      </div>
+      </nav>
       <span className="lt-perpage">
         <Select
           aria-label={t("table.rowsPerPage")}

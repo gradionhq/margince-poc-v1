@@ -142,7 +142,6 @@ export const vi = {
     "Bản cài đặt này không bật tiện ích mở rộng nào tên “{name}”.",
   "ext.operations": "Các thao tác đã công bố",
 
-  "search.title": "Tìm kiếm",
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
   "search.empty": "Không có kết quả cho “{q}”.",
   "search.group.person": "Người",
@@ -150,9 +149,6 @@ export const vi = {
   "search.group.deal": "Deal",
   "search.group.activity": "Hoạt động",
   "search.group.lead": "Lead",
-  "search.why": "Vì sao có kết quả này",
-  "search.relevance": "độ liên quan {pct}%",
-  "search.tier.authoritative": "đã xác minh",
   "search.tier.mirrored": "từ hệ thống đã kết nối",
   "search.tier.unverified": "chưa xác minh",
 
@@ -382,6 +378,8 @@ export const vi = {
   "list.viewHot": "Tiềm năng cao",
   "list.overlayReadOnly": "Sắp xếp và bộ lọc đọc qua HubSpot — hãy mở bên đó",
   "table.range": "{first}–{last} trong {count} {unit}",
+  "table.pagination": "Trang",
+  "table.page": "Trang {number}",
   "table.prev": "‹ Trước",
   "table.next": "Sau ›",
   "table.rowsPerPage": "Số dòng mỗi trang",
@@ -704,6 +702,8 @@ export const vi = {
   "tab.timeline": "Lịch sử",
   "tab.documents": "Tài liệu",
   "tab.profile": "Hồ sơ",
+  "tab.meetings": "Cuộc họp",
+  "tab.research": "Nghiên cứu",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "Họ là ai",
@@ -809,7 +809,9 @@ export const vi = {
   "finance.col.issued": "Ngày xuất",
   "finance.col.due": "Hạn",
   "finance.col.paid": "Đã trả",
+  "finance.paidDayLate": "trễ {days} ngày",
   "finance.paidDaysLate": "trễ {days} ngày",
+  "finance.overdueDay": "quá hạn {days} ngày",
   "finance.overdueDays": "quá hạn {days} ngày",
   "finance.col.amount": "Số tiền",
   "finance.col.status": "Trạng thái",
@@ -946,6 +948,8 @@ export const vi = {
   "co.growthFit.title": "Họ có giá trị gì với bạn",
   "co.growthFit.unavailable":
     "Không đọc được đánh giá này. Thông tin công ty không thay đổi.",
+  "co.growthFit.assembling":
+    "Đang xác định giá trị của khách hàng này — lần đánh giá đầu tiên phải đọc toàn bộ hồ sơ nên mất một lát.",
   "co.growthFit.reassess": "Đánh giá lại",
   "co.growthFit.reassessing": "Đang đánh giá…",
   "co.growthFit.band.strong": "Rất phù hợp",
@@ -1137,17 +1141,17 @@ export const vi = {
   "co.connections.group.our_side": "ai bên mình có kết nối",
   "co.signals.title": "Tín hiệu",
   "co.signals.empty": "Không có tín hiệu nào đang mở trên tài khoản này.",
-  "co.chronology.label": "Hiện gì trên timeline",
-  "co.chronology.activities": "Hoạt động",
-  "co.chronology.changes": "Thay đổi",
-  "co.chronology.all": "Tất cả",
-  "co.chronology.changesEmpty":
+  "chronology.label": "Hiện gì trên timeline",
+  "chronology.activities": "Hoạt động",
+  "chronology.changes": "Thay đổi",
+  "chronology.all": "Tất cả",
+  "chronology.changesEmpty":
     "Chưa trường nào của bản ghi này thay đổi kể từ khi được tạo.",
-  "co.chronology.allEmpty": "Chưa có gì xảy ra trên tài khoản này.",
-  "co.chronology.truncated":
+  "chronology.allEmpty": "Chưa có gì xảy ra trên bản ghi này.",
+  "chronology.truncated":
     "Các mục cũ hơn không hiện ở đây — cả hai loại đều nhiều hơn mức màn hình này sắp xếp nổi. Hãy chọn Hoạt động hoặc Thay đổi để đọc ngược xa hơn.",
-  "co.chronology.truncatedActivities":
-    "Tài khoản này có nhiều hoạt động hơn sức chứa ở đây. Chỉ những hoạt động mới nhất được liệt kê.",
+  "chronology.truncatedActivities":
+    "Ở đây có nhiều hoạt động hơn sức chứa. Chỉ những hoạt động mới nhất được liệt kê.",
   "timeline.sent": "Đã gửi",
   "timeline.received": "Đã nhận",
   "timeline.textMore": "Đọc",
@@ -1711,6 +1715,8 @@ export const vi = {
   "create.legalName": "Tên pháp lý",
   "create.industry": "Ngành",
   "create.sizeBand": "Quy mô công ty",
+  "co.address.summary": "Địa chỉ",
+  "co.address.add": "Thêm địa chỉ",
   "create.addressLine1": "Số nhà và tên đường",
   "create.addressLine2": "Địa chỉ bổ sung",
   "create.city": "Thành phố",
@@ -2761,7 +2767,6 @@ export const vi = {
   "ob.s4.googleOkBody":
     "Việc thu thập đang chạy nền — email mới lên timeline trong khoảng một phút, và từ giờ tự giữ đồng bộ.",
   "ob.s4.googleLive": "Đã xác minh kết nối — thu thập nền đang bật",
-  "dedupe.title": "Có thể trùng lặp",
   "dedupe.intro":
     "Những cặp mà luồng thu thập đánh dấu là nhiều khả năng cùng một người hay cùng một công ty. Việc gộp giữ lại lịch sử của cả hai bản ghi; việc bỏ qua báo cho hệ thống đừng hỏi về cặp này nữa.",
   "dedupe.loading": "Đang tải hàng đợi rà soát…",
@@ -4639,12 +4644,18 @@ export const vi = {
   "aiexport.previewLabel": "Xem trước kịch bản",
   "aiexport.responseLabel": "Phản hồi của mô hình",
 
+  "countdown.daysHours": "{days} ngày {hours} giờ",
+  "countdown.hoursMinutes": "{hours} giờ {minutes} phút",
   "countdown.minutesSeconds": "{minutes} phút {seconds} giây",
   "countdown.expired": "Đã hết hạn",
 
   // Quotas & attainment (RD-T06): human-set revenue targets with
   // server-computed attainment, surfaced under the Reports "Quotas" segment.
   "quotas.tab": "Chỉ tiêu",
+  // The selector panel's own title. The Reports segment picker directly above
+  // it already reads "Quotas", so this names what the LIST holds — one row per
+  // owner or team carrying a target — rather than repeating the page.
+  "quotas.selector.title": "Ai đang có chỉ tiêu",
   "quotas.sub": "mục tiêu doanh thu — do người đặt, mức đạt do hệ thống tính",
   "quotas.role.owner": "Chỉ tiêu cá nhân",
   "quotas.role.team": "Chỉ tiêu nhóm",
@@ -5002,22 +5013,21 @@ export const vi = {
   "person.rail.removeEmploymentTitle": "Gỡ liên kết với công ty này?",
   "person.rail.removeEmploymentBody":
     "Liên kết với {org} và toàn bộ lịch sử liên quan sẽ biến mất, không thể hoàn tác. Bản thân {org} vẫn được giữ lại. Nếu họ chỉ đơn giản là đã nghỉ việc, hãy đánh dấu là đã kết thúc thay vì gỡ.",
-  "person.page.tabPlaceholder":
-    "Thẻ này chưa được xây dựng. Trang tổng quan giữ phần quan hệ; thẻ này sẽ giữ {topic}.",
-  "person.tab.overview": "Tổng quan",
-  "person.tab.activity": "Hoạt động",
-  "person.tab.deals": "Deals",
-  "person.tab.meetings": "Cuộc họp",
-  "person.tab.research": "Nghiên cứu",
-  "person.tab.files": "Tệp",
-  "person.tab.history": "Lịch sử",
-  "person.topic.overview": "phần tổng quan",
-  "person.topic.activity": "phần hoạt động",
-  "person.topic.deals": "các deal",
-  "person.topic.meetings": "các cuộc họp",
-  "person.topic.research": "phần nghiên cứu",
-  "person.topic.files": "các tệp",
-  "person.topic.history": "phần lịch sử",
+  "person.timeline.empty": "Chưa ghi nhận trao đổi nào với họ.",
+  "person.deals.empty": "Họ chưa được ghi nhận trên deal nào.",
+  "person.deals.untitled": "Deal chưa có tên",
+  "person.deals.noStage": "Chưa có giai đoạn",
+  "person.meetings.next": "Cuộc họp kế tiếp",
+  "person.meetings.past": "Các cuộc họp đã có",
+  "person.meetings.noneBooked": "Chưa đặt lịch nào với họ.",
+  "person.meetings.noneLogged": "Chưa ghi nhận cuộc họp nào với họ.",
+  "person.meetings.untitled": "Cuộc họp chưa có tiêu đề",
+  "person.meetings.participants": "Có mặt",
+  "person.documents.empty": "Chưa có tệp nào lưu cho liên hệ này.",
+  "person.research.empty": "Chưa nghiên cứu gì về họ.",
+  "person.research.fields": "Bằng chứng làm giàu dữ liệu",
+  "person.research.fieldsEmpty": "Chưa trường dữ liệu nào có bằng chứng.",
+  "person.research.capturedBy": "Ghi nhận bởi",
   "person.action.email": "Email",
   "person.action.call": "Gọi",
   "person.action.book": "Đặt lịch",

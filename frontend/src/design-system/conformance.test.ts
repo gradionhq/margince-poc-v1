@@ -52,6 +52,25 @@ const allowedFamilies = new Set([
 // nothing. Declared on the suite so every gate this file grows inherits it.
 const scanBudget = { timeout: 60_000 };
 
+// The value of a JSX attribute when the source states it as a literal string.
+// The role gate below needs the value itself, not the initializer's text: a
+// substring test for `status` reads `role={role}` as some other role and
+// `role="statusbar"` as `status`, wrong in both directions. Anything computed —
+// a variable, a call, a template with a substitution — has no value this file
+// can read, and returns undefined.
+function literalAttributeValue(initializer: ts.Node): string | undefined {
+  if (
+    ts.isStringLiteral(initializer) ||
+    ts.isNoSubstitutionTemplateLiteral(initializer)
+  ) {
+    return initializer.text;
+  }
+  if (ts.isJsxExpression(initializer) && initializer.expression !== undefined) {
+    return literalAttributeValue(initializer.expression);
+  }
+  return undefined;
+}
+
 describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   it("uses only the three §2 type families", () => {
     for (const file of files) {
@@ -223,11 +242,10 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   it("declares each screen's class namespace in exactly one stylesheet", () => {
     const namespaces = [
       { prefix: "auth-", home: "screens/auth.css" },
-      // The dedupe namespace spent months declared in onboarding.css, a sheet
-      // dedupe.tsx does not import: the screen drew correctly only because
-      // another screen had already pulled that sheet into the bundle, and it
-      // rendered as an unstyled wireframe anywhere it was mounted alone.
-      // Registered here so the namespace cannot drift back out of its own home.
+      // Registered the day dedupe.css was created, because this namespace is
+      // what the rule was written about: the whole `dedupe-*` block lived in
+      // onboarding.css, a sheet the screen that draws it never imports, so it
+      // was styled by accident in the app and not at all in an isolated render.
       { prefix: "dedupe-", home: "screens/dedupe.css" },
     ];
     const violations: string[] = [];
@@ -313,6 +331,92 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
             );
             violations.push(
               `${relative(frontendRoot, file)}:${line + 1} <${tag}> spells the btn class by hand — import Button from design-system/atoms`,
+            );
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+
+  // The card equivalent of the button rule above, and it exists for the same
+  // reason: `Card` owns five chrome values — elevated ground, a subtle border,
+  // the 12px radius, one padding, and the inset variant — and a surface that
+  // spells `card` by hand keeps whichever of the five were true the day it was
+  // written. Thirteen sites had drifted that way across the public booking page,
+  // the extension client, the preference centre, the OAuth consent screen, Home
+  // and one of two adjacent skeletons on the company record — where the OTHER
+  // skeleton, forty lines up, was a real Card.
+  //
+  // Narrow, so it states its own exception. It matches the `card` and
+  // `card-inset` BASE tokens only: a component class that merely contains the
+  // word (`auth-card`, `staging-card`, `digest-card`, `co-card`, `dedupe-card`)
+  // is a different surface, exactly as `iconbtn` is a different control. And it
+  // spares an element that declares a role `Card` cannot express: the component
+  // admits `role="status"` and nothing else, on purpose — a card must not be
+  // able to claim it is a modal — so a surface that has to announce itself as a
+  // `dialog` (app/fab.tsx's anchored panel) or a `note`
+  // (design-system/explain.tsx's popover) has no component to reach for. Both
+  // say so in-source where they do it. The exemption reads the role's LITERAL
+  // value and compares it exactly to `status`. A role the source computes
+  // (`role={role}`) is NOT an exemption: the gate cannot know what it evaluates
+  // to, so it asks rather than assumes — an unreadable role that waved the card
+  // through would be the one surface nobody was checking.
+  it("renders every card through Card — no hand-rolled card classes", () => {
+    const violations: string[] = [];
+    for (const file of files) {
+      // atoms.tsx is Card's own file: it is where `card` is minted.
+      if (!file.endsWith(".tsx") || file.endsWith("design-system/atoms.tsx")) {
+        continue;
+      }
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.ES2022,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      const visit = (node: ts.Node) => {
+        if (ts.isJsxAttribute(node) && node.name.getText() === "className") {
+          const element = node.parent.parent;
+          const tag = element.tagName.getText();
+          const fragments: string[] = [];
+          const collect = (child: ts.Node) => {
+            if (
+              ts.isStringLiteral(child) ||
+              ts.isTemplateLiteralToken(child) ||
+              ts.isJsxText(child)
+            ) {
+              fragments.push(child.text);
+            }
+            ts.forEachChild(child, collect);
+          };
+          if (node.initializer) {
+            collect(node.initializer);
+          }
+          const handRolled = fragments.some((fragment) => {
+            const tokens = fragment.split(/\s+/);
+            return tokens.includes("card") || tokens.includes("card-inset");
+          });
+          const declaresOtherRole = node.parent.properties.some((property) => {
+            if (
+              !ts.isJsxAttribute(property) ||
+              property.name.getText() !== "role" ||
+              property.initializer === undefined
+            ) {
+              return false;
+            }
+            const role = literalAttributeValue(property.initializer);
+            return role !== undefined && role !== "status";
+          });
+          if (handRolled && !declaresOtherRole) {
+            const { line } = source.getLineAndCharacterOfPosition(
+              node.getStart(),
+            );
+            violations.push(
+              `${relative(frontendRoot, file)}:${line + 1} <${tag}> spells the card class by hand — import Card from design-system/atoms`,
             );
           }
         }

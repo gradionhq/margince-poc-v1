@@ -1,0 +1,26 @@
+# config/margince.dev.yaml — what a DEV stack does differently.
+#
+# Read only when MARGINCE_ENV=dev, on top of config/margince.yaml, later layer
+# winning per key. `make dev` exports that variable for both the api and the
+# worker, so this file is the dev stack's posture and nothing else's.
+#
+# It is tracked, and config/margince.yaml is not. That is the point: what arms a
+# destructive capability on every engineer's machine belongs in a file review
+# can see, not in text a shell script appends to a generated one — which is how
+# the reset used to be turned on, invisibly, at first boot.
+#
+# A base key this file does not name keeps the base's value. To try something
+# without committing it, edit config/margince.yaml instead; it is yours.
+version: 1
+
+operations:
+  # Arms POST /v1/admin/reset-data, the api and worker lanes behind it, and the
+  # "Reset data" action /me offers. It PURGES this installation's tenant data
+  # back to its first-boot state.
+  #
+  # Safe HERE and nowhere else, because a dev database holds seed data an engineer
+  # can recreate with `make seed-dev`. Deliberately not derived from MARGINCE_ENV
+  # by the code: a deployment being CALLED dev is not consent to erase what is in
+  # it, so the arming is stated in the posture's own file and every other posture
+  # gets the compiled default, which is off.
+  allow_data_reset: true

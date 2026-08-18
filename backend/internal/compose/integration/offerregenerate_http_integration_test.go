@@ -69,14 +69,13 @@ func seedDealContextActivity(t *testing.T, e *apptest.AppEnv, wsID, dealID, subj
 	t.Helper()
 	activityID := ids.NewV7()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, 'note', $3, '2026-07-01T10:00:00Z', 'manual', 'human:x')`,
-		activityID, wsID, subject); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, 'note', $2, '2026-07-01T10:00:00Z', 'manual', 'human:x')`,
+		activityID, subject); err != nil {
 		t.Fatalf("seed deal context activity: %v", err)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, 'deal', $3)`,
-		wsID, activityID, dealID); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, deal_id) VALUES ( $1, 'deal', $2)`, activityID, dealID); err != nil {
 		t.Fatalf("link deal context activity: %v", err)
 	}
 	return "activity:" + activityID.String()

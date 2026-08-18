@@ -75,6 +75,43 @@ export const Editable: Story = {
   render: () => <Details organization={org} />,
 };
 
+// The address a crawled record actually has: none of it. A company publishes a
+// team page, not its registered address, so the six parts are the one block on
+// this panel that is reliably empty — inline they opened it with six "Add …"
+// invitations and pushed the account's own facts down. Collapsed, they cost one
+// line that says what pressing it is for ("Add an address"), and the facts
+// above it are what the panel opens with.
+export const AddressAbsent: Story = {
+  render: () => (
+    <Details
+      organization={{
+        ...org,
+        address: {
+          line1: null,
+          line2: null,
+          city: null,
+          region: null,
+          postal_code: null,
+          country: null,
+        },
+      }}
+    />
+  ),
+};
+
+// Any part set opens the block, so an address in progress reads exactly as a
+// complete one does — the collapse is for the empty case, not for a record
+// somebody has started. The four parts still missing keep their own
+// invitations, inside the open block where a reader has asked for them.
+// (Editable above is the same state with all six filled.)
+export const AddressPartlyFilled: Story = {
+  render: () => (
+    <Details
+      organization={{ ...org, address: { city: "Munich", country: "DE" } }}
+    />
+  ),
+};
+
 // Archived: every row still shows its value, none offers the edit affordance
 // — the one state that exercises the grid's `readOnlyReason` half, which no
 // amount of RBAC grant in the Editable story above can reach.

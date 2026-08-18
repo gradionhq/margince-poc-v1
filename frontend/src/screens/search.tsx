@@ -7,13 +7,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ENTITY, ENTITY_KINDS, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
-import {
-  Badge,
-  Card,
-  EmptyState,
-  SearchField,
-  SectionHeader,
-} from "../design-system/atoms";
+import { Badge, Card, EmptyState, SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { QueryGate, type QueryLike, throwProblem } from "./common";
@@ -72,7 +66,6 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
 
   return (
     <div className="wrap">
-      <SectionHeader title={t("search.title")} />
       <form onSubmit={submit} className="search-bar">
         <SearchField
           value={draft}
@@ -139,16 +132,19 @@ function SearchHit({ hit }: Readonly<{ hit: SearchResult }>) {
         ) : (
           <span>{hit.title ?? hit.id}</span>
         )}
-        {hit.trust_tier === "authoritative" && (
-          <Badge tone="success">{t("search.tier.authoritative")}</Badge>
-        )}
-        {/* `external` covers every overlay- and connector-sourced row, so the
-            badge cannot name the system it came from: the hit carries no
-            provider field, and naming one vendor would label rows mirrored
-            from the others with it. `unverified` gets a badge of its own —
-            a tier the record CARRIES and the page does not draw reads as a
-            record with nothing to declare, which is the opposite of what
-            unverified means. */}
+        {/* Only a tier the reader would not otherwise assume. In native mode
+            every stored record is `authoritative` (contract: external and
+            unverified are reserved for overlay/connector rows), so badging it
+            put the same green pill on every hit on the page — a mark that
+            never varies marks nothing, and it crowded out the one that does.
+            `unverified` is the opposite case and keeps its badge: it is rare by
+            the same contract, and a tier the record CARRIES while the page draws
+            nothing reads as a record with nothing to declare.
+
+            Neither badge names the SYSTEM a row came from. `external` covers
+            every overlay- and connector-sourced row and the hit carries no
+            provider field, so one vendor's name would be stamped on rows
+            mirrored from any other. */}
         {hit.trust_tier === "external" && (
           <Badge tone="accent">{t("search.tier.mirrored")}</Badge>
         )}
@@ -156,12 +152,12 @@ function SearchHit({ hit }: Readonly<{ hit: SearchResult }>) {
           <Badge tone="warn">{t("search.tier.unverified")}</Badge>
         )}
       </div>
+      {/* `hit.score` is deliberately not drawn. The contract bounds it to
+          nothing (schema: "Relevance score"), so the retriever's raw figure
+          reached the page as "relevance 280%" — a percentage of nothing, which
+          a reader can neither act on nor disbelieve. It still does its job in
+          the ordering the results arrive in. */}
       {hit.snippet && <p className="search-hit-snippet">“{hit.snippet}”</p>}
-      {typeof hit.score === "number" && (
-        <span className="search-hit-score t-caption" title={t("search.why")}>
-          {t("search.relevance", { pct: Math.round(hit.score * 100) })}
-        </span>
-      )}
     </li>
   );
 }

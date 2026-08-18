@@ -40,9 +40,8 @@ func seedLegacyActivity(t *testing.T, e *integration.Env, sourceID, capturedBy, 
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at,
-			                      source_system, source_id, source, captured_by, counterparty_email)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (kind, subject, direction, occurred_at, source_system, source_id, source, captured_by, counterparty_email)
+			VALUES (
 			        'email', 'Alt', $1, now(), 'gmail', $2, $3, $4, $5)
 			RETURNING id`,
 			direction, sourceID, "gmail:"+sourceID, capturedBy, counterparty).Scan(&id)
@@ -222,9 +221,8 @@ func seedLegacyActivityOfKind(t *testing.T, e *integration.Env, sourceID, captur
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at,
-			                      source_system, source_id, source, captured_by, counterparty_email)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (kind, subject, direction, occurred_at, source_system, source_id, source, captured_by, counterparty_email)
+			VALUES (
 			        $1, 'Alt', 'outbound', now(), 'gmail', $2, $3, $4, 'pat@counterparty.test')
 			RETURNING id`, kind, sourceID, "gmail:"+sourceID, capturedBy).Scan(&id)
 	}); err != nil {

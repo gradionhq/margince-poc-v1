@@ -83,9 +83,9 @@ func (e *reconcileEnv) seedInteraction(t *testing.T, dealID ids.UUID, kind, subj
 	id := ids.NewV7()
 	ctx := context.Background()
 	if _, err := e.owner.Exec(ctx,
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, $3, $4, now() - make_interval(hours => $5), 'manual', 'human:x')`,
-		id, e.WS, kind, subject, occurredHoursAgo); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, $2, $3, now() - make_interval(hours => $4), 'manual', 'human:x')`,
+		id, kind, subject, occurredHoursAgo); err != nil {
 		t.Fatalf("seed %s activity: %v", kind, err)
 	}
 	e.linkActivity(t, id, dealID)
@@ -98,10 +98,10 @@ func (e *reconcileEnv) seedTask(t *testing.T, dealID ids.UUID, done bool) ids.UU
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at, is_done, done_at, source, captured_by)
-		 VALUES ($1, $2, 'task', 'Existing next step', now(), now() + interval '2 days', $3,
-		         CASE WHEN $3 THEN now() ELSE NULL END, 'manual', 'human:x')`,
-		id, e.WS, done); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, due_at, is_done, done_at, source, captured_by)
+		 VALUES ($1, 'task', 'Existing next step', now(), now() + interval '2 days', $2,
+		         CASE WHEN $2 THEN now() ELSE NULL END, 'manual', 'human:x')`,
+		id, done); err != nil {
 		t.Fatalf("seed task: %v", err)
 	}
 	e.linkActivity(t, id, dealID)
@@ -111,8 +111,7 @@ func (e *reconcileEnv) seedTask(t *testing.T, dealID ids.UUID, done bool) ids.UU
 func (e *reconcileEnv) linkActivity(t *testing.T, activityID, dealID ids.UUID) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, 'deal', $3)`,
-		e.WS, activityID, dealID); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, deal_id) VALUES ( $1, 'deal', $2)`, activityID, dealID); err != nil {
 		t.Fatalf("link activity to deal: %v", err)
 	}
 }

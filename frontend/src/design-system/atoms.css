@@ -528,6 +528,16 @@
 .filter-tabs {
   margin-bottom: var(--space-3);
 }
+/* The line saying what the SELECTED tab shows. It stands with the control
+   because it changes with it: carried in the page head instead, it would still
+   describe the tab the reader just left. */
+.filter-tabs > .sub {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--textSecondary);
+}
 .section-header h2 {
   font-size: 15px;
   font-weight: 600;

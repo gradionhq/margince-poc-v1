@@ -36,10 +36,9 @@ import (
 func accountMailAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, at time.Time) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := owner.Exec(context.Background(), `INSERT INTO activity
-		(id, workspace_id, kind, direction, subject, occurred_at, created_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'inbound', $3, $4, $4, 'manual', 'human:x')`,
-		id, ws, subject, at); err != nil {
+	if _, err := owner.Exec(context.Background(), `INSERT INTO activity (id, kind, direction, subject, occurred_at, created_at, source, captured_by)
+		VALUES ($1, 'email', 'inbound', $2, $3, $3, 'manual', 'human:x')`,
+		id, subject, at); err != nil {
 		t.Fatalf("seeding %q: %v", subject, err)
 	}
 	return id
@@ -119,13 +118,13 @@ func TestAccountTimelineReachesMailThroughItsContactsAndDeals(t *testing.T) {
 	direct := accountMailAt(t, owner, e.WS, "direct", org360Clock.Add(-1*time.Hour))
 	integration.LinkToOrg(t, e, direct, org)
 	viaContact := accountMailAt(t, owner, e.WS, "via a current employee", org360Clock.Add(-2*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, viaContact, "person", employee)
+	integration.LinkActivity(t, owner, viaContact, "person", employee)
 	viaDeal := accountMailAt(t, owner, e.WS, "via the deal", org360Clock.Add(-3*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, viaDeal, "deal", deal)
+	integration.LinkActivity(t, owner, viaDeal, "deal", deal)
 	viaLeaver := accountMailAt(t, owner, e.WS, "via a former employee", org360Clock.Add(-4*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, viaLeaver, "person", leaver)
+	integration.LinkActivity(t, owner, viaLeaver, "person", leaver)
 	viaStranger := accountMailAt(t, owner, e.WS, "via another account's contact", org360Clock.Add(-5*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, viaStranger, "person", stranger)
+	integration.LinkActivity(t, owner, viaStranger, "person", stranger)
 
 	listed, _ := accountTimeline(rep, t, e, org, 25, "")
 	for _, want := range []struct {
@@ -190,9 +189,9 @@ func TestTheAccountWalkDoesNotWidenTheCallersRowScope(t *testing.T) {
 	employAt(t, e, theirs, org, nil)
 
 	visible := accountMailAt(t, owner, e.WS, "terms", org360Clock.Add(-1*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, visible, "person", mine)
+	integration.LinkActivity(t, owner, visible, "person", mine)
 	hidden := accountMailAt(t, owner, e.WS, "confidential terms", org360Clock.Add(-2*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, hidden, "person", theirs)
+	integration.LinkActivity(t, owner, hidden, "person", theirs)
 
 	listed, _ := accountTimeline(rep, t, e, org, 25, "")
 	if containsActivity(listed, hidden) {
@@ -228,7 +227,7 @@ func TestAccountTimelinePagesWithoutDuplicatesOrOmissions(t *testing.T) {
 			integration.LinkToOrg(t, e, mail, org)
 		}
 		if i%2 == 1 || i == 2 {
-			integration.LinkActivity(t, owner, e.WS, mail, "person", contact)
+			integration.LinkActivity(t, owner, mail, "person", contact)
 		}
 		want = append(want, mail)
 	}
@@ -283,12 +282,12 @@ func TestSinceLastVisitCountsMailRolledUpThroughAContact(t *testing.T) {
 	// Mail that arrived BEFORE the visit is not new; the ack pins the baseline
 	// at the read's own instant.
 	before := accountMailAt(t, owner, e.WS, "old thread", org360Clock.Add(-time.Hour))
-	integration.LinkActivity(t, owner, e.WS, before, "person", contact)
+	integration.LinkActivity(t, owner, before, "person", contact)
 	if _, err := svc.Acknowledge(rep, orgID); err != nil {
 		t.Fatalf("acknowledging the visit: %v", err)
 	}
 	after := accountMailAt(t, owner, e.WS, "new thread", org360Clock.Add(time.Hour))
-	integration.LinkActivity(t, owner, e.WS, after, "person", contact)
+	integration.LinkActivity(t, owner, after, "person", contact)
 
 	view, err := svc.Assemble(rep, orgID)
 	if err != nil {
@@ -326,7 +325,7 @@ func TestLastTouchSeparatesWhoWroteLastAndWalksTheSameThreeLinks(t *testing.T) {
 	oldInbound := integration.AccountMailDirectedAt(t, owner, e.WS, "old reply", "inbound", org360Clock.Add(-90*time.Hour))
 	integration.LinkToOrg(t, e, oldInbound, org)
 	newInbound := integration.AccountMailDirectedAt(t, owner, e.WS, "their reply", "inbound", org360Clock.Add(-30*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, newInbound, "person", employee)
+	integration.LinkActivity(t, owner, newInbound, "person", employee)
 	outbound := integration.AccountMailDirectedAt(t, owner, e.WS, "our nudge", "outbound", org360Clock.Add(-2*time.Hour))
 	integration.LinkToOrg(t, e, outbound, org)
 

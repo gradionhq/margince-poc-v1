@@ -40,16 +40,16 @@ func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
 	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Visible Contact', $3, 'seed', 'system')`,
 		visiblePersonID, e.ws, e.rep)
-	e.exec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Called about the rollout', now(), 'seed', 'system')`,
-		activityID, e.ws)
+	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Called about the rollout', now(), 'seed', 'system')`,
+		activityID)
 	// Linked to BOTH: the caller may read this activity through the person, so
 	// the any-link scope admits it. Only the narrowing target is out of reach,
 	// which is precisely the case a scope check alone cannot catch.
-	e.exec(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, $3, 'person', $4)`, ids.NewV7(), e.ws, activityID, visiblePersonID)
-	e.exec(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, lead_id)
-		VALUES ($1, $2, $3, 'lead', $4)`, ids.NewV7(), e.ws, activityID, hiddenLeadID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id)
+		VALUES ($1, $2, 'person', $3)`, ids.NewV7(), activityID, visiblePersonID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, lead_id)
+		VALUES ($1, $2, 'lead', $3)`, ids.NewV7(), activityID, hiddenLeadID)
 
 	leadType := "lead"
 	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
@@ -72,11 +72,11 @@ func TestNarrowingTheTimelineToAReadableLeadReturnsIt(t *testing.T) {
 
 	e.exec(t, `INSERT INTO lead (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'My Prospect', $3, 'seed', 'system')`, ownLeadID, e.ws, e.rep)
-	e.exec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Asked for a Q4 quote', now(), 'seed', 'system')`,
-		activityID, e.ws)
-	e.exec(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, lead_id)
-		VALUES ($1, $2, $3, 'lead', $4)`, ids.NewV7(), e.ws, activityID, ownLeadID)
+	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Asked for a Q4 quote', now(), 'seed', 'system')`,
+		activityID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, lead_id)
+		VALUES ($1, $2, 'lead', $3)`, ids.NewV7(), activityID, ownLeadID)
 
 	leadType := "lead"
 	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))

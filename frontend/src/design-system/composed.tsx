@@ -17,7 +17,7 @@ import {
 } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { Avatar, Badge, Button } from "./atoms";
+import { Avatar, Badge, Button, Card } from "./atoms";
 import { useTruncationTooltip } from "./tooltip";
 import {
   AutonomyDot,
@@ -57,7 +57,7 @@ export function MorningBriefItem({
 }>) {
   const t = useT();
   return (
-    <article className="brief-item card">
+    <Card as="article" className="brief-item">
       <div className="brief-head">
         <span className="brief-rank">#{item.rank}</span>
         <span className="brief-title">{item.title}</span>
@@ -73,7 +73,7 @@ export function MorningBriefItem({
           <StagedProposal proposal={item.proposal} onResolve={onResolve} />
         </>
       )}
-    </article>
+    </Card>
   );
 }
 

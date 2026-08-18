@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ASK_QUERY_KEY } from "../app/palette";
-import { Card, Kbd, SectionHeader } from "../design-system/atoms";
+import { Card, Kbd } from "../design-system/atoms";
 import { AutonomyDot } from "../design-system/trust";
 import { useT } from "../i18n";
 
@@ -19,7 +19,6 @@ export function AskAiScreen() {
 
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.ai")} sub={t("ai.sub")} />
       {query && (
         <Card as="div">
           <p className="t-label">{t("ai.fromPalette")}</p>

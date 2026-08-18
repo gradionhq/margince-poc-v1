@@ -70,20 +70,20 @@ func seedExchange(t *testing.T, e *Env, colleague, person ids.UUID, subject stri
 	ctx := context.Background()
 	id := ids.NewV7()
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', $3, now(), 'outbound', 'manual', 'human:x')`,
-		id, e.WS, subject); err != nil {
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', $2, now(), 'outbound', 'manual', 'human:x')`,
+		id, subject); err != nil {
 		t.Fatalf("seeding the exchange: %v", err)
 	}
-	LinkActivity(t, owner, e.WS, id, "person", person)
+	LinkActivity(t, owner, id, "person", person)
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-		VALUES ($1, $2, $3, 'from')`, e.WS, id, colleague); err != nil {
+		INSERT INTO activity_participant (activity_id, user_id, role)
+		VALUES ( $1, $2, 'from')`, id, colleague); err != nil {
 		t.Fatalf("seeding our side: %v", err)
 	}
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-		VALUES ($1, $2, $3, 'to')`, e.WS, id, person); err != nil {
+		INSERT INTO activity_participant (activity_id, person_id, role)
+		VALUES ( $1, $2, 'to')`, id, person); err != nil {
 		t.Fatalf("seeding their side: %v", err)
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, e.WS)

@@ -52,8 +52,8 @@ func (*countingRedeemer) StageQuotaRelease(context.Context, agents.QuotaReleaseR
 	return ids.ApprovalID{}, false, nil
 }
 
-func (*countingRedeemer) Stage(context.Context, agents.StageRequest) (ids.ApprovalID, error) {
-	return ids.New[ids.ApprovalKind](), nil
+func (*countingRedeemer) StageCall(context.Context, agents.StageRequest) (ids.ApprovalID, bool, error) {
+	return ids.New[ids.ApprovalKind](), false, nil
 }
 
 func (c *countingRedeemer) Redeem(_ context.Context, _ ids.ApprovalID, tool, diffHash string) (int64, bool, error) {

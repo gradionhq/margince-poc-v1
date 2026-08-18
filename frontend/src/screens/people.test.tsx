@@ -12,6 +12,7 @@ import {
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../api/schema";
 import { activityTimeline } from "../design-system/activitytimeline";
 import { LocaleProvider } from "../i18n";
 import { ContactsScreen, PersonScreen } from "./people";
@@ -176,7 +177,12 @@ function stubFetch(
     method: string,
     request: Request,
   ) => Promise<Response>,
-  options?: Readonly<{ strength?: unknown }>,
+  options?: Readonly<{
+    strength?: unknown;
+    // The deals this person sits on and the buying role they hold on each —
+    // the identity rail's own section, empty for every test that isn't about it.
+    dealRoles?: readonly components["schemas"]["Person360DealRole"][];
+  }>,
 ): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
@@ -194,6 +200,10 @@ function stubFetch(
         last_inbound_at: "2026-07-01T09:00:00Z",
         last_outbound_at: "2026-06-20T09:00:00Z",
         network: { colleagues: [] },
+        deal_roles: {
+          data: options?.dealRoles ?? [],
+          page: { next_cursor: null, has_more: false },
+        },
       });
     }
     if (pathname.endsWith("/context")) {
@@ -1004,6 +1014,38 @@ describe("PersonScreen — consent section wiring", () => {
     // The section's own aria-label gives it an implicit region role — an
     // absent import would leave no such region on the page at all.
     expect(await screen.findByRole("region", { name: "Consent" })).toBeTruthy();
+  });
+});
+
+// A buying role arrives as a wire enum — `economic_buyer` — and the product's
+// word for it lives in the catalog map the account page's role badge already
+// reads. The rail said the enum, so the same role read two different ways on
+// two pages about the same deal.
+describe("PersonScreen — the buying role in the identity rail", () => {
+  it("names a buying role in the product's words, not the wire's token", async () => {
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(anna);
+      },
+      {
+        dealRoles: [
+          {
+            relationship_id: "rel-9",
+            deal_id: "d-1",
+            deal_title: "Fleet retrofit",
+            role: "economic_buyer",
+          },
+        ],
+      },
+    );
+    render(<PersonScreen id="p-1" />);
+
+    // co.role.economic_buyer — the key the account page reads for the same role.
+    expect(await screen.findByText("economic buyer")).toBeTruthy();
+    expect(screen.queryByText("economic_buyer")).toBeNull();
   });
 });
 

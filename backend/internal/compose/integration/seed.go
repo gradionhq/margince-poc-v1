@@ -73,19 +73,19 @@ func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, direc
 		// fixture input stays data even when a caller passes something unexpected.
 		touch := ids.NewV7()
 		if _, err := owner.Exec(context.Background(), `INSERT INTO activity
-			(id, workspace_id, kind, subject, occurred_at, created_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'touch', $3, $3, $4, 'manual', 'human:x')`,
-			touch, e.WS, stakeholderTouchedAt, direction); err != nil {
+			(id, kind, subject, occurred_at, created_at, direction, source, captured_by)
+			VALUES ($1, 'email', 'touch', $2, $2, $3, 'manual', 'human:x')`,
+			touch, stakeholderTouchedAt, direction); err != nil {
 			t.Fatalf("seeding %q touch: %v", direction, err)
 		}
-		LinkActivity(t, owner, e.WS, touch, "person", person)
+		LinkActivity(t, owner, touch, "person", person)
 	}
 	return person
 }
 
 // LinkActivity attaches an activity to a person or deal through the
 // polymorphic link table.
-func LinkActivity(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityType string, entity ids.UUID) {
+func LinkActivity(t *testing.T, owner *pgx.Conn, activity ids.UUID, entityType string, entity ids.UUID) {
 	t.Helper()
 	column := "deal_id"
 	switch entityType {
@@ -95,8 +95,8 @@ func LinkActivity(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityTy
 		column = "organization_id"
 	}
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, `+column+`) VALUES ($1, $2, $3, $4)`,
-		ws, activity, entityType, entity); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, `+column+`) VALUES ($1, $2, $3)`,
+		activity, entityType, entity); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -158,8 +158,8 @@ func SeedIDRow(t *testing.T, owner *pgx.Conn, sql string, args ...any) ids.UUID 
 // covers only the person and deal columns).
 func LinkToOrg(t *testing.T, e *Env, activity, org ids.UUID) {
 	t.Helper()
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, activity, org)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ($1, 'organization', $2)`, activity, org)
 }
 
 // AccountMailDirectedAt seeds one message with an explicit direction, which is
@@ -169,9 +169,9 @@ func AccountMailDirectedAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, 
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(), `INSERT INTO activity
-		(id, workspace_id, kind, direction, subject, occurred_at, created_at, source, captured_by)
-		VALUES ($1, $2, 'email', $3, $4, $5, $5, 'manual', 'human:x')`,
-		id, ws, direction, subject, at); err != nil {
+		(id, kind, direction, subject, occurred_at, created_at, source, captured_by)
+		VALUES ($1, 'email', $2, $3, $4, $4, 'manual', 'human:x')`,
+		id, direction, subject, at); err != nil {
 		t.Fatalf("seeding %q: %v", subject, err)
 	}
 	return id

@@ -87,23 +87,35 @@ const noWayIn = {
   },
 } as unknown as View;
 
+// The roster the owner control reads, and — since the identity line resolves
+// `captured_by` against the same `["users"]` entry — the only place a record's
+// AUTHOR can be named from. Mira owns the account; Sofia wrote the row, and is
+// here so one story can show that second half.
+const roster = [
+  { id: "u-1", display_name: "Mira Voss" },
+  { id: "u-2", display_name: "Sofia Meier" },
+];
+
+// `record` overrides the account only where a story is about the RECORD rather
+// than the 360 read around it (who wrote it, below). The default keeps every
+// other story on the one fixture.
 function Header({
   view,
   loading,
-}: Readonly<{ view?: View; loading?: boolean }>) {
+  record = org,
+}: Readonly<{ view?: View; loading?: boolean; record?: Organization }>) {
   installFetchStub({
     "GET /me": meRoute({ organization: ["read", "update"] }),
-    "GET /users": () =>
-      jsonResponse({ data: [{ id: "u-1", display_name: "Mira Voss" }], page }),
+    "GET /users": () => jsonResponse({ data: roster, page }),
     "GET /people/p-1": () =>
       jsonResponse({ id: "p-1", full_name: "Dana Buyer" }),
   });
   return (
     <StoryProviders>
       <div style={{ maxWidth: 640 }}>
-        <CompanyLifecycleControl org={org} />
-        <CompanyDescription org={org} />
-        <CompanyIdentityLine org={org} view={view} loading={loading} />
+        <CompanyLifecycleControl org={record} />
+        <CompanyDescription org={record} />
+        <CompanyIdentityLine org={record} view={view} loading={loading} />
         <div
           style={{
             marginTop: "var(--space-2)",
@@ -112,12 +124,12 @@ function Header({
           }}
         >
           <CompanyPrimaryActions
-            org={org}
+            org={record}
             composerOpen={false}
             onComposerOpen={() => {}}
           />
           <CompanyActionBadges
-            org={org}
+            org={record}
             view={view}
             onOpenHistory={() => {}}
             onSetUpPartner={() => {}}
@@ -128,6 +140,11 @@ function Header({
   );
 }
 
+// The three stories below all render the quiet line's FALLBACK provenance,
+// "typed by a person": the fixture's `captured_by` names `u1`, which is nobody
+// the roster answers with, and an author the roster cannot resolve is not named
+// with the raw uuid. That is the state a record whose author sits outside the
+// roster's single page lands in, and it stays covered here.
 export const WithWayIn: Story = { render: () => <Header view={withWayIn} /> };
 
 export const NoWayIn: Story = { render: () => <Header view={noWayIn} /> };
@@ -136,4 +153,15 @@ export const NoWayIn: Story = { render: () => <Header view={noWayIn} /> };
 // withhold together rather than reading "never contacted" off no answer yet.
 export const Loading: Story = {
   render: () => <Header view={withWayIn} loading />,
+};
+
+// The other half of the provenance tag, and the state the header did not show
+// until the identity line was given the roster: the NAMED author, "typed by
+// Sofia Meier", beside the date the record was created. `captured_by` names a
+// colleague the roster answers with, and one this viewer is not — the tag reads
+// "typed by you" for the reader's own writing.
+export const AuthorNamed: Story = {
+  render: () => (
+    <Header view={withWayIn} record={{ ...org, captured_by: "human:u-2" }} />
+  ),
 };

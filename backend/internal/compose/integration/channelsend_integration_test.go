@@ -122,16 +122,15 @@ func (c *channelSendEnv) seedInboundMessage(t *testing.T) {
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, channel_provider, body, occurred_at, direction,
-			                      source_system, source_id, source, captured_by, thread_key)
-			VALUES ($1, 'message', 'telegram', 'Is this still available?', now(), 'inbound',
-			        'telegram', '8100:770011:5', 'telegram:8100:770011:5', 'connector:telegram', $2)
-			RETURNING id`, c.ws, channelSendThreadKey).Scan(&c.activityID); err != nil {
+			INSERT INTO activity (kind, channel_provider, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key)
+			VALUES ( 'message', 'telegram', 'Is this still available?', now(), 'inbound',
+			        'telegram', '8100:770011:5', 'telegram:8100:770011:5', 'connector:telegram', $1)
+			RETURNING id`, channelSendThreadKey).Scan(&c.activityID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES ($1, $2, 'person', $3)`, c.ws, c.activityID, c.personID)
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, c.activityID, c.personID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the inbound conversation: %v", err)

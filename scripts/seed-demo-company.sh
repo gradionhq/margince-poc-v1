@@ -202,12 +202,11 @@ ensure_activity demo-gf-task "$(jq -n --arg o "$org_id" '{
 # them, at the real write shape, and a hand-inserted ledger would drift from
 # the writer the moment the mirror changes.
 echo "== the accounting source =="
-ws_id="$(psql_one "SELECT workspace_id FROM organization WHERE id = '$org_id'")"
 conn_id="$(psql_one "SELECT id FROM finance_connection WHERE archived_at IS NULL AND status <> 'disconnected' LIMIT 1")"
 if [ -z "$conn_id" ]; then
   conn_id="$(psql_one "INSERT INTO finance_connection
-      (workspace_id, provider, status, credential_ref, source, captured_by)
-    VALUES ('$ws_id', 'offline_demo', 'active', 'offline://demo', 'system', 'system:seed')
+      (provider, status, credential_ref, source, captured_by)
+    VALUES ('offline_demo', 'active', 'offline://demo', 'system', 'system:seed')
     RETURNING id")"
   echo "  OK: connected the offline demo source"
 else
@@ -216,9 +215,9 @@ fi
 
 if [ -z "$(psql_one "SELECT 1 FROM finance_customer_link WHERE organization_id = '$org_id' AND archived_at IS NULL")" ]; then
   psql_one "INSERT INTO finance_customer_link
-      (workspace_id, connection_id, organization_id, external_customer_id,
+      (connection_id, organization_id, external_customer_id,
        sync_hash, source, captured_by)
-    VALUES ('$ws_id', '$conn_id', '$org_id', 'GLAZED-FROG', 'seed', 'system', 'system:seed')" >/dev/null
+    VALUES ('$conn_id', '$org_id', 'GLAZED-FROG', 'seed', 'system', 'system:seed')" >/dev/null
   echo "  OK: matched $COMPANY to a customer in the source"
 else
   echo "  OK: $COMPANY is already matched"

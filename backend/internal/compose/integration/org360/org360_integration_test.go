@@ -147,9 +147,9 @@ func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
 	// Two qualifying interactions inside the §4 window, one each way, so
 	// the score is non-zero and reciprocity is balanced.
 	for _, direction := range []string{"inbound", "outbound"} {
-		activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
-		integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
+		activity := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+			VALUES ($1, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`)
+		integration.LinkActivity(t, owner, activity, "person", contact)
 	}
 
 	purpose := seedConsentPurpose(t, owner, "marketing_email", "Marketing email")
@@ -314,10 +314,10 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirDeal, org)
 
-	task := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, is_done, source, captured_by)
-		VALUES ($1, $2, 'task', 'Send the renewal paperwork', now(), false, 'manual', 'human:x')`, e.WS)
-	integration.LinkActivity(t, owner, e.WS, task, "person", mine)
-	integration.LinkActivity(t, owner, e.WS, task, "deal", theirDeal)
+	task := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, is_done, source, captured_by)
+		VALUES ($1, 'task', 'Send the renewal paperwork', now(), false, 'manual', 'human:x')`)
+	integration.LinkActivity(t, owner, task, "person", mine)
+	integration.LinkActivity(t, owner, task, "deal", theirDeal)
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -362,9 +362,9 @@ func TestOrganization360NextMeetingSeparatesNoneFromWithheld(t *testing.T) {
 	// A meeting in the past is not the next one. Seeded before the future meeting
 	// so an ordering that ignored occurred_at would return this row.
 	past := seedMeeting(t, owner, e.WS, "Kickoff, already held", org360Clock.Add(-48*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, past, "organization", org)
+	integration.LinkActivity(t, owner, past, "organization", org)
 	future := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(72*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, future, "organization", org)
+	integration.LinkActivity(t, owner, future, "organization", org)
 
 	view, err = svc.Assemble(granted, ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -415,18 +415,18 @@ func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
 	}
 
 	meeting := seedMeeting(t, owner, e.WS, "Renewal review", org360Clock.Add(24*time.Hour))
-	integration.LinkActivity(t, owner, e.WS, meeting, "person", mine)
+	integration.LinkActivity(t, owner, meeting, "person", mine)
 	for _, person := range []ids.UUID{mine, theirs} {
-		e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES ($1, $2, $3, 'attendee')`, e.WS, meeting, person)
+		e.WsExec(t, `INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'attendee')`, meeting, person)
 	}
 	// The visible contact ALSO holds a second role. uq_activity_participant is
 	// unique on (activity, role, person), so one person legitimately has several
 	// rows on one meeting — a captured mail makes its sender both `from` and
 	// `attendee`. Without this the fixture has one row per person and cannot
 	// tell a correct answer from one that lists somebody once per role.
-	e.WsExec(t, `INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-		VALUES ($1, $2, $3, 'from')`, e.WS, meeting, mine)
+	e.WsExec(t, `INSERT INTO activity_participant (activity_id, person_id, role)
+		VALUES ( $1, $2, 'from')`, meeting, mine)
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -451,8 +451,8 @@ func seedMeeting(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, at 
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', $3, $4, 'manual', 'human:x')`, id, ws, subject, at); err != nil {
+		INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', $2, $3, 'manual', 'human:x')`, id, subject, at); err != nil {
 		t.Fatalf("seeding a meeting: %v", err)
 	}
 	return id

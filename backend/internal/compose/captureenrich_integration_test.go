@@ -60,14 +60,14 @@ func seedEnrichPerson(t *testing.T, e *integration.Env, email, body string) ids.
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, direction, source_system, source_id, source, captured_by)
-			VALUES ($1, $2, 'email', 'hello', $3, 'inbound', 'gmail', $4, 'gmail:seed', 'connector:gmail')`,
-			activity, e.WS, body, activity.String()); err != nil {
+			INSERT INTO activity (id, kind, subject, body, direction, source_system, source_id, source, captured_by)
+			VALUES ($1, 'email', 'hello', $2, 'inbound', 'gmail', $3, 'gmail:seed', 'connector:gmail')`,
+			activity, body, activity.String()); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES ($1, $2, 'person', $3)`, e.WS, activity, person)
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, activity, person)
 		return err
 	})
 	if err != nil {
@@ -143,14 +143,14 @@ func TestSignatureEnrichPass(t *testing.T) {
 		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 			ctx := context.Background()
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO activity (id, workspace_id, kind, subject, body, direction, occurred_at, source_system, source_id, source, captured_by)
-				VALUES ($1, $2, 'email', 'again', $3, 'inbound', now() + interval '1 hour', 'gmail', $4, 'gmail:seed', 'connector:gmail')`,
-				newer, e.WS, "Hi again,\n\nBob Person\nCTO\nAcme Holding GmbH", newer.String()); err != nil {
+				INSERT INTO activity (id, kind, subject, body, direction, occurred_at, source_system, source_id, source, captured_by)
+				VALUES ($1, 'email', 'again', $2, 'inbound', now() + interval '1 hour', 'gmail', $3, 'gmail:seed', 'connector:gmail')`,
+				newer, "Hi again,\n\nBob Person\nCTO\nAcme Holding GmbH", newer.String()); err != nil {
 				return err
 			}
 			_, err := tx.Exec(ctx, `
-				INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-				VALUES ($1, $2, 'person', $3)`, e.WS, newer, person)
+				INSERT INTO activity_link (activity_id, entity_type, person_id)
+				VALUES ( $1, 'person', $2)`, newer, person)
 			return err
 		})
 		if err != nil {

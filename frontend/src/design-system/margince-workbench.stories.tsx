@@ -6,7 +6,7 @@ import { SunMoon } from "lucide-react";
 import type { ComponentProps } from "react";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { Button } from "./atoms";
+import { Button, Card } from "./atoms";
 import {
   MarginceWorkbench,
   type WorkbenchRuntimeLabels,
@@ -141,13 +141,13 @@ function Conversation() {
 function Artifact() {
   return (
     <div className="wrap">
-      <div className="card">
+      <Card as="div">
         <h2>Northwind Traders GmbH</h2>
         <p>
           Wholesale food distribution for independent grocers across
           German-speaking Europe.
         </p>
-      </div>
+      </Card>
     </div>
   );
 }

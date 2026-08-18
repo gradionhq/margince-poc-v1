@@ -88,12 +88,11 @@ func seedRollupFxRate(t *testing.T, e *Env, fromCurrency, rate string, day time.
 func seedRollupOrgActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.Time) {
 	t.Helper()
 	activityID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'rollup touch', $3, 'manual', 'human:test')`,
-		activityID, e.WS, occurredAt)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`,
-		e.WS, activityID, org)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'rollup touch', $2, 'manual', 'human:test')`,
+		activityID, occurredAt)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, activityID, org)
 }
 
 // seedRollupDealLinkedActivity files one activity against a DEAL of the
@@ -106,12 +105,11 @@ func seedRollupDealLinkedActivity(t *testing.T, e *Env, st rollupStages, org ids
 		VALUES ($1, 'Deal With Mail', $2, $3, $4, 'open', 'manual', 'human:test')`,
 		dealID, st.pipeline, st.open, org)
 	activityID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'deal thread', $3, 'manual', 'human:test')`,
-		activityID, e.WS, occurredAt)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, 'deal', $3)`,
-		e.WS, activityID, dealID)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'deal thread', $2, 'manual', 'human:test')`,
+		activityID, occurredAt)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
+		VALUES ( $1, 'deal', $2)`, activityID, dealID)
 }
 
 // seedRollupPersonLinkedActivity files one activity against a PERSON
@@ -129,12 +127,11 @@ func seedRollupPersonLinkedActivity(t *testing.T, e *Env, org ids.UUID, occurred
 		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:test')`,
 		ids.NewV7(), e.WS, personID, org)
 	activityID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'contact thread', $3, 'connector:gmail', 'connector:gmail')`,
-		activityID, e.WS, occurredAt)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, 'person', $3)`,
-		e.WS, activityID, personID)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'contact thread', $2, 'connector:gmail', 'connector:gmail')`,
+		activityID, occurredAt)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
+		VALUES ( $1, 'person', $2)`, activityID, personID)
 }
 
 // rollupOrgReadPerms is the minimal caller the rollup admits: read on
@@ -510,13 +507,13 @@ func TestOrgRollupCountsAnActivityReachingTheTreeTwiceOnlyOnce(t *testing.T) {
 		VALUES ($1, 'Both Links', $2, $3, $4, 'open', 'manual', 'human:test')`,
 		dealID, st.pipeline, st.open, org)
 	activityID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'filed twice', $3, 'manual', 'human:test')`,
-		activityID, e.WS, now.Add(-24*time.Hour))
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, activityID, org)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, 'deal', $3)`, e.WS, activityID, dealID)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'filed twice', $2, 'manual', 'human:test')`,
+		activityID, now.Add(-24*time.Hour))
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, activityID, org)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
+		VALUES ( $1, 'deal', $2)`, activityID, dealID)
 
 	res, err := compose.OrgHierarchyRollup(e.Admin(), e.Pool, org, "self", fixedClock(now))
 	if err != nil {

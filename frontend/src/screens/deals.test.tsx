@@ -55,6 +55,7 @@ const render = (ui: ReactNode) => {
 type Stage = components["schemas"]["Stage"];
 type Deal = components["schemas"]["Deal"];
 type Offer = components["schemas"]["Offer"];
+type Approval = components["schemas"]["Approval"];
 
 const stages: Stage[] = [
   {
@@ -126,6 +127,10 @@ function stubDealBackend(
   onRecord: Deal,
   offers: Offer[],
   onCreateOffer?: (body: unknown) => void,
+  // What is staged against this deal. The record reads the workspace-wide
+  // pending queue and filters it by target_entity_id, so a row only reaches
+  // the panel when it names this deal.
+  approvals: Approval[] = [],
 ) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
@@ -169,7 +174,7 @@ function stubDealBackend(
       return jsonResponse({ data: [], page: { next_cursor: null } });
     }
     if (url.includes("/approvals")) {
-      return jsonResponse({ data: [], page: { next_cursor: null } });
+      return jsonResponse({ data: approvals, page: { next_cursor: null } });
     }
     if (url.includes("/activities")) {
       return jsonResponse({ data: [], page: { next_cursor: null } });
@@ -1040,6 +1045,38 @@ describe("DealScreen offers panel", () => {
     await waitFor(() =>
       expect(window.location.hash).toBe("#/offers/new-offer"),
     );
+  });
+});
+
+describe("DealScreen pending approvals", () => {
+  const staged = {
+    id: "ap-1",
+    kind: "advance_deal",
+    status: "pending",
+    summary: "Move Fleet retrofit to Proposal",
+    proposed_change: { to_stage_id: "s2" },
+    proposed_by: "agent:capture",
+    target_entity_type: "deal",
+    target_entity_id: "d1",
+    created_at: "2026-07-01T08:00:00Z",
+    evidence: [],
+  } as Approval;
+
+  // The panel states the same two facts the approvals inbox states, in the same
+  // words: the kind through the shared catalog map, the proposer through the
+  // provenance tag. Off the wire those facts read `advance_deal` and
+  // `agent:capture` — the API's vocabulary on a page whose reader never sees
+  // the API.
+  it("names the staged kind and its proposer in the product's words, not the wire's", async () => {
+    vi.stubGlobal("fetch", stubDealBackend(deal({}), [], undefined, [staged]));
+    render(<DealScreen id="d1" />);
+
+    // approval.kind.advance_deal — the key the inbox reads for the same kind.
+    expect(await screen.findByText("Move a deal forward")).toBeTruthy();
+    // trust.agentTag: an agent, named, rather than the doubled wire string.
+    expect(screen.getByText("agent: capture")).toBeTruthy();
+    expect(screen.queryByText("advance_deal")).toBeNull();
+    expect(screen.queryByText("agent:capture")).toBeNull();
   });
 });
 

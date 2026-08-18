@@ -229,15 +229,15 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (`+ws+`, 'email', 'Letzte Mail', 'outbound', now(), 'manual', 'human:test')
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES ( 'email', 'Letzte Mail', 'outbound', now(), 'manual', 'human:test')
 			RETURNING id`).Scan(&activityID); err != nil {
 			return err
 		}
 		// A user-ONLY participant row: no person arm, no address arm.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (`+ws+`, $1, $2, 'from')`, activityID, doomed); err != nil {
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, 'from')`, activityID, doomed); err != nil {
 			return err
 		}
 		// A CONFIRMED ghost pointing at the contact.
@@ -292,7 +292,6 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 func TestRelinkRepointsOnlyThePersonItDisplaced(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := context.Background()
-	ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 
 	linked := e.SeedPerson(t, "Linked Contact", &e.Rep1)
 	unlinked := e.SeedPerson(t, "Never Linked", &e.Rep1)
@@ -301,20 +300,20 @@ func TestRelinkRepointsOnlyThePersonItDisplaced(t *testing.T) {
 	var activityID ids.ActivityID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (`+ws+`, 'email', 'Verwechslung', 'inbound', now(), 'gmail:m-9', 'connector:gmail')
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES ( 'email', 'Verwechslung', 'inbound', now(), 'gmail:m-9', 'connector:gmail')
 			RETURNING id`).Scan(&activityID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES (`+ws+`, $1, 'person', $2)`, activityID, linked); err != nil {
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, activityID, linked); err != nil {
 			return err
 		}
 		// Two participants: one matching the link, one that never had a link.
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (`+ws+`, $1, $2, 'from'), (`+ws+`, $1, $3, 'cc')`, activityID, linked, unlinked)
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ($1, $2, 'from'), ($1, $3, 'cc')`, activityID, linked, unlinked)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding: %v", err)

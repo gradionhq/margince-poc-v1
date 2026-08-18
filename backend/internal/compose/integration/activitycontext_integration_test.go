@@ -116,20 +116,20 @@ func seedMeetingFixture(t *testing.T, e *SearchEnv) meetingFixture {
 // seedMeeting records one captured calendar event.
 func seedMeeting(t *testing.T, e *SearchEnv, subject string) ids.UUID {
 	t.Helper()
-	return e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', $3, now(), 'connector', 'connector:gcal')`, subject)
+	return e.SeedID(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', $2, now(), 'connector', 'connector:gcal')`, subject)
 }
 
 func linkMeeting(t *testing.T, e *SearchEnv, meeting ids.UUID, entityType, column string, target ids.UUID) {
 	t.Helper()
-	e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, `+column+`)
-		VALUES ($1, $2, $3, $4, $5)`, meeting, entityType, target)
+	e.SeedID(t, `INSERT INTO activity_link (id, activity_id, entity_type, `+column+`)
+		VALUES ($1, $2, $3, $4)`, meeting, entityType, target)
 }
 
 func addParty(t *testing.T, e *SearchEnv, meeting ids.UUID, role string, person *ids.UUID, address string) {
 	t.Helper()
-	e.Seed(t, `INSERT INTO activity_participant (id, workspace_id, activity_id, role, person_id, address)
-		VALUES ($1, $2, $3, $4, $5, $6)`, meeting, role, person, address)
+	e.SeedID(t, `INSERT INTO activity_participant (id, activity_id, role, person_id, address)
+		VALUES ($1, $2, $3, $4, $5)`, meeting, role, person, address)
 }
 
 // The headline case: a meeting that names a deal is prepped against the deal,
@@ -331,8 +331,8 @@ func TestAColleagueOnTheInvitationIsNotAnUnresolvedAttendee(t *testing.T) {
 	f := seedMeetingFixture(t, e)
 	meeting := seedMeeting(t, e, "Internal prep")
 	linkMeeting(t, e, meeting, "deal", "deal_id", f.rep1Deal)
-	e.Seed(t, `INSERT INTO activity_participant (id, workspace_id, activity_id, role, user_id, address)
-		VALUES ($1, $2, $3, 'organizer', $4, 'rep0@search.test')`, meeting, e.Rep1)
+	e.SeedID(t, `INSERT INTO activity_participant (id, activity_id, role, user_id, address)
+		VALUES ($1, $2, 'organizer', $3, 'rep0@search.test')`, meeting, e.Rep1)
 
 	assembled, err := prepFor(e.Admin(), t, e, meeting)
 	if err != nil {
@@ -355,11 +355,11 @@ func TestTheOrganizerSurvivesAnOversizedInvitation(t *testing.T) {
 	if _, err := e.Owner.Exec(context.Background(), `
 		WITH room AS (
 		    INSERT INTO person (workspace_id, owner_id, full_name, source, captured_by)
-		    SELECT $1, $3, 'Attendee ' || n, 'manual', 'human:x' FROM generate_series(1, 60) n
+		    SELECT $1, $2, 'Attendee ' || n, 'manual', 'human:x' FROM generate_series(1, 60) n
 		    RETURNING id
 		)
-		INSERT INTO activity_participant (workspace_id, activity_id, role, person_id)
-		SELECT $1, $2, 'attendee', id FROM room`, e.WS, meeting, e.Rep1); err != nil {
+		INSERT INTO activity_participant (activity_id, role, person_id)
+		SELECT $3, 'attendee', id FROM room`, e.WS, e.Rep1, meeting); err != nil {
 		t.Fatalf("seeding the oversized invitation: %v", err)
 	}
 	organizer := e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)

@@ -104,4 +104,34 @@ func TestPredicateEngineFiltersRealRowsWithinRowScope(t *testing.T) {
 	if !got[mineOther] || !got[mineMatch] || got[foreignMatch] || got[mineLiteral] {
 		t.Errorf("nested OR = %v, want {%s, %s}", got, mineOther, mineMatch)
 	}
+
+	// The COUNT is scoped the same way the page is, and it needs saying
+	// separately: a count is an existence oracle. An unscoped one would answer
+	// "812 rows match owner_id = <another team's rep>" while the page it labels
+	// showed none, which tells the caller precisely what the row scope exists to
+	// withhold. The rep-versus-admin delta below IS the scope clause, exactly as
+	// it is for SelectIDs above.
+	countMatching := func(ctx context.Context, p storekit.Predicate) int {
+		t.Helper()
+		var n int
+		err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+			var err error
+			n, err = engine.CountMatching(ctx, tx, p)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("predicate count: %v", err)
+		}
+		return n
+	}
+
+	if n := countMatching(rep, contains("renewal")); n != 2 {
+		t.Errorf("team-scoped count(renewal) = %d, want 2 — the foreign team's match must not be counted", n)
+	}
+	if n := countMatching(e.Admin(), contains("renewal")); n != 3 {
+		t.Errorf("admin count(renewal) = %d, want 3 across both teams", n)
+	}
+	if n := countMatching(rep, byForeignOwner); n != 0 {
+		t.Errorf("team-scoped count on a foreign owner = %d, want 0 — a count must not confirm rows the caller cannot read", n)
+	}
 }

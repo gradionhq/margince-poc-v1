@@ -3292,6 +3292,79 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/filters/vocabulary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read what a new filter clause may name on one record type (LVS-EXT-8).
+         * @description The per-resource filter vocabulary: every field a dynamic list, saved view
+         *     or filtered export may name for this record type, each with the operator
+         *     subset its type admits (LVS-PARAM-1).
+         *
+         *     This is the server's own vocabulary, read rather than restated, so a
+         *     filter builder can offer a field picker without keeping a second copy of
+         *     it — which is the whole point of the vocabulary being closed.
+         *
+         *     What that guarantees, stated as the subset relation it is rather than the
+         *     equality it resembles: **everything listed here is accepted by the
+         *     engine**, so a clause composed from this operation cannot be refused as
+         *     unknown. The converse does not hold, and the gap is exactly the RETIRED
+         *     set. A retired field keeps its column and its values, so a saved segment
+         *     naming one keeps evaluating — while retire means "hidden from API and
+         *     filtering" (CUSTOM-FIELDS-AC-13), so nothing offers it for a NEW clause.
+         *     The admin catalog read is the one surface that still shows retired fields
+         *     (CUSTOM-FIELDS-AC-14); this is not that surface.
+         */
+        get: operations["getFilterVocabulary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/filters/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Count and sample what a filter would select, before it is saved (LVS-EXT-9).
+         * @description The match count and a bounded first page for a candidate filter tree —
+         *     the filter a human is still editing, which nothing else in the contract
+         *     can evaluate. The object list operations take flat scalar parameters and
+         *     cannot express a tree; membership needs a stored list; and the filtered
+         *     export is audit-logged, so driving a live recount through it would write
+         *     an audit row per keystroke.
+         *
+         *     POST because the filter tree is a structured body, not because anything
+         *     is created. Nothing is: no row, no audit entry, no outbox event. That is
+         *     the property that separates this from the export, and it is deliberate —
+         *     a preview a human triggers by typing must not be indistinguishable from
+         *     an extraction they chose to perform.
+         *
+         *     Row-scoped like every read: the count and the page are what THIS caller
+         *     may see, so two people previewing the same filter can legitimately get
+         *     different numbers. `columns` and `rows` are the same projection the JSON
+         *     filtered export writes for the same filter, so what you preview is what
+         *     an export of it would contain.
+         */
+        post: operations["previewFilter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/views": {
         parameters: {
             query?: never;
@@ -14276,6 +14349,111 @@ export interface components {
             data: components["schemas"]["ListMember"][];
             page: components["schemas"]["PageInfo"];
         };
+        /** @description A candidate filter to evaluate without saving it. */
+        FilterPreviewRequest: {
+            /** @enum {string} */
+            resource: "person" | "organization" | "deal" | "lead" | "project";
+            /**
+             * @description The canonical filter tree — the same representation a dynamic list's
+             *     `definition` and a saved view's `query` carry, and untyped here for
+             *     the same reason they are. The grammar's authority is the predicate
+             *     engine, which validates the tree and answers a precise 422 naming the
+             *     offending field and reason; a recursive schema here would be a second
+             *     statement of that grammar, free to drift from the one that decides.
+             *     One engine evaluates all three, so a tree this operation accepts is
+             *     one a list or view accepts.
+             */
+            filter: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description How many rows to sample. The COUNT is unaffected by this — it is the
+             *     full match count for the caller, not the size of the page.
+             * @default 25
+             */
+            limit: number;
+        };
+        /** @description What a candidate filter would select for this caller (LVS-EXT-9). */
+        FilterPreview: {
+            /** @enum {string} */
+            resource: "person" | "organization" | "deal" | "lead" | "project";
+            /**
+             * @description Every row the filter selects that this caller may see — not the
+             *     length of `rows`. This is the number a builder shows a human while
+             *     they decide whether the filter is right, so it is a full count rather
+             *     than a page size dressed up as one.
+             */
+            match_count: number;
+            /**
+             * @description The column order the rows below are keyed by, schema-derived and
+             *     identical to the JSON filtered export's for the same resource.
+             */
+            columns: string[];
+            /**
+             * @description Up to `limit` matching rows as column→value maps, ordered by id.
+             *     Deliberately the export's projection rather than a shape invented for
+             *     this screen: a preview that showed different columns than the export
+             *     of the same filter would be a preview of something else.
+             */
+            rows: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * @description Whether `match_count` exceeds the rows returned — so a caller can say
+             *     "showing 25 of 812" without comparing lengths and guessing.
+             */
+            truncated: boolean;
+        };
+        /**
+         * @description What a filter may say about one record type (LVS-EXT-8). Read from the
+         *     engine that evaluates filters, so the set here and the set the engine
+         *     accepts are the same set.
+         */
+        FilterVocabulary: {
+            /** @enum {string} */
+            resource: "person" | "organization" | "deal" | "lead" | "project";
+            /**
+             * @description Every offerable field, core and custom together — a filter names them
+             *     the same way, so splitting them here would invite a caller to treat
+             *     one kind as second class. A retired field of either kind is absent
+             *     (see `custom`); a core field retired by an ADR is absent for the same
+             *     reason and has no catalog row a client could learn that from.
+             */
+            fields: components["schemas"]["FilterVocabularyField"][];
+        };
+        /** @description One field a filter clause may name, with what it accepts. */
+        FilterVocabularyField: {
+            /**
+             * @description The name a filter clause uses. For a custom field this is the
+             *     physical `cf_`-prefixed column, which is the same `column_name` the
+             *     custom-field catalog reports — join on it to show an admin's label,
+             *     since the catalog owns labels and this vocabulary does not.
+             */
+            name: string;
+            /**
+             * @description The six custom-field types plus `id` for a reference to another
+             *     record. The type decides the operators, which is why it is here.
+             * @enum {string}
+             */
+            type: "text" | "number" | "date" | "currency" | "picklist" | "boolean" | "id";
+            /**
+             * @description The operator subset this field's type admits (LVS-PARAM-1), in one
+             *     stable order. An operator absent here is one the engine refuses for
+             *     this field, so a builder can disable it rather than discover it.
+             */
+            operators: ("eq" | "neq" | "gt" | "lt" | "gte" | "lte" | "in" | "contains" | "exists")[];
+            /**
+             * @description Whether this is a workspace-defined custom-field column. Where true,
+             *     `name` is the catalog's `column_name` — join on it to show an admin's
+             *     `label`, which the catalog owns and this vocabulary does not.
+             *
+             *     Only ACTIVE custom fields appear, which is the same set a record write
+             *     may set. A retired one is absent here and still accepted by the
+             *     engine, so no `status` lookup is needed to know whether to offer a
+             *     field: if this operation listed it, it is offerable.
+             */
+            custom: boolean;
+        };
         /** @description A tag. Mirrors the `tag` table. */
         Tag: {
             /** Format: uuid */
@@ -23806,6 +23984,60 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getFilterVocabulary: {
+        parameters: {
+            query: {
+                /** @description The record type whose vocabulary to read. */
+                resource: "person" | "organization" | "deal" | "lead" | "project";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The vocabulary for this resource. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterVocabulary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewFilter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FilterPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The count and first page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FilterPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listSavedViews: {

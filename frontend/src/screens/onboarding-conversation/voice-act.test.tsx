@@ -11,6 +11,10 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { useReducer } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ASYNC_UTIL_TIMEOUT_MS,
+  SLOWEST_MEASURED_TEST_MS,
+} from "../../../vitest.budget";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
 import type { ConversationState } from "./conversation-machine";
@@ -24,6 +28,21 @@ import { VoiceAct } from "./voice-act";
 type CorpusPreview = components["schemas"]["VoiceCorpusPreviewResult"];
 type CorpusSummary = components["schemas"]["VoiceCorpusSummary"];
 type IngestStats = components["schemas"]["VoiceIngestStats"];
+
+// The two build cases below narrate a poll, so each raises two of its waiters
+// to 4000ms to outlast it. A test may spend the SUM of its waiters' budgets
+// without any one of them failing, and the heavier of the two spends 12000ms —
+// past the suite's own ceiling, which is derived for tests that wait at the
+// default. So they state their own, the way read-conclusion.test.tsx and
+// onboarding-restore.test.tsx already do: the raised waiters, the defaults
+// beside them, and the SAME measured allowance for the work between them that
+// the suite ceiling uses, so the two rest on one measurement rather than on a
+// round number picked here. Without it the test fails while every waiter in it
+// is still inside its budget, and the failure names the test rather than the
+// poll that was slow (issue 1144).
+const POLL_WAITER_MS = 4000;
+const BUILD_TEST_MS =
+  POLL_WAITER_MS * 2 + ASYNC_UTIL_TIMEOUT_MS * 4 + SLOWEST_MEASURED_TEST_MS;
 
 const PROFILE_ID = "018f3a1b-0000-7000-8000-0000000000d1";
 const BUILD_IDS = [
@@ -484,78 +503,86 @@ describe("the conversational voice act", () => {
     expect(screen.queryByText(/I need at least 800/)).toBeNull();
   });
 
-  it("narrates build stages and lands the succeeded result card with the candidate note", async () => {
-    stubApi({
-      preview: documentPreview,
-      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
-      builds: {
-        [BUILD_IDS[0]]: [
-          { id: BUILD_IDS[0], status: "running", stage: "extract" },
-          { id: BUILD_IDS[0], status: "succeeded", stage: null },
-        ],
-      },
-    });
-    render(<VoiceHarness initial={collectingState()} />);
+  it(
+    "narrates build stages and lands the succeeded result card with the candidate note",
+    async () => {
+      stubApi({
+        preview: documentPreview,
+        ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+        builds: {
+          [BUILD_IDS[0]]: [
+            { id: BUILD_IDS[0], status: "running", stage: "extract" },
+            { id: BUILD_IDS[0], status: "succeeded", stage: null },
+          ],
+        },
+      });
+      render(<VoiceHarness initial={collectingState()} />);
 
-    await uploadFile("one.md", "Enough material.");
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Build my voice profile/ }),
-    );
+      await uploadFile("one.md", "Enough material.");
+      await userEvent.click(
+        await screen.findByRole("button", { name: /Build my voice profile/ }),
+      );
 
-    expect(
-      await screen.findByText(/Finding your signature moves/, undefined, {
-        timeout: 4000,
-      }),
-    ).toBeTruthy();
-    expect(
-      await screen.findByText(/Your voice profile is ready\./, undefined, {
-        timeout: 4000,
-      }),
-    ).toBeTruthy();
-    expect(
-      await screen.findByText(/Here is your voice, in your own words\./),
-    ).toBeTruthy();
-    expect(
-      await screen.findByText(/needs your review before it goes live/),
-    ).toBeTruthy();
-    expect(await screen.findByText(/Direct, concrete/)).toBeTruthy();
-  });
+      expect(
+        await screen.findByText(/Finding your signature moves/, undefined, {
+          timeout: 4000,
+        }),
+      ).toBeTruthy();
+      expect(
+        await screen.findByText(/Your voice profile is ready\./, undefined, {
+          timeout: 4000,
+        }),
+      ).toBeTruthy();
+      expect(
+        await screen.findByText(/Here is your voice, in your own words\./),
+      ).toBeTruthy();
+      expect(
+        await screen.findByText(/needs your review before it goes live/),
+      ).toBeTruthy();
+      expect(await screen.findByText(/Direct, concrete/)).toBeTruthy();
+    },
+    BUILD_TEST_MS,
+  );
 
-  it("offers a retry after a failed build and a second build proceeds", async () => {
-    const calls = stubApi({
-      preview: documentPreview,
-      ingests: [{ stats: documentStats, summary: summaryOf(820) }],
-      builds: {
-        [BUILD_IDS[0]]: [{ id: BUILD_IDS[0], status: "failed", stage: null }],
-        [BUILD_IDS[1]]: [
-          { id: BUILD_IDS[1], status: "succeeded", stage: null },
-        ],
-      },
-    });
-    render(<VoiceHarness initial={collectingState()} />);
+  it(
+    "offers a retry after a failed build and a second build proceeds",
+    async () => {
+      const calls = stubApi({
+        preview: documentPreview,
+        ingests: [{ stats: documentStats, summary: summaryOf(820) }],
+        builds: {
+          [BUILD_IDS[0]]: [{ id: BUILD_IDS[0], status: "failed", stage: null }],
+          [BUILD_IDS[1]]: [
+            { id: BUILD_IDS[1], status: "succeeded", stage: null },
+          ],
+        },
+      });
+      render(<VoiceHarness initial={collectingState()} />);
 
-    await uploadFile("one.md", "Enough material.");
-    await userEvent.click(
-      await screen.findByRole("button", { name: /Build my voice profile/ }),
-    );
+      await uploadFile("one.md", "Enough material.");
+      await userEvent.click(
+        await screen.findByRole("button", { name: /Build my voice profile/ }),
+      );
 
-    expect(
-      await screen.findByText(/The build did not finish/, undefined, {
-        timeout: 4000,
-      }),
-    ).toBeTruthy();
+      expect(
+        await screen.findByText(/The build did not finish/, undefined, {
+          timeout: 4000,
+        }),
+      ).toBeTruthy();
 
-    await userEvent.click(
-      screen.getByRole("button", { name: /Try the build again/ }),
-    );
+      await userEvent.click(
+        screen.getByRole("button", { name: /Try the build again/ }),
+      );
 
-    expect(
-      await screen.findByText(/Your voice profile is ready\./, undefined, {
-        timeout: 4000,
-      }),
-    ).toBeTruthy();
-    expect(requestsTo(calls, "/builds", "POST").length).toBe(2);
-  });
+      expect(
+        await screen.findByText(/Your voice profile is ready\./, undefined, {
+          timeout: 4000,
+        }),
+      ).toBeTruthy();
+      expect(requestsTo(calls, "/builds", "POST").length).toBe(2);
+    },
+    BUILD_TEST_MS,
+  );
 
   it("keeps the newest-by-request-order summary when ingest responses settle out of order", async () => {
     stubApi({

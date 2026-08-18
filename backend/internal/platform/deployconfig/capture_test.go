@@ -6,13 +6,15 @@ package deployconfig
 import (
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // The yaml tag is the contract, not the field name: the loader runs with
 // KnownFields(true), so a misspelled key is a refusal to boot rather than a
 // setting that quietly does nothing.
 func TestTracePayloadsIsReadFromTheFile(t *testing.T) {
-	cfg, err := Load(writeTemp(t, "version: 1\ncapture:\n  trace_payloads: true\n"))
+	cfg, err := Load(writeTemp(t, "version: 1\ncapture:\n  trace_payloads: true\n"), runtimeenv.Production)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
