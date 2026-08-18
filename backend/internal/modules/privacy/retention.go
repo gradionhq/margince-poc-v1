@@ -95,8 +95,9 @@ const maxRecordDuration = 10 * time.Second
 // The §3.4 ladder is unaffected: its rungs are different scopes (`activity` at
 // 1095, `activity/transcript` at 365), never repeated ones.
 //
-// aiRetentionStages adds the engine-owned AI stores, which batch the same way.
-var MaxPassDuration = time.Duration(len(retentionSelectors)+aiRetentionStages) *
+// aiRetentionStages adds the engine-owned AI stores, which batch the same way,
+// and restrictionExpiryStages the erasure of held records whose window closed.
+var MaxPassDuration = time.Duration(len(retentionSelectors)+aiRetentionStages+restrictionExpiryStages) *
 	(retentionBatch * maxRecordDuration)
 
 // embedCallRetention bounds how long an embedding-kind ai_call trace row
@@ -221,6 +222,12 @@ func (s *RetentionService) EvaluateInstallation(ctx context.Context) error {
 	// limitation — but narrowed to rows whose deletion cannot reach content
 	// through the ai_call_payload cascade (embedCallWithoutPayload). The voice
 	// corpus stops outright: it holds draft plaintext about real correspondence.
+	// Before the posture is even read: a held record whose window closed is
+	// an Art. 17 request the engine suspended, and completing it is not a
+	// storage-limitation policy the operator may decline (retentionrestricted.go).
+	if err := s.evaluateRestrictionExpiry(ctx); err != nil {
+		return err
+	}
 	retainOnly, err := s.retainOnly(ctx)
 	if err != nil {
 		return err

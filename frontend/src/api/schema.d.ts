@@ -5340,6 +5340,23 @@ export interface paths {
         patch: operations["updateRetentionSettings"];
         trace?: never;
     };
+    "/retention/restrictions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the records a statutory retention obligation is holding, and why. */
+        get: operations["listRestrictedActivities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/retention-policies": {
         parameters: {
             query?: never;
@@ -15947,6 +15964,34 @@ export interface components {
             action?: components["schemas"]["RetentionAction"];
             lawful_basis?: string | null;
             enabled?: boolean;
+        };
+        RestrictedRecord: {
+            /** Format: uuid */
+            activity_id: string;
+            /** @description The interaction kind (email, call, meeting, message). */
+            kind: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /**
+             * Format: date-time
+             * @description When the erasure request was suspended and the record restricted.
+             */
+            restricted_at: string;
+            /**
+             * Format: date-time
+             * @description When the obligation ends and the suspended erasure completes. Pinned when the record was restricted, from the floor then in force — a later change to a configured period never shortens an obligation already recorded.
+             */
+            restricted_until: string;
+            /** @description The retention class that holds it (e.g. commercial_correspondence), plus the statutory basis. Never free text from a user. */
+            reason: string;
+            /** @description Every transaction the record qualifies through, by name. Both id and name are required, so a qualification whose deal has since been deleted — and a controller pin that never named one (germany-package DEPACK-AC-5h: supplier correspondence has no deal in this product) — is reported through `reason` rather than as a half-populated entry. */
+            deals: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+            /** @description Which fields the erasure emptied on this record (A167/ADR-0116). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values. */
+            redacted_fields?: string[];
         };
         /** @description The installation's retention posture (GCS-PARAM-6). */
         RetentionSettings: {
@@ -26752,6 +26797,45 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listRestrictedActivities: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of restricted records, oldest obligation first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RestrictedRecord"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
         };
     };
     listRetentionPolicies: {

@@ -18717,6 +18717,33 @@ type RescheduleSendRequest struct {
 	ScheduledTz string    `json:"scheduled_tz"`
 }
 
+// RestrictedRecord defines model for RestrictedRecord.
+type RestrictedRecord struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+
+	// Deals Every transaction the record qualifies through, by name. Both id and name are required, so a qualification whose deal has since been deleted — and a controller pin that never named one (germany-package DEPACK-AC-5h: supplier correspondence has no deal in this product) — is reported through `reason` rather than as a half-populated entry.
+	Deals []struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	} `json:"deals"`
+
+	// Kind The interaction kind (email, call, meeting, message).
+	Kind       string    `json:"kind"`
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Reason The retention class that holds it (e.g. commercial_correspondence), plus the statutory basis. Never free text from a user.
+	Reason string `json:"reason"`
+
+	// RedactedFields Which fields the erasure emptied on this record (A167/ADR-0116). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values.
+	RedactedFields *[]string `json:"redacted_fields,omitempty"`
+
+	// RestrictedAt When the erasure request was suspended and the record restricted.
+	RestrictedAt time.Time `json:"restricted_at"`
+
+	// RestrictedUntil When the obligation ends and the suspended erasure completes. Pinned when the record was restricted, from the floor then in force — a later change to a configured period never shortens an obligation already recorded.
+	RestrictedUntil time.Time `json:"restricted_until"`
+}
+
 // RetentionAction What happens to a record past its window. One action per policy row — a ladder is separate
 // rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
 // `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
@@ -23385,6 +23412,22 @@ type ExplainReportParams struct {
 
 	// Agg The plan's aggregates as `fn:field:alias` triplets (field empty for `count`), e.g. `sum:amount_minor:unweighted_minor`.
 	Agg *[]string `form:"agg,omitempty" json:"agg,omitempty"`
+}
+
+// ListRestrictedActivitiesParams defines parameters for ListRestrictedActivities.
+type ListRestrictedActivitiesParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // SetRoleObjectGrantParams defines parameters for SetRoleObjectGrant.
@@ -31123,6 +31166,9 @@ type ServerInterface interface {
 	// Edit a retention policy (admin/ops).
 	// (PATCH /retention-policies/{id})
 	UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id)
+	// List the records a statutory retention obligation is holding, and why.
+	// (GET /retention/restrictions)
+	ListRestrictedActivities(w http.ResponseWriter, r *http.Request, params ListRestrictedActivitiesParams)
 	// The installation's retention posture (admin/ops).
 	// (GET /retention/settings)
 	GetRetentionSettings(w http.ResponseWriter, r *http.Request)
@@ -33262,6 +33308,12 @@ func (_ Unimplemented) DeleteRetentionPolicy(w http.ResponseWriter, r *http.Requ
 // Edit a retention policy (admin/ops).
 // (PATCH /retention-policies/{id})
 func (_ Unimplemented) UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the records a statutory retention obligation is holding, and why.
+// (GET /retention/restrictions)
+func (_ Unimplemented) ListRestrictedActivities(w http.ResponseWriter, r *http.Request, params ListRestrictedActivitiesParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -48184,6 +48236,58 @@ func (siw *ServerInterfaceWrapper) UpdateRetentionPolicy(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// ListRestrictedActivities operation middleware
+func (siw *ServerInterfaceWrapper) ListRestrictedActivities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRestrictedActivitiesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRestrictedActivities(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetRetentionSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -52416,6 +52520,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/retention-policies/{id}", wrapper.UpdateRetentionPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/retention/restrictions", wrapper.ListRestrictedActivities)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/retention/settings", wrapper.GetRetentionSettings)

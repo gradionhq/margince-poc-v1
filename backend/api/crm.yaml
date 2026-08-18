@@ -8152,6 +8152,37 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /retention/restrictions:
+    get:
+      tags: [Compliance]
+      operationId: listRestrictedActivities
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      # A165/ADR-0114. The controller's view of what a statutory obligation is
+      # holding after an erasure: what, why, until when — and never the
+      # correspondence itself, which is restricted precisely so it is not read.
+      # Requires the retention-policy authority (read), the same object that
+      # governs retention policies.
+      summary: List the records a statutory retention obligation is holding, and why.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of restricted records, oldest obligation first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/RestrictedRecord' }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
   /retention-policies:
     get:
       tags: [Compliance]
@@ -21577,6 +21608,55 @@ components:
         action: { $ref: '#/components/schemas/RetentionAction' }
         lawful_basis: { type: [string, 'null'] }
         enabled: { type: boolean }
+
+    RestrictedRecord:
+      type: object
+      # A165/ADR-0114. What a statutory obligation is holding, stated without
+      # disclosing it: no subject, no body, no counterparty. A record can
+      # qualify through MORE THAN ONE transaction, so the deals are a list —
+      # naming one would be a guess presented as a fact.
+      required: [activity_id, kind, occurred_at, restricted_at, restricted_until, reason, deals]
+      properties:
+        activity_id: { type: string, format: uuid }
+        kind: { type: string, description: "The interaction kind (email, call, meeting, message)." }
+        occurred_at: { type: string, format: date-time }
+        restricted_at: { type: string, format: date-time, description: When the erasure request was suspended and the record restricted. }
+        restricted_until:
+          type: string
+          format: date-time
+          description: >-
+            When the obligation ends and the suspended erasure completes.
+            Pinned when the record was restricted, from the floor then in
+            force — a later change to a configured period never shortens an
+            obligation already recorded.
+        reason:
+          type: string
+          description: >-
+            The retention class that holds it (e.g. commercial_correspondence),
+            plus the statutory basis. Never free text from a user.
+        deals:
+          type: array
+          description: >-
+            Every transaction the record qualifies through, by name. Both id
+            and name are required, so a qualification whose deal has since
+            been deleted — and a controller pin that never named one
+            (germany-package DEPACK-AC-5h: supplier correspondence has no deal
+            in this product) — is reported through `reason` rather than as a
+            half-populated entry.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+        redacted_fields:
+          type: array
+          description: >-
+            Which fields the erasure emptied on this record (A167/ADR-0116).
+            A redacted field and an empty one are otherwise the same absence,
+            and only the first is something the controller must be able to
+            state. Names columns, never values.
+          items: { type: string }
 
     RetentionSettings:
       type: object

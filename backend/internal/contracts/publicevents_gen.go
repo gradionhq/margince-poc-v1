@@ -30,6 +30,27 @@ func (e PublicEventApprovalDecidedVerdict) Valid() bool {
 	}
 }
 
+// Defines values for PublicEventRetentionRestrictedAction.
+const (
+	Pin      PublicEventRetentionRestrictedAction = "pin"
+	Release  PublicEventRetentionRestrictedAction = "release"
+	Restrict PublicEventRetentionRestrictedAction = "restrict"
+)
+
+// Valid indicates whether the value is a known member of the PublicEventRetentionRestrictedAction enum.
+func (e PublicEventRetentionRestrictedAction) Valid() bool {
+	switch e {
+	case Pin:
+		return true
+	case Release:
+		return true
+	case Restrict:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SubscribableEventType.
 const (
 	ActivityArchived          SubscribableEventType = "activity.archived"
@@ -93,6 +114,7 @@ const (
 	ProjectPhaseChanged       SubscribableEventType = "project.phase_changed"
 	ProjectUpdated            SubscribableEventType = "project.updated"
 	RetentionApplied          SubscribableEventType = "retention.applied"
+	RetentionRestricted       SubscribableEventType = "retention.restricted"
 	RoleChanged               SubscribableEventType = "role.changed"
 	SignalDetected            SubscribableEventType = "signal.detected"
 	SignalResolved            SubscribableEventType = "signal.resolved"
@@ -236,6 +258,8 @@ func (e SubscribableEventType) Valid() bool {
 	case ProjectUpdated:
 		return true
 	case RetentionApplied:
+		return true
+	case RetentionRestricted:
 		return true
 	case RoleChanged:
 		return true
@@ -1005,6 +1029,24 @@ type PublicEventRetentionApplied struct {
 	Reason *string `json:"reason,omitempty"`
 }
 
+// PublicEventRetentionRestricted Payload for retention.restricted — a statutory retention obligation changed what may be done with one record (A165/ADR-0114). Its own event type rather than a widening of retention.applied, because `restrict` carries an obligation on the SUBSCRIBER that no existing action does: the record survives in storage and must not survive in a projection. Adding it to retention.applied would have changed the meaning of a field subscribers already parse, which the versioning rule forbids within a major.
+type PublicEventRetentionRestricted struct {
+	// Action `restrict` — the record leaves every ordinary read path for its statutory window; a subscriber projecting activity content MUST remove it. `release` — an administrator ended the restriction with an audited reason and the record was erased; treat as an erasure. `pin` — an administrator placed a record under the floor that the classification missed; treat as a restriction.
+	Action PublicEventRetentionRestrictedAction `json:"action"`
+
+	// ActivityId The record whose availability changed.
+	ActivityId openapi_types.UUID `json:"activity_id"`
+
+	// RestrictedUntil When the obligation ends and the suspended erasure completes. Present for restrict and pin, absent for release. Pinned at restriction time, so it never moves once stated.
+	RestrictedUntil *time.Time `json:"restricted_until,omitempty"`
+
+	// RetentionClass The statutory class that holds it (e.g. commercial_correspondence). No free text and no reason string: the administrator's reason is audit-log material, and a public event is not the place to publish why a named person decided something about a named record.
+	RetentionClass *string `json:"retention_class,omitempty"`
+}
+
+// PublicEventRetentionRestrictedAction `restrict` — the record leaves every ordinary read path for its statutory window; a subscriber projecting activity content MUST remove it. `release` — an administrator ended the restriction with an audited reason and the record was erased; treat as an erasure. `pin` — an administrator placed a record under the floor that the classification missed; treat as a restriction.
+type PublicEventRetentionRestrictedAction string
+
 // PublicEventRoleChanged Payload for role.changed — a member's role assignments were replaced with the single target system role (identity/users.go's ChangeUserRole). from_role rides the payload only when the previous state was a single role — a multi-role history has no one "from".
 type PublicEventRoleChanged struct {
 	// By The admin who changed the role.
@@ -1543,6 +1585,10 @@ func (PublicEventRetentionApplied) EventType() string { return "retention.applie
 
 func (PublicEventRetentionApplied) EntityType() string { return "dynamic" }
 
+func (PublicEventRetentionRestricted) EventType() string { return "retention.restricted" }
+
+func (PublicEventRetentionRestricted) EntityType() string { return "activity" }
+
 func (PublicEventRoleChanged) EventType() string { return "role.changed" }
 
 func (PublicEventRoleChanged) EntityType() string { return "user" }
@@ -1678,6 +1724,7 @@ var PublicEventVersions = map[string]int{
 	"project.phase_changed":        1,
 	"project.updated":              1,
 	"retention.applied":            1,
+	"retention.restricted":         1,
 	"role.changed":                 1,
 	"signal.detected":              1,
 	"signal.resolved":              1,

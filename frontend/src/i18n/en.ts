@@ -2247,6 +2247,27 @@ export const en = {
   "privacy.legalHold":
     "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
 
+  "restricted.title": "Restricted records",
+  "restricted.sub":
+    "what a statutory retention obligation is holding after an erasure — which record, why, and until when. The correspondence itself is not shown: it is restricted precisely so it is not read.",
+  "restricted.withheld":
+    "Only an admin or ops can see which records a statutory obligation is holding. It reads through the same authority as the retention ladder.",
+  "restricted.empty":
+    "No record is being held — every erasure so far could be completed in full.",
+  "restricted.kind": "Record",
+  "restricted.occurred": "Dated",
+  "restricted.deals": "Transaction",
+  "restricted.noDeal": "No deal on record",
+  "restricted.reason": "Held because",
+  "restricted.until": "Held until",
+  "restricted.redacted": "Redacted",
+  "restricted.nothingRedacted": "Nothing removed",
+  "restricted.redactedCount": "{count} fields removed",
+  "restricted.class.commercialCorrespondence": "Commercial correspondence",
+  "restricted.kind.email": "Email",
+  "restricted.kind.call": "Call",
+  "restricted.kind.meeting": "Meeting",
+  "restricted.kind.message": "Message",
   "retention.title": "Retention",
   "retention.sub":
     "how long each kind of record is kept, and what happens when its window runs out",

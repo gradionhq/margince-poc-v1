@@ -78,6 +78,7 @@ components:
         - linkedin_network.imported
         - linkedin_match.decided
         - retention.applied
+        - retention.restricted
         - signal.detected
         - signal.resolved
         - voice.profile_created
@@ -1467,6 +1468,52 @@ components:
         skipped:
           type: integer
           description: Rows with no usable name, counted rather than hidden.
+      additionalProperties: false
+
+    PublicEventRetentionRestricted:
+      type: object
+      x-event-type: retention.restricted
+      x-entity-type: activity
+      x-version: 1
+      description: >-
+        Payload for retention.restricted — a statutory retention obligation
+        changed what may be done with one record (A165/ADR-0114). Its own event
+        type rather than a widening of retention.applied, because `restrict`
+        carries an obligation on the SUBSCRIBER that no existing action does:
+        the record survives in storage and must not survive in a projection.
+        Adding it to retention.applied would have changed the meaning of a
+        field subscribers already parse, which the versioning rule forbids
+        within a major.
+      required: [action, activity_id]
+      properties:
+        action:
+          type: string
+          enum: [restrict, release, pin]
+          description: >-
+            `restrict` — the record leaves every ordinary read path for its
+            statutory window; a subscriber projecting activity content MUST
+            remove it. `release` — an administrator ended the restriction with
+            an audited reason and the record was erased; treat as an erasure.
+            `pin` — an administrator placed a record under the floor that the
+            classification missed; treat as a restriction.
+        activity_id:
+          type: string
+          format: uuid
+          description: The record whose availability changed.
+        restricted_until:
+          type: string
+          format: date-time
+          description: >-
+            When the obligation ends and the suspended erasure completes.
+            Present for restrict and pin, absent for release. Pinned at
+            restriction time, so it never moves once stated.
+        retention_class:
+          type: string
+          description: >-
+            The statutory class that holds it (e.g. commercial_correspondence).
+            No free text and no reason string: the administrator's reason is
+            audit-log material, and a public event is not the place to publish
+            why a named person decided something about a named record.
       additionalProperties: false
 
     PublicEventRetentionApplied:

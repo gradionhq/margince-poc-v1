@@ -1315,6 +1315,10 @@ func (stubs) UpdateRetentionPolicy(w nethttp.ResponseWriter, r *nethttp.Request,
 	httperr.NotImplemented(w, r, "UpdateRetentionPolicy")
 }
 
+func (stubs) ListRestrictedActivities(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRestrictedActivitiesParams) {
+	httperr.NotImplemented(w, r, "ListRestrictedActivities")
+}
+
 func (stubs) GetRetentionSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetRetentionSettings")
 }

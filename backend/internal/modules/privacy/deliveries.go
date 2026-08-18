@@ -86,6 +86,12 @@ const parkedByPrivacyScrub = "content removed by a privacy scrub before this mes
 // wherever it is already terminal: a message that went out did go out, and a
 // scrub that rewrote that would falsify the send log.
 //
+// redacted_fields records which of those columns actually held something
+// (A167/ADR-0116 §4): the row must be able to say "the recipients were
+// removed" as distinct from "there never were any", and only the first is a
+// statement the controller owes the subject. Read from the row's OLD values,
+// which is what an UPDATE's SET list sees.
+//
 // A delivery still `pending` is the one row the scrub cannot leave as it
 // found it. Its River job is still live, and the dispatcher transmits
 // whatever the row holds — so an untouched status means the subject who just
@@ -103,6 +109,17 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 		   SET recipients = '[]'::jsonb, cc = '[]'::jsonb, bcc = '[]'::jsonb, subject = $2,
 		       body = '', html_body = NULL, attachments = '[]'::jsonb,
 		       list_unsubscribe = NULL,
+		       redacted_fields = redacted_fields || ARRAY(SELECT c FROM unnest(ARRAY[
+		           CASE WHEN recipients <> '[]'::jsonb THEN 'recipients' END,
+		           CASE WHEN cc <> '[]'::jsonb THEN 'cc' END,
+		           CASE WHEN coalesce(bcc, '[]'::jsonb) <> '[]'::jsonb THEN 'bcc' END,
+		           CASE WHEN subject <> $2 THEN 'subject' END,
+		           CASE WHEN body <> '' THEN 'body' END,
+		           CASE WHEN html_body IS NOT NULL THEN 'html_body' END,
+		           CASE WHEN attachments <> '[]'::jsonb THEN 'attachments' END,
+		           CASE WHEN list_unsubscribe IS NOT NULL THEN 'list_unsubscribe' END,
+		           CASE WHEN reason IS NOT NULL THEN 'reason' END]) AS c
+		         WHERE c IS NOT NULL),
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $3 ELSE NULL END
 		 WHERE activity_id = ANY($1) AND channel_user_id IS NULL`,
@@ -112,6 +129,13 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 	if _, err := tx.Exec(ctx, `
 		UPDATE comms_outbound
 		   SET channel_user_id = '', body = '', html_body = NULL, attachments = '[]'::jsonb,
+		       redacted_fields = redacted_fields || ARRAY(SELECT c FROM unnest(ARRAY[
+		           CASE WHEN channel_user_id <> '' THEN 'channel_user_id' END,
+		           CASE WHEN body <> '' THEN 'body' END,
+		           CASE WHEN html_body IS NOT NULL THEN 'html_body' END,
+		           CASE WHEN attachments <> '[]'::jsonb THEN 'attachments' END,
+		           CASE WHEN reason IS NOT NULL THEN 'reason' END]) AS c
+		         WHERE c IS NOT NULL),
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $2 ELSE NULL END
 		 WHERE activity_id = ANY($1) AND channel_user_id IS NOT NULL`,
