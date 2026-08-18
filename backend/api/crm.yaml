@@ -4573,6 +4573,10 @@ paths:
         - name: owner_id
           in: query
           schema: { type: string, format: uuid }
+        - name: source
+          in: query
+          schema: { type: string }
+          description: Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
         - name: min_score
           in: query
           schema: { type: integer }
@@ -4732,6 +4736,98 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422':
           description: Trigger not allowed (e.g. cold-outbound-no-reply does not promote).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/promote-preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Leads]
+      operationId: previewLeadPromotion
+      # Human-only for now: this ships as the promote dialog's confirm step. The
+      # governed read tool is a separate, additive decision (see the note on
+      # explainLeadScore).
+      x-agent-access: human-only
+      summary: What promoting this lead would do — merge into an existing person, or create one.
+      description: |
+        Runs the same dedupe ladder POST /leads/{id}/promote would run, WITHOUT writing
+        anything, so the confirm step can name the outcome instead of surprising the rep
+        with it (ADR-0119/A170: which happened is the difference between "my prospect is
+        now a contact" and "my prospect was already someone we knew").
+
+        **This returns a record, so it is a read and carries the row-scope gate.** When the
+        matched person is outside the caller's row scope the response still says `merge` —
+        the outcome is a fact about the lead — but omits `person` and sets
+        `person_withheld: true`. An absent `person` therefore means "not visible to you",
+        never "no match": a caller must not read the omission as `create`.
+      responses:
+        '200':
+          description: The outcome promotion would take, and the person it would merge into when visible.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromoteLeadPreview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Lead already promoted or disqualified — nothing to preview.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/demote:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Leads]
+      operationId: demoteLead
+      # Human-only for now. The spec mints this as a 🟡 `demote_lead` tool; the
+      # governed tool (registry entry, approvals authority, output shape) is an
+      # additive follow-up, tracked as an issue.
+      x-agent-access: human-only
+      summary: Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+      description: |
+        The documented reverse of POST /leads/{id}/promote, deterministic and conservative:
+        it **blocks rather than orphans**.
+
+        - The person owns any deal ⇒ **422 `person_has_deal`**; the person stays a person.
+          A deal attaches to a person by ADR-0008 §5, and un-personing it would strand the
+          deal's counterparty.
+        - Original outcome `created` ⇒ `unwind='reversed'`: the lead un-archives to
+          `status=working` and the created person is archived. **Activities captured after
+          promotion stay on the person's timeline** — they are real history, not something
+          to rewrite backwards.
+        - Original outcome `merged` ⇒ `unwind='merge_lineage_only'`: the pre-existing person
+          is **untouched** and only the lineage pointers are nulled. A field-level un-merge
+          is never attempted, because it is lossy and ambiguous.
+
+        The original outcome is read from the promotion's audit row (which records
+        `dedupe_outcome`), not re-derived — re-running the ladder would answer about today's
+        data rather than what actually happened. Emits `lead.demoted`. Demoting an
+        already-demoted lead is a no-op **409**.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DemoteLeadRequest' }
+      responses:
+        '200':
+          description: The restored lead and what the reversal did.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DemoteLeadResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Lead was never promoted, or has already been demoted.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: The promoted person owns a deal — the reversal is refused rather than orphaning it.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -19006,6 +19102,58 @@ components:
           type: boolean
           description: True if promotion merged into an existing person (no duplicate); false if a new person was created.
         lead_id: { type: string, format: uuid }
+
+    PromoteLeadPreview:
+      type: object
+      description: |
+        What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170).
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [create, merge]
+          # Pins the generated Go constant names; unpinned they come out as a
+          # bare Create/Merge in the package every contract type shares.
+          x-enum-varnames: [PromoteLeadPreviewOutcomeCreate, PromoteLeadPreviewOutcomeMerge]
+          description: 'merge = an existing live person matches this lead''s email and promotion would fold into it; create = promotion would make a new person.'
+        person:
+          $ref: '#/components/schemas/Person'
+        person_withheld:
+          type: boolean
+          default: false
+          description: |
+            True when `outcome` is `merge` but the matched person lies outside the caller's
+            row scope, so `person` is omitted. **An absent `person` never means "no match"**
+            — a caller that reads the omission as `create` would tell the rep a duplicate is
+            about to be created when the opposite is true.
+
+    DemoteLeadRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: 'Why the promotion is being reversed. Required and recorded in audit — an undo nobody explained is indistinguishable later from a mistake.'
+
+    DemoteLeadResponse:
+      type: object
+      required: [lead, unwind]
+      properties:
+        lead: { $ref: '#/components/schemas/Lead' }
+        unwind:
+          type: string
+          enum: [reversed, merge_lineage_only]
+          x-enum-varnames: [DemoteUnwindReversed, DemoteUnwindMergeLineageOnly]
+          description: |
+            `reversed` — the promotion had created a person, which is now archived and the
+            lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+            a pre-existing person, which is left untouched; only the lineage pointers are
+            nulled (formulas §26).
+        person_id:
+          type: [string, 'null']
+          format: uuid
+          description: The person the promotion had produced or merged into.
 
     LeadListResponse:
       type: object

@@ -3777,6 +3777,24 @@ func (e DedupeDispositionRequestDisposition) Valid() bool {
 	}
 }
 
+// Defines values for DemoteLeadResponseUnwind.
+const (
+	DemoteUnwindMergeLineageOnly DemoteLeadResponseUnwind = "merge_lineage_only"
+	DemoteUnwindReversed         DemoteLeadResponseUnwind = "reversed"
+)
+
+// Valid indicates whether the value is a known member of the DemoteLeadResponseUnwind enum.
+func (e DemoteLeadResponseUnwind) Valid() bool {
+	switch e {
+	case DemoteUnwindMergeLineageOnly:
+		return true
+	case DemoteUnwindReversed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for EmbedReindexPreviewEstimateQuality.
 const (
 	EmbedReindexPreviewEstimateQualityHeuristic EmbedReindexPreviewEstimateQuality = "heuristic"
@@ -6942,6 +6960,24 @@ func (e ProjectPhase) Valid() bool {
 	case ProjectPhaseInitiative:
 		return true
 	case ProjectPhasePursuing:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PromoteLeadPreviewOutcome.
+const (
+	PromoteLeadPreviewOutcomeCreate PromoteLeadPreviewOutcome = "create"
+	PromoteLeadPreviewOutcomeMerge  PromoteLeadPreviewOutcome = "merge"
+)
+
+// Valid indicates whether the value is a known member of the PromoteLeadPreviewOutcome enum.
+func (e PromoteLeadPreviewOutcome) Valid() bool {
+	switch e {
+	case PromoteLeadPreviewOutcomeCreate:
+		return true
+	case PromoteLeadPreviewOutcomeMerge:
 		return true
 	default:
 		return false
@@ -13792,6 +13828,33 @@ type DedupeDispositionRequest struct {
 // DedupeDispositionRequestDisposition defines model for DedupeDispositionRequest.Disposition.
 type DedupeDispositionRequestDisposition string
 
+// DemoteLeadRequest defines model for DemoteLeadRequest.
+type DemoteLeadRequest struct {
+	// Reason Why the promotion is being reversed. Required and recorded in audit — an undo nobody explained is indistinguishable later from a mistake.
+	Reason string `json:"reason"`
+}
+
+// DemoteLeadResponse defines model for DemoteLeadResponse.
+type DemoteLeadResponse struct {
+	// Lead A thin, segregated prospect. Mirrors the `lead` table. NO organization FK.
+	Lead Lead `json:"lead"`
+
+	// PersonId The person the promotion had produced or merged into.
+	PersonId *openapi_types.UUID `json:"person_id,omitempty"`
+
+	// Unwind `reversed` — the promotion had created a person, which is now archived and the
+	// lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+	// a pre-existing person, which is left untouched; only the lineage pointers are
+	// nulled (formulas §26).
+	Unwind DemoteLeadResponseUnwind `json:"unwind"`
+}
+
+// DemoteLeadResponseUnwind `reversed` — the promotion had created a person, which is now archived and the
+// lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+// a pre-existing person, which is left untouched; only the lineage pointers are
+// nulled (formulas §26).
+type DemoteLeadResponseUnwind string
+
 // DismissPersonMomentRequest Which moment to hide, and the evidence it was showing when the reader hid it. Both are
 // required: the fingerprint is what lets the moment come back when the evidence moves,
 // and a dismissal without one is a permanent silence nobody asked for.
@@ -18063,6 +18126,24 @@ type ProjectListResponse struct {
 	Page PageInfo  `json:"page"`
 }
 
+// PromoteLeadPreview What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170).
+type PromoteLeadPreview struct {
+	// Outcome merge = an existing live person matches this lead's email and promotion would fold into it; create = promotion would make a new person.
+	Outcome PromoteLeadPreviewOutcome `json:"outcome"`
+
+	// Person A contact. Mirrors the `person` table.
+	Person *Person `json:"person,omitempty"`
+
+	// PersonWithheld True when `outcome` is `merge` but the matched person lies outside the caller's
+	// row scope, so `person` is omitted. **An absent `person` never means "no match"**
+	// — a caller that reads the omission as `create` would tell the rep a duplicate is
+	// about to be created when the opposite is true.
+	PersonWithheld *bool `json:"person_withheld,omitempty"`
+}
+
+// PromoteLeadPreviewOutcome merge = an existing live person matches this lead's email and promotion would fold into it; create = promotion would make a new person.
+type PromoteLeadPreviewOutcome string
+
 // PromoteLeadRequest defines model for PromoteLeadRequest.
 type PromoteLeadRequest struct {
 	// Evidence Which inbound email/meeting (or human) triggered promotion; recorded in audit.
@@ -21718,6 +21799,9 @@ type ListLeadsParams struct {
 	Status    *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 	OwnerId   *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
+	// Source Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
+	Source *string `form:"source,omitempty" json:"source,omitempty"`
+
 	// MinScore Triage by score.
 	MinScore *int    `form:"min_score,omitempty" json:"min_score,omitempty"`
 	Q        *string `form:"q,omitempty" json:"q,omitempty"`
@@ -21772,6 +21856,25 @@ type UpdateLeadParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// DemoteLeadParams defines parameters for DemoteLead.
+type DemoteLeadParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // PromoteLeadParams defines parameters for PromoteLead.
@@ -24210,6 +24313,9 @@ type CreateLeadJSONRequestBody = CreateLeadRequest
 
 // UpdateLeadJSONRequestBody defines body for UpdateLead for application/json ContentType.
 type UpdateLeadJSONRequestBody = UpdateLeadRequest
+
+// DemoteLeadJSONRequestBody defines body for DemoteLead for application/json ContentType.
+type DemoteLeadJSONRequestBody = DemoteLeadRequest
 
 // SetLeadManualSignalJSONRequestBody defines body for SetLeadManualSignal for application/json ContentType.
 type SetLeadManualSignalJSONRequestBody = SetLeadManualSignalRequest
@@ -30665,6 +30771,9 @@ type ServerInterface interface {
 	// Update a lead (partial).
 	// (PATCH /leads/{id})
 	UpdateLead(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadParams)
+	// Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+	// (POST /leads/{id}/demote)
+	DemoteLead(w http.ResponseWriter, r *http.Request, id Id, params DemoteLeadParams)
 	// Enter or replace a human-provided scoring factor (S-E13.6).
 	// (PUT /leads/{id}/manual-signals)
 	SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id)
@@ -30674,6 +30783,9 @@ type ServerInterface interface {
 	// Promote a lead to a person on genuine engagement (non-lossy merge).
 	// (POST /leads/{id}/promote)
 	PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams)
+	// What promoting this lead would do — merge into an existing person, or create one.
+	// (GET /leads/{id}/promote-preview)
+	PreviewLeadPromotion(w http.ResponseWriter, r *http.Request, id Id)
 	// Explain This Score — the weighted-factor decomposition behind a lead's score.
 	// (GET /leads/{id}/score)
 	ExplainLeadScore(w http.ResponseWriter, r *http.Request, id Id, params ExplainLeadScoreParams)
@@ -32309,6 +32421,12 @@ func (_ Unimplemented) UpdateLead(w http.ResponseWriter, r *http.Request, id Id,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+// (POST /leads/{id}/demote)
+func (_ Unimplemented) DemoteLead(w http.ResponseWriter, r *http.Request, id Id, params DemoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Enter or replace a human-provided scoring factor (S-E13.6).
 // (PUT /leads/{id}/manual-signals)
 func (_ Unimplemented) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id) {
@@ -32324,6 +32442,12 @@ func (_ Unimplemented) ClearLeadManualSignal(w http.ResponseWriter, r *http.Requ
 // Promote a lead to a person on genuine engagement (non-lossy merge).
 // (POST /leads/{id}/promote)
 func (_ Unimplemented) PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What promoting this lead would do — merge into an existing person, or create one.
+// (GET /leads/{id}/promote-preview)
+func (_ Unimplemented) PreviewLeadPromotion(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40000,6 +40124,19 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "source" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "source", r.URL.Query(), &params.Source, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "min_score" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "min_score", r.URL.Query(), &params.MinScore, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
@@ -40231,6 +40368,64 @@ func (siw *ServerInterfaceWrapper) UpdateLead(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// DemoteLead operation middleware
+func (siw *ServerInterfaceWrapper) DemoteLead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DemoteLeadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DemoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetLeadManualSignal operation middleware
 func (siw *ServerInterfaceWrapper) SetLeadManualSignal(w http.ResponseWriter, r *http.Request) {
 
@@ -40376,6 +40571,40 @@ func (siw *ServerInterfaceWrapper) PromoteLead(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PromoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewLeadPromotion operation middleware
+func (siw *ServerInterfaceWrapper) PreviewLeadPromotion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewLeadPromotion(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52021,6 +52250,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/leads/{id}", wrapper.UpdateLead)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/leads/{id}/demote", wrapper.DemoteLead)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/leads/{id}/manual-signals", wrapper.SetLeadManualSignal)
 	})
 	r.Group(func(r chi.Router) {
@@ -52028,6 +52260,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/leads/{id}/promote", wrapper.PromoteLead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/leads/{id}/promote-preview", wrapper.PreviewLeadPromotion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads/{id}/score", wrapper.ExplainLeadScore)

@@ -647,6 +647,10 @@ func (stubs) UpdateLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 	httperr.NotImplemented(w, r, "UpdateLead")
 }
 
+func (stubs) DemoteLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.DemoteLeadParams) {
+	httperr.NotImplemented(w, r, "DemoteLead")
+}
+
 func (stubs) SetLeadManualSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "SetLeadManualSignal")
 }
@@ -657,6 +661,10 @@ func (stubs) ClearLeadManualSignal(w nethttp.ResponseWriter, r *nethttp.Request,
 
 func (stubs) PromoteLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.PromoteLeadParams) {
 	httperr.NotImplemented(w, r, "PromoteLead")
+}
+
+func (stubs) PreviewLeadPromotion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "PreviewLeadPromotion")
 }
 
 func (stubs) ExplainLeadScore(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ExplainLeadScoreParams) {

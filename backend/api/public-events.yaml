@@ -67,6 +67,7 @@ components:
         - lead.created
         - lead.disqualified
         - lead.promoted
+        - lead.demoted
         - lead.updated
         - activity.captured
         - activity.archived
@@ -1132,6 +1133,29 @@ components:
           type: string
           format: uuid
           description: The inbound activity that evidenced the trigger (absent for a human_qualify with no linked activity).
+      additionalProperties: false
+
+    PublicEventLeadDemoted:
+      type: object
+      x-event-type: lead.demoted
+      x-entity-type: lead
+      x-version: 1
+      description: >-
+        Payload for lead.demoted — the audited reverse of lead.promoted
+        (formulas §26): the lead is back in the segregated pool and the
+        person-side lineage is nulled. Its own verb, because a lead.updated
+        cannot say a person node lost its lineage.
+      required:
+        - from_person_id
+        - unwind
+      properties:
+        from_person_id:
+          type: string
+          format: uuid
+          description: The person the promotion had created or merged into.
+        unwind:
+          type: string
+          description: 'reversed (the created person is archived) or merge_lineage_only (the pre-existing person is untouched; only lineage pointers are nulled).'
       additionalProperties: false
 
     PublicEventLeadUpdated:
