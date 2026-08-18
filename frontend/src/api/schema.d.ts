@@ -21506,6 +21506,15 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            /** @description The `entity_type`/`entity_id` this read was narrowed TO is outside the caller's row scope, or names nothing. Filtering BY a record is a read OF it, so an unreadable one owes the same existence-hiding answer a direct read would — the caller cannot tell "not yours" from "not there". Note this is the NARROWING TARGET, not the activities: a readable target with no activities answers 200 with an empty page. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     logActivity: {

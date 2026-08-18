@@ -3433,6 +3433,17 @@ paths:
               schema: { $ref: '#/components/schemas/ActivityListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: >-
+            The `entity_type`/`entity_id` this read was narrowed TO is outside the caller's
+            row scope, or names nothing. Filtering BY a record is a read OF it, so an
+            unreadable one owes the same existence-hiding answer a direct read would — the
+            caller cannot tell "not yours" from "not there". Note this is the NARROWING
+            TARGET, not the activities: a readable target with no activities answers 200
+            with an empty page.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
     post:
       tags: [Activities]
       operationId: logActivity
