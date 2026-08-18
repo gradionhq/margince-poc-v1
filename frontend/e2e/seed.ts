@@ -84,6 +84,25 @@ export const stages = [
   },
 ];
 
+// One working lead for the leads list and page: named, owned by u1, scored,
+// promotable (it has an email), with the identity fields the inline rows edit.
+export const seededLead = {
+  id: "l-1",
+  workspace_id: "w",
+  full_name: "Jonas Petersen",
+  email: "jonas@nordwind.example",
+  title: "Head of Operations",
+  company_name: "Nordwind Logistik",
+  status: "working",
+  score: 46,
+  owner_id: "u1",
+  captured_by: "human:u1",
+  source: "inbound",
+  version: 3,
+  created_at: "2026-07-01T08:00:00Z",
+  updated_at: "2026-07-05T08:00:00Z",
+};
+
 export const anna = {
   id: "p-anna",
   workspace_id: "w",
@@ -1029,7 +1048,45 @@ export async function mockApi(
       return json(brandt);
     }
     if (path === "/leads" && method === "GET") {
-      return json(page([]));
+      return json(page([seededLead]));
+    }
+    if (path === "/leads/l-1" && method === "GET") {
+      return json(seededLead);
+    }
+    if (path === "/leads/l-1" && method === "PATCH") {
+      const body = route.request().postDataJSON();
+      return json({ ...seededLead, ...body, version: seededLead.version + 1 });
+    }
+    if (path === "/leads/l-1/score") {
+      return json({ score: seededLead.score, explained: false });
+    }
+    if (path === "/leads/l-1/promote-preview") {
+      return json({ outcome: "create" });
+    }
+    if (path === "/leads/l-1/promote" && method === "POST") {
+      return json({
+        person: {
+          ...anna,
+          id: "p-new",
+          full_name: "Jonas Petersen",
+          converted_from_lead_id: "l-1",
+        },
+        merged: false,
+        lead_id: "l-1",
+      });
+    }
+    if (path === "/users") {
+      return json(
+        page([
+          {
+            id: "u1",
+            email: "lena@seed.test",
+            display_name: "Lena Fischer",
+            seat_type: "full",
+            status: "active",
+          },
+        ]),
+      );
     }
     if (path === "/pipelines") {
       return json(
@@ -1079,6 +1136,26 @@ export async function mockApi(
     }
     if (path.startsWith("/approvals/") && method === "POST") {
       return json({ ...approval, status: "approved" });
+    }
+    if (path === "/activities" && method === "POST") {
+      const body = route.request().postDataJSON();
+      return json(
+        {
+          id: "act-new",
+          workspace_id: "w",
+          kind: body.kind ?? "note",
+          subject: body.subject ?? "",
+          body: body.body ?? null,
+          occurred_at: "2026-07-06T09:00:00Z",
+          links: body.links ?? [],
+          source: "manual",
+          captured_by: "human:u1",
+          version: 1,
+          created_at: "2026-07-06T09:00:00Z",
+          updated_at: "2026-07-06T09:00:00Z",
+        },
+        201,
+      );
     }
     if (path === "/activities") {
       return json(page([]));
