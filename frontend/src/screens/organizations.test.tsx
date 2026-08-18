@@ -643,6 +643,52 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
   });
 });
 
+describe("CompaniesScreen — what an account is to us", () => {
+  it("names every relationship type the account carries", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [
+          {
+            ...org,
+            lifecycle: "prospect",
+            relationship_types: ["partner", "supplier"],
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+
+    // Both, not the first: the field is multi-valued because an account really
+    // can be two things at once, and showing one would make the other look
+    // untrue. The filter offers these values, so the column has to read them
+    // back — a narrowed list that cannot say why a row matched is a list the
+    // reader has to take on faith.
+    expect(screen.getByText("Partner")).toBeTruthy();
+    expect(screen.getByText("Supplier")).toBeTruthy();
+    // And the two columns stay distinct: an account can be a Partner sitting
+    // at Prospect.
+    expect(screen.getByText("Prospect")).toBeTruthy();
+  });
+
+  it("leaves the cell empty when the account carries none", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, relationship_types: [] }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Partner")).toBeNull();
+  });
+});
+
 describe("CompaniesScreen — list dials reach the server (P-14)", () => {
   it("asks the server to re-sort instead of reordering the rows it holds", async () => {
     const user = userEvent.setup();
