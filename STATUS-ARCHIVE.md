@@ -78,6 +78,18 @@ test cannot have been passing. And the three webhooks stories that `fe-uat`
 reported were reproduced on a clean detached `origin/main`, which is #476,
 whose own stated cause is also stale.
 
+**One verification I proposed would have proven nothing, and checking that was the last
+finding.** The rail's withheld readings had never rendered in a live session, so I offered to
+exercise them as a Member seat before merging. They cannot be reached that way. A Person360
+section is named in `sections_omitted` only when its read returns `ErrPermissionDenied`
+(`compose/person360/assemble.go:118`) — an OBJECT denial — and the seeded `rep` role grants
+`read: true` on every object the rail reads, with `row_scope: team`. Row scope decides which
+RECORDS a seat may open, not which SECTIONS come back inside one it may. So none of the three
+seeded roles can produce a non-empty `sections_omitted`, and a Member login would have drawn the
+same fully-granted rail as Management while I reported it verified. Reaching that branch live
+needs a custom role with a read denied, which is a settings change rather than a sign-in. The
+unit tests reach it because they set the omission directly — which is the only thing that can.
+
 **Looking at it beat reading it, four times.** Every gate was green and every fix
 mutation-tested before the seeded dataset went behind the screens; pointing the app at 65 real
 deals in three currencies then found four defects no test had reason to catch. The forecast
