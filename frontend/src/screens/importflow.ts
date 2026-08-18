@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  skipToken,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { api } from "../api/client";
 import { throwProblem } from "./common";
@@ -89,6 +94,91 @@ function emptyReport(run: ImportRun): ImportReport {
   };
 }
 
+// Where the reader got to, kept outside React so a remount can find it again.
+//
+// localStorage rather than the URL, and the flow this exists for is why: "edit
+// the one row you don't want reversed, then undo the rest" leaves this screen
+// through the nav to the Leads list and comes BACK through the nav, so there is
+// no history entry to return to and no URL to carry. A run is also nobody
+// else's to open — it belongs to the seat that started it, and the server
+// answers 404 to anyone else — so a shareable link would promise something it
+// cannot deliver. The cost of the choice is that the reference is per browser,
+// not per tab: two tabs on this screen remember the same run.
+const REMEMBERED_RUN_KEY = "margince.import.run";
+
+// Storage is unavailable in some embedded contexts; a run this screen cannot
+// remember is an affordance the reader has to reach another way, never an error.
+function readRememberedRun(): string | null {
+  try {
+    return window.localStorage.getItem(REMEMBERED_RUN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberRun(id: string): void {
+  try {
+    window.localStorage.setItem(REMEMBERED_RUN_KEY, id);
+  } catch {
+    // A browser refusing storage must not break the import itself.
+  }
+}
+
+function forgetRememberedRun(): void {
+  try {
+    window.localStorage.removeItem(REMEMBERED_RUN_KEY);
+  } catch {
+    // Nothing to forget is the state this was trying to reach anyway.
+  }
+}
+
+// Which run states still have something for a reader to DO: `complete` can be
+// undone, `failed` resumed, `undoing` continued. Everything else is either
+// still moving under the server's own hand or already spent, and putting one of
+// those back on screen would offer a button whose press answers 409.
+function unfinished(status: ImportRun["status"]): boolean {
+  return status === "complete" || status === "failed" || status === "undoing";
+}
+
+// What re-reading a remembered run answered.
+//
+// Three outcomes rather than a pair, because "the server will not answer for
+// this id" and "the server could not be reached" must not be treated alike: the
+// first is a reference to forget, the second is one to keep and ask about again.
+type Recovered =
+  | Readonly<{ kind: "run"; value: RunAndReport }>
+  | Readonly<{ kind: "spent" }>
+  | Readonly<{ kind: "unreachable" }>;
+
+// A refusal that settles the question of whether this reader may see this run:
+// gone, never theirs (another organization's or another seat's — existence is
+// hidden as a 404), or a grant they no longer hold.
+function refused(status: number): boolean {
+  return status === 403 || status === 404 || status === 410;
+}
+
+// recoverRun re-reads the run a previous visit left behind. The report is read
+// beside it and stood in for when that second read fails: the RUN is what the
+// affordances are derived from, and losing the whole recovery because a report
+// read failed would hide an undo that is still perfectly available.
+async function recoverRun(id: string): Promise<Recovered> {
+  const { data: run, response } = await api.GET("/imports/{id}", {
+    params: { path: { id } },
+  });
+  if (!run) {
+    return refused(response.status)
+      ? { kind: "spent" }
+      : { kind: "unreachable" };
+  }
+  if (!unfinished(run.status)) {
+    return { kind: "spent" };
+  }
+  const { data: report } = await api.GET("/imports/{id}/report", {
+    params: { path: { id } },
+  });
+  return { kind: "run", value: { run, report: report ?? emptyReport(run) } };
+}
+
 // readRun reads a run and its report back from the server. Answers null when
 // even that fails: the caller is already handling one failure and must not lose
 // it behind a second.
@@ -133,6 +223,66 @@ export function useImportFlow() {
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [run, setRun] = useState<ImportRun | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
+  // Whether the run on screen was recovered rather than produced here. The card
+  // says so: an outcome a reader did not just cause, presented as if they had,
+  // reads as an import that ran by itself.
+  const [resumed, setResumed] = useState(false);
+
+  // The id left behind by an earlier visit, read ONCE at mount — this exists to
+  // recover a run the screen has lost, and a session already holding one has
+  // nothing to recover. From here it only ever goes to null, when the server
+  // will not answer for it.
+  const [remembered, setRemembered] = useState<string | null>(
+    readRememberedRun,
+  );
+
+  // noteRun is the screen's only memory of where the reader got to, so the
+  // stored reference and the affordance it stands for cannot disagree: a run
+  // with something left to do is remembered, and a spent one is forgotten in
+  // the same breath — undo must never be offered twice for the same run.
+  //
+  // It also ends the "picked up from earlier" notice: whatever the run was when
+  // the card found it, what is on screen now is the answer to a press the reader
+  // just made.
+  const noteRun = (next: ImportRun) => {
+    setResumed(false);
+    if (unfinished(next.status)) {
+      rememberRun(next.id);
+      return;
+    }
+    forgetRememberedRun();
+  };
+
+  // Asked once, at mount, and never refetched: this is a recovery of state the
+  // screen lost, not a live view of the run. `skipToken` rather than `enabled`
+  // so the id the request uses is the one the query is keyed on.
+  const recovery = useQuery({
+    queryKey: ["importRunRecovery", remembered],
+    queryFn: remembered === null ? skipToken : () => recoverRun(remembered),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+
+  // The recovery is considered EXACTLY once, whatever it turns out to say.
+  //
+  // Once, because a reader who has already chosen a file by the time it lands
+  // is doing something newer than what it carries, and a recovery that stayed
+  // pending would put that stale run back the next time the card went quiet.
+  const [considered, setConsidered] = useState(false);
+  if (!considered && recovery.data) {
+    setConsidered(true);
+    if (recovery.data.kind === "spent") {
+      // Gone, never this reader's, or already undone. Asking again on every
+      // mount would be asking a question that has been answered.
+      setRemembered(null);
+      forgetRememberedRun();
+    }
+    if (recovery.data.kind === "run" && run === null && profile === null) {
+      setRun(recovery.data.value.run);
+      setReport(recovery.data.value.report);
+      setResumed(true);
+    }
+  }
 
   // Every step clears what the steps after it said. A profile from one file
   // beside a report from another is the one way this screen could lie about
@@ -148,6 +298,12 @@ export function useImportFlow() {
     setMapping({});
     setRun(null);
     setReport(null);
+    setResumed(false);
+    // The reader has moved on to another file, so the run they left behind is
+    // no longer what this card is about. The run itself is untouched server-side
+    // — this drops the screen's pointer to it, which is what "start again" means
+    // here and what keeps the next mount from reopening a finished import.
+    forgetRememberedRun();
   };
 
   // restart is the human's own "start again": it clears the answers AND the
@@ -273,6 +429,10 @@ export function useImportFlow() {
       }
       setRun(value.run);
       setReport(value.report);
+      // A committed run is the one a reader most needs to find again: undoing it
+      // is the documented way back, and the row they want to keep is edited on
+      // another screen. So the reference outlives this mount.
+      noteRun(value.run);
       // The import wrote leads, organizations and their events. Every cached
       // list is stale, not only the ones this card could name.
       queryClient.invalidateQueries();
@@ -310,6 +470,9 @@ export function useImportFlow() {
       }
       setRun(value.run);
       setReport(value.report);
+      // A reversal that finished spends the reference; one that stopped part-way
+      // keeps it, because continuing it is the whole point of `undoing`.
+      noteRun(value.run);
       // Every reversed row is a lead or organization archived. Every cached
       // list is stale, not only the ones this card could name.
       queryClient.invalidateQueries();
@@ -328,6 +491,7 @@ export function useImportFlow() {
       setMapping((current) => ({ ...current, [column]: target })),
     run,
     report,
+    resumed,
     upload,
     validate,
     commit,

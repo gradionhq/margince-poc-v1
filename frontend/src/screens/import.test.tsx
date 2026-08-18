@@ -141,9 +141,14 @@ async function upload(file = new File(["Email\na@x.test\n"], "estate.csv")) {
   await userEvent.upload(input, file);
 }
 
+// The id the screen remembers a run by, so a remount can pick it up again.
+const REMEMBERED_RUN_KEY = "margince.import.run";
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  // The reference outlives a mount by design, so it would outlive a test too.
+  localStorage.clear();
 });
 
 describe("the import card", () => {
@@ -629,6 +634,129 @@ describe("the import card", () => {
       expect(
         screen.getByText(/the record refused the reversal/),
       ).toBeInTheDocument();
+    });
+  });
+
+  // The completed run lived in React state alone, so the documented way to use
+  // undo — edit the one row you want to keep on the Leads list, come back, undo
+  // the rest — threw the affordance away on the way out. The run and its report
+  // answer for an id regardless, so the screen remembers the id and reads them
+  // back.
+  describe("a run left behind by an earlier visit", () => {
+    // A committed run, as the two endpoints answer for it after a remount.
+    function completedRunRoutes() {
+      return {
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({ ...dryRun, status: "complete" }),
+        "GET /imports/019ff-run": () =>
+          jsonResponse({ ...run, status: "complete" }),
+      };
+    }
+
+    it("is read back on mount, with the undo it still carries", async () => {
+      localStorage.setItem(REMEMBERED_RUN_KEY, run.id);
+      const sent = stubRoutes(completedRunRoutes());
+      render(<ImportCard />);
+
+      expect(
+        await screen.findByText("What this import did"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Undo this import (3 rows)" }),
+      ).toBeInTheDocument();
+      // Read back, not re-uploaded: nothing about the file is on this machine
+      // any more, and the reader chose no file this time.
+      expect(sent.some((s) => s.path === "POST /imports/sources")).toBe(false);
+      // And it says where it came from. An outcome with no press behind it,
+      // presented as a fresh one, reads as an import that ran by itself.
+      expect(screen.getByText(/Picked up from earlier/)).toBeInTheDocument();
+    });
+
+    it("is remembered as the commit lands, not only while the card is mounted", async () => {
+      stubRoutes();
+      render(<ImportCard />);
+      await upload();
+      await screen.findByRole("row", { name: /Notes/ });
+      await userEvent.click(
+        screen.getByRole("button", { name: "Check what this will do" }),
+      );
+      await screen.findByText("What this import will do");
+      await userEvent.click(
+        screen.getByRole("button", { name: "Import 3 rows" }),
+      );
+      await screen.findByText("The import finished.");
+
+      expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBe(run.id);
+    });
+
+    it("is forgotten once it has been undone, so undo is never offered twice", async () => {
+      localStorage.setItem(REMEMBERED_RUN_KEY, run.id);
+      stubRoutes({
+        "GET /imports/019ff-run/report": () =>
+          jsonResponse({ ...dryRun, status: "undone" }),
+        "GET /imports/019ff-run": () =>
+          jsonResponse({ ...run, status: "undone" }),
+      });
+      render(<ImportCard />);
+
+      // Forgetting is what proves the recovery was considered, so it is what the
+      // rest of this case waits on.
+      await waitFor(() =>
+        expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBeNull(),
+      );
+      // A reversed run has nothing left to offer, and putting it back would sit
+      // a spent affordance in front of the reader.
+      expect(screen.queryByText("What this import did")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Choose a file" }),
+      ).toBeInTheDocument();
+    });
+
+    it("is forgotten when the server will not answer for it", async () => {
+      // The run of another organization or another seat, a deleted one, or one
+      // whose grant this reader has lost: existence is hidden as a 404, and a
+      // reference nobody can open is one to drop rather than ask about again.
+      localStorage.setItem(REMEMBERED_RUN_KEY, "019ff-not-yours");
+      stubRoutes({
+        "GET /imports/019ff-not-yours": () =>
+          jsonResponse(
+            { status: 404, code: "not_found", detail: "no such import run" },
+            404,
+          ),
+      });
+      render(<ImportCard />);
+
+      await waitFor(() =>
+        expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBeNull(),
+      );
+      expect(screen.queryByText("What this import did")).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Choose a file" }),
+      ).toBeInTheDocument();
+    });
+
+    it("keeps the reference when the read itself failed, rather than dropping a live run", async () => {
+      // A 500 says nothing about whether the run is there. Forgetting on it
+      // would turn one bad answer into a permanently unreachable undo.
+      localStorage.setItem(REMEMBERED_RUN_KEY, run.id);
+      const sent = stubRoutes({
+        "GET /imports/019ff-run": () =>
+          jsonResponse(
+            { status: 500, code: "internal", detail: "the read failed" },
+            500,
+          ),
+      });
+      render(<ImportCard />);
+
+      // Wait for the recovery to have been asked and answered before judging
+      // what it did with the reference.
+      await waitFor(() =>
+        expect(sent.some((s) => s.path === "GET /imports/019ff-run")).toBe(
+          true,
+        ),
+      );
+      expect(localStorage.getItem(REMEMBERED_RUN_KEY)).toBe(run.id);
+      expect(screen.queryByText("What this import did")).toBeNull();
     });
   });
 });

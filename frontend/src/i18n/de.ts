@@ -2190,6 +2190,8 @@ export const de = {
   "import.validating": "Wird geprüft…",
   "import.previewTitle": "Was dieser Import tun wird",
   "import.outcomeTitle": "Was dieser Import getan hat",
+  "import.resumedRun":
+    "Von vorhin übernommen: Dieser Import lief am {when}. Alles darunter steht Ihnen weiterhin offen.",
   "import.count.created": "Anlegen",
   "import.count.updated": "Aktualisieren",
   "import.count.unchanged": "Unverändert",
@@ -5220,8 +5222,10 @@ export const de = {
   "person.research.title": "Tiefenrecherche · {name}",
   "person.research.publicOnly": "Nur öffentliche Quellen",
   "person.research.running": "Öffentliche Quellen werden gelesen…",
+  // "Recherche-Anbieter", nicht "Datenanbieter": Letzteres ist das Wort für die
+  // zugekauften Kontaktdaten (provider.profile.*), die direkt darüber stehen.
   "person.research.notConnected":
-    "Noch kein Datenanbieter verbunden. Margince recherchiert nie aus eigener Befugnis zu einer Person — dafür braucht es einen lizenzierten Anbieter mit eigener Rechtsgrundlage.",
+    "Es ist kein Recherche-Anbieter verbunden, also wurden keine öffentlichen Quellen zu dieser Person gelesen. Das ist unabhängig von zugekauften Kontaktdaten darüber — Margince recherchiert nie aus eigener Befugnis zu einer Person, und eine Tiefenrecherche braucht einen lizenzierten Anbieter mit eigener Rechtsgrundlage.",
   "person.research.staged":
     "Die Recherche ist vorgemerkt. Am Datensatz von {name} ändert sich nichts, bis Sie prüfen und speichern.",
   "person.research.stats":
