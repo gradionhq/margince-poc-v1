@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestOrganizationCounts_ListAndSingleReadAgreeWithTheEdges(t *testing.T) {
@@ -136,12 +137,81 @@ func TestOrganizationCounts_UngatedRoleSeesContactsButNoDealCount(t *testing.T) 
 	}
 }
 
+// A count is a read. An own-scope rep looking at a shared account sees the
+// contacts and deals THEY may see, not the workspace's: a number that moved
+// when a colleague captured a private contact would disclose that contact.
+func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
+	e := Setup(t)
+	// The account is unowned, so it is visible at every scope tier.
+	acme := e.SeedOrg(t, "Shared Counts", nil)
+	mine := e.SeedPerson(t, "Rep1 Contact", &e.Rep1)
+	theirs := e.SeedPerson(t, "Rep3 Contact", &e.Rep3)
+	employ := func(person ids.UUID) {
+		t.Helper()
+		personID := ids.From[ids.PersonKind](person)
+		orgID := ids.From[ids.OrganizationKind](acme)
+		if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
+			Kind: "employment", PersonID: &personID, OrganizationID: &orgID,
+			IsCurrentPrimary: true, Source: "manual",
+		}); err != nil {
+			t.Fatalf("seeding the employment edge: %v", err)
+		}
+	}
+	employ(mine)
+	employ(theirs)
+
+	pipeline, open := pipelineFixtureFor(e.Admin(), t, e.Deals)
+	for _, owner := range []ids.UUID{e.Rep1, e.Rep3} {
+		ownerID := ids.From[ids.UserKind](owner)
+		if _, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
+			Name: "Deal of " + owner.String(), AmountMinor: int64Ptr(1000), Currency: strPtr("EUR"),
+			PipelineID: pipeline, StageID: open, OrganizationID: orgIDPtr(orgIDOf(acme)),
+			OwnerID: &ownerID, Source: "manual",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	admin, err := e.People.GetOrganization(e.Admin(), orgIDOf(acme), storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCounts(t, "admin sees the workspace", admin, 2, 2)
+
+	perms := rollupOrgReadPerms(principal.RowScopeOwn)
+	perms.Objects["computed_field"] = principal.ObjectGrant{Read: true}
+	perms.Objects["person"] = principal.ObjectGrant{Read: true}
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, perms)
+	own, err := e.People.GetOrganization(rep, orgIDOf(acme), storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCounts(t, "own-scope rep sees only their own", own, 1, 1)
+	page, _, err := e.People.ListOrganizations(rep, people.ListOrganizationsInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range page {
+		if ids.UUID(o.Id) == acme {
+			assertCounts(t, "own-scope rep on the list", o, 1, 1)
+			return
+		}
+	}
+	t.Fatal("shared account missing from the rep's page")
+}
+
 func assertCounts(t *testing.T, label string, o crmcontracts.Organization, contacts, deals int) {
 	t.Helper()
-	if o.ContactCount == nil || *o.ContactCount != contacts {
-		t.Fatalf("%s: contact_count = %v, want %d", label, o.ContactCount, contacts)
+	if o.ContactCount == nil {
+		t.Fatalf("%s: contact_count absent, want %d", label, contacts)
 	}
-	if o.OpenDealCount == nil || *o.OpenDealCount != deals {
-		t.Fatalf("%s: open_deal_count = %v, want %d", label, o.OpenDealCount, deals)
+	if *o.ContactCount != contacts {
+		t.Fatalf("%s: contact_count = %d, want %d", label, *o.ContactCount, contacts)
+	}
+	if o.OpenDealCount == nil {
+		t.Fatalf("%s: open_deal_count absent, want %d", label, deals)
+	}
+	if *o.OpenDealCount != deals {
+		t.Fatalf("%s: open_deal_count = %d, want %d", label, *o.OpenDealCount, deals)
 	}
 }

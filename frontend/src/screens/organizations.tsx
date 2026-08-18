@@ -618,8 +618,9 @@ export function CompaniesScreen() {
               ) : null,
           },
           {
-            // AC-companies-2/3: how many people work here. Zero is a number
-            // — a reader must tell "no contacts" from "not shown".
+            // AC-companies-2/3: how many people work here that this reader may
+            // see — the server counts under the caller's row scope. Zero is a
+            // number: a reader must tell "no contacts" from "not shown".
             key: "contacts",
             header: t("org.contactCount"),
             numeric: true,

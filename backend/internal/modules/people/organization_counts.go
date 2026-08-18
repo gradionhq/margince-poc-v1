@@ -15,22 +15,23 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // attachOrgCounts fills contact_count and open_deal_count for a page.
 //
-// contact_count counts current-primary employment edges to live people. It
-// is a fact about the account rather than about any one person, which is
-// why it is not narrowed by the caller's person row scope: an employer name
-// the caller cannot read already leaves the edge itself visible, and a
-// count of edges says no more than that.
+// Both are counts of what the CALLER may see, under the same row-scope
+// predicate the person and deal lists apply. A count is a read: an
+// owner-private contact or another team's deal must not surface as "one
+// more" on an account the caller happens to share, since a number that
+// moves when a hidden record is created discloses that record.
 //
-// open_deal_count follows the computed_fields gate the single read applies
-// (STATE-4): a role without computed_field:read is shown no count of a
-// pipeline it may not see. Absent means withheld; every visible account
-// carries a number, zero included, so a reader can tell "none" from "not
-// yours to know".
+// open_deal_count also follows the computed_fields gate the single read
+// applies (STATE-4): a role without computed_field:read is shown no count
+// of a pipeline it may not see. Absent means withheld; every visible
+// account carries a number, zero included, so a reader can tell "none"
+// from "not yours to know".
 func attachOrgCounts(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organization) error {
 	if len(orgs) == 0 {
 		return nil
@@ -48,37 +49,70 @@ func attachOrgCounts(ctx context.Context, tx pgx.Tx, orgs []crmcontracts.Organiz
 			orgs[i].OpenDealCount = &zeroDeals
 		}
 	}
-	if err := fillCount(ctx, tx, idx,
+	if err := fillContactCounts(ctx, tx, idx, orgIDs); err != nil {
+		return err
+	}
+	if !dealsVisible {
+		return nil
+	}
+	return fillOpenDealCounts(ctx, tx, idx, orgIDs)
+}
+
+// fillContactCounts counts current-primary employment edges to live people
+// the caller may see. The organization end needs no predicate of its own:
+// every account on the page already passed the list's row scope.
+func fillContactCounts(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUID]*crmcontracts.Organization, orgIDs []ids.UUID) error {
+	args := []any{orgIDs}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return err
+	}
+	if scope != "" {
+		scope = " AND " + scope
+	}
+	return fillCount(ctx, tx, idx,
 		`SELECT rel.organization_id, count(*)
 		 FROM relationship rel
 		 JOIN person p ON p.id = rel.person_id AND p.archived_at IS NULL
 		 WHERE rel.organization_id = ANY($1)
 		   AND rel.kind = 'employment'
 		   AND rel.is_current_primary
-		   AND rel.archived_at IS NULL
-		 GROUP BY rel.organization_id`, orgIDs,
-		func(o *crmcontracts.Organization, n int) { o.ContactCount = &n }); err != nil {
+		   AND rel.archived_at IS NULL`+scope+`
+		 GROUP BY rel.organization_id`, args,
+		func(o *crmcontracts.Organization, n int) { o.ContactCount = &n })
+}
+
+// fillOpenDealCounts counts open, live deals the caller may see. It spells
+// "open deal" exactly as the 0065 organization_open_pipeline_rollup view
+// does (status = 'open', not archived) but reads the deal table directly,
+// because the view carries no row-scope predicate and a count must.
+func fillOpenDealCounts(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUID]*crmcontracts.Organization, orgIDs []ids.UUID) error {
+	args := []any{orgIDs}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
+	if err != nil {
 		return err
 	}
-	if !dealsVisible {
-		return nil
+	if scope != "" {
+		scope = " AND " + scope
 	}
-	// The 0065 view is the ONE spelling of "open deal" this module reads;
-	// the single read's open-pipeline row derives from the same rows, so
-	// the list and the page cannot disagree about the count.
 	return fillCount(ctx, tx, idx,
-		`SELECT organization_id, open_deal_count
-		 FROM organization_open_pipeline_rollup
-		 WHERE organization_id = ANY($1)`, orgIDs,
+		`SELECT d.organization_id, count(*)
+		 FROM deal d
+		 WHERE d.organization_id = ANY($1)
+		   AND d.status = 'open'
+		   AND d.archived_at IS NULL`+scope+`
+		 GROUP BY d.organization_id`, args,
 		func(o *crmcontracts.Organization, n int) { o.OpenDealCount = &n })
 }
 
 // fillCount runs one (organization_id, count) query and hands each row's
 // count to set on the matching organization.
 func fillCount(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUID]*crmcontracts.Organization,
-	query string, orgIDs []ids.UUID, set func(*crmcontracts.Organization, int),
+	query string, args []any, set func(*crmcontracts.Organization, int),
 ) error {
-	rows, err := tx.Query(ctx, query, orgIDs)
+	rows, err := tx.Query(ctx, query, args...)
 	if err != nil {
 		return err
 	}

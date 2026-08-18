@@ -15502,7 +15502,7 @@ type Organization struct {
 	// viewer's role lacks computed_field:read visibility (STATE-4).
 	ComputedFields *[]ComputedField `json:"computed_fields,omitempty"`
 
-	// ContactCount How many live people list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted from the employment edges, so a contact whose record the caller cannot open still counts — the edge is a fact about the account, exactly as an employer name the caller cannot read leaves the edge visible. Populated on the list and the single read in the same transaction as the row; never client-supplied.
+	// ContactCount How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied.
 	ContactCount *int      `json:"contact_count,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 
@@ -15536,7 +15536,7 @@ type Organization struct {
 	LogoUrl      *string             `json:"logo_url,omitempty"`
 	MergedIntoId *openapi_types.UUID `json:"merged_into_id,omitempty"`
 
-	// OpenDealCount How many open, live deals belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column) — the same figure the `computed_fields` open-pipeline row already derives on the single read. It follows that row's visibility (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it.
+	// OpenDealCount How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it.
 	OpenDealCount *int                `json:"open_deal_count,omitempty"`
 	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
 
