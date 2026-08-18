@@ -20,6 +20,11 @@ import { PersonMemory } from "./personmemory";
 import { PersonPageV2 } from "./personpage";
 import { PersonRail } from "./personrail";
 import { PersonStrip } from "./personstrip";
+import {
+  PersonActivityTab,
+  PersonDealsTab,
+  PersonMeetingsTab,
+} from "./persontabs";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
 import {
@@ -183,6 +188,21 @@ const populated: View = {
   commercial: {
     role: "champion",
     committee: [],
+  },
+  // The server sends this section whenever the grant admits it, empty rows
+  // and all — so a fixture without it is a payload no permitted reader ever
+  // receives, and the Deals tab would read as "could not be loaded".
+  deal_roles: {
+    data: [
+      {
+        relationship_id: "r-1",
+        deal_id: "d-1",
+        deal_title: "Fleet retrofit, 40 vehicles",
+        deal_stage: "Proposal",
+        role: "champion",
+      },
+    ],
+    page: { has_more: false },
   },
   next_meeting: {
     activity_id: "a-2",
@@ -501,6 +521,7 @@ const nothingNeededMoment: components["schemas"]["PersonMoment"] = {
 // only place it renders.
 const withheld: View = {
   ...populated,
+  deal_roles: undefined,
   last_inbound_at: undefined,
   last_outbound_at: undefined,
   activities: undefined,
@@ -509,6 +530,7 @@ const withheld: View = {
   sections_omitted: [
     "last_touch",
     "activities",
+    "deal_roles",
     "commercial",
     "next_meeting",
     "consent",
@@ -1685,4 +1707,60 @@ export const ProviderNotConfigured: Story = {
       </StoryProviders>
     );
   },
+};
+
+// --- The tabs beside Overview -----------------------------------------------
+//
+// Each of the three reads the SAME 360 the overview reads, so a tab can never
+// show a record the tab beside it is withholding. Both fixtures are rendered
+// for each: what a permitted reader sees, and what a reader whose grant does
+// not reach the section sees — the withheld half is the one a stubbed empty
+// state would silently misreport as "there is none".
+
+export const TabActivity: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonActivityTab view={populated} />
+    </StoryProviders>
+  ),
+};
+
+export const TabActivityWithheld: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonActivityTab view={withheld} />
+    </StoryProviders>
+  ),
+};
+
+export const TabDeals: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonDealsTab view={populated} />
+    </StoryProviders>
+  ),
+};
+
+export const TabDealsWithheld: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonDealsTab view={withheld} />
+    </StoryProviders>
+  ),
+};
+
+export const TabMeetings: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonMeetingsTab view={populated} />
+    </StoryProviders>
+  ),
+};
+
+export const TabMeetingsWithheld: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonMeetingsTab view={withheld} />
+    </StoryProviders>
+  ),
 };

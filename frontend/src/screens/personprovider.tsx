@@ -7,6 +7,8 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { EvidenceMark } from "../design-system/evidencemark";
+import { Eyebrow } from "../design-system/eyebrow";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { throwProblem } from "./common";
 import {
@@ -50,19 +52,24 @@ export function PersonProviderSection({
     return null;
   }
   return (
-    <section className="pe-card">
-      <header
-        style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}
-      >
-        <h3>{t("provider.profile.title")}</h3>
+    // The record page's own card, with the provider's state in the header's
+    // action slot. It used to be a bare `<section className="pe-card">` — a
+    // class no stylesheet defines — which read as unframed text the moment it
+    // was shown anywhere but inside a drawer.
+    <Panel
+      title={t("provider.profile.title")}
+      titleAction={
         <Badge tone={profileTone(profile.state)}>
           {t(profileLabel(profile.state))}
         </Badge>
-      </header>
-      <ProviderValues profile={profile} />
-      <EnrichNow personId={personId} profile={profile} />
-      <RunWatch personId={personId} profile={profile} />
-    </section>
+      }
+      actions={<EnrichNow personId={personId} profile={profile} />}
+    >
+      <PanelBody>
+        <ProviderValues profile={profile} />
+        <RunWatch personId={personId} profile={profile} />
+      </PanelBody>
+    </Panel>
   );
 }
 
@@ -84,12 +91,12 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
     <>
       {profile.emails.length > 0 && (
         <div>
-          <h4>{t("provider.profile.emails")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.emails")}</Eyebrow>
           {profile.emails.map((email) => (
             <div key={email.value}>
-              <EvidenceMark value={email.value} source={source} />
+              <EvidenceMark value={email.value} source={source} />{" "}
               {email.email_type && (
-                <span className="muted">
+                <span className="t-caption">
                   {/* Which label this is, and WHOSE it is. An address the
                       provider did not classify is labelled from what we
                       asked for, and saying so is the whole point of the
@@ -109,12 +116,12 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
       )}
       {profile.mobile_phones.length > 0 && (
         <div>
-          <h4>{t("provider.profile.mobiles")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.mobiles")}</Eyebrow>
           {profile.mobile_phones.map((phone) => (
             <div key={phone.value}>
-              <EvidenceMark value={phone.value} source={source} />
+              <EvidenceMark value={phone.value} source={source} />{" "}
               {phone.confidence != null && (
-                <span className="muted">
+                <span className="t-caption">
                   {t("provider.profile.confidence", {
                     percent: String(Math.round(phone.confidence * 100)),
                   })}
@@ -126,13 +133,13 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
       )}
       {profile.linkedin_url && (
         <div>
-          <h4>{t("provider.profile.linkedin")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.linkedin")}</Eyebrow>
           <EvidenceMark value={profile.linkedin_url} source={source} />
         </div>
       )}
       {profile.current_employment && (
         <div>
-          <h4>{t("provider.profile.employment")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.employment")}</Eyebrow>
           <EvidenceMark
             value={[
               profile.current_employment.job_title,
@@ -146,7 +153,7 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
       )}
       {profile.job_history.length > 0 && (
         <div>
-          <h4>{t("provider.profile.jobHistory")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.jobHistory")}</Eyebrow>
           {profile.job_history.map((job) => (
             <div key={`${job.company_name}-${job.job_title ?? ""}`}>
               <EvidenceMark
@@ -161,13 +168,13 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
       )}
       {profile.location && (
         <div>
-          <h4>{t("provider.profile.location")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.location")}</Eyebrow>
           <EvidenceMark value={profile.location} source={source} />
         </div>
       )}
       {profile.departments.length > 0 && (
         <div>
-          <h4>{t("provider.profile.departments")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.departments")}</Eyebrow>
           <EvidenceMark
             value={profile.departments.join(", ")}
             source={source}
@@ -176,7 +183,7 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
       )}
       {profile.seniorities.length > 0 && (
         <div>
-          <h4>{t("provider.profile.seniorities")}</h4>
+          <Eyebrow as="h4">{t("provider.profile.seniorities")}</Eyebrow>
           <EvidenceMark
             value={profile.seniorities.join(", ")}
             source={source}
@@ -187,7 +194,7 @@ function ProviderValues({ profile }: Readonly<{ profile: Profile }>) {
         // The difference between "we asked and they had nothing" and "we
         // never asked". Without this line a blank field reads as the first
         // when it is often the second.
-        <p className="muted">
+        <p className="t-caption">
           {t("provider.profile.notRequested", {
             categories: profile.categories_not_requested.join(", "),
           })}

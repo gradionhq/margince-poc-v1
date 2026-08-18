@@ -16,10 +16,10 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
-import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
+import { RecordHistoryTab } from "./history";
 import {
   hasCommercial,
   hasCommitments,
@@ -34,9 +34,16 @@ import {
   PersonMeetingBrief,
   PersonResearchDrawer,
 } from "./persondrawers";
+import { PersonFilesTab } from "./personfiles";
 import { PersonMemory } from "./personmemory";
 import { PersonRail } from "./personrail";
+import { PersonResearchTab } from "./personresearch";
 import { PersonStrip } from "./personstrip";
+import {
+  PersonActivityTab,
+  PersonDealsTab,
+  PersonMeetingsTab,
+} from "./persontabs";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
 
@@ -72,19 +79,6 @@ const TAB_LABEL_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
   history: "person.tab.history",
 };
 
-// The placeholder sentence names the tab mid-sentence, where English wants the
-// label lowercased and German does not. Lowercasing at the call site would
-// mangle every German noun, so each locale carries its own mid-sentence form.
-const TAB_TOPIC_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
-  overview: "person.topic.overview",
-  activity: "person.topic.activity",
-  deals: "person.topic.deals",
-  meetings: "person.topic.meetings",
-  research: "person.topic.research",
-  files: "person.topic.files",
-  history: "person.topic.history",
-};
-
 export function isPersonTab(value: string | undefined): value is PersonTab {
   return PERSON_TABS.includes((value ?? "") as PersonTab);
 }
@@ -112,6 +106,42 @@ function composerIntentOf(
 ): string {
   const key = COMPOSER_INTENT_KEYS[prefill?.intent ?? ""];
   return key ? t(key) : "";
+}
+
+/**
+ * PersonTabPanel is what the tab bar chose, and nothing else: the page above
+ * it decides which record it is on, and this decides which face of that record
+ * the reader asked for.
+ *
+ * Three of the six read the 360 the page already holds; Files and History own
+ * their reads because the 360 carries neither.
+ */
+function PersonTabPanel({
+  tab,
+  personId,
+  view,
+}: Readonly<{ tab: PersonTab; personId: string; view: Person360 }>) {
+  switch (tab) {
+    case "activity":
+      return <PersonActivityTab view={view} />;
+    case "deals":
+      return <PersonDealsTab view={view} />;
+    case "meetings":
+      return <PersonMeetingsTab view={view} />;
+    case "research":
+      return <PersonResearchTab view={view} />;
+    case "files":
+      return <PersonFilesTab personId={personId} />;
+    case "history":
+      // The record-level audit projection every record page shares — the
+      // person's own spelling of it would be a second rendering of one spine.
+      return <RecordHistoryTab kind="person" id={personId} />;
+    // Overview is drawn by the page itself, above this component: its stack
+    // reads the page's other queries (the brief) and its moment drives the
+    // page's own action loop.
+    default:
+      return null;
+  }
 }
 
 export function PersonPageV2({
@@ -322,20 +352,7 @@ export function PersonPageV2({
           </div>
         )}
 
-        {tab !== "overview" && (
-          // The other six tabs are addressable and named, and each says what
-          // it will hold. An empty panel that looked like a rendering failure
-          // would be worse than one that says what is coming.
-          <Panel title={t(TAB_LABEL_KEYS[tab])}>
-            <PanelBody>
-              <p className="pe-prose">
-                {t("person.page.tabPlaceholder", {
-                  topic: t(TAB_TOPIC_KEYS[tab]),
-                })}
-              </p>
-            </PanelBody>
-          </Panel>
-        )}
+        <PersonTabPanel tab={tab} personId={id} view={view.data} />
         <PersonComposer
           personId={id}
           view={view.data}
