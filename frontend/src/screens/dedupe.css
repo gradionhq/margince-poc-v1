@@ -23,6 +23,27 @@
   width: 100%;
   border-collapse: collapse;
   margin-bottom: var(--space-3);
+  /* FIXED, not content-sized. The queue stacks one card per candidate pair, and
+     a table that sizes its own columns to its own longest value puts the same
+     four headings at four different x positions down the page — so a reviewer
+     scanning for conflicts compares columns that do not line up, and four cards
+     read as four tables. The widths are shared so the queue reads as one. */
+  table-layout: fixed;
+}
+.dedupe-evidence th:nth-child(1),
+.dedupe-evidence td:nth-child(1) {
+  width: 22%;
+}
+.dedupe-evidence th:nth-child(2),
+.dedupe-evidence td:nth-child(2) {
+  width: 14%;
+}
+/* A value can be a long legal name, and under a fixed layout it wraps rather
+   than pushing the column: wrapping keeps the comparison aligned, and the two
+   values being compared are the whole point of the row. */
+.dedupe-evidence td:nth-child(3),
+.dedupe-evidence td:nth-child(4) {
+  overflow-wrap: anywhere;
 }
 .dedupe-evidence th,
 .dedupe-evidence td {
