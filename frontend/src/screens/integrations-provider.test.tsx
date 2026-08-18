@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SLOWEST_MEASURED_TEST_MS } from "../../vitest.budget";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { ProviderCard } from "./integrations-provider";
@@ -126,10 +127,13 @@ const SETTLE_MS = 10_000;
 // `renderAs` runs one waiter at SETTLE_MS, and each case below awaits it. A
 // test may spend the SUM of its waiters' budgets without any one of them
 // failing, so its own ceiling has to cover that — and the suite's is derived
-// for tests that wait at the default. Stated here rather than borrowed: without
-// it these fail while the settle is still inside its budget, and the failure
-// names the test rather than the round trip that was slow (#1144).
-const RENDER_TEST_MS = SETTLE_MS + 3000;
+// for tests that wait at the default. Stated here rather than borrowed, with
+// the SAME measured allowance for the work between the waits that the suite
+// ceiling uses, so the two rest on one measurement rather than on a round
+// number picked here. Without it these fail while the settle is still inside
+// its budget, and the failure names the test rather than the round trip that
+// was slow (issue 1144).
+const RENDER_TEST_MS = SETTLE_MS + SLOWEST_MEASURED_TEST_MS;
 
 // The card sits on the Settings → Integrations entry, whose predicate opens for
 // all five roles, and the reads behind it are granted to all five. The writes

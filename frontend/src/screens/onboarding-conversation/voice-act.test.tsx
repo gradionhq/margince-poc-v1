@@ -11,6 +11,10 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { useReducer } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ASYNC_UTIL_TIMEOUT_MS,
+  SLOWEST_MEASURED_TEST_MS,
+} from "../../../vitest.budget";
 import type { components } from "../../api/schema";
 import { LocaleProvider } from "../../i18n";
 import type { ConversationState } from "./conversation-machine";
@@ -27,14 +31,18 @@ type IngestStats = components["schemas"]["VoiceIngestStats"];
 
 // The two build cases below narrate a poll, so each raises two of its waiters
 // to 4000ms to outlast it. A test may spend the SUM of its waiters' budgets
-// without any one of them failing, and these spend 12000ms — past the suite's
-// own ceiling, which is derived for tests that wait at the default. So they
-// state their own, the way read-conclusion.test.tsx and onboarding-restore
-// .test.tsx already do: the two raised waiters, the defaults beside them, and
-// room for the render work between. Without it the test fails while every
-// waiter in it is still inside its budget, and the failure names the test
-// rather than the poll that was slow (#1144).
-const BUILD_TEST_MS = 4000 * 2 + 1000 * 4 + 4000;
+// without any one of them failing, and the heavier of the two spends 12000ms —
+// past the suite's own ceiling, which is derived for tests that wait at the
+// default. So they state their own, the way read-conclusion.test.tsx and
+// onboarding-restore.test.tsx already do: the raised waiters, the defaults
+// beside them, and the SAME measured allowance for the work between them that
+// the suite ceiling uses, so the two rest on one measurement rather than on a
+// round number picked here. Without it the test fails while every waiter in it
+// is still inside its budget, and the failure names the test rather than the
+// poll that was slow (issue 1144).
+const POLL_WAITER_MS = 4000;
+const BUILD_TEST_MS =
+  POLL_WAITER_MS * 2 + ASYNC_UTIL_TIMEOUT_MS * 4 + SLOWEST_MEASURED_TEST_MS;
 
 const PROFILE_ID = "018f3a1b-0000-7000-8000-0000000000d1";
 const BUILD_IDS = [
