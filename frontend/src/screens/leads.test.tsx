@@ -267,6 +267,32 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(patched[0].ifMatch).toBe("7");
   });
 
+  it("the board keeps the filter bar it obeys, and offers the rest of the page", async () => {
+    // The board renders inside the list surface. Swapping the whole surface out
+    // for it took the chips and the search with it — leaving the reader looking
+    // at a narrowed answer with no way to see or change what narrowed it — and
+    // showed page one while looking like the whole pipeline.
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/leads?") || url.endsWith("/leads")) {
+        return jsonResponse({
+          data: [{ ...lead, status: "new", version: 7 }],
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return emptyPage();
+    });
+    render(<LeadsScreen />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Board" }));
+
+    // The dials the board obeys are still on screen.
+    expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
+    expect(screen.getByRole("searchbox")).toBeTruthy();
+    // And it admits there is more than it is showing.
+    expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
+  });
+
   it("a promoted lead keeps its page and says what the promotion did", async () => {
     // AC-leaddetail-5 (ADR-0119/A170). The page used to redirect here, which
     // told the reader the lead had ceased to exist — untrue of a record this

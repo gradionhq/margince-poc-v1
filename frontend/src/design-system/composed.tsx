@@ -94,19 +94,6 @@ export type BoardDeal = {
 export type BoardColumn = {
   stage: string;
   label: string;
-  /**
-   * The money header, and the reason it is optional rather than zeroed.
-   *
-   * A board whose columns carry no money — leads by status, where a column has
-   * a count and nothing else — would otherwise have to pass `0` for each of
-   * these, and a zero total reads as "this stage is worth nothing" rather than
-   * "this board is not about money". `variant: "plain"` omits the figures
-   * entirely; these four are then unread.
-   */
-  probabilityPct?: number;
-  rawMinor?: number;
-  weightedMinor?: number;
-  currency?: string;
   deals: BoardDeal[];
   /**
    * The stage's true deal count, independent of how many `deals` (cards)
@@ -123,6 +110,21 @@ export type BoardColumn = {
    * zero that reads as an empty stage.
    */
   sumHidden?: boolean;
+};
+
+/**
+ * A column on a MONEY board: the stage's figures, which its header states.
+ *
+ * Separate from the base rather than four optional fields on it, because
+ * optional is not what these are — a deal column without them renders
+ * `undefined%` in its header, which is worse than failing to compile. The
+ * variant that reads them is the variant that requires them.
+ */
+export type BoardMoneyColumn = BoardColumn & {
+  probabilityPct: number;
+  rawMinor: number;
+  weightedMinor: number;
+  currency: string;
 };
 
 export function DealCard({
@@ -189,105 +191,115 @@ export function PipelineBoard({
   columnDropHandlers,
   variant = "deal",
   renderCard,
-}: Readonly<{
-  columns: BoardColumn[];
+}: Readonly<
   /**
-   * What the column header states. "deal" reads the money — the stage total,
-   * its probability and the weighted figure. "plain" states the count alone,
-   * for a board whose columns are not worth an amount: leads by status, where
-   * a zero total would read as an empty stage rather than an absent question.
+   * The variant decides what the header states AND what a column must carry,
+   * as one union rather than two independent props.
    *
-   * A variant rather than a second board, because the columns, the drag
-   * targets and the CSS are the same board — only the header differs, and two
-   * copies of a drop target is how one of them stops working.
+   * "deal" reads the money — the stage total, its probability and the weighted
+   * figure — so its columns REQUIRE those four. "plain" states the count
+   * alone, for a board whose columns are not worth an amount (leads by status,
+   * where a zero total would read as an empty stage rather than an absent
+   * question), so its columns cannot carry them at all.
+   *
+   * A variant rather than a second board, because the columns, the drop
+   * targets and the CSS are the same board — two copies of a drop target is
+   * how one of them stops working. But optional money fields would let a deal
+   * board omit its probability and render `undefined%`, so the two column
+   * shapes are distinct types and the compiler holds the line.
    */
-  variant?: "deal" | "plain";
-  /**
-   * The card, when the caller's rows are not deals. Absent renders `DealCard`,
-   * which is what every existing caller wants and gets without changing.
-   */
-  renderCard?: (deal: BoardDeal, column: BoardColumn) => ReactNode;
-  onOpen?: (deal: BoardDeal) => void;
-  columnExtras?: (column: BoardColumn) => ReactNode;
-  cardDragHandlers?: (
-    deal: BoardDeal,
-    column: BoardColumn,
-  ) => {
-    draggable: true;
-    onDragStart: (event: React.DragEvent) => void;
-  };
-  columnDropHandlers?: (column: BoardColumn) => {
-    onDragOver: (event: React.DragEvent) => void;
-    onDrop: (event: React.DragEvent) => void;
-    onDragLeave: (event: React.DragEvent) => void;
-  };
-}>) {
+  (
+    | { variant?: "deal"; columns: BoardMoneyColumn[] }
+    | { variant: "plain"; columns: BoardColumn[] }
+  ) & {
+    /**
+     * The card, when the caller's rows are not deals. Absent renders `DealCard`,
+     * which is what every existing caller wants and gets without changing.
+     */
+    renderCard?: (deal: BoardDeal, column: BoardColumn) => ReactNode;
+    onOpen?: (deal: BoardDeal) => void;
+    columnExtras?: (column: BoardColumn) => ReactNode;
+    cardDragHandlers?: (
+      deal: BoardDeal,
+      column: BoardColumn,
+    ) => {
+      draggable: true;
+      onDragStart: (event: React.DragEvent) => void;
+    };
+    columnDropHandlers?: (column: BoardColumn) => {
+      onDragOver: (event: React.DragEvent) => void;
+      onDrop: (event: React.DragEvent) => void;
+      onDragLeave: (event: React.DragEvent) => void;
+    };
+  }
+>) {
   const t = useT();
   const { locale } = useLocale();
   return (
     <div className="board">
-      {columns.map((column) => (
-        <section
-          key={column.stage}
-          className="board-col"
-          data-stage={column.stage}
-          aria-label={column.label}
-          {...columnDropHandlers?.(column)}
-        >
-          <div className="board-col-head">
-            <span className="stage">{column.label}</span>
-            {variant === "deal" && (
-              <span className="prob">{column.probabilityPct}%</span>
-            )}
-          </div>
-          {/* The stage's total is the figure being scanned down the board, so it
+      {columns.map((column) => {
+        // Narrowed once per column rather than at each of the three reads: the
+        // variant decides whether these figures exist, and a header that asked
+        // three times could answer differently in each.
+        const money =
+          variant === "deal" ? (column as BoardMoneyColumn) : undefined;
+        return (
+          <section
+            key={column.stage}
+            className="board-col"
+            data-stage={column.stage}
+            aria-label={column.label}
+            {...columnDropHandlers?.(column)}
+          >
+            <div className="board-col-head">
+              <span className="stage">{column.label}</span>
+              {money && <span className="prob">{money.probabilityPct}%</span>}
+            </div>
+            {/* The stage's total is the figure being scanned down the board, so it
               leads with the deal count beside it; the weighted figure is its own
               server-sourced total (not derived from the raw total) and reads
               underneath rather than competing on the line. */}
-          <div className="board-col-sub">
-            <span className="board-col-total">
-              {variant === "deal" && !column.sumHidden && (
-                <span className="board-col-money">
-                  {formatMoney(
-                    column.rawMinor ?? 0,
-                    column.currency ?? "EUR",
-                    locale,
-                  )}
+            <div className="board-col-sub">
+              <span className="board-col-total">
+                {money && !column.sumHidden && (
+                  <span className="board-col-money">
+                    {formatMoney(money.rawMinor, money.currency, locale)}
+                  </span>
+                )}
+                <span>
+                  {t("board.count", {
+                    count: column.count ?? column.deals.length,
+                  })}
+                </span>
+              </span>
+              {money && !column.sumHidden && (
+                <span className="board-col-weighted">
+                  {t("board.weighted", {
+                    value: formatMoney(
+                      money.weightedMinor,
+                      money.currency,
+                      locale,
+                    ),
+                  })}
                 </span>
               )}
-              <span>
-                {t("board.count", {
-                  count: column.count ?? column.deals.length,
-                })}
-              </span>
-            </span>
-            {variant === "deal" && !column.sumHidden && (
-              <span className="board-col-weighted">
-                {t("board.weighted", {
-                  value: formatMoney(
-                    column.weightedMinor ?? 0,
-                    column.currency ?? "EUR",
-                    locale,
-                  ),
-                })}
-              </span>
+            </div>
+            {column.deals.map((deal) =>
+              renderCard ? (
+                <Fragment key={deal.id}>{renderCard(deal, column)}</Fragment>
+              ) : (
+                <DealCard
+                  key={deal.id}
+                  deal={deal}
+                  onOpen={onOpen}
+                  dragHandlers={cardDragHandlers?.(deal, column)}
+                />
+              ),
             )}
-          </div>
-          {column.deals.map((deal) =>
-            renderCard ? (
-              <Fragment key={deal.id}>{renderCard(deal, column)}</Fragment>
-            ) : (
-              <DealCard
-                key={deal.id}
-                deal={deal}
-                onOpen={onOpen}
-                dragHandlers={cardDragHandlers?.(deal, column)}
-              />
-            ),
-          )}
-          {columnExtras?.(column)}
-        </section>
-      ))}
+            {columnExtras?.(column)}
+          </section>
+        );
+      })}
     </div>
   );
 }

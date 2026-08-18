@@ -326,6 +326,7 @@ function LeadCard({
   dragHandlers?: {
     draggable: true;
     onDragStart: (event: React.DragEvent) => void;
+    onDragEnd: () => void;
   };
 }>) {
   const t = useT();
@@ -367,7 +368,14 @@ function LeadCard({
 function LeadBoard({
   rows,
   onMoved,
-}: Readonly<{ rows: Lead[]; onMoved: () => void }>) {
+  hasMore,
+  loadMore,
+}: Readonly<{
+  rows: Lead[];
+  onMoved: () => void;
+  hasMore: boolean;
+  loadMore: () => void;
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const dragging = useRef<string | null>(null);
@@ -400,10 +408,18 @@ function LeadBoard({
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       onMoved();
     },
+    onError: () => {
+      // A 409 means the card's version is stale. Without a refetch the reader
+      // retries with the same doomed If-Match and the drag never takes.
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+    },
   });
 
+  const live = rows.filter(
+    (lead) => lead.status === "new" || lead.status === "working",
+  );
   const columns: BoardColumn[] = LEAD_BOARD_STAGES.map((stage) => {
-    const held = rows.filter((lead) => lead.status === stage.stage);
+    const held = live.filter((lead) => lead.status === stage.stage);
     return {
       stage: stage.stage,
       label: t(stage.label),
@@ -414,7 +430,7 @@ function LeadBoard({
       deals: held.map((lead) => ({ id: lead.id, name: "" }) as BoardDeal),
     };
   });
-  const leadsById = new Map(rows.map((lead) => [lead.id, lead]));
+  const leadsById = new Map(live.map((lead) => [lead.id, lead]));
 
   return (
     <>
@@ -422,6 +438,12 @@ function LeadBoard({
         <p className="t-caption" style={{ color: "var(--danger)" }}>
           {problemMessageOf(move.error, t)}
         </p>
+      )}
+      {/* The board holds the live statuses only, so a filter narrowed to a
+          terminal one leaves it empty — and an empty board with no reason
+          reads as a broken render rather than a filter doing its job. */}
+      {rows.length > 0 && live.length === 0 && (
+        <p className="t-caption">{t("lead.boardTerminalOnly")}</p>
       )}
       <PipelineBoard
         variant="plain"
@@ -447,6 +469,13 @@ function LeadBoard({
                 onDragStart: (event) => {
                   dragging.current = lead.id;
                   event.dataTransfer.setData("text/plain", lead.id);
+                },
+                // Recorded on END, not on drop: a drag cancelled off the board
+                // never reaches a drop handler, and the click the browser then
+                // reports would navigate away from the board.
+                onDragEnd: () => {
+                  dragging.current = null;
+                  lastDragEnd.current = Date.now();
                 },
               }}
             />
@@ -482,6 +511,13 @@ function LeadBoard({
           },
         })}
       />
+      {/* A board that showed page one while looking like the whole pipeline
+          would be a confident wrong answer about how much work is waiting. */}
+      {hasMore && (
+        <Button small onClick={loadMore}>
+          {t("list.loadMore")}
+        </Button>
+      )}
     </>
   );
 }
@@ -516,100 +552,110 @@ export function LeadsScreen() {
           />
         </div>
       )}
-      {view === "board" && !overlay ? (
-        <LeadBoard rows={state.rows} onMoved={() => state.refetch()} />
-      ) : (
-        <ListTable
-          state={state}
-          unit="unit.leads"
-          caption="lead.segregated"
-          action={
-            <CreateAction
-              label={t("create.lead")}
-              invalidate="leads"
-              screen="leads"
-              create={(values) => createLead(values, cf.toBody(values), t)}
-              resolveExisting={(_code, id) => ({ screen: "leads", id })}
-              fields={[...leadCreateFields, ...cf.formFields]}
+      <ListTable
+        // The board renders INSIDE the surface, so the search, the chips and
+        // the saved views stay above it. A board that replaced the surface
+        // took the filter bar with it, leaving the reader looking at a
+        // narrowed answer with no way to see or change what narrowed it.
+        body={
+          view === "board" && !overlay ? (
+            <LeadBoard
+              rows={state.rows}
+              onMoved={() => state.refetch()}
+              hasMore={state.hasMore}
+              loadMore={state.loadMore}
             />
-          }
-          columns={[
-            {
-              key: "name",
-              header: t("people.name"),
-              cell: (lead: Lead) => {
-                const terminal = terminalBadge(lead.status);
-                return (
-                  <span>
-                    <strong>{lead.full_name ?? lead.email ?? ""}</strong>
-                    {lead.company_name && (
-                      <span className="t-caption"> · {lead.company_name}</span>
-                    )}
-                    {terminal && (
-                      <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
-                    )}
-                  </span>
-                );
-              },
-              fixed: true,
+          ) : undefined
+        }
+        state={state}
+        unit="unit.leads"
+        caption="lead.segregated"
+        action={
+          <CreateAction
+            label={t("create.lead")}
+            invalidate="leads"
+            screen="leads"
+            create={(values) => createLead(values, cf.toBody(values), t)}
+            resolveExisting={(_code, id) => ({ screen: "leads", id })}
+            fields={[...leadCreateFields, ...cf.formFields]}
+          />
+        }
+        columns={[
+          {
+            key: "name",
+            header: t("people.name"),
+            cell: (lead: Lead) => {
+              const terminal = terminalBadge(lead.status);
+              return (
+                <span>
+                  <strong>{lead.full_name ?? lead.email ?? ""}</strong>
+                  {lead.company_name && (
+                    <span className="t-caption"> · {lead.company_name}</span>
+                  )}
+                  {terminal && (
+                    <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
+                  )}
+                </span>
+              );
             },
-            {
-              key: "score",
-              header: t("lead.score"),
-              cell: (lead: Lead) => (
-                <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
-              ),
-              sort: "score",
-              numeric: true,
-            },
-            {
-              key: "status",
-              header: t("lead.status"),
-              cell: (lead: Lead) => <StatusBadge status={lead.status} />,
-            },
-            {
-              key: "provenance",
-              header: t("people.capturedBy"),
-              cell: (lead: Lead) => (
-                <ProvenanceTag
-                  provenance={provenanceOf(lead.captured_by, viewerId)}
-                />
-              ),
-            },
-          ]}
-          rowKey={(lead) => lead.id}
-          rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
-          chips={[
-            {
-              key: "status",
-              label: "lead.filterStatus",
-              allLabel: "lead.filterStatusAll",
-              options: leadStatusFilterOptions.map((option) => ({ ...option })),
-            },
-            {
-              key: "min_score",
-              label: "lead.filterScore",
-              allLabel: "lead.filterScoreAll",
-              options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
-            },
-          ]}
-          // Owner is a DATA chip: its options are people, read at runtime.
-          // Deliberately not the shared `useOwnerChips` dial, which also offers
-          // team and unassigned options spelled `owner_team_id`/`unassigned` —
-          // parameters listLeads does not take, so those choices would 422
-          // rather than narrow the list.
-          dataChips={ownerChips}
-          views={[
-            { label: "list.viewAll", sort: "-created_at" },
-            { label: "list.viewHighestScore", sort: "-score" },
-            {
-              label: "list.viewHot",
-              sort: "-score",
-              filters: { min_score: "80" },
-            },
-          ]}
-        />
-      )}
+            fixed: true,
+          },
+          {
+            key: "score",
+            header: t("lead.score"),
+            cell: (lead: Lead) => (
+              <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
+            ),
+            sort: "score",
+            numeric: true,
+          },
+          {
+            key: "status",
+            header: t("lead.status"),
+            cell: (lead: Lead) => <StatusBadge status={lead.status} />,
+          },
+          {
+            key: "provenance",
+            header: t("people.capturedBy"),
+            cell: (lead: Lead) => (
+              <ProvenanceTag
+                provenance={provenanceOf(lead.captured_by, viewerId)}
+              />
+            ),
+          },
+        ]}
+        rowKey={(lead) => lead.id}
+        rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
+        chips={[
+          {
+            key: "status",
+            label: "lead.filterStatus",
+            allLabel: "lead.filterStatusAll",
+            options: leadStatusFilterOptions.map((option) => ({ ...option })),
+          },
+          {
+            key: "min_score",
+            label: "lead.filterScore",
+            allLabel: "lead.filterScoreAll",
+            options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
+          },
+        ]}
+        // Owner is a DATA chip: its options are people, read at runtime.
+        // Deliberately not the shared `useOwnerChips` dial, which also offers
+        // team and unassigned options spelled `owner_team_id`/`unassigned` —
+        // parameters listLeads does not take, so those choices would 422
+        // rather than narrow the list.
+        dataChips={ownerChips}
+        views={[
+          { label: "list.viewAll", sort: "-created_at" },
+          { label: "list.viewHighestScore", sort: "-score" },
+          {
+            label: "list.viewHot",
+            sort: "-score",
+            filters: { min_score: "80" },
+          },
+        ]}
+      />
     </div>
   );
 }

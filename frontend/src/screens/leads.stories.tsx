@@ -216,6 +216,8 @@ export const LeadPromotedAfterMerge: Story = {
 };
 
 // The board: the live leads in the two columns they can actually move between.
+// The story opens on the table, as the screen does, and the reader presses
+// "Board" — the toggle is part of what this story documents.
 // Terminal statuses get no column — a lead is promoted or disqualified through
 // its own audited verb, never by dragging a card.
 export const LeadsBoard: Story = {

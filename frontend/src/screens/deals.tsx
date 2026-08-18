@@ -31,6 +31,7 @@ import {
 import {
   type BoardColumn,
   type BoardDeal,
+  type BoardMoneyColumn,
   PipelineBoard,
   RecordView,
 } from "../design-system/composed";
@@ -482,7 +483,7 @@ export function buildColumns(
   deals: Deal[],
   totals: Map<string, StageTotals>,
   orgs?: OrgMarks,
-): BoardColumn[] {
+): BoardMoneyColumn[] {
   return [...stages]
     .sort((a, b) => a.position - b.position)
     .map((stage) => {
