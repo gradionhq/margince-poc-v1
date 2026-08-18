@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -163,6 +164,62 @@ func (p *postgres) pgCtl(args ...string) *exec.Cmd {
 		append([]string{"-D", p.layout.pgData()}, args...)...)
 }
 
+// runPgCtl runs pg_ctl with its output going to a FILE, and returns what this
+// invocation wrote.
+//
+// NOT CombinedOutput, and this is the whole reason the function exists.
+// CombinedOutput gives the command a PIPE and then waits for EOF on it — not
+// for the process to exit. pg_ctl starts the postmaster as its own child, and
+// on Windows that child inherits the pipe handles, so the pipe stays open for
+// as long as the DATABASE runs. The launcher printed "Starting database…" and
+// hung there forever, with Postgres up and healthy behind it and nothing to
+// read in any log.
+//
+// Handing the command an *os.File passes the handle straight through: no pipe,
+// no reader waiting on EOF, and Run returns when pg_ctl returns — which its own
+// -t bounds. The file doubles as the record of what pg_ctl said, which
+// CombinedOutput only ever showed on failure.
+func (p *postgres) runPgCtl(args ...string) (output string, err error) {
+	if err := os.MkdirAll(p.layout.logs(), 0o700); err != nil {
+		return "", fmt.Errorf("create log directory: %w", err)
+	}
+	path := filepath.Join(p.layout.logs(), "pg_ctl.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("open %s: %w", path, err)
+	}
+	// Where this call's output begins, so a failure reports its own lines
+	// rather than every pg_ctl this installation has ever run.
+	start, err := file.Seek(0, io.SeekEnd)
+	if err != nil {
+		return "", errors.Join(fmt.Errorf("read the position of %s: %w", path, err), file.Close())
+	}
+
+	cmd := p.pgCtl(args...)
+	cmd.Stdout = file
+	cmd.Stderr = file
+	runErr := cmd.Run()
+
+	if closeErr := file.Close(); closeErr != nil && runErr == nil {
+		return "", fmt.Errorf("close %s: %w", path, closeErr)
+	}
+	return pgCtlSaid(path, start), runErr
+}
+
+// pgCtlSaid returns what was appended to the pg_ctl log at or after offset.
+//
+// A read failure yields the empty string deliberately: this is the diagnostic
+// half of the result, and the caller already holds the exit status, which is
+// the half that decides anything. Failing here would replace a real pg_ctl
+// error with a complaint about reading a log.
+func pgCtlSaid(path string, offset int64) string {
+	raw, err := os.ReadFile(path) // #nosec G304 -- path is this installation's own log, derived from the layout
+	if err != nil || offset > int64(len(raw)) {
+		return ""
+	}
+	return string(raw[offset:])
+}
+
 // stopStray shuts down a postmaster left running by a previous launch.
 //
 // On macOS the postmaster is a child and dies with the launcher. Here it is
@@ -171,7 +228,7 @@ func (p *postgres) pgCtl(args ...string) *exec.Cmd {
 // next launch would fail forever with a lock-file message the user has no way
 // to interpret, and the only fix would be a reboot.
 func (p *postgres) stopStray() error {
-	out, err := p.pgCtl("status").CombinedOutput()
+	out, err := p.runPgCtl("status")
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == pgCtlNoServer {
@@ -183,7 +240,7 @@ func (p *postgres) stopStray() error {
 		return fmt.Errorf("check whether a database is already running: %w\n%s", err, out)
 	}
 
-	if out, err := p.pgCtl("-m", "fast", "-w", "-t", "30", "stop").CombinedOutput(); err != nil {
+	if out, err := p.runPgCtl("-m", "fast", "-w", "-t", "30", "stop"); err != nil {
 		return fmt.Errorf(
 			"a database from a previous session is still running and could not be stopped: %w\n%s\n"+
 				"Sign out and back in, or restart the computer, and start Margince again.",
@@ -223,7 +280,7 @@ func (p *postgres) start(ctx context.Context) error {
 	// by this installation's own processes and by nothing on the network.
 	options := fmt.Sprintf("-c listen_addresses=%s -p %d", loopbackHost, p.port)
 	logPath := filepath.Join(p.layout.logs(), "postgres.log")
-	if out, err := p.pgCtl("-l", logPath, "-o", options, "-w", "-t", "60", "start").CombinedOutput(); err != nil {
+	if out, err := p.runPgCtl("-l", logPath, "-o", options, "-w", "-t", "60", "start"); err != nil {
 		return fmt.Errorf("could not start the database: %w\n%s\nSee %s", err, out, logPath)
 	}
 
@@ -258,7 +315,7 @@ func (p *postgres) appDSN() string   { return p.dsn(appRole, p.appPassword) }
 // stop performs a fast shutdown — the same intent as SIGINT on macOS, spelled
 // the way pg_ctl spells it.
 func (p *postgres) stop() error {
-	if out, err := p.pgCtl("-m", "fast", "-w", "-t", "30", "stop").CombinedOutput(); err != nil {
+	if out, err := p.runPgCtl("-m", "fast", "-w", "-t", "30", "stop"); err != nil {
 		return fmt.Errorf("stop the database: %w\n%s", err, out)
 	}
 	return nil
