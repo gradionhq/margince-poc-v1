@@ -124,6 +124,12 @@ func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 		writer:      NewFilteredExportWriter(pool),
 		collections: NewCollectionsStore(pool),
 	}
+	// The preview rides the same store and the same projection, so a filter's
+	// count and sample cannot disagree with the export of that filter.
+	s.filterPreviewHandlers = filterPreviewHandlers{
+		pool:        pool,
+		collections: NewCollectionsStore(pool),
+	}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }
 
