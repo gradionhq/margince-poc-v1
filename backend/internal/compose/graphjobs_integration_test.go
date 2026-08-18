@@ -54,8 +54,8 @@ func seedGraphPerson(t *testing.T, e *integration.Env, name string) ids.UUID {
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO person (workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2,
+			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
+			VALUES ( $1, $2,
 			        'manual', 'human:test', 'workspace')
 			RETURNING id`, name, e.Rep1).Scan(&id)
 	}); err != nil {

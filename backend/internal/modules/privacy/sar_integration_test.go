@@ -76,12 +76,12 @@ func setupSARIdentifiers(t *testing.T) *sarIdentifierEnv {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-		 VALUES ($1, $2, 'Sara Subject', 'manual', 'user:'||$3::text)`,
-		person, ws, user); err != nil {
+		`INSERT INTO person (id, full_name, source, captured_by)
+		 VALUES ($1, 'Sara Subject', 'manual', 'user:'||$2::text)`,
+		person, user); err != nil {
 		t.Fatal(err)
 	}
-	seedIdentifierPairs(ctx, t, owner, ws, person)
+	seedIdentifierPairs(ctx, t, owner, person)
 
 	pool, err := database.NewPool(ctx, appDSN)
 	if err != nil {
@@ -100,31 +100,30 @@ func setupSARIdentifiers(t *testing.T) *sarIdentifierEnv {
 // kind. The two values in a pair differ because the live-row uniqueness indexes
 // are partial on archived_at IS NULL — reusing one value would leave the export
 // unable to say which row it named.
-func seedIdentifierPairs(ctx context.Context, t *testing.T, owner *pgx.Conn, ws ids.UUID, person ids.PersonID) {
+func seedIdentifierPairs(ctx context.Context, t *testing.T, owner *pgx.Conn, person ids.PersonID) {
 	t.Helper()
 	for _, insert := range []struct {
 		statement     string
 		live, retired string
 	}{
 		{
-			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by, archived_at)
-		  VALUES ($1, $2, $3, 'manual', 'user:test', NULL), ($1, $2, $4, 'manual', 'user:test', $5)`,
+			`INSERT INTO person_email (person_id, email, source, captured_by, archived_at)
+		  VALUES ($1, $2, 'manual', 'user:test', NULL), ($1, $3, 'manual', 'user:test', $4)`,
 			liveEmail, retiredEmail,
 		},
 		{
-			`INSERT INTO person_phone (workspace_id, person_id, phone, source, captured_by, archived_at)
-		  VALUES ($1, $2, $3, 'manual', 'user:test', NULL), ($1, $2, $4, 'manual', 'user:test', $5)`,
+			`INSERT INTO person_phone (person_id, phone, source, captured_by, archived_at)
+		  VALUES ($1, $2, 'manual', 'user:test', NULL), ($1, $3, 'manual', 'user:test', $4)`,
 			livePhone, retiredPhone,
 		},
 		{
-			`INSERT INTO person_channel_identity
-		    (workspace_id, person_id, provider, channel_user_id, username, source, captured_by, archived_at)
-		  VALUES ($1, $2, 'telegram', $3, 'sara', 'connector:telegram', 'connector:telegram', NULL),
-		         ($1, $2, 'telegram', $4, 'sara_old', 'connector:telegram', 'connector:telegram', $5)`,
+			`INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by, archived_at)
+		  VALUES ($1, 'telegram', $2, 'sara', 'connector:telegram', 'connector:telegram', NULL),
+		         ($1, 'telegram', $3, 'sara_old', 'connector:telegram', 'connector:telegram', $4)`,
 			liveAccount, retiredAccount,
 		},
 	} {
-		if _, err := owner.Exec(ctx, insert.statement, ws, person, insert.live, insert.retired, retiredAt); err != nil {
+		if _, err := owner.Exec(ctx, insert.statement, person, insert.live, insert.retired, retiredAt); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -315,17 +315,15 @@ func upsertOrganizationFacts(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceI
 	applied := make([]map[string]any, 0, len(in.Facts))
 	for _, f := range in.Facts {
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO organization_fact
-			  (workspace_id, organization_id, category, field, value, value_key,
-			   evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'site_read', $10, $11)
+			INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by, site_read_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'site_read', $9, $10)
 			ON CONFLICT (organization_id, category, field, value_key)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
 			              source = EXCLUDED.source, captured_by = EXCLUDED.captured_by,
 			              site_read_id = EXCLUDED.site_read_id, captured_at = now()
 			WHERE organization_fact.captured_by NOT LIKE 'human:%'`,
-			wsID, in.OrganizationID, f.Category, f.Field, f.Value, f.ValueKey,
+			in.OrganizationID, f.Category, f.Field, f.Value, f.ValueKey,
 			f.EvidenceSnippet, f.SourceURL, f.Confidence, by, siteReadID)
 		if err != nil {
 			return nil, fmt.Errorf("upsert organization fact %s.%s: %w", f.Category, f.Field, err)

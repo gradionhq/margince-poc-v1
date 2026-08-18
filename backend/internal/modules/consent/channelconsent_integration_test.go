@@ -93,16 +93,14 @@ func setupChannelConsent(t *testing.T) *channelConsentEnv {
 	// A Telegram-only subject: no person_email row at all, which is exactly the
 	// person the address-shaped gate could never answer about.
 	if _, err := owner.Exec(ctx,
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-		 VALUES ($1, $2, 'Tilda Telegram', 'connector:telegram', 'connector:telegram')`,
-		e.person, e.ws); err != nil {
+		`INSERT INTO person (id, full_name, source, captured_by)
+		 VALUES ($1, 'Tilda Telegram', 'connector:telegram', 'connector:telegram')`,
+		e.person); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO person_channel_identity
-		  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
-		VALUES ($1, $2, 'telegram', $3, 'tilda', 'connector:telegram', 'connector:telegram')`,
-		e.ws, e.person, e.account); err != nil {
+		INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
+		VALUES ( $1, 'telegram', $2, 'tilda', 'connector:telegram', 'connector:telegram')`, e.person, e.account); err != nil {
 		t.Fatal(err)
 	}
 
@@ -226,9 +224,8 @@ func TestRequireGrantedForEmailsStillAnswersThroughTheSharedRule(t *testing.T) {
 	gate := NewGate(e.store)
 	address := "tilda-" + e.person.String() + "@example.test"
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		 VALUES ($1, $2, lower($3), true, 'test', 'human:x')`,
-		e.ws, e.person, address); err != nil {
+		`INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		 VALUES ( $1, lower($2), true, 'test', 'human:x')`, e.person, address); err != nil {
 		t.Fatal(err)
 	}
 

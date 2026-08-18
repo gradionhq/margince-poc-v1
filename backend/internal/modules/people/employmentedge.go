@@ -66,13 +66,13 @@ func organizationIsLive(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 // guard; the NOT EXISTS keeps a concurrent race from surfacing as a 500.
 func plantEmploymentEdge(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID, orgID ids.OrganizationID) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO relationship (workspace_id, kind, person_id, organization_id, is_current_primary, source, captured_by)
-		SELECT $1, 'employment', $2, $3, true, $4, $5
+		INSERT INTO relationship (kind, person_id, organization_id, is_current_primary, source, captured_by)
+		SELECT 'employment', $1, $2, true, $3, $4
 		WHERE NOT EXISTS (
 			SELECT 1 FROM relationship
-			WHERE kind = 'employment' AND person_id = $2 AND is_current_primary AND archived_at IS NULL)
+			WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL)
 		ON CONFLICT DO NOTHING`,
-		workspaceID(ctx), personID, orgID, in.Source, in.CapturedBy); err != nil {
+		personID, orgID, in.Source, in.CapturedBy); err != nil {
 		return fmt.Errorf("people: insert employment edge: %w", err)
 	}
 	return nil

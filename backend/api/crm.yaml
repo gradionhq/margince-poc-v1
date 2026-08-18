@@ -4569,7 +4569,11 @@ paths:
       tags: [Leads]
       operationId: listLeads
       summary: List leads (their OWN list, distinct from contacts; cursor-paginated).
-      description: Leads are segregated by construction — they never appear in /people.
+      description: |
+        Leads are segregated by construction — they never appear in /people.
+        Without an explicit `sort`, the operational queue is ordered by SLA urgency
+        (breached, at risk, within SLA), then score descending, then oldest first.
+        Explicit sort values retain their documented field ordering.
       x-mcp-tool: { verb: list_records, record_type: lead, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
@@ -4911,6 +4915,22 @@ paths:
   /leads/{id}/manual-signals:
     parameters:
       - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Leads]
+      operationId: listLeadManualSignals
+      x-agent-access: human-only
+      summary: List current and superseded human-provided qualification signals.
+      description: |
+        Returns the stored band, score effect, confidence, reason, author and lifecycle directly.
+        Clients must not reconstruct these facts from score factors because several bands have
+        the same point value and the decomposition does not contain superseded rows.
+      responses:
+        '200':
+          description: Manual qualification signals, current rows first and then retained superseded rows.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadManualSignalListResponse' }
+        '404': { $ref: '#/components/responses/NotFound' }
     put:
       tags: [Leads]
       operationId: setLeadManualSignal
@@ -19249,6 +19269,9 @@ components:
           description: 'Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).'
         last_activity_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.' }
         open_task_count: { type: [integer, 'null'], readOnly: true, description: 'Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169).' }
+        next_task_subject: { type: [string, 'null'], readOnly: true, description: 'Subject of the earliest open task linked to this lead.' }
+        next_task_due_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Due time of the earliest open task linked to this lead; undated tasks follow dated ones.' }
+        score_reason: { type: [string, 'null'], readOnly: true, description: 'The highest-impact factor in the retained current score explanation, for a compact queue reason.' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
@@ -19483,6 +19506,12 @@ components:
         set_at: { type: string, format: date-time }
         superseded_at: { type: [string, 'null'], format: date-time }
         superseded_by: { type: [string, 'null'], description: 'Names the auto source that took over, so the rep sees WHAT replaced their estimate.' }
+
+    LeadManualSignalListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/LeadManualSignal' } }
 
     SetLeadManualSignalRequest:
       type: object

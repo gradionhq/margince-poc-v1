@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import {
+  type BoardColumn,
   type BoardMoneyColumn,
   DealCard,
   MorningBriefItem,
@@ -46,7 +47,7 @@ describe("MorningBriefItem", () => {
     expect(
       screen.getByRole("region", { name: "staged proposal" }),
     ).toBeTruthy();
-    expect(screen.getByText("agent: runner")).toBeTruthy();
+    expect(screen.getByText("Automated by runner")).toBeTruthy();
   });
 
   it("carries the triad through composition: edit lands human-typed with evidence kept", async () => {
@@ -190,6 +191,24 @@ describe("DealCard + PipelineBoard", () => {
     ).toBeTruthy();
     expect(screen.queryByText(/€0\.00/)).toBeNull();
   });
+
+  it("lets a non-deal board provide its own record noun", () => {
+    const column: BoardColumn<{ id: string; name: string }> = {
+      stage: "new",
+      label: "New",
+      deals: [{ id: "lead-1", name: "Ada" }],
+    };
+    render(
+      <PipelineBoard
+        variant="plain"
+        columns={[column]}
+        countLabel={(count) => `${count} leads`}
+        renderCard={(card) => <span>{card.name}</span>}
+      />,
+    );
+    expect(screen.getByText("1 leads")).toBeTruthy();
+    expect(screen.queryByText("1 deals")).toBeNull();
+  });
 });
 
 describe("RecordView + timeline", () => {
@@ -221,7 +240,7 @@ describe("RecordView + timeline", () => {
       screen.getByRole("heading", { level: 1, name: "Anna Weber" }),
     ).toBeTruthy();
     expect(screen.getByText("12/06/2026")).toBeTruthy();
-    expect(screen.getByText("agent: capture")).toBeTruthy();
+    expect(screen.getByText("Automated by capture")).toBeTruthy();
     expect(screen.getByText("typed by you")).toBeTruthy();
   });
 

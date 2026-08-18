@@ -83,10 +83,9 @@ func computedFieldsVisible(ctx context.Context) bool {
 // the id IS the scope, and A107/ADR-0061 gives the installation one
 // organization for that id to belong to.
 //
-// The poc-1 reference added a defense-in-depth join to
-// organization.workspace_id here because it ran this read at pool level.
-// That join would re-derive the same bound the foreign key already
-// carries, on a view that does not expose the column.
+// No tenant term appears here because none exists to appear: the tables this
+// read touches carry no tenant column, and a join on one would only re-derive
+// the bound the foreign key above already carries.
 //
 // No row (an organization with no open deals at all) is the honest
 // "nothing to sum" case: (nil, 0, nil), never an error. dealCount is the

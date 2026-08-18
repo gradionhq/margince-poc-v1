@@ -102,10 +102,9 @@ func (c *channelSendEnv) bindIdentity(t *testing.T) {
 	t.Helper()
 	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person_channel_identity
-				(workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
-			VALUES ($1, $2, 'telegram', $3, 'buyer', 'telegram', 'connector:telegram')`,
-			c.ws, c.personID, channelSendAccountID)
+			INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
+			VALUES ( $1, 'telegram', $2, 'buyer', 'telegram', 'connector:telegram')`,
+			c.personID, channelSendAccountID)
 		return err
 	}); err != nil {
 		t.Fatalf("binding the channel identity: %v", err)

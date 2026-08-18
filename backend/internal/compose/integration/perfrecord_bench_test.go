@@ -209,12 +209,12 @@ func recordBenchSeeds(workspace string) []struct {
 		sql  string
 		args []any
 	}{
-		{"persons", `INSERT INTO person (workspace_id, full_name, source, captured_by)
-		   SELECT $1, 'Bench Person ' || i, 'manual', 'human:bench'
-		   FROM generate_series(1, $2) AS i`, []any{workspace, recordBenchPersons}},
-		{"organizations", `INSERT INTO organization (workspace_id, display_name, source, captured_by)
-		   SELECT $1, 'Bench Org ' || i, 'manual', 'human:bench'
-		   FROM generate_series(1, $2) AS i`, []any{workspace, recordBenchOrganizations}},
+		{"persons", `INSERT INTO person (full_name, source, captured_by)
+		   SELECT 'Bench Person ' || i, 'manual', 'human:bench'
+		   FROM generate_series(1, $1) AS i`, []any{recordBenchPersons}},
+		{"organizations", `INSERT INTO organization (display_name, source, captured_by)
+		   SELECT 'Bench Org ' || i, 'manual', 'human:bench'
+		   FROM generate_series(1, $1) AS i`, []any{recordBenchOrganizations}},
 		{"activities", `INSERT INTO activity (kind, subject, body, occurred_at, source, captured_by)
 		   SELECT 'email', 'Bench subject ' || i, 'Bench body ' || i,
 		          now() - (i % 720 || ' hours')::interval, 'manual', 'human:bench'

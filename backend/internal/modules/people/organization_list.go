@@ -111,8 +111,7 @@ func organizationDomainClause(domain *string, includeArchived bool, arg func(any
 	}
 	return storekit.SQLf(`EXISTS (
 		SELECT 1 FROM organization_domain d
-		WHERE d.workspace_id = organization.workspace_id
-		  AND d.organization_id = organization.id
+		WHERE d.organization_id = organization.id
 		  AND d.domain = $%d`+live+`)`,
 		arg(foldDomainQuery(*domain)))
 }

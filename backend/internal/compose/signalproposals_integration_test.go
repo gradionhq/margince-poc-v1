@@ -34,8 +34,8 @@ func seedAccountAtStage(t *testing.T, e *integration.Env, stage string) ids.UUID
 	org := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, display_name, lifecycle, source, captured_by)
-			VALUES ($1, $2, 'ScaleCommerce', $3, 'gmail:seed', 'connector:gmail')`, org, e.WS, stage)
+			INSERT INTO organization (id, display_name, lifecycle, source, captured_by)
+			VALUES ($1, 'ScaleCommerce', $2, 'gmail:seed', 'connector:gmail')`, org, stage)
 		return err
 	}); err != nil {
 		t.Fatal(err)

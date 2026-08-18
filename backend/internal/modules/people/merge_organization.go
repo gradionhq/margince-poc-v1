@@ -167,7 +167,7 @@ func fillOrgSurvivorship(ctx context.Context, tx pgx.Tx, src, tgt crmcontracts.O
 	fillString(p, "description", tgt.Description, src.Description)
 	fillString(p, "industry", tgt.Industry, src.Industry)
 	if targetIsPartner {
-		if err := ensureOrgRelationshipType(ctx, tx, workspaceID(ctx), ids.OrganizationID{UUID: ids.UUID(tgt.Id)},
+		if err := ensureOrgRelationshipType(ctx, tx, ids.OrganizationID{UUID: ids.UUID(tgt.Id)},
 			relationshipTypePartner, "system", "system:merge"); err != nil {
 			return nil, err
 		}

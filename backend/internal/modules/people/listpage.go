@@ -252,10 +252,15 @@ func aiWrittenClause(want *bool, entity string, arg func(any) int) string {
 	}
 	clause := "(" + strings.Join([]string{
 		storekit.SQLf("%s.captured_by LIKE $%d", entity, arg(agentPrefix)),
+		// (entity_type, entity_id) already names one record installation-wide, so
+		// it is the whole bound. The clause carried a tenant leg beside it, which
+		// this list cannot spell any more: it is templated over person,
+		// organization and lead, and ADR-0091 §8 phase D has reached some of
+		// those and not others.
 		storekit.SQLf(`EXISTS (SELECT 1 FROM audit_log al
-			 WHERE al.workspace_id = %s.workspace_id AND al.entity_type = $%d
+			 WHERE al.entity_type = $%d
 			   AND al.entity_id = %s.id AND al.actor_id LIKE $%d)`,
-			entity, arg(entity), entity, arg(agentPrefix)),
+			arg(entity), entity, arg(agentPrefix)),
 	}, " OR ") + ")"
 	if !*want {
 		return "NOT " + clause

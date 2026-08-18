@@ -135,10 +135,9 @@ func TestCorrectionLedgerSurvivesRederivation(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
-	SeedRow(t, owner, `INSERT INTO person_profile_field
-		(id, workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-		VALUES ($1, $2, '`+mine.String()+`', 'title', 'Business Development Manager',
-		        'Anna Weber, Business Development Manager', 'site_read:https://example.test/team', 'site_read', 'agent:enrich')`, e.WS)
+	SeedIDRow(t, owner, `INSERT INTO person_profile_field (id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+		VALUES ($1, '`+mine.String()+`', 'title', 'Business Development Manager',
+		        'Anna Weber, Business Development Manager', 'site_read:https://example.test/team', 'site_read', 'agent:enrich')`)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	svc := personRoomService(e)
@@ -279,10 +278,9 @@ func TestErasureReachesTheEnrichmentSidecarAndTheLedger(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
-	SeedRow(t, owner, `INSERT INTO person_profile_field
-		(id, workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-		VALUES ($1, $2, '`+mine.String()+`', 'title', 'Head of Procurement',
-		        'Anna Weber — Head of Procurement at ScaleCommerce', 'site_read:https://example.test/team', 'site_read', 'agent:enrich')`, e.WS)
+	SeedIDRow(t, owner, `INSERT INTO person_profile_field (id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+		VALUES ($1, '`+mine.String()+`', 'title', 'Head of Procurement',
+		        'Anna Weber — Head of Procurement at ScaleCommerce', 'site_read:https://example.test/team', 'site_read', 'agent:enrich')`)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	if err := ai.NewFeedbackStore(e.DB()).Record(rep, ai.RecordInput{
@@ -320,10 +318,10 @@ func TestPerson360AssemblesEverySectionFromRealRows(t *testing.T) {
 	org := e.SeedOrg(t, "ScaleCommerce", &e.Rep1)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 
-	SeedRow(t, owner, `INSERT INTO relationship
-		(id, workspace_id, kind, person_id, organization_id, role, is_current_primary, source, captured_by)
-		VALUES ($1, $2, 'employment', '`+mine.String()+`', '`+org.String()+`',
-		        'Head of Procurement', true, 'manual', 'human:x')`, e.WS)
+	SeedIDRow(t, owner, `INSERT INTO relationship
+		(id, kind, person_id, organization_id, role, is_current_primary, source, captured_by)
+		VALUES ($1, 'employment', '`+mine.String()+`', '`+org.String()+`',
+		        'Head of Procurement', true, 'manual', 'human:x')`)
 
 	// One inbound message and one open task: the timeline, the last-touch
 	// pair and the next-steps section each read a different slice of these.
@@ -531,11 +529,10 @@ func TestMergeCarriesTheEnrichmentSidecarToTheSurvivor(t *testing.T) {
 	duplicate := e.SeedPerson(t, "A. Weber", &e.Rep1)
 
 	// The duplicate carries a field the survivor does not.
-	SeedRow(t, owner, `INSERT INTO person_profile_field
-		(id, workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-		VALUES ($1, $2, '`+duplicate.String()+`', 'title', 'Head of Procurement',
+	SeedIDRow(t, owner, `INSERT INTO person_profile_field (id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+		VALUES ($1, '`+duplicate.String()+`', 'title', 'Head of Procurement',
 		        'Anna Weber — Head of Procurement', 'site_read:https://example.test/team',
-		        'site_read', 'agent:enrich')`, e.WS)
+		        'site_read', 'agent:enrich')`)
 	// And one they BOTH carry, with different values.
 	for _, p := range []struct {
 		id    ids.UUID
@@ -543,10 +540,9 @@ func TestMergeCarriesTheEnrichmentSidecarToTheSurvivor(t *testing.T) {
 	}{
 		{survivor, "+49 111"}, {duplicate, "+49 222"},
 	} {
-		SeedRow(t, owner, `INSERT INTO person_profile_field
-			(id, workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-			VALUES ($1, $2, '`+p.id.String()+`', 'phone', '`+p.value+`', 'sig',
-			        'activity:x', 'capture_enrich', 'agent:enrich')`, e.WS)
+		SeedIDRow(t, owner, `INSERT INTO person_profile_field (id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+			VALUES ($1, '`+p.id.String()+`', 'phone', '`+p.value+`', 'sig',
+			        'activity:x', 'capture_enrich', 'agent:enrich')`)
 	}
 
 	if _, err := e.People.MergePerson(e.Admin(),

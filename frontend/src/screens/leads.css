@@ -1,0 +1,22 @@
+.lead-surface {
+  min-width: 0;
+}
+
+.lead-email {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 720px) {
+  .lead-surface .fieldgrid {
+    grid-template-columns: minmax(6.5rem, 35%) minmax(0, 1fr);
+  }
+
+  .lead-surface .fieldgrid-value,
+  .lead-surface .fieldgrid-value a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+}

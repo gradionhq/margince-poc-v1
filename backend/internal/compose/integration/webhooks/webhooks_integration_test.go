@@ -645,8 +645,7 @@ func (we *webhookEnv) seedPerson(t *testing.T, name string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	we.execInWorkspace(t,
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
-		id, we.wsID, name)
+		`INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`, id, name)
 	return id
 }
 

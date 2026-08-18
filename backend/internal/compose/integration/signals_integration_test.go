@@ -73,7 +73,7 @@ func personCount(t *testing.T, e *SearchEnv) int {
 	t.Helper()
 	var n int
 	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM person WHERE workspace_id = $1`, e.WS).Scan(&n); err != nil {
+		`SELECT count(*) FROM person`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -83,12 +83,12 @@ func personCount(t *testing.T, e *SearchEnv) int {
 // registered domain the resolver's domain index can match.
 func (e *SearchEnv) seedOrgWithDomain(t *testing.T, name, domain string) ids.UUID {
 	t.Helper()
-	orgID := e.Seed(t,
-		`INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, name, e.Rep1)
+	orgID := e.SeedID(t,
+		`INSERT INTO organization (id, display_name, owner_id, source, captured_by)
+		 VALUES ($1, $2, $3, 'manual', 'human:x')`, name, e.Rep1)
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO organization_domain (id, workspace_id, organization_id, domain, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, ids.NewV7(), e.WS, orgID, domain); err != nil {
+		`INSERT INTO organization_domain (id, organization_id, domain, source, captured_by)
+		 VALUES ($1, $2, $3, 'manual', 'human:x')`, ids.NewV7(), orgID, domain); err != nil {
 		t.Fatal(err)
 	}
 	return orgID
@@ -99,18 +99,18 @@ func (e *SearchEnv) seedOrgWithDomain(t *testing.T, name, domain string) ids.UUI
 // match and the warm/cold join both read.
 func (e *SearchEnv) seedEmployedContact(t *testing.T, orgID ids.UUID, name, email string) ids.UUID {
 	t.Helper()
-	personID := e.Seed(t,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, name, e.Rep1)
+	personID := e.SeedID(t,
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, $2, $3, 'manual', 'human:x')`, name, e.Rep1)
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO person_email (id, workspace_id, person_id, email, is_primary, source, captured_by)
-		 VALUES ($1, $2, $3, $4, true, 'manual', 'human:x')`, ids.NewV7(), e.WS, personID, email); err != nil {
+		`INSERT INTO person_email (id, person_id, email, is_primary, source, captured_by)
+		 VALUES ($1, $2, $3, true, 'manual', 'human:x')`, ids.NewV7(), personID, email); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
-		 VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`,
-		ids.NewV7(), e.WS, personID, orgID); err != nil {
+		`INSERT INTO relationship (id, kind, person_id, organization_id, source, captured_by)
+		 VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`,
+		ids.NewV7(), personID, orgID); err != nil {
 		t.Fatal(err)
 	}
 	return personID
@@ -152,9 +152,9 @@ func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	e := SetupSearch(t)
 	store := signalStore(e)
 
-	foreignPerson := e.Seed(t,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Foreign Contact', $3, 'manual', 'human:x')`, e.Rep3)
+	foreignPerson := e.SeedID(t,
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Foreign Contact', $2, 'manual', 'human:x')`, e.Rep3)
 	personType := "person"
 	pid := ids.UUID(foreignPerson)
 	sig, err := store.CreateSignal(e.adminSignals(), signals.CreateSignalInput{
@@ -183,12 +183,12 @@ func TestResolverDoesNotAttributeToAnInvisibleOrg(t *testing.T) {
 	store := signalStore(e)
 
 	// An org (with a matching domain) owned by rep3 — outside team1's scope.
-	foreignOrg := e.Seed(t,
-		`INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Foreign Co', $3, 'manual', 'human:x')`, e.Rep3)
+	foreignOrg := e.SeedID(t,
+		`INSERT INTO organization (id, display_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Foreign Co', $2, 'manual', 'human:x')`, e.Rep3)
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO organization_domain (id, workspace_id, organization_id, domain, source, captured_by)
-		 VALUES ($1, $2, $3, 'foreign.example', 'manual', 'human:x')`, ids.NewV7(), e.WS, ids.UUID(foreignOrg)); err != nil {
+		`INSERT INTO organization_domain (id, organization_id, domain, source, captured_by)
+		 VALUES ($1, $2, 'foreign.example', 'manual', 'human:x')`, ids.NewV7(), ids.UUID(foreignOrg)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,9 +320,9 @@ func TestResolverNeverAttributesToTheOwnCompany(t *testing.T) {
 	store := signalStore(e)
 	admin := e.adminSignals()
 
-	anchor := e.Seed(t,
-		`INSERT INTO organization (id, workspace_id, display_name, owner_id, is_anchor, source, captured_by)
-		 VALUES ($1, $2, $3, $4, true, 'manual', 'human:x')`, "Our Own Company", e.Rep1)
+	anchor := e.SeedID(t,
+		`INSERT INTO organization (id, display_name, owner_id, is_anchor, source, captured_by)
+		 VALUES ($1, $2, $3, true, 'manual', 'human:x')`, "Our Own Company", e.Rep1)
 	colleague := e.seedEmployedContact(t, anchor, "Robin Colleague", "robin@private.invalid")
 	e.grantConsent(t, colleague)
 

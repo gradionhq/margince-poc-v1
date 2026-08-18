@@ -55,8 +55,8 @@ func transcriptSubject(t *testing.T, e *integration.Env) (ids.PersonID, ids.UUID
 	t.Helper()
 	person := e.SeedPerson(t, "Mara Kessler", nil)
 	e.WsExec(t, `
-		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, 'mara.kessler@example.com', true, 'test', 'human:seed')`, e.WS, person)
+		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ( $1, 'mara.kessler@example.com', true, 'test', 'human:seed')`, person)
 
 	activityID := seedTranscript(t, e, "1: Tom: Where did we land on pricing?\n2: "+quotedTranscriptLine)
 	e.WsExec(t, `
@@ -191,8 +191,8 @@ func TestErasureLeavesTheQuotationOfAMeetingItMayNotDestroy(t *testing.T) {
 	subject := e.SeedPerson(t, "Mara Kessler", nil)
 	const addr = "mara.kessler@example.com"
 	e.WsExec(t, `
-		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, $3, true, 'test', 'human:seed')`, e.WS, subject, addr)
+		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ( $1, $2, true, 'test', 'human:seed')`, subject, addr)
 	colleague := e.SeedPerson(t, "Bob Ferrer", nil)
 
 	quote := "Tom: loop in " + addr + " on the renewal."
@@ -292,8 +292,8 @@ func TestSubjectAccessWithholdsAQuotationFromARecordTheSubjectHasNoPartIn(t *tes
 	subject := e.SeedPerson(t, "Mara Kessler", nil)
 	const addr = "mara.kessler@example.com"
 	e.WsExec(t, `
-		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, $3, true, 'test', 'human:seed')`, e.WS, subject, addr)
+		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ( $1, $2, true, 'test', 'human:seed')`, subject, addr)
 
 	const theirsAlone = "Tom: Bob, hold the line at list price - Contoso got thirty percent and nobody is to know."
 	elsewhere := seedTranscript(t, e, "1: "+theirsAlone)

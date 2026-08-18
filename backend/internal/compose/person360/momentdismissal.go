@@ -26,7 +26,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -82,13 +81,12 @@ func (s *Service) DismissMoment(ctx context.Context, personID ids.PersonID, in c
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person_moment_dismissal
-				(workspace_id, user_id, person_id, claim_key, evidence_fingerprint)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO person_moment_dismissal (user_id, person_id, claim_key, evidence_fingerprint)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (user_id, person_id, claim_key)
 			DO UPDATE SET evidence_fingerprint = EXCLUDED.evidence_fingerprint,
 			              dismissed_at = now()`,
-			storekit.MustWorkspace(ctx), userID, personID, in.ClaimKey, in.EvidenceFingerprint)
+			userID, personID, in.ClaimKey, in.EvidenceFingerprint)
 		if err != nil {
 			// Wrapped: a bare pgx error carries the table and column it failed
 			// on, and this one reaches a client through httperr.

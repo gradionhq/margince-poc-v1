@@ -19,6 +19,10 @@ cd "$ROOT"
 # shellcheck source=scripts/lib-testdb.sh
 source "$ROOT/scripts/lib-testdb.sh"
 resolve_it_timeout
+# One package oversubscribes nothing, but the harness ASSERTS the ceiling and the
+# budget rather than skipping when they are absent — a skipped capacity check
+# reads exactly like a passing one.
+declare_lane_budget 1
 
 DIR="${1:-}"
 RUN="${2:-}"

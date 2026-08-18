@@ -128,10 +128,10 @@ func (q *queryEnv) seedFixture(t *testing.T) queryFixture {
 		VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipeline)
 
 	var f queryFixture
-	f.rep1Org = q.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, address_city, source, captured_by)
-		VALUES ($1, $2, $3, 'Stuttgart Werke', 'Stuttgart', 'manual', 'human:x')`, q.Rep1)
-	f.rep3Org = q.Seed(t, `INSERT INTO organization (id, workspace_id, owner_id, display_name, address_city, source, captured_by)
-		VALUES ($1, $2, $3, 'Stuttgart Logistik', 'Stuttgart', 'manual', 'human:x')`, q.Rep3)
+	f.rep1Org = q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, address_city, source, captured_by)
+		VALUES ($1, $2, 'Stuttgart Werke', 'Stuttgart', 'manual', 'human:x')`, q.Rep1)
+	f.rep3Org = q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, address_city, source, captured_by)
+		VALUES ($1, $2, 'Stuttgart Logistik', 'Stuttgart', 'manual', 'human:x')`, q.Rep3)
 	// A project named like a deal, so the traversal proves that two tables
 	// sharing a column name resolve to the right one.
 	f.project = q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
@@ -398,8 +398,8 @@ func TestQueryPlanARankingThatMatchesNothingAnswersNoRows(t *testing.T) {
 func TestQueryPlanNeverReturnsArchivedRecordsOrTheOwnCompany(t *testing.T) {
 	q := setupQuery(t)
 	f := q.seedFixture(t)
-	anchor := q.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
-		VALUES ($1, $2, 'Our Own Company', true, 'manual', 'human:x')`)
+	anchor := q.SeedID(t, `INSERT INTO organization (id, display_name, is_anchor, source, captured_by)
+		VALUES ($1, 'Our Own Company', true, 'manual', 'human:x')`)
 	if _, err := q.Owner.Exec(context.Background(),
 		`UPDATE organization SET archived_at = now() WHERE id = $1`, f.rep3Org); err != nil {
 		t.Fatal(err)

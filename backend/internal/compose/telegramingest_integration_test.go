@@ -184,9 +184,8 @@ func TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity(t *testing.T) {
 	// my_chat_member update below reports THAT account blocking the bot.
 	person := e.SeedPerson(t, "Blocks The Bot", nil)
 	e.WsExec(t, `
-		INSERT INTO person_channel_identity
-		  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
+		VALUES (
 		        $1, 'telegram', '556', 'blockeduser', 'telegram', 'connector:telegram')`,
 		person)
 

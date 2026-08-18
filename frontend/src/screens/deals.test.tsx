@@ -1074,7 +1074,7 @@ describe("DealScreen pending approvals", () => {
     // approval.kind.advance_deal — the key the inbox reads for the same kind.
     expect(await screen.findByText("Move a deal forward")).toBeTruthy();
     // trust.agentTag: an agent, named, rather than the doubled wire string.
-    expect(screen.getByText("agent: capture")).toBeTruthy();
+    expect(screen.getByText("Automated by capture")).toBeTruthy();
     expect(screen.queryByText("advance_deal")).toBeNull();
     expect(screen.queryByText("agent:capture")).toBeNull();
   });

@@ -91,8 +91,8 @@ func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service) hel
 	// refuses — correctly, and for a reason that has nothing to do with the
 	// release under test.
 	e.WsExec(t, `
-		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, $3, true, 'test', 'human:seed')`, e.WS, person, to)
+		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ( $1, $2, true, 'test', 'human:seed')`, person, to)
 
 	// The counterparty on the thread, carrying the address a reply answers.
 	e.WsExec(t, `

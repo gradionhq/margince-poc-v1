@@ -106,15 +106,14 @@ func seedMergeSubject(t *testing.T, e *Env, name string) ids.UUID {
 	personID := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			 VALUES ($1, `+wsClause+`, $2, 'manual', 'human:x')`, personID, name); err != nil {
+			`INSERT INTO person (id, full_name, source, captured_by)
+			 VALUES ($1, $2, 'manual', 'human:x')`, personID, name); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-			 VALUES (`+wsClause+`, $1, $2, 'manual', 'human:x')`,
+			`INSERT INTO person_email (person_id, email, source, captured_by)
+			 VALUES ( $1, $2, 'manual', 'human:x')`,
 			personID, personID.String()+"@example.com")
 		return err
 	})
@@ -197,15 +196,14 @@ func TestErasureReachesAnArchivedDuplicatesPurchasedClaims(t *testing.T) {
 	archived := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, source, captured_by, archived_at)
-			 VALUES ($1, `+wsClause+`, 'Selma Subject', 'manual', 'human:x', now())`, archived); err != nil {
+			`INSERT INTO person (id, full_name, source, captured_by, archived_at)
+			 VALUES ($1, 'Selma Subject', 'manual', 'human:x', now())`, archived); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by, archived_at)
-			 VALUES (`+wsClause+`, $1, $2, 'manual', 'human:x', now())`, archived, subjectEmail)
+			`INSERT INTO person_email (person_id, email, source, captured_by, archived_at)
+			 VALUES ( $1, $2, 'manual', 'human:x', now())`, archived, subjectEmail)
 		return err
 	}); err != nil {
 		t.Fatal(err)

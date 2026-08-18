@@ -60,9 +60,9 @@ func (s *Store) ListOrganizationFacts(ctx context.Context, id ids.OrganizationID
 			       evidence_snippet, source_url, confidence, retrieved_at,
 			       verified_at, verified_by, updated_at
 			  FROM organization_fact
-			 WHERE workspace_id = $1 AND organization_id = $2
+			 WHERE organization_id = $1
 			 ORDER BY category, field, value_key, value`,
-			workspaceID(ctx), id)
+			id)
 		if err != nil {
 			return fmt.Errorf("list organization facts: %w", err)
 		}
@@ -121,9 +121,9 @@ func (s *Store) ListOrganizationProfileFields(ctx context.Context, id ids.Organi
 			       evidence_snippet, source_url, confidence, retrieved_at,
 			       verified_at, verified_by, updated_at
 			  FROM organization_profile_field
-			 WHERE workspace_id = $1 AND organization_id = $2
+			 WHERE organization_id = $1
 			 ORDER BY field`,
-			workspaceID(ctx), id)
+			id)
 		if err != nil {
 			return fmt.Errorf("list organization profile fields: %w", err)
 		}

@@ -47,8 +47,8 @@ func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		if trimmed == "" {
 			if _, err := tx.Exec(ctx,
 				`DELETE FROM organization_profile_field
-				 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3`,
-				workspaceID(ctx), orgID, field); err != nil {
+				 WHERE organization_id = $1 AND field = $2`,
+				orgID, field); err != nil {
 				return nil, fmt.Errorf("clear company field %s: %w", field, err)
 			}
 			applied[field] = nil
@@ -58,14 +58,13 @@ func writeCompanyFields(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		// evidence, which is what source=human + captured_by=human:<id>
 		// record. Confidence is 1: they are not guessing about themselves.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, $3, $4, '', '', 1, 'human', $5)
+			INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, $3, '', '', 1, 'human', $4)
 			ON CONFLICT (organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = '', source_url = '',
 			              confidence = 1, source = 'human',
 			              captured_by = EXCLUDED.captured_by, captured_at = now()`,
-			workspaceID(ctx), orgID, field, trimmed, by); err != nil {
+			orgID, field, trimmed, by); err != nil {
 			return nil, fmt.Errorf("save company field %s: %w", field, err)
 		}
 		applied[field] = trimmed

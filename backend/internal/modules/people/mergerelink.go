@@ -62,8 +62,8 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 	// overwrite it.
 	if _, err = tx.Exec(ctx, `
 		INSERT INTO person_profile_field
-		  (workspace_id, person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
-		SELECT workspace_id, $2, field, value, evidence_snippet, source_ref, confidence, source, captured_by
+		  (person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
+		SELECT $2, field, value, evidence_snippet, source_ref, confidence, source, captured_by
 		  FROM person_profile_field WHERE person_id = $1
 		ON CONFLICT DO NOTHING`, sourceID.UUID, targetID.UUID); err != nil {
 		return counts, fmt.Errorf("relink enrichment fields: %w", err)

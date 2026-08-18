@@ -339,16 +339,15 @@ func applyEvidenceFieldsWithOverwrite(
 		// refreshes an agent-captured row and never touches one a human has
 		// since claimed.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (organization_id, field)
 			DO UPDATE SET value = EXCLUDED.value, evidence_snippet = EXCLUDED.evidence_snippet,
 			              source_url = EXCLUDED.source_url, confidence = EXCLUDED.confidence,
 			              source = EXCLUDED.source,
 			              captured_by = EXCLUDED.captured_by, captured_at = now()
-			WHERE $10 OR organization_profile_field.captured_by NOT LIKE 'human:%'`,
-			wsID, orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, source, by, overwrite[f.Field]); err != nil {
+			WHERE $9 OR organization_profile_field.captured_by NOT LIKE 'human:%'`,
+			orgID, f.Field, f.Value, f.EvidenceSnippet, f.SourceURL, f.Confidence, source, by, overwrite[f.Field]); err != nil {
 			return nil, fmt.Errorf("upsert profile field %s: %w", f.Field, err)
 		}
 	}

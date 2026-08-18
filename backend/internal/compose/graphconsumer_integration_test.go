@@ -49,18 +49,18 @@ func seedExchange(t *testing.T, e *integration.Env, person ids.UUID) ids.UUID {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
-			VALUES ( 'email', 'Alt', 'inbound', now() - interval '1 day', 'manual', 'human:test')
+			VALUES ('email', 'Alt', 'inbound', now() - interval '1 day', 'manual', 'human:test')
 			RETURNING id`).Scan(&id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, user_id, role)
-			VALUES ( $1, $2, 'to')`, id, e.Rep1); err != nil {
+			VALUES ($1, $2, 'to')`, id, e.Rep1); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, person_id, role)
-			VALUES ( $1, $2, 'from')`, id, person)
+			VALUES ($1, $2, 'from')`, id, person)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding an exchange: %v", err)
@@ -196,28 +196,27 @@ func TestCoverageNamesItsColleaguesForTheAgent(t *testing.T) {
 	var dealID ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		// The harness seeds no pipeline, so this test brings its own.
 		var pipelineID, stageID ids.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO pipeline (name) VALUES ( 'Coverage Test')
+			INSERT INTO pipeline (name) VALUES ('Coverage Test')
 			RETURNING id`).Scan(&pipelineID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO stage (pipeline_id, name, position)
-			VALUES ( $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
+			VALUES ($1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO deal (name, stage_id, pipeline_id, owner_id, source, captured_by)
-			VALUES ( 'Covered', $1, $2, $3, 'manual', 'human:test')
+			VALUES ('Covered', $1, $2, $3, 'manual', 'human:test')
 			RETURNING id`, stageID, pipelineID, e.Rep1).Scan(&dealID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
-			VALUES (`+ws+`, 'deal_stakeholder', $1, $2, 'champion', 'manual', 'human:test')`,
+			INSERT INTO relationship (kind, person_id, deal_id, role, source, captured_by)
+			VALUES ('deal_stakeholder', $1, $2, 'champion', 'manual', 'human:test')`,
 			person, dealID)
 		return err
 	}); err != nil {

@@ -110,8 +110,8 @@ func (e *sendEnv) linkPerson(t *testing.T, anchor ids.ActivityID, name string) i
 	person := ids.NewV7()
 	ctx := context.Background()
 	if _, err := e.owner.Exec(ctx,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, person, e.ws, name, e.rep); err != nil {
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, $2, $3, 'manual', 'human:x')`, person, name, e.rep); err != nil {
 		t.Fatalf("seeding the linked person: %v", err)
 	}
 	if _, err := e.owner.Exec(ctx,

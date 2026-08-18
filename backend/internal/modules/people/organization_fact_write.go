@@ -111,8 +111,8 @@ func readFactRow(
 	err := tx.QueryRow(ctx, `
 		SELECT id, value, source, evidence_snippet, source_url, confidence, verified_at, verified_by, captured_by
 		  FROM organization_fact
-		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3 AND value_key = $4`,
-		workspaceID(ctx), orgID, field, valueKey,
+		 WHERE organization_id = $1 AND field = $2 AND value_key = $3`,
+		orgID, field, valueKey,
 	).Scan(&r.ID, &r.Value, &r.Source, &r.EvidenceSnippet, &r.SourceURL, &r.Confidence,
 		&r.VerifiedAt, &r.VerifiedBy, &r.CapturedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -142,8 +142,8 @@ func readFactWire(
 		       evidence_snippet, source_url, confidence,
 		       retrieved_at, verified_at, verified_by, updated_at
 		  FROM organization_fact
-		 WHERE workspace_id = $1 AND organization_id = $2 AND field = $3 AND value_key = $4`,
-		workspaceID(ctx), orgID, keyField, valueKey,
+		 WHERE organization_id = $1 AND field = $2 AND value_key = $3`,
+		orgID, keyField, valueKey,
 	).Scan(&id, &category, &field, &f.Value, &f.ValueKey, &srcV, &f.CapturedBy,
 		&f.EvidenceSnippet, &f.SourceUrl, &f.Confidence,
 		&f.RetrievedAt, &f.VerifiedAt, &f.VerifiedBy, &f.UpdatedAt)

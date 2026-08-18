@@ -187,12 +187,10 @@ func seedProfileFieldWrittenAt(
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	if _, err := e.Owner.Exec(context.Background(), `
-		INSERT INTO organization_profile_field (
-			id, workspace_id, organization_id, field, value, source,
-			evidence_snippet, source_url, confidence, captured_by, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'site_read', $6, 'https://voltaq.example/about', 0.9,
-		        'site_read:seed', $7)`,
-		ids.NewV7(), workspaceID, orgID, field, value, value, written); err != nil {
+		INSERT INTO organization_profile_field (id, organization_id, field, value, source, evidence_snippet, source_url, confidence, captured_by, updated_at)
+		VALUES ($1, $2, $3, $4, 'site_read', $5, 'https://voltaq.example/about', 0.9,
+		        'site_read:seed', $6)`,
+		ids.NewV7(), orgID, field, value, value, written); err != nil {
 		t.Fatalf("seed profile field %s: %v", field, err)
 	}
 }

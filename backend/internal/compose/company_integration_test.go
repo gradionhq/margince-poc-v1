@@ -74,8 +74,8 @@ func TestCompanyIsUnsetUntilAHumanSavesIt(t *testing.T) {
 	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM organization
-			  WHERE id = $1 AND workspace_id = $2 AND is_anchor AND archived_at IS NULL`,
-			saved.OrganizationID, e.WS).Scan(&anchors)
+			  WHERE id = $1 AND is_anchor AND archived_at IS NULL`,
+			saved.OrganizationID).Scan(&anchors)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -488,11 +488,9 @@ func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *test
 		t.Fatal(err)
 	}
 	e.WsExec(t, `
-		INSERT INTO organization_fact
-		  (workspace_id, organization_id, category, field, value, value_key,
-		   evidence_snippet, source_url, confidence, source, captured_by)
-		VALUES ($1, $2, 'offering', 'service', 'CRM rollout', 'crm rollout',
-		        '', '', 1, 'human', $3)`, e.WS, saved.OrganizationID, "human:"+e.Rep1.String())
+		INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
+		VALUES ( $1, 'offering', 'service', 'CRM rollout', 'crm rollout',
+		        '', '', 1, 'human', $2)`, saved.OrganizationID, "human:"+e.Rep1.String())
 
 	// The cross-tenant arm is gone with the mechanism it tested. It seeded a
 	// second workspace with its own ANCHOR organization and asserted this

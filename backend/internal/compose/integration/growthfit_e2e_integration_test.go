@@ -197,11 +197,9 @@ func seedRequiredProfileFields(t *testing.T, e *apptest.AppEnv, orgID string) {
 	// now() on every write, so a backdated value cannot be produced by an
 	// UPDATE after the fact.
 	const insert = `
-		INSERT INTO organization_profile_field (
-			id, workspace_id, organization_id, field, value, source,
-			evidence_snippet, source_url, confidence, captured_by, updated_at)
-		VALUES ($1, $2, $3, $4, $5, 'site_read', $6, 'https://voltaq.example/about', 0.9,
-		        'site_read:seed', $7)`
+		INSERT INTO organization_profile_field (id, organization_id, field, value, source, evidence_snippet, source_url, confidence, captured_by, updated_at)
+		VALUES ($1, $2, $3, $4, 'site_read', $5, 'https://voltaq.example/about', 0.9,
+		        'site_read:seed', $6)`
 	now := time.Now().UTC()
 	for field, seed := range map[string]struct {
 		value   string
@@ -212,7 +210,7 @@ func seedRequiredProfileFields(t *testing.T, e *apptest.AppEnv, orgID string) {
 		"industry":      {"Industrial software", now.Add(-400 * 24 * time.Hour)},
 	} {
 		if _, err := e.Owner.Exec(context.Background(), insert,
-			ids.NewV7(), workspaceID, orgID, field, seed.value, seed.value, seed.written); err != nil {
+			ids.NewV7(), orgID, field, seed.value, seed.value, seed.written); err != nil {
 			t.Fatalf("seed profile field %s: %v", field, err)
 		}
 	}
