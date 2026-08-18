@@ -2,9 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, Textarea } from "../design-system/atoms";
+import { Badge, Button, Textarea } from "../design-system/atoms";
 import { Select } from "../design-system/select";
-import { useT } from "../i18n";
+import { formatDateTime } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
@@ -12,7 +13,7 @@ import { EntityRef } from "./entityref";
 type SetSignalRequest = components["schemas"]["SetLeadManualSignalRequest"];
 type SignalFactor = SetSignalRequest["factor"];
 type SignalKind = SetSignalRequest["signal_kind"];
-type ScoreFactor = components["schemas"]["LeadScoreFactor"];
+type ManualSignal = components["schemas"]["LeadManualSignal"];
 
 // The §24 catalog the server enforces (leadmanualsignal.go): the three
 // factors a human may supply and the bands each accepts. Spelled here so the
@@ -26,16 +27,7 @@ const SIGNAL_BANDS: Readonly<Record<SignalFactor, readonly string[]>> = {
 const SIGNAL_FACTORS = Object.keys(SIGNAL_BANDS) as SignalFactor[];
 const SIGNAL_KINDS: readonly SignalKind[] = ["fact", "assumption", "judgement"];
 
-// A live manual factor appears in the score decomposition as `manual:<factor>`
-// (ADR-0105 §4). That row is the one honest reader of what is set: there is
-// no list endpoint, and re-deriving the band from its points would be a
-// guess (three bands score 0).
-function manualFactorOf(
-  factors: readonly ScoreFactor[] | undefined,
-  factor: SignalFactor,
-): ScoreFactor | undefined {
-  return factors?.find((row) => row.factor === `manual:${factor}`);
-}
+const CONFIDENCE_LEVELS = ["0.5", "0.7", "0.9", "1"] as const;
 
 /**
  * LeadManualSignals is the human half of the score (S-E13.6, ADR-0105 §4):
@@ -53,28 +45,33 @@ export function LeadManualSignals({
   readOnlyReason,
 }: Readonly<{ id: string; readOnlyReason?: string }>) {
   const t = useT();
+  const { locale } = useLocale();
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const queryClient = useQueryClient();
-  const explain = useQuery({
-    queryKey: ["lead", id, "score"],
+  const signals = useQuery({
+    queryKey: ["lead", id, "manual-signals"],
     queryFn: async () => {
-      const { data, error } = await api.GET("/leads/{id}/score", {
+      const { data, error } = await api.GET("/leads/{id}/manual-signals", {
         params: { path: { id } },
       });
       if (error) {
         throwProblem(error);
       }
-      return data;
+      return data.data;
     },
   });
-  const factors = explain.data?.current?.factors;
   const [factor, setFactor] = useState<SignalFactor>("web_traffic");
   const [band, setBand] = useState("");
   const [kind, setKind] = useState<SignalKind>("fact");
+  const [confidence, setConfidence] = useState("0.9");
   const [reason, setReason] = useState("");
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["lead", id] });
     queryClient.invalidateQueries({ queryKey: ["leads"] });
+    queryClient.invalidateQueries({
+      queryKey: ["lead", id, "manual-signals"],
+    });
   };
   const set = useMutation({
     mutationFn: async (body: SetSignalRequest) => {
@@ -122,19 +119,20 @@ export function LeadManualSignals({
       {/* An absent factor list is not an empty one: while the explanation is
           loading, failed, or not yet retained (ADR-0105 §1), nothing here can
           say what is set, so nothing here claims "not entered". */}
-      {explain.isPending && (
+      {signals.isPending && (
         <span className="t-caption">{t("lead.scoreLoading")}</span>
       )}
-      {explain.isError && (
-        <span className="t-caption">{problemMessageOf(explain.error, t)}</span>
+      {signals.isError && (
+        <span className="t-caption">{problemMessageOf(signals.error, t)}</span>
       )}
-      {explain.isSuccess && factors == null && (
-        <span className="t-caption">{t("lead.signalsNotStoredYet")}</span>
-      )}
-      {factors != null && (
+      {signals.isSuccess && (
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {SIGNAL_FACTORS.map((name) => {
-            const live = manualFactorOf(factors, name);
+            const entries = signals.data.filter(
+              (entry: ManualSignal) => entry.factor === name,
+            );
+            const live = entries.find((entry) => !entry.superseded_at);
+            const superseded = entries.filter((entry) => entry.superseded_at);
             return (
               <li
                 key={name}
@@ -148,20 +146,28 @@ export function LeadManualSignals({
                 <span>{label(name)}</span>
                 {live ? (
                   <>
-                    <span className="t-mono">{live.points.toFixed(1)}</span>
-                    {live.signal_kind && (
+                    <strong>{label(`${name}.${live.band}`)}</strong>
+                    <Badge>
+                      {live.points >= 0 ? "+" : ""}
+                      {live.points}
+                    </Badge>
+                    <span className="t-caption">{label(live.signal_kind)}</span>
+                    {live.confidence != null && (
                       <span className="t-caption">
-                        {label(live.signal_kind)}
+                        {t("lead.signalConfidenceValue", {
+                          value: Math.round(live.confidence * 100),
+                        })}
                       </span>
                     )}
-                    {live.reason && (
-                      <span className="t-caption">{live.reason}</span>
-                    )}
-                    {live.set_by && (
-                      <span className="t-caption">
-                        <EntityRef kind="user" id={live.set_by} />
-                      </span>
-                    )}
+                    <span className="t-caption">{live.reason}</span>
+                    <span className="t-caption">
+                      <EntityRef kind="user" id={live.set_by} />
+                    </span>
+                    <span className="t-caption">
+                      {t("lead.signalRecordedAt", {
+                        at: formatDateTime(live.set_at, locale, zone),
+                      })}
+                    </span>
                     {!readOnlyReason && (
                       <Button
                         small
@@ -175,6 +181,18 @@ export function LeadManualSignals({
                 ) : (
                   <span className="t-caption">{t("lead.signalUnset")}</span>
                 )}
+                {superseded.map((entry) => (
+                  <span
+                    className="t-caption"
+                    key={`${entry.set_at}-${entry.band}`}
+                  >
+                    {t("lead.signalSuperseded", {
+                      value: label(`${name}.${entry.band}`),
+                      source:
+                        entry.superseded_by ?? t("lead.signalAutomaticSource"),
+                    })}
+                  </span>
+                ))}
               </li>
             );
           })}
@@ -204,6 +222,7 @@ export function LeadManualSignals({
                   setFactor(next as SignalFactor);
                   setBand("");
                   setKind("fact");
+                  setConfidence("0.9");
                   setReason("");
                 }
               }}
@@ -228,7 +247,7 @@ export function LeadManualSignals({
             />
           </label>
           <label className="t-caption field">
-            {t("lead.signalKind")}
+            {t("lead.signalEvidenceQuality")}
             <Select
               aria-label={t("lead.signalKind")}
               value={kind}
@@ -241,6 +260,21 @@ export function LeadManualSignals({
               options={SIGNAL_KINDS.map((value) => ({
                 value,
                 label: label(value),
+              }))}
+            />
+          </label>
+          <label className="t-caption field">
+            {t("lead.signalConfidence")}
+            <Select
+              aria-label={t("lead.signalConfidence")}
+              value={confidence}
+              disabled={!canEdit}
+              onChange={setConfidence}
+              options={CONFIDENCE_LEVELS.map((value) => ({
+                value,
+                label: t("lead.signalConfidenceValue", {
+                  value: Math.round(Number(value) * 100),
+                }),
               }))}
             />
           </label>
@@ -268,6 +302,7 @@ export function LeadManualSignals({
                   factor,
                   band,
                   signal_kind: kind,
+                  confidence: Number(confidence),
                   reason: reason.trim(),
                 })
               }

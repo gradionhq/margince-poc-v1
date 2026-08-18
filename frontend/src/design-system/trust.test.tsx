@@ -38,7 +38,7 @@ describe("StagedProposal (B-EP09.3a)", () => {
     render(<StagedProposal proposal={proposal} />);
     const card = screen.getByRole("region", { name: "staged proposal" });
     expect(card.className).toContain("staging-card");
-    expect(screen.getByText("agent: capture")).toBeTruthy();
+    expect(screen.getByText("Automated by capture")).toBeTruthy();
     expect(screen.getByText("medium")).toBeTruthy();
     expect(screen.getByText(/offer of 48k/)).toBeTruthy();
   });
@@ -55,7 +55,7 @@ describe("StagedProposal (B-EP09.3a)", () => {
     const card = screen.getByRole("region", { name: "resolved value" });
     expect(card.className).toContain("real-card");
     expect(card.className).not.toContain("staging-card");
-    expect(screen.getByText("agent: capture")).toBeTruthy();
+    expect(screen.getByText("Automated by capture")).toBeTruthy();
   });
 
   it("Edit flips the value to human-typed while RETAINING the original snippet (§4.4)", async () => {
@@ -73,7 +73,7 @@ describe("StagedProposal (B-EP09.3a)", () => {
       value: "€45.000",
     });
     expect(screen.getByText("typed by you")).toBeTruthy();
-    expect(screen.queryByText("agent: capture")).toBeNull();
+    expect(screen.queryByText("Automated by capture")).toBeNull();
     // the original evidence snippet is still attached to the edited value
     expect(screen.getByText(/offer of 48k/)).toBeTruthy();
   });
@@ -101,7 +101,7 @@ describe("ProvenanceTag", () => {
   it("distinguishes agent-written from human-typed", () => {
     render(<ProvenanceTag provenance={{ kind: "agent", agent: "runner" }} />);
     render(<ProvenanceTag provenance={{ kind: "human", self: true }} />);
-    expect(screen.getByText("agent: runner").className).toContain(
+    expect(screen.getByText("Automated by runner").className).toContain(
       "provenance-agent",
     );
     expect(screen.getByText("typed by you").className).toContain(

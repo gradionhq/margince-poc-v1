@@ -659,6 +659,10 @@ func (stubs) DemoteLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcont
 	httperr.NotImplemented(w, r, "DemoteLead")
 }
 
+func (stubs) ListLeadManualSignals(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListLeadManualSignals")
+}
+
 func (stubs) SetLeadManualSignal(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "SetLeadManualSignal")
 }

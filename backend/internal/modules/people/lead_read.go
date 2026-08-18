@@ -35,7 +35,19 @@ const leadColumns = `id, workspace_id, full_name, email, title, company_name, ca
 	(SELECT max(a.occurred_at) FROM activity_link l JOIN activity a ON a.id = l.activity_id
 	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL),
 	(SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done)`
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done),
+	(SELECT a.subject FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
+	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
+	(SELECT a.due_at FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
+	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
+	(SELECT factor.value->>'factor'
+	   FROM lead_score_history history
+	   CROSS JOIN LATERAL jsonb_array_elements(history.factors) factor(value)
+	  WHERE history.lead_id = lead.id
+	  ORDER BY history.computed_at DESC, abs((factor.value->>'points')::numeric) DESC
+	  LIMIT 1)`
 
 // readLead resolves one lead row; active names the custom-field columns
 // to carry alongside the core ones — nil for internal decision reads whose
@@ -69,6 +81,7 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &projectID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
 		&l.RoutedAt, &l.FirstResponseAt, &l.LastActivityAt, &openTasks,
+		&l.NextTaskSubject, &l.NextTaskDueAt, &l.ScoreReason,
 	}
 	cf := storekit.ScanDests(active)
 	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
