@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
-import { serveMcpApps } from "./scripts/vite-inline-views";
-import { TEST_TIMEOUT_MS } from "./vitest.budget";
+import { serveMcpApps } from "./scripts/vite-inline-views.ts";
+import { TEST_TIMEOUT_MS } from "./vitest.budget.ts";
 
 // The composition alias — the runtime half of the two-lane type story whose
 // compile-time half is tsconfig.app.json / tsconfig.composed.json.
