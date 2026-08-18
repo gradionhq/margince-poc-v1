@@ -309,6 +309,13 @@ var deleteGuardedSweepTargets = gatekit.Waive(map[string]string{
 	// deleting, or the sweep aborts on the first held activity. This entry is
 	// that obligation, not a record of one already met.
 	"activity": "a row-conditional statutory hold, not a protected store: preserving it would leave every activity behind on a reset meant to clear them, and no writer can set the restriction yet (#1557) — when one lands the reset must lift before it sweeps",
+	// Not guards at all: migration 1787030814's last_activity_at maintenance
+	// recomputes the person/deal/organization clocks a deleted link or
+	// employment used to count toward, and refuses nothing. The sweep deletes
+	// those records too, so the recompute's work is discarded with them; it
+	// costs the reset time on a large timeline, never a refusal.
+	"activity_link": "a clock-maintenance trigger (last_activity_at recompute on the rows the link reached), not a guard: it refuses no delete",
+	"relationship":  "a clock-maintenance trigger (the employer's last_activity_at recompute), not a guard: it refuses no delete",
 })
 
 func TestSweepTargetsCarryNoDeleteBlockingTrigger(t *testing.T) {

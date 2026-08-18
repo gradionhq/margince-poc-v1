@@ -36,6 +36,9 @@ const (
 	leadSourceColumn  = "source"
 	createdAtColumn   = "created_at"
 	updatedAtColumn   = "updated_at"
+	// lastActivityColumn is the timeline clock person and organization carry
+	// (DM-VOCAB-1/2), maintained by activities on the link write.
+	lastActivityColumn = "last_activity_at"
 )
 
 // leadListFields is the lead list's core sortable vocabulary. Every column

@@ -12,7 +12,6 @@ package activities
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -61,8 +60,12 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 	return fieldLinks, "too_many_links", e.Error()
 }
 
-// insertActivityLinks writes the polymorphic link rows and maintains
-// deal.last_activity_at on deal links. The FK alone is not enough: it is
+// insertActivityLinks writes the polymorphic link rows. The last_activity_at
+// clocks on deal, person and organization move with them, but not from here:
+// migration 1787030814 keeps them on the activity_link row itself (a trigger
+// recomputing from the timeline), because this is not the only writer of that
+// row — capture files links too, and the reach set moves without any link
+// being written. A clock kept at a call site was stale everywhere else. The FK alone is not enough: it is
 // checked as the table owner, bypassing RLS, so it would accept a
 // guessed cross-tenant or out-of-scope UUID as a link target — every
 // target passes the row-scope link check first.
@@ -79,7 +82,7 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 // this is the one statement every writer passes through — the timeline's link
 // vocabulary describes what a message or meeting is ABOUT, and a record set
 // larger than this is about nothing.
-func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
+func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput) error {
 	if len(links) > maxActivityLinks {
 		return &TooManyLinksError{Count: len(links)}
 	}
@@ -100,13 +103,6 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, a
 			sprintf(`INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s) VALUES ($1, $2, $3, $4)`, column),
 			wsID, activityID, link.EntityType, link.EntityID); err != nil {
 			return err
-		}
-		if link.EntityType == "deal" {
-			if _, err := tx.Exec(ctx,
-				`UPDATE deal SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
-				link.EntityID, occurredAt); err != nil {
-				return err
-			}
 		}
 	}
 	return nil
