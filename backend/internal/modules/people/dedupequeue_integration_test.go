@@ -316,3 +316,133 @@ func TestDedupeQueueHidesPairsOutsideTheCallersRowScope(t *testing.T) {
 		t.Fatalf("owner sees %d candidates, want 1", len(rows))
 	}
 }
+
+// seedOrgPair leaves one open organization candidate: two spellings of one
+// company, no shared exact key.
+func seedOrgPair(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids.UUID) {
+	t.Helper()
+	first, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Globex Corporation GmbH", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "globex.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("seed incumbent org: %v", err)
+	}
+	second, err := e.store.CreateOrganization(ctx, CreateOrganizationInput{
+		DisplayName: "Globex Corporation Inc", Source: "manual",
+		Domains: []OrgDomainInput{{Domain: "globex-us.test", IsPrimary: true}},
+	})
+	if err != nil {
+		t.Fatalf("seed near-duplicate org: %v", err)
+	}
+	return ids.UUID(first.Id), ids.UUID(second.Id)
+}
+
+// seedLeadPair leaves one open lead candidate: same employer, a near spelling
+// of the name, no shared exact key.
+func seedLeadPair(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids.UUID) {
+	t.Helper()
+	first := e.createLead(ctx, t, "Jonas Petersen", "jonas@nordwind.test", "Nordwind Logistik")
+	second := e.createLead(ctx, t, "Jonas Peterson", "", "Nordwind Logistik")
+	return first.UUID, second.UUID
+}
+
+// setRowOwner binds one record to an owner, or releases it to the workspace
+// when owner is nil. Stated on both sides of a pair rather than assumed from
+// what the create path stamped: the whole point of the test below is which
+// side the caller can reach, so neither side's ownership may be incidental.
+func setRowOwner(ctx context.Context, t *testing.T, e *dedupeEnv, stmt string, owner *ids.UUID, id ids.UUID) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, stmt, owner, id)
+		return err
+	}); err != nil {
+		t.Fatalf("setting the owner of %s: %v", id, err)
+	}
+}
+
+// halfVisibleArm is one entity type's turn through the queue's both-sides
+// rule: how to leave an open pair of that type, and how to bind one of them
+// to an owner.
+type halfVisibleArm struct {
+	entityType string
+	setOwner   string
+	seed       func(context.Context, *testing.T, *dedupeEnv) (ids.UUID, ids.UUID)
+}
+
+// A dedupe pair names TWO records, and the queue surfaces it only when the
+// caller can see BOTH — the candidate row carries the evidence snapshot of
+// each side, so listing a pair IS a read of them.
+//
+// The reader that rule exists for is the half-visible one: the caller who can
+// reach one side of the pair and not the other. Nothing else exercises the
+// `AND` between the two EXISTS — a caller who sees both sides passes either
+// way, and a caller who sees neither is refused by the first EXISTS alone.
+// Swap that `AND` for an `OR` and every other test in this package still
+// passes while the queue discloses the evidence of records the reader may not
+// open.
+//
+// Run per entity type because the clause spells person, organization and lead
+// separately, and per SIDE because it spells left and right separately too.
+func TestDedupeQueueHidesAPairTheCallerCanOnlyHalfSee(t *testing.T) {
+	arms := []halfVisibleArm{
+		{
+			entityPerson, `UPDATE person SET owner_id = $1 WHERE id = $2`,
+			func(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids.UUID) {
+				return seedPersonPair(ctx, t, e, "John Doe", "john@queue.test", "Jon Doe", "jon@queue.test", "queue.test")
+			},
+		},
+		{entityOrganization, `UPDATE organization SET owner_id = $1 WHERE id = $2`, seedOrgPair},
+		{entityLead, `UPDATE lead SET owner_id = $1 WHERE id = $2`, seedLeadPair},
+	}
+	for _, arm := range arms {
+		// The pair is stored canonically, lower id left (DH-DDL-1), and ids
+		// are time-ordered — so hiding the record created first always probes
+		// the clause's LEFT slot and never its right. Both get a turn: a
+		// clause that reads one side's id twice still hides the pair from
+		// callers who cannot see THAT side, and answers correctly for exactly
+		// the half of them a one-sided probe happens to ask about.
+		for _, hide := range []string{"first-created", "second-created"} {
+			t.Run(arm.entityType+"/"+hide, func(t *testing.T) {
+				halfVisiblePairStaysHidden(t, arm, hide)
+			})
+		}
+	}
+}
+
+func halfVisiblePairStaysHidden(t *testing.T, arm halfVisibleArm, hide string) {
+	t.Helper()
+	e := setupDedupe(t)
+	ctx := e.as()
+	first, second := arm.seed(ctx, t, e)
+	hidden, shared := first, second
+	if hide == "second-created" {
+		hidden, shared = second, first
+	}
+	seeded := openCandidates(ctx, t, e, arm.entityType)
+	if len(seeded) != 1 {
+		t.Fatalf("seeded %d %s candidates, want exactly 1", len(seeded), arm.entityType)
+	}
+	// Exactly one side goes private; the other is released to the workspace,
+	// which own-scoped callers may read. So the colleague below reaches one
+	// half of the pair and only the other is out of reach — the state no
+	// other test in this package puts the queue in.
+	setRowOwner(ctx, t, e, arm.setOwner, &e.rep, hidden)
+	setRowOwner(ctx, t, e, arm.setOwner, nil, shared)
+
+	// The private half's owner sees both halves, so the pair is still there
+	// and still listable: the refusal below is the second EXISTS failing, not
+	// an empty queue answering for free.
+	owner := e.asOwnScoped(e.rep)
+	if rows := openCandidates(owner, t, e, arm.entityType); len(rows) != 1 {
+		t.Fatalf("the owner of the private side lists %d candidates, want 1 — the other side is workspace-shared and reachable", len(rows))
+	}
+
+	colleague := e.asOwnScoped(e.otherRep)
+	if rows := openCandidates(colleague, t, e, arm.entityType); len(rows) != 0 {
+		t.Fatalf("a caller who can see only half the pair lists %d candidates, want 0", len(rows))
+	}
+	if _, err := e.store.GetDedupeCandidate(colleague, seeded[0].ID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("half-visible get = %v, want ErrNotFound — a pair the caller cannot fully read must not confirm it exists", err)
+	}
+}
