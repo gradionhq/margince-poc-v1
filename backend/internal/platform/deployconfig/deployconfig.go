@@ -13,7 +13,6 @@ package deployconfig
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"gopkg.in/yaml.v3"
