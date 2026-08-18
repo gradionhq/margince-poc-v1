@@ -31,7 +31,7 @@ export function PersonStrip({
   // and a withheld reading carries no tone, because there is no verdict to
   // colour.
   const reading = (value: string, withheld: boolean) =>
-    withheld ? t("person.strip.notShown") : value;
+    withheld ? t("record.notShown") : value;
   const consentIsShown = !omitted.has("consent");
   return (
     <StatStrip testId="person-strip">

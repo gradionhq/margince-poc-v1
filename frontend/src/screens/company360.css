@@ -500,19 +500,23 @@
   margin-inline-start: 0.4rem;
 }
 
-/* The three readings, side by side above everything else. They wrap rather
-   than shrink: a reading squeezed to two words stops being one. */
-/* ONE strip of six equal slots divided by rules, not six free-standing cards
-   (mockup States A and D). `1fr` rather than a min width: six slots at a
-   readable minimum would wrap to two rows on a laptop, and a KPI row that
-   wraps stops reading as one comparison.
-   Below the point where six slots stop being legible it becomes two rows of
-   three, which is a deliberate fold rather than an accidental one. */
-/* The strip itself withheld, rather than absent: one line where six slots
+/* The readings row's PLACE on the page, and nothing about how it draws: the
+   plate, its slot count, its fold and its one type scale are StatStrip's
+   (design-system/statstrip.css), which is also what the person record's row
+   draws from. A screen sheet that restated any of that would be the second
+   author of a shape one click away already owns — which is exactly how this
+   page came to carry a verbatim copy of the primitive. */
+.co-readings {
+  margin-block-end: var(--space-4);
+}
+
+/* The strip itself withheld, rather than absent: one line where the readings
    would be, so the row's disappearance reads as a permission boundary rather
-   than as an account with nothing to report. */
+   than as an account with nothing to report. Not a StatStrip: it has no slots
+   and no readings to compare, and a plate drawn around one sentence claims a
+   row that is not there. */
 .co-strip-withheld {
-  margin-block-end: 0.9rem;
+  margin-block-end: var(--space-4);
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
@@ -520,86 +524,6 @@
 }
 .co-strip-withheld .surfacestate-withheld {
   margin-top: 0;
-}
-.co-strip {
-  display: grid;
-  /* The column count follows the SLOTS, set by the component that knows how
-     many it drew. A fixed six-column template reserves the sixth cell even on a
-     non-customer that has five — a grey gap that reads as a reading which
-     failed to load rather than as one the account does not have. */
-  grid-template-columns: repeat(var(--co-strip-slots, 6), 1fr);
-  margin-block-end: 0.9rem;
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-md);
-  /* The plate is the page's own card surface, not a tint. Filled darker it
-     read as a band decorating the header rather than the first thing on the
-     page worth reading — and every cell the slots do not reach showed that
-     fill as a grey block, which reads as a reading that failed to load. A
-     white plate has nothing to leak: a row of four slots in a six-column
-     template ends in white space, which is simply where the row ends. */
-  background: var(--bgElevated);
-  overflow: hidden;
-}
-
-@media (max-width: 68rem) {
-  .co-strip {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (max-width: 40rem) {
-  .co-strip {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
-/* Each slot draws its own dividers OUTSIDE itself — one pixel to its left and
-   one above — and the plate clips them. The leading slot of every row puts its
-   left rule past the plate's edge, and the first row puts its top rule above
-   it, so both vanish without anyone counting which slot starts a row: the
-   arithmetic that would need is only right while the slot count divides the
-   column count, and this strip draws four, five or six depending on what the
-   account is. */
-.co-strip > * {
-  border: 0;
-  border-radius: 0;
-  background: var(--bgElevated);
-  margin: 0;
-  box-shadow:
-    -1px 0 0 var(--borderSubtle),
-    0 -1px 0 var(--borderSubtle);
-}
-
-/* The money is the headline, set larger than the label above it. ONE size for
-   every slot in the row: some carry a figure and some carry a sentence — how
-   the account pays, where the relationship stands — and a slot that sizes
-   itself to its own content stops the row from reading as one comparison.
-   Scoped to the strip: StatCard is shared, and a dashboard tile is not a
-   record page's headline number. */
-.co-strip .stat-card-value {
-  /* Sized to the SLOT, not to the mockup's absolute pixels. Six slots share
-     roughly 830px here — the mockup's strip is wider because its page has no
-     left nav at this width — and the size also has to hold a full sentence
-     ("typically 4 days early") on one line in the narrowest slot without
-     wrapping to three, so it sits below the money-only size the figures alone
-     could have carried. The clamp lets it shrink with the column instead. */
-  font-size: clamp(13px, 0.9vw, 15px);
-  line-height: 1.3;
-  letter-spacing: -0.01em;
-}
-
-/* A strip slot is narrower than a free-standing stat card, so a label that
-   does not fit wraps to a second line rather than colliding with the figure. */
-.co-strip .stat-card-label {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  /* The strip's own reading, not StatCard's default sentence case: a KPI row
-     reads as a row of labelled readings, and small caps say "label" at a
-     glance the way sentence case says "sentence". Scoped here rather than on
-     StatCard itself, which every other free-standing card also uses. */
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  font-size: 11px;
 }
 
 /* The brief under the questions it answers. Label and prose sit side by side
@@ -1368,16 +1292,6 @@
    Panel's tone="accent" (design-system/panel.css): the record's tabs and its
    heading are already louder, and a lead that shouts over them stops reading
    as one part of a page. */
-
-/* The readings are a row a reader sweeps, so each one needs room around it to
-   read as its own reading rather than as a column of a table. The shared tile
-   is sized for a dashboard grid where the card's own border holds it apart;
-   here the slots share one plate and a hairline is all that separates them,
-   so the space has to come from inside. */
-.co-strip > .stat-card {
-  gap: var(--space-1);
-  padding: var(--space-4) var(--space-5);
-}
 
 /* The account's identity and its readings are two different statements — who
    this is, then how it stands — so the row needs room to start rather than

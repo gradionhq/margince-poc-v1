@@ -193,6 +193,7 @@ export const en = {
   "deal.singleThreaded": "single-threaded",
   "deal.staged": "staged",
   "deal.archived": "archived",
+  "record.notShown": "Not shown",
   "record.timeline": "Timeline",
   "record.edit": "Edit",
   "record.save": "Save",
@@ -667,6 +668,8 @@ export const en = {
   "co.chip.linkedin": "LinkedIn",
   "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 mo",
+  "co.strip.notAssessed": "Not assessed",
+  "co.strip.lifetimeOf": "{amount} lifetime",
   "co.strip.overdue": "Overdue",
   // The collapsed slot's label, shown once in place of the strip's money
   // readings when the connection cannot answer any of them. Generic on
@@ -5049,7 +5052,6 @@ export const en = {
   "person.strip.openDeal": "Open deal",
   "person.strip.nextMeeting": "Next meeting",
   "person.strip.consent": "Consent",
-  "person.strip.notShown": "Not shown",
   "person.strip.never": "Never",
   "person.strip.today": "Today",
   "person.strip.yesterday": "Yesterday",
