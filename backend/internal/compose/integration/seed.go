@@ -125,10 +125,17 @@ func SeedExtraWorkspace(t *testing.T, owner *pgx.Conn, name string, archived boo
 }
 
 // SeedRow inserts one row through the owner connection and returns its id.
-func SeedRow(t *testing.T, owner *pgx.Conn, sql string, ws ids.UUID) ids.UUID {
+//
+// `args` fill $3 onwards. A fixture whose subject is a TIME must pass it here
+// rather than write `now() - interval ...` in the SQL: a suite that freezes the
+// service's clock and then seeds against the database's is measuring the gap
+// between two clocks that drift apart every day it is not run. See
+// TestAFrozenClockFixtureDoesNotSeedAgainstTheDatabaseClock.
+func SeedRow(t *testing.T, owner *pgx.Conn, sql string, ws ids.UUID, args ...any) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	if _, err := owner.Exec(context.Background(), sql, id, ws); err != nil {
+	params := append([]any{id, ws}, args...)
+	if _, err := owner.Exec(context.Background(), sql, params...); err != nil {
 		t.Fatalf("seeding: %v", err)
 	}
 	return id

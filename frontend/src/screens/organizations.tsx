@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
+import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Avatar,
   Badge,
@@ -25,15 +26,17 @@ import {
   EvidenceMark,
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
-import { Panel } from "../design-system/panel";
 import { sectionState } from "../design-system/surfacestate";
 import {
   AutonomyDot,
   ConfidenceMeter,
   EvidenceChip,
-  ProvenanceTag,
 } from "../design-system/trust";
-import { formatDateTime, formatMoney } from "../format/format";
+import {
+  formatDateAbbrev,
+  formatDateTime,
+  formatMoney,
+} from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -97,6 +100,7 @@ import {
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
+import { OwnerName } from "./entityref";
 import {
   EvidenceVerdict,
   factClaim,
@@ -111,10 +115,11 @@ import {
   type ListQuery,
   ListTable,
   useListQuery,
+  useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
-import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
+import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
   TaskDetailModal,
   TaskQuickActions,
@@ -179,7 +184,7 @@ async function fetchOrganizationsPage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: 50,
+        limit: query.perPage,
         ...query.filters,
       },
     },
@@ -530,13 +535,20 @@ async function createCompany(
 
 export function CompaniesScreen() {
   const t = useT();
-  const viewerId = useViewerId();
+  const { locale } = useLocale();
   const cf = useObjectCustomFields("organization");
   const state = useListQuery<Organization>({
     key: "organizations",
     initialSort: "-created_at",
     fetchPage: fetchOrganizationsPage,
   });
+  // The owner dials name the reader, so they are offered only once /me has
+  // answered. A chip whose value is still "" reads as "clear this filter" to
+  // the table, so offering "My companies" mid-load would quietly narrow
+  // nothing — the same reason the deal list builds its owner chip this way.
+  const viewerId = useViewerId();
+  const ownerChips = useOwnerChips();
+  const savedViews = useSavedViewTabs("organizations");
 
   return (
     <div className="wrap">
@@ -605,6 +617,24 @@ export function CompaniesScreen() {
               ) : null,
           },
           {
+            // AC-companies-2/3: how many people work here that this reader may
+            // see — the server counts under the caller's row scope. Zero is a
+            // number: a reader must tell "no contacts" from "not shown".
+            key: "contacts",
+            header: t("org.contactCount"),
+            numeric: true,
+            cell: (org: Organization) => org.contact_count ?? "",
+          },
+          {
+            // Withheld (absent key), not zero, for a role without
+            // computed_field:read — the same STATE-4 rule the company page's
+            // pipeline tile follows, so the two never disagree.
+            key: "openDeals",
+            header: t("org.openDealCount"),
+            numeric: true,
+            cell: (org: Organization) => org.open_deal_count ?? "",
+          },
+          {
             key: "class",
             header: t("org.lifecycle"),
             // classification is retired and no longer written by anything,
@@ -616,19 +646,95 @@ export function CompaniesScreen() {
               ) : null,
           },
           {
-            key: "provenance",
-            header: t("people.capturedBy"),
+            key: "relationship",
+            header: t("org.relationshipTypes"),
+            // A filter with no column to read it back on is a list that cannot
+            // say why a row matched. Multi-valued on purpose (ADR-0079/A124):
+            // an account can be a partner AND a customer, and showing only the
+            // first would make the second look untrue.
+            cell: (org: Organization) =>
+              org.relationship_types?.length ? (
+                <span
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "var(--space-1)",
+                  }}
+                >
+                  {org.relationship_types.map((type) => (
+                    <Badge key={type}>
+                      {t(RELATIONSHIP_TYPE_LABELS[type])}
+                    </Badge>
+                  ))}
+                </span>
+              ) : null,
+          },
+          {
+            key: "owner",
+            header: t("list.owner"),
             cell: (org: Organization) => (
-              <ProvenanceTag
-                provenance={provenanceOf(org.captured_by, viewerId)}
-              />
+              <OwnerName ownerId={org.owner_id} unowned={t("list.unowned")} />
             ),
+            sort: "owner_id",
+          },
+          {
+            key: "created",
+            header: t("list.created"),
+            cell: (org: Organization) => (
+              <span className="t-caption">
+                {org.created_at
+                  ? formatDateAbbrev(org.created_at, locale, RECORD_ZONE)
+                  : ""}
+              </span>
+            ),
+            sort: "created_at",
           },
         ]}
+        tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
+        dataChips={ownerChips}
+        chips={[
+          {
+            key: "lifecycle",
+            label: "org.lifecycle",
+            allLabel: "org.filterLifecycleAll",
+            options: LIFECYCLE_OPTIONS.filter(
+              (value) => value !== "unknown",
+            ).map((value) => ({ value, label: LIFECYCLE_LABELS[value] })),
+          },
+          {
+            key: "relationship_type",
+            label: "org.relationshipTypes",
+            allLabel: "org.filterRelTypeAll",
+            options: RELATIONSHIP_TYPE_OPTIONS.map((value) => ({
+              value,
+              label: RELATIONSHIP_TYPE_LABELS[value],
+            })),
+          },
+        ]}
+        dataViews={savedViews}
         views={[
           { label: "list.viewAll", sort: "-created_at" },
+          ...(viewerId
+            ? [
+                {
+                  label: "list.viewMine" as const,
+                  sort: "-created_at",
+                  filters: { owner_id: viewerId },
+                },
+              ]
+            : []),
+          {
+            label: "list.viewCustomers",
+            sort: "display_name",
+            filters: { lifecycle: "customer" },
+          },
+          {
+            label: "list.viewProspects",
+            sort: "display_name",
+            filters: { lifecycle: "prospect" },
+          },
           { label: "list.viewAZ", sort: "display_name" },
         ]}
       />
@@ -1745,9 +1851,12 @@ function useAccountChronology({
   // still have more. Another page of changes only reaches the reader when the
   // change feed owns that cut — i.e. its oldest loaded row is not older than
   // the activity feed's.
+  // Seeded with the first row rather than left to throw on an empty one. The
+  // length check above already made that unreachable, but a reduce whose safety
+  // lives in a ternary two lines up is one refactor away from not having it.
   const oldest = (rows: TimelineEntry[]) =>
     rows.length > 0
-      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b)).atIso
+      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b), rows[0]).atIso
       : undefined;
   const oldestChange = oldest(changeEntries);
   const oldestActivity = oldest(activityEntries);
@@ -2526,18 +2635,16 @@ function CompanyOverviewStack({
       />
       {!overlay && (
         <>
-          {/* What this account is worth to us. Boxed like every panel beside
-              it — GrowthFitPanel draws its own heading inside — rather than
-              left standing bare in the column. Inside the overlay guard: the
-              panel has nothing to hold in overlay mode, where none of the
+          {/* What this account is worth to us. GrowthFitPanel IS a Panel —
+              title, the reassess verb in its header, the attribution in its
+              footer — so it needs no wrapper here. Inside the overlay guard:
+              the panel has nothing to hold in overlay mode, where none of the
               facts it is assembled from exist. */}
-          <Panel className="co-worth">
-            <GrowthFitPanel
-              orgId={org.id}
-              enabled={!overlay}
-              onOpenRecord={onOpenRecord}
-            />
-          </Panel>
+          <GrowthFitPanel
+            orgId={org.id}
+            enabled={!overlay}
+            onOpenRecord={onOpenRecord}
+          />
           {/* The commercial picture: the pipeline's own lifetime figures,
               then the open deals themselves. */}
           <CommercialPanel

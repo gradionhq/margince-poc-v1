@@ -354,43 +354,50 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 			return err
 		}
 
-		now := time.Now().UTC()
-		for _, stmt := range []string{
-			`UPDATE person SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
-			`UPDATE person_email SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
-			`UPDATE person_phone SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
-			// A live channel identity under an archived Person would keep
-			// resolving inbound messages onto a record that has been
-			// soft-deleted; archived, the next message starts a fresh one.
-			`UPDATE person_channel_identity SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
-			`UPDATE relationship SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
-		} {
-			if _, err := tx.Exec(ctx, stmt, id, now); err != nil {
-				return err
-			}
-		}
-		// Polymorphic membership/tag rows have no archived_at; the §1.10
-		// cleanup rule removes them with the entity.
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM list_member WHERE entity_type = 'person' AND entity_id = $1`, id); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx,
-			`DELETE FROM taggable WHERE entity_type = 'person' AND entity_id = $1`, id); err != nil {
-			return err
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "archive", "person", id.UUID, nil, nil)
-		if err != nil {
-			return err
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonArchived{}); err != nil {
+		if err := archivePersonRows(ctx, tx, id, time.Now().UTC()); err != nil {
 			return err
 		}
 		out, err = readPerson(ctx, tx, id, storekit.IncludeArchived, active)
 		return err
 	})
 	return out, err
+}
+
+// archivePersonRows retires a person and its satellites and lands the write
+// shape for it — the archive audit row and person.archived. It is the one
+// spelling of "archive a person" inside a transaction, shared by the archive
+// verb and by a lead demotion that unwinds the person a promotion created.
+func archivePersonRows(ctx context.Context, tx pgx.Tx, id ids.PersonID, now time.Time) error {
+	for _, stmt := range []string{
+		`UPDATE person SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
+		`UPDATE person_email SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
+		`UPDATE person_phone SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
+		// A live channel identity under an archived Person would keep
+		// resolving inbound messages onto a record that has been
+		// soft-deleted; archived, the next message starts a fresh one.
+		`UPDATE person_channel_identity SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
+		`UPDATE relationship SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
+	} {
+		if _, err := tx.Exec(ctx, stmt, id, now); err != nil {
+			return err
+		}
+	}
+	// Polymorphic membership/tag rows have no archived_at; the §1.10
+	// cleanup rule removes them with the entity.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM list_member WHERE entity_type = 'person' AND entity_id = $1`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM taggable WHERE entity_type = 'person' AND entity_id = $1`, id); err != nil {
+		return err
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "archive", "person", id.UUID, nil, nil)
+	if err != nil {
+		return err
+	}
+	return storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventPersonArchived{})
 }
 
 // EnsurePersonByEmail resolves the live person who owns email, or

@@ -38,11 +38,19 @@ type ListOrganizationsInput struct {
 	Limit         *int
 	Query         *string
 	OwnerID       *ids.UserID
+	// OwnerTeamID narrows to a team's rows; Unassigned to the unowned queue.
+	// Both narrow the caller's row scope and never widen it — see
+	// listFilters.ownershipClause, which also refuses two of them at once.
+	OwnerTeamID *ids.TeamID
+	Unassigned  *bool
 	// Classification is RETIRED with the column (ADR-0079/A124) and reaches no
 	// wire parameter; Lifecycle and RelationshipType replace it.
 	Classification   *string
 	Lifecycle        *string
 	RelationshipType *string
+	// Industry is free text on the record; SizeBand is the contract's enum.
+	Industry *string
+	SizeBand *string
 	// Domain narrows to the account that lists one domain — the
 	// employer-inference lookup, spelled as a filter over the same
 	// organization_domain rows the page attaches.
@@ -131,6 +139,8 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		AiWritten:       in.AiWritten,
 		entity:          organizationEntity,
 		OwnerID:         in.OwnerID,
+		OwnerTeamID:     in.OwnerTeamID,
+		Unassigned:      in.Unassigned,
 		Query:           in.Query,
 		Cursor:          in.Cursor,
 		CustomFilters:   in.CustomFilters,
@@ -172,6 +182,22 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 				}
 				where = append(where, storekit.SQLf("lifecycle = $%d", arg(*in.Lifecycle)))
 			}
+			if in.Industry != nil {
+				// Free text on the record, so matched as written rather than
+				// against a vocabulary the column does not have.
+				where = append(where, storekit.SQLf("industry = $%d", arg(*in.Industry)))
+			}
+			if in.SizeBand != nil {
+				// Checked against the generated enum for the same reason
+				// lifecycle is: an unknown band would answer an empty page,
+				// and empty reads as "no accounts that size" rather than as
+				// "that is not a size".
+				if !crmcontracts.ListOrganizationsParamsSizeBand(*in.SizeBand).Valid() {
+					return nil, httperr.Validation("size_band", "not_a_known_value",
+						"filter by one of the size bands the contract defines, or leave the parameter off")
+				}
+				where = append(where, storekit.SQLf("size_band = $%d", arg(*in.SizeBand)))
+			}
 			if in.RelationshipType != nil {
 				if !crmcontracts.ListOrganizationsParamsRelationshipType(*in.RelationshipType).Valid() {
 					return nil, httperr.Validation("relationship_type", "not_a_known_value",
@@ -193,7 +219,10 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			if err := attachOrgDomains(ctx, tx, orgs); err != nil {
 				return err
 			}
-			return attachOrgRelationshipTypes(ctx, tx, orgs)
+			if err := attachOrgRelationshipTypes(ctx, tx, orgs); err != nil {
+				return err
+			}
+			return attachOrgCounts(ctx, tx, orgs)
 		},
 		cursorKey: func(last crmcontracts.Organization) (time.Time, ids.UUID) {
 			return last.CreatedAt, ids.UUID(last.Id)

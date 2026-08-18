@@ -4,8 +4,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button, SegmentedControl } from "./atoms";
 import {
-  type BoardColumn,
   type BoardDeal,
+  type BoardMoneyColumn,
   PipelineBoard,
   RecordView,
   type TimelineEntry,
@@ -172,7 +172,7 @@ function boardDeal(
   };
 }
 
-const boardColumns: BoardColumn[] = [
+const boardColumns: BoardMoneyColumn[] = [
   {
     stage: "discovery",
     label: "Discovery",

@@ -239,3 +239,233 @@ func pipelineNames(page []crmcontracts.Pipeline) []string {
 	}
 	return names
 }
+
+func TestThePersonListNarrowsToOneTeamsRows(t *testing.T) {
+	e := Setup(t)
+	// Rep1 and Rep2 share Team1; Rep3 sits in Team2.
+	mine := e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+	teammates := e.SeedPerson(t, "Owned By Rep2", &e.Rep2)
+	e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
+	e.SeedPerson(t, "Owned By Nobody", nil)
+
+	team := ids.From[ids.TeamKind](e.Team1)
+	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OwnerTeamID: &team})
+	if err != nil {
+		t.Fatalf("listing people by owner team: %v", err)
+	}
+	got := make([]string, 0, len(page))
+	for _, person := range page {
+		got = append(got, ids.UUID(person.Id).String())
+	}
+	slices.Sort(got)
+	want := []string{mine.String(), teammates.String()}
+	slices.Sort(want)
+	// Both of the team's members, and nobody else's rows. The unowned person is
+	// deliberately absent: the `team` ROW SCOPE admits unassigned rows, this
+	// FILTER names the ones a team owns, and reading the two as one question is
+	// how a rep ends up seeing a queue they were not asked to work.
+	if !slices.Equal(got, want) {
+		t.Fatalf("owner_team_id returned %v, want exactly the two rows Team1's members own (%v)", got, want)
+	}
+}
+
+func TestThePersonListNarrowsToTheUnownedQueue(t *testing.T) {
+	e := Setup(t)
+	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+	unowned := e.SeedPerson(t, "Owned By Nobody", nil)
+
+	yes := true
+	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{Unassigned: &yes})
+	if err != nil {
+		t.Fatalf("listing the unowned queue: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != unowned {
+		t.Fatalf("unassigned=true returned %d people, want only the unowned one", len(page))
+	}
+
+	// `unassigned=false` is not "only owned rows": the reader asked to stop
+	// narrowing, and the honest answer is the unnarrowed list.
+	no := false
+	all, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{Unassigned: &no})
+	if err != nil {
+		t.Fatalf("listing with unassigned=false: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("unassigned=false returned %d people, want both — it asks for no narrowing at all", len(all))
+	}
+}
+
+func TestTheOwnerDialsRefuseEachOther(t *testing.T) {
+	e := Setup(t)
+	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+
+	owner := ids.From[ids.UserKind](e.Rep1)
+	team := ids.From[ids.TeamKind](e.Team1)
+	yes := true
+	for _, in := range []people.ListPeopleInput{
+		{OwnerID: &owner, Unassigned: &yes},
+		{OwnerID: &owner, OwnerTeamID: &team},
+		{OwnerTeamID: &team, Unassigned: &yes},
+	} {
+		// Each pair can only ever match nothing, and an empty page is
+		// indistinguishable from an honest one — so the query is refused
+		// rather than answered.
+		if _, _, err := e.People.ListPeople(e.Admin(), in); err == nil {
+			t.Fatal("two owner dials at once were accepted; want a validation refusal")
+		}
+	}
+}
+
+// teamScopedRep is a rep at RowScopeTeam — the tier AAD-ROLE-2 gives Rep and
+// Manager. The owner filters are only safe if they narrow WITHIN this; an
+// unbounded admin cannot show that, because there is nothing left to narrow.
+func teamScopedRep(e *Env, user ids.UUID, teams []ids.UUID) context.Context {
+	return e.As(user, teams, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"person":       {Read: true},
+			"organization": {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	})
+}
+
+func TestTheTeamFilterCannotReachAnotherTeamsRows(t *testing.T) {
+	e := Setup(t)
+	// Rep1+Rep2 share Team1; Rep3 sits in Team2.
+	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
+	outsider := e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
+
+	rep := teamScopedRep(e, e.Rep1, []ids.UUID{e.Team1})
+	other := ids.From[ids.TeamKind](e.Team2)
+	page, _, err := e.People.ListPeople(rep, people.ListPeopleInput{OwnerTeamID: &other})
+	if err != nil {
+		t.Fatalf("listing another team's rows: %v", err)
+	}
+	// Naming a team the caller cannot see filters THEIR OWN visible rows to
+	// nothing. It must never reach that team's records: the filter is ANDed
+	// onto the row-scope predicate, so it can only ever subtract.
+	for _, person := range page {
+		if ids.UUID(person.Id) == outsider {
+			t.Fatal("owner_team_id reached a row outside the caller's row scope — the filter widened authorization")
+		}
+	}
+	if len(page) != 0 {
+		t.Fatalf("owner_team_id=<other team> returned %d rows, want none", len(page))
+	}
+}
+
+func TestTheOrganizationListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
+	e := Setup(t)
+	held := e.SeedOrg(t, "Owned By Rep1", &e.Rep1)
+	e.SeedOrg(t, "Owned By Rep3", &e.Rep3)
+	unowned := e.SeedOrg(t, "Owned By Nobody", nil)
+
+	team := ids.From[ids.TeamKind](e.Team1)
+	page, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{OwnerTeamID: &team})
+	if err != nil {
+		t.Fatalf("listing organizations by owner team: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != held {
+		t.Fatalf("owner_team_id returned %d organizations, want only the one Team1 owns", len(page))
+	}
+
+	yes := true
+	queue, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{Unassigned: &yes})
+	if err != nil {
+		t.Fatalf("listing the unowned organizations: %v", err)
+	}
+	if len(queue) != 1 || ids.UUID(queue[0].Id) != unowned {
+		t.Fatalf("unassigned=true returned %d organizations, want only the unowned one", len(queue))
+	}
+}
+
+func TestThePersonListNarrowsToOneEmployer(t *testing.T) {
+	e := Setup(t)
+	acme := e.SeedOrg(t, "Acme", nil)
+	other := e.SeedOrg(t, "Other", nil)
+	staff := e.SeedPerson(t, "Works At Acme", nil)
+	leaver := e.SeedPerson(t, "Left Acme", nil)
+	elsewhere := e.SeedPerson(t, "Works Elsewhere", nil)
+
+	// Seeded through the real writer, so the edge carries whatever that writer
+	// stamps: a hand-inserted row proves nothing about the rows production makes.
+	employ := func(person ids.UUID, org ids.UUID, current bool) {
+		t.Helper()
+		personID := ids.From[ids.PersonKind](person)
+		orgID := ids.From[ids.OrganizationKind](org)
+		if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
+			Kind:             "employment",
+			PersonID:         &personID,
+			OrganizationID:   &orgID,
+			IsCurrentPrimary: current,
+			Source:           "manual",
+		}); err != nil {
+			t.Fatalf("seeding the employment edge: %v", err)
+		}
+	}
+	employ(staff, acme, true)
+	// A past employer at the same account: the filter answers who works there,
+	// not who has ever worked there, and returning the leaver beside the staff
+	// is the wrong answer wearing the right shape.
+	employ(leaver, acme, false)
+	employ(elsewhere, other, true)
+
+	orgID := ids.From[ids.OrganizationKind](acme)
+	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OrganizationID: &orgID})
+	if err != nil {
+		t.Fatalf("listing people by employer: %v", err)
+	}
+	if len(page) != 1 || ids.UUID(page[0].Id) != staff {
+		got := make([]string, 0, len(page))
+		for _, person := range page {
+			got = append(got, person.FullName)
+		}
+		t.Fatalf("organization_id returned %v, want only the current employee", got)
+	}
+}
+
+// setFirmographics writes industry and size through the store the product
+// writes them with, so the rows under test are the rows production makes.
+func setFirmographics(t *testing.T, e *Env, org ids.UUID, industry, band string) {
+	t.Helper()
+	if _, err := e.People.UpdateOrganization(e.Admin(), ids.From[ids.OrganizationKind](org),
+		people.UpdateOrganizationInput{Industry: &industry, SizeBand: &band}); err != nil {
+		t.Fatalf("setting firmographics: %v", err)
+	}
+}
+
+func TestTheOrganizationListNarrowsByIndustryAndSizeBand(t *testing.T) {
+	e := Setup(t)
+	small := e.SeedOrg(t, "Small Software", nil)
+	big := e.SeedOrg(t, "Big Software", nil)
+	e.SeedOrg(t, "Small Logistics", nil)
+
+	setFirmographics(t, e, small, "Software", "1-10")
+	setFirmographics(t, e, big, "Software", "1001-5000")
+
+	industry := "Software"
+	page, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{Industry: &industry})
+	if err != nil {
+		t.Fatalf("listing by industry: %v", err)
+	}
+	if len(page) != 2 {
+		t.Fatalf("industry=Software returned %d accounts, want both software accounts", len(page))
+	}
+
+	band := "1-10"
+	sized, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{SizeBand: &band})
+	if err != nil {
+		t.Fatalf("listing by size band: %v", err)
+	}
+	if len(sized) != 1 || ids.UUID(sized[0].Id) != small {
+		t.Fatalf("size_band=1-10 returned %d accounts, want only the small one", len(sized))
+	}
+
+	// An unknown band is refused rather than answered with an empty page:
+	// empty reads as "no accounts that size", which is a different claim.
+	unknown := "12-13"
+	if _, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{SizeBand: &unknown}); err == nil {
+		t.Fatal("an unknown size band was accepted; want a validation refusal")
+	}
+}

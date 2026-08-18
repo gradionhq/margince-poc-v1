@@ -34,7 +34,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // runDebugSubcommand dispatches the DB-less debug loops — `worker siteread …`
@@ -55,9 +54,11 @@ func runDebugSubcommand(ctx context.Context, args []string, stdout io.Writer) (b
 }
 
 // loadDeployment reads the same deployment file the api boots from — the
-// capture pipeline tuning (capture.freemail_extra) and the operator's
-// ai.capture_payloads posture the Surface-B runner honors — and folds the rate
-// sources it declares into cfg. A missing file means defaults; a malformed one
+// capture pipeline tuning (capture.freemail_extra), the operator's
+// ai.capture_payloads posture the Surface-B runner honors, and whether the
+// installation armed operations.allow_data_reset, which decides whether this
+// role subscribes to reset announcements at all — and folds the rate sources it
+// declares into cfg. A missing file means defaults; a malformed one
 // is a boot error (a typo must not silently drop the blocklist or flip the
 // payload posture).
 func loadDeployment(cfg *workerConfig) (deployconfig.Config, error) {
@@ -65,6 +66,7 @@ func loadDeployment(cfg *workerConfig) (deployconfig.Config, error) {
 	if err != nil {
 		return deployconfig.Config{}, err
 	}
+	cfg.allowDataReset = deployCfg.Operations.AllowDataReset
 	cfg.ratesFx = deployCfg.Rates.Fx
 	cfg.ratesCurrencies = deployCfg.Rates.FxCurrencies
 	cfg.ratesModelPricing = deployCfg.Rates.ModelPricing
@@ -155,7 +157,11 @@ func startEventLanes(ctx context.Context, cfg workerConfig, pool *pgxpool.Pool, 
 		return lanes, err
 	}
 	startProjectionLanes(laneCtx, pool, rdb, modelPath, lanes.background, logger, stdout)
-	startResetLane(laneCtx, runtimeenv.Parse(config.FromOS("MARGINCE_ENV")), rdb, modelPath, lanes.background, logger)
+	// Said out loud for the reason the api says it: each role reads its own
+	// --config, so an unarmed worker beside an armed api is a purge whose cache
+	// flush never reaches this process.
+	logger.Info("data reset", "armed", cfg.allowDataReset)
+	startResetLane(laneCtx, cfg.allowDataReset, rdb, modelPath, lanes.background, logger)
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx, config.FromOS)
 	if err != nil {
@@ -272,13 +278,12 @@ func startWorkflowLane(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Clien
 // Unlike the lanes above, this is not an events.md consumer group: pub/sub,
 // no envelope, no dedupe wrapper, no consumer group to reclaim from. It is
 // also unauthenticated — the channel carries no signature, so whoever reaches
-// the bus can publish — which is why the posture gate matters here and not
-// only on the api. A reset cannot happen in production at all (the endpoint
-// 404s before auth), so a production worker has no announcement to wait for,
-// and subscribing anyway would leave an unauthenticated publisher able to
-// force cache misses on it indefinitely.
-func startResetLane(ctx context.Context, env runtimeenv.Environment, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger) {
-	if !env.IsNonProduction() {
+// the bus can publish — which is why the gate matters here and not only on the
+// api. An installation that did not arm the reset has no announcement to wait
+// for (the endpoint 404s before auth), and subscribing anyway would leave an
+// unauthenticated publisher able to force cache misses on it indefinitely.
+func startResetLane(ctx context.Context, allowed bool, rdb *redis.Client, modelPath compose.ModelPath, background *sync.WaitGroup, logger *slog.Logger) {
+	if !allowed {
 		return
 	}
 	flush := resetFlush(modelPath)

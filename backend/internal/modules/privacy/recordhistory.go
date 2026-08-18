@@ -92,6 +92,31 @@ var recordHistoryVerbs = map[string]string{ // #nosec G101 -- audit verbs and th
 	// reader that no one ANSWERED: a column of these is work going unattended,
 	// which no count of rejections would show.
 	"expire": "let the decision window close on",
+	// The statutory-retention pair (A165/ADR-0114, migration 0287). The
+	// formatter is "<actor> <verb> the record", so a phrase has to take "the
+	// record" as its direct object and read as a sentence: "System withheld the
+	// record" and "Lars pinned the record" both do. The longer phrasing this
+	// pair wants — naming the statutory obligation — cannot go here, because it
+	// would strand the object ("withheld under a statutory retention obligation
+	// the record"). It belongs in the evidence the restricted-records list
+	// renders, which has room for the basis and the deadline.
+	//
+	// "withheld" rather than "restricted", which a reader hears as an
+	// access-control decision the business made; this is the opposite — an
+	// obligation the business is under, holding a record it would otherwise
+	// have had to erase.
+	//
+	// A165's other two verbs, `release` and `expire`, are NOT re-keyed here and
+	// cannot be: this map keys on the verb alone, and both already carry
+	// unrelated phrases from the scheduled-send feature ("released for sending",
+	// written on scheduled_send by activities/scheduledsendfire.go) and from
+	// approvals ("let the decision window close on"). A retention release would
+	// render as a sending event. Resolving that needs the phrase to key on
+	// (verb, entity_type) rather than verb, which is a change to this map's
+	// shape and to composeRecordSummary — it belongs with the code that first
+	// writes a retention release, not ahead of it.
+	"restrict": "withheld",
+	"pin":      "pinned for statutory retention",
 }
 
 // RecordHistoryFilter carries the validated query surface of

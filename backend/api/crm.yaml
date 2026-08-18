@@ -414,14 +414,15 @@ paths:
       operationId: resetData
       security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport
       x-agent-access: human-only
-      summary: Reset a non-production installation to its first-boot state.
+      summary: Reset an installation that armed the capability to its first-boot state.
       description: >
-        Non-production only. Wipes workspace domain + seeded-config data back to the
-        bootstrapped state, preserving the organization and users so login still works,
-        then re-seeds module defaults. Also clears the job queue, the event bus, the
+        Served only where the deployment set `operations.allow_data_reset`; the compiled
+        default is false in every posture. Wipes workspace domain + seeded-config data back
+        to the bootstrapped state, preserving the organization and users so login still
+        works, then re-seeds module defaults. Also clears the job queue, the event bus, the
         Redis counters and the object bytes — not only table rows. Requires the
-        organization name as a typed confirmation. In production this endpoint does
-        not exist (404).
+        organization name as a typed confirmation. `GET /me` reports the same value as
+        `data_reset_available`, so a client never offers what this would refuse.
       requestBody:
         required: true
         content:
@@ -480,9 +481,10 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '404':
           description: >
-            The endpoint is unavailable in this environment — production, or an
-            unset/unknown MARGINCE_ENV. It is served only under a non-production
-            posture; the body is the standard problem document.
+            This installation did not arm `operations.allow_data_reset`, so the operation
+            does not exist here. Checked before authentication, so it is a 404 rather than
+            a 403 for every caller — the answer discloses nothing about who asked. The body
+            is the standard problem document.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -658,6 +660,21 @@ paths:
           in: query
           schema: { type: string, format: uuid }
           description: Filter to a single owner.
+        - name: owner_team_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+            a team the caller cannot see returns their own visible rows filtered to nothing, not a
+            wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+            and rows reached by a record grant (AAD-ROLE-2).
+        - name: unassigned
+          in: query
+          schema: { type: boolean }
+          description: |
+            `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+            (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+            Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
         - name: q
           in: query
           schema: { type: string }
@@ -666,6 +683,14 @@ paths:
           in: query
           schema: { type: string }
           description: Filter by tag name.
+        - name: organization_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            People who work at this account, by their CURRENT PRIMARY employment edge
+            (`relationship` kind `employment`, DM-VOCAB-1). A past employer does not match:
+            "who works there" and "who has ever worked there" are different questions, and the
+            list answers the first.
       responses:
         '200':
           description: A page of people.
@@ -1588,6 +1613,33 @@ paths:
           description: >-
             Accounts carrying this relationship type. Multi-valued per account, so this selects
             accounts that are AT LEAST this — a partner that is also a customer matches both.
+        - name: owner_team_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+            a team the caller cannot see returns their own visible rows filtered to nothing, not a
+            wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+            and rows reached by a record grant (AAD-ROLE-2).
+        - name: unassigned
+          in: query
+          schema: { type: boolean }
+          description: |
+            `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+            (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+            Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+        - name: industry
+          in: query
+          schema: { type: string }
+          description: |
+            Accounts in one industry, matched exactly (DM-VOCAB-2). The column is free text rather
+            than an enum, so this is the value as it was written.
+        - name: size_band
+          in: query
+          description: How many people work there (DM-VOCAB-2).
+          schema:
+            type: string
+            enum: ['1-10', '11-50', '51-200', '201-500', '501-1000', '1001-5000', '5000+']
         - name: q
           in: query
           schema: { type: string }
@@ -3354,7 +3406,7 @@ paths:
           schema: { $ref: '#/components/schemas/ProviderRef' }
         - name: entity_type
           in: query
-          schema: { type: string, enum: [person, organization, deal] }
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
           description: Filter to activities linked to an entity type (with entity_id).
         - name: entity_id
           in: query
@@ -4521,6 +4573,10 @@ paths:
         - name: owner_id
           in: query
           schema: { type: string, format: uuid }
+        - name: source
+          in: query
+          schema: { type: string }
+          description: Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
         - name: min_score
           in: query
           schema: { type: integer }
@@ -4680,6 +4736,98 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422':
           description: Trigger not allowed (e.g. cold-outbound-no-reply does not promote).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/promote-preview:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Leads]
+      operationId: previewLeadPromotion
+      # Human-only for now: this ships as the promote dialog's confirm step. The
+      # governed read tool is a separate, additive decision (see the note on
+      # explainLeadScore).
+      x-agent-access: human-only
+      summary: What promoting this lead would do — merge into an existing person, or create one.
+      description: |
+        Runs the same dedupe ladder POST /leads/{id}/promote would run, WITHOUT writing
+        anything, so the confirm step can name the outcome instead of surprising the rep
+        with it (ADR-0119/A170: which happened is the difference between "my prospect is
+        now a contact" and "my prospect was already someone we knew").
+
+        **This returns a record, so it is a read and carries the row-scope gate.** When the
+        matched person is outside the caller's row scope the response still says `merge` —
+        the outcome is a fact about the lead — but omits `person` and sets
+        `person_withheld: true`. An absent `person` therefore means "not visible to you",
+        never "no match": a caller must not read the omission as `create`.
+      responses:
+        '200':
+          description: The outcome promotion would take, and the person it would merge into when visible.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PromoteLeadPreview' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Lead already promoted or disqualified — nothing to preview.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /leads/{id}/demote:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Leads]
+      operationId: demoteLead
+      # Human-only for now. The spec mints this as a 🟡 `demote_lead` tool; the
+      # governed tool (registry entry, approvals authority, output shape) is an
+      # additive follow-up, tracked as an issue.
+      x-agent-access: human-only
+      summary: Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+      description: |
+        The documented reverse of POST /leads/{id}/promote, deterministic and conservative:
+        it **blocks rather than orphans**.
+
+        - The person owns any deal ⇒ **422 `person_has_deal`**; the person stays a person.
+          A deal attaches to a person by ADR-0008 §5, and un-personing it would strand the
+          deal's counterparty.
+        - Original outcome `created` ⇒ `unwind='reversed'`: the lead un-archives to
+          `status=working` and the created person is archived. **Activities captured after
+          promotion stay on the person's timeline** — they are real history, not something
+          to rewrite backwards.
+        - Original outcome `merged` ⇒ `unwind='merge_lineage_only'`: the pre-existing person
+          is **untouched** and only the lineage pointers are nulled. A field-level un-merge
+          is never attempted, because it is lossy and ambiguous.
+
+        The original outcome is read from the promotion's audit row (which records
+        `dedupe_outcome`), not re-derived — re-running the ladder would answer about today's
+        data rather than what actually happened. Emits `lead.demoted`. Demoting an
+        already-demoted lead is a no-op **409**.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DemoteLeadRequest' }
+      responses:
+        '200':
+          description: The restored lead and what the reversal did.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DemoteLeadResponse' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Lead was never promoted, or has already been demoted.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422':
+          description: The promoted person owns a deal — the reversal is refused rather than orphaning it.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -8100,6 +8248,95 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /retention/restrictions:
+    get:
+      tags: [Compliance]
+      operationId: listRestrictedActivities
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      # A165/ADR-0114. The controller's view of what a statutory obligation is
+      # holding after an erasure: what, why, until when — and never the
+      # correspondence itself, which is restricted precisely so it is not read.
+      # Requires the retention-policy authority (read), the same object that
+      # governs retention policies.
+      summary: List the records a statutory retention obligation is holding, and why.
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of restricted records, oldest obligation first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, page]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/RestrictedRecord' }
+                  page: { $ref: '#/components/schemas/PageInfo' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /retention/restrictions/{activityId}/release:
+    parameters:
+      - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Compliance]
+      operationId: releaseRestrictedActivity
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      # The classification is a proxy for a legal judgement that belongs to the
+      # controller (Art. 5(2)). Releasing ERASES the record — it does not return
+      # it to ordinary use, because the erasure request it suspended is still
+      # outstanding. The reason is mandatory: this narrows DEPACK-AC-5a to "no
+      # SILENT override", not "no override".
+      summary: Release a record from the retention floor, erasing it. Requires a stated reason; audited.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RetentionOverrideRequest' }
+      responses:
+        '204': { description: Released and erased. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The record is no longer restricted — the window elapsed and the
+            suspended erasure already completed, or another administrator
+            released it first. Re-read the list; there is nothing left to release.
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /retention/restrictions/{activityId}/pin:
+    parameters:
+      - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Compliance]
+      operationId: pinActivityToFloor
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      # The other direction: a Handelsbrief the derivation did not recognise.
+      # Pinning restricts it for the statutory window from the floor in force.
+      summary: Pin a record to the retention floor, restricting it. Requires a stated reason; audited.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RetentionOverrideRequest' }
+      responses:
+        '204': { description: Pinned and restricted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The record is already restricted. Pinning is not a way to extend a window already running.
+        '422': { $ref: '#/components/responses/ValidationError' }
   /retention-policies:
     get:
       tags: [Compliance]
@@ -11702,7 +11939,8 @@ paths:
   # Every one is human-only (IEM-WIRE-7 / A139): an import is the least
   # reversible write in the product, and a confirm-first gate over a
   # thousand-row dry-run report is a rubber stamp that manufactures evidence of
-  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (10 MB, import only).
+  # review. Rate class RL-BULK-WRITE; body cap CAP-BODY (import only, 10 MB by
+  # default and set per installation — `uploads.csv_import_mb`, OPS-CFG-12).
   # =========================================================================
   /imports/sources:
     post:
@@ -11745,7 +11983,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/PermissionDenied' }
         '413':
-          description: 'The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read.'
+          description: |
+            The upload exceeds this installation's import body cap (CAP-BODY) — 10 MB by default,
+            set by whoever operates it (`uploads.csv_import_mb`, OPS-CFG-12). The refusal NAMES the
+            configured number rather than one compiled in, and it is a distinct refusal, never a
+            truncated read that imports half an estate and reports success.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -12826,7 +13068,7 @@ components:
       description: |
         The installation's identity and reporting basis (ADR-0090/A135). Read by every role,
         changed only by admin/ops.
-      required: [name, timezone, base_currency, base_currency_locked]
+      required: [name, timezone, base_currency, base_currency_locked, max_upload_bytes]
       properties:
         name:
           type: string
@@ -12849,6 +13091,18 @@ components:
           description: |
             Why the currency is locked, naming how many deals have already converted against
             it. Absent when it is still changeable.
+        max_upload_bytes:
+          type: integer
+          format: int64
+          description: |
+            The largest upload request this installation accepts, in bytes — set by whoever
+            operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+            it is a deployment fact, so PATCH does not carry it.
+
+            An upload surface states and enforces THIS number rather than one of its own, so
+            a file too large is refused before it is sent instead of after. The ceiling bounds
+            the whole request, part framing included, which is why a client should leave a
+            little room rather than compare a file against it exactly.
     UpdateInstallationSettingsRequest:
       type: object
       description: A sparse installation-settings patch (admin/ops, human-only).
@@ -14850,6 +15104,28 @@ components:
             The stored object key is deliberately not exposed; it names a bucket path, and a
             client's business is the endpoint that streams the bytes.
         strength: { allOf: [ { $ref: '#/components/schemas/RelationshipStrength' } ], readOnly: true, description: 'Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.' }
+        contact_count:
+          type: integer
+          readOnly: true
+          minimum: 0
+          description: >-
+            How many live people THE CALLER MAY SEE list this account as their current primary
+            employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's
+            person row scope, exactly as the person list is: a count is a read, and a number that
+            moved when a colleague captured a private contact would disclose that contact. Present,
+            zero included, on `listOrganizations` and `getOrganization` — the reads that render the
+            column; write responses (create, update, archive, merge) omit it. Never client-supplied.
+        open_deal_count:
+          type: integer
+          readOnly: true
+          minimum: 0
+          description: >-
+            How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10;
+            AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It
+            also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely,
+            not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see
+            pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`;
+            write responses omit it.
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
@@ -18907,6 +19183,58 @@ components:
           description: True if promotion merged into an existing person (no duplicate); false if a new person was created.
         lead_id: { type: string, format: uuid }
 
+    PromoteLeadPreview:
+      type: object
+      description: |
+        What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170).
+      required: [outcome]
+      properties:
+        outcome:
+          type: string
+          enum: [create, merge]
+          # Pins the generated Go constant names; unpinned they come out as a
+          # bare Create/Merge in the package every contract type shares.
+          x-enum-varnames: [PromoteLeadPreviewOutcomeCreate, PromoteLeadPreviewOutcomeMerge]
+          description: 'merge = an existing live person matches this lead''s email and promotion would fold into it; create = promotion would make a new person.'
+        person:
+          $ref: '#/components/schemas/Person'
+        person_withheld:
+          type: boolean
+          default: false
+          description: |
+            True when `outcome` is `merge` but the matched person lies outside the caller's
+            row scope, so `person` is omitted. **An absent `person` never means "no match"**
+            — a caller that reads the omission as `create` would tell the rep a duplicate is
+            about to be created when the opposite is true.
+
+    DemoteLeadRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          description: 'Why the promotion is being reversed. Required and recorded in audit — an undo nobody explained is indistinguishable later from a mistake.'
+
+    DemoteLeadResponse:
+      type: object
+      required: [lead, unwind]
+      properties:
+        lead: { $ref: '#/components/schemas/Lead' }
+        unwind:
+          type: string
+          enum: [reversed, merge_lineage_only]
+          x-enum-varnames: [DemoteUnwindReversed, DemoteUnwindMergeLineageOnly]
+          description: |
+            `reversed` — the promotion had created a person, which is now archived and the
+            lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+            a pre-existing person, which is left untouched; only the lineage pointers are
+            nulled (formulas §26).
+        person_id:
+          type: [string, 'null']
+          format: uuid
+          description: The person the promotion had produced or merged into.
+
     LeadListResponse:
       type: object
       required: [data, page]
@@ -19539,13 +19867,25 @@ components:
           type: string
           description: >
             The installation's organization name (the installation.name setting). Shown as the
-            typed-confirmation target of the non-production "Reset data" action —
+            typed-confirmation target of the "Reset data" action —
             the exact string that endpoint validates.
         non_production:
           type: boolean
           description: >
-            True when the installation runs a non-production posture
-            (MARGINCE_ENV). Gates the client-side "Reset data" action.
+            True when the installation runs a non-production posture (MARGINCE_ENV=dev|test).
+            DEPRECATED as the gate for the "Reset data" action — read `data_reset_available`
+            instead. A deployment being non-production is not consent to purge its tenant
+            data, and inferring one from the other is why a `staging` installation full of
+            real internal users could be wiped through the API.
+          deprecated: true
+        data_reset_available:
+          type: boolean
+          description: >
+            True when this installation armed `operations.allow_data_reset` in its deployment
+            file. It is the SAME value `POST /admin/reset-data` gates on, so a client never
+            renders an action for a route that would answer 404. Absent or false means the
+            capability does not exist here — the compiled default in every posture, dev
+            included.
         admin_password_link:
           type: boolean
           description: >
@@ -19904,7 +20244,12 @@ components:
           # audit_log is record-mutations-only: login and bulk export moved to system_log,
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
-          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire]
+          # `restrict`/`pin` are the statutory-retention verbs (A165/ADR-0114,
+          # A167/ADR-0116, migration 0287): an erasure shielded a record under the
+          # floor instead of destroying it, and an administrator placed a record
+          # under the floor the derivation could not see. `resolve` was in the DDL
+          # since 0047 and missing here — a row a strict client could not decode.
+          enum: [create, update, archive, merge, promote, demote, disqualify, restore, export, erase, anonymize, assign, advance_stage, advance_phase, send_email, consent_grant, consent_withdraw, approve, reject, record_share, record_unshare, activity_relink, import, import_undo, reset_data, password_link_issued, connect, disconnect, schedule, reschedule, cancel, release, hold, expire, resolve, restrict, pin]
         entity_type: { type: string }
         entity_id: { type: string, format: uuid, description: Every audit_log row names the record it mutated (NOT NULL since 0075). }
         before: { type: [object, 'null'], additionalProperties: true }
@@ -21491,6 +21836,63 @@ components:
         action: { $ref: '#/components/schemas/RetentionAction' }
         lawful_basis: { type: [string, 'null'] }
         enabled: { type: boolean }
+
+    RetentionOverrideRequest:
+      type: object
+      # The reason is what makes the override a decision rather than a toggle:
+      # DEPACK-AC-5a forbids a SILENT override, and this is the field that
+      # makes it un-silent. It is audited verbatim.
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 2000 }
+    RestrictedRecord:
+      type: object
+      # A165/ADR-0114. What a statutory obligation is holding, stated without
+      # disclosing it: no subject, no body, no counterparty. A record can
+      # qualify through MORE THAN ONE transaction, so the deals are a list —
+      # naming one would be a guess presented as a fact.
+      required: [activity_id, kind, occurred_at, restricted_at, restricted_until, reason, deals]
+      properties:
+        activity_id: { type: string, format: uuid }
+        kind: { type: string, description: "The interaction kind (email, call, meeting, message)." }
+        occurred_at: { type: string, format: date-time }
+        restricted_at: { type: string, format: date-time, description: When the erasure request was suspended and the record restricted. }
+        restricted_until:
+          type: string
+          format: date-time
+          description: >-
+            When the obligation ends and the suspended erasure completes.
+            Pinned when the record was restricted, from the floor then in
+            force — a later change to a configured period never shortens an
+            obligation already recorded.
+        reason:
+          type: string
+          description: >-
+            The retention class that holds it (e.g. commercial_correspondence),
+            plus the statutory basis. Never free text from a user.
+        deals:
+          type: array
+          description: >-
+            Every transaction the record qualifies through, by name. Both id
+            and name are required, so a qualification whose deal has since
+            been deleted — and a controller pin that never named one
+            (germany-package DEPACK-AC-5h: supplier correspondence has no deal
+            in this product) — is reported through `reason` rather than as a
+            half-populated entry.
+          items:
+            type: object
+            required: [id, name]
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+        redacted_fields:
+          type: array
+          description: >-
+            Which fields the erasure emptied on this record (A167/ADR-0116).
+            A redacted field and an empty one are otherwise the same absence,
+            and only the first is something the controller must be able to
+            state. Names columns, never values.
+          items: { type: string }
 
     RetentionSettings:
       type: object

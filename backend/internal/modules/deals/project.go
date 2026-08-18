@@ -90,8 +90,6 @@ func (s *Store) CreateProject(ctx context.Context, in CreateProjectInput) (crmco
 // createProjectTx inserts the project with its birth phase-history row and
 // runs the write shape, all inside the caller's transaction.
 func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by string, active []fieldcatalog.Column) (crmcontracts.Project, error) {
-	wsID := storekit.MustWorkspace(ctx)
-
 	// The anchor company is a client-supplied reference to a row-scoped
 	// record, so naming it is a read of it: the caller must be able to see
 	// the company before a project can be hung off it. The composite FK
@@ -106,13 +104,13 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 
 	id := ids.New[ids.ProjectKind]()
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
-		id, wsID, in.Name, in.Key, in.OrganizationID, in.OwnerID,
+		id, in.Name, in.Key, in.OrganizationID, in.OwnerID,
 		in.Description, in.StartedAt, in.TargetEndDate, in.Source, by,
 	})
 	_, err := tx.Exec(ctx,
-		`INSERT INTO project (id, workspace_id, name, key, organization_id, owner_id,
+		`INSERT INTO project (id, name, key, organization_id, owner_id,
 		                      description, started_at, target_end_date, source, captured_by`+cfCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11`+cfHolders+`)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10`+cfHolders+`)`,
 		args...)
 	if err != nil {
 		if conflict := projectKeyConflict(err, in.Key); conflict != nil {
@@ -131,9 +129,9 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 	// The birth row: from_phase NULL, exactly as deal_stage_history records
 	// a deal's first placement. A project's history is complete from row one.
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO project_phase_history (workspace_id, project_id, from_phase, to_phase, changed_by)
-		 VALUES ($1, $2, NULL, $3, $4)`,
-		wsID, id, PhaseInitiative, by); err != nil {
+		`INSERT INTO project_phase_history (project_id, from_phase, to_phase, changed_by)
+		 VALUES ($1, NULL, $2, $3)`,
+		id, PhaseInitiative, by); err != nil {
 		return crmcontracts.Project{}, fmt.Errorf("record project phase history: %w", err)
 	}
 

@@ -105,6 +105,32 @@ describe("promote eligibility gate", () => {
 });
 
 describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
+  it("names the owner on each row, the way the people and company lists do", async () => {
+    // The column this replaced rendered "typed by a person" for every
+    // human-captured row — the bug #1577 fixed on People and Companies while
+    // this list kept its own copy of the column. Same column, same test.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [
+              { id: "u-9", email: "lena@x.test", display_name: "Lena F." },
+            ],
+            page: { next_cursor: null },
+          });
+        }
+        return jsonResponse({
+          data: [{ ...lead, owner_id: "u-9" }],
+          page: { next_cursor: null },
+        });
+      }),
+    );
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Lena F.")).toBeTruthy());
+    expect(screen.queryByText(/typed by a person/i)).toBeNull();
+  });
+
   it("a lead row navigates to the LEAD detail, not the person screen", async () => {
     vi.stubGlobal(
       "fetch",
@@ -217,27 +243,507 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-9"));
   });
 
-  it("a promoted lead redirects to the person it became", async () => {
-    // The record moved, so the page follows it (ADR-0108 §1). Before this,
-    // the redirect only fired as the tail of a promote you had just done, so
-    // revisiting or deep-linking a promoted lead landed on a read-only husk
-    // of a record that lives elsewhere.
+  it("the board moves a lead between the two live statuses, with If-Match", async () => {
+    // Only new and working: promoted and disqualified are reachable through
+    // their own audited verbs, and a board column for either would offer a
+    // drag that ends in a 422 — or worse, imply a lead can be promoted by
+    // moving a card, which is what ADR-0008's trigger set exists to prevent.
+    type Patched = { body: unknown; ifMatch: string | null };
+    const patched: Patched[] = [];
+    stubFetch(async (input: RequestInfo | URL, method: string, request) => {
+      const url = String(input);
+      if (method === "PATCH" && url.includes("/leads/l-1")) {
+        patched.push({
+          body: await request.json(),
+          ifMatch: request.headers.get("If-Match"),
+        });
+        return jsonResponse({ ...lead, status: "working" });
+      }
+      if (url.includes("/leads?") || url.endsWith("/leads")) {
+        return jsonResponse({
+          data: [{ ...lead, status: "new", version: 7 }],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return emptyPage();
+    });
+    render(<LeadsScreen />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Board" }));
+    const card = await screen.findByText("Jonas Petersen");
+    const workingColumn = screen.getByRole("region", { name: "Working" });
+
+    // jsdom ships no DataTransfer, so the drag carries the same two methods
+    // the handlers actually use — setData on the way out, getData on the way
+    // in. Anything richer would be a mock of a thing this code never touches.
+    const carried = new Map<string, string>();
+    const data = {
+      setData: (key: string, value: string) => carried.set(key, value),
+      getData: (key: string) => carried.get(key) ?? "",
+    };
+    fireEvent.dragStart(card.closest("button") as HTMLElement, {
+      dataTransfer: data,
+    });
+    fireEvent.drop(workingColumn, { dataTransfer: data });
+
+    await waitFor(() => expect(patched.length).toBe(1));
+    expect(patched[0].body).toMatchObject({ status: "working" });
+    // The version rides the variables, so the write cannot clobber a change
+    // made since this card rendered.
+    expect(patched[0].ifMatch).toBe("7");
+  });
+
+  it("the board keeps the filter bar it obeys, and offers the rest of the page", async () => {
+    // The board renders inside the list surface. Swapping the whole surface out
+    // for it took the chips and the search with it — leaving the reader looking
+    // at a narrowed answer with no way to see or change what narrowed it — and
+    // showed page one while looking like the whole pipeline.
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/leads?") || url.endsWith("/leads")) {
+        return jsonResponse({
+          data: [{ ...lead, status: "new", version: 7 }],
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return emptyPage();
+    });
+    render(<LeadsScreen />);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Board" }));
+
+    // The dials the board obeys are still on screen.
+    expect(screen.getByRole("button", { name: "Filter" })).toBeTruthy();
+    expect(screen.getByRole("searchbox")).toBeTruthy();
+    // And it admits there is more than it is showing.
+    expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
+  });
+
+  it("edits a lead field in place, sending If-Match", async () => {
+    // The Edit modal is four clicks and a context switch to fix a misspelled
+    // company name. It stays for wholesale edits; the fields a rep corrects
+    // while reading are corrected while reading.
+    type Patched = { body: unknown; ifMatch: string | null };
+    const patched: Patched[] = [];
+    stubFetch(async (_url: string, method: string, request) => {
+      if (method === "PATCH") {
+        patched.push({
+          body: await request.json(),
+          ifMatch: request.headers.get("If-Match"),
+        });
+        return jsonResponse({ ...lead, company_name: "Nordwind GmbH" });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    // The row reads as its value; pressing it opens the field.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change Company" }),
+    );
+    const field = await screen.findByDisplayValue("Nordwind Logistik");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Nordwind GmbH");
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(patched.length).toBe(1));
+    expect(patched[0].body).toMatchObject({ company_name: "Nordwind GmbH" });
+    expect(patched[0].ifMatch).toBe("1");
+  });
+
+  it("a terminal lead's fields are read-only with the reason, not missing", async () => {
+    // STATE-4a: the reason is the information. A field that simply vanished on
+    // a closed lead would hide the fact the reader came for.
     stubFetch(async () =>
       jsonResponse({
+        ...lead,
+        status: "disqualified",
+        archived_at: "2026-07-13T00:00:00Z",
+      }),
+    );
+    render(<LeadScreen id="l-1" />);
+
+    // The value is still shown — as text, with no control to press.
+    expect(
+      (await screen.findAllByText("Nordwind Logistik")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Change Company" })).toBeNull();
+    expect(screen.queryByDisplayValue("Nordwind Logistik")).toBeNull();
+  });
+
+  it("a promoted lead keeps its page and says what the promotion did", async () => {
+    // AC-leaddetail-5 (ADR-0119/A170). The page used to redirect here, which
+    // told the reader the lead had ceased to exist — untrue of a record this
+    // product keeps, audits and can reverse — and left the reversal with
+    // nowhere to start from. It also hid whether promotion merged into a
+    // contact we already knew or created a new one.
+    const promoted = {
+      ...lead,
+      status: "promoted",
+      promoted_person_id: "p-42",
+      promoted_at: "2026-06-20T08:00:00Z",
+      archived_at: "2026-06-20T08:00:00Z",
+    };
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "a-1",
+              actor_type: "human",
+              actor_id: "human:u-9",
+              action: "promote",
+              occurred_at: "2026-06-20T08:00:00Z",
+              after: {
+                dedupe_outcome: "merged",
+                trigger: "inbound_reply",
+                evidence_note: "Replied asking for a quote.",
+              },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse(promoted);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    // It stays on the lead's own page.
+    expect(await screen.findByText("Promoted to a contact")).toBeTruthy();
+    expect(window.location.hash).not.toBe("#/contacts/p-42");
+    // And it names WHICH outcome, which is the whole reason a rep opens it.
+    // Awaited: the outcome comes from the audit read, a second request that
+    // lands after the lead itself.
+    expect(
+      await screen.findByText(
+        "This lead merged into a contact we already knew — no duplicate was created.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(/Inbound reply/)).toBeTruthy();
+    expect(screen.getByText(/Replied asking for a quote\./)).toBeTruthy();
+  });
+
+  it("the promote dialog says what promotion will do before the rep commits", async () => {
+    // ADR-0119/A170: merge-into-existing vs create is the difference between
+    // "my prospect is now a contact" and "my prospect was already someone we
+    // knew". The preview runs the same ladder the promotion runs.
+    stubFetch(async (url) => {
+      if (url.includes("/promote-preview")) {
+        return jsonResponse({ outcome: "merge", person: anna });
+      }
+      if (url.includes("/people/")) {
+        return jsonResponse(anna);
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    expect(
+      await screen.findByText(/Promoting will merge into the existing contact/),
+    ).toBeTruthy();
+  });
+
+  it("a withheld merge target is never read as 'create'", async () => {
+    // An absent person on a merge means "outside your row scope", not "no
+    // match": promising a new contact here would be the wrong half to guess.
+    stubFetch(async (url) => {
+      if (url.includes("/promote-preview")) {
+        return jsonResponse({
+          outcome: "merge",
+          person_withheld: true,
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    expect(
+      await screen.findByText(
+        "Promoting will merge into an existing contact you cannot see.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("Promoting will create a new contact."),
+    ).toBeNull();
+  });
+
+  it("a promoted lead can be demoted from its own page, with a recorded reason", async () => {
+    // The reversal ADR-0008 §4 promises, from the one page that is a fact about
+    // the promotion. The reason is required — the button stays disabled until
+    // one is typed — and the request carries it verbatim.
+    const promoted = {
+      ...lead,
+      status: "promoted",
+      promoted_person_id: "p-42",
+      promoted_at: "2026-06-20T08:00:00Z",
+      archived_at: "2026-06-20T08:00:00Z",
+    };
+    let demoteBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/leads/l-1/demote")) {
+        demoteBody = JSON.parse(await request.text());
+        return jsonResponse({
+          lead: { ...lead, status: "working" },
+          unwind: "reversed",
+          person_id: "p-42",
+        });
+      }
+      if (url.includes("/records/lead/")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse(promoted);
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Reverse promotion" }),
+    );
+    const confirm = screen.getByRole("button", { name: "Reverse" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(
+      screen.getByLabelText("Reason (recorded in the audit trail)"),
+      "Promoted the wrong prospect",
+    );
+    await userEvent.click(confirm);
+    await waitFor(() => expect(demoteBody).not.toBeNull());
+    expect(demoteBody).toEqual({ reason: "Promoted the wrong prospect" });
+  });
+
+  it("a promoted lead reads as promoted, not disqualified", async () => {
+    // Both closures archive the row, so a page keying its terminal sentence off
+    // archived_at alone told every promoted lead it had been disqualified. The
+    // redirect hid that until ADR-0119/A170 removed it.
+    stubFetch(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/records/lead/")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse({
         ...lead,
         status: "promoted",
         promoted_person_id: "p-42",
         archived_at: "2026-06-20T08:00:00Z",
-      }),
-    );
+      });
+    });
     render(<LeadScreen id="l-1" />);
-    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-42"));
+
+    expect(
+      await screen.findByText("Promoted — this lead is now read-only."),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Disqualified — this lead/)).toBeNull();
+  });
+
+  it("finds the promotion when earlier audit rows push it onto a later page", async () => {
+    // The history is served OLDEST FIRST, 20 to a page, and `promote` is the
+    // LAST thing that happens to a lead. So a lead worked long enough to
+    // collect a page of earlier rows carries its promotion on a later one, and
+    // reading only the first page reported "we cannot tell" on exactly the
+    // leads someone worked hardest.
+    const filler = Array.from({ length: 20 }, (_, i) => ({
+      id: `a-${i}`,
+      actor_type: "human",
+      actor_id: "human:u-9",
+      action: "update",
+      occurred_at: "2026-06-01T08:00:00Z",
+      after: { status: "working" },
+    }));
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        // The second page is asked for by cursor; the first hands one back.
+        if (url.includes("cursor=")) {
+          return jsonResponse({
+            data: [
+              {
+                id: "a-99",
+                actor_type: "human",
+                actor_id: "human:u-9",
+                action: "promote",
+                occurred_at: "2026-06-20T08:00:00Z",
+                after: {
+                  dedupe_outcome: "merged",
+                  trigger: "inbound_reply",
+                },
+              },
+            ],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({
+          data: filler,
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "This lead merged into a contact we already knew — no duplicate was created.",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("stops walking when a later page fails, and says so", async () => {
+    // The pages already read stay cached, so hasNextPage stays true and
+    // isFetchingNextPage falls back to false the moment the failure settles.
+    // Without a stop that re-arms the walk forever — and `pending` outranking
+    // `failed` would hide the error behind a waiting line the whole time.
+    let historyCalls = 0;
+    const filler = Array.from({ length: 20 }, (_, i) => ({
+      id: `a-${i}`,
+      actor_type: "human",
+      actor_id: "human:u-9",
+      action: "update",
+      occurred_at: "2026-06-01T08:00:00Z",
+      after: { status: "working" },
+    }));
+    stubFetch(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/records/lead/")) {
+        historyCalls += 1;
+        if (url.includes("cursor=")) {
+          return jsonResponse({ title: "boom" }, 500);
+        }
+        return jsonResponse({
+          data: filler,
+          page: { next_cursor: "page-2", has_more: true },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "We cannot show whether this merged or created a contact.",
+      ),
+    ).toBeTruthy();
+    // And it stopped rather than hammering the endpoint: page 1 plus a bounded
+    // number of failed attempts, not an unbounded retry storm.
+    expect(historyCalls).toBeLessThan(6);
+  });
+
+  it("re-reads the history after promoting, so the new audit row is not missed", async () => {
+    // A reader who opened the History tab BEFORE promoting holds a cached last
+    // page saying there is nothing more to fetch. Promotion writes the audit
+    // row the panel reads its outcome from, so without invalidating that cache
+    // the panel walks no further and reports the outcome unavailable while the
+    // row sits one page away.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidated: unknown[] = [];
+    const realInvalidate = client.invalidateQueries.bind(client);
+    client.invalidateQueries = ((filters?: { queryKey?: unknown }) => {
+      invalidated.push(filters?.queryKey);
+      return realInvalidate(filters as never);
+    }) as typeof client.invalidateQueries;
+
+    stubFetch(async (input: RequestInfo | URL, method: string) => {
+      const url = String(input);
+      if (method === "POST" && url.includes("/promote")) {
+        return jsonResponse({
+          person: { id: "p-42", full_name: "Jonas Petersen" },
+          merged: true,
+          lead_id: "l-1",
+        });
+      }
+      if (url.includes("/records/lead/")) {
+        return jsonResponse({
+          data: [],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse(lead);
+    });
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <LeadScreen id="l-1" />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Promote to contact" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+
+    await waitFor(() =>
+      expect(
+        invalidated.some(
+          (key) =>
+            Array.isArray(key) &&
+            key[0] === "record-history" &&
+            key[1] === "lead",
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("says it cannot tell the outcome rather than guessing 'created'", async () => {
+    // An empty, unreadable, or unrecognised audit row is not a merge and not a
+    // creation. Reporting one would be a confident claim about something
+    // nobody recorded — and "created" is the wrong half to guess, because it
+    // tells a rep no duplicate check happened.
+    stubFetch(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/records/lead/")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "a-1",
+              actor_type: "human",
+              actor_id: "human:u-9",
+              action: "promote",
+              occurred_at: "2026-06-20T08:00:00Z",
+              after: { dedupe_outcome: "something_new" },
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "promoted",
+        promoted_person_id: "p-42",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+
+    expect(
+      await screen.findByText(
+        "We cannot show whether this merged or created a contact.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText("This lead became a new contact.")).toBeNull();
   });
 
   it("promote is disabled for an ineligible lead, and the button says why", async () => {
     // A LIVE lead with no email: ineligible, but still on screen. A promoted
-    // lead would redirect to the person it became, so it cannot stand in for
-    // "ineligible" any more (ADR-0108 §1).
+    // lead is terminal and carries no promote control at all, so it cannot
+    // stand in for "ineligible" (ADR-0119/A170).
     stubFetch(async () => jsonResponse({ ...lead, email: null }));
     render(<LeadScreen id="l-1" />);
     const button = await screen.findByRole("button", {
@@ -436,8 +942,19 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
       screen.getByRole("button", { name: "Promote to contact" }),
     ).toBeTruthy();
     expect(screen.getByText("Score: 72")).toBeTruthy();
-    expect(screen.getByText("working")).toBeTruthy();
-    expect(screen.getByText("Nordwind Logistik")).toBeTruthy();
+    // The badge and the status control now read the SAME word, which is the
+    // point: a German reader saw "In Bearbeitung" on the chip and the raw
+    // enum "working" in the cell. The badge is the one asserted here.
+    expect(
+      screen
+        .getAllByText("Working")
+        .some((el) => el.classList.contains("badge")),
+    ).toBe(true);
+    expect(
+      screen
+        .getAllByText("Nordwind Logistik")
+        .some((el) => el.classList.contains("badge")),
+    ).toBe(true);
   });
 });
 
@@ -530,7 +1047,11 @@ describe("LeadScreen — overlay mode write affordances", () => {
     await userEvent.type(fullName, "Jonas Petersen-Berg");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("Jonas Petersen-Berg")).toBeTruthy();
+    // The saved name now reads in two places — the record header and the
+    // inline Details row — which is the point of the grid, not a duplicate.
+    expect(
+      (await screen.findAllByText("Jonas Petersen-Berg")).length,
+    ).toBeGreaterThan(0);
   });
 
   it("names the partial write-back in the edit form", async () => {
@@ -820,7 +1341,9 @@ describe("LeadScreen — owner display + assign to me (P-11)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "Assign" }),
     );
-    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Assign this lead to" }),
+    );
     await userEvent.click(
       await screen.findByRole("option", { name: "Assign to me" }),
     );
@@ -923,7 +1446,11 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     });
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    await waitFor(() =>
+      // Two elements legitimately say "Disqualified" now — the status badge
+      // and the terminal badge — so the wait names the badge it meant.
+      expect(screen.getAllByText("Disqualified").length).toBeGreaterThan(0),
+    );
     // The tab bar is navigation, not mutation; everything else must be dead.
     const navigation = new Set(["Overview", "History"]);
     for (const button of screen.getAllByRole("button")) {
@@ -951,7 +1478,11 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     );
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() => expect(screen.getByText("Disqualified")).toBeTruthy());
+    await waitFor(() =>
+      // Two elements legitimately say "Disqualified" now — the status badge
+      // and the terminal badge — so the wait names the badge it meant.
+      expect(screen.getAllByText("Disqualified").length).toBeGreaterThan(0),
+    );
     const reason = "Disqualified — this lead is now read-only.";
     for (const testId of ["edit-record", "archive-record"]) {
       const control = screen.getByTestId(testId) as HTMLButtonElement;
@@ -1134,7 +1665,9 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     // The listbox is opened ONCE and the option awaited inside it: clicking
     // the trigger again would toggle it shut, and the popup re-renders in
     // place when the roster lands.
-    await userEvent.click(await screen.findByRole("combobox"));
+    await userEvent.click(
+      await screen.findByRole("combobox", { name: "Assign this lead to" }),
+    );
     await userEvent.click(
       await screen.findByRole("option", { name: "Dana Fischer" }),
     );

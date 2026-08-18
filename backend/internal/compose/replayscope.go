@@ -101,6 +101,10 @@ const (
 	objectOfferTemplate = "offer_template"
 	objectProduct       = "product"
 	objectIntegrations  = "integrations"
+	// objectRetentionPolicy governs the retention ladder AND the controller's
+	// two decisions about what a statutory obligation holds: what an
+	// installation keeps and what it is held to keeping are one authority.
+	objectRetentionPolicy = "retention_policy"
 )
 
 // Reasons that recur across entries. Named so the same claim reads as one
@@ -156,6 +160,7 @@ var replayableOperations = map[string]replayTarget{
 	"POST /v1/projects/{id}/advance":  {object: tableProject, table: tableProject, idPath: "id"},
 	"POST /v1/leads":                  {object: tableLead, table: tableLead, idPath: "id"},
 	"PATCH /v1/leads/{id}":            {object: tableLead, table: tableLead, idPath: "id"},
+	"POST /v1/leads/{id}/demote":      {object: tableLead, table: tableLead, idPath: "lead.id"},
 	"POST /v1/activities":             {object: tableActivity, table: tableActivity, idPath: "id"},
 	"PATCH /v1/activities/{id}":       {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/relink": {object: tableActivity, table: tableActivity, idPath: "id"},
@@ -206,6 +211,18 @@ var replayableOperations = map[string]replayTarget{
 
 	// Workspace-shared configuration and catalog rows: no owner column, so
 	// object RBAC is the whole gate rather than half of it.
+	// The controller's two decisions about a held record (A165/ADR-0114 §4).
+	// Both answer 204 with no body, so there is no recorded record to probe:
+	// a replay re-serves the same empty answer, and the decision itself was
+	// already gated on the retention authority when it first ran.
+	"POST /v1/retention/restrictions/{activityId}/release": {
+		object:  objectRetentionPolicy,
+		rowNote: "the response carries no body, so a replay has no record to re-check; the retention authority governs the decision and retention_policy has no owner column",
+	},
+	"POST /v1/retention/restrictions/{activityId}/pin": {
+		object:  objectRetentionPolicy,
+		rowNote: "the response carries no body, so a replay has no record to re-check; the retention authority governs the decision and retention_policy has no owner column",
+	},
 	"POST /v1/pipelines":            {object: objectPipeline, rowNote: "pipeline has no owner and is governed by object grants only (auth.EnsureVisible's own note)"},
 	"PATCH /v1/pipelines/{id}":      {object: objectPipeline, rowNote: "pipeline config, no owner column"},
 	"POST /v1/stages":               {object: objectPipeline, rowNote: noOwnerStage},

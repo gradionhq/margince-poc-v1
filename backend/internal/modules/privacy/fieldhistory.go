@@ -104,11 +104,13 @@ var fieldHistoryProjectedActionList = func() []string {
 
 // fieldHistoryScrubActions are the verbs certifying the record's PII was
 // scrubbed in place: an Art. 17 erase (erasure.go, retention's
-// activity/erase) or a retention anonymize. The audit spine is
+// activity/erase), a retention anonymize, or a restriction — which redacts
+// the identifiers that are the subject and hides the rest, so the images
+// captured before it are exactly as gone to a reader. The audit spine is
 // append-only, so a scrub cannot rewrite the historical field images it
 // certifies gone — the projection enforces the scrub instead, by never
 // reading the tombstone row or anything older.
-var fieldHistoryScrubActions = []string{actionErase, "anonymize"}
+var fieldHistoryScrubActions = []string{actionErase, "anonymize", actionRestrict}
 
 const (
 	fieldHistoryScanBatch   = 100

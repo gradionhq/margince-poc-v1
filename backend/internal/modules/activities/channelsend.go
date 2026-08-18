@@ -292,7 +292,7 @@ func (s *Store) channelProviderOf(ctx context.Context, anchorID ids.ActivityID) 
 			return err
 		}
 		if err := tx.QueryRow(ctx,
-			`SELECT coalesce(channel_provider, '') FROM activity WHERE id = $1`, anchorID).Scan(&provider); err != nil {
+			`SELECT coalesce(channel_provider, '') FROM activity WHERE id = $1 AND restricted_at IS NULL`, anchorID).Scan(&provider); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return apperrors.ErrNotFound
 			}
@@ -315,7 +315,7 @@ func (s *Store) resolveConversation(ctx context.Context, anchorID ids.ActivityID
 			return err
 		}
 		if err := tx.QueryRow(ctx,
-			`SELECT coalesce(thread_key, '') FROM activity WHERE id = $1`, anchorID).Scan(&out.threadKey); err != nil {
+			`SELECT coalesce(thread_key, '') FROM activity WHERE id = $1 AND restricted_at IS NULL`, anchorID).Scan(&out.threadKey); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return apperrors.ErrNotFound
 			}

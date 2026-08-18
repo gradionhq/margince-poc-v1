@@ -11,6 +11,8 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ListChip, ListView } from "../design-system/listsurface";
+import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { ProblemError } from "./common";
 import {
@@ -19,6 +21,7 @@ import {
   type ListQuery,
   ListTable,
   useListQuery,
+  type ViewSpec,
 } from "./listquery";
 
 // The shared list foundation (P-14): keyset pagination via useListQuery, and
@@ -109,6 +112,9 @@ function ListTableHarness({
   fetchPage,
   chips,
   action,
+  views,
+  dataViews,
+  dataChips,
 }: Readonly<{
   fetchPage: (
     query: ListQuery,
@@ -116,6 +122,9 @@ function ListTableHarness({
   ) => Promise<ListPage<Row>>;
   chips?: readonly FilterSpec[];
   action?: ReactNode;
+  views?: readonly ViewSpec[];
+  dataViews?: readonly ListView[];
+  dataChips?: readonly ListChip[];
 }>) {
   const state = useListQuery<Row>({
     key: "list-table-harness",
@@ -136,6 +145,9 @@ function ListTableHarness({
       ]}
       rowKey={(row) => row.id}
       chips={chips}
+      dataChips={dataChips}
+      views={views}
+      dataViews={dataViews}
       action={action}
     />
   );
@@ -369,5 +381,261 @@ describe("removing an applied filter", () => {
         "status",
       ),
     );
+  });
+});
+
+describe("useListQuery — the page size is part of the server query", () => {
+  it("hands every fetcher the page size the reader picked", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<ListTableHarness fetchPage={fetchPage} />);
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+    expect(fetchPage.mock.calls[0]?.[0].perPage).toBe(25);
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Rows per page" }),
+      "50 per page",
+    );
+
+    // Every screen reads its `limit` off this one value. A fetcher that kept a
+    // literal instead would render a page size the server never returned.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].perPage).toBe(50),
+    );
+  });
+});
+
+describe("the owner dial — one question the server answers three ways", () => {
+  it("swaps the owner parameter instead of stacking two of them", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "owner",
+            label: "list.owner",
+            allLabel: "list.filterOwnerAll",
+            options: [
+              { value: "owner_id:u-1", label: "list.filterOwnerMe" },
+              { value: "unassigned:true", label: "list.filterOwnerUnassigned" },
+            ],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "My records" }));
+
+    // The option carries the parameter it sets, so the chip writes `owner_id`
+    // rather than a filter named after the chip itself.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.owner_id).toBe("u-1"),
+    );
+    // And the chip reads back as chosen: a dial that narrows the list and then
+    // renders as "Any owner" looks like a filter that did not take.
+    expect(
+      screen.getByRole("group", { name: "Owner: My records" }),
+    ).toBeTruthy();
+  });
+});
+
+describe("view tabs — two views can ask for the same thing", () => {
+  it("highlights the tab the reader pressed, not the first one that matches", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        views={[
+          { label: "list.viewAll" },
+          { label: "list.viewAZ", sort: "full_name" },
+        ]}
+        dataViews={[{ label: "My A-Z", sort: "full_name" }]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    // The saved view narrows exactly as the built-in preset does. Derived from
+    // the query alone, the highlight lands on the first match and the reader's
+    // own view never lights up when they pick it.
+    await user.click(screen.getByRole("button", { name: "My A-Z" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "My A-Z" })
+          .getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(
+      screen.getByRole("button", { name: "A–Z" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+  });
+});
+
+describe("paging a filtered list", () => {
+  it("keeps going forward instead of snapping back to page 1", async () => {
+    const user = userEvent.setup();
+    const page = (from: number) => ({
+      data: Array.from({ length: 25 }, (_, i) => ({
+        id: `r-${from + i}`,
+        name: `Row ${from + i}`,
+      })),
+      page: { next_cursor: `c-${from + 25}`, has_more: true },
+    });
+    let served = 0;
+    const fetchPage = vi.fn(async (_query: ListQuery, _cursor: string | null) =>
+      page(25 * served++),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "owner",
+            label: "list.owner",
+            allLabel: "list.filterOwnerAll",
+            options: [{ value: "owner_id:u-1", label: "list.filterOwnerMe" }],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("Row 0")).toBeTruthy());
+
+    // Next twice, each press waiting for its page to actually render rather
+    // than for a timer to fire: a zero-duration sleep races React Query's
+    // commit, and a test that sometimes clicks Next on a page that has not
+    // arrived is a test that sometimes passes for the wrong reason.
+    //
+    // The table resets to page 1 whenever `chosen` changes IDENTITY — so a
+    // chosen object rebuilt on every render reset on every render, and the
+    // list flipped between the first two pages forever. ONE press hides that:
+    // the reset lands on a page whose content happens to match. It takes two.
+    await user.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText("Row 25")).toBeTruthy());
+
+    await user.click(screen.getByRole("button", { name: /Next/ }));
+    await waitFor(() => expect(screen.getByText("Row 50")).toBeTruthy());
+    expect(screen.queryByText("Row 0")).toBeNull();
+  });
+});
+
+describe("a data-driven chip narrows the list", () => {
+  it("sends the parameter its option names, not the chip's own key", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        // The owner dial is a dataChip: it names the viewer's teams, which are
+        // server strings rather than message keys.
+        dataChips={[
+          {
+            key: "owner",
+            label: "Owner",
+            allLabel: "Any owner",
+            options: [
+              { value: "owner_id:u-1", label: "My records" },
+              { value: "unassigned:true", label: "Unassigned" },
+            ],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Unassigned" }));
+
+    // `unassigned=true`, not `owner=unassigned:true`. The server ignores a
+    // parameter it does not know, so the wrong spelling answers the WHOLE list
+    // with 200 OK — a filter that reads as working and is not.
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true"),
+    );
+    expect(fetchPage.mock.calls.at(-1)?.[0].filters).not.toHaveProperty(
+      "owner",
+    );
+  });
+});
+
+describe("two chips on one list", () => {
+  it("does not let one dial clear the other's answer", async () => {
+    const user = userEvent.setup();
+    const fetchPage = vi.fn(
+      async (_query: ListQuery, _cursor: string | null) => ({
+        data: [] as Row[],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(
+      <ListTableHarness
+        fetchPage={fetchPage}
+        chips={[
+          {
+            key: "lifecycle",
+            label: "org.lifecycle",
+            allLabel: "org.filterLifecycleAll",
+            options: [{ value: "customer", label: "org.lifecycle.customer" }],
+          },
+        ]}
+        dataChips={[
+          {
+            key: "owner",
+            label: "Owner",
+            allLabel: "Any owner",
+            options: [{ value: "unassigned:true", label: "Unassigned" }],
+          },
+        ]}
+      />,
+    );
+    await waitFor(() => expect(fetchPage).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Owner" }));
+    await user.click(screen.getByRole("button", { name: "Unassigned" }));
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true"),
+    );
+
+    // Now narrow by something else. Clearing every composite parameter on the
+    // surface — rather than only the chip being changed — would drop the owner
+    // answer here, so picking a lifecycle would silently widen the list back to
+    // every owner while the owner chip still showed "Unassigned".
+    await user.click(screen.getByRole("button", { name: "Account lifecycle" }));
+    await user.click(screen.getByRole("button", { name: "Customer" }));
+
+    await waitFor(() =>
+      expect(fetchPage.mock.calls.at(-1)?.[0].filters.lifecycle).toBe(
+        "customer",
+      ),
+    );
+    expect(fetchPage.mock.calls.at(-1)?.[0].filters.unassigned).toBe("true");
   });
 });

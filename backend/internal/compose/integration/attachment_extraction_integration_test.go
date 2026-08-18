@@ -35,7 +35,7 @@ import (
 // than an empty body a client would render as "read it, found none".
 func TestGetAttachmentExtractionOfAnUnreadDocumentIs404(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	person := e.SeedPerson(t, "Extraction NoOp", &e.Rep1)
 	att := uploadTestAttachment(ctx, t, h, person, "report.pdf", []byte("PDF-BYTES"))
@@ -54,7 +54,7 @@ func TestGetAttachmentExtractionOfAnUnreadDocumentIs404(t *testing.T) {
 // status alongside them.
 func TestGetAttachmentExtractionPartitionsAStoredReading(t *testing.T) {
 	e := Setup(t)
-	base := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	base := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Fixture Deal", pipeline, open, &e.Rep1)
@@ -96,7 +96,7 @@ func TestGetAttachmentExtractionPartitionsAStoredReading(t *testing.T) {
 // not reading the staged extraction.
 func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	org := e.SeedOrg(t, "Non-Deal Parent", &e.Rep1)
 	att := uploadTestAttachmentForOrg(ctx, t, h, org, "notes.txt", []byte("org notes"))
@@ -115,7 +115,7 @@ func TestGetAttachmentExtractionReadsAnyEntityType(t *testing.T) {
 // reading already running rather than paying for the same document twice.
 func TestStartExtractionReadTwiceJoinsTheOneInFlight(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Idempotent Reading", pipeline, open, &e.Rep1)
@@ -143,7 +143,7 @@ func TestStartExtractionReadTwiceJoinsTheOneInFlight(t *testing.T) {
 // attachment op.
 func TestGetAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Extraction Target", &e.Rep1)
 	att := uploadTestAttachment(adminCtx, t, h, person, "secret.pdf", []byte("secret"))
@@ -170,7 +170,7 @@ func TestGetAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
 // linked back to the parent deal, and answers {requested:true}.
 func TestRequestAttachmentAccessAuditsANoteAndReturnsRequested(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	ctx := e.Admin()
 	pipeline, open, _ := DealFixture(t, e)
 	deal := e.SeedDeal(t, "Access Request Deal", pipeline, open, &e.Rep1)
@@ -208,7 +208,7 @@ func TestRequestAttachmentAccessAuditsANoteAndReturnsRequested(t *testing.T) {
 // locked-row placeholder.
 func TestRequestAttachmentAccessHidesAnInvisibleParent(t *testing.T) {
 	e := Setup(t)
-	h := activities.NewHandlers(e.DB()).WithBlobstore(blobstore.NewMemory())
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Access Target", &e.Rep1)
 	att := uploadTestAttachment(adminCtx, t, h, person, "hidden.pdf", []byte("hidden"))

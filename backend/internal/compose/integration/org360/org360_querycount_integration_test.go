@@ -158,7 +158,20 @@ func TestOrganization360CostDoesNotGrowWithTheAccount(t *testing.T) {
 	// FLAT in the size of the account like every section here — one query
 	// whether the company holds one agreement or forty — which is the property
 	// this budget exists to protect, rather than the absolute number.
-	const budget = 31
+	//
+	// 32 since A165/ADR-0114: the activity visibility probe no longer skips
+	// the unbounded principal — the availability test (a held record reads
+	// as gone, admin included) runs for everyone. One indexed read by primary
+	// key, flat in the size of the account.
+	//
+	// 34 since #1621: the organization read now carries how many people work at
+	// the account and how many deals are open on it. Two reads, both issued for
+	// the whole organization set at once rather than per row — the counts arrive
+	// grouped by organization_id, so they are flat in the size of the account
+	// exactly like every section above, which is the property this budget
+	// protects. The number moved without this line and the gate went red on main
+	// for every branch cut afterwards.
+	const budget = 34
 	if smallCost > budget {
 		t.Errorf("one 360 issued %d queries, budget is %d", smallCost, budget)
 	}

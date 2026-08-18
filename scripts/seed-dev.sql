@@ -55,11 +55,11 @@ BEGIN
   -- FX rates: base currency is EUR; seed the three other UI currencies
   -- (USD/GBP/CHF) dated today so a close on or after today finds a rate.
   -- Representative demo values — not a live quote.
-  INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
+  INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
   VALUES
-    (ws, 'USD', 'EUR', 0.92, CURRENT_DATE),
-    (ws, 'GBP', 'EUR', 1.17, CURRENT_DATE),
-    (ws, 'CHF', 'EUR', 1.04, CURRENT_DATE)
+    ('USD', 'EUR', 0.92, CURRENT_DATE),
+    ('GBP', 'EUR', 1.17, CURRENT_DATE),
+    ('CHF', 'EUR', 1.04, CURRENT_DATE)
   ON CONFLICT (from_currency, to_currency, rate_date)
     DO UPDATE SET rate = EXCLUDED.rate;
 

@@ -179,7 +179,7 @@ func (s *Server) FlushResetCaches(ws ids.UUID) {
 // brute-force brakes — a login attempt costs a full Argon2id verification, a
 // reset request costs an outbound email — so clearing them is a security
 // event, not a cache drop. It is safe here because this path runs inside the
-// reset handler, downstream of the non-production posture, the human-only and
+// reset handler, downstream of operations.allow_data_reset, the human-only and
 // admin-only gates, and the typed confirmation. It would not be safe on the
 // bus.
 //

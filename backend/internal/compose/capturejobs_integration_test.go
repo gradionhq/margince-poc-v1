@@ -70,10 +70,8 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 		}
 	}()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
 	// Drain the boot digest so the next one cannot be it — nor deduped by it.
-	awaitKindCompleted(waitCtx, t, sub, CaptureDigestWorkspaceArgs{}.Kind())
+	awaitKindCompleted(t, sub, CaptureDigestWorkspaceArgs{}.Kind())
 
 	// The boot pass placed its own dispatcher row, so "no dispatcher exists" is
 	// not the claim to make — "the completion added none" is. Read the count
@@ -87,9 +85,9 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}}); err != nil {
 		t.Fatalf("enqueue backfill: %v", err)
 	}
-	awaitKindCompleted(waitCtx, t, sub, "capture_backfill")
+	awaitKindCompleted(t, sub, "capture_backfill")
 	// The digest that follows the completed backfill is the payoff wiring.
-	awaitKindCompleted(waitCtx, t, sub, CaptureDigestWorkspaceArgs{}.Kind())
+	awaitKindCompleted(t, sub, CaptureDigestWorkspaceArgs{}.Kind())
 
 	// The waits above are satisfied by a digest of the right KIND, which the
 	// boot pass also produces — they prove the wiring fires, not WHAT it
@@ -188,9 +186,7 @@ func TestCaptureOvernightJobsRegisterAndRun(t *testing.T) {
 		}
 	}()
 
-	waitCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
-	defer cancel()
 	for _, kind := range []string{"capture_classify", "capture_enrich", "capture_digest"} {
-		awaitKindCompleted(waitCtx, t, sub, kind)
+		awaitKindCompleted(t, sub, kind)
 	}
 }

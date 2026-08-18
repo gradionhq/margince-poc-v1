@@ -1027,6 +1027,7 @@ const (
 	AuditLogEntryActionImportUndo         AuditLogEntryAction = "import_undo"
 	AuditLogEntryActionMerge              AuditLogEntryAction = "merge"
 	AuditLogEntryActionPasswordLinkIssued AuditLogEntryAction = "password_link_issued"
+	AuditLogEntryActionPin                AuditLogEntryAction = "pin"
 	AuditLogEntryActionPromote            AuditLogEntryAction = "promote"
 	AuditLogEntryActionRecordShare        AuditLogEntryAction = "record_share"
 	AuditLogEntryActionRecordUnshare      AuditLogEntryAction = "record_unshare"
@@ -1034,7 +1035,9 @@ const (
 	AuditLogEntryActionRelease            AuditLogEntryAction = "release"
 	AuditLogEntryActionReschedule         AuditLogEntryAction = "reschedule"
 	AuditLogEntryActionResetData          AuditLogEntryAction = "reset_data"
+	AuditLogEntryActionResolve            AuditLogEntryAction = "resolve"
 	AuditLogEntryActionRestore            AuditLogEntryAction = "restore"
+	AuditLogEntryActionRestrict           AuditLogEntryAction = "restrict"
 	AuditLogEntryActionSchedule           AuditLogEntryAction = "schedule"
 	AuditLogEntryActionSendEmail          AuditLogEntryAction = "send_email"
 	AuditLogEntryActionUpdate             AuditLogEntryAction = "update"
@@ -1089,6 +1092,8 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionPasswordLinkIssued:
 		return true
+	case AuditLogEntryActionPin:
+		return true
 	case AuditLogEntryActionPromote:
 		return true
 	case AuditLogEntryActionRecordShare:
@@ -1103,7 +1108,11 @@ func (e AuditLogEntryAction) Valid() bool {
 		return true
 	case AuditLogEntryActionResetData:
 		return true
+	case AuditLogEntryActionResolve:
+		return true
 	case AuditLogEntryActionRestore:
+		return true
+	case AuditLogEntryActionRestrict:
 		return true
 	case AuditLogEntryActionSchedule:
 		return true
@@ -3762,6 +3771,24 @@ func (e DedupeDispositionRequestDisposition) Valid() bool {
 	case DedupeDispositionRequestDispositionMerge:
 		return true
 	case DedupeDispositionRequestDispositionNotADuplicate:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DemoteLeadResponseUnwind.
+const (
+	DemoteUnwindMergeLineageOnly DemoteLeadResponseUnwind = "merge_lineage_only"
+	DemoteUnwindReversed         DemoteLeadResponseUnwind = "reversed"
+)
+
+// Valid indicates whether the value is a known member of the DemoteLeadResponseUnwind enum.
+func (e DemoteLeadResponseUnwind) Valid() bool {
+	switch e {
+	case DemoteUnwindMergeLineageOnly:
+		return true
+	case DemoteUnwindReversed:
 		return true
 	default:
 		return false
@@ -6939,6 +6966,24 @@ func (e ProjectPhase) Valid() bool {
 	}
 }
 
+// Defines values for PromoteLeadPreviewOutcome.
+const (
+	PromoteLeadPreviewOutcomeCreate PromoteLeadPreviewOutcome = "create"
+	PromoteLeadPreviewOutcomeMerge  PromoteLeadPreviewOutcome = "merge"
+)
+
+// Valid indicates whether the value is a known member of the PromoteLeadPreviewOutcome enum.
+func (e PromoteLeadPreviewOutcome) Valid() bool {
+	switch e {
+	case PromoteLeadPreviewOutcomeCreate:
+		return true
+	case PromoteLeadPreviewOutcomeMerge:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PromoteLeadRequestTrigger.
 const (
 	HumanQualify  PromoteLeadRequestTrigger = "human_qualify"
@@ -9552,8 +9597,10 @@ func (e ListActivitiesParamsKind) Valid() bool {
 // Defines values for ListActivitiesParamsEntityType.
 const (
 	ListActivitiesParamsEntityTypeDeal         ListActivitiesParamsEntityType = "deal"
+	ListActivitiesParamsEntityTypeLead         ListActivitiesParamsEntityType = "lead"
 	ListActivitiesParamsEntityTypeOrganization ListActivitiesParamsEntityType = "organization"
 	ListActivitiesParamsEntityTypePerson       ListActivitiesParamsEntityType = "person"
+	ListActivitiesParamsEntityTypeProject      ListActivitiesParamsEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsEntityType enum.
@@ -9561,9 +9608,13 @@ func (e ListActivitiesParamsEntityType) Valid() bool {
 	switch e {
 	case ListActivitiesParamsEntityTypeDeal:
 		return true
+	case ListActivitiesParamsEntityTypeLead:
+		return true
 	case ListActivitiesParamsEntityTypeOrganization:
 		return true
 	case ListActivitiesParamsEntityTypePerson:
+		return true
+	case ListActivitiesParamsEntityTypeProject:
 		return true
 	default:
 		return false
@@ -10119,6 +10170,39 @@ func (e ListOrganizationsParamsRelationshipType) Valid() bool {
 	case ListOrganizationsParamsRelationshipTypePortfolioCompany:
 		return true
 	case ListOrganizationsParamsRelationshipTypeSupplier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListOrganizationsParamsSizeBand.
+const (
+	N10015000 ListOrganizationsParamsSizeBand = "1001-5000"
+	N110      ListOrganizationsParamsSizeBand = "1-10"
+	N1150     ListOrganizationsParamsSizeBand = "11-50"
+	N201500   ListOrganizationsParamsSizeBand = "201-500"
+	N5000     ListOrganizationsParamsSizeBand = "5000+"
+	N5011000  ListOrganizationsParamsSizeBand = "501-1000"
+	N51200    ListOrganizationsParamsSizeBand = "51-200"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsSizeBand enum.
+func (e ListOrganizationsParamsSizeBand) Valid() bool {
+	switch e {
+	case N10015000:
+		return true
+	case N110:
+		return true
+	case N1150:
+		return true
+	case N201500:
+		return true
+	case N5000:
+		return true
+	case N5011000:
+		return true
+	case N51200:
 		return true
 	default:
 		return false
@@ -13744,6 +13828,33 @@ type DedupeDispositionRequest struct {
 // DedupeDispositionRequestDisposition defines model for DedupeDispositionRequest.Disposition.
 type DedupeDispositionRequestDisposition string
 
+// DemoteLeadRequest defines model for DemoteLeadRequest.
+type DemoteLeadRequest struct {
+	// Reason Why the promotion is being reversed. Required and recorded in audit — an undo nobody explained is indistinguishable later from a mistake.
+	Reason string `json:"reason"`
+}
+
+// DemoteLeadResponse defines model for DemoteLeadResponse.
+type DemoteLeadResponse struct {
+	// Lead A thin, segregated prospect. Mirrors the `lead` table. NO organization FK.
+	Lead Lead `json:"lead"`
+
+	// PersonId The person the promotion had produced or merged into.
+	PersonId *openapi_types.UUID `json:"person_id,omitempty"`
+
+	// Unwind `reversed` — the promotion had created a person, which is now archived and the
+	// lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+	// a pre-existing person, which is left untouched; only the lineage pointers are
+	// nulled (formulas §26).
+	Unwind DemoteLeadResponseUnwind `json:"unwind"`
+}
+
+// DemoteLeadResponseUnwind `reversed` — the promotion had created a person, which is now archived and the
+// lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+// a pre-existing person, which is left untouched; only the lineage pointers are
+// nulled (formulas §26).
+type DemoteLeadResponseUnwind string
+
 // DismissPersonMomentRequest Which moment to hide, and the evidence it was showing when the reader hid it. Both are
 // required: the fingerprint is what lets the moment come back when the evidence moves,
 // and a dismissal without one is a permanent silence nobody asked for.
@@ -14283,6 +14394,16 @@ type InstallationSettings struct {
 	// it. Absent when it is still changeable.
 	BaseCurrencyLockedReason *string `json:"base_currency_locked_reason,omitempty"`
 
+	// MaxUploadBytes The largest upload request this installation accepts, in bytes — set by whoever
+	// operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+	// it is a deployment fact, so PATCH does not carry it.
+	//
+	// An upload surface states and enforces THIS number rather than one of its own, so
+	// a file too large is refused before it is sent instead of after. The ceiling bounds
+	// the whole request, part framing included, which is why a client should leave a
+	// little room rather than compare a file against it exactly.
+	MaxUploadBytes int64 `json:"max_upload_bytes"`
+
 	// Name The organization's display name.
 	Name string `json:"name"`
 
@@ -14770,7 +14891,11 @@ type MeResponse struct {
 	// This is a snapshot, not an authority. A role change does not revoke live sessions, so a client refetches on window focus and after any 403, and treats the server's answer as the only one that counts. It does NOT express row scope, nor the human-principal and admin-role gates some routes carry independently of any grant — a permitted grant here is necessary, never sufficient.
 	Authorization *Authorization `json:"authorization,omitempty"`
 
-	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action.
+	// DataResetAvailable True when this installation armed `operations.allow_data_reset` in its deployment file. It is the SAME value `POST /admin/reset-data` gates on, so a client never renders an action for a route that would answer 404. Absent or false means the capability does not exist here — the compiled default in every posture, dev included.
+	DataResetAvailable *bool `json:"data_reset_available,omitempty"`
+
+	// NonProduction True when the installation runs a non-production posture (MARGINCE_ENV=dev|test). DEPRECATED as the gate for the "Reset data" action — read `data_reset_available` instead. A deployment being non-production is not consent to purge its tenant data, and inferring one from the other is why a `staging` installation full of real internal users could be wiped through the API.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	NonProduction bool `json:"non_production"`
 
 	// Passport Always null. This endpoint is reachable only by a human session: a passport bearer is admitted as an agent principal and never binds the session identity this operation reads, so an agent receives 401 here rather than a passport claim. The field is retained because removing a response property breaks published clients; a client MUST NOT branch on it. An agent's own scopes are what the MCP surface advertises in tools/list, which is the honest place to ask.
@@ -14801,7 +14926,7 @@ type MeResponse struct {
 	// User A seat — human or first-party agent. Mirrors `app_user`.
 	User User `json:"user"`
 
-	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates.
+	// WorkspaceName The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the "Reset data" action — the exact string that endpoint validates.
 	WorkspaceName string `json:"workspace_name"`
 }
 
@@ -15376,7 +15501,10 @@ type Organization struct {
 	// `getOrganization` only; the key is absent entirely (not an empty array) when the
 	// viewer's role lacks computed_field:read visibility (STATE-4).
 	ComputedFields *[]ComputedField `json:"computed_fields,omitempty"`
-	CreatedAt      time.Time        `json:"created_at"`
+
+	// ContactCount How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied.
+	ContactCount *int      `json:"contact_count,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 
 	// Description One human-written line saying what the company does, shown under the title on the company page. A column rather than a governed custom field for the same reason `linkedin_url` is one: it is part of what a company IS and every installation wants it. Distinct from `industry` (a category) and from the dossier (agent-written prose).
 	Description *string               `json:"description,omitempty"`
@@ -15407,7 +15535,10 @@ type Organization struct {
 	// client's business is the endpoint that streams the bytes.
 	LogoUrl      *string             `json:"logo_url,omitempty"`
 	MergedIntoId *openapi_types.UUID `json:"merged_into_id,omitempty"`
-	OwnerId      *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// OpenDealCount How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it.
+	OpenDealCount *int                `json:"open_deal_count,omitempty"`
+	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// ParentOrgId Single-level hierarchy FK; no cycles.
 	ParentOrgId *openapi_types.UUID `json:"parent_org_id,omitempty"`
@@ -18001,6 +18132,24 @@ type ProjectListResponse struct {
 	Page PageInfo  `json:"page"`
 }
 
+// PromoteLeadPreview What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170).
+type PromoteLeadPreview struct {
+	// Outcome merge = an existing live person matches this lead's email and promotion would fold into it; create = promotion would make a new person.
+	Outcome PromoteLeadPreviewOutcome `json:"outcome"`
+
+	// Person A contact. Mirrors the `person` table.
+	Person *Person `json:"person,omitempty"`
+
+	// PersonWithheld True when `outcome` is `merge` but the matched person lies outside the caller's
+	// row scope, so `person` is omitted. **An absent `person` never means "no match"**
+	// — a caller that reads the omission as `create` would tell the rep a duplicate is
+	// about to be created when the opposite is true.
+	PersonWithheld *bool `json:"person_withheld,omitempty"`
+}
+
+// PromoteLeadPreviewOutcome merge = an existing live person matches this lead's email and promotion would fold into it; create = promotion would make a new person.
+type PromoteLeadPreviewOutcome string
+
 // PromoteLeadRequest defines model for PromoteLeadRequest.
 type PromoteLeadRequest struct {
 	// Evidence Which inbound email/meeting (or human) triggered promotion; recorded in audit.
@@ -18655,10 +18804,42 @@ type RescheduleSendRequest struct {
 	ScheduledTz string    `json:"scheduled_tz"`
 }
 
+// RestrictedRecord defines model for RestrictedRecord.
+type RestrictedRecord struct {
+	ActivityId openapi_types.UUID `json:"activity_id"`
+
+	// Deals Every transaction the record qualifies through, by name. Both id and name are required, so a qualification whose deal has since been deleted — and a controller pin that never named one (germany-package DEPACK-AC-5h: supplier correspondence has no deal in this product) — is reported through `reason` rather than as a half-populated entry.
+	Deals []struct {
+		Id   openapi_types.UUID `json:"id"`
+		Name string             `json:"name"`
+	} `json:"deals"`
+
+	// Kind The interaction kind (email, call, meeting, message).
+	Kind       string    `json:"kind"`
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// Reason The retention class that holds it (e.g. commercial_correspondence), plus the statutory basis. Never free text from a user.
+	Reason string `json:"reason"`
+
+	// RedactedFields Which fields the erasure emptied on this record (A167/ADR-0116). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values.
+	RedactedFields *[]string `json:"redacted_fields,omitempty"`
+
+	// RestrictedAt When the erasure request was suspended and the record restricted.
+	RestrictedAt time.Time `json:"restricted_at"`
+
+	// RestrictedUntil When the obligation ends and the suspended erasure completes. Pinned when the record was restricted, from the floor then in force — a later change to a configured period never shortens an obligation already recorded.
+	RestrictedUntil time.Time `json:"restricted_until"`
+}
+
 // RetentionAction What happens to a record past its window. One action per policy row — a ladder is separate
 // rows at increasing `retain_days`, never a multi-action row. `archive` retains the record;
 // `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
 type RetentionAction string
+
+// RetentionOverrideRequest defines model for RetentionOverrideRequest.
+type RetentionOverrideRequest struct {
+	Reason string `json:"reason"`
+}
 
 // RetentionPolicy One storage-limitation rule (DM-DDL-10, UC-GDPR-09). At most one row exists per scope,
 // enforced by the database rather than by this surface.
@@ -21629,6 +21810,9 @@ type ListLeadsParams struct {
 	Status    *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 	OwnerId   *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
+	// Source Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
+	Source *string `form:"source,omitempty" json:"source,omitempty"`
+
 	// MinScore Triage by score.
 	MinScore *int    `form:"min_score,omitempty" json:"min_score,omitempty"`
 	Q        *string `form:"q,omitempty" json:"q,omitempty"`
@@ -21683,6 +21867,25 @@ type UpdateLeadParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// DemoteLeadParams defines parameters for DemoteLead.
+type DemoteLeadParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // PromoteLeadParams defines parameters for PromoteLead.
@@ -22078,7 +22281,25 @@ type ListOrganizationsParams struct {
 
 	// RelationshipType Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both.
 	RelationshipType *ListOrganizationsParamsRelationshipType `form:"relationship_type,omitempty" json:"relationship_type,omitempty"`
-	Q                *string                                  `form:"q,omitempty" json:"q,omitempty"`
+
+	// OwnerTeamId Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+	// a team the caller cannot see returns their own visible rows filtered to nothing, not a
+	// wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+	// and rows reached by a record grant (AAD-ROLE-2).
+	OwnerTeamId *openapi_types.UUID `form:"owner_team_id,omitempty" json:"owner_team_id,omitempty"`
+
+	// Unassigned `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+	// (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+	// Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+	Unassigned *bool `form:"unassigned,omitempty" json:"unassigned,omitempty"`
+
+	// Industry Accounts in one industry, matched exactly (DM-VOCAB-2). The column is free text rather
+	// than an enum, so this is the value as it was written.
+	Industry *string `form:"industry,omitempty" json:"industry,omitempty"`
+
+	// SizeBand How many people work there (DM-VOCAB-2).
+	SizeBand *ListOrganizationsParamsSizeBand `form:"size_band,omitempty" json:"size_band,omitempty"`
+	Q        *string                          `form:"q,omitempty" json:"q,omitempty"`
 }
 
 // ListOrganizationsParamsCapturedByKind defines parameters for ListOrganizations.
@@ -22089,6 +22310,9 @@ type ListOrganizationsParamsLifecycle string
 
 // ListOrganizationsParamsRelationshipType defines parameters for ListOrganizations.
 type ListOrganizationsParamsRelationshipType string
+
+// ListOrganizationsParamsSizeBand defines parameters for ListOrganizations.
+type ListOrganizationsParamsSizeBand string
 
 // CreateOrganizationParams defines parameters for CreateOrganization.
 type CreateOrganizationParams struct {
@@ -22551,11 +22775,28 @@ type ListPeopleParams struct {
 	// OwnerId Filter to a single owner.
 	OwnerId *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
+	// OwnerTeamId Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+	// a team the caller cannot see returns their own visible rows filtered to nothing, not a
+	// wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+	// and rows reached by a record grant (AAD-ROLE-2).
+	OwnerTeamId *openapi_types.UUID `form:"owner_team_id,omitempty" json:"owner_team_id,omitempty"`
+
+	// Unassigned `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+	// (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+	// Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+	Unassigned *bool `form:"unassigned,omitempty" json:"unassigned,omitempty"`
+
 	// Q Full-text query over name/title (tsvector).
 	Q *string `form:"q,omitempty" json:"q,omitempty"`
 
 	// Tag Filter by tag name.
 	Tag *string `form:"tag,omitempty" json:"tag,omitempty"`
+
+	// OrganizationId People who work at this account, by their CURRENT PRIMARY employment edge
+	// (`relationship` kind `employment`, DM-VOCAB-1). A past employer does not match:
+	// "who works there" and "who has ever worked there" are different questions, and the
+	// list answers the first.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
 
 // ListPeopleParamsCapturedByKind defines parameters for ListPeople.
@@ -23285,6 +23526,60 @@ type ExplainReportParams struct {
 
 	// Agg The plan's aggregates as `fn:field:alias` triplets (field empty for `count`), e.g. `sum:amount_minor:unweighted_minor`.
 	Agg *[]string `form:"agg,omitempty" json:"agg,omitempty"`
+}
+
+// ListRestrictedActivitiesParams defines parameters for ListRestrictedActivities.
+type ListRestrictedActivitiesParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// PinActivityToFloorParams defines parameters for PinActivityToFloor.
+type PinActivityToFloorParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ReleaseRestrictedActivityParams defines parameters for ReleaseRestrictedActivity.
+type ReleaseRestrictedActivityParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // SetRoleObjectGrantParams defines parameters for SetRoleObjectGrant.
@@ -24068,6 +24363,9 @@ type CreateLeadJSONRequestBody = CreateLeadRequest
 // UpdateLeadJSONRequestBody defines body for UpdateLead for application/json ContentType.
 type UpdateLeadJSONRequestBody = UpdateLeadRequest
 
+// DemoteLeadJSONRequestBody defines body for DemoteLead for application/json ContentType.
+type DemoteLeadJSONRequestBody = DemoteLeadRequest
+
 // SetLeadManualSignalJSONRequestBody defines body for SetLeadManualSignal for application/json ContentType.
 type SetLeadManualSignalJSONRequestBody = SetLeadManualSignalRequest
 
@@ -24247,6 +24545,12 @@ type CreateRetentionPolicyJSONRequestBody = CreateRetentionPolicyRequest
 
 // UpdateRetentionPolicyJSONRequestBody defines body for UpdateRetentionPolicy for application/json ContentType.
 type UpdateRetentionPolicyJSONRequestBody = UpdateRetentionPolicyRequest
+
+// PinActivityToFloorJSONRequestBody defines body for PinActivityToFloor for application/json ContentType.
+type PinActivityToFloorJSONRequestBody = RetentionOverrideRequest
+
+// ReleaseRestrictedActivityJSONRequestBody defines body for ReleaseRestrictedActivity for application/json ContentType.
+type ReleaseRestrictedActivityJSONRequestBody = RetentionOverrideRequest
 
 // UpdateRetentionSettingsJSONRequestBody defines body for UpdateRetentionSettings for application/json ContentType.
 type UpdateRetentionSettingsJSONRequestBody = UpdateRetentionSettingsRequest
@@ -27226,6 +27530,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "computed_fields")
 	}
 
+	if raw, found := object["contact_count"]; found {
+		err = json.Unmarshal(raw, &a.ContactCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'contact_count': %w", err)
+		}
+		delete(object, "contact_count")
+	}
+
 	if raw, found := object["created_at"]; found {
 		err = json.Unmarshal(raw, &a.CreatedAt)
 		if err != nil {
@@ -27320,6 +27632,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'merged_into_id': %w", err)
 		}
 		delete(object, "merged_into_id")
+	}
+
+	if raw, found := object["open_deal_count"]; found {
+		err = json.Unmarshal(raw, &a.OpenDealCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'open_deal_count': %w", err)
+		}
+		delete(object, "open_deal_count")
 	}
 
 	if raw, found := object["owner_id"]; found {
@@ -27462,6 +27782,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.ContactCount != nil {
+		object["contact_count"], err = json.Marshal(a.ContactCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'contact_count': %w", err)
+		}
+	}
+
 	object["created_at"], err = json.Marshal(a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
@@ -27537,6 +27864,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["merged_into_id"], err = json.Marshal(a.MergedIntoId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'merged_into_id': %w", err)
+		}
+	}
+
+	if a.OpenDealCount != nil {
+		object["open_deal_count"], err = json.Marshal(a.OpenDealCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'open_deal_count': %w", err)
 		}
 	}
 
@@ -30099,7 +30433,7 @@ type ServerInterface interface {
 	// What the background system is holding, and whose work failed.
 	// (GET /admin/job-health)
 	GetJobHealth(w http.ResponseWriter, r *http.Request)
-	// Reset a non-production installation to its first-boot state.
+	// Reset an installation that armed the capability to its first-boot state.
 	// (POST /admin/reset-data)
 	ResetData(w http.ResponseWriter, r *http.Request)
 	// The governed tool surface (registry metadata) for the operator UI.
@@ -30522,6 +30856,9 @@ type ServerInterface interface {
 	// Update a lead (partial).
 	// (PATCH /leads/{id})
 	UpdateLead(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadParams)
+	// Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+	// (POST /leads/{id}/demote)
+	DemoteLead(w http.ResponseWriter, r *http.Request, id Id, params DemoteLeadParams)
 	// Enter or replace a human-provided scoring factor (S-E13.6).
 	// (PUT /leads/{id}/manual-signals)
 	SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id)
@@ -30531,6 +30868,9 @@ type ServerInterface interface {
 	// Promote a lead to a person on genuine engagement (non-lossy merge).
 	// (POST /leads/{id}/promote)
 	PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams)
+	// What promoting this lead would do — merge into an existing person, or create one.
+	// (GET /leads/{id}/promote-preview)
+	PreviewLeadPromotion(w http.ResponseWriter, r *http.Request, id Id)
 	// Explain This Score — the weighted-factor decomposition behind a lead's score.
 	// (GET /leads/{id}/score)
 	ExplainLeadScore(w http.ResponseWriter, r *http.Request, id Id, params ExplainLeadScoreParams)
@@ -31023,6 +31363,15 @@ type ServerInterface interface {
 	// Edit a retention policy (admin/ops).
 	// (PATCH /retention-policies/{id})
 	UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id)
+	// List the records a statutory retention obligation is holding, and why.
+	// (GET /retention/restrictions)
+	ListRestrictedActivities(w http.ResponseWriter, r *http.Request, params ListRestrictedActivitiesParams)
+	// Pin a record to the retention floor, restricting it. Requires a stated reason; audited.
+	// (POST /retention/restrictions/{activityId}/pin)
+	PinActivityToFloor(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params PinActivityToFloorParams)
+	// Release a record from the retention floor, erasing it. Requires a stated reason; audited.
+	// (POST /retention/restrictions/{activityId}/release)
+	ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params ReleaseRestrictedActivityParams)
 	// The installation's retention posture (admin/ops).
 	// (GET /retention/settings)
 	GetRetentionSettings(w http.ResponseWriter, r *http.Request)
@@ -31317,7 +31666,7 @@ func (_ Unimplemented) GetJobHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Reset a non-production installation to its first-boot state.
+// Reset an installation that armed the capability to its first-boot state.
 // (POST /admin/reset-data)
 func (_ Unimplemented) ResetData(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -32163,6 +32512,12 @@ func (_ Unimplemented) UpdateLead(w http.ResponseWriter, r *http.Request, id Id,
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+// (POST /leads/{id}/demote)
+func (_ Unimplemented) DemoteLead(w http.ResponseWriter, r *http.Request, id Id, params DemoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Enter or replace a human-provided scoring factor (S-E13.6).
 // (PUT /leads/{id}/manual-signals)
 func (_ Unimplemented) SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id) {
@@ -32178,6 +32533,12 @@ func (_ Unimplemented) ClearLeadManualSignal(w http.ResponseWriter, r *http.Requ
 // Promote a lead to a person on genuine engagement (non-lossy merge).
 // (POST /leads/{id}/promote)
 func (_ Unimplemented) PromoteLead(w http.ResponseWriter, r *http.Request, id Id, params PromoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What promoting this lead would do — merge into an existing person, or create one.
+// (GET /leads/{id}/promote-preview)
+func (_ Unimplemented) PreviewLeadPromotion(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -33162,6 +33523,24 @@ func (_ Unimplemented) DeleteRetentionPolicy(w http.ResponseWriter, r *http.Requ
 // Edit a retention policy (admin/ops).
 // (PATCH /retention-policies/{id})
 func (_ Unimplemented) UpdateRetentionPolicy(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the records a statutory retention obligation is holding, and why.
+// (GET /retention/restrictions)
+func (_ Unimplemented) ListRestrictedActivities(w http.ResponseWriter, r *http.Request, params ListRestrictedActivitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pin a record to the retention floor, restricting it. Requires a stated reason; audited.
+// (POST /retention/restrictions/{activityId}/pin)
+func (_ Unimplemented) PinActivityToFloor(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params PinActivityToFloorParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Release a record from the retention floor, erasing it. Requires a stated reason; audited.
+// (POST /retention/restrictions/{activityId}/release)
+func (_ Unimplemented) ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params ReleaseRestrictedActivityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39848,6 +40227,19 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "source" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "source", r.URL.Query(), &params.Source, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "min_score" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "min_score", r.URL.Query(), &params.MinScore, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
@@ -40079,6 +40471,64 @@ func (siw *ServerInterfaceWrapper) UpdateLead(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// DemoteLead operation middleware
+func (siw *ServerInterfaceWrapper) DemoteLead(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DemoteLeadParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DemoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // SetLeadManualSignal operation middleware
 func (siw *ServerInterfaceWrapper) SetLeadManualSignal(w http.ResponseWriter, r *http.Request) {
 
@@ -40224,6 +40674,40 @@ func (siw *ServerInterfaceWrapper) PromoteLead(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PromoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewLeadPromotion operation middleware
+func (siw *ServerInterfaceWrapper) PreviewLeadPromotion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewLeadPromotion(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -41915,6 +42399,58 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "relationship_type"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "relationship_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "owner_team_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner_team_id", r.URL.Query(), &params.OwnerTeamId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner_team_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner_team_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "unassigned" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "unassigned", r.URL.Query(), &params.Unassigned, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "unassigned"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "unassigned", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "industry" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "industry", r.URL.Query(), &params.Industry, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "industry"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "industry", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "size_band" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "size_band", r.URL.Query(), &params.SizeBand, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "size_band"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "size_band", Err: err})
 		}
 		return
 	}
@@ -44349,6 +44885,32 @@ func (siw *ServerInterfaceWrapper) ListPeople(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// ------------- Optional query parameter "owner_team_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner_team_id", r.URL.Query(), &params.OwnerTeamId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "owner_team_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "owner_team_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "unassigned" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "unassigned", r.URL.Query(), &params.Unassigned, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "unassigned"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "unassigned", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "q" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -44371,6 +44933,19 @@ func (siw *ServerInterfaceWrapper) ListPeople(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "tag"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "tag", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "organization_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
 		}
 		return
 	}
@@ -47984,6 +48559,170 @@ func (siw *ServerInterfaceWrapper) UpdateRetentionPolicy(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateRetentionPolicy(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRestrictedActivities operation middleware
+func (siw *ServerInterfaceWrapper) ListRestrictedActivities(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRestrictedActivitiesParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRestrictedActivities(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PinActivityToFloor operation middleware
+func (siw *ServerInterfaceWrapper) PinActivityToFloor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "activityId" -------------
+	var activityId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "activityId", chi.URLParam(r, "activityId"), &activityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "activityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PinActivityToFloorParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PinActivityToFloor(w, r, activityId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReleaseRestrictedActivity operation middleware
+func (siw *ServerInterfaceWrapper) ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "activityId" -------------
+	var activityId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "activityId", chi.URLParam(r, "activityId"), &activityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "activityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReleaseRestrictedActivityParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReleaseRestrictedActivity(w, r, activityId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -51726,6 +52465,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/leads/{id}", wrapper.UpdateLead)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/leads/{id}/demote", wrapper.DemoteLead)
+	})
+	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/leads/{id}/manual-signals", wrapper.SetLeadManualSignal)
 	})
 	r.Group(func(r chi.Router) {
@@ -51733,6 +52475,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/leads/{id}/promote", wrapper.PromoteLead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/leads/{id}/promote-preview", wrapper.PreviewLeadPromotion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads/{id}/score", wrapper.ExplainLeadScore)
@@ -52225,6 +52970,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/retention-policies/{id}", wrapper.UpdateRetentionPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/retention/restrictions", wrapper.ListRestrictedActivities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/retention/restrictions/{activityId}/pin", wrapper.PinActivityToFloor)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/retention/restrictions/{activityId}/release", wrapper.ReleaseRestrictedActivity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/retention/settings", wrapper.GetRetentionSettings)

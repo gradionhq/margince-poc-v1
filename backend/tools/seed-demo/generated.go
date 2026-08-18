@@ -198,7 +198,7 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 				"source_id":     sourceID,
 				"status":        leadCreateStatus(p.LeadState),
 				"full_name":     first + " " + last,
-				"email":         strings.ToLower(first+"."+last) + "@" + domain,
+				"email":         generatedLeadEmail(first, last, domain),
 				"company_name":  refs.orgNameByID[orgID],
 				"title":         title,
 			}
@@ -278,6 +278,23 @@ func generatedLeadName(domain string) (string, string) {
 	first := leadFirstNames[hashIndex("leadfirst:"+domain, len(leadFirstNames))]
 	last := leadLastNames[hashIndex("leadlast:"+domain, len(leadLastNames))]
 	return first, last
+}
+
+// generatedLeadEmail keeps the company in the LOCAL part, which is what makes
+// the address unique.
+//
+// The obvious form, firstname.lastname@example.com, silently costs leads. The
+// names come from an 8x8 pool, 40 domains hash into it with collisions, and
+// the product rejects a second lead at an address it already holds — so a run
+// created 16 leads instead of 46 and seeded no disqualified one at all, which
+// the coverage matrix then failed on. Before the addresses moved to
+// example.com the company's own domain had been supplying the uniqueness.
+//
+// The company slug is stripped of dots so the local part stays one label:
+// jonas.sommer.shopify@example.com, not jonas.sommer.shopify.com@example.com.
+func generatedLeadEmail(first, last, domain string) string {
+	slug := strings.NewReplacer(".", "", "-", "").Replace(domain)
+	return strings.ToLower(first+"."+last+"."+slug) + "@example.com"
 }
 
 func generatedLeadTitle(domain string) string {

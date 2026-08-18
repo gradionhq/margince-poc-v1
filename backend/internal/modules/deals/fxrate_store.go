@@ -208,12 +208,12 @@ func (s *Store) writeFxRate(ctx context.Context, tx pgx.Tx, from string, in SetF
 		fxID ids.UUID
 	)
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		VALUES ($1, $2, $3, $4::numeric, $5)
+		INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
+		VALUES ($1, $2, $3::numeric, $4)
 		ON CONFLICT (from_currency, to_currency, rate_date)
 		DO UPDATE SET rate = EXCLUDED.rate
 		RETURNING id, from_currency, to_currency, rate::text, rate_date`,
-		storekit.MustWorkspace(ctx), from, base, rate, effDate,
+		from, base, rate, effDate,
 	).Scan(&fxID, &out.FromCurrency, &out.ToCurrency, &out.Rate, &out.RateDate); err != nil {
 		return FxRateRow{}, fmt.Errorf("upsert fx_rate: %w", err)
 	}

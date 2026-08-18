@@ -166,15 +166,23 @@ func listOpenTasks(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) ([]Ope
 // Out of scope answers ErrNotFound, the same as an id that names nothing —
 // existence-hiding, exactly as reading the record directly would.
 func ensureNarrowingVisible(ctx context.Context, tx pgx.Tx, in ListOpenTasksInput) error {
-	if in.EntityType == nil || in.EntityID == nil {
+	return ensureNarrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID)
+}
+
+// ensureNarrowingTargetVisible is the gate itself, over the (type, id) pair
+// alone, so the timeline read and the open-task sweep ask the identical
+// question. Held in one place because two spellings of an existence-hiding
+// rule is how one of them ends up missing a record type the other has.
+func ensureNarrowingTargetVisible(ctx context.Context, tx pgx.Tx, entityType *string, entityID *ids.UUID) error {
+	if entityType == nil || entityID == nil {
 		return nil
 	}
-	if linkColumn(*in.EntityType) == "" {
-		return &InvalidLinkTypeError{EntityType: *in.EntityType}
+	if linkColumn(*entityType) == "" {
+		return &InvalidLinkTypeError{EntityType: *entityType}
 	}
 	// The record type IS the table name for every arm of this vocabulary, which
 	// is the same identity linkNameCoalesce reads.
-	return auth.EnsureVisible(ctx, tx, *in.EntityType, *in.EntityID)
+	return auth.EnsureVisible(ctx, tx, *entityType, *entityID)
 }
 
 // openTasksFilter builds the predicate: the two columns that define an open

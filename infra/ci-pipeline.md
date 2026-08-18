@@ -41,12 +41,22 @@ that several full lanes can now run on `main` at once.
 ## Run only the checks a change can affect
 
 The first job, **`changes`**, classifies the diff (dorny/paths-filter,
-SHA-pinned) into four scopes; every downstream job gates on the relevant
+SHA-pinned) into five scopes; every downstream job gates on the relevant
 output. A required job skipped this way still counts as passing.
+
+`backend` and `backend_db` are the same set apart from the two agent
+rulebooks. They are split because one flag was driving two unrelated things:
+run the Go unit gates, and boot twelve Postgres databases. `AGENTS.md` and
+`CLAUDE.md` are read by `backend/agentsdocparity_test.go`, so an edit to
+either has to run a unit lane — and by no integration test, so it must not
+run the database lanes. The two shards move in lockstep with the
+`integration` fan-in, which asserts `success` from them: skipping one alone
+would report a documentation PR as a broken integration lane.
 
 | Scope | Paths | Gates |
 |---|---|---|
-| `backend` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `AGENTS.md`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | Go build/gate, extension reference, craftsmanship, integration, vuln |
+| `backend_db` | `backend/**`, `infra/**/!(*.md)`, `go.work`, `go.work.sum`, `Makefile`, `scripts/**`, `extensions/**`, `fixtures/**`, `composition/**`, `.github/workflows/ci.yml`, `.github/actions/**`, `sonar-project.properties`, `frontend/src/mcp-apps/forbidden.json` | the twelve integration shards and the `integration` fan-in — every lane that opens a database |
+| `backend` | `backend_db` (by YAML anchor, so the two cannot drift) plus the agent rulebooks `AGENTS.md` and `CLAUDE.md` | Go build/gate, extension reference, craftsmanship, unit coverage, vuln |
 | `frontend` | `frontend/**`, `backend/api/**` (the contract drives FE types), plus the composition inputs the lane now typechecks against — `extensions/**`, `fixtures/**`, `composition/**`, `backend/tools/gen-composition/**`, `Makefile` — and the install inputs `pnpm-lock.yaml` and `pnpm-workspace.yaml`, which decide *which* dependency the SPA builds on and which one `openapi-typescript` parses the contract with (`overrides` lives in the workspace file, so it resolves versions the lockfile then merely records) | frontend lane, UAT |
 | `e2e` | `backend/**`, `frontend/**`, `infra/**/!(*.md)`, `extensions/**`, `fixtures/**`, `composition/**` | full-stack live-boot |
 | `deps` | `go.work`, `go.work.sum`, `**/go.mod`, `**/go.sum`, `**/package.json`, `**/pnpm-lock.yaml`, `pnpm-workspace.yaml` (`overrides` lives there, so it decides resolved versions the way a manifest does), `.syft.yaml`, `.grant.yaml`, `sbom-schemas/**`, `Makefile`, `.github/workflows/ci.yml`, `.github/actions/**` | the license gate |
@@ -184,7 +194,7 @@ third-party actions it calls, which would otherwise ride in unread.
 | `vuln` | `make vuln` (govulncheck over all packages). **Advisory** — not a required context. It still runs on every backend PR, so a vulnerable dependency a PR *introduces* is reported before merge; what it cannot report is a vulnerability disclosed after one, which is why `scheduled.yml` runs it daily on `main` as well |
 | `license gate` | `make sbom` then `make sbom-check` — the dependency-license policy (`grant`, policy in `.grant.yaml`) over the resolved dependency graph, not the manifests. Lives here rather than in `sbom.yml` because it is a **gate** and that workflow is an artifact producer: `sbom.yml` filters at the workflow level, so on a PR touching no dependency it produces no check run at all, and a required context that never posts blocks the merge forever. Job-level gating makes a path skip report as passing instead. PR-only — on `main` the same gate runs inside `sbom.yml`, where it is the precondition for signing, so each path runs it exactly once |
 | `fe-quality` | `make fe-quality` — the design-system script gates, the contract type-drift check, Biome, the composed-SPA typecheck (ADR-0069) and the unit screens' own vitest suites. The only frontend job carrying a Go toolchain: the composed lane needs `gen-composition` output, which nothing else produces |
-| `fe-unit` | `make fe-unit FE_COVERAGE=1` — the vitest suite, instrumented so the run that decides the verdict also writes the lcov. Emits `fe-coverage`. Not sharded: the v8 provider's branch records cannot be merged across shards without skewing condition coverage — issue #966 has the measurements and the fix |
+| `fe-unit` | `make fe-unit FE_COVERAGE=1` — the vitest suite, instrumented so the run that decides the verdict also writes the lcov. Emits `fe-coverage`, after `frontend/scripts/check-lcov-paths.sh` has proved every path in it resolves from the repo root (see below). Not sharded: the v8 provider's branch records cannot be merged across shards without skewing condition coverage — issue #966 has the measurements and the fix |
 | `fe-bundle` | `make fe-bundle` — the Vite production build plus the Storybook catalog build (stories must compile & register) |
 | `frontend` | The fan-in — and the required check, under the same name the single-runner lane carried, so branch protection is unchanged. Asserts all three jobs above succeeded: a failed lane must turn this check **red, not skipped**, because GitHub counts a skipped required check as passing. The three run concurrently because they share no state; serially the lane was ~340s, of which vitest alone was ~207s, so the greps and the type gates sat behind a test run that could tell them nothing |
 | `uat` | `make frontend-e2e`: the AC-`<screen>`-N screen-acceptance criteria as named Playwright tests + axe WCAG 2.2 AA + the 390px no-horizontal-scroll sweep + the PERF-1 record-open budget. Mocks the API at the network edge, so it is self-contained |
@@ -226,6 +236,17 @@ Wiring details:
   a push now skips the scan instead, and main keeps its last real reading. On a
   pull request the rule does not apply: new code there is the diff, and a diff
   that skipped an area has no lines of that area to cover.
+- **A report's paths are read from the repo root, not from the directory that
+  wrote it.** The scanner resolves every `SF:` entry in an lcov against its own
+  base directory; vitest's root is `frontend/`, so the default report named
+  `src/App.tsx` and the scanner — which drops an unresolvable record in
+  silence — held no frontend coverage at all, from the first run that handed it
+  one (#38) until #1541, while the project reported the backend's 84% as the
+  whole measurement. `coverage.reporter`
+  in `frontend/vite.config.ts` now sets the reporter's `projectRoot` to the repo
+  root, and `frontend/scripts/check-lcov-paths.sh` fails `fe-unit` if any record
+  stops resolving. The Go profiles carry package import paths and were never
+  affected.
 
 ## Security posture
 

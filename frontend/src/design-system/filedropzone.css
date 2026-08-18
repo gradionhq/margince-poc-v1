@@ -1,0 +1,66 @@
+/* FileDropzone — one control that is both a drop target and a real file input.
+ *
+ * The input is not hidden, it is made transparent and stretched over the whole
+ * zone: a click anywhere opens the picker without a handler faking it, and the
+ * control stays focusable and announceable for a reader who never touches a
+ * mouse. `visibility: hidden` or `display: none` would take it out of the tab
+ * order, which is the usual way this pattern locks out the keyboard.
+ *
+ * The class prefix is `fdz`, not `dropzone`: a global `.dropzone` ruleset
+ * already exists in a screen sheet (onboarding.css), and a primitive that any
+ * screen may import cannot depend on which of them loaded last. */
+
+.fdz {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--borderStrong);
+  border-radius: var(--r-sm);
+  background: var(--bgPage);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+/* Dragover is a state the pointer cannot otherwise confirm: without it there is
+ * no moment where the page admits it will accept the file being held over it. */
+.fdz:hover,
+.fdz.dragover {
+  border-color: var(--accent);
+  background: var(--accentLight);
+}
+
+/* The ring belongs to the zone, because the input it wraps is invisible. */
+.fdz:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.fdz-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fdz-label {
+  color: var(--textSecondary);
+  font-size: var(--fs-sm);
+  /* Inert to the pointer — this text only, never the input stretched beside
+   * it, which is the whole control. `dragleave` fires on the move from one
+   * element to a sibling, so a cursor crossing this text would otherwise
+   * flicker the highlight off and straight back on. */
+  pointer-events: none;
+}
+
+/* A chosen file is the answer to the question the zone asked, so it stops
+ * reading as placeholder prose and takes the content colour. */
+.fdz-label.chosen {
+  color: var(--textContent);
+}

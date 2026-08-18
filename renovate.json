@@ -7,10 +7,14 @@
   "commitBody": "Signed-off-by: renovate[bot] <29139614+renovate[bot]@users.noreply.github.com>",
   "postUpdateOptions": ["gomodTidy"],
   "prConcurrentLimit": 5,
-  "description": "Renovate performs the merge itself rather than handing the PR to GitHub's native auto-merge. The AI-reviewer ruleset requires a CodeRabbit status, and CodeRabbit skips bot-authored PRs SILENTLY — it posts no check at all, so there is nothing on the commit for the ruleset to be satisfied by — which is why the ruleset grants this app a bypass. Only the synchronous merge endpoint, the one Renovate calls on its own runs, consults that grant: GitHub's deferred auto-merge evaluator never re-reads bypass_actors, so under platformAutomerge a PR whose sole unsatisfied check is the bypassed one stays open forever however green it is. automergeSchedule admits a merge at any time, so a merge follows the run that first finds the branch green, instead of waiting for the nightly window that governs PR CREATION.",
+  "description": [
+    "Renovate performs the merge itself rather than handing the PR to GitHub's native auto-merge. The AI-reviewer ruleset requires a CodeRabbit status, and CodeRabbit skips bot-authored PRs SILENTLY — it posts no check at all, so there is nothing on the commit for the ruleset to be satisfied by — which is why the ruleset grants this app a bypass. Only the synchronous merge endpoint, the one Renovate calls on its own runs, consults that grant: GitHub's deferred auto-merge evaluator never re-reads bypass_actors, so under platformAutomerge a PR whose sole unsatisfied check is the bypassed one stays open forever however green it is. automergeSchedule admits a merge at any time, so a merge follows the run that first finds the branch green, instead of waiting for the nightly window that governs PR CREATION.",
+    "rebaseWhen is pinned to `conflicted` because the default `auto` resolves to `behind-base-branch` whenever automerge is on, and main takes ~70 commits a day: every open Renovate branch was force-pushed on roughly every merge, each force-push starting a full CI run that the next one cancelled. In one 5h42m sample, 80 of 200 CI runs were Renovate branches and 64 of those 80 ended `cancelled` — the fleet crowded out human PRs in the concurrency pool AND destroyed its own signal, since a cancelled run is indistinguishable from a red one. Rebasing-when-behind bought nothing to offset that: the main-required-status-checks ruleset sets strict_required_status_checks_policy false, so a behind-but-green branch is mergeable and Renovate merges it. The residual exposure — a dependency merged having been tested against a slightly older main — is the same one every human PR here already carries."
+  ],
   "platformAutomerge": false,
   "automerge": true,
   "automergeSchedule": ["at any time"],
+  "rebaseWhen": "conflicted",
   "minimumReleaseAge": "7 days",
   "internalChecksFilter": "strict",
   "lockFileMaintenance": {
@@ -19,6 +23,12 @@
     "schedule": ["after 2am and before 6am"]
   },
   "packageRules": [
+    {
+      "description": "A major needs a human to read the changelog, so it can never satisfy automerge on its own and its branch would otherwise sit open indefinitely — the one shape that pays the rebase cost forever while having no path to merge. `conflicted` above still rebases a lockfile major on every main merge that touches the lockfile (24 of the last 100 did), so majors are pinned to `never`: the branch goes stale, which is the correct state for a change waiting on a person. Whoever picks it up rebases it by ticking the PR's own checkbox.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "rebaseWhen": "never"
+    },
     {
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "minor"],

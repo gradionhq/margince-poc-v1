@@ -5,6 +5,7 @@ package people
 
 import (
 	"net/http"
+	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -21,6 +22,7 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		CapturedByKind:  capturedByKindArg(params.CapturedByKind),
 		AiWritten:       params.AiWritten,
 		MinScore:        params.MinScore,
+		Source:          params.Source,
 		Sort:            params.Sort,
 	}
 	if params.Status != nil {
@@ -122,6 +124,37 @@ func (h Handlers) PromoteLead(w http.ResponseWriter, r *http.Request, id crmcont
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.PromoteLeadResponse{
 		LeadId: &leadID, Merged: merged, Person: person,
 	})
+}
+
+// PreviewLeadPromotion serves GET /leads/{id}/promote-preview — what
+// promotion would do, without doing it (ADR-0119/A170).
+func (h Handlers) PreviewLeadPromotion(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	preview, err := h.store.PreviewLeadPromotion(r.Context(), pathID[ids.LeadKind](id))
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, preview)
+}
+
+// DemoteLead serves POST /leads/{id}/demote — the audited reverse of
+// promotion (formulas §26).
+func (h Handlers) DemoteLead(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.DemoteLeadParams) {
+	var req crmcontracts.DemoteLeadRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		httperr.Write(w, r, httperr.Validation("reason", "required",
+			"say why the promotion is being reversed; the reason is recorded in the audit trail"))
+		return
+	}
+	out, err := h.store.DemoteLead(r.Context(), pathID[ids.LeadKind](id), req.Reason)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
 }
 
 // DisqualifyLead: DELETE /leads/{id} — the one path where

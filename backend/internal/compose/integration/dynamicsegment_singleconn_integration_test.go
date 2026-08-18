@@ -41,6 +41,18 @@ var dynamicSegmentSingleConnPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
+// savedViewSingleConnPerms is the posture the saved-view arm needs. A view is
+// per-user state gated on ownership, so the row scope here is not what decides
+// visibility — it is set wide so a refusal in this test can only be the pool.
+var savedViewSingleConnPerms = principal.Permissions{
+	RoleKeys: []string{"admin"},
+	Objects: map[string]principal.ObjectGrant{
+		"custom_field": {Create: true, Read: true, Update: true, Delete: true},
+		"saved_view":   {Create: true, Read: true, Update: true, Delete: true},
+	},
+	RowScope: principal.RowScopeAll,
+}
+
 // TestListMembersEvaluatesADynamicSegmentOnTheCallersOnlyConnection proves
 // the sequencing: on a single-connection pool, with a real field catalog
 // wired to that same pool, a dynamic list's ListMembers call must resolve
@@ -95,5 +107,57 @@ func TestListMembersEvaluatesADynamicSegmentOnTheCallersOnlyConnection(t *testin
 	}
 	if len(rows) != 1 || rows[0].EntityID != ids.UUID(created.Id) {
 		t.Fatalf("members = %v, want exactly [%s]", rows, created.Id)
+	}
+}
+
+// The saved-view half of the same obligation. Both write paths resolve the
+// filter vocabulary before opening their own transaction, and both are held to
+// it here: move either resolution inside its write transaction and this times
+// out.
+//
+// The update arm needs its own case rather than trusting the create arm,
+// because it carries a sequencing decision the create path does not — it reads
+// the stored view (one transaction) to learn the resource before resolving the
+// vocabulary (another) and then writing (a third). Three sequential
+// acquisitions on one connection pass; any nesting among them does not.
+func TestSavedViewValidatesItsFilterOnTheCallersOnlyConnection(t *testing.T) {
+	e := Setup(t)
+	pool := singleConnPool(t)
+	svc := customfields.NewService(pool, SchemaPool(t))
+	ctx, cancel := context.WithTimeout(e.As(e.Rep1, nil, savedViewSingleConnPerms), txSeamBudget)
+	t.Cleanup(cancel)
+
+	views := collections.NewStore(harnessDB(pool, e.WS)).WithFieldCatalog(svc)
+
+	// A cf_ column NAMED IN THE FILTER is what makes the catalogue read happen
+	// at all: a core-field filter resolves from the static vocabulary, the
+	// second acquisition never occurs, and the case would pass proving nothing.
+	field, err := svc.Create(ctx, customfields.FieldSpec{
+		Object: "person", Label: "View Budget", Type: customfields.TypeText, Source: "ui",
+	})
+	if err != nil {
+		t.Fatalf("defining the field: %v", err)
+	}
+	if field.ColumnName == nil {
+		t.Fatal("defined field carries no column_name")
+	}
+	filter := map[string]any{
+		"filter": map[string]any{"field": *field.ColumnName, "op": "eq", "value": "gold"},
+	}
+
+	view, err := views.CreateSavedView(ctx, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Gold accounts", Query: filter,
+	})
+	if err != nil {
+		t.Fatalf("creating the view on the caller's only connection: %v — a timeout here is the "+
+			"catalogue read waiting for a second connection the write transaction holds", err)
+	}
+
+	replacement := map[string]any{
+		"filter": map[string]any{"field": *field.ColumnName, "op": "eq", "value": "silver"},
+	}
+	if _, err := views.UpdateSavedView(ctx, view.ID, collections.UpdateSavedViewInput{Query: &replacement}); err != nil {
+		t.Fatalf("updating the view on the caller's only connection: %v — a timeout here is the "+
+			"stored-view read, the catalogue read, or the write nesting inside one another", err)
 	}
 }

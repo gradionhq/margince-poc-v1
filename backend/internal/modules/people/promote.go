@@ -131,6 +131,9 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 		if err := carryLeadConsent(ctx, tx, id, personID, by); err != nil {
 			return fmt.Errorf("carry lead consent: %w", err)
 		}
+		if err := carryLeadActivities(ctx, tx, id, personID); err != nil {
+			return err
+		}
 
 		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged, mergeFields, active)
 		return err
@@ -187,6 +190,38 @@ func carryLeadConsent(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personI
 	return err
 }
 
+// carryLeadActivities moves the lead's timeline onto the person it became
+// (LEADS-FORM-5 step 3: "the lead's history, provenance, and activities carry
+// over with nothing orphaned").
+//
+// The link row is CONVERTED, not merely repointed: activity_link_shape admits
+// exactly one target per row, so a row that kept its lead_id while gaining a
+// person_id violates the CHECK. entity_type and both id columns move together.
+//
+// The conflict arm is the case where the activity was ALREADY linked to that
+// person — a lead whose reply was captured against a contact we already knew,
+// which is exactly the merge path. uq_activity_link would reject the duplicate,
+// so the row is dropped instead of converted; the person keeps the link it had.
+func carryLeadActivities(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID ids.PersonID) error {
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM activity_link a
+		WHERE a.lead_id = $1 AND EXISTS (
+		  SELECT 1 FROM activity_link b
+		  WHERE b.activity_id = a.activity_id
+		    AND b.entity_type = 'person' AND b.person_id = $2)`,
+		leadID, personID); err != nil {
+		return fmt.Errorf("drop already-linked lead activities: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE activity_link
+		SET entity_type = 'person', person_id = $2, lead_id = NULL
+		WHERE lead_id = $1`,
+		leadID, personID); err != nil {
+		return fmt.Errorf("carry lead activities: %w", err)
+	}
+	return nil
+}
+
 // finalizeLeadPromotion retires the lead and lands the write shape for the
 // whole promotion: the status flip, the ONE audit row (action=promote,
 // recording trigger + evidence + the resulting person), and the paired
@@ -213,7 +248,7 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 		outcome = "merged"
 	}
 	after := map[string]any{
-		"status": "promoted", "promoted_person_id": personID,
+		leadStatusColumn: "promoted", fieldKeyPromotedPerson: personID,
 		"trigger": in.Trigger, "dedupe_outcome": outcome,
 	}
 	if in.EvidenceActivityID != nil {
@@ -223,7 +258,7 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 		after["evidence_note"] = *in.EvidenceNote
 	}
 	auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
-		map[string]any{"status": lead.Status}, after)
+		map[string]any{leadStatusColumn: lead.Status}, after)
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("audit lead promote: %w", err)
 	}

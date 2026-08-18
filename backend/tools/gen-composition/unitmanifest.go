@@ -234,17 +234,37 @@ func deriveUnitManifests(root string, units []extensionUnit, verbs []declaredVer
 	return derived, nil
 }
 
-// unitSecretScope is the one scope a unit's secrets ask for, or "" when it
-// declares none. readSecrets has already refused a unit that spans both, so
-// the first entry answers for all of them.
+// unitSecretScope is the settings page a unit is offered on, or "" when it
+// declares no secrets and so has nothing for either page.
 //
-// It is what the SPA's settings placement derives from: a `user` secret is one
-// member's own credential and belongs on their personal Connections page, a
-// `workspace` secret is the installation's and belongs under Integrations, and
-// a unit with neither has nothing for either page to offer.
+// A `user` secret is one member's own credential and belongs on their personal
+// Connections page; a `workspace` secret is the installation's and belongs under
+// Integrations. A unit declaring BOTH is an installation-level integration that
+// also needs something per-member, and it is placed by the installation credential
+// — because that is the fact an operator curates, and the page they curate it on
+// is the one that describes it truthfully.
+//
+// THIS USED TO BE A REFUSAL, on the reasoning that a mixed unit has no answer to
+// "whose settings page is this" and that either tie-break hides half of it. The
+// first real mixed unit showed the reasoning was inverted. extensions/zalo-oa
+// connects ONE Official Account that serves a whole workspace: its token is
+// user-scoped because the ingress port admits an ingest only for a member holding
+// a declared user-scoped secret — depositing one IS the consent — while its app
+// secret describes the installation. Forced into one scope it landed on
+// Connections, under copy reading "yours alone — nobody else sees it, and
+// disconnecting it affects only you", about an account every rep replies through.
+//
+// So the scope of a key is which NAMESPACE it lives in, and only the presence of
+// an installation credential says which page the unit belongs on. Nothing moves
+// for a unit that declares one scope, which is every other unit in the tree.
 func unitSecretScope(m unitManifest) string {
 	if len(m.Secrets) == 0 {
 		return ""
+	}
+	for _, s := range m.Secrets {
+		if s.Scope == string(extension.SecretScopeWorkspace) {
+			return s.Scope
+		}
 	}
 	return m.Secrets[0].Scope
 }

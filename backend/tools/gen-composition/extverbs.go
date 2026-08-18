@@ -23,8 +23,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"slices"
 	"sort"
@@ -370,6 +368,9 @@ func yamlChild(node *yaml.Node, key string) *yaml.Node {
 // means re-encoded through yaml.v3 at a fixed indent: the hash must change
 // when the DECLARATION changes and not when someone reflows a comment or a
 // flow mapping in the fragment above it.
+//
+// The result is algorithm-prefixed, the one spelling every hash a manifest
+// publishes carries; backend/manifestdigest_test.go holds the whole tree to it.
 func operationHash(node *yaml.Node) (string, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -380,6 +381,5 @@ func operationHash(node *yaml.Node) (string, error) {
 	if err := enc.Close(); err != nil {
 		return "", err
 	}
-	sum := sha256.Sum256(buf.Bytes())
-	return hex.EncodeToString(sum[:]), nil
+	return digestBytes(buf.Bytes()), nil
 }

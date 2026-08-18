@@ -2,13 +2,15 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanWrite } from "../app/capability";
 import { Badge, Button, EmptyState } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem, useMe } from "./common";
+import { AddDocumentDialog } from "./adddocument";
+import { throwProblem } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { DocumentExtractionPanel } from "./documentextraction";
 
@@ -66,21 +68,6 @@ const STATE_LABELS: Record<DocState, MessageKey> = {
 // Superseded is the one state that changes how a row should READ: it is history,
 // not a candidate. The rest are equal citizens and get no tone.
 const STATE_TONE: Partial<Record<DocState, "warn">> = { superseded: "warn" };
-
-// Whether this reader may write what a document says onto a deal.
-//
-// Read from /me's own effective grants rather than assumed: reading a document
-// and writing what it says are different authorities, and a panel that offered
-// Accept to a seat holding only the first would hand out a button whose every
-// press is a 403. The grant is ABSENT from the map when it was never given —
-// the generated index signature cannot say so — which is why it is widened and
-// read fail-closed.
-function useCanWriteDeals(): boolean {
-  const me = useMe();
-  const objects: Readonly<Record<string, { update?: boolean } | undefined>> =
-    me.data?.authorization?.objects ?? {};
-  return objects.deal?.update === true;
-}
 
 // A FILTERED read that found nothing is not an empty account. SectionCard's
 // empty state replaces the whole body — filters included — so reporting it here
@@ -140,13 +127,19 @@ function supersededLine(shown: boolean, count: number): MessageKey {
 }
 
 export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
-  const canWriteDeals = useCanWriteDeals();
+  // Reading a document and writing what it says onto a deal are different
+  // authorities: a panel that offered Accept to a seat holding only the first
+  // would hand out a button whose every press is a 403. `useCanWrite` is both
+  // axes — the object grant AND the licensing seat, which the server clamps
+  // separately and before RBAC.
+  const canWriteDeals = useCanWrite("deal", "update");
   const t = useT();
   const [category, setCategory] = useState<Category | "">("");
   // History is off by default. Three uploads of one agreement's terms are one
   // document to a rep, and listing every replaced version beside the live one
   // is how a library of forty files reads as a library of ninety.
   const [showSuperseded, setShowSuperseded] = useState(false);
+  const [adding, setAdding] = useState(false);
 
   // ONE read, unfiltered, and the category chosen here. The endpoint filters by
   // category, but a filtered read can only report what it returned — the chips
@@ -188,6 +181,14 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
   return (
     <Panel
       title={t("docs.title")}
+      // Offered even when the read failed or the account is empty: an empty
+      // library is the state this verb exists to leave, and hiding it there
+      // would withhold the control exactly when it is wanted.
+      titleAction={
+        <Button small onClick={() => setAdding(true)}>
+          {t("docs.add.action")}
+        </Button>
+      }
       // The history that is being held back, said in the footer where the
       // control that holds it back also lives. A count with no way to act on it
       // is a puzzle; a control with no count is a guess.
@@ -215,6 +216,11 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
         ) : undefined
       }
     >
+      <AddDocumentDialog
+        orgId={orgId}
+        open={adding}
+        onClose={() => setAdding(false)}
+      />
       {present && (
         <PanelBody className="docs-filters">
           <FilterChip

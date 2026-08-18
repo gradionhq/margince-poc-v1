@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
+// Shared with every upload form, which reads the ceiling off this same record.
+// One query, one key: two hooks on one key would let whichever mounted first
+// decide how a failure behaves for the other.
+import {
+  INSTALLATION_SETTINGS_KEY,
+  useInstallationSettings,
+} from "../app/uploadlimit";
 import {
   Button,
   Field,
@@ -44,19 +51,6 @@ import { problemMessage, QueryGate } from "./common";
 type InstallationSettings = components["schemas"]["InstallationSettings"];
 type Patch = components["schemas"]["UpdateInstallationSettingsRequest"];
 
-function useInstallationSettings() {
-  return useQuery({
-    queryKey: ["installation-settings"],
-    queryFn: async () => {
-      const { data, error, response } = await api.GET("/installation/settings");
-      if (error || !response.ok) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
-}
-
 function useUpdateInstallationSettings() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -70,7 +64,7 @@ function useUpdateInstallationSettings() {
       return data;
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(["installation-settings"], data);
+      queryClient.setQueryData(INSTALLATION_SETTINGS_KEY, data);
     },
     // A refused patch can still have committed nothing OR something: the
     // server applies the fields in one transaction, but a validation refusal

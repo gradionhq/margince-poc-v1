@@ -42,6 +42,17 @@ const actionErase = "erase"
 // retention action ran; one spelling across every sweep.
 const evidenceKeyRetentionAction = "retention_action"
 
+// The audit-evidence keys the restriction lifecycle writes: what set the
+// action in motion, the statutory class that holds the record, the statute
+// behind it, and — for a controller's decision — the stated reason. Spelled
+// once so the tombstones a supervisory authority reads use one vocabulary.
+const (
+	evidenceKeyCause  = "cause"
+	evidenceKeyClass  = "class"
+	evidenceKeyBasis  = "basis"
+	evidenceKeyReason = "reason"
+)
+
 // Eraser executes the shared erase path both the DSR surface and the
 // retention engine's 'erase' action ride.
 type Eraser struct {
@@ -122,6 +133,13 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// What the floor shielded from the statement above is held instead
+		// (erasure_restrict.go): the same three id sets, selected BY the
+		// floor rather than against it, so every row is one of the two.
+		activitiesHeld, err := holdShieldedTimeline(ctx, tx, subject, emails, channelActivityKeys(identities), floorInterval, floorAnchor)
+		if err != nil {
+			return err
+		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
 			return err
 		}
@@ -147,7 +165,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// this first would take that row out of `pending` under it, so the
 		// withdrawal would stop reaching the run and it would wait forever
 		// holding the payload this cascade exists to destroy.
-		if err := redactApprovalsCitingActivities(ctx, tx, activitiesRedacted, ErasedSourceWithdrawal); err != nil {
+		if err := redactApprovalsCitingActivities(ctx, tx, append(activitiesRedacted, activitiesHeld...), ErasedSourceWithdrawal); err != nil {
 			return err
 		}
 		if err := redactWorkflowRuns(ctx, tx, emails); err != nil {
@@ -171,7 +189,8 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 
 		return tombstonePersonErasure(ctx, tx, subject, reason, personErasureCounts{
 			emailsSuppressed: len(emails), rawRowsPurged: rawPurged, aiPayloadsPurged: aiPayloadsPurged,
-			activitiesRedacted: len(activitiesRedacted), channelIdentitiesSuppressed: channelsSuppressed,
+			activitiesRedacted: len(activitiesRedacted), activitiesRestricted: len(activitiesHeld),
+			channelIdentitiesSuppressed: channelsSuppressed,
 		})
 	})
 }
@@ -240,33 +259,6 @@ func purgeRedactedActivityTraces(ctx context.Context, tx pgx.Tx, activities []id
 	// the timeline row is a tombstone while the send log still holds the
 	// address, the subject line and the body of the same message.
 	return redactDeliveries(ctx, tx, activities, erasedName)
-}
-
-// personErasureCounts is what an erasure tombstone certifies: how much each arm
-// of the cascade removed, and nothing whatsoever about whom.
-type personErasureCounts struct {
-	emailsSuppressed            int
-	rawRowsPurged               int64
-	aiPayloadsPurged            int64
-	activitiesRedacted          int
-	channelIdentitiesSuppressed int
-}
-
-// tombstonePersonErasure closes the cascade with action=erase and counts only —
-// proof without PII. The counts are evidence ABOUT the scrub, so they ride the
-// evidence column; before/after stay empty — they are reserved for field
-// images, and the record-history read serves a tombstone's images verbatim. The
-// paired event tells consumers the subject is gone.
-func tombstonePersonErasure(ctx context.Context, tx pgx.Tx, subject ids.PersonID, reason string, counts personErasureCounts) error {
-	auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
-		"reason": reason, "emails_suppressed": counts.emailsSuppressed, "raw_rows_purged": counts.rawRowsPurged,
-		"ai_payloads_purged": counts.aiPayloadsPurged, "activities_redacted": counts.activitiesRedacted,
-		"channel_identities_suppressed": counts.channelIdentitiesSuppressed,
-	})
-	if err != nil {
-		return err
-	}
-	return storekit.EmitEventForEntity(ctx, tx, auditID, "person", subject.UUID, retentionAppliedPayload(actionErase, nil, &reason))
 }
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
@@ -440,7 +432,7 @@ func deletePreferenceToken(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string, records []ids.UUID, reason string) error {
 	for _, id := range records {
 		if _, err := storekit.AuditWithEvidence(ctx, tx, actionErase, entityType, id, nil, nil, map[string]any{
-			"reason": reason, "cause": "person_erasure",
+			evidenceKeyReason: reason, evidenceKeyCause: "person_erasure",
 		}); err != nil {
 			return fmt.Errorf("tombstoning scrubbed %s: %w", entityType, err)
 		}

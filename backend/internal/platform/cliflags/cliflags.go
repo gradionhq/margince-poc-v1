@@ -21,7 +21,11 @@
 // added later cannot quietly reintroduce the leak by being left off a list.
 package cliflags
 
-import "flag"
+import (
+	"flag"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
+)
 
 // Env collects the flag-to-environment bindings of one FlagSet.
 type Env struct {
@@ -71,4 +75,41 @@ func (e *Env) EnvKeys() []string {
 		keys = append(keys, b.env)
 	}
 	return keys
+}
+
+// Items describes the flags registered on fs as configuration items, so a role
+// that already declares its surface once — as flags with defaults and usage —
+// does not declare it a second time as data.
+//
+// Name, default and doc are READ BACK from the FlagSet rather than restated:
+// the usage text an operator sees on `-h` and the doc a generated template
+// carries are then the same sentence by construction, and cannot drift.
+//
+// public names the bindings whose values are safe to echo. EVERYTHING ELSE IS
+// TREATED AS A SECRET, and that direction is the point: a map miss must not
+// mean "publish it". A flag added later and classified by nobody is withheld
+// until somebody decides it is safe — the failure an operator can recover from.
+// The other direction puts a bearer token in a build log and cannot be undone.
+//
+// The caller supplies it because only the role knows which of its own flags
+// carry a DSN, a signing key or a bearer token; the mechanism here cannot tell
+// a path from a password.
+func (e *Env) Items(fs *flag.FlagSet, role string, public map[string]bool) []config.Item {
+	registered := make(map[string]*flag.Flag, len(e.bindings))
+	fs.VisitAll(func(f *flag.Flag) { registered[f.Name] = f })
+
+	items := make([]config.Item, 0, len(e.bindings))
+	for _, b := range e.bindings {
+		f := registered[b.name]
+		items = append(items, config.Item{
+			Name:     b.env,
+			FlagName: b.name,
+			Kind:     config.KindString,
+			Default:  f.DefValue,
+			Secret:   !public[b.env],
+			Roles:    []string{role},
+			Doc:      f.Usage,
+		})
+	}
+	return items
 }

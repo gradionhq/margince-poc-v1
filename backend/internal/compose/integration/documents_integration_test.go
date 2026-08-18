@@ -14,6 +14,7 @@ package integration
 // something is there.
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 
@@ -37,10 +38,10 @@ func seedDocument(
 	// type per parameter, and using the id as both a uuid and a string leaves it
 	// with two.
 	e.WsExec(t, `
-		INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename, storage_key,
+		INSERT INTO attachment (id, entity_type, entity_id, filename, storage_key,
 		                        source, captured_by, category, organization_id, pinned)
-		VALUES ($1, $2, $3, $4, $5, $6, 'upload', 'human:test', $7, $8, $9)`,
-		id, e.WS, parentType, parent, name, "k/"+id.String(), category, org, pinned)
+		VALUES ($1, $2, $3, $4, $5, 'upload', 'human:test', $6, $7, $8)`,
+		id, parentType, parent, name, "k/"+id.String(), category, org, pinned)
 	return id
 }
 
@@ -164,13 +165,13 @@ func TestAnUploadedDocumentReachesTheAccountLibrary(t *testing.T) {
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docUploadPerms)
 
 	onOrg, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "organization", EntityID: org, Filename: "nda.pdf", Body: []byte("bytes"),
+		EntityType: "organization", EntityID: org, Filename: "nda.pdf", Content: bytes.NewReader([]byte("bytes")),
 	})
 	if err != nil {
 		t.Fatalf("uploading against the organization: %v", err)
 	}
 	onDeal, err := store.UploadAttachment(ctx, activities.AttachmentInput{
-		EntityType: "deal", EntityID: deal, Filename: "quote.pdf", Body: []byte("bytes"),
+		EntityType: "deal", EntityID: deal, Filename: "quote.pdf", Content: bytes.NewReader([]byte("bytes")),
 	})
 	if err != nil {
 		t.Fatalf("uploading against the deal: %v", err)

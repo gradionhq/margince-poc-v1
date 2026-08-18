@@ -111,8 +111,8 @@ func (e *sendEnv) seedProject(t *testing.T, name string) ids.UUID {
 	}
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO project (id, workspace_id, name, organization_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, id, e.ws, name, org); err != nil {
+		INSERT INTO project (id, name, organization_id, source, captured_by)
+		VALUES ($1, $2, $3, 'manual', 'human:x')`, id, name, org); err != nil {
 		t.Fatalf("seeding the project: %v", err)
 	}
 	return id

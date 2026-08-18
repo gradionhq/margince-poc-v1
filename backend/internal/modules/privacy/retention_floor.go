@@ -44,18 +44,85 @@ import (
 // statutory floor is never shortened to 2190 days across leap years — and
 // under §147(4) AO the clock starts at the END of the record's calendar year,
 // so a January Handelsbrief keeps almost seven calendar years, never one day
-// less. The two branches deliberately differ in form: clamped interval
-// ADDITION loses days at month ends (Jan-31 + 1 month = Feb-28), so the
-// occurrence branch keeps the conservative `occurred_at > now() - interval`
-// shape (which jurisdiction.Period.Cutoff mirrors); the year-end branch adds
-// from Jan 1, where nothing clamps, and matches RetentionClass.ProtectedSince.
+// less. The window is spelled as ONE instant, floorWindowEnd, read against
+// now(): the same expression the erasure pins as restricted_until, so what
+// this predicate shields today is exactly what the restriction holds until.
 // A zero floor stringifies to a zero interval, so the ELSE branch reduces to
 // `occurred_at > now()` — nothing is shielded, exactly as before.
 func correspondenceFloorPredicate(intervalArg, anchorArg int) string {
-	return fmt.Sprintf(`AND NOT (a.kind NOT IN ('task','note')
-		  AND CASE WHEN $%[2]d THEN date_trunc('year', a.occurred_at) + interval '1 year' + $%[1]d::interval > now()
-		           ELSE a.occurred_at > now() - $%[1]d::interval END)`, intervalArg, anchorArg)
+	// An already-restricted row is out of every destructive path's reach,
+	// unconditionally and before the floor is even considered. The data-layer
+	// guard refuses a write to one, and a refusal inside the nightly pass
+	// fails the whole policy — so a single restricted row left in a selector
+	// would stop every later scope, every night, and a compliance engine that
+	// has silently stopped running looks exactly like one with nothing to do
+	// (A167/ADR-0116). The expiry sweep reaches these rows by its own
+	// selector, which is the only path that may.
+	return `AND a.restricted_at IS NULL
+		  AND NOT (` + handelsbriefShielded(intervalArg, anchorArg) + `)`
 }
+
+// handelsbriefShielded is the floor's positive form: the activity aliased `a`
+// is a Handelsbrief whose statutory window is still open. correspondenceFloorPredicate
+// negates it to keep such rows out of a destructive statement; the erasure's
+// restrict step selects BY it, because those are exactly the rows it must hold
+// rather than destroy. One spelling, so what one path shields is what the
+// other restricts — a row that fell between the two would be neither erased
+// nor held.
+func handelsbriefShielded(intervalArg, anchorArg int) string {
+	return `a.kind NOT IN ('task','note')
+		  AND (` + handelsbriefArm + `)
+		  AND ` + floorWindowEnd(intervalArg, anchorArg) + ` > now()`
+}
+
+// floorWindowEnd is the instant the statutory window over the activity
+// aliased `a` closes — the value the restrict step PINS as restricted_until,
+// so a later change to the configured period never shortens an obligation
+// already recorded (A165/ADR-0114). The year-end branch adds from Jan 1,
+// where nothing clamps, and matches RetentionClass.ProtectedSince; the
+// occurrence branch adds to the record's own instant, which is what
+// jurisdiction.Period.Cutoff mirrors. Both are the SAME instant the shield
+// reads, so a row can never sit shielded from destruction yet outside the
+// window the restriction would pin — that gap would be a record neither
+// erased nor held.
+func floorWindowEnd(intervalArg, anchorArg int) string {
+	return fmt.Sprintf(`CASE WHEN $%[2]d THEN date_trunc('year', a.occurred_at) + interval '1 year' + $%[1]d::interval
+		           ELSE a.occurred_at + $%[1]d::interval END`, intervalArg, anchorArg)
+}
+
+// handelsbriefArm answers whether an activity is a Handelsbrief — correspondence
+// about an actual commercial transaction, which is the only thing §257 HGB and
+// §147 AO oblige anybody to keep. It filters an activity aliased `a` and takes
+// no placeholders, so it renumbers nothing at the four call sites.
+//
+// THE STAMP FIRST, the derived rule only as a fallback, and that order is the
+// decision rather than an optimisation (A165/ADR-0114). Qualification is
+// reversible in the product: reopening a won deal clears its terminal fields,
+// and relinking an activity deletes its existing link of that type. A rule
+// that asks the question at erasure time asks it of a record whose evidence
+// may have moved, and answers "ordinary mail" about a genuine Handelsbrief —
+// which destroys it. Over-retention is an argument to have with a supervisory
+// authority; destruction is irreversible.
+//
+// The derived arm stays for rows captured before the stamp existed, where the
+// links are the only evidence there is. It is a floor for legacy data, not the
+// rule: every row a qualifying deal touches from now on carries the stamp
+// (activities.StampCorrespondenceForDeal), and the stamp decides.
+//
+// A deal QUALIFIES when it is won, or carries an offer past draft — a sent
+// Angebot documents the preparation of a Handelsgeschäft whether or not it
+// closed, which is why DEPACK-PARAM-5 prices sent offers at six years
+// alongside accepted ones. An ORGANIZATION link is deliberately not enough: an
+// organization is a party, not a transaction, and a Handelsbrief hangs off the
+// transaction.
+const handelsbriefArm = `a.retention_class IS NOT NULL
+		    OR (a.retention_class IS NULL AND EXISTS (
+		          SELECT 1 FROM activity_link hl
+		          JOIN deal hd ON hd.id = hl.deal_id
+		          WHERE hl.activity_id = a.id AND hl.entity_type = 'deal'
+		            AND (hd.status = 'won'
+		                 OR EXISTS (SELECT 1 FROM offer o
+		                             WHERE o.deal_id = hd.id AND o.status <> 'draft'))))`
 
 // statutoryCorrespondenceFloor is the strictest compiled-in pack's
 // commercial-correspondence class — the boundary below which a

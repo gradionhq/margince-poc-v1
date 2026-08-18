@@ -3,10 +3,14 @@
 
 // Package dbmigrate applies the repo's SQL migrations. It exists instead
 // of golang-migrate because the schema has THREE ownership namespaces
-// (ADR-0017: sequential core/, timestamp custom/, per-jurisdiction packs),
-// each with its own tracking table and a fixed core-then-custom apply
-// order — a shape that would need one golang-migrate instance per
-// namespace anyway.
+// (ADR-0017: core/, custom/, per-jurisdiction packs), each with its own
+// tracking table and a fixed core-then-custom apply order — a shape that
+// would need one golang-migrate instance per namespace anyway.
+//
+// A version is ordered as a string, never parsed as a number, so a
+// namespace may hold more than one version shape as long as the shapes
+// sort into one another correctly. Which shapes a namespace uses is the
+// namespace's own business, not this package's.
 package dbmigrate
 
 import (
@@ -27,9 +31,9 @@ const (
 	suffixDown = ".down.sql"
 )
 
-// Migration is one reversible schema step: NNNN_name.up.sql + .down.sql.
+// Migration is one reversible schema step: <version>_name.up.sql + .down.sql.
 type Migration struct {
-	Version string // "0001" (core, sequential) or "20260620143000" (custom, timestamp)
+	Version string // "1787000000" (core, unix seconds), "0001" (core, the closed sequence) or "20260620143000" (custom)
 	Name    string
 	UpSQL   string
 	DownSQL string
@@ -46,7 +50,7 @@ type Namespace struct {
 // is arbitrary but must never change.
 const advisoryLockKey = 74_726_531 // "margince migrate"
 
-// Load reads NNNN_name.up.sql / NNNN_name.down.sql pairs from dir. A
+// Load reads <version>_name.up.sql / <version>_name.down.sql pairs from dir. A
 // missing .down.sql is an error: every migration must reverse (B-EP02.1b).
 func Load(fsys fs.FS, dir string) ([]Migration, error) {
 	entries, err := fs.ReadDir(fsys, dir)

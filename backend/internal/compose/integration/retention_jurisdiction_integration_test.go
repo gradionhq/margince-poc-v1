@@ -38,6 +38,14 @@ func init() {
 func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	e := Setup(t)
 	email, note, janEmail, message := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
+	// unlinkedEmail is the case A165/ADR-0114 NARROWED the floor to exclude: a
+	// 400-day-old email that concerns no commercial transaction. §257 HGB
+	// obliges retention of a Handelsbrief, and a scheduling mail or a marketing
+	// enquiry is not one — shielding it was the over-retention the EDPB names
+	// as applying the legal-obligation exception without case-by-case
+	// assessment. It must be erased where its linked sibling survives, and
+	// that contrast is the whole point of seeding both.
+	unlinkedEmail := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
@@ -75,12 +83,49 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		// The §147(4) boundary: a January email six-and-a-half years old.
 		// An occurrence-anchored 6y floor would already expose it; the
 		// calendar-year-end anchor keeps it until its year's end + 6y.
-		_, err := tx.Exec(ctx, `
+		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
 			VALUES ($1, `+wsClause+`, 'email', 'January Handelsbrief', 'commercial content',
 			        date_trunc('year', now() - interval '6 years') + interval '14 days', 'capture', 'connector:t')`,
-			janEmail)
-		return err
+			janEmail); err != nil {
+			return err
+		}
+		// The control: same age, same kind, no transaction behind it.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, `+wsClause+`, 'email', 'Lunch next Tuesday?', 'no transaction here', now() - interval '400 days', 'capture', 'connector:t')`,
+			unlinkedEmail); err != nil {
+			return err
+		}
+		// What makes the other three Handelsbriefe: a WON deal they are filed
+		// against. Before A165 the predicate shielded by exclusion and needed
+		// no deal at all; now the transaction is the thing the obligation
+		// hangs off, so the fixture has to supply one or it proves nothing.
+		pipeline, stage, deal := ids.NewV7(), ids.NewV7(), ids.NewV7()
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO pipeline (id, workspace_id, name, is_default, position)
+			VALUES ($1, `+wsClause+`, 'Default', true, 0)`, pipeline); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
+			VALUES ($1, `+wsClause+`, $2, 'Closed Won', 0, 'won', 100)`, stage, pipeline); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO deal (id, workspace_id, name, status, pipeline_id, stage_id, closed_at, source, captured_by)
+			VALUES ($1, `+wsClause+`, 'Acme rollout', 'won', $2, $3, now(), 'api', 'human:t')`,
+			deal, pipeline, stage); err != nil {
+			return err
+		}
+		for _, a := range []ids.UUID{email, janEmail, message} {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+				VALUES (`+wsClause+`, $1, 'deal', $2)`, a, deal); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +136,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var emailBody, noteBody, janBody, messageBody *string
+	var emailBody, noteBody, janBody, messageBody, unlinkedBody *string
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, email).Scan(&emailBody); err != nil {
 			return err
@@ -100,6 +145,9 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 			return err
 		}
 		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, message).Scan(&messageBody); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, unlinkedEmail).Scan(&unlinkedBody); err != nil {
 			return err
 		}
 		return tx.QueryRow(context.Background(), `SELECT body FROM activity WHERE id = $1`, note).Scan(&noteBody)
@@ -118,5 +166,8 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	}
 	if noteBody != nil {
 		t.Error("the floor over-shielded: a plain note past the policy age survived")
+	}
+	if unlinkedBody != nil {
+		t.Error("the floor over-shielded: a 400-day-old email concerning no transaction survived — A165 narrowed the floor to Handelsbriefe, and shielding ordinary mail is the over-retention it removed")
 	}
 }

@@ -275,6 +275,14 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
+	// The record the timeline was narrowed TO is gated before it is filtered
+	// on. The scope below is an ANY-LINK rule, so an activity linked to both a
+	// visible person and a lead the caller may not read passes it — and
+	// filtering on that lead's id would then answer "this lead exists, and here
+	// is what happened on it" to someone with no right to either fact.
+	if err := ensureNarrowingTargetVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
+		return nil, storekit.Page{}, err
+	}
 	limit := storekit.ClampLimit(in.Limit)
 	join, where, args, err := listActivitiesFilter(ctx, in)
 	if err != nil {

@@ -354,8 +354,8 @@ func assertSendFreezesDailyFxRate(t *testing.T, e *apptest.AppEnv, wsID, offerID
 		t.Fatalf("send with missing fx rate → %d, want 422", status)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		 VALUES ($1, 'USD', 'EUR', 0.9200000000, current_date)`, wsID); err != nil {
+		`INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
+		 VALUES ('USD', 'EUR', 0.9200000000, current_date)`); err != nil {
 		t.Fatal(err)
 	}
 	var sent offerBody

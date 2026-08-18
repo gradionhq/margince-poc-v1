@@ -551,6 +551,29 @@ export const vi = {
   "people.name": "Tên",
   "people.email": "Email",
   "people.capturedBy": "Ghi nhận bởi",
+  "list.owner": "Phụ trách",
+  "list.unowned": "Chưa phân công",
+  "list.created": "Ngày tạo",
+  "list.updated": "Cập nhật",
+  "list.filterOwnerMe": "Bản ghi của tôi",
+  "list.filterOwnerAll": "Mọi người phụ trách",
+  "list.filterOwnerUnassigned": "Chưa phân công",
+  "list.filterOwnerTeam": "Nhóm của tôi",
+  "list.viewTeam": "Nhóm của tôi",
+  "list.viewUnassigned": "Chưa phân công",
+  "views.save": "Lưu bộ lọc",
+  "views.saveConfirm": "Lưu",
+  "views.saveTitle": "Lưu bộ lọc này",
+  "views.name": "Tên",
+  "views.delete": "Xoá bộ lọc",
+  "views.deleteConfirm":
+    "Xoá bộ lọc \u201c{name}\u201d? Bản ghi vẫn còn, chỉ bộ lọc đã lưu bị xoá.",
+  "list.viewMine": "Của tôi",
+  "list.viewCustomers": "Khách hàng",
+  "list.viewProspects": "Khách tiềm năng",
+  "org.filterLifecycleAll": "Mọi giai đoạn",
+  "org.filterRelTypeAll": "Mọi loại",
+  "list.scopeTeam": "Bạn đang xem bản ghi của nhóm mình.",
   "person.consent": "Chấp thuận",
   "consent.grant": "Cấp chấp thuận",
   "consent.withdraw": "Rút lại",
@@ -579,6 +602,8 @@ export const vi = {
   "org.name": "Công ty",
   "org.description": "Họ làm gì",
   "org.website": "Trang web",
+  "org.contactCount": "Liên hệ",
+  "org.openDealCount": "Deal đang mở",
   "org.industry": "Ngành",
   "org.size": "Quy mô",
   "org.classification": "Loại",
@@ -859,6 +884,8 @@ export const vi = {
     "K\u00e9o th\u1ea3 PDF \u0111\u00e3 k\u00fd v\u00e0o \u0111\u00e2y, ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn. T\u00e0i li\u1ec7u \u0111\u01b0\u1ee3c g\u1eafn v\u1edbi h\u1ee3p \u0111\u1ed3ng n\u00e0y v\u00e0 hi\u1ec7n trong t\u00e0i li\u1ec7u c\u1ee7a kh\u00e1ch h\u00e0ng.",
   "contracts.form.fileEmpty":
     "K\u00e9o th\u1ea3 t\u1ec7p v\u00e0o \u0111\u00e2y ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn",
+  "contracts.form.fileAdd":
+    "K\u00e9o th\u1ea3 t\u1ec7p kh\u00e1c v\u00e0o \u0111\u00e2y ho\u1eb7c b\u1ea5m \u0111\u1ec3 ch\u1ecdn",
   "contracts.perYear": "{amount} / n\u0103m",
   "contracts.state.title": "Đang có hợp đồng · {count} hiệu lực",
   "contracts.state.none": "Chưa có hợp đồng nào",
@@ -925,14 +952,14 @@ export const vi = {
   "co.growthFit.band.unknown": "Chưa đủ để kết luận",
   "co.growthFit.completeness":
     "Đã có {present} trên {expected} thông tin cần thiết",
-  "co.growthFit.missing": "Còn thiếu: {inputs}.",
+  "co.growthFit.missing": "Còn thiếu",
   "co.growthFit.capped": "Bị giới hạn: {reason}.",
   "co.growthFit.nextStep": "Tiếp theo: {step}.",
   "co.growthFit.positive": "Điều ủng hộ",
   "co.growthFit.negative": "Điều phản đối",
-  "co.growthFit.whitespace": "Những thứ họ chưa mua của bạn",
-  "co.growthFit.objections": "Những điều họ có thể phản đối",
-  "co.growthFit.angle": "Hướng tiếp cận đề xuất",
+  "co.growthFit.whitespace": "Còn có thể bán",
+  "co.growthFit.objections": "Phản đối có thể gặp",
+  "co.growthFit.angle": "Hướng tiếp cận đề xuất",
   "co.writeEmail": "Viết email",
   "co.dossier.title": "Công ty này là gì",
   "co.dossier.unavailable":
@@ -1258,6 +1285,42 @@ export const vi = {
   "lead.promoteIneligible": "cần có email và trạng thái đang mở",
   "lead.filterStatus": "Trạng thái",
   "lead.filterStatusAll": "Tất cả trạng thái",
+  "lead.filterScore": "Điểm",
+  "lead.filterScoreAll": "Mọi điểm số",
+  "lead.filterScoreHot": "Từ 80",
+  "lead.filterScoreWarm": "Từ 60",
+  "lead.filterScoreCool": "Từ 40",
+  "lead.details": "Chi tiết",
+  "lead.detailsUnset": "Chưa đặt",
+  "lead.terminalReadOnly":
+    "Khách hàng tiềm năng này đã đóng và không nhận thay đổi.",
+  "lead.boardTerminalOnly":
+    "Bảng chỉ hiện khách hàng tiềm năng đang mở. Những mục này đã chuyển hoặc bị loại.",
+  "person.fromLead": "Từ khách hàng tiềm năng",
+  "lead.promotedTitle": "Đã chuyển thành liên hệ",
+  "lead.promotedMerged":
+    "Khách hàng tiềm năng này đã được gộp vào một liên hệ đã biết — không tạo bản trùng.",
+  "lead.promotedCreated":
+    "Khách hàng tiềm năng này đã trở thành một liên hệ mới.",
+  "lead.promotedAt": "Đã chuyển",
+  "lead.promotedTrigger": "Tác nhân:",
+  "lead.promotedEvidence": "Bằng chứng:",
+  "lead.previewPending": "Đang kiểm tra xem chúng ta đã biết người này chưa…",
+  "lead.previewCreate": "Việc chuyển sẽ tạo một liên hệ mới.",
+  "lead.previewMerge": "Việc chuyển sẽ gộp vào liên hệ hiện có",
+  "lead.previewMergeWithheld":
+    "Việc chuyển sẽ gộp vào một liên hệ hiện có mà bạn không xem được.",
+  "lead.demote": "Hoàn tác chuyển đổi",
+  "lead.demoteDialog": "Hoàn tác việc chuyển đổi này?",
+  "lead.demoteExplain":
+    "Lead quay lại hàng đợi ở trạng thái “Đang xử lý”. Liên hệ do việc chuyển tạo ra sẽ được lưu trữ; liên hệ đã được gộp vào giữ nguyên. Không thể hoàn tác với liên hệ đang gắn với một deal.",
+  "lead.demoteReason": "Lý do (được ghi vào nhật ký)",
+  "lead.demoteConfirm": "Hoàn tác",
+  "lead.promotedOutcomePending": "Đang đọc kết quả của lần chuyển này…",
+  "lead.promotedOutcomeUnavailable":
+    "Không thể hiển thị việc này đã gộp hay tạo liên hệ mới.",
+  "lead.terminalPromoted":
+    "Đã chuyển — khách hàng tiềm năng này giờ ở chế độ chỉ đọc.",
   "lead.statusNew": "Mới",
   "lead.statusWorking": "Đang xử lý",
   "lead.statusPromoted": "Đã chuyển đổi",
@@ -1722,6 +1785,38 @@ export const vi = {
   "docs.reading.hide": "Ẩn phần đọc",
   "docs.pinned": "Đã ghim",
 
+  // Thêm một tài liệu. Câu hỏi "Thuộc về đâu" mới là quyết định thật: chỉ tài
+  // liệu gắn với một thương vụ mới được đọc để lấy các trường của thương vụ.
+  // Phần gợi ý nói thẳng điều đó, thay vì để người dùng tự đoán qua một bảng
+  // không bao giờ hiện ra.
+  "docs.add.action": "Thêm tài liệu",
+  "docs.add.title": "Thêm tài liệu",
+  "docs.add.about": "Thuộc về",
+  "docs.add.aboutHint":
+    "Tài liệu gắn với một thương vụ có thể được đọc để lấy các trường của thương vụ; gắn với công ty thì không.",
+  "docs.add.thisCompany": "Công ty này",
+  "docs.add.category": "Phân loại",
+  "docs.add.name": "Tiêu đề",
+  "docs.add.nameHint": "Không bắt buộc. Để trống thì dòng hiển thị tên tệp.",
+  "docs.add.file": "Tệp",
+  "docs.add.fileHint": "Tối đa {size}.",
+  "docs.add.fileEmpty": "Kéo tệp vào đây, hoặc bấm để chọn",
+  "docs.add.cancel": "Huỷ",
+  "docs.add.submit": "Tải lên",
+  "docs.add.uploading": "Đang tải lên…",
+  "docs.add.errNoFile": "Hãy chọn một tệp để tải lên.",
+  "docs.add.errRefused": "Bạn không được thêm tài liệu vào bản ghi này.",
+  "docs.add.errInFlight": "Tài liệu này vẫn đang được tải lên.",
+  "docs.add.errTooLarge":
+    "Tệp này lớn hơn {size}, là mức tối đa bản cài đặt này nhận. Hãy chọn tệp nhỏ hơn.",
+  "docs.add.failedTitle": "Tải lên không thành công",
+  "docs.add.failed": "Chưa lưu được gì. Hãy thử lại, hoặc chọn tệp khác.",
+  "docs.add.partialTitle": "Đã tải lên, nhưng chưa xếp loại",
+  "docs.add.partial":
+    "Tệp đã nằm trên bản ghi và có trong danh sách bên dưới. Chỉ phân loại và tiêu đề là chưa lưu được, nên tệp đang xếp ở mục Khác.",
+  "docs.add.dealsFailed":
+    "Không tải được danh sách thương vụ của tài khoản này, nên tài liệu chỉ có thể gắn với công ty.",
+
   // Bảng đọc tài liệu đã lưu (RD-AC-N-2/-3). Ba trạng thái phải tách bạch cả
   // trong câu chữ: chưa trả lời, đã đọc và không nêu trường nào, và không đọc
   // được.
@@ -1943,6 +2038,14 @@ export const vi = {
     "Đây là những passport của bạn để cho mượn. Kết nối một client MCP, nó sẽ hỏi bạn trao passport nào — kết nối đó sau đó mang đúng các phạm vi của passport ấy.",
   "settings.passportLabel": "Tên Agent",
   "settings.mint": "Tạo passport",
+  "settings.minting": "Đang tạo…",
+  "settings.mintCancel": "Huỷ",
+  "settings.mintDone": "Xong",
+  "settings.passportScopes": "Tác nhân này được phép làm gì",
+  "settings.passportScopesHint":
+    "Chọn ít nhất một mục. Tác nhân không bao giờ được làm nhiều hơn bạn.",
+  "settings.passportScopesRequired":
+    "Hãy chọn ít nhất một việc tác nhân này được phép làm.",
   "agents.connected": "Agent đã kết nối",
   "agents.connectedSub":
     "Các client MCP giữ thông tin xác thực của riêng mình, sinh ra từ một passport bạn cho mượn",
@@ -2171,6 +2274,46 @@ export const vi = {
   "privacy.legalHold":
     "Bị chặn — lệnh lưu giữ pháp lý. Người này đang trong thời hạn lưu giữ theo luật, nên quyền xoá không thắng ở đây (Art. 17(3)(b)). Việc chặn áp dụng cho mọi vai trò, kể cả quản trị — không có ngoại lệ. Lần thử này đã được ghi vào nhật ký kiểm toán.",
 
+  "restricted.title": "Bản ghi bị hạn chế",
+  "restricted.sub":
+    "những gì nghĩa vụ lưu giữ theo luật đang giữ lại sau một lần xóa — bản ghi nào, vì sao và đến khi nào. Nội dung thư từ không được hiển thị: nó bị hạn chế chính là để không bị đọc.",
+  "restricted.withheld":
+    "Chỉ quản trị viên hoặc vận hành mới thấy bản ghi nào đang bị nghĩa vụ pháp lý giữ lại. Dùng cùng quyền với thang lưu giữ.",
+  "restricted.empty":
+    "Không có bản ghi nào bị giữ lại — mọi lần xóa cho đến nay đều được hoàn tất đầy đủ.",
+  "restricted.kind": "Bản ghi",
+  "restricted.occurred": "Ngày",
+  "restricted.deals": "Giao dịch",
+  "restricted.noDeal": "Không có deal đi kèm",
+  "restricted.reason": "Giữ lại vì",
+  "restricted.until": "Giữ đến",
+  "restricted.redacted": "Đã che",
+  "restricted.nothingRedacted": "Không xóa gì",
+  "restricted.redactedCount": "Đã xóa {count} trường",
+  "restricted.class.commercialCorrespondence": "Thư từ thương mại",
+  "restricted.kind.email": "Email",
+  "restricted.kind.call": "Cuộc gọi",
+  "restricted.kind.meeting": "Cuộc họp",
+  "restricted.kind.message": "Tin nhắn",
+  "restricted.decide": "Quyết định",
+  "restricted.reasonLabel": "Lý do",
+  "restricted.reasonHint":
+    "Được ghi vào nhật ký kiểm toán kèm tên bạn. Đây là điều làm cho quyết định có thể quy trách nhiệm — hãy nêu bạn quyết định gì và trên cơ sở nào.",
+  "restricted.release.action": "Giải phóng",
+  "restricted.release.title": "Giải phóng bản ghi này khỏi nghĩa vụ lưu giữ?",
+  "restricted.release.body":
+    "Giải phóng sẽ XÓA bản ghi. Nó không quay lại sử dụng: yêu cầu xóa mà nghĩa vụ này đã tạm hoãn vẫn còn hiệu lực, nên việc gỡ bỏ nghĩa vụ sẽ hoàn tất yêu cầu đó. Không thể hoàn tác.",
+  "restricted.release.confirm": "Giải phóng và xóa",
+  "restricted.pin.action": "Ghim một bản ghi",
+  "restricted.pin.idHint":
+    "Dành cho thư từ mà quy tắc tự động không nhận ra — thư nhà cung cấp và mua hàng thuộc diện lưu giữ theo §257 HGB nhưng không có deal nào trong sản phẩm này để gắn vào. Mã bản ghi nằm trong mục kiểm toán của nó.",
+  "restricted.pin.idMalformed":
+    "Đó không phải mã bản ghi. Mã gồm 8-4-4-4-12 ký tự thập lục phân và hiển thị đầy đủ trong mục kiểm toán của bản ghi.",
+  "restricted.pin.idPlaceholder": "Mã bản ghi",
+  "restricted.pin.title": "Đặt bản ghi này dưới nghĩa vụ lưu giữ?",
+  "restricted.pin.body":
+    "Bản ghi được giữ lại trong thời hạn luật định: ẩn khỏi mọi khung nhìn thông thường, không thể sửa, và bị xóa khi hết hạn. Các định danh của nó được che ngay bây giờ.",
+  "restricted.pin.confirm": "Ghim và giữ lại",
   "retention.title": "Lưu giữ dữ liệu",
   "retention.sub":
     "mỗi loại bản ghi được giữ trong bao lâu, và điều gì xảy ra khi hết thời hạn",
@@ -4850,7 +4993,7 @@ export const vi = {
   "person.brief.reading": "Đang đọc mối quan hệ…",
   "person.brief.empty":
     "Chưa có gì được ghi nhận để viết bản tóm tắt này từ đó.",
-  "person.brief.sourceEmail": "Chuỗi email",
+  "person.brief.sourceActivity": "Cuộc trò chuyện",
   "person.brief.sourceDeal": "Ghi chú deal",
 
   "person.matters.title": "Điều {name} quan tâm",
@@ -4891,6 +5034,8 @@ export const vi = {
   "person.memory.channelMeeting": "Cuộc họp",
   "person.memory.channelCall": "Cuộc gọi",
   "person.memory.channelNote": "Ghi chú",
+  "person.memory.channelMessage": "Tin nhắn",
+  "person.memory.channelTask": "Công việc",
   "person.memory.replied": "Đã hồi đáp",
   "person.memory.unanswered": "Chưa hồi đáp",
 
@@ -4927,6 +5072,9 @@ export const vi = {
   "person.rail.consentTitle": "Đồng ý & kênh liên lạc",
   "person.rail.email": "Email",
   "person.rail.phone": "Điện thoại",
+  "person.rail.noEmailAddress": "Chưa có địa chỉ",
+  "person.rail.noPhoneNumber": "Chưa có số",
+  "person.rail.channelNotDeliverable": "Không thể gửi",
   "person.rail.recentActivity": "Hoạt động gần đây",
   "person.rail.nothingCaptured": "Chưa ghi nhận gì.",
   "person.rail.viewAllActivity": "Xem tất cả hoạt động",

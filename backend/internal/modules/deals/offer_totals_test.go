@@ -4,9 +4,17 @@
 package deals
 
 import (
+	"errors"
 	"fmt"
+	"math"
 	"math/big"
+	"net/http"
+	"strconv"
+	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr/faulttest"
 )
 
 // The B-E03.18 golden cases: line_net = round(qty × unit_price ×
@@ -69,6 +77,150 @@ func TestLineTotalsRejectsMalformedDecimals(t *testing.T) {
 	} {
 		if _, err := LineTotals(bad); err == nil {
 			t.Errorf("LineTotals(%+v) accepted a malformed decimal", bad)
+		}
+	}
+}
+
+// A line whose figures leave the int64 minor-unit range is REFUSED, not
+// narrowed: big.Int.Int64() would hand back the low 64 bits, which for
+// the quantity × unit_price magnitudes both columns accept is routinely a
+// negative number the offer row, the PDF and the rollup then treat as
+// real money. The refusal classifies as a 422 naming the inputs that fed
+// the figure, so it reads the same on REST and on the MCP tool surface.
+func TestLineTotalsRefusesFiguresOutsideTheMoneyRange(t *testing.T) {
+	cases := []struct {
+		name       string
+		line       OfferLineInput
+		wantFigure string
+		wantFields []string
+	}{
+		{
+			name: "quantity times price wraps int64 into a negative net",
+			// 9e9 × 1e11 = 9e20, past int64's 9.22e18 ceiling.
+			line:       OfferLineInput{Quantity: "99999999999.000", UnitPriceMinor: 9_000_000_000, DiscountPct: "0.00", TaxRate: "0.00"},
+			wantFigure: "line_net_minor",
+			wantFields: []string{"quantity", "unit_price_minor"},
+		},
+		{
+			name: "a rate the numeric(5,2) column accepts takes the tax past the ceiling",
+			// net = MaxInt64 fits; net × 999.99 % does not.
+			line:       OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "999.99"},
+			wantFigure: "line_tax_minor",
+			wantFields: []string{"quantity", "unit_price_minor", "tax_rate"},
+		},
+		{
+			name: "net plus tax leaves the range both halves fit",
+			// net = MaxInt64, tax = 19 % of it; each is representable, the sum is not.
+			line:       OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "19.00"},
+			wantFigure: "line_total_minor",
+			wantFields: []string{"quantity", "unit_price_minor"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := LineTotals(tc.line)
+			if err == nil {
+				t.Fatalf("LineTotals accepted an unrepresentable line and returned %+v", got)
+			}
+			var rangeErr *MoneyRangeError
+			if !errors.As(err, &rangeErr) {
+				t.Fatalf("refusal is not a MoneyRangeError, so it reports as an internal fault: %v", err)
+			}
+			if rangeErr.Figure != tc.wantFigure {
+				t.Fatalf("refusal names figure %q, want %q", rangeErr.Figure, tc.wantFigure)
+			}
+			assertMoneyRangeIsClientFault(t, err, tc.wantFields...)
+		})
+	}
+}
+
+// The positive control for the refusal above: the largest line the range
+// genuinely holds still computes, so the fence rejects overflow rather
+// than large-but-valid money.
+func TestLineTotalsAcceptsTheLargestRepresentableLine(t *testing.T) {
+	line := OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64, DiscountPct: "0.00", TaxRate: "0.00"}
+	got, err := LineTotals(line)
+	if err != nil {
+		t.Fatalf("LineTotals(%+v): %v", line, err)
+	}
+	want := LineFigures{NetMinor: math.MaxInt64, TaxMinor: 0, TotalMinor: math.MaxInt64}
+	if got != want {
+		t.Fatalf("LineTotals(%+v) = %+v, want %+v", line, got, want)
+	}
+}
+
+// Lines that each fit int64 can still sum past it, so the offer-level
+// accumulation carries the same fence — a native += would wrap the stored
+// offer row while every line it is supposed to reconcile to reads right.
+func TestOfferTotalsRefuseASumOutsideTheMoneyRange(t *testing.T) {
+	half := OfferLineInput{Quantity: "1.000", UnitPriceMinor: math.MaxInt64 / 2, DiscountPct: "0.00", TaxRate: "0.00"}
+	lines := []OfferLineInput{half, half, half}
+	for _, line := range lines {
+		if _, err := LineTotals(line); err != nil {
+			t.Fatalf("a line the sum is built from must itself be representable: %v", err)
+		}
+	}
+
+	got, err := OfferTotals(lines)
+	if err == nil {
+		t.Fatalf("OfferTotals accepted an unrepresentable sum and returned %+v", got)
+	}
+	var rangeErr *MoneyRangeError
+	if !errors.As(err, &rangeErr) {
+		t.Fatalf("refusal is not a MoneyRangeError, so it reports as an internal fault: %v", err)
+	}
+	if rangeErr.Figure != "net_minor" {
+		t.Fatalf("refusal names figure %q, want %q", rangeErr.Figure, "net_minor")
+	}
+	assertMoneyRangeIsClientFault(t, err, "line_items")
+}
+
+// assertMoneyRangeIsClientFault checks what a CALLER observes, not which
+// type carried it: the refusal must classify as 422 naming the inputs
+// that fed the figure, with the contract's machine code. Asserting the
+// carrier instead would pass even if the wire answer were an internal
+// fault — which is what every surface reports for an error outside the
+// taxonomy.
+func assertMoneyRangeIsClientFault(t *testing.T, err error, fields ...string) {
+	t.Helper()
+	for _, field := range fields {
+		faulttest.AssertNamesField(t, err, field)
+	}
+	fault, ok := httperr.Classify(err)
+	if !ok {
+		return // AssertNamesField has already failed the test on this
+	}
+	if fault.Status != http.StatusUnprocessableEntity {
+		t.Errorf("an unrepresentable money figure answered status %d, want exactly 422 — the body is "+
+			"well-formed and the request cannot be stored as sent", fault.Status)
+	}
+	for _, refusal := range fault.Fields {
+		if refusal.Code != "money_not_representable" {
+			t.Errorf("refusal for %s carries code %q, want %q — the code is what a client branches on",
+				refusal.Field, refusal.Code, "money_not_representable")
+		}
+		assertStatesTheLimitWithoutBlamingTheCaller(t, refusal.Message)
+	}
+}
+
+// assertStatesTheLimitWithoutBlamingTheCaller pins the framing, because
+// the framing is the decision here and it is the kind that regresses
+// silently. A high-magnitude currency (a zero-decimal one spends the
+// range one minor unit at a time) can reach this ceiling with an amount
+// that is entirely real, so the refusal must state what the installation
+// can store — telling that caller to reduce their figure would be telling
+// them to falsify it.
+func assertStatesTheLimitWithoutBlamingTheCaller(t *testing.T, message string) {
+	t.Helper()
+	ceiling := strconv.FormatInt(math.MaxInt64, 10)
+	if !strings.Contains(message, ceiling) {
+		t.Errorf("refusal %q does not state the ceiling %s, so the caller cannot tell what is storable",
+			message, ceiling)
+	}
+	for _, instruction := range []string{"lower ", "reduce ", "decrease "} {
+		if strings.Contains(strings.ToLower(message), instruction) {
+			t.Errorf("refusal %q instructs the caller to shrink a figure that may be legitimate; state the "+
+				"installation's limit instead", message)
 		}
 	}
 }

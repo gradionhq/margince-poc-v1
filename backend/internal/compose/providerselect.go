@@ -18,13 +18,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/config"
 )
 
-// providerModeEnv selects WHICH adapter this process talks to: "live" (the
+// ProviderModeEnv selects WHICH adapter this process talks to: "live" (the
 // default, the real vendor), "offline" for the deterministic fake, and "off"
 // to register none at all.
 //
 // It does not decide whether the FEATURE exists. That is the connection's
 // business, and an admin's to change from the settings page.
-const providerModeEnv = "MARGINCE_PROVIDER_SURFE"
+// ProviderModeEnv is exported so the composition roots can declare it as part
+// of their configurable surface without spelling the string a second time.
+const ProviderModeEnv = "MARGINCE_PROVIDER_SURFE"
 
 // offlinePollsBeforeDone makes the fake's polled transport visible on a dev
 // stack: two pending polls before it completes, so in_progress is a state a
@@ -55,7 +57,7 @@ const offlinePollsBeforeDone = 2
 // unknown value is still a boot error — a typo must not silently disable a
 // feature an operator asked for, nor silently choose the wrong vendor.
 func ProviderRegistryFromEnv(now func() time.Time, env config.Lookup) (*integrations.Registry, bool, error) {
-	switch mode := strings.ToLower(strings.TrimSpace(env(providerModeEnv))); mode {
+	switch mode := strings.ToLower(strings.TrimSpace(env(ProviderModeEnv))); mode {
 	case "off":
 		return nil, false, nil
 	case "offline":
@@ -71,6 +73,6 @@ func ProviderRegistryFromEnv(now func() time.Time, env config.Lookup) (*integrat
 		}
 		return reg, true, nil
 	default:
-		return nil, false, fmt.Errorf("compose: %s=%q is not a provider mode (off, offline, live)", providerModeEnv, mode)
+		return nil, false, fmt.Errorf("compose: %s=%q is not a provider mode (off, offline, live)", ProviderModeEnv, mode)
 	}
 }

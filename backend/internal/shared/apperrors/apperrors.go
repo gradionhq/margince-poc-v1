@@ -153,3 +153,13 @@ var (
 // those deals were worth. Distinct from ErrVersionSkew, which means somebody
 // else changed the row, and from ErrPermissionDenied, which means you may never.
 var ErrBaseCurrencyLocked = errors.New("base currency is locked by frozen conversion rates")
+
+// ErrRetentionHold is the statutory-restriction sentinel (interfaces.md §0,
+// A165/ADR-0114, A167/ADR-0116): a delete or mutation of a record held under
+// a retention obligation, refused for EVERY role including admin because the
+// immutability is a data-layer guarantee no seat clears (DEPACK-AC-5a). It
+// says nobody may, until a date — distinct from ErrPermissionDenied (you may
+// not, another principal might) and ErrVersionSkew (somebody else changed the
+// row) — so a caller must never retry it; the one way past it is the audited
+// release, which is its own operation.
+var ErrRetentionHold = errors.New("record is held under a statutory retention obligation")

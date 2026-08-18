@@ -29,10 +29,15 @@ const personNameColumn = "full_name"
 
 // ListPeopleInput carries the person list's contract parameters.
 type ListPeopleInput struct {
-	Cursor          *string
-	Limit           *int
-	Query           *string
-	OwnerID         *ids.UserID
+	Cursor  *string
+	Limit   *int
+	Query   *string
+	OwnerID *ids.UserID
+	// OwnerTeamID narrows to a team's rows; Unassigned to the unowned queue.
+	// Both narrow the caller's row scope and never widen it — see
+	// listFilters.ownershipClause, which also refuses two of them at once.
+	OwnerTeamID     *ids.TeamID
+	Unassigned      *bool
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
@@ -48,6 +53,10 @@ type ListPeopleInput struct {
 	// vocabulary belongs to another module, so this is a link predicate
 	// rather than a column — see personTagClause.
 	Tag *string
+	// OrganizationID narrows to the people employed there today. Employment is
+	// an edge, not a column on person, so this is a link predicate too — see
+	// personEmployerClause.
+	OrganizationID *ids.OrganizationID
 }
 
 // personListFields is the person list's core sortable vocabulary —
@@ -89,6 +98,32 @@ func personTagClause(tag *string, arg func(any) int) string {
 		arg(personEntity), arg(foldTagName(*tag)))
 }
 
+// personEmployerClause narrows the page to the people who work at one account
+// today, or "" when the caller named none.
+//
+// CURRENT PRIMARY employment only. A person's history carries every employer
+// they have had, and "who works there" is not "who has ever worked there" — a
+// list that answered the second would hand a rep the leavers alongside the
+// staff, which is the wrong answer wearing the right shape. The edge is the
+// one `uq_rel_current_primary_employer` keeps unique per person, so this
+// matches at most one row per person and cannot duplicate the page.
+//
+// EXISTS rather than a join, for the same reason the tag filter uses one: a
+// join multiplies a person by their matching edges, and the keyset cursor
+// would page over those copies as though they were distinct people.
+func personEmployerClause(orgID *ids.OrganizationID, arg func(any) int) string {
+	if orgID == nil {
+		return ""
+	}
+	return storekit.SQLf(`EXISTS (
+		SELECT 1 FROM relationship rel
+		WHERE rel.person_id = person.id
+		  AND rel.kind = 'employment'
+		  AND rel.is_current_primary
+		  AND rel.archived_at IS NULL
+		  AND rel.organization_id = $%d)`, arg(*orgID))
+}
+
 // foldTagName matches how the tag vocabulary is stored and compared: names
 // are trimmed on write and unique under lower(), so a caller's spacing and
 // case decide nothing about which tag they named.
@@ -103,6 +138,8 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		AiWritten:       in.AiWritten,
 		entity:          personEntity,
 		OwnerID:         in.OwnerID,
+		OwnerTeamID:     in.OwnerTeamID,
+		Unassigned:      in.Unassigned,
 		Query:           in.Query,
 		Cursor:          in.Cursor,
 		CustomFilters:   in.CustomFilters,
@@ -118,6 +155,9 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 				return nil, err
 			}
 			if clause := personTagClause(in.Tag, arg); clause != "" {
+				where = append(where, clause)
+			}
+			if clause := personEmployerClause(in.OrganizationID, arg); clause != "" {
 				where = append(where, clause)
 			}
 			return where, nil

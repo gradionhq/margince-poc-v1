@@ -17,10 +17,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
+	"regexp"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -271,6 +277,151 @@ func TestSavedView_roundTripsAndIsPerUser(t *testing.T) {
 	}
 }
 
+// A saved view's filter is checked when it is WRITTEN: a view naming a field
+// that is not filterable is refused by the surface that accepts it, not by an
+// export the author reaches much later, if ever.
+//
+// Both write paths, because a create-time gate one PATCH walks around is not a
+// gate. The other obligation these paths carry — that the vocabulary is
+// resolved BEFORE the write transaction opens — is NOT pinned here, for two
+// reasons that both have to hold: this store is built without a field
+// catalogue, so SegmentEngine never reaches for a second connection at all,
+// AND e.DB() is the shared multi-connection harness pool, so even wiring a
+// catalogue in would not make a nested acquire fail. Both are why
+// dynamicsegment_singleconn_integration_test.go owns that claim, over a pool
+// capped at one connection.
+func TestSavedView_filterIsValidatedWhenWrittenNotWhenExported(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	unfilterable := map[string]any{"field": "secret_salary", "op": "eq", "value": "x"}
+
+	assertRefused := func(what string, err error) {
+		t.Helper()
+		var pe *storekit.PredicateError
+		if !errors.As(err, &pe) {
+			t.Fatalf("%s: err = %v, want a PredicateError (422)", what, err)
+		}
+		if pe.Code != storekit.CodeFilterFieldNotAllowed {
+			t.Errorf("%s: code = %q, want %q", what, pe.Code, storekit.CodeFilterFieldNotAllowed)
+		}
+		if pe.Field != "secret_salary" {
+			t.Errorf("%s: field = %q, want the offending field named", what, pe.Field)
+		}
+	}
+
+	_, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Overpaid", Query: map[string]any{"filter": unfilterable},
+	})
+	assertRefused("create", err)
+
+	// A view saved with a good filter cannot be PATCHed onto a bad one.
+	good, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Mine",
+		Query: map[string]any{"filter": map[string]any{"field": "owner_id", "op": "eq", "value": e.Rep1.String()}},
+	})
+	if err != nil {
+		t.Fatalf("create a valid view: %v", err)
+	}
+	replacement := map[string]any{"filter": unfilterable}
+	_, err = store.UpdateSavedView(rep, good.ID, collections.UpdateSavedViewInput{Query: &replacement})
+	assertRefused("update", err)
+
+	// And the refusal left the stored view alone.
+	reloaded, err := store.GetSavedView(rep, good.ID)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !jsonEqual(t, good.Query, reloaded.Query) {
+		t.Errorf("the refused update still changed the stored query: %v", reloaded.Query)
+	}
+}
+
+// An ARCHIVED view refuses a query replacement as not-found, and does it BEFORE
+// the filter is examined. The order is the point: refusing the filter first
+// would answer 422 for a view whose existence the caller is not entitled to
+// learn, so a 422 here would be an existence oracle for archived views.
+//
+// This is the branch the update path's own comment claims and nothing exercised.
+func TestSavedView_anArchivedViewIsNotFoundBeforeItsFilterIsJudged(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+
+	view, err := store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "Retired",
+		Query: map[string]any{"filter": map[string]any{"field": "owner_id", "op": "eq", "value": e.Rep1.String()}},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if _, err := store.ArchiveSavedView(rep, view.ID); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+
+	// A filter that would ALSO be refused on its own merits, so a 422 could
+	// only mean the archived check was skipped.
+	unfilterable := map[string]any{"filter": map[string]any{"field": "secret_salary", "op": "eq", "value": "x"}}
+	_, err = store.UpdateSavedView(rep, view.ID, collections.UpdateSavedViewInput{Query: &unfilterable})
+
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("err = %v, want ErrNotFound — a 422 here tells the caller an archived view exists", err)
+	}
+}
+
+// The shape refusals on both write surfaces, each naming its own wire field.
+//
+// They are one line of validation apiece and were unexercised, which is how the
+// wrong field name survived in them for as long as it did: a refusal nobody
+// reads is a refusal nobody notices is wrong.
+func TestListAndSavedViewShapeRefusalsNameTheirOwnField(t *testing.T) {
+	e := Setup(t)
+	store := collections.NewStore(e.DB())
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
+	filter := map[string]any{"field": "owner_id", "op": "eq", "value": e.Rep1.String()}
+
+	assertField := func(what string, err error, want string) {
+		t.Helper()
+		var bad *collections.BadInputError
+		if !errors.As(err, &bad) {
+			t.Fatalf("%s: err = %v, want a BadInputError", what, err)
+		}
+		if bad.Field != want {
+			t.Errorf("%s: field = %q, want %q", what, bad.Field, want)
+		}
+	}
+
+	// A dynamic list IS its definition, and a static one must not carry one —
+	// the pair is what rules out a half-and-half list.
+	_, err := store.CreateList(rep, collections.CreateListInput{
+		Name: "Dynamic with nothing to evaluate", EntityType: "person", ListType: "dynamic",
+	})
+	assertField("a dynamic list with no definition", err, "definition")
+
+	_, err = store.CreateList(rep, collections.CreateListInput{
+		Name: "Static carrying a filter", EntityType: "person", ListType: "static",
+		Definition: filter,
+	})
+	assertField("a static list carrying a definition", err, "definition")
+
+	// A view's query is the whole view; null is not the same as an empty object,
+	// which is a legitimate view with no state yet.
+	_, err = store.CreateSavedView(rep, collections.CreateSavedViewInput{
+		Resource: "people", Name: "No query at all",
+	})
+	assertField("a view with a null query", err, "query")
+
+	// And a query replacement on a view the caller cannot see is not-found
+	// rather than a validation error — existence-hiding survives the new
+	// pre-read that the update path does to learn the resource.
+	replacement := map[string]any{"filter": filter}
+	_, err = store.UpdateSavedView(rep, ids.From[ids.SavedViewKind](ids.NewV7()),
+		collections.UpdateSavedViewInput{Query: &replacement})
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("updating an unknown view = %v, want ErrNotFound", err)
+	}
+}
+
 // jsonEqual compares two values by their canonical JSON encoding, so a
 // jsonb round-trip (which re-types numbers/arrays) does not defeat the
 // exact-restore assertion.
@@ -285,4 +436,70 @@ func jsonEqual(t *testing.T, a, b map[string]any) bool {
 		t.Fatal(err)
 	}
 	return string(ab) == string(bb)
+}
+
+// checkLiteral pulls the single-quoted values out of a CHECK constraint
+// definition; a column or type name never matches, only the literals do.
+var checkLiteral = regexp.MustCompile(`'([a-z_]+)'`)
+
+// The resource vocabulary against its real authority — the DDL — because the
+// unit lane can only compare the contract enum to a Go map, and those two are
+// not the ones that disagree.
+//
+// saved_view.resource admits SIX values; the contract declares SEVEN. The extra
+// one is `projects`, which means POST /v1/saved-views with resource=projects
+// passes contract validation, resolves the project segment engine, validates
+// its filter — and then trips the CHECK on INSERT, answering the caller that a
+// value the schema they were handed calls legal is not allowed.
+//
+// Asserted as a NAMED divergence rather than left to a narrower expectation:
+// tracked at #1484, where widening the CHECK versus narrowing the contract is a
+// product call, and the spec's own DDL pin still says six. This fails the day
+// either side moves, which is the day someone should look at it.
+func TestSavedViewResourceCheckAgainstTheContractEnum(t *testing.T) {
+	e := Setup(t)
+
+	var def string
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.Admin(), `
+			SELECT pg_get_constraintdef(oid) FROM pg_constraint
+			 WHERE conrelid = 'saved_view'::regclass AND contype = 'c'
+			   AND pg_get_constraintdef(oid) LIKE '%resource%'`).Scan(&def)
+	})
+	if err != nil {
+		t.Fatalf("reading saved_view's own resource CHECK: %v", err)
+	}
+	storable := map[string]bool{}
+	for _, m := range checkLiteral.FindAllStringSubmatch(def, -1) {
+		storable[m[1]] = true
+	}
+
+	declared := map[string]bool{}
+	for _, r := range []crmcontracts.SavedViewResource{
+		crmcontracts.SavedViewResourceActivities, crmcontracts.SavedViewResourceDeals,
+		crmcontracts.SavedViewResourceLeads, crmcontracts.SavedViewResourceOrganizations,
+		crmcontracts.SavedViewResourcePartners, crmcontracts.SavedViewResourcePeople,
+		crmcontracts.SavedViewResourceProjects,
+	} {
+		declared[string(r)] = true
+	}
+
+	for name := range storable {
+		if !declared[name] {
+			t.Errorf("the CHECK stores resource %q, which the contract does not declare — a row no client can name", name)
+		}
+	}
+	undeclared := map[string]bool{}
+	for name := range declared {
+		if !storable[name] {
+			undeclared[name] = true
+		}
+	}
+	if want := map[string]bool{"projects": true}; !maps.Equal(undeclared, want) {
+		t.Errorf("the contract declares %v that the CHECK refuses, want exactly %v — tracked at "+
+			"#1484, whose spec half is margince-foundation#1327 (LVS-DDL-3 still pins six). When "+
+			"that lands, the additive migration widening the CHECK drops this exception; if it is "+
+			"rejected instead, the contract narrows and this exception drops the other way. Either "+
+			"way the answer is upstream, not here", undeclared, want)
+	}
 }

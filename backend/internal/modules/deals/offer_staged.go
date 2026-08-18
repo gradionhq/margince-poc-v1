@@ -104,14 +104,13 @@ func (s *Store) AddStagedOfferLines(ctx context.Context, offerID ids.OfferID, li
 			return err
 		}
 
-		wsID := storekit.MustWorkspace(ctx)
 		start, err := nextOfferLinePosition(ctx, tx, offerID)
 		if err != nil {
 			return err
 		}
 		inserted := make([]crmcontracts.OfferLineItem, 0, len(lines))
 		for i, in := range lines {
-			line, err := insertStagedOfferLine(ctx, tx, wsID, offerID, start+i, in)
+			line, err := insertStagedOfferLine(ctx, tx, offerID, start+i, in)
 			if err != nil {
 				return fmt.Errorf("staged line %d: %w", i+1, err)
 			}
@@ -138,7 +137,7 @@ func (s *Store) AddStagedOfferLines(ctx context.Context, offerID ids.OfferID, li
 // builds the returned OfferLineItem straight from the values just
 // written — a second read-back would only re-derive what this function
 // already knows.
-func insertStagedOfferLine(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, position int, in StagedOfferLineInput) (crmcontracts.OfferLineItem, error) {
+func insertStagedOfferLine(ctx context.Context, tx pgx.Tx, offerID ids.OfferID, position int, in StagedOfferLineInput) (crmcontracts.OfferLineItem, error) {
 	if in.Description == "" {
 		return crmcontracts.OfferLineItem{}, &RequiredFieldError{Field: "description"}
 	}
@@ -165,12 +164,12 @@ func insertStagedOfferLine(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerI
 	var createdAt, updatedAt time.Time
 	var version int64
 	err = tx.QueryRow(ctx,
-		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, description, unit,
+		`INSERT INTO offer_line_item (id, offer_id, position, description, unit,
 		                              quantity, unit_price_minor, discount_pct, tax_rate,
 		                              evidence, price_grounded, proposal_state)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		 RETURNING created_at, updated_at, version`,
-		id, wsID, offerID, position, in.Description, unit, in.Quantity, in.UnitPriceMinor, discount, in.TaxRate,
+		id, offerID, position, in.Description, unit, in.Quantity, in.UnitPriceMinor, discount, in.TaxRate,
 		storekit.JSONArg(evidence), in.PriceGrounded, ProposalStaged).
 		Scan(&createdAt, &updatedAt, &version)
 	if err != nil {

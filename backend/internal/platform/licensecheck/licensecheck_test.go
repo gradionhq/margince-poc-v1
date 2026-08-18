@@ -405,7 +405,7 @@ func TestIssuersNarrowToProductionUnlessTheDeploymentSaysOtherwise(t *testing.T)
 	if got := issuers(runtimeenv.Parse("prod-ish")); len(got) != 1 {
 		t.Errorf("an unrecognized posture honors %v; the fail-closed default is one authority", got)
 	}
-	for _, env := range []runtimeenv.Environment{runtimeenv.Development, runtimeenv.Staging, runtimeenv.Test} {
+	for _, env := range []runtimeenv.Environment{runtimeenv.Development, runtimeenv.Test} {
 		got := issuers(env)
 		if len(got) != 3 || got[0] != ProductionIssuer {
 			t.Errorf("%s honors %v, want production first and the two non-production authorities", env, got)

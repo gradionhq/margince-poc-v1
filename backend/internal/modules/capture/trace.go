@@ -143,8 +143,24 @@ type TraceEntry struct {
 
 	// Counterparty and Subject are written only when the deployment turned
 	// payload capture on.
+	//
+	// Counterparty is an ADDRESS. A record that names its human by a provider
+	// account instead carries the three fields below, because "who was this
+	// from" has an answer for such a record too and the columns are the same
+	// ones — what differs is which suppression list decides whether it may be
+	// written.
 	Counterparty string
 	Subject      string
+
+	// CounterpartyProvider and CounterpartyAccountID are the channel identity the
+	// counterparty holds, for a record that names its human that way. They are
+	// NOT written to the trace: they are what the erasure check is made against,
+	// so the name below is withheld for a person an erasure covered.
+	CounterpartyProvider  string
+	CounterpartyAccountID string
+	// CounterpartyName is what a human calls that account, and is what the trace
+	// records in place of an address.
+	CounterpartyName string
 }
 
 // traceOutcomeTotals counts what this PROCESS has traced since it started, one
@@ -261,10 +277,18 @@ func tracePayload(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) 
 	if in.UserID.IsZero() && !in.ChannelIdentity {
 		return nil, nil, nil
 	}
-	if !payloads || address == "" {
-		// No payload posture, or nothing to say: the columns stay NULL rather
-		// than being written and masked. A column never populated cannot leak.
+	if !payloads {
+		// No payload posture: the columns stay NULL rather than being written and
+		// masked. A column never populated cannot leak.
 		return nil, nil, nil
+	}
+	if address == "" {
+		// NO ADDRESS IS NOT NO SENDER. A record naming its human by a provider
+		// account has one, and a trace that left the column NULL reported "no
+		// sender recorded" about a message whose person the pipeline had just
+		// resolved and created a contact for — the reader was told the pipeline
+		// knew less than it did.
+		return traceChannelPayload(ctx, tx, in)
 	}
 	suppressed, err := storekit.EmailSuppressed(ctx, tx, address)
 	if err != nil {
@@ -277,6 +301,38 @@ func tracePayload(ctx context.Context, tx pgx.Tx, in TraceEntry, payloads bool) 
 		return nil, nil, nil
 	}
 	return nonEmpty(clampRunes(address, maxTraceAddressChars)),
+		nonEmpty(clampRunes(in.Subject, maxTraceSubjectChars)), nil
+}
+
+// traceChannelPayload is tracePayload's other half: what to record about a
+// counterparty named by a provider ACCOUNT rather than by an address.
+//
+// It exists because a channel connector may have no address for anybody at all —
+// an Official Account, for one, is given none — and the alternative was a trace
+// that said "no sender recorded" about every such message. The name is what a
+// reader can act on, so the name is what is written.
+//
+// THE SUPPRESSION CHECK IS THE CHANNEL ONE, and that is the whole reason this is
+// its own function rather than three lines above. An erased channel identity is
+// on `erasure_suppression` under kind `channel_identity`, which the email list
+// knows nothing about — so running the address check against a display name would
+// answer "not suppressed" for every erased person and write the name an erasure
+// existed to remove.
+func traceChannelPayload(ctx context.Context, tx pgx.Tx, in TraceEntry) (*string, *string, error) {
+	name := strings.TrimSpace(in.CounterpartyName)
+	if in.CounterpartyProvider == "" || in.CounterpartyAccountID == "" || name == "" {
+		// Nothing to say. A record that names its human neither way is the
+		// honest "no sender recorded" this column was always for.
+		return nil, nil, nil
+	}
+	suppressed, err := storekit.ChannelIdentitySuppressed(ctx, tx, in.CounterpartyProvider, in.CounterpartyAccountID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("capture: checking the channel suppression list for a trace payload: %w", err)
+	}
+	if suppressed {
+		return nil, nil, nil
+	}
+	return nonEmpty(clampRunes(name, maxTraceAddressChars)),
 		nonEmpty(clampRunes(in.Subject, maxTraceSubjectChars)), nil
 }
 

@@ -210,3 +210,31 @@ export function EntityRef({
     </button>
   );
 }
+
+/**
+ * The owner of a record, by name, for a list column.
+ *
+ * Reads the shared roster cache (one `/users` page, the same entry EntityRef
+ * and the Share picker use), so a list of 50 rows costs no extra request. An
+ * owner the roster cannot name still renders — as their id, mono — because a
+ * row whose owner column is blank reads as unowned, and unowned is a different
+ * fact with its own filter.
+ */
+export function OwnerName({
+  ownerId,
+  unowned,
+}: Readonly<{ ownerId?: string | null; unowned: string }>) {
+  const roster = useRoster("user", Boolean(ownerId));
+  if (!ownerId) {
+    return <span className="t-caption">{unowned}</span>;
+  }
+  const named = (roster.data ?? []).find((entry) => entry.id === ownerId);
+  if (named && "display_name" in named) {
+    return <span>{named.display_name}</span>;
+  }
+  return (
+    <span className="t-mono" title={ownerId}>
+      {ownerId.slice(0, 8)}
+    </span>
+  );
+}

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 )
 
 // LabeledCaptureCountSince counts the activity rows the classify worker has
@@ -26,7 +28,8 @@ func (s *Store) LabeledCaptureCountSince(ctx context.Context, since time.Time) (
 		return tx.QueryRow(ctx,
 			`SELECT count(*) FROM activity
 			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND capture_labeled_at >= $1`, since,
+			   AND capture_labeled_at >= $1
+			   AND `+auth.ActivityAvailableClause("activity"), since,
 		).Scan(&count)
 	})
 	if err != nil {

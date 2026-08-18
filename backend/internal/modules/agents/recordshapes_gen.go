@@ -43,14 +43,21 @@ const activityLinkEntityTypeEnum = `["person","organization","deal","lead","proj
 // TestOnlyAFilterBothTheContractAndAStoreCarryIsPublished holds that.
 var listRecordFilters = map[string][]listFilter{
 	"person": {
+		{Name: "organization_id", Type: "string"},
 		{Name: "owner_id", Type: "string"},
+		{Name: "owner_team_id", Type: "string"},
 		{Name: "tag", Type: "string"},
+		{Name: "unassigned", Type: "boolean"},
 	},
 	"organization": {
 		{Name: "domain", Type: "string"},
+		{Name: "industry", Type: "string"},
 		{Name: "lifecycle", Type: "string", Enum: []string{"unknown", "target", "prospect", "opportunity", "customer", "former_customer", "disqualified"}},
 		{Name: "owner_id", Type: "string"},
+		{Name: "owner_team_id", Type: "string"},
 		{Name: "relationship_type", Type: "string", Enum: []string{"customer", "partner", "supplier", "investor", "portfolio_company", "competitor", "other"}},
+		{Name: "size_band", Type: "string", Enum: []string{"1-10", "11-50", "51-200", "201-500", "501-1000", "1001-5000", "5000+"}},
+		{Name: "unassigned", Type: "boolean"},
 	},
 	"deal": {
 		{Name: "organization_id", Type: "string"},
@@ -66,6 +73,7 @@ var listRecordFilters = map[string][]listFilter{
 	"lead": {
 		{Name: "min_score", Type: "integer"},
 		{Name: "owner_id", Type: "string"},
+		{Name: "source", Type: "string"},
 		{Name: "status", Type: "string", Enum: []string{"new", "working", "promoted", "disqualified"}},
 	},
 	"project": {

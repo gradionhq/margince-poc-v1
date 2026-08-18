@@ -300,11 +300,12 @@ func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
 	}
 }
 
-// The statutory floor outranks Art. 17 for recent correspondence, and it applies
-// to channel messages too: the predicate shields every activity whose kind is
-// not 'task'/'note', and a Telegram message qualifies. So a RECENT channel
-// message from an erased subject is retained verbatim, account id included,
-// until the floor lapses.
+// The statutory floor outranks Art. 17 for recent commercial correspondence,
+// and it applies to channel messages too: a Telegram message about a won deal
+// is a Handelsbrief whichever transport carried it (A165/ADR-0114). So a
+// RECENT channel message from an erased subject is HELD — its body kept, the
+// account identifiers that ARE the subject cleared, the row restricted — until
+// the floor lapses.
 //
 // That is the shipped GoBD posture (F-012 refuses a floor bypass), not an
 // oversight — and it is pinned here precisely because the arm above looks like
@@ -319,14 +320,21 @@ func TestARecentChannelMessageIsShieldedFromErasureByTheStatutoryFloor(t *testin
 
 	const body = "a message inside the statutory floor"
 	rec := inboundChannelRecordAt("20601", body, time.Now().UTC())
-	if _, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), rec); err != nil {
+	ref, err := capture.NewSink(e.DB()).Upsert(sinkConnectorCtx(e), rec)
+	if err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
+	// The floor covers correspondence about an actual transaction, so the
+	// message needs one behind it to be shielded at all.
+	e.SeedWonDealLinkedTo(t, ref.ID)
 	if err := privacy.NewEraser(e.DB()).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 	if n := activityBodyCount(t, e, body); n != 1 {
 		t.Errorf("got %d retained activities, want 1 — the statutory correspondence floor must outrank the erasure for a recent message", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE id = $1 AND restricted_at IS NOT NULL AND thread_key IS NULL AND source_id IS NULL`, ref.ID); n != 1 {
+		t.Errorf("the shielded message is not held with its account identifiers cleared (%d rows match)", n)
 	}
 }
 

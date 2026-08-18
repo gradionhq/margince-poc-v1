@@ -57,3 +57,17 @@
 .retention-error {
   color: var(--danger);
 }
+
+/* The pin form above the restricted-records table: a label, an id and its
+   button on one line, wrapping on a narrow viewport rather than overflowing. */
+.restricted-pin {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.restricted-pin > :first-child {
+  flex: 1 1 20rem;
+}

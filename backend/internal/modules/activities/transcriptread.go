@@ -137,11 +137,11 @@ func (s *Store) StartTranscriptReadQueued(
 		// transaction alive, so the join SELECT below sees the winning row in
 		// the same tx, with no second-transaction gap for it to finish in.
 		inserted := tx.QueryRow(ctx, `
-			INSERT INTO transcript_read (id, workspace_id, activity_id, requested_by, line_count)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO transcript_read (id, activity_id, requested_by, line_count)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT DO NOTHING
 			RETURNING `+transcriptReadColumns,
-			readID, workspaceID(ctx), activityID, requestedBy, lineCount)
+			readID, activityID, requestedBy, lineCount)
 		out, err = scanTranscriptRead(inserted)
 		if err == nil {
 			if enqueue != nil {

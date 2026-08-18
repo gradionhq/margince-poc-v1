@@ -643,6 +643,167 @@ describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
   });
 });
 
+describe("CompaniesScreen — what an account is to us", () => {
+  it("names every relationship type the account carries", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [
+          {
+            ...org,
+            lifecycle: "prospect",
+            relationship_types: ["partner", "supplier"],
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+
+    // Both, not the first: the field is multi-valued because an account really
+    // can be two things at once, and showing one would make the other look
+    // untrue. The filter offers these values, so the column has to read them
+    // back — a narrowed list that cannot say why a row matched is a list the
+    // reader has to take on faith.
+    expect(screen.getByText("Partner")).toBeTruthy();
+    expect(screen.getByText("Supplier")).toBeTruthy();
+    // And the two columns stay distinct: an account can be a Partner sitting
+    // at Prospect.
+    expect(screen.getByText("Prospect")).toBeTruthy();
+  });
+
+  it("leaves the cell empty when the account carries none", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, relationship_types: [] }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Partner")).toBeNull();
+  });
+});
+
+describe("CompaniesScreen — how many work here, how many deals are open", () => {
+  it("shows both counts, zero included", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [
+          { ...org, contact_count: 4, open_deal_count: 2 },
+          {
+            ...org,
+            id: "o-2",
+            display_name: "Quiet Ltd",
+            contact_count: 0,
+            open_deal_count: 0,
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    const first = (await screen.findByText("Brandt Automotive GmbH")).closest(
+      "tr",
+    );
+    const quiet = screen.getByText("Quiet Ltd").closest("tr");
+    if (!first || !quiet) {
+      throw new Error("rows must render inside table rows");
+    }
+    expect(within(first).getByText("4")).toBeTruthy();
+    expect(within(first).getByText("2")).toBeTruthy();
+    // Zero is a number: "no contacts" and "no open deals" are facts, and a
+    // blank cell would read as "not shown".
+    expect(within(quiet).getAllByText("0").length).toBe(2);
+  });
+
+  it("leaves the deal count blank when the server withheld it", async () => {
+    // A role without computed_field:read gets no key at all (STATE-4), and
+    // the column must not turn that absence into a confident 0.
+    stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, contact_count: 3 }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    const row = (await screen.findByText("Brandt Automotive GmbH")).closest(
+      "tr",
+    );
+    if (!row) {
+      throw new Error("row must render inside a table row");
+    }
+    expect(within(row).getByText("3")).toBeTruthy();
+    expect(within(row).queryByText("0")).toBeNull();
+  });
+});
+
+describe("CompaniesScreen — list dials reach the server (P-14)", () => {
+  it("asks the server to re-sort instead of reordering the rows it holds", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole("button", { name: "Sort by Company" }));
+
+    // The rows the browser holds are one page of a keyset walk, so a sort that
+    // only reordered them would rank a slice and present it as the whole list.
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            url.includes("sort=display_name") && !url.includes("cursor="),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("narrows to one lifecycle stage through the server", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+
+    await user.click(screen.getByRole("button", { name: "Customers" }));
+
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("lifecycle=customer"))).toBe(true),
+    );
+  });
+
+  it("requests the page size the reader picked", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("limit=25"))).toBe(true),
+    );
+
+    await pickOption(
+      user,
+      screen.getByRole("combobox", { name: "Rows per page" }),
+      "50 per page",
+    );
+
+    // Fetched and rendered are the same number. They were not: the screen
+    // asked for 50 and drew 25, and said so — "1-25 of 50 loaded so far".
+    await waitFor(() =>
+      expect(urls.some((url) => url.includes("limit=50"))).toBe(true),
+    );
+
+    // A new page size restarts the keyset walk. Carrying the old cursor over
+    // would continue a walk taken at the previous size, so the reader would
+    // resume mid-list while believing they were on page one.
+    const resized = urls.filter((url) => url.includes("limit=50"));
+    expect(resized.every((url) => !url.includes("cursor="))).toBe(true);
+  });
+});
+
 describe("CompaniesScreen — rich create (P-15)", () => {
   it("posts display_name + size_band + domains + source:manual on submit", async () => {
     const user = userEvent.setup();

@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 )
 
 // KnownHumanName is what the installation already knows a mail address belongs
@@ -122,11 +124,18 @@ func addressAttestedTx(ctx context.Context, tx pgx.Tx, email string) (bool, erro
 	if normalized == "" {
 		return false, nil
 	}
+	// A record held under a statutory obligation attests nothing: its
+	// availability test is the same one every scoped reader carries, spelled
+	// once in auth (A165/ADR-0114 §2). The restrict step also NULLs
+	// counterparty_email, so this query would miss such a row anyway — but
+	// that is a property of the redaction, not of this gate, and the gate has
+	// to hold on its own.
 	var attested bool
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 		  SELECT 1 FROM activity
-		   WHERE counterparty_email = $1 AND counterparty_outbound_attested)`,
+		   WHERE counterparty_email = $1 AND counterparty_outbound_attested
+		     AND `+auth.ActivityAvailableClause("activity")+`)`,
 		normalized).Scan(&attested); err != nil {
 		return false, fmt.Errorf("people: reading whether %s was written to: %w", normalized, err)
 	}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { useCan } from "../app/capability";
+import { useCan, useCanWrite } from "../app/capability";
 import {
   Badge,
   Button,
@@ -78,9 +78,21 @@ function contractsState(
 
 export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
+  // `useCan` for the READ — the grant alone decides what may be shown. The
+  // three below gate MUTATING controls, so they take the seat as well: the
+  // server clamps the licensing seat on the HTTP method, before RBAC runs, and a
+  // read seat holding a full contract grant would otherwise be offered verbs
+  // whose every press is refused.
+  //
+  // ADD and EDIT are different grants, because they are different writes:
+  // createContract demands `create` (contract_write.go:49) and patchContract
+  // demands `update` (contract_lifecycle.go:84). One `mayWrite` for both offered
+  // Add to a principal who may only correct existing paper, and hid it from one
+  // who may only file new.
   const mayRead = useCan("contract", "read");
-  const mayWrite = useCan("contract", "update");
-  const mayArchive = useCan("contract", "delete");
+  const mayAdd = useCanWrite("contract", "create");
+  const mayEdit = useCanWrite("contract", "update");
+  const mayArchive = useCanWrite("contract", "delete");
   const [activeOnly, setActiveOnly] = useState(false);
   // `editing` carries the contract being corrected; undefined means the form is
   // adding a new one. One form serves both, because "record what we agreed" and
@@ -131,7 +143,7 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
       <Panel
         title={t("contracts.title")}
         titleAction={
-          mayWrite ? (
+          mayAdd ? (
             <Button
               small
               onClick={() => {
@@ -175,7 +187,7 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
                 key={contract.id}
                 contract={contract}
                 orgId={orgId}
-                mayWrite={mayWrite}
+                mayWrite={mayEdit}
                 mayArchive={mayArchive}
                 onEdit={() => {
                   setEditing(contract);
@@ -230,7 +242,7 @@ function ContractRow({
     onSuccess: () => {
       setAsking(false);
       queryClient.invalidateQueries({ queryKey: ["orgContracts", orgId] });
-      queryClient.invalidateQueries({ queryKey: ["org360", orgId] });
+      queryClient.invalidateQueries({ queryKey: ["organization360", orgId] });
     },
   });
 

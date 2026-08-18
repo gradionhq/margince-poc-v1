@@ -558,6 +558,29 @@ export const de = {
   "people.name": "Name",
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",
+  "list.owner": "Zuständig",
+  "list.unowned": "Nicht zugewiesen",
+  "list.created": "Erstellt",
+  "list.updated": "Geändert",
+  "list.filterOwnerMe": "Meine Datensätze",
+  "list.filterOwnerAll": "Alle Zuständigen",
+  "list.filterOwnerUnassigned": "Nicht zugewiesen",
+  "list.filterOwnerTeam": "Mein Team",
+  "list.viewTeam": "Mein Team",
+  "list.viewUnassigned": "Nicht zugewiesen",
+  "views.save": "Ansicht speichern",
+  "views.saveConfirm": "Speichern",
+  "views.saveTitle": "Diese Ansicht speichern",
+  "views.name": "Name",
+  "views.delete": "Ansicht löschen",
+  "views.deleteConfirm":
+    "Die Ansicht \u201e{name}\u201c löschen? Die Datensätze bleiben, nur der gespeicherte Filter geht.",
+  "list.viewMine": "Meine",
+  "list.viewCustomers": "Kunden",
+  "list.viewProspects": "Interessenten",
+  "org.filterLifecycleAll": "Alle Phasen",
+  "org.filterRelTypeAll": "Alle Typen",
+  "list.scopeTeam": "Du siehst die Datensätze deines Teams.",
   "person.consent": "Einwilligung",
   "consent.grant": "Erteilen",
   "consent.withdraw": "Widerrufen",
@@ -587,6 +610,8 @@ export const de = {
   "org.name": "Firma",
   "org.description": "Was sie tun",
   "org.website": "Website",
+  "org.contactCount": "Kontakte",
+  "org.openDealCount": "Offene Deals",
   "org.industry": "Branche",
   "org.size": "Größe",
   "org.classification": "Typ",
@@ -860,6 +885,7 @@ export const de = {
   "contracts.form.fileHint":
     "Das unterschriebene PDF hier ablegen oder klicken, um eines auszuw\u00e4hlen. Es wird diesem Vertrag zugeordnet und erscheint bei den Dokumenten des Kontos.",
   "contracts.form.fileEmpty": "Datei hier ablegen oder klicken",
+  "contracts.form.fileAdd": "Weitere Datei hier ablegen oder klicken",
   "contracts.perYear": "{amount} / Jahr",
   "contracts.state.title": "Unter Vertrag · {count} aktiv",
   "contracts.state.none": "Kein Vertrag hinterlegt",
@@ -928,13 +954,13 @@ export const de = {
   "co.growthFit.band.weak": "Passt kaum",
   "co.growthFit.band.unknown": "Zu wenig für ein Urteil",
   "co.growthFit.completeness": "{present} von {expected} Angaben erfasst",
-  "co.growthFit.missing": "Es fehlt noch: {inputs}.",
+  "co.growthFit.missing": "Es fehlt noch",
   "co.growthFit.capped": "Zurückgehalten: {reason}.",
   "co.growthFit.nextStep": "Als Nächstes: {step}.",
-  "co.growthFit.positive": "Was dafür spricht",
-  "co.growthFit.negative": "Was dagegen spricht",
-  "co.growthFit.whitespace": "Was sie bei dir noch nicht kaufen",
-  "co.growthFit.objections": "Womit sie voraussichtlich dagegenhalten",
+  "co.growthFit.positive": "Dafür",
+  "co.growthFit.negative": "Dagegen",
+  "co.growthFit.whitespace": "Noch zu verkaufen",
+  "co.growthFit.objections": "Voraussichtliche Einwände",
   "co.growthFit.angle": "Vorgeschlagener Ansatz",
   "co.writeEmail": "E-Mail schreiben",
   "co.dossier.title": "Was diese Firma ist",
@@ -1258,6 +1284,43 @@ export const de = {
   "lead.promoteIneligible": "braucht eine E-Mail und einen offenen Status",
   "lead.filterStatus": "Status",
   "lead.filterStatusAll": "Alle Status",
+  "lead.filterScore": "Score",
+  "lead.filterScoreAll": "Beliebiger Score",
+  "lead.filterScoreHot": "Ab 80",
+  "lead.filterScoreWarm": "Ab 60",
+  "lead.filterScoreCool": "Ab 40",
+  "lead.details": "Details",
+  "lead.detailsUnset": "Nicht gesetzt",
+  "lead.terminalReadOnly":
+    "Dieser Lead ist abgeschlossen und nimmt keine Änderungen an.",
+  "lead.boardTerminalOnly":
+    "Das Board zeigt nur offene Leads. Diese Leads sind übernommen oder disqualifiziert.",
+  "person.fromLead": "Aus Lead übernommen",
+  "lead.promotedTitle": "Als Kontakt übernommen",
+  "lead.promotedMerged":
+    "Dieser Lead wurde mit einem bereits bekannten Kontakt zusammengeführt — es entstand kein Duplikat.",
+  "lead.promotedCreated": "Aus diesem Lead wurde ein neuer Kontakt.",
+  "lead.promotedAt": "Übernommen am",
+  "lead.promotedTrigger": "Auslöser:",
+  "lead.promotedEvidence": "Beleg:",
+  "lead.previewPending": "Prüfe, ob wir diese Person schon kennen …",
+  "lead.previewCreate": "Die Übernahme legt einen neuen Kontakt an.",
+  "lead.previewMerge":
+    "Die Übernahme führt mit dem bestehenden Kontakt zusammen:",
+  "lead.previewMergeWithheld":
+    "Die Übernahme führt mit einem bestehenden Kontakt zusammen, den Sie nicht sehen können.",
+  "lead.demote": "Übernahme rückgängig machen",
+  "lead.demoteDialog": "Übernahme rückgängig machen?",
+  "lead.demoteExplain":
+    "Der Lead kehrt als „In Bearbeitung“ in die Liste zurück. Ein Kontakt, den die Übernahme angelegt hat, wird archiviert; ein Kontakt, mit dem zusammengeführt wurde, bleibt unverändert. Bei einem Kontakt an einem laufenden Deal ist die Rücknahme nicht möglich.",
+  "lead.demoteReason": "Grund (wird im Protokoll festgehalten)",
+  "lead.demoteConfirm": "Rückgängig machen",
+  "lead.promotedOutcomePending":
+    "Wird gelesen, was diese Übernahme bewirkt hat …",
+  "lead.promotedOutcomeUnavailable":
+    "Wir können nicht anzeigen, ob dabei zusammengeführt oder neu angelegt wurde.",
+  "lead.terminalPromoted":
+    "Übernommen — dieser Lead ist jetzt schreibgeschützt.",
   "lead.statusNew": "Neu",
   "lead.statusWorking": "In Bearbeitung",
   "lead.statusPromoted": "Übernommen",
@@ -1730,6 +1793,41 @@ export const de = {
   "docs.reading.hide": "Auslesung ausblenden",
   "docs.pinned": "Angeheftet",
 
+  // Ein Dokument hinzufügen. Die Frage „Wozu gehört es?" trägt die eigentliche
+  // Entscheidung: nur ein Dokument an einem Deal kann für Deal-Felder gelesen
+  // werden. Der Hinweis sagt das, statt es die Lesenden an einem Panel
+  // herausfinden zu lassen, das nie erscheint.
+  "docs.add.action": "Dokument hinzufügen",
+  "docs.add.title": "Dokument hinzufügen",
+  "docs.add.about": "Gehört zu",
+  "docs.add.aboutHint":
+    "Ein Dokument an einem Deal kann für Deal-Felder gelesen werden, eines an der Firma nicht.",
+  "docs.add.thisCompany": "Diese Firma",
+  "docs.add.category": "Kategorie",
+  "docs.add.name": "Titel",
+  "docs.add.nameHint":
+    "Optional. Leer gelassen, zeigt die Zeile den Dateinamen.",
+  "docs.add.file": "Datei",
+  "docs.add.fileHint": "Bis zu {size}.",
+  "docs.add.fileEmpty": "Datei hierher ziehen oder zum Auswählen klicken",
+  "docs.add.cancel": "Abbrechen",
+  "docs.add.submit": "Hochladen",
+  "docs.add.uploading": "Wird hochgeladen…",
+  "docs.add.errNoFile": "Wählen Sie eine Datei zum Hochladen.",
+  "docs.add.errRefused":
+    "Sie dürfen zu diesem Datensatz keine Dokumente hinzufügen.",
+  "docs.add.errInFlight": "Dieses Dokument wird noch hochgeladen.",
+  "docs.add.errTooLarge":
+    "Diese Datei ist größer als {size} — mehr nimmt diese Installation nicht an. Bitte eine kleinere wählen.",
+  "docs.add.failedTitle": "Der Upload ist fehlgeschlagen",
+  "docs.add.failed":
+    "Es wurde nichts gespeichert. Versuchen Sie es erneut oder wählen Sie eine andere Datei.",
+  "docs.add.partialTitle": "Hochgeladen, aber nicht eingeordnet",
+  "docs.add.partial":
+    "Die Datei liegt am Datensatz und steht unten in der Liste. Nur Kategorie und Titel wurden nicht gespeichert, sie ist daher unter Sonstiges abgelegt.",
+  "docs.add.dealsFailed":
+    "Die Deals dieses Accounts konnten nicht geladen werden; das Dokument kann daher nur der Firma zugeordnet werden.",
+
   // Das Panel für die abgelegte Dokumentenlesung (RD-AC-N-2/-3). Drei Zustände,
   // die auch in den Worten getrennt bleiben müssen: noch keine Antwort, gelesen
   // und keines der Felder genannt, gar nicht lesbar.
@@ -1954,6 +2052,14 @@ export const de = {
     "Diese kannst du verleihen. Verbindet sich ein MCP-Client, fragt er, welchen du übergibst — die Verbindung trägt danach genau die Scopes dieses Passports.",
   "settings.passportLabel": "Agentenname",
   "settings.mint": "Passport ausstellen",
+  "settings.minting": "Wird ausgestellt…",
+  "settings.mintCancel": "Abbrechen",
+  "settings.mintDone": "Fertig",
+  "settings.passportScopes": "Was dieser Agent darf",
+  "settings.passportScopesHint":
+    "Mindestens eins auswählen. Ein Agent darf nie mehr als Sie selbst.",
+  "settings.passportScopesRequired":
+    "Wählen Sie mindestens eine Sache aus, die dieser Agent tun darf.",
   "agents.connected": "Verbundene Agenten",
   "agents.connectedSub":
     "MCP-Clients mit eigenem Credential, abgeleitet aus einem Passport, den du verliehen hast",
@@ -2184,6 +2290,48 @@ export const de = {
   "privacy.legalHold":
     "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
 
+  "restricted.title": "Zurückgehaltene Datensätze",
+  "restricted.sub":
+    "was eine gesetzliche Aufbewahrungspflicht nach einer Löschung zurückhält — welcher Datensatz, warum und bis wann. Die Korrespondenz selbst wird nicht gezeigt: Sie ist genau deshalb eingeschränkt, damit sie nicht gelesen wird.",
+  "restricted.withheld":
+    "Nur ein Admin oder Ops sieht, welche Datensätze eine gesetzliche Pflicht zurückhält. Es gilt dieselbe Berechtigung wie für die Aufbewahrungsregeln.",
+  "restricted.empty":
+    "Kein Datensatz wird zurückgehalten — jede bisherige Löschung konnte vollständig ausgeführt werden.",
+  "restricted.kind": "Datensatz",
+  "restricted.occurred": "Datiert",
+  "restricted.deals": "Geschäft",
+  "restricted.noDeal": "Kein Deal hinterlegt",
+  "restricted.reason": "Zurückgehalten wegen",
+  "restricted.until": "Zurückgehalten bis",
+  "restricted.redacted": "Geschwärzt",
+  "restricted.nothingRedacted": "Nichts entfernt",
+  "restricted.redactedCount": "{count} Felder entfernt",
+  "restricted.class.commercialCorrespondence": "Handelsbrief",
+  "restricted.kind.email": "E-Mail",
+  "restricted.kind.call": "Anruf",
+  "restricted.kind.meeting": "Meeting",
+  "restricted.kind.message": "Nachricht",
+  "restricted.decide": "Entscheidung",
+  "restricted.reasonLabel": "Begründung",
+  "restricted.reasonHint":
+    "Wird mit Ihrem Namen im Audit-Protokoll festgehalten. Das macht die Entscheidung nachvollziehbar — schreiben Sie, was Sie entschieden haben und auf welcher Grundlage.",
+  "restricted.release.action": "Freigeben",
+  "restricted.release.title":
+    "Diesen Datensatz aus der Aufbewahrungspflicht entlassen?",
+  "restricted.release.body":
+    "Die Freigabe LÖSCHT den Datensatz. Er kehrt nicht in den Betrieb zurück: Das Löschersuchen, das diese Pflicht ausgesetzt hat, ist weiterhin offen — die Freigabe führt es aus. Das lässt sich nicht rückgängig machen.",
+  "restricted.release.confirm": "Freigeben und löschen",
+  "restricted.pin.action": "Datensatz festsetzen",
+  "restricted.pin.idHint":
+    "Für Korrespondenz, die die automatische Regel nicht erkennt — Lieferanten- und Einkaufspost ist nach §257 HGB aufbewahrungspflichtig und hat in diesem Produkt kein Geschäft, an dem sie hängt. Die Datensatz-ID steht im Audit-Eintrag.",
+  "restricted.pin.idMalformed":
+    "Das ist keine Datensatz-ID. Sie besteht aus 8-4-4-4-12 Hexadezimalzeichen und steht vollständig im Audit-Eintrag des Datensatzes.",
+  "restricted.pin.idPlaceholder": "Datensatz-ID",
+  "restricted.pin.title":
+    "Diesen Datensatz der Aufbewahrungspflicht unterstellen?",
+  "restricted.pin.body":
+    "Der Datensatz wird für die gesetzliche Frist zurückgehalten: in keiner normalen Ansicht sichtbar, unveränderbar, und nach Ablauf gelöscht. Seine Identifikatoren werden sofort geschwärzt.",
+  "restricted.pin.confirm": "Festsetzen und zurückhalten",
   "retention.title": "Aufbewahrung",
   "retention.sub":
     "wie lange jede Art von Datensatz aufbewahrt wird und was nach Ablauf der Frist geschieht",
@@ -4877,7 +5025,7 @@ export const de = {
   "person.brief.reading": "Die Beziehung wird gelesen…",
   "person.brief.empty":
     "Es wurde noch nichts erfasst, woraus dieses Briefing geschrieben werden könnte.",
-  "person.brief.sourceEmail": "E-Mail-Verlauf",
+  "person.brief.sourceActivity": "Gespräch",
   "person.brief.sourceDeal": "Deal-Notizen",
 
   "person.matters.title": "Was {name} wichtig ist",
@@ -4918,6 +5066,8 @@ export const de = {
   "person.memory.channelMeeting": "Termin",
   "person.memory.channelCall": "Anruf",
   "person.memory.channelNote": "Notiz",
+  "person.memory.channelMessage": "Nachricht",
+  "person.memory.channelTask": "Aufgabe",
   "person.memory.replied": "Beantwortet",
   "person.memory.unanswered": "Unbeantwortet",
 
@@ -4954,6 +5104,9 @@ export const de = {
   "person.rail.consentTitle": "Einwilligung & Kanäle",
   "person.rail.email": "E-Mail",
   "person.rail.phone": "Telefon",
+  "person.rail.noEmailAddress": "Keine Adresse hinterlegt",
+  "person.rail.noPhoneNumber": "Keine Nummer hinterlegt",
+  "person.rail.channelNotDeliverable": "Nicht zustellbar",
   "person.rail.recentActivity": "Letzte Aktivität",
   "person.rail.nothingCaptured": "Noch nichts erfasst.",
   "person.rail.viewAllActivity": "Alle Aktivitäten ansehen",

@@ -20,6 +20,15 @@ import (
 
 type installationSettingsHandlers struct {
 	store *identity.InstallationSettingsStore
+	// maxUploadBytes is the deployment's attachment ceiling (OPS-CFG-12),
+	// published so an upload surface enforces the number THIS installation
+	// applies rather than one compiled into the client.
+	//
+	// It rides this read rather than a read of its own because it answers the
+	// same question the rest of the response does — what is true of this
+	// installation — and because every role may read it: whoever can upload a
+	// file can be told how large a file is worth sending.
+	maxUploadBytes int64
 }
 
 func (h installationSettingsHandlers) GetInstallationSettings(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +41,7 @@ func (h installationSettingsHandlers) GetInstallationSettings(w http.ResponseWri
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, toContractInstallationSettings(s))
+	httperr.WriteJSON(w, http.StatusOK, h.toContract(s))
 }
 
 func (h installationSettingsHandlers) UpdateInstallationSettings(w http.ResponseWriter, r *http.Request) {
@@ -56,18 +65,23 @@ func (h installationSettingsHandlers) UpdateInstallationSettings(w http.Response
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, toContractInstallationSettings(s))
+	httperr.WriteJSON(w, http.StatusOK, h.toContract(s))
 }
 
-// toContractInstallationSettings maps the stored values onto the wire shape.
+// toContract maps the stored values onto the wire shape, and adds the one field
+// that is not stored at all: the upload ceiling is a deployment fact, so it
+// arrives from composition rather than from the settings table — the same way
+// base_currency_locked is derived rather than kept.
+//
 // The lock reason is omitted rather than sent empty when the currency is still
-// changeable — an empty string would render as a reason that says nothing.
-func toContractInstallationSettings(s identity.InstallationSettings) crmcontracts.InstallationSettings {
+// changeable: an empty string would render as a reason that says nothing.
+func (h installationSettingsHandlers) toContract(s identity.InstallationSettings) crmcontracts.InstallationSettings {
 	out := crmcontracts.InstallationSettings{
 		Name:               s.Name,
 		Timezone:           s.Timezone,
 		BaseCurrency:       s.BaseCurrency,
 		BaseCurrencyLocked: s.BaseCurrencyLocked,
+		MaxUploadBytes:     h.maxUploadBytes,
 	}
 	if s.BaseCurrencyLockedReason != "" {
 		reason := s.BaseCurrencyLockedReason

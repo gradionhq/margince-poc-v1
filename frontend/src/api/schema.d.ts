@@ -187,8 +187,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Reset a non-production installation to its first-boot state.
-         * @description Non-production only. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. In production this endpoint does not exist (404).
+         * Reset an installation that armed the capability to its first-boot state.
+         * @description Served only where the deployment set `operations.allow_data_reset`; the compiled default is false in every posture. Wipes workspace domain + seeded-config data back to the bootstrapped state, preserving the organization and users so login still works, then re-seeds module defaults. Also clears the job queue, the event bus, the Redis counters and the object bytes — not only table rows. Requires the organization name as a typed confirmation. `GET /me` reports the same value as `data_reset_available`, so a client never offers what this would refuse.
          */
         post: operations["resetData"];
         delete?: never;
@@ -3018,6 +3018,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/{id}/promote-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What promoting this lead would do — merge into an existing person, or create one.
+         * @description Runs the same dedupe ladder POST /leads/{id}/promote would run, WITHOUT writing
+         *     anything, so the confirm step can name the outcome instead of surprising the rep
+         *     with it (ADR-0119/A170: which happened is the difference between "my prospect is
+         *     now a contact" and "my prospect was already someone we knew").
+         *
+         *     **This returns a record, so it is a read and carries the row-scope gate.** When the
+         *     matched person is outside the caller's row scope the response still says `merge` —
+         *     the outcome is a fact about the lead — but omits `person` and sets
+         *     `person_withheld: true`. An absent `person` therefore means "not visible to you",
+         *     never "no match": a caller must not read the omission as `create`.
+         */
+        get: operations["previewLeadPromotion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/demote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+         * @description The documented reverse of POST /leads/{id}/promote, deterministic and conservative:
+         *     it **blocks rather than orphans**.
+         *
+         *     - The person owns any deal ⇒ **422 `person_has_deal`**; the person stays a person.
+         *       A deal attaches to a person by ADR-0008 §5, and un-personing it would strand the
+         *       deal's counterparty.
+         *     - Original outcome `created` ⇒ `unwind='reversed'`: the lead un-archives to
+         *       `status=working` and the created person is archived. **Activities captured after
+         *       promotion stay on the person's timeline** — they are real history, not something
+         *       to rewrite backwards.
+         *     - Original outcome `merged` ⇒ `unwind='merge_lineage_only'`: the pre-existing person
+         *       is **untouched** and only the lineage pointers are nulled. A field-level un-merge
+         *       is never attempted, because it is lossy and ambiguous.
+         *
+         *     The original outcome is read from the promotion's audit row (which records
+         *     `dedupe_outcome`), not re-derived — re-running the ladder would answer about today's
+         *     data rather than what actually happened. Emits `lead.demoted`. Demoting an
+         *     already-demoted lead is a no-op **409**.
+         */
+        post: operations["demoteLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads/{id}/score": {
         parameters: {
             query?: never;
@@ -5338,6 +5410,61 @@ export interface paths {
          *     Audit-only write, no event (EVT-NOEVT-3).
          */
         patch: operations["updateRetentionSettings"];
+        trace?: never;
+    };
+    "/retention/restrictions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the records a statutory retention obligation is holding, and why. */
+        get: operations["listRestrictedActivities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/restrictions/{activityId}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Release a record from the retention floor, erasing it. Requires a stated reason; audited. */
+        post: operations["releaseRestrictedActivity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/retention/restrictions/{activityId}/pin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pin a record to the retention floor, restricting it. Requires a stated reason; audited. */
+        post: operations["pinActivityToFloor"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/retention-policies": {
@@ -8254,6 +8381,18 @@ export interface components {
              *     it. Absent when it is still changeable.
              */
             base_currency_locked_reason?: string;
+            /**
+             * Format: int64
+             * @description The largest upload request this installation accepts, in bytes — set by whoever
+             *     operates it, not compiled into the build (OPS-CFG-12, DOC-PARAM-11). Read-only:
+             *     it is a deployment fact, so PATCH does not carry it.
+             *
+             *     An upload surface states and enforces THIS number rather than one of its own, so
+             *     a file too large is refused before it is sent instead of after. The ceiling bounds
+             *     the whole request, part framing included, which is why a client should leave a
+             *     little room rather than compare a file against it exactly.
+             */
+            max_upload_bytes: number;
         };
         /** @description A sparse installation-settings patch (admin/ops, human-only). */
         UpdateInstallationSettingsRequest: {
@@ -10071,6 +10210,10 @@ export interface components {
             readonly logo_url?: string | null;
             /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
             readonly strength?: components["schemas"]["RelationshipStrength"];
+            /** @description How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied. */
+            readonly contact_count?: number;
+            /** @description How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it. */
+            readonly open_deal_count?: number;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
@@ -13682,6 +13825,43 @@ export interface components {
             /** Format: uuid */
             lead_id?: string;
         };
+        /** @description What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170). */
+        PromoteLeadPreview: {
+            /**
+             * @description merge = an existing live person matches this lead's email and promotion would fold into it; create = promotion would make a new person.
+             * @enum {string}
+             */
+            outcome: "create" | "merge";
+            person?: components["schemas"]["Person"];
+            /**
+             * @description True when `outcome` is `merge` but the matched person lies outside the caller's
+             *     row scope, so `person` is omitted. **An absent `person` never means "no match"**
+             *     — a caller that reads the omission as `create` would tell the rep a duplicate is
+             *     about to be created when the opposite is true.
+             * @default false
+             */
+            person_withheld: boolean;
+        };
+        DemoteLeadRequest: {
+            /** @description Why the promotion is being reversed. Required and recorded in audit — an undo nobody explained is indistinguishable later from a mistake. */
+            reason: string;
+        };
+        DemoteLeadResponse: {
+            lead: components["schemas"]["Lead"];
+            /**
+             * @description `reversed` — the promotion had created a person, which is now archived and the
+             *     lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+             *     a pre-existing person, which is left untouched; only the lineage pointers are
+             *     nulled (formulas §26).
+             * @enum {string}
+             */
+            unwind: "reversed" | "merge_lineage_only";
+            /**
+             * Format: uuid
+             * @description The person the promotion had produced or merged into.
+             */
+            person_id?: string | null;
+        };
         LeadListResponse: {
             data: components["schemas"]["Lead"][];
             page: components["schemas"]["PageInfo"];
@@ -14301,10 +14481,15 @@ export interface components {
         };
         MeResponse: {
             user: components["schemas"]["User"];
-            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the non-production "Reset data" action — the exact string that endpoint validates. */
+            /** @description The installation's organization name (the installation.name setting). Shown as the typed-confirmation target of the "Reset data" action — the exact string that endpoint validates. */
             workspace_name: string;
-            /** @description True when the installation runs a non-production posture (MARGINCE_ENV). Gates the client-side "Reset data" action. */
+            /**
+             * @deprecated
+             * @description True when the installation runs a non-production posture (MARGINCE_ENV=dev|test). DEPRECATED as the gate for the "Reset data" action — read `data_reset_available` instead. A deployment being non-production is not consent to purge its tenant data, and inferring one from the other is why a `staging` installation full of real internal users could be wiped through the API.
+             */
             non_production: boolean;
+            /** @description True when this installation armed `operations.allow_data_reset` in its deployment file. It is the SAME value `POST /admin/reset-data` gates on, so a client never renders an action for a route that would answer 404. Absent or false means the capability does not exist here — the compiled default in every posture, dev included. */
+            data_reset_available?: boolean;
             /** @description Whether THIS CALLER may issue member set-password links (`issueUserPasswordLink`) — true only when the caller holds `admin` AND the installation has no outbound-email channel AND a public base URL is configured. Deliberately a caller capability rather than a deployment-posture flag: `/me` answers every authenticated member, and a bare posture boolean would tell every rep whether the installation has email configured. Clients render the action on this, so an admin never sees a control that can only fail (ADR-0061 Amendment 1). */
             admin_password_link: boolean;
             /** @description Effective role keys for this principal, and the one authority for them — `user.roles` is deliberately left unset here rather than repeating the same fact. */
@@ -14479,7 +14664,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo" | "reset_data" | "password_link_issued" | "connect" | "disconnect" | "schedule" | "reschedule" | "cancel" | "release" | "hold" | "expire" | "resolve" | "restrict" | "pin";
             entity_type: string;
             /**
              * Format: uuid
@@ -15930,6 +16115,37 @@ export interface components {
             action?: components["schemas"]["RetentionAction"];
             lawful_basis?: string | null;
             enabled?: boolean;
+        };
+        RetentionOverrideRequest: {
+            reason: string;
+        };
+        RestrictedRecord: {
+            /** Format: uuid */
+            activity_id: string;
+            /** @description The interaction kind (email, call, meeting, message). */
+            kind: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /**
+             * Format: date-time
+             * @description When the erasure request was suspended and the record restricted.
+             */
+            restricted_at: string;
+            /**
+             * Format: date-time
+             * @description When the obligation ends and the suspended erasure completes. Pinned when the record was restricted, from the floor then in force — a later change to a configured period never shortens an obligation already recorded.
+             */
+            restricted_until: string;
+            /** @description The retention class that holds it (e.g. commercial_correspondence), plus the statutory basis. Never free text from a user. */
+            reason: string;
+            /** @description Every transaction the record qualifies through, by name. Both id and name are required, so a qualification whose deal has since been deleted — and a controller pin that never named one (germany-package DEPACK-AC-5h: supplier correspondence has no deal in this product) — is reported through `reason` rather than as a half-populated entry. */
+            deals: {
+                /** Format: uuid */
+                id: string;
+                name: string;
+            }[];
+            /** @description Which fields the erasure emptied on this record (A167/ADR-0116). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values. */
+            redacted_fields?: string[];
         };
         /** @description The installation's retention posture (GCS-PARAM-6). */
         RetentionSettings: {
@@ -17789,7 +18005,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
-            /** @description The endpoint is unavailable in this environment — production, or an unset/unknown MARGINCE_ENV. It is served only under a non-production posture; the body is the standard problem document. */
+            /** @description This installation did not arm `operations.allow_data_reset`, so the operation does not exist here. Checked before authentication, so it is a 404 rather than a 403 for every caller — the answer discloses nothing about who asked. The body is the standard problem document. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -18022,10 +18238,30 @@ export interface operations {
                 ai_written?: components["parameters"]["AiWritten"];
                 /** @description Filter to a single owner. */
                 owner_id?: string;
+                /**
+                 * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+                 *     a team the caller cannot see returns their own visible rows filtered to nothing, not a
+                 *     wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+                 *     and rows reached by a record grant (AAD-ROLE-2).
+                 */
+                owner_team_id?: string;
+                /**
+                 * @description `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+                 *     (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+                 *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+                 */
+                unassigned?: boolean;
                 /** @description Full-text query over name/title (tsvector). */
                 q?: string;
                 /** @description Filter by tag name. */
                 tag?: string;
+                /**
+                 * @description People who work at this account, by their CURRENT PRIMARY employment edge
+                 *     (`relationship` kind `employment`, DM-VOCAB-1). A past employer does not match:
+                 *     "who works there" and "who has ever worked there" are different questions, and the
+                 *     list answers the first.
+                 */
+                organization_id?: string;
             };
             header?: never;
             path?: never;
@@ -19021,6 +19257,26 @@ export interface operations {
                 lifecycle?: "unknown" | "target" | "prospect" | "opportunity" | "customer" | "former_customer" | "disqualified";
                 /** @description Accounts carrying this relationship type. Multi-valued per account, so this selects accounts that are AT LEAST this — a partner that is also a customer matches both. */
                 relationship_type?: "customer" | "partner" | "supplier" | "investor" | "portfolio_company" | "competitor" | "other";
+                /**
+                 * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
+                 *     a team the caller cannot see returns their own visible rows filtered to nothing, not a
+                 *     wider set. Distinct from the `team` row scope itself, which also admits unassigned rows
+                 *     and rows reached by a record grant (AAD-ROLE-2).
+                 */
+                owner_team_id?: string;
+                /**
+                 * @description `true` returns only rows with no owner. Unassigned rows are visible at every row scope
+                 *     (AAD-ROLE-2), so this names the unowned queue rather than widening what the caller sees.
+                 *     Mutually exclusive with `owner_id` and `owner_team_id`; combining them is `422`.
+                 */
+                unassigned?: boolean;
+                /**
+                 * @description Accounts in one industry, matched exactly (DM-VOCAB-2). The column is free text rather
+                 *     than an enum, so this is the value as it was written.
+                 */
+                industry?: string;
+                /** @description How many people work there (DM-VOCAB-2). */
+                size_band?: "1-10" | "11-50" | "51-200" | "201-500" | "501-1000" | "1001-5000" | "5000+";
                 q?: string;
             };
             header?: never;
@@ -21225,7 +21481,7 @@ export interface operations {
                  */
                 channel_provider?: components["schemas"]["ProviderRef"];
                 /** @description Filter to activities linked to an entity type (with entity_id). */
-                entity_type?: "person" | "organization" | "deal";
+                entity_type?: "person" | "organization" | "deal" | "lead" | "project";
                 entity_id?: string;
                 /** @description Open tasks for an assignee. */
                 assignee_id?: string;
@@ -22707,6 +22963,8 @@ export interface operations {
                 ai_written?: components["parameters"]["AiWritten"];
                 status?: "new" | "working" | "promoted" | "disqualified";
                 owner_id?: string;
+                /** @description Filter by capture source (inbound, webform, referral, import, crawl, manual, ...). */
+                source?: string;
                 /** @description Triage by score. */
                 min_score?: number;
                 q?: string;
@@ -22962,6 +23220,105 @@ export interface operations {
                 };
             };
             /** @description Trigger not allowed (e.g. cold-outbound-no-reply does not promote). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    previewLeadPromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outcome promotion would take, and the person it would merge into when visible. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromoteLeadPreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Lead already promoted or disqualified — nothing to preview. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    demoteLead: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DemoteLeadRequest"];
+            };
+        };
+        responses: {
+            /** @description The restored lead and what the reversal did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoteLeadResponse"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Lead was never promoted, or has already been demoted. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The promoted person owns a deal — the reversal is refused rather than orphaning it. */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -26694,6 +27051,151 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listRestrictedActivities: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of restricted records, oldest obligation first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["RestrictedRecord"][];
+                        page: components["schemas"]["PageInfo"];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    releaseRestrictedActivity: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetentionOverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Released and erased. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The record is no longer restricted — the window elapsed and the suspended erasure already completed, or another administrator released it first. Re-read the list; there is nothing left to release. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    pinActivityToFloor: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                activityId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetentionOverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Pinned and restricted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The record is already restricted. Pinning is not a way to extend a window already running. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
             422: components["responses"]["ValidationError"];
         };
     };
@@ -31046,7 +31548,12 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["PermissionDenied"];
-            /** @description The upload exceeds the 10 MB import body cap (CAP-BODY). A distinct refusal, never a truncated read. */
+            /**
+             * @description The upload exceeds this installation's import body cap (CAP-BODY) — 10 MB by default,
+             *     set by whoever operates it (`uploads.csv_import_mb`, OPS-CFG-12). The refusal NAMES the
+             *     configured number rather than one compiled in, and it is a distinct refusal, never a
+             *     truncated read that imports half an estate and reports success.
+             */
             413: {
                 headers: {
                     [name: string]: unknown;

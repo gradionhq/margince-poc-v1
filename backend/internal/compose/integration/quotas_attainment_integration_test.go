@@ -433,8 +433,8 @@ func TestQuotaAttainmentConvertsAgainstTheInstallationSetting(t *testing.T) {
 	// EUR→USD on file, so a target in EUR has a rate into the new base. The
 	// suite's seedRollupFxRate helper hardcodes to_currency = 'EUR', which is
 	// itself an assumption this test exists to break, so the row goes in here.
-	e.WsExec(t, `INSERT INTO fx_rate (workspace_id, from_currency, to_currency, rate, rate_date)
-		VALUES ($1, 'EUR', 'USD', '1.1000000000', $2)`, e.WS, attainmentClock.AddDate(0, 0, -1))
+	e.WsExec(t, `INSERT INTO fx_rate (from_currency, to_currency, rate, rate_date)
+		VALUES ('EUR', 'USD', '1.1000000000', $1)`, attainmentClock.AddDate(0, 0, -1))
 
 	in := ownerQuotaInput(e.Rep1, 1000000) // 10,000.00 EUR
 	in.Currency = "EUR"

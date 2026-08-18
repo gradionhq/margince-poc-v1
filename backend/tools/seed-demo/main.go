@@ -108,14 +108,7 @@ func run() error {
 		return err
 	}
 
-	anchorRead, err := loadCompany(*dataset, demo.Anchor.Domain)
-	if err != nil {
-		return err
-	}
-	if err := seedAnchor(client, demo.Anchor, anchorRead, modeFor(*dryRun)); err != nil {
-		return err
-	}
-	if err := seed(client, companies, *dryRun); err != nil {
+	if err := seedTheCompanies(client, *dataset, demo, companies, modeFor(*dryRun)); err != nil {
 		return err
 	}
 
@@ -130,7 +123,7 @@ func run() error {
 		return err
 	}
 
-	if err := seedWhatNeedsSQLAfterCompanies(*dsn, client, demo, companies, modeFor(*dryRun)); err != nil {
+	if err := seedWhatNeedsSQLAfterCompanies(*dsn, *dataset, client, demo, companies, modeFor(*dryRun)); err != nil {
 		return err
 	}
 	return verifySeed(client, demo, modeFor(*dryRun))
@@ -163,10 +156,37 @@ func loginAllowingAnEarlierSeed(baseURL, email string, password *string) (*clien
 	return client, nil
 }
 
+// seedTheCompanies writes every organization the installation holds: the
+// company it IS, the companies it sells TO, and the companies it sells WITH.
+//
+// The order is the dependency order. The anchor is first because it answers
+// "who are we?", and the channel is last of the three but still ahead of the
+// pipeline — ownership walks the organizations the pipeline refs find, and a
+// partner seeded after that pass would be the one ownerless company in the
+// installation, visible at every row scope.
+func seedTheCompanies(client *client, dataset string, demo demoConfig, companies []company, mode runMode) error {
+	anchorRead, err := loadCompany(dataset, demo.Anchor.Domain)
+	if err != nil {
+		return err
+	}
+	if err := seedAnchor(client, demo.Anchor, anchorRead, mode); err != nil {
+		return err
+	}
+	if err := seed(client, companies, mode == modeDryRun); err != nil {
+		return err
+	}
+	partners, err := seedPartners(client, demo, mode)
+	if err != nil {
+		return err
+	}
+	reportPartners(partners)
+	return nil
+}
+
 // seedWhatNeedsSQLAfterCompanies runs everything that needs the companies on
-// file: the finance links, the facts, and the mailboxes.
-func seedWhatNeedsSQLAfterCompanies(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
-	if err := seedWhatNeedsCompanies(dsn, client, demo, companies, mode); err != nil {
+// file: the finance links, the facts, the logos, and the mailboxes.
+func seedWhatNeedsSQLAfterCompanies(dsn, dataset string, client *client, demo demoConfig, companies []company, mode runMode) error {
+	if err := seedWhatNeedsCompanies(dsn, dataset, client, demo, companies, mode); err != nil {
 		return err
 	}
 	// The inbox goes on LAST: the connector generates from the accounts,
@@ -179,7 +199,7 @@ func seedWhatNeedsSQLAfterCompanies(dsn string, client *client, demo demoConfig,
 // seedWhatNeedsCompanies runs the SQL-and-in-process phases that need the
 // companies to exist: the finance billing links, and the company facts (only a
 // crawl may create a fact, so this calls people.ApplyDeepRead in process).
-func seedWhatNeedsCompanies(dsn string, client *client, demo demoConfig, companies []company, mode runMode) error {
+func seedWhatNeedsCompanies(dsn, dataset string, client *client, demo demoConfig, companies []company, mode runMode) error {
 	if dsn == "" {
 		return nil
 	}
@@ -195,5 +215,11 @@ func seedWhatNeedsCompanies(dsn string, client *client, demo demoConfig, compani
 		return err
 	}
 	fmt.Printf("facts:         %d applied\n", facts)
+
+	// seedLogos prints its own line: an upload count and a converged run are
+	// different sentences, and it is the one that knows which happened.
+	if _, err := seedLogos(context.Background(), dsn, dataset, client, orgIDs, mode); err != nil {
+		return err
+	}
 	return nil
 }

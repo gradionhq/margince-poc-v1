@@ -117,3 +117,46 @@ func TestEnvKeysNamesEveryBinding(t *testing.T) {
 		t.Errorf("EnvKeys returned %q; a test that seeds from this would miss a binding", keys)
 	}
 }
+
+// TestItemsCarryNoEnvironmentValue is the mirror of the usage-text gate above,
+// for the other artefact this package now feeds.
+//
+// Items publishes each flag's DefValue, and a generated template or schema
+// renders that. If a registration ever took its default FROM the environment,
+// the value would travel there exactly as it once travelled into usage text —
+// same leak, new destination.
+func TestItemsCarryNoEnvironmentValue(t *testing.T) {
+	const sentinel = "a-value-the-environment-supplied"
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	var env Env
+	var dsn, level string
+	env.String(fs, &dsn, "dsn", "PROBE_DSN", "", "the DSN")
+	env.String(fs, &level, "log-level", "PROBE_LOG_LEVEL", "info", "log level")
+
+	// Everything the environment could supply, supplied.
+	env.Apply(fs, func(string) string { return sentinel })
+
+	for _, item := range env.Items(fs, "probe", map[string]bool{"PROBE_LOG_LEVEL": true}) {
+		if strings.Contains(item.Default, sentinel) {
+			t.Errorf("%s carries an environment-supplied default %q into the declared surface", item.Name, item.Default)
+		}
+	}
+}
+
+// A binding nobody classified is withheld, not published: the map miss must
+// fail closed, because the recoverable mistake is a redacted value an operator
+// asks about and the unrecoverable one is a bearer token in a build log.
+func TestAnUnclassifiedBindingIsTreatedAsASecret(t *testing.T) {
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	var env Env
+	var newKnob string
+	env.String(fs, &newKnob, "new-knob", "PROBE_NEW_KNOB", "", "a knob nobody classified")
+
+	items := env.Items(fs, "probe", map[string]bool{})
+	if len(items) != 1 {
+		t.Fatalf("got %d items, want 1", len(items))
+	}
+	if !items[0].Secret {
+		t.Error("an unclassified binding was published; the default must be to withhold")
+	}
+}

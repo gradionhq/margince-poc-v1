@@ -56,6 +56,7 @@ var rowScopedResponses = map[string]expectedTarget{
 	"SavedView":           {table: "saved_view", idPath: "id"},
 	"Automation":          {table: "automation", idPath: "id"},
 	"PromoteLeadResponse": {table: "person", idPath: "person.id"},
+	"DemoteLeadResponse":  {table: "lead", idPath: "lead.id"},
 	// A scheduled message is readable only by the rep who scheduled it, which
 	// the store enforces with its own scheduled_by predicate rather than an
 	// owner column the generic probe could read. It still carries an id and
@@ -170,6 +171,11 @@ func TestReplayScopeCoversEveryIdempotentOperation(t *testing.T) {
 	}
 }
 
+// noResponseBody stands for a 2xx that answers nothing — a 204. It is a schema
+// NAME rather than an absence so an operation whose contract this gate could
+// not read stays distinguishable from one that genuinely carries no record.
+const noResponseBody = "no-response-body"
+
 // successResponseSchemas reads each operation's 2xx response schema name
 // out of the contract, keyed like the runtime maps.
 // successResponseSchemas maps a route to every schema its 2xx responses name.
@@ -223,7 +229,16 @@ func successResponseSchemas(t *testing.T) map[string][]string {
 					// route stands in for one rather than silently reading as
 					// "no response record at all".
 					schemas[route] = append(schemas[route], "inline:"+route)
+					continue
 				}
+				// A success with no body at all — a 204 — carries no record,
+				// which is a real and checkable answer rather than an
+				// unreadable contract. It is named so the gate can tell it
+				// apart from an operation whose schema the extractor simply
+				// failed to resolve: the first is governed (there is nothing
+				// to re-probe on a replay), the second is the silent gap this
+				// gate exists to catch.
+				schemas[route] = append(schemas[route], noResponseBody)
 			}
 		}
 	}

@@ -687,6 +687,11 @@ describe("CompanyRail", () => {
     // Named again for anyone not reading the stacked avatars as monograms:
     // the sr-only text beside them, not the face itself.
     expect(screen.getByText("Ravi Shah")).toBeInTheDocument();
+    // The rail names people it cannot say anything more about; the row is the
+    // way to the record that can.
+    expect(
+      screen.getByRole("link", { name: "Dana Buyer" }).getAttribute("href"),
+    ).toBe("#/contacts/p-1");
   });
 
   it("draws a signal row with its severity dot, kind, summary and date", async () => {

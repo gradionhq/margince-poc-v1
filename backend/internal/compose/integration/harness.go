@@ -392,3 +392,50 @@ func withFullSignalGrant(base principal.Permissions) principal.Permissions {
 	}
 	return out
 }
+
+// SeedWonDealLinkedTo files the given activities against a WON deal, which is
+// what makes them Handelsbriefe under the statutory correspondence floor
+// (A165/ADR-0114).
+//
+// Before A165 the floor shielded by exclusion — every activity that was not a
+// task or a note — so a fixture testing it needed no deal at all. The floor now
+// covers correspondence about an actual commercial transaction, so a test that
+// wants a shielded record has to supply the transaction. A fixture that skips
+// it does not test a weaker floor; it tests the erasure path, because the
+// records go.
+//
+// The deal is written directly rather than through the store because the store
+// stamps the correspondence itself on the winning transition, and a fixture
+// that used it would prove the stamp works by using the stamp.
+func (e *Env) SeedWonDealLinkedTo(t *testing.T, activities ...ids.UUID) ids.UUID {
+	t.Helper()
+	pipeline, stage, deal := ids.NewV7(), ids.NewV7(), ids.NewV7()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+		if _, err := tx.Exec(ctx, `INSERT INTO pipeline (id, workspace_id, name, is_default, position)
+			VALUES ($1, `+ws+`, 'Floor fixture', false, 90)`, pipeline); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
+			VALUES ($1, `+ws+`, $2, 'Closed Won', 0, 'won', 100)`, stage, pipeline); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO deal (id, workspace_id, name, status, pipeline_id, stage_id, closed_at, source, captured_by)
+			VALUES ($1, `+ws+`, 'Floor fixture deal', 'won', $2, $3, now(), 'manual', 'human:x')`,
+			deal, pipeline, stage); err != nil {
+			return err
+		}
+		for _, a := range activities {
+			if _, err := tx.Exec(ctx, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+				VALUES (`+ws+`, $1, 'deal', $2)`, a, deal); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("seeding the qualifying deal: %v", err)
+	}
+	return deal
+}

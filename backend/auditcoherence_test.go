@@ -36,11 +36,13 @@ import (
 
 // auditActionDBOnly: verbs the audit_log_action_check CHECK allows that the
 // contract does not (yet) define. Each carries a one-line reason.
-var auditActionDBOnly = gatekit.Waive(map[string]string{
-	// live in signal_resolution writes (migration 0047); flagged upstream
-	// for spec adoption (see migration 0053's note).
-	"resolve": "signal_resolution writes (0047); flagged upstream for spec adoption",
-})
+//
+// Empty, and the ratchet below is what keeps it that way: an entry must be in
+// the DDL and absent from the contract, so adopting a verb upstream forces its
+// removal. `resolve` was the last occupant — in the DDL since 0047 and
+// contract-side only from 0287, where the statutory-retention verbs closed the
+// same gap for `restrict` and `pin`.
+var auditActionDBOnly = gatekit.Waive(map[string]string{})
 
 func TestAuditLogEnumCoherence(t *testing.T) {
 	defer auditActionDBOnly.AssertAllMatched(t)

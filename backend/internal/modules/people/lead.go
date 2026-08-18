@@ -336,6 +336,9 @@ type ListLeadsInput struct {
 	// rows first, so a reader asking for a score keeps the colder rows off
 	// the page rather than scanning past them.
 	MinScore *int
+	// Source narrows to one capture source (inbound, webform, referral,
+	// import, crawl, manual, ...): the exact stored value, no prefix match.
+	Source *string
 	// Sort is the contract's sort spec, validated against the lead
 	// vocabulary plus the workspace's active cf_ columns.
 	Sort *string

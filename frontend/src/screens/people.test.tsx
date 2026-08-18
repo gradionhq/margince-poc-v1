@@ -12,8 +12,9 @@ import {
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { activityTimeline } from "../design-system/activitytimeline";
 import { LocaleProvider } from "../i18n";
-import { activityTimeline, ContactsScreen, PersonScreen } from "./people";
+import { ContactsScreen, PersonScreen } from "./people";
 
 // B-EP09.10a acceptance: per-row provenance chips, row→360 navigation, and
 // the honest error state. Lead-specific acceptance (score thresholds,
@@ -86,7 +87,35 @@ const employmentRel = {
 };
 
 describe("ContactsScreen (B-EP09.10a)", () => {
-  it("renders rows with provenance chips and navigates to the person 360", async () => {
+  it("names the owner on each row and navigates to the person 360", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [
+              { id: "u-9", email: "lena@x.test", display_name: "Lena F." },
+            ],
+            page: { next_cursor: null },
+          });
+        }
+        return jsonResponse({
+          data: [{ ...anna, owner_id: "u-9" }],
+          page: { next_cursor: null },
+        });
+      }),
+    );
+    render(<ContactsScreen />);
+    await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
+    // The owner column answers "whose record is this?". The column it replaced
+    // rendered "typed by a person" for every human-captured row — the same
+    // string for every colleague, which named nobody.
+    await waitFor(() => expect(screen.getByText("Lena F.")).toBeTruthy());
+    await userEvent.click(screen.getByText("Anna Weber"));
+    expect(window.location.hash).toBe("#/contacts/p-1");
+  });
+
+  it("says a row is unassigned rather than leaving the owner blank", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () =>
@@ -95,9 +124,9 @@ describe("ContactsScreen (B-EP09.10a)", () => {
     );
     render(<ContactsScreen />);
     await waitFor(() => expect(screen.getByText("Anna Weber")).toBeTruthy());
-    expect(screen.getByText("via gmail")).toBeTruthy();
-    await userEvent.click(screen.getByText("Anna Weber"));
-    expect(window.location.hash).toBe("#/contacts/p-1");
+    // Unowned is a fact with its own filter, not an absence: a blank cell
+    // reads as "not loaded yet".
+    expect(screen.getByText("Unassigned")).toBeTruthy();
   });
 
   it("renders the honest error state with the RFC7807 detail", async () => {

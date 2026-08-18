@@ -36,6 +36,10 @@ describe("the published frontend surface", () => {
       "Button",
       "Card",
       "EmptyState",
+      // FactList: a unit screen had no other way to draw a label→value pair,
+      // because no extension ships a stylesheet — so both connector screens
+      // hand-wrote a `<dl>` that nothing styled. See the note beside its export.
+      "FactList",
       "Field",
       "RecordPicker",
       "SectionHeader",

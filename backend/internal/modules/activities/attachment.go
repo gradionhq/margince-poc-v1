@@ -4,10 +4,7 @@
 package activities
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -37,22 +34,7 @@ func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
 // maps it to 501). A role opts in with Store.WithBlobstore.
 var ErrBlobstoreUnconfigured = errors.New("activities: no object store configured")
 
-// AttachmentInput is one upload's server-validated inputs. Body is already
-// read (bounded) by the transport; captured_by is stamped from the
-// principal in the store, never taken from the request.
-type AttachmentInput struct {
-	EntityType  string
-	EntityID    ids.UUID
-	Filename    string
-	ContentType string
-	Body        []byte
-	// ContractID files this document against one agreement (ADR-0109). A
-	// roll-up like the account column beside it, not a second parent: the
-	// primary entity still owns the file's visibility.
-	ContractID *ids.UUID
-}
-
-const attachmentColumns = `at.id, at.workspace_id, at.entity_type, at.entity_id, at.filename,
+const attachmentColumns = `at.id, at.entity_type, at.entity_id, at.filename,
 	at.content_type, at.byte_size, at.checksum, at.source, at.captured_by, at.created_at,
 	at.category, at.title, at.doc_state, at.pinned, at.supersedes_id, at.organization_id,
 	at.contract_id`
@@ -91,89 +73,6 @@ func requireParentOrHide(ctx context.Context, entityType string, action principa
 		return err
 	}
 	return nil
-}
-
-// UploadAttachment stores an object and records its metadata row. Authority
-// inherits from the parent entity: the caller must hold Update on the parent
-// object type and be able to see the parent row — both are checked BEFORE any
-// bytes are written, so an upload to a hidden or cross-tenant entity cannot
-// land an object (no storage abuse). The object is put before the row commits
-// (a committed row always has its bytes; a failed write leaves at worst an
-// orphan object, never a row promising bytes that are not there).
-func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmcontracts.Attachment, error) {
-	if s.blob == nil {
-		return crmcontracts.Attachment{}, ErrBlobstoreUnconfigured
-	}
-	if err := auth.Require(ctx, in.EntityType, principal.ActionUpdate); err != nil {
-		return crmcontracts.Attachment{}, err
-	}
-	if err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureAttachmentParentVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
-			return err
-		}
-		return ensureContractFileable(ctx, tx, in.ContractID)
-	}); err != nil {
-		return crmcontracts.Attachment{}, err
-	}
-	by, err := storekit.CapturedBy(ctx)
-	if err != nil {
-		return crmcontracts.Attachment{}, err
-	}
-
-	id := ids.NewV7()
-	key := blobstore.WorkspaceKey(workspaceID(ctx), "attachment", id.String())
-	sum := sha256.Sum256(in.Body)
-	checksum := hex.EncodeToString(sum[:])
-	size := int64(len(in.Body))
-
-	if err := s.blob.Put(ctx, key, bytes.NewReader(in.Body), size, in.ContentType); err != nil {
-		return crmcontracts.Attachment{}, err
-	}
-
-	var out crmcontracts.Attachment
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		// Re-checked HERE, in the transaction that writes the column. The
-		// pre-flight check above runs before the bytes are stored, so an
-		// agreement archived or re-anchored during the upload would otherwise
-		// still receive the document — the row commits against a contract the
-		// caller can no longer see.
-		if err := ensureContractFileable(ctx, tx, in.ContractID); err != nil {
-			return err
-		}
-		rollUp, hasAccount, err := accountRollUp(ctx, tx, in.EntityType, in.EntityID)
-		if err != nil {
-			return err
-		}
-		var account *ids.UUID
-		if hasAccount {
-			account = &rollUp
-		}
-		if _, err := tx.Exec(ctx, `
-			INSERT INTO attachment (id, workspace_id, entity_type, entity_id, filename,
-				content_type, byte_size, storage_key, checksum, source, captured_by,
-				organization_id, contract_id)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-			id, workspaceID(ctx), in.EntityType, in.EntityID, in.Filename,
-			nullIfEmpty(in.ContentType), size, key, checksum, attachmentSource, by,
-			account, in.ContractID); err != nil {
-			return err
-		}
-		if _, err := storekit.Audit(ctx, tx, "create", "attachment", id, nil, map[string]any{
-			fieldEntityType: in.EntityType,
-			fieldEntityID:   in.EntityID.String(),
-			"filename":      in.Filename,
-			"byte_size":     size,
-		}); err != nil {
-			return err
-		}
-		att, err := readAttachment(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		out = att
-		return nil
-	})
-	return out, err
 }
 
 // resolveVisibleAttachmentParent is the ONE spelling of "find a live
@@ -356,7 +255,7 @@ func readAttachment(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.A
 func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 	var (
 		att         crmcontracts.Attachment
-		aid, wsID   ids.UUID
+		aid         ids.UUID
 		entityType  string
 		entityID    ids.UUID
 		contentType *string
@@ -369,7 +268,7 @@ func scanAttachment(row rowScanner) (crmcontracts.Attachment, error) {
 		orgID       *ids.UUID
 		contractID  *ids.UUID
 	)
-	if err := row.Scan(&aid, &wsID, &entityType, &entityID, &att.Filename,
+	if err := row.Scan(&aid, &entityType, &entityID, &att.Filename,
 		&contentType, &byteSize, &checksum, &att.Source, &capturedBy, &att.CreatedAt,
 		&category, &att.Title, &docState, &att.Pinned, &supersedes, &orgID, &contractID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

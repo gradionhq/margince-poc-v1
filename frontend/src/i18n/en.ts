@@ -570,6 +570,29 @@ export const en = {
   "people.name": "Name",
   "people.email": "Email",
   "people.capturedBy": "Captured by",
+  "list.owner": "Owner",
+  "list.unowned": "Unassigned",
+  "list.created": "Created",
+  "list.updated": "Updated",
+  "list.filterOwnerMe": "My records",
+  "list.filterOwnerAll": "Any owner",
+  "list.filterOwnerUnassigned": "Unassigned",
+  "list.filterOwnerTeam": "My team",
+  "list.viewTeam": "My team",
+  "list.viewUnassigned": "Unassigned",
+  "views.save": "Save view",
+  "views.saveConfirm": "Save",
+  "views.saveTitle": "Save this view",
+  "views.name": "Name",
+  "views.delete": "Delete view",
+  "views.deleteConfirm":
+    "Delete the view \u201c{name}\u201d? The records stay; only the saved filter goes.",
+  "list.viewMine": "Mine",
+  "list.viewCustomers": "Customers",
+  "list.viewProspects": "Prospects",
+  "org.filterLifecycleAll": "Any stage",
+  "org.filterRelTypeAll": "Any type",
+  "list.scopeTeam": "You see your team's records.",
   "person.consent": "Consent",
   "consent.grant": "Grant",
   "consent.withdraw": "Withdraw",
@@ -598,6 +621,8 @@ export const en = {
   "org.name": "Company",
   "org.description": "What they do",
   "org.website": "Website",
+  "org.contactCount": "Contacts",
+  "org.openDealCount": "Open deals",
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
@@ -875,6 +900,7 @@ export const en = {
   "contracts.form.fileHint":
     "Drop the signed PDF here, or click to choose one. It is filed against this contract and appears in the account's documents.",
   "contracts.form.fileEmpty": "Drop a file here or click to choose",
+  "contracts.form.fileAdd": "Drop another file here or click to choose",
   "contracts.perYear": "{amount} / year",
   "contracts.state.title": "Under contract · {count} active",
   "contracts.state.none": "No contract on record",
@@ -941,13 +967,13 @@ export const en = {
   "co.growthFit.band.weak": "Weak fit",
   "co.growthFit.band.unknown": "Not enough to judge",
   "co.growthFit.completeness": "{present} of {expected} inputs recorded",
-  "co.growthFit.missing": "Still missing: {inputs}.",
+  "co.growthFit.missing": "Still missing",
   "co.growthFit.capped": "Held back: {reason}.",
   "co.growthFit.nextStep": "Next: {step}.",
-  "co.growthFit.positive": "What argues for them",
-  "co.growthFit.negative": "What argues against them",
-  "co.growthFit.whitespace": "What they do not buy from you yet",
-  "co.growthFit.objections": "What they are likely to push back with",
+  "co.growthFit.positive": "Argues for",
+  "co.growthFit.negative": "Argues against",
+  "co.growthFit.whitespace": "Room to sell",
+  "co.growthFit.objections": "Likely pushback",
   "co.growthFit.angle": "Suggested approach",
   "co.writeEmail": "Write email",
   "co.dossier.title": "What this company is",
@@ -1267,6 +1293,39 @@ export const en = {
   "lead.promoteIneligible": "needs an email and an open status",
   "lead.filterStatus": "Status",
   "lead.filterStatusAll": "All statuses",
+  "lead.filterScore": "Score",
+  "lead.filterScoreAll": "Any score",
+  "lead.filterScoreHot": "80 and up",
+  "lead.filterScoreWarm": "60 and up",
+  "lead.filterScoreCool": "40 and up",
+  "lead.details": "Details",
+  "lead.detailsUnset": "Not set",
+  "lead.terminalReadOnly": "This lead is closed and takes no changes.",
+  "lead.boardTerminalOnly":
+    "The board shows open leads only. These leads are promoted or disqualified.",
+  "person.fromLead": "From lead",
+  "lead.promotedTitle": "Promoted to a contact",
+  "lead.promotedMerged":
+    "This lead merged into a contact we already knew — no duplicate was created.",
+  "lead.promotedCreated": "This lead became a new contact.",
+  "lead.promotedAt": "Promoted",
+  "lead.promotedTrigger": "Trigger:",
+  "lead.promotedEvidence": "Evidence:",
+  "lead.previewPending": "Checking whether we already know this person…",
+  "lead.previewCreate": "Promoting will create a new contact.",
+  "lead.previewMerge": "Promoting will merge into the existing contact",
+  "lead.previewMergeWithheld":
+    "Promoting will merge into an existing contact you cannot see.",
+  "lead.demote": "Reverse promotion",
+  "lead.demoteDialog": "Reverse this promotion?",
+  "lead.demoteExplain":
+    "The lead returns to the queue as “Working”. A contact the promotion created is archived; a contact it merged into stays as it is. A contact on a live deal cannot be reversed.",
+  "lead.demoteReason": "Reason (recorded in the audit trail)",
+  "lead.demoteConfirm": "Reverse",
+  "lead.promotedOutcomePending": "Reading what this promotion did…",
+  "lead.promotedOutcomeUnavailable":
+    "We cannot show whether this merged or created a contact.",
+  "lead.terminalPromoted": "Promoted — this lead is now read-only.",
   "lead.statusNew": "New",
   "lead.statusWorking": "Working",
   "lead.statusPromoted": "Promoted",
@@ -1729,6 +1788,38 @@ export const en = {
   "docs.reading.hide": "Hide the reading",
   "docs.pinned": "Pinned",
 
+  // Adding one. The "About" wording is doing real work: it decides whether the
+  // file becomes evidence in a deal or a paper about the account, and only the
+  // first can be read for deal fields — so the hint says so rather than leaving
+  // the reader to discover it from a panel that never appears.
+  "docs.add.action": "Add a document",
+  "docs.add.title": "Add a document",
+  "docs.add.about": "About",
+  "docs.add.aboutHint":
+    "A document on a deal can be read for deal fields; one on the company cannot.",
+  "docs.add.thisCompany": "This company",
+  "docs.add.category": "Category",
+  "docs.add.name": "Title",
+  "docs.add.nameHint": "Optional. Left blank, the row shows the filename.",
+  "docs.add.file": "File",
+  "docs.add.fileHint": "Up to {size}.",
+  "docs.add.fileEmpty": "Drop the file here, or click to choose one",
+  "docs.add.cancel": "Cancel",
+  "docs.add.submit": "Upload",
+  "docs.add.uploading": "Uploading…",
+  "docs.add.errNoFile": "Choose a file to upload.",
+  "docs.add.errRefused": "You may not add documents to this record.",
+  "docs.add.errInFlight": "This document is still uploading.",
+  "docs.add.errTooLarge":
+    "That file is larger than {size}, which is the most this installation accepts. Choose a smaller one.",
+  "docs.add.failedTitle": "The upload did not go through",
+  "docs.add.failed": "Nothing was stored. Try again, or choose another file.",
+  "docs.add.partialTitle": "Uploaded, but not filed",
+  "docs.add.partial":
+    "The file is on the record and listed below. Only its category and title were not saved, so it is filed under Other.",
+  "docs.add.dealsFailed":
+    "This account's deals could not be loaded, so the document can only be filed against the company.",
+
   // The staged-document-reading panel (RD-AC-N-2/-3). Three states that must
   // stay apart in the words as well as in the data: not answered yet, answered
   // and states none of them, could not be read at all.
@@ -1953,6 +2044,14 @@ export const en = {
     "These are yours to lend. Connect an MCP client and it asks which one to hand over — the connection then carries exactly that passport's scopes.",
   "settings.passportLabel": "Agent name",
   "settings.mint": "Mint passport",
+  "settings.minting": "Minting…",
+  "settings.mintCancel": "Cancel",
+  "settings.mintDone": "Done",
+  "settings.passportScopes": "What this agent may do",
+  "settings.passportScopesHint":
+    "Pick at least one. An agent can never do more than you can.",
+  "settings.passportScopesRequired":
+    "Pick at least one thing this agent may do.",
   "agents.connected": "Connected agents",
   "agents.connectedSub":
     "MCP clients holding their own credential, derived from a passport you lent",
@@ -2178,6 +2277,46 @@ export const en = {
   "privacy.legalHold":
     "Blocked — legal hold. This person is inside a statutory retention window, so erasure does not win here (Art. 17(3)(b)). The block applies to every role, including admin — there is no override. The attempt was audited.",
 
+  "restricted.title": "Restricted records",
+  "restricted.sub":
+    "what a statutory retention obligation is holding after an erasure — which record, why, and until when. The correspondence itself is not shown: it is restricted precisely so it is not read.",
+  "restricted.withheld":
+    "Only an admin or ops can see which records a statutory obligation is holding. It reads through the same authority as the retention ladder.",
+  "restricted.empty":
+    "No record is being held — every erasure so far could be completed in full.",
+  "restricted.kind": "Record",
+  "restricted.occurred": "Dated",
+  "restricted.deals": "Transaction",
+  "restricted.noDeal": "No deal on record",
+  "restricted.reason": "Held because",
+  "restricted.until": "Held until",
+  "restricted.redacted": "Redacted",
+  "restricted.nothingRedacted": "Nothing removed",
+  "restricted.redactedCount": "{count} fields removed",
+  "restricted.class.commercialCorrespondence": "Commercial correspondence",
+  "restricted.kind.email": "Email",
+  "restricted.kind.call": "Call",
+  "restricted.kind.meeting": "Meeting",
+  "restricted.kind.message": "Message",
+  "restricted.decide": "Decision",
+  "restricted.reasonLabel": "Why",
+  "restricted.reasonHint":
+    "Recorded in the audit trail with your name. This is what makes the decision accountable, so say what you decided and on what basis.",
+  "restricted.release.action": "Release",
+  "restricted.release.title": "Release this record from the retention floor?",
+  "restricted.release.body":
+    "Releasing ERASES the record. It does not put it back in use: the erasure request this obligation suspended is still outstanding, so lifting the obligation completes it. This cannot be undone.",
+  "restricted.release.confirm": "Release and erase",
+  "restricted.pin.action": "Pin a record",
+  "restricted.pin.idHint":
+    "For correspondence the automatic rule cannot recognise — supplier and purchasing mail qualifies under §257 HGB and has no deal in this product to hang off. The record id is on its audit entry.",
+  "restricted.pin.idMalformed":
+    "That is not a record id. It looks like 8-4-4-4-12 hexadecimal characters, and the audit entry for the record shows it in full.",
+  "restricted.pin.idPlaceholder": "Record id",
+  "restricted.pin.title": "Place this record under the retention floor?",
+  "restricted.pin.body":
+    "The record is held for the statutory window: hidden from every ordinary view, unchangeable, and erased when the window closes. Its identifiers are redacted now.",
+  "restricted.pin.confirm": "Pin and hold",
   "retention.title": "Retention",
   "retention.sub":
     "how long each kind of record is kept, and what happens when its window runs out",
@@ -4877,7 +5016,7 @@ export const en = {
   "person.brief.reading": "Reading the relationship…",
   "person.brief.empty":
     "Nothing has been captured yet that this brief could be written from.",
-  "person.brief.sourceEmail": "Email thread",
+  "person.brief.sourceActivity": "Conversation",
   "person.brief.sourceDeal": "Deal notes",
 
   "person.matters.title": "What matters to {name}",
@@ -4918,6 +5057,8 @@ export const en = {
   "person.memory.channelMeeting": "Meeting",
   "person.memory.channelCall": "Call",
   "person.memory.channelNote": "Note",
+  "person.memory.channelMessage": "Message",
+  "person.memory.channelTask": "Task",
   "person.memory.replied": "Replied",
   "person.memory.unanswered": "Unanswered",
 
@@ -4954,6 +5095,9 @@ export const en = {
   "person.rail.consentTitle": "Consent & channels",
   "person.rail.email": "Email",
   "person.rail.phone": "Phone",
+  "person.rail.noEmailAddress": "No address on file",
+  "person.rail.noPhoneNumber": "No number on file",
+  "person.rail.channelNotDeliverable": "Not deliverable",
   "person.rail.recentActivity": "Recent activity",
   "person.rail.nothingCaptured": "Nothing captured yet.",
   "person.rail.viewAllActivity": "View all activity",

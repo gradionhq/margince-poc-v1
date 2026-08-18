@@ -520,6 +520,20 @@ clean: ## Tear down the dev stack, containers and data volumes
 
 migrate-up: migrate ## Alias for migrate — apply all pending migrations (owner DSN)
 
+# The version is the current unix second, not the next number in a sequence:
+# two branches numbering against the same main claim one number and main stops
+# loading. scripts/new-migration.sh carries the full reasoning.
+#
+# NAME reaches the script through the ENVIRONMENT, and the recipe expands
+# $$MIGRATION_NAME rather than $(NAME). make substitutes its own variables into
+# the recipe text before any shell sees it, so a quoted $(NAME) is not quoting
+# at all — a name carrying a backquote or a quote of its own closes the string
+# and the rest runs as shell, well before the script's validation could refuse
+# it. Passing the value in the environment leaves the shell nothing to reparse.
+migrate-create: export MIGRATION_NAME := $(NAME)
+migrate-create: ## Scaffold a core migration pair: make migrate-create NAME=add_renewal_risk
+	@bash ../scripts/new-migration.sh "$$MIGRATION_NAME"
+
 migrate-down: composition ## Roll back the last migration(s): make migrate-down [STEPS=n]
 	@echo "migrate-down: reverting $(or $(STEPS),1) on $(REDACTED_OWNER_DSN)"
 	$(GOWORK_COMPOSED) $(GO) run ./cmd/migrate down --steps $(or $(STEPS),1)

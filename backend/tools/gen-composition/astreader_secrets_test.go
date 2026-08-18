@@ -32,9 +32,9 @@ func New() extension.Extension {
 // its key and scope, sorted by key so the encoding does not depend on
 // declaration order.
 //
-// Two keys in ONE scope, run once per scope: a unit declaring both is refused
-// (see TestSecretsSpanningBothScopesIsRejected), so the only way to pin both
-// published spellings is to derive a unit for each.
+// Two keys in ONE scope, run once per scope, so that each published spelling is
+// pinned on its own — a mixed unit is derived by
+// TestSecretsSpanningBothScopesDeriveAndArePlacedByTheInstallationCredential.
 func TestSecretsDeriveIntoManifest(t *testing.T) {
 	for _, tc := range []struct{ constant, wire string }{
 		{"extension.SecretScopeUser", "user"},
@@ -63,31 +63,47 @@ func TestSecretsDeriveIntoManifest(t *testing.T) {
 	}
 }
 
-// TestSecretsSpanningBothScopesIsRejected: a unit's settings entry is placed
-// by the ONE scope its secrets ask for — a `user` secret is a member's own
-// credential and belongs on their Connections page, a `workspace` secret is
-// the installation's and belongs under Integrations. A unit holding both has
-// no answer, and either tie-break would hide half of it from whoever holds the
-// other half, so the declaration is refused instead.
-func TestSecretsSpanningBothScopesIsRejected(t *testing.T) {
+// TestSecretsSpanningBothScopesDeriveAndArePlacedByTheInstallationCredential: a
+// unit may hold BOTH an installation credential and a per-member one, and it is
+// placed by the installation one.
+//
+// This was a REFUSAL, on the reasoning that a mixed unit has no answer to "whose
+// settings page is this" and that either tie-break hides half of it. The first
+// real mixed unit inverted that. extensions/zalo-oa connects ONE Official Account
+// serving a whole workspace: its token is user-scoped because the ingress port
+// admits an ingest only for a member holding a declared user-scoped secret —
+// depositing one IS the consent — while its app secret describes the
+// installation. Forced into one scope it landed on Connections, under copy
+// reading "yours alone — nobody else sees it, and disconnecting it affects only
+// you", about an account every rep replies through.
+//
+// So the scope of a key says which NAMESPACE it lives in, and the presence of an
+// installation credential says which page the unit belongs on.
+func TestSecretsSpanningBothScopesDeriveAndArePlacedByTheInstallationCredential(t *testing.T) {
 	src := secretsUnitSource(
 		"\t\t\t{Key: \"signing\", Scope: extension.SecretScopeWorkspace},\n" +
 			"\t\t\t{Key: \"api_token\", Scope: extension.SecretScopeUser},\n")
-	_, err := deriveSynthetic(t, "x", src)
-	if err == nil || !strings.Contains(err.Error(), "a unit declares ONE scope") {
-		t.Fatalf("err = %v, want the mixed-scope refusal", err)
+	derived, err := deriveSynthetic(t, "x", src)
+	if err != nil {
+		t.Fatalf("a unit holding both an installation credential and a per-member one must derive: %v", err)
 	}
-	// The message has to name BOTH keys: an author reading only the second one
-	// cannot tell which declaration it disagrees with.
-	for _, want := range []string{`"api_token"`, `"signing"`} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("the refusal does not name %s: %v", want, err)
+	s := string(derived)
+	for _, want := range []string{`"key": "api_token"`, `"key": "signing"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("derived manifest misses %s:\n%s", want, s)
+		}
+	}
+	// Both scopes survive into the manifest: the placement is a reading of them,
+	// never a replacement for them.
+	for _, want := range []string{`"scope": "user"`, `"scope": "workspace"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("derived manifest misses %s:\n%s", want, s)
 		}
 	}
 }
 
 // A unit declaring several secrets in ONE scope is ordinary and must still
-// derive — the guard above rejects the mix, not the plural.
+// derive.
 func TestSeveralSecretsInOneScopeAreAccepted(t *testing.T) {
 	src := secretsUnitSource(
 		"\t\t\t{Key: \"signing\", Scope: extension.SecretScopeUser},\n" +

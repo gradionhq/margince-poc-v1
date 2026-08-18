@@ -32,6 +32,10 @@ type Handlers struct {
 	// objects: the logo endpoint then answers 501 rather than nil-derefing,
 	// and no logo can have been resolved for it to serve anyway.
 	blob blobstore.Store
+	// uploadLimit is the deployment's ceiling for this module's upload route
+	// (OPS-CFG-12), injected by WithUploadLimit. Zero refuses every upload,
+	// which is the honest reading of "nobody has said" for a bound.
+	uploadLimit int64
 }
 
 // NewHandlers builds the module's HTTP surface over a workspace-bound handle.
@@ -123,9 +127,16 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		// The outcome pointer sits on the lead row the caller just proved
 		// they can read, so echoing it discloses nothing new.
 		if !promoted.PersonID.IsZero() {
-			e.Details = map[string]any{"promoted_person_id": promoted.PersonID.String()}
+			e.Details = map[string]any{fieldKeyPromotedPerson: promoted.PersonID.String()}
 		}
 		httperr.Write(w, r, e)
+		return
+	}
+	var notPromoted *NotPromotedError
+	if errors.As(err, &notPromoted) {
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict, Code: "not_promoted", Detail: notPromoted.Error(),
+		})
 		return
 	}
 	var alreadyMerged *AlreadyMergedError

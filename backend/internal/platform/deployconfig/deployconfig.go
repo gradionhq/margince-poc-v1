@@ -39,6 +39,29 @@ type Config struct {
 	Capture        Capture         `yaml:"capture"`
 	CompanyContext CompanyContext  `yaml:"company_context"`
 	OverlayBudget  OverlayBudget   `yaml:"overlay_budget"`
+	Operations     Operations      `yaml:"operations"`
+	Uploads        Uploads         `yaml:"uploads"`
+}
+
+// Operations carries the ops kill switches (OPS-CFG-9): capabilities an
+// installation turns on deliberately, in the file layer, where the deployment
+// reviews them.
+//
+// Deliberately NOT `setting` rows. A setting is product configuration an
+// installation admin changes through the API at runtime; what lives here is
+// whether a destructive capability EXISTS for this deployment at all. An admin
+// who could switch that on through the API could switch on the purge of their
+// own tenant's data, which is precisely the authority the file layer is for.
+type Operations struct {
+	// AllowDataReset arms POST /v1/admin/reset-data, the two reset lanes that
+	// serve it, and the /me flag that offers the action in the UI.
+	//
+	// The zero value is false, which is the whole design: this used to be
+	// inferred from MARGINCE_ENV, so a deployment labelled `staging` — full of
+	// real internal users — could have its data purged because a label said it
+	// was not production. A capability that erases tenant data is stated, never
+	// inferred from what the deployment happens to be called.
+	AllowDataReset bool `yaml:"allow_data_reset"`
 }
 
 // CompanyContextRollout is the ordered deployment capability for company
@@ -323,6 +346,9 @@ func (c Config) validate() error {
 		if err := ib.validate(name); err != nil {
 			return err
 		}
+	}
+	if err := c.Uploads.validate(); err != nil {
+		return err
 	}
 	if c.Email.Enabled {
 		return c.Email.validate()

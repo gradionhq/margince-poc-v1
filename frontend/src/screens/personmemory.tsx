@@ -1,13 +1,11 @@
-import { CalendarDays, Mail, Phone, StickyNote } from "lucide-react";
-import type { ReactNode } from "react";
 import { useState } from "react";
 import type { components } from "../api/schema";
 import { Badge, SegmentedControl } from "../design-system/atoms";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { emailSummaryText } from "../format/emailtext";
 import { useT } from "../i18n";
-import { useProviderLabel } from "./channelproviders";
 import { ChannelReplyAction } from "./compose";
+import { interactionIcon, useInteractionLabel } from "./interactionchrome";
 
 // Conversation memory (concept §5.10, ADR-0097 D3).
 //
@@ -36,7 +34,7 @@ type Filter = (typeof FILTERS)[number];
 export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
   const t = useT();
   const [filter, setFilter] = useState<Filter>("all");
-  const providerLabel = useProviderLabel();
+  const interactionLabel = useInteractionLabel();
   const entries = view.conversation_memory ?? [];
   // Until the thread projection is filled, the timeline the page already read
   // IS the memory: same rows, condensed the same way. It reads from what the
@@ -44,8 +42,8 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
   // beside it is withholding.
   const rows =
     entries.length > 0
-      ? entries.map((entry) => fromEntry(entry, t, providerLabel))
-      : foldActivities(view, t, providerLabel);
+      ? entries.map((entry) => fromEntry(entry, t, interactionLabel))
+      : foldActivities(view, t, interactionLabel);
   const shown = rows.filter((row) => matches(row, filter));
 
   return (
@@ -75,8 +73,12 @@ export function PersonMemory({ view }: Readonly<{ view: Person360 }>) {
       {shown.map((row) => (
         <PanelRow className="pe-memory-row" key={row.key}>
           <span className="pe-memory-date">{row.date}</span>
+          {/* The icon reads the KIND and the label reads the transport: a chat
+              message drawn from its provider key alone fell through to the
+              envelope, which told a contact with no email address that they
+              had been mailed. */}
           <span className="pe-memory-channel">
-            {channelIcon(row.channel)}
+            {interactionIcon(row.kind)}
             {row.channelLabel}
           </span>
           <span>
@@ -136,18 +138,15 @@ type Row = {
   tone: "success" | "warn" | "accent" | undefined;
 };
 
-// The display key for the channel column. Since ADR-0107/A158 a message names
+// The filter key for the channel column. Since ADR-0107/A158 a message names
 // its transport separately, so the kind alone renders every channel row as the
 // bare word "message" — a Telegram thread and a Dispact thread become
-// indistinguishable. Folding the provider in restores exactly what the column
-// showed before the narrowing, and falls back to the kind when a row has no
-// transport (mail, calls, meetings, notes).
+// indistinguishable. Folding the provider in keeps them apart, and falls back
+// to the kind when a row has no transport (mail, calls, meetings, notes).
 //
-// The id it returns is resolved to a display label through the transport
-// directory (useProviderLabel). An UNKNOWN provider falls back to its raw id
-// rather than blanking: a provider this build has never heard of is precisely
-// the case an extension unit creates, and an id a human can read beats an
-// empty cell.
+// It keys the segmented filter and NOTHING a reader sees: the name comes from
+// the transport directory and the icon from the kind, so a provider this build
+// has never heard of still reads, and no row is drawn as something it is not.
 function channelKeyOf(
   kind: string,
   provider: string | null | undefined,
@@ -155,10 +154,14 @@ function channelKeyOf(
   return provider ?? kind;
 }
 
+// interactionLabel is useInteractionLabel's resolver, threaded in rather than
+// called here: a Row is built outside the component, and a hook may not be.
+type InteractionLabel = ReturnType<typeof useInteractionLabel>;
+
 function fromEntry(
   entry: NonNullable<Person360["conversation_memory"]>[number],
   t: ReturnType<typeof useT>,
-  providerLabel: (provider: string) => string,
+  interactionLabel: InteractionLabel,
 ): Row {
   const status = entry.status ?? null;
   return {
@@ -177,11 +180,7 @@ function fromEntry(
     kind: entry.channel,
     channelProvider: entry.channel_provider ?? null,
     channel: channelKeyOf(entry.channel, entry.channel_provider),
-    channelLabel: labelFor(
-      channelKeyOf(entry.channel, entry.channel_provider),
-      t,
-      providerLabel,
-    ),
+    channelLabel: interactionLabel(entry.channel, entry.channel_provider),
     title: entry.title,
     summary: entry.summary,
     status,
@@ -196,7 +195,7 @@ function fromEntry(
 function foldActivities(
   view: Person360,
   t: ReturnType<typeof useT>,
-  providerLabel: (provider: string) => string,
+  interactionLabel: InteractionLabel,
 ): Row[] {
   const rows = view.activities?.data ?? [];
   return rows
@@ -211,18 +210,8 @@ function foldActivities(
         kind: row.kind,
         channelProvider: row.channel_provider ?? null,
         channel: channelKeyOf(row.kind, row.channel_provider),
-        channelLabel: labelFor(
-          channelKeyOf(row.kind, row.channel_provider),
-          t,
-          providerLabel,
-        ),
-        title:
-          row.subject ??
-          labelFor(
-            channelKeyOf(row.kind, row.channel_provider),
-            t,
-            providerLabel,
-          ),
+        channelLabel: interactionLabel(row.kind, row.channel_provider),
+        title: row.subject ?? interactionLabel(row.kind, row.channel_provider),
         summary:
           row.kind === "email"
             ? emailSummaryText(row.body ?? "")
@@ -298,48 +287,6 @@ function matches(row: Row, filter: Filter): boolean {
       return row.channel === "note";
     default:
       return true;
-  }
-}
-
-function labelFor(
-  kind: string,
-  t: ReturnType<typeof useT>,
-  providerLabel?: (provider: string) => string,
-): string {
-  // A transport is named by the DIRECTORY, not by a table here: which providers
-  // exist is a deployment fact, so a switch in this file could only ever be
-  // right for the providers this build happens to ship with. The resolver falls
-  // back to the raw id, so an unknown transport still reads.
-  if (providerLabel) {
-    const resolved = providerLabel(kind);
-    if (resolved !== kind) {
-      return resolved;
-    }
-  }
-  switch (kind) {
-    case "email":
-      return t("person.memory.channelEmail");
-    case "meeting":
-      return t("person.memory.channelMeeting");
-    case "call":
-      return t("person.memory.channelCall");
-    case "note":
-      return t("person.memory.channelNote");
-    default:
-      return kind;
-  }
-}
-
-function channelIcon(kind: string): ReactNode {
-  switch (kind) {
-    case "meeting":
-      return <CalendarDays size={13} aria-hidden="true" />;
-    case "call":
-      return <Phone size={13} aria-hidden="true" />;
-    case "note":
-      return <StickyNote size={13} aria-hidden="true" />;
-    default:
-      return <Mail size={13} aria-hidden="true" />;
   }
 }
 

@@ -199,3 +199,14 @@ func FromEnv(now func() time.Time, env config.Lookup) (websearch.Client, bool) {
 	}
 	return Disabled{}, false
 }
+
+// ConfigItems declares this package's surface. Absence is a supported answer —
+// a deployment that wants no external egress simply sets nothing, and every
+// consumer degrades honestly instead of erroring at request time.
+func ConfigItems() []config.Item {
+	return []config.Item{{
+		Name: EnvBraveAPIKey, Kind: config.KindString, Secret: true,
+		Roles: []string{config.RoleWorker},
+		Doc:   "Brave Search API key; unset leaves web search disabled rather than failing",
+	}}
+}

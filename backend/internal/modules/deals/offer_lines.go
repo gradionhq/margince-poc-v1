@@ -57,9 +57,9 @@ type OfferLineInputRow struct {
 
 // insertOfferLines inserts each input line in order, numbering the 422
 // error by the caller's 1-based line position.
-func insertOfferLines(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, currency string, lines []OfferLineInputRow) error {
+func insertOfferLines(ctx context.Context, tx pgx.Tx, offerID ids.OfferID, currency string, lines []OfferLineInputRow) error {
 	for i, line := range lines {
-		if err := insertOfferLine(ctx, tx, wsID, offerID, currency, line); err != nil {
+		if err := insertOfferLine(ctx, tx, offerID, currency, line); err != nil {
 			return fmt.Errorf("line %d: %w", i+1, err)
 		}
 	}
@@ -90,7 +90,7 @@ type resolvedOfferLine struct {
 	Tax         string
 }
 
-func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, offerCurrency string, in OfferLineInputRow) error {
+func insertOfferLine(ctx context.Context, tx pgx.Tx, offerID ids.OfferID, offerCurrency string, in OfferLineInputRow) error {
 	defaults, err := resolveProductSnapshot(ctx, tx, in.ProductID, offerCurrency, lineSnapshotDefaults{
 		Description: in.Description, Unit: in.Unit, Price: in.UnitPriceMinor, TaxRate: in.TaxRate,
 	})
@@ -111,7 +111,7 @@ func insertOfferLine(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.
 	}); err != nil {
 		return err
 	}
-	return insertOfferLineRow(ctx, tx, wsID, offerID, in, resolvedOfferLine{
+	return insertOfferLineRow(ctx, tx, offerID, in, resolvedOfferLine{
 		Description: *defaults.Description, Unit: unitVal, Price: *defaults.Price, Discount: discount, Tax: tax,
 	})
 }
@@ -175,7 +175,7 @@ func normalizeLineDefaults(unit, discountPct, taxRate *string) (unitVal, discoun
 
 // insertOfferLineRow assigns the line's position (appending after the last
 // when unset) and inserts it, mapping a position collision to 409.
-func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID ids.OfferID, in OfferLineInputRow, line resolvedOfferLine) error {
+func insertOfferLineRow(ctx context.Context, tx pgx.Tx, offerID ids.OfferID, in OfferLineInputRow, line resolvedOfferLine) error {
 	position := in.Position
 	if position == nil {
 		next, err := nextOfferLinePosition(ctx, tx, offerID)
@@ -187,10 +187,10 @@ func insertOfferLineRow(ctx context.Context, tx pgx.Tx, wsID ids.UUID, offerID i
 	// note: an offer_line_item is not a first-class entity (no LineItemKind),
 	// so its row id stays an untyped ids.UUID.
 	_, err := tx.Exec(ctx,
-		`INSERT INTO offer_line_item (id, workspace_id, offer_id, position, product_id, description,
+		`INSERT INTO offer_line_item (id, offer_id, position, product_id, description,
 		                              unit, quantity, unit_price_minor, discount_pct, tax_rate)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-		ids.NewV7(), wsID, offerID, *position, in.ProductID, line.Description,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		ids.NewV7(), offerID, *position, in.ProductID, line.Description,
 		line.Unit, in.Quantity, line.Price, line.Discount, line.Tax)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
@@ -229,7 +229,7 @@ func (s *Store) AddOfferLineItem(ctx context.Context, offerID ids.OfferID, in Of
 		if err := ensureDraft(current); err != nil {
 			return err
 		}
-		if err := insertOfferLine(ctx, tx, storekit.MustWorkspace(ctx), offerID, current.Currency, in); err != nil {
+		if err := insertOfferLine(ctx, tx, offerID, current.Currency, in); err != nil {
 			return err
 		}
 		if err := recomputeOfferTotals(ctx, tx, offerID); err != nil {

@@ -21,6 +21,7 @@ package integration
 // this check; with it retired, the sender's live row scope is the whole gate.
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -68,7 +69,7 @@ func TestEnsureTransmittableAdmitsAFileTheSenderCanStillRead(t *testing.T) {
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
 
 	att, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "offer.pdf", Body: []byte("PDF"),
+		EntityType: "person", EntityID: person, Filename: "offer.pdf", Content: bytes.NewReader([]byte("PDF")),
 	})
 	if err != nil {
 		t.Fatalf("seeding the attachment through the real writer: %v", err)
@@ -101,7 +102,7 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
 
 	att, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "private.pdf", Body: []byte("PDF"),
+		EntityType: "person", EntityID: person, Filename: "private.pdf", Content: bytes.NewReader([]byte("PDF")),
 	})
 	if err != nil {
 		t.Fatalf("seeding the attachment: %v", err)
@@ -128,7 +129,7 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 	// is admitted.
 	ownPerson := e.SeedPerson(t, "Rep3's Own Person", &e.Rep3)
 	ownAtt, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
-		EntityType: "person", EntityID: ownPerson, Filename: "mine.pdf", Body: []byte("PDF"),
+		EntityType: "person", EntityID: ownPerson, Filename: "mine.pdf", Content: bytes.NewReader([]byte("PDF")),
 	})
 	if err != nil {
 		t.Fatalf("seeding the sender's own attachment: %v", err)
@@ -159,7 +160,7 @@ func TestEnsureTransmittableRefusesAnUnknownFileIndistinguishablyFromAnInvisible
 	// A real file, owned by Rep1, that Rep3 cannot see.
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
 	att, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
-		EntityType: "person", EntityID: person, Filename: "private.pdf", Body: []byte("PDF"),
+		EntityType: "person", EntityID: person, Filename: "private.pdf", Content: bytes.NewReader([]byte("PDF")),
 	})
 	if err != nil {
 		t.Fatalf("seeding the attachment: %v", err)

@@ -4,6 +4,7 @@ import {
   type ReactNode,
   type SetStateAction,
   useEffect,
+  useMemo,
   useState,
 } from "react";
 import { navigate, type Route, routeHash } from "../app/router";
@@ -16,7 +17,8 @@ import {
 } from "../design-system/listtable";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { problemMessageOf, useSorMode } from "./common";
+import { problemMessageOf, useMe, useSorMode } from "./common";
+import { useRoster } from "./entityref";
 
 // The shared list foundation (P-14): every list screen sends the rich
 // q/sort/cursor/include_archived/filter vocabulary instead of a flat
@@ -39,7 +41,17 @@ export type ListQuery = {
   sort: string;
   includeArchived: boolean;
   filters: Record<string, string>;
+  /**
+   * Rows per page, chosen by the reader in the table footer and sent to the
+   * server as the page limit. One number: the table renders exactly the page
+   * the server answered, so "25 of 50 loaded so far" — a count that reads as
+   * two different page sizes in one screen — cannot happen.
+   */
+  perPage: number;
 };
+
+/** The page sizes the footer offers; the first is the default. */
+export const LIST_PAGE_SIZES = [25, 50, 100] as const;
 
 export type ListPage<Row> = {
   data: Row[];
@@ -66,6 +78,7 @@ export function useListQuery<Row>({
   key,
   fetchPage,
   initialSort,
+  initialFilters,
 }: Readonly<{
   key: string;
   fetchPage: (
@@ -73,6 +86,12 @@ export function useListQuery<Row>({
     cursor: string | null,
   ) => Promise<ListPage<Row>>;
   initialSort?: string;
+  /**
+   * Filters the list opens on. Read once, when the state is seeded: a filter
+   * that only becomes known later (the viewer's own id, say) must arrive
+   * through setQuery instead, because this initialiser never runs again.
+   */
+  initialFilters?: Readonly<Record<string, string>>;
 }>) {
   // In overlay mode the incumbent mirror refuses sort/filter dials (422), so
   // list reads must carry neither: seed an empty sort (ListTable hides the
@@ -82,7 +101,12 @@ export function useListQuery<Row>({
     q: "",
     sort: overlay ? "" : (initialSort ?? ""),
     includeArchived: false,
-    filters: {},
+    // Overlay withholds filters for the same reason it withholds sort: the
+    // incumbent mirror answers 422 to both. A screen that opens on a narrowed
+    // list opens unnarrowed there rather than sending a dial the mirror
+    // refuses.
+    filters: overlay ? {} : (initialFilters ?? {}),
+    perPage: LIST_PAGE_SIZES[0],
   });
   const infinite = useInfiniteQuery({
     queryKey: [key, query],
@@ -139,16 +163,24 @@ export function ListTable<Row>({
   chips = [],
   dataChips = [],
   views = [],
+  dataViews = [],
   action,
   caption,
   footer,
   searchable = true,
   showArchivedToggle = true,
   tools,
+  body,
 }: Readonly<{
   state: ListState<Row>;
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /**
+   * A second view of the same query, rendered instead of the grid while the
+   * surface keeps its search, chips, views and page-size dial — see the
+   * design-system ListTable's own `body`.
+   */
+  body?: ReactNode;
   /**
    * Where a row's record lives. One declaration drives both ways in: clicking
    * the row navigates, and the identity cell becomes a real link that opens in
@@ -165,6 +197,12 @@ export function ListTable<Row>({
    */
   dataChips?: readonly ListChip[];
   views?: readonly ViewSpec[];
+  /**
+   * View tabs whose labels are server strings rather than message keys — the
+   * reader's own saved views. Rendered after the screen's built-in presets, so
+   * All/Mine/A-Z keep their positions as a saved view is added or removed.
+   */
+  dataViews?: readonly ListView[];
   action?: ReactNode;
   /** What this list is, for the lists that need saying. Never the screen name. */
   caption?: MessageKey;
@@ -190,7 +228,48 @@ export function ListTable<Row>({
   // filter or a sort is no longer looking at that preset. Stored, the highlight
   // would keep claiming a view the query had already left; derived, it simply
   // stops matching, and comes back by itself if the reader undoes the edit.
-  const view = views.findIndex((spec) => matchesView(spec, query));
+  const allViews: readonly ListView[] = [
+    ...views.map((spec) => ({
+      label: spec.label,
+      sort: spec.sort,
+      filters: spec.filters,
+    })),
+    ...dataViews,
+  ];
+  const [view, setPicked] = useActiveView(allViews, query);
+  // Keyed on the VALUES, not on the arrays that carry them. The table treats a
+  // new `chosen` object as the reader narrowing the list and resets to page 1,
+  // so an object rebuilt every render resets on every render: pressing Next
+  // re-read page 2 and then immediately snapped back to page 1, and the list
+  // flipped between the first two pages forever.
+  //
+  // `chips` cannot be the key — screens declare it as an inline array literal,
+  // which is a fresh reference each render. The option values are what
+  // chosenFor actually reads, and they are strings.
+  // EVERY chip on the surface, declared and data-driven alike. The owner dial
+  // is a dataChip because it names the viewer's teams at runtime, and code that
+  // asks "which chips are there" must see it: reading `chips` alone is what
+  // made picking Unassigned send `owner=unassigned:true` — the chip's key with
+  // the raw option value — instead of `unassigned=true`, so the server ignored
+  // an unknown parameter and answered the whole list.
+  const allChips: readonly ListChip[] = [
+    ...chips.map((chip) => translateChip(chip, t)),
+    ...dataChips,
+  ];
+  // Carries the chip KEYS and the grouping, not just a flat list of values:
+  // chosenFor reads both, so two different chip sets that happen to share the
+  // same values must not produce the same key. JSON, rather than a join on a
+  // separator — any separator can appear inside a value, and then ["a","b"]
+  // and ["a<sep>b"] are indistinguishable.
+  const chipOptionKey = JSON.stringify(
+    allChips.map((chip) => [chip.key, chip.options.map((o) => o.value)]),
+  );
+  const filterKey = JSON.stringify(query.filters);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the values the arrays carry, which is what makes the identity stable
+  const chosen = useMemo(
+    () => chosenFor(allChips, query.filters),
+    [chipOptionKey, filterKey],
+  );
 
   // A functional updater reads the query at commit time, not at the time the
   // timer was scheduled: a concurrent sort/filter/includeArchived change
@@ -231,8 +310,33 @@ export function ListTable<Row>({
   const setFilter = (key: string, value: string) =>
     setQuery((prev) => {
       const filters = { ...prev.filters };
+      // A chip whose options each name a DIFFERENT query parameter carries the
+      // parameter in the value, as `param:value` (the owner dial: mine, my
+      // team's, unowned — one question the server answers three ways, and
+      // refuses if asked two at once). Clearing such a chip has to drop
+      // whichever parameter is currently set, not the chip's own key, which
+      // names no parameter at all.
+      // Only THIS chip's own parameters are cleared. A chip whose options each
+      // name a different query parameter (the owner dial: mine, my team's,
+      // unowned) has to drop whichever of its own it currently holds, because
+      // its key names no parameter at all. Clearing every composite parameter
+      // on the surface instead would make picking a lifecycle silently drop the
+      // owner filter — one dial reaching into another's answer.
+      const mine = allChips
+        .filter((chip) => chip.key === key)
+        .flatMap((chip) => chip.options.map((option) => option.value))
+        .filter((candidate) => candidate.includes(":"))
+        .map((candidate) => candidate.slice(0, candidate.indexOf(":")));
+      for (const param of mine) {
+        delete filters[param];
+      }
       if (value) {
-        filters[key] = value;
+        const split = value.indexOf(":");
+        if (split > 0 && mine.includes(value.slice(0, split))) {
+          filters[value.slice(0, split)] = value.slice(split + 1);
+        } else {
+          filters[key] = value;
+        }
       } else {
         delete filters[key];
       }
@@ -271,18 +375,19 @@ export function ListTable<Row>({
               onChange: (next) => setQuery((prev) => ({ ...prev, sort: next })),
             }
       }
-      chips={
-        overlay
-          ? []
-          : [...chips.map((chip) => translateChip(chip, t)), ...dataChips]
-      }
-      chosen={query.filters}
+      chips={overlay ? [] : allChips}
+      chosen={chosen}
       onChipChange={setFilter}
       // A view tab whose preset the mirror would refuse is a tab that lights up
       // and does nothing, so overlay mode shows none — the same reason its
       // chips and its sort are withheld.
-      views={overlay ? [] : views.map((spec) => translateView(spec, t))}
+      views={
+        overlay
+          ? []
+          : [...views.map((spec) => translateView(spec, t)), ...dataViews]
+      }
       activeView={view}
+      onViewChange={setPicked}
       archived={
         showArchivedToggle
           ? {
@@ -296,8 +401,14 @@ export function ListTable<Row>({
       // the one dial that behaves identically in both modes.
       hasMore={state.hasMore}
       onLoadMore={state.loadMore}
+      // The page size is part of the server query, not a second slice on top
+      // of it: changing it re-asks the server, which is why it lives in the
+      // ListQuery the fetchers read their `limit` from.
+      perPage={query.perPage}
+      onPerPage={(next) => setQuery((prev) => ({ ...prev, perPage: next }))}
       // The unit key names the table for the widths it remembers.
       widthsKey={unit}
+      body={body}
       pending={isPending}
       problem={problem}
     />
@@ -322,8 +433,42 @@ function translateView(spec: ViewSpec, t: Translate): ListView {
   return { label: t(spec.label), sort: spec.sort, filters: spec.filters };
 }
 
-/** Is the list showing exactly what this view asks for, nothing added or left? */
-function matchesView(spec: ViewSpec, query: ListQuery): boolean {
+/**
+ * Which view tab is lit, and the setter the table reports a press to.
+ *
+ * The highlight is DERIVED from the query, so a reader who edits a filter is no
+ * longer claimed to be looking at the preset they started from. But two views
+ * can ask for the same sort and filters — a saved "German customers" that
+ * narrows exactly as the built-in Customers preset does — and a purely derived
+ * highlight lights the first match, so the reader's own view never lights when
+ * they pick it.
+ *
+ * The pressed tab therefore wins, but only while it still describes the list.
+ * The moment the query moves away it stops matching and the highlight falls
+ * back to whatever the query now describes.
+ */
+function useActiveView(
+  views: readonly ListView[],
+  query: ListQuery,
+): [number, (index: number) => void] {
+  const [picked, setPicked] = useState<number | null>(null);
+  const matched = views.findIndex((spec) => matchesView(spec, query));
+  const pinned = picked !== null && views[picked];
+  const view = pinned && matchesView(views[picked], query) ? picked : matched;
+  return [view, setPicked];
+}
+
+/**
+ * Is the list showing exactly what this view asks for, nothing added or left?
+ *
+ * Takes the sort and filters alone, so it reads a screen's built-in preset and
+ * a reader's saved view the same way — the two differ only in where the label
+ * came from, and the highlight is about the query, not the name.
+ */
+function matchesView(
+  spec: Readonly<{ sort?: string; filters?: Readonly<Record<string, string>> }>,
+  query: ListQuery,
+): boolean {
   if (query.sort !== (spec.sort ?? "")) {
     return false;
   }
@@ -333,4 +478,86 @@ function matchesView(spec: ViewSpec, query: ListQuery): boolean {
     wanted.length === applied.length &&
     wanted.every(([key, value]) => query.filters[key] === value)
   );
+}
+
+/**
+ * The owner dials every record list offers: mine, my team's, and the unowned
+ * queue.
+ *
+ * One chip rather than three, because they answer ONE question — whose rows —
+ * and the server refuses two of them at once (they name different sets, so a
+ * pair can only ever match nothing). A single-select chip makes that refusal
+ * unreachable from the UI instead of something the reader discovers as a 422.
+ *
+ * Built only once /me has answered. A chip option whose value is still "" reads
+ * as "clear this filter" to the table, so a half-built dial would quietly
+ * narrow nothing while looking armed.
+ *
+ * "My team" is the union of the viewer's teams when they belong to exactly one,
+ * which is the ordinary case. With several, the dial is withheld rather than
+ * guessing which one the reader meant — the wire takes one team id, and picking
+ * for them would answer a question they did not ask.
+ */
+export function useOwnerChips(): readonly ListChip[] {
+  const t = useT();
+  const me = useMe();
+  const viewerId = me.data?.user.id;
+  const teams = useRoster("team", Boolean(viewerId));
+  if (!viewerId) {
+    return [];
+  }
+  // Named, not counted. The viewer may sit in several teams, and a dial that
+  // withheld itself past the first one left everyone on two teams unable to
+  // ask a question the API answers. Each team is its own option, so picking one
+  // is picking a team rather than accepting a guess about which was meant.
+  const mine = new Set(me.data?.teams ?? []);
+  const named = (teams.data ?? []).filter((entry) => mine.has(entry.id));
+  return [
+    {
+      key: "owner",
+      label: t("list.owner"),
+      allLabel: t("list.filterOwnerAll"),
+      options: [
+        { value: `owner_id:${viewerId}`, label: t("list.filterOwnerMe") },
+        ...named.map((team) => ({
+          value: `owner_team_id:${team.id}`,
+          label: "display_name" in team ? team.display_name : team.name,
+        })),
+        { value: "unassigned:true", label: t("list.filterOwnerUnassigned") },
+      ],
+    },
+  ];
+}
+
+/**
+ * What each chip currently shows, given the filters actually in the query.
+ *
+ * A normal chip stores its value under its own key and needs no translation. A
+ * chip whose options each name a different query parameter (`param:value` —
+ * the owner dial) stores the value under the PARAMETER, so its selected option
+ * has to be read back from whichever parameter is set. Without this the dial
+ * narrows the list correctly and then renders as "Any owner", which reads as a
+ * filter that did not take.
+ */
+function chosenFor(
+  // Takes the option VALUES, so it reads a declared chip and a data-driven one
+  // the same way — the two differ only in where their labels came from, and a
+  // reader of this function never looks at a label.
+  chips: readonly ListChip[],
+  filters: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const chosen = { ...filters };
+  for (const chip of chips) {
+    for (const option of chip.options) {
+      const split = option.value.indexOf(":");
+      if (split <= 0) {
+        continue;
+      }
+      const param = option.value.slice(0, split);
+      if (filters[param] === option.value.slice(split + 1)) {
+        chosen[chip.key] = option.value;
+      }
+    }
+  }
+  return chosen;
 }

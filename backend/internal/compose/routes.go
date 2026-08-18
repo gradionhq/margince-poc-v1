@@ -164,7 +164,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// operational mux instead would win the longest-pattern match against
 	// "/v1/" and serve without a session. See extensionEdge.
 	publicEdge := publicPreferences(consent.NewStore(InstallationDB(pool)), newPublicPreferenceLimiters())(
-		publicBooking(activities.NewStore(InstallationDB(pool)), newPublicBookingLimiters())(
+		publicBooking(activities.NewStore(InstallationDB(pool)), identity.NewService(pool), newPublicBookingLimiters())(
 			extensionEdge(srv, log)(api),
 		),
 	)
@@ -274,6 +274,26 @@ func WithMetricsToken(token string) Option {
 func WithBootstrapSeeds(seeds deployconfig.Seeds) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.bootstrapSeeds = seeds
+	}
+}
+
+// WithUploadLimits carries the deployment file's `uploads` section to every
+// place one number has to be the same number (OPS-CFG-12): the chassis ceiling
+// a route rides, the cap its handler parses under, and the figure the
+// installation read publishes so a client can refuse an oversize file before
+// sending it.
+//
+// All three are set from ONE value here rather than resolved separately, which
+// is the only arrangement in which they cannot disagree. Without the option the
+// compiled-in defaults stand — the composition is still fully bounded, it just
+// was never told about a deployment file.
+func WithUploadLimits(limits deployconfig.UploadLimits) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.uploadLimits = limits
+		s.activitiesHandlers = s.activitiesHandlers.WithUploadLimit(limits.Attachment)
+		s.peopleHandlers = s.peopleHandlers.WithUploadLimit(limits.LinkedInImport)
+		s.uploadLimit = limits.CSVImport
+		s.maxUploadBytes = limits.Attachment
 	}
 }
 

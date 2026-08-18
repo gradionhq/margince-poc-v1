@@ -95,6 +95,68 @@ public, so an issue carries no private spec paths, no local machine paths, no
 secrets; cite the spec by chapter/ADR/pin ID. How the team tracks issues beyond
 this repo is internal: see the spec repo's `tooling/delivery-board.md`.
 
+### Label every issue you file (three axes, no exceptions)
+
+An unlabeled issue is indistinguishable from an untriaged one, and that is the
+invariant the labels exist to protect: **unlabeled means nobody has looked at it
+yet.** File an issue without labels and you have quietly told the next reader a
+falsehood about your own finding. Every issue you open carries **exactly one
+`priority:` and exactly one `area:`**.
+
+**Priority** is a claim about severity, never about your schedule. Do not demote
+a real defect because it is not this week's work — the milestone carries the
+schedule, the label carries the truth:
+
+| Label | It qualifies when |
+|---|---|
+| `priority: critical` | Data loss, a reachable security or privacy breach, `main`/CI red, or the product unusable on a default install. Drop other work. |
+| `priority: high` | A real user or operator hits it on a live path, or it blocks another workstream. |
+| `priority: normal` | A genuine defect that is narrow, guarded, or unreachable today; hygiene; test-lane work; polish. |
+| `priority: low` | A want, not a defect — or it needs a product/spec decision before it is work at all. |
+
+The honest test for `critical` is not "how bad would this be" but "does this stop
+somebody else from working, or is somebody's data wrong right now". A flaky gate
+earns it not because it is severe but because a red run nobody trusts makes every
+other verdict unreadable.
+
+**Area** is where the fix lives, one only, so a filter never double-counts:
+`agents-mcp` · `ai-models` · `authz` · `capture` · `ci-tests` · `contract-api` ·
+`deals` · `extensions` · `finance` · `frontend` · `overlay` · `platform` ·
+`privacy` · `records` · `reports`. A doc that is wrong about a subsystem takes
+that subsystem's area, not a documentation area — it belongs next to the code it
+misleads about.
+
+**Status**, when it applies — these mark an issue that is not yet workable, and
+leaving them off puts unactionable work in somebody's queue:
+
+- `status: needs-decision` — unactionable until a human rules ("decide or decline X").
+- `status: spec-change` — contract-first (P3): the spec change lands in
+  `margince-foundation` first. The issue stays open **here**, linked to that
+  upstream change, as the implementation follow-up. This label sequences the
+  work; it does not hand it away — contract-first means the spec change lands
+  first, not that somebody else writes it (see the four rules above).
+
+**Provenance**, additive and independent of the three axes: `bug`,
+`enhancement`, `security`, `capability-gap` (a missing capability, not a defect),
+and `fast-track-debt` (shipped fast under time pressure with the gap recorded
+deliberately). These record *why the issue exists*, which is the one thing
+nobody can reconstruct later — prefer keeping them over tidying them away.
+
+**`security` is not a way to report a vulnerability.** This repo is public, and
+[SECURITY.md](SECURITY.md) is explicit that an exploitable weakness goes to a
+private GitHub Security Advisory, never a public issue or pull request, because
+a public report before a fix ships puts every deployment at risk. The label is
+for hardening and defence-in-depth work that carries no live exploit. The test
+is the one SECURITY.md itself implies: **if you can write the reproduction, it
+belongs in an advisory** — a cross-tenant read, a row-scope or RBAC escape, an
+agent-governance bypass, a forged or still-binding revoked credential, a
+mutation that skips the audit or outbox row, injection, SSRF.
+
+Before filing, check whether a **parent tracker** already covers the finding
+(`gh issue list --label "area: <x>"`); if one does, attach yours as a sub-issue
+rather than adding a sibling to the pile. A tracker carries the highest priority
+among its children.
+
 ## Build / test / seed
 
 All Go code lives under `backend/` (one Go module,

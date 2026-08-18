@@ -27,7 +27,12 @@ DATASET ?= $(abspath $(DATASET_ROOT)/../margince-demo-database)
 # DEV_SLUG stack on another port.
 SEED_DSN ?= postgres://margince_owner:dev@localhost:15432/margince
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-demo verify-demo seed-reset verify-boot frontend-check frontend-e2e bench-mobile perfdoc e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc test-golangci-guard test-scheduled-report secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
+# The dev stack's MinIO port. Same default scripts/dev.sh uses. seed-demo needs
+# it to upload the company logos: without a blobstore the seeder skips them and
+# every company renders as a placeholder initial.
+MINIO_PORT ?= 29000
+
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-gates check-fe build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down migrate-create run psql redis-cli tidy dev dev-stop dev-logs clean vuln tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-demo verify-demo seed-reset verify-boot frontend-check frontend-e2e bench-mobile perfdoc e2e-company fe-install fe-typecheck fe-typecheck-composed fe-lint fe-build fe-preview fe-format fe-test fe-test-ext fe-ds-gates fe-drift fe-unit fe-quality fe-bundle fe-storybook ds-purity font-lock icon-lint ds-spacing space-tokens native-controls ext-imports fitness-jurisdiction storybook fe-uat craft-static craft-test craft-residue check-craft-doc test-golangci-guard test-scheduled-report secret-scan test-secret-scan check-image-pins check-host-ports ci-doc-parity make-target-parity check-ext-migrations contract-breaking-check migration-versions test-lanes env-reads gofmt lint-modules go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-normalize sbom-supplement sbom-parity sbom-validate sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -144,7 +149,7 @@ dev-stop:
 dev-logs:
 	@bash scripts/dev-logs.sh
 
-build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down run psql redis-cli tidy clean vuln tools tools-go infra-logs infra-reset:
+build test test-v test-cover test-integration e2e-siteread e2e-ai e2e-ai-report ai-probe test-db-up test-it test-integration-serial bench-perf bench-record bench-capture perfdoc lint arch-lint vet gen gen-workflow mcp-apps-vocab drift composition check-composition test-extensions db-up db-init db-wait seed-reset seed-dev-db migrate migrate-up migrate-down migrate-create run psql redis-cli tidy clean vuln tools tools-go infra-logs infra-reset:
 	$(MAKE) -C backend $@
 
 ## check-fe — the frontend half of the gate (part of `make check`). Fails loudly
@@ -252,6 +257,10 @@ seed-demo:
 	  echo "no config/margince-admin-password — run make dev first" >&2; exit 1; }
 	MARGINCE_SEED_PASSWORD="$$(cat config/margince-admin-password)" \
 	MARGINCE_SEED_DSN="$(SEED_DSN)" \
+	MARGINCE_BLOBSTORE_ENDPOINT="localhost:$(MINIO_PORT)" \
+	MARGINCE_BLOBSTORE_ACCESS_KEY=minioadmin \
+	MARGINCE_BLOBSTORE_SECRET_KEY=minioadmin \
+	MARGINCE_BLOBSTORE_BUCKET=margince-dev \
 	$(MAKE) -C backend seed-demo DATASET="$(DATASET)" SEED_ARGS="$(SEED_ARGS)"
 
 ## verify-demo — re-run the demo seeder's verify pass against a running stack,
@@ -322,10 +331,22 @@ fe-drift:
 ## time to collect coverage doubles the lane for a file the first run could have
 ## written. Off by default: nobody reads an lcov file locally and instrumenting
 ## for one costs about a third of the run, so a developer does not pay it.
+##
+## The provider and the reporter live in frontend/vite.config.ts rather than on
+## this command line, because the reporter carries an option (`projectRoot`) and
+## a CLI `--coverage.reporter` REPLACES the configured entry, option and all.
+## check-lcov-paths.sh is the report's acceptance test: an lcov naming files the
+## scanner cannot resolve is indistinguishable, everywhere downstream, from a
+## suite that covers nothing. Its own test runs on EVERY invocation of this
+## target rather than beside it, because the gate itself only runs on the
+## FE_COVERAGE runs — which are CI's — while an edit to it lands on a bare
+## `make fe-unit`.
 FE_COVERAGE ?=
 fe-unit:
+	bash frontend/scripts/check-lcov-paths.test.sh
 	cd frontend && pnpm install --frozen-lockfile && pnpm exec vitest run \
-		$(if $(FE_COVERAGE),--coverage.enabled --coverage.provider=v8 --coverage.reporter=lcov)
+		$(if $(FE_COVERAGE),--coverage.enabled)
+	$(if $(FE_COVERAGE),frontend/scripts/check-lcov-paths.sh frontend/coverage/lcov.info)
 
 ## fe-quality — every leg of the frontend gate EXCEPT the unit suite and the
 ## bundle, which CI runs beside this one. Needs Go: the composed lane composes.

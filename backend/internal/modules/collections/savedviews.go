@@ -33,6 +33,14 @@ import (
 
 const savedViewColumns = `id, owner_id, shared_scope, resource, name, query, version, created_at, updated_at, archived_at`
 
+// The one key inside a saved view's `query` that carries a filter tree, and the
+// wire field a refusal of it names. Spelled once so the create/update gate and
+// the export path cannot look under different keys.
+const (
+	viewFilterKey  = "filter"
+	viewQueryField = "query"
+)
+
 // selectSavedView is the shared projection prefix for every saved_view read —
 // one spelling so the columns can't drift between the list, get, and delete paths.
 const selectSavedView = "SELECT " + savedViewColumns + " FROM saved_view WHERE "
@@ -158,7 +166,10 @@ func (s *Store) CreateSavedView(ctx context.Context, in CreateSavedViewInput) (s
 		return savedViewRow{}, &BadInputError{Field: "name", Reason: "must not be empty"}
 	}
 	if in.Query == nil {
-		return savedViewRow{}, &BadInputError{Field: "query", Reason: "must not be null"}
+		return savedViewRow{}, &BadInputError{Field: viewQueryField, Reason: "must not be null"}
+	}
+	if err := s.validateViewFilter(ctx, in.Resource, in.Query); err != nil {
+		return savedViewRow{}, err
 	}
 	var out savedViewRow
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -201,6 +212,48 @@ func (s *Store) GetSavedView(ctx context.Context, id ids.SavedViewID) (savedView
 	return out, err
 }
 
+// validateViewFilter proves a saved view's filter state is evaluable against
+// its resource's closed vocabulary before the view is stored — the same proof
+// CreateList runs over a dynamic list's definition, and for the same reason:
+// otherwise the first thing that ever checks the filter is an export, so the
+// author learns their view is unusable from a surface they reached much later
+// rather than from the one that accepted it.
+//
+// Three states are legitimately unvalidatable and pass through:
+//
+//   - A view with NO filter state. A saved view is columns, sort and grouping
+//     as much as it is a filter.
+//   - A filter of `null`, which is how a client spells "cleared" — the same
+//     answer as absent, and read the same way at export.
+//   - A resource with no segment engine (activities, partners are not
+//     predicate-leaf resources). There is no vocabulary to check against; the
+//     export path refuses such a view outright on its own grounds.
+func (s *Store) validateViewFilter(ctx context.Context, resource string, query map[string]any) error {
+	rawFilter, present := query[viewFilterKey]
+	if !present || rawFilter == nil {
+		return nil
+	}
+	engineKey, filterable := viewResourceToEngine[resource]
+	if !filterable {
+		return nil
+	}
+	filterMap, isTree := rawFilter.(map[string]any)
+	if !isTree {
+		return &BadInputError{Field: viewQueryField, Reason: "filter state must be a filter tree"}
+	}
+	engine, ok, err := s.SegmentEngine(ctx, engineKey)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		// viewResourceToEngine named an engine key that segmentEngines does not
+		// carry — the two maps have drifted, which is ours to fix rather than
+		// the caller's to work around.
+		return fmt.Errorf("saved view resource %q maps to %q, which has no segment engine", resource, engineKey)
+	}
+	return compileForValidation(engine, filterMap, viewQueryField)
+}
+
 type UpdateSavedViewInput struct {
 	Name      *string
 	Query     *map[string]any
@@ -214,6 +267,38 @@ func (s *Store) UpdateSavedView(ctx context.Context, id ids.SavedViewID, in Upda
 	owner, err := viewOwner(ctx)
 	if err != nil {
 		return savedViewRow{}, err
+	}
+	// A replaced filter is checked too, or the create-time gate is a formality
+	// one PATCH walks around. Resolved BEFORE the write transaction opens:
+	// SegmentEngine reads the custom-field catalogue on its own pool
+	// connection, and a second acquire while holding a transaction is the
+	// deadlock shape the sibling seams spell out.
+	//
+	// Through GetSavedView, which means replacing a query needs saved_view:read
+	// as well as :update. That coupling is deliberate rather than incidental:
+	// this operation ANSWERS with the view (the handler writes wireSavedView
+	// as its 200 body), so a principal who may PATCH it is already shown it —
+	// update-without-read is not a coherent grant for this resource. The
+	// alternative, a private read that skips the object gate, would be a path
+	// returning a record without the gate every other read carries, which is a
+	// worse thing to own than a grant combination no seeded role has.
+	if in.Query != nil {
+		current, err := s.GetSavedView(ctx, id)
+		if err != nil {
+			return savedViewRow{}, err
+		}
+		// The write below answers not-found for an archived view, so this check
+		// has to come BEFORE the filter is judged: a 422 for a view the caller
+		// is not entitled to see would be an existence oracle for archived ones.
+		if current.ArchivedAt != nil {
+			return savedViewRow{}, apperrors.ErrNotFound
+		}
+		// The stored resource, never a caller-supplied one: a view's resource is
+		// immutable (this input carries no Resource), so the vocabulary a filter
+		// is checked against is the one it will actually be evaluated with.
+		if err := s.validateViewFilter(ctx, current.Resource, *in.Query); err != nil {
+			return savedViewRow{}, err
+		}
 	}
 	var out savedViewRow
 	err = s.db.Tx(ctx, func(tx pgx.Tx) error {

@@ -35,10 +35,10 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 
 	// What each binding must REFUSE, and every binding refuses something.
 	// The two OpenAI-compatible ones declare no `input:` here, so both kinds are
-	// outside their carriage; anthropic and ollama carry images from code and
-	// still refuse the document kind neither wire can spell for a model this
-	// adapter cannot see. Accepting a MIME nothing will carry is the silent drop
-	// this test exists to prevent.
+	// outside their carriage; ollama carries images from code and still refuses
+	// the document kind its wire cannot spell at all; anthropic carries both
+	// kinds and refuses what no adapter here carries. Accepting a MIME nothing
+	// will carry is the silent drop this test exists to prevent.
 	mustRefuse := map[string]struct {
 		cfg   ProviderConfig
 		mimes []string
@@ -52,7 +52,7 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 			mimes: []string{"application/pdf", "image/png"},
 		},
 		"ollama":    {cfg: ProviderConfig{Provider: "ollama", Model: "m", BaseURL: srv.URL}, mimes: []string{"application/pdf"}},
-		"anthropic": {cfg: ProviderConfig{Provider: "anthropic", Model: "m", BaseURL: srv.URL}, mimes: []string{"application/pdf"}},
+		"anthropic": {cfg: ProviderConfig{Provider: "anthropic", Model: "m", BaseURL: srv.URL}, mimes: []string{"audio/mpeg"}},
 	}
 	for name, tc := range mustRefuse {
 		for _, mime := range tc.mimes {
@@ -73,11 +73,11 @@ func TestEveryProviderMapsOrRejectsAttachmentsNeverSilentlyDrops(t *testing.T) {
 	}
 }
 
-// The carriage arm for the two wires whose image support is a property of the
-// WIRE rather than of the binding: each maps an image in its own spelling, and
+// The carriage arm for the two wires whose attachment support is a property of
+// the WIRE rather than of the binding: each maps a part in its own spelling, and
 // "accepted" is only proved by the part arriving on the wire — a call that
 // dropped it would look identical from the caller's side.
-func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
+func TestAnthropicAndOllamaCarryAttachmentsInTheirOwnWireSpelling(t *testing.T) {
 	var sent []byte
 	var readErr error
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -96,18 +96,29 @@ func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
 	png := model.Attachment{MIME: "image/png", Bytes: []byte("PNG")}
 	for name, tc := range map[string]struct {
 		cfg ProviderConfig
-		// wants is the literal fragment the mapped image must produce on that
-		// wire. Literal, because the two spellings are the point: an anthropic
+		att model.Attachment
+		// wants is the literal fragment the mapped attachment must produce on
+		// that wire. Literal, because the spellings are the point: an anthropic
 		// base64 source and an ollama bare-base64 images entry are not
 		// interchangeable, and a shared assertion would pass on either.
 		wants string
 	}{
 		"anthropic": {
 			cfg:   ProviderConfig{Provider: "anthropic", BaseURL: srv.URL, Model: "m"},
-			wants: `"source":{"type":"base64","media_type":"image/png","data":"UE5H"}`,
+			att:   png,
+			wants: `{"type":"image","source":{"type":"base64","media_type":"image/png","data":"UE5H"}}`,
+		},
+		// The same wire, the other block kind: a PDF that arrived as an image
+		// block would be refused by the vendor, so the block type is as much
+		// part of "carried" as the bytes are.
+		"anthropic/pdf": {
+			cfg:   ProviderConfig{Provider: "anthropic", BaseURL: srv.URL, Model: "m"},
+			att:   model.Attachment{MIME: "application/pdf", Bytes: []byte("%PDF")},
+			wants: `{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"JVBERg=="}}`,
 		},
 		"ollama": {
 			cfg:   ProviderConfig{Provider: "ollama", BaseURL: srv.URL, Model: "m"},
+			att:   png,
 			wants: `"images":["UE5H"]`,
 		},
 	} {
@@ -119,15 +130,15 @@ func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
 			sent, readErr = nil, nil
 			if _, err := client.Complete(context.Background(), model.Request{
 				Messages:    []model.Message{{Role: "user", Content: "read this"}},
-				Attachments: []model.Attachment{png},
+				Attachments: []model.Attachment{tc.att},
 			}); err != nil {
-				t.Fatalf("%s must carry an image, got %v", name, err)
+				t.Fatalf("%s must carry a %s, got %v", name, tc.att.MIME, err)
 			}
 			if readErr != nil {
 				t.Fatalf("reading the request body: %v", readErr)
 			}
 			if !strings.Contains(string(sent), tc.wants) {
-				t.Fatalf("the accepted image never reached the wire as %s\n got: %s", tc.wants, sent)
+				t.Fatalf("the accepted attachment never reached the wire as %s\n got: %s", tc.wants, sent)
 			}
 		})
 	}
@@ -136,18 +147,21 @@ func TestAnthropicAndOllamaCarryImagesInTheirOwnWireSpelling(t *testing.T) {
 // Caps() and the send-time gate are one answer on these two wires as well: a
 // caller picks its lane off Caps(), so a provider advertising more than its gate
 // admits sends the caller down a lane that cannot work.
-func TestAnthropicAndOllamaAdvertiseTheImagesTheyCarry(t *testing.T) {
-	for name, cfg := range map[string]ProviderConfig{
-		"anthropic": {Provider: "anthropic", Model: "m"},
-		"ollama":    {Provider: "ollama", Model: "m"},
+func TestAnthropicAndOllamaAdvertiseWhatTheyCarry(t *testing.T) {
+	for name, tc := range map[string]struct {
+		cfg  ProviderConfig
+		want []string
+	}{
+		"anthropic": {cfg: ProviderConfig{Provider: "anthropic", Model: "m"}, want: carriesImagesAndPDF},
+		"ollama":    {cfg: ProviderConfig{Provider: "ollama", Model: "m"}, want: carriesImages},
 	} {
 		t.Run(name, func(t *testing.T) {
-			client, err := SelectBrain(cfg, allCloudKeys())
+			client, err := SelectBrain(tc.cfg, allCloudKeys())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := client.Caps().AttachmentMIMEs; !slices.Equal(got, carriesImages) {
-				t.Fatalf("Caps().AttachmentMIMEs = %v, want %v", got, carriesImages)
+			if got := client.Caps().AttachmentMIMEs; !slices.Equal(got, tc.want) {
+				t.Fatalf("Caps().AttachmentMIMEs = %v, want %v", got, tc.want)
 			}
 		})
 	}

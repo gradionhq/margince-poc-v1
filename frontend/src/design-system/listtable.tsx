@@ -73,7 +73,12 @@ export type ListColumn<Row> = {
  * page it has no rows for until enough cursor pages had been walked — a size
  * the server cannot serve is not a size worth offering.
  */
-const PAGE_SIZES = [25, 50] as const;
+/**
+ * Page sizes the footer offers. The table does NOT slice rows to this — it is
+ * the size the caller asks the SERVER for, so the page rendered is the page
+ * that was fetched.
+ */
+const PAGE_SIZES = [25, 50, 100] as const;
 
 /** Narrow enough to tuck a column away, wide enough to still read a header. */
 const MIN_COLUMN_WIDTH = 72;
@@ -196,14 +201,27 @@ export function ListTable<Row>({
   footer,
   hasMore = false,
   onLoadMore,
+  perPage = PAGE_SIZES[0],
+  onPerPage,
   pending = false,
   problem,
   widthsKey,
   tools,
+  body,
 }: Readonly<{
   rows: readonly Row[];
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /**
+   * Renders INSTEAD of the grid, keeping the surface's header, search, chips,
+   * views and page-size dial exactly where they are.
+   *
+   * For a second view of the same query — a board over the rows a list already
+   * fetched. Swapping the whole surface out for it would take the filter bar
+   * with it, leaving the reader looking at a narrowed answer with no way to
+   * see or change what narrowed it, which is worse than showing no board.
+   */
+  body?: ReactNode;
   onRowClick?: (row: Row) => void;
   /**
    * Where this row lives, as a URL. Turns the identity cell into a link, so a
@@ -256,6 +274,18 @@ export function ListTable<Row>({
   hasMore?: boolean;
   onLoadMore?: () => void;
   /**
+   * Rows per page. This is the size the CALLER asked the server for, so the
+   * table renders whole fetched pages rather than re-slicing them: one number
+   * decides both what is fetched and what is shown.
+   */
+  perPage?: number;
+  /**
+   * The reader picked a different page size; re-ask the server with it. A
+   * table with no handler keeps the footer's picker inert rather than
+   * pretending a size the caller will never fetch.
+   */
+  onPerPage?: (next: number) => void;
+  /**
    * The rows are still loading. The surface keeps its header and controls and
    * puts placeholders in the body: the primary action and the dials belong to
    * the screen, not to the response, and a create button that disappears while
@@ -290,7 +320,6 @@ export function ListTable<Row>({
     setWidths(next);
   };
   const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState<number>(PAGE_SIZES[0]);
   const scroller = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLTableElement>(null);
   // The frozen column only casts a shadow once columns have actually slid under
@@ -303,6 +332,11 @@ export function ListTable<Row>({
   // dismiss is one a keyboard reader is stuck inside.
   useCloseOnEscape(columnsOpen ? "columns" : null, () => setColumnsOpen(false));
 
+  // Each fetched page is one rendered page. The rows the caller holds are whole
+  // server pages (keyset, `perPage` per request), so slicing them again by a
+  // second, unrelated page size is what made a list say "1-25 of 50 loaded so
+  // far" — two page sizes in one screen, and a pager whose numbers counted the
+  // buffer rather than the list.
   const lastPage = Math.max(1, Math.ceil(rows.length / perPage));
   const current = Math.min(page, lastPage);
   const from = (current - 1) * perPage;
@@ -546,164 +580,166 @@ export function ListTable<Row>({
             hasMore={hasMore}
             perPage={perPage}
             onGoto={goto}
-            onPerPage={setPerPage}
+            onPerPage={onPerPage}
           />
         </>
       }
     >
-      <div
-        className={`lt-scroll${shifted ? " shifted" : ""}`}
-        ref={scroller}
-        onScroll={(event) => {
-          const next = event.currentTarget.scrollLeft > 0;
-          if (next !== shifted) {
-            setShifted(next);
-          }
-        }}
-      >
-        {/* One element for the frozen edge's shadow. It cannot hang off the
+      {body ?? (
+        <div
+          className={`lt-scroll${shifted ? " shifted" : ""}`}
+          ref={scroller}
+          onScroll={(event) => {
+            const next = event.currentTarget.scrollLeft > 0;
+            if (next !== shifted) {
+              setShifted(next);
+            }
+          }}
+        >
+          {/* One element for the frozen edge's shadow. It cannot hang off the
             cells: a shadow per cell starts and stops at each cell's own box, so
             the column ends up wearing a shadow per row with a seam at every
             divider. This sticks to the left of the scrolling body and spans its
             visible height, which is all that is ever seen of it. */}
-        <div className="lt-freeze" aria-hidden="true" />
-        <table
-          ref={head}
-          className={`lt-table${dense ? " dense" : ""}`}
-          role="table"
-          // Handed over as a custom property rather than as `min-width`
-          // itself: an inline width cannot be overridden by a stylesheet, and
-          // the phone layout has to drop this floor to lay the rows out as
-          // cards that fit the screen.
-          style={{ "--lt-floor": `${floor}px` } as CSSProperties}
-        >
-          {/* The widths live here rather than on the header cells: under fixed
+          <div className="lt-freeze" aria-hidden="true" />
+          <table
+            ref={head}
+            className={`lt-table${dense ? " dense" : ""}`}
+            role="table"
+            // Handed over as a custom property rather than as `min-width`
+            // itself: an inline width cannot be overridden by a stylesheet, and
+            // the phone layout has to drop this floor to lay the rows out as
+            // cards that fit the screen.
+            style={{ "--lt-floor": `${floor}px` } as CSSProperties}
+          >
+            {/* The widths live here rather than on the header cells: under fixed
               layout a col wins over the cell below it, so one place decides
               and a resized column cannot be quietly overruled. */}
-          <colgroup>
-            {shown.map((column) => (
-              <col key={column.key} style={{ width: widthOf(column) }} />
-            ))}
-            <col style={{ width: slack }} />
-          </colgroup>
-          <thead role="rowgroup">
-            <tr role="row">
+            <colgroup>
               {shown.map((column) => (
-                <HeaderCell
-                  key={column.key}
-                  column={column}
-                  sort={sort}
-                  state={sort ? sortState(column, sort.value) : null}
-                  className={cellClass(column)}
-                  // Dragging an edge moves that edge. The other columns are
-                  // pinned at what they currently measure first, so they stay
-                  // where they are and the table itself grows or shrinks —
-                  // rather than every column re-dividing the row because one
-                  // of them changed.
-                  onResizeStart={() =>
-                    applyWidths({ ...measured(), ...live.current })
-                  }
-                  onResize={(key, width) =>
-                    applyWidths({ ...live.current, [key]: width })
-                  }
-                  onResizeEnd={() => writeWidths(widthsKey, live.current)}
-                />
+                <col key={column.key} style={{ width: widthOf(column) }} />
               ))}
-              <td className="lt-slack" aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody role="rowgroup">
-            {pending &&
-              PLACEHOLDER_ROWS.map((placeholder) => (
-                <tr key={placeholder} className="lt-loading" role="row">
-                  {shown.map((column) => (
-                    <td key={column.key} role="cell">
-                      <span className="lt-bone" />
-                    </td>
-                  ))}
-                  <td className="lt-slack" aria-hidden="true" />
-                </tr>
-              ))}
-            {!pending &&
-              pageRows.map((row) => (
-                <tr
-                  key={rowKey(row)}
-                  role="row"
-                  className={onRowClick ? "lt-rowlink" : undefined}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                >
-                  {shown.map((column) => (
-                    <td
-                      key={column.key}
-                      role="cell"
-                      className={cellClass(column)}
-                      // On a phone the rows become cards and the header row is
-                      // gone, so each value carries its own label. The identity
-                      // cell is the card's heading and needs none.
-                      data-label={column.fixed ? undefined : column.header}
-                    >
-                      {column.fixed && rowHref ? (
-                        // The identity cell is a real link, so the row can be
-                        // opened the ways a link can: a new tab, a new window,
-                        // a bookmark, or the keyboard. Only the default click
-                        // is stopped from reaching the row's own handler —
-                        // preventing the anchor instead would navigate the
-                        // current page while the new tab opens too.
-                        <a
-                          className="lt-cellink"
-                          href={rowHref(row)}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {column.cell(row)}
-                        </a>
-                      ) : (
-                        column.cell(row)
-                      )}
-                    </td>
-                  ))}
-                  <td className="lt-slack" aria-hidden="true" />
-                </tr>
-              ))}
-            {!pending && problem && (
-              <tr className="lt-empty" role="row">
-                <td colSpan={shown.length + 1} role="cell">
-                  {problem}
-                </td>
+              <col style={{ width: slack }} />
+            </colgroup>
+            <thead role="rowgroup">
+              <tr role="row">
+                {shown.map((column) => (
+                  <HeaderCell
+                    key={column.key}
+                    column={column}
+                    sort={sort}
+                    state={sort ? sortState(column, sort.value) : null}
+                    className={cellClass(column)}
+                    // Dragging an edge moves that edge. The other columns are
+                    // pinned at what they currently measure first, so they stay
+                    // where they are and the table itself grows or shrinks —
+                    // rather than every column re-dividing the row because one
+                    // of them changed.
+                    onResizeStart={() =>
+                      applyWidths({ ...measured(), ...live.current })
+                    }
+                    onResize={(key, width) =>
+                      applyWidths({ ...live.current, [key]: width })
+                    }
+                    onResizeEnd={() => writeWidths(widthsKey, live.current)}
+                  />
+                ))}
+                <td className="lt-slack" aria-hidden="true" />
               </tr>
-            )}
-            {!pending && !problem && rows.length === 0 && (
-              <tr className="lt-empty" role="row">
-                <td colSpan={shown.length + 1} role="cell">
-                  {filtered ? (
-                    <>
-                      {t("table.noMatches", { unit })}{" "}
-                      <button
-                        type="button"
-                        className="lt-linkish"
-                        onClick={clearAll}
+            </thead>
+            <tbody role="rowgroup">
+              {pending &&
+                PLACEHOLDER_ROWS.map((placeholder) => (
+                  <tr key={placeholder} className="lt-loading" role="row">
+                    {shown.map((column) => (
+                      <td key={column.key} role="cell">
+                        <span className="lt-bone" />
+                      </td>
+                    ))}
+                    <td className="lt-slack" aria-hidden="true" />
+                  </tr>
+                ))}
+              {!pending &&
+                pageRows.map((row) => (
+                  <tr
+                    key={rowKey(row)}
+                    role="row"
+                    className={onRowClick ? "lt-rowlink" : undefined}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  >
+                    {shown.map((column) => (
+                      <td
+                        key={column.key}
+                        role="cell"
+                        className={cellClass(column)}
+                        // On a phone the rows become cards and the header row is
+                        // gone, so each value carries its own label. The identity
+                        // cell is the card's heading and needs none.
+                        data-label={column.fixed ? undefined : column.header}
                       >
-                        {t("table.clearFilters")}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {t("table.none", { unit })}
-                      {emptyNote && (
-                        <p
-                          className="t-caption"
-                          style={{ marginTop: "var(--space-2)" }}
+                        {column.fixed && rowHref ? (
+                          // The identity cell is a real link, so the row can be
+                          // opened the ways a link can: a new tab, a new window,
+                          // a bookmark, or the keyboard. Only the default click
+                          // is stopped from reaching the row's own handler —
+                          // preventing the anchor instead would navigate the
+                          // current page while the new tab opens too.
+                          <a
+                            className="lt-cellink"
+                            href={rowHref(row)}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {column.cell(row)}
+                          </a>
+                        ) : (
+                          column.cell(row)
+                        )}
+                      </td>
+                    ))}
+                    <td className="lt-slack" aria-hidden="true" />
+                  </tr>
+                ))}
+              {!pending && problem && (
+                <tr className="lt-empty" role="row">
+                  <td colSpan={shown.length + 1} role="cell">
+                    {problem}
+                  </td>
+                </tr>
+              )}
+              {!pending && !problem && rows.length === 0 && (
+                <tr className="lt-empty" role="row">
+                  <td colSpan={shown.length + 1} role="cell">
+                    {filtered ? (
+                      <>
+                        {t("table.noMatches", { unit })}{" "}
+                        <button
+                          type="button"
+                          className="lt-linkish"
+                          onClick={clearAll}
                         >
-                          {emptyNote}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                          {t("table.clearFilters")}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {t("table.none", { unit })}
+                        {emptyNote && (
+                          <p
+                            className="t-caption"
+                            style={{ marginTop: "var(--space-2)" }}
+                          >
+                            {emptyNote}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </ListSurface>
   );
 }
@@ -952,7 +988,7 @@ function Pager({
   hasMore: boolean;
   perPage: number;
   onGoto: (to: number) => void;
-  onPerPage: (next: number) => void;
+  onPerPage?: (next: number) => void;
 }>) {
   const t = useT();
   return (
@@ -990,7 +1026,8 @@ function Pager({
         <Select
           aria-label={t("table.rowsPerPage")}
           value={String(perPage)}
-          onChange={(next) => onPerPage(Number(next))}
+          disabled={!onPerPage}
+          onChange={(next) => onPerPage?.(Number(next))}
           options={PAGE_SIZES.map((size) => ({
             value: String(size),
             label: t("table.perPage", { count: size }),

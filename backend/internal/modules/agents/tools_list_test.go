@@ -152,7 +152,13 @@ func TestAnEnumerationIsChargedPerRecord(t *testing.T) {
 // union of properties would have to publish one type's enum for both.
 func TestTheDescriptionCarriesThePerTypeVocabulary(t *testing.T) {
 	described := listRecords{filters: bindableFilters(probeVocabulary{})}.describeFilters()
-	for _, want := range []string{"person — owner_id", "deal — ", "stage_id", "open|won|lost"} {
+	// Anchored on the type heading and on the filters themselves, not on which
+	// one happens to sort first: the set is alphabetical, so pinning the first
+	// entry fails the day a type gains a filter earlier in the alphabet —
+	// which says nothing about whether the vocabulary is published correctly.
+	for _, want := range []string{
+		"person — ", "owner_id", "deal — ", "stage_id", "open|won|lost",
+	} {
 		if !strings.Contains(described, want) {
 			t.Errorf("the filter description lacks %q:\n%s", want, described)
 		}

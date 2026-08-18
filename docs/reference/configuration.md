@@ -525,7 +525,7 @@ place keeps the api reading a password file that is no longer written. Use
 
 | Var | Used by | Meaning |
 |---|---|---|
-| `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev`, `staging`, or `test` yield a non-production posture; unset, `production`, or any unrecognized value ⇒ production, which disables every dev-only destructive switch (today: the admin data-reset endpoint below). The Makefile exports `dev`; production must not set it. |
+| `MARGINCE_ENV` | api (`runtimeenv.Parse`) | Read at boot and parsed **fail-closed**: only the exact values `dev` or `test` yield a non-production posture; unset, `production`, `staging`, or any unrecognized value ⇒ production. It decides two **licensing** questions and nothing else: which issuers the installation honours, and whether it may run unlicensed at all (a production role refuses to boot with no license). No destructive capability keys off it. `staging` was retired deliberately: a staging installation carries real internal users, so it takes the production posture. The Makefile exports `dev`; production must not set it. |
 | `MARGINCE_TEST_DSN`, `MARGINCE_TEST_APP_DSN`, `MARGINCE_TEST_REDIS` | integration tests | owner DSN / app-role DSN / Redis address for the real-Postgres lane; exported by the Makefile. The lane runs on its own `_test` namespace (the `margince_test` DB, never the dev `margince` DB), so it can run alongside `make dev`. |
 | `MARGINCE_TEST_REDIS_DB` | integration tests | Redis logical db for the lane (default 15). db 0 is reserved for a running `make dev`; a valid value is 1..15, and the parallel runner assigns one per package so concurrent packages never share a stream. Out-of-range fails loudly. |
 | `MARGINCE_TEST_BLOBSTORE_ENDPOINT`, `MARGINCE_TEST_BLOBSTORE_ACCESS_KEY`, `MARGINCE_TEST_BLOBSTORE_SECRET_KEY`, `MARGINCE_TEST_BLOBSTORE_BUCKET` | integration tests | the object store the blobstore lane runs against; exported by the Makefile at the `make db-up` MinIO, on its own `margince-test` bucket. The endpoint being unset **fails** the lane rather than skipping it — a skipped storage gate reads exactly like a passing one. |
@@ -538,12 +538,27 @@ place keeps the api reading a password file that is no longer written. Use
 | `MARGINCE_SEED_PASSWORD` | `tools/seed-demo` | the password the demo seeder signs in with, so a credential never lands in a shell history or a make target. Equivalent to its `-password` flag. |
 | `MARGINCE_SEED_DSN` | `tools/seed-demo` | owner DSN for the two things the demo seeder cannot do over the API: create a team (read-only on the contract) and set a seat's password (no endpoint accepts one under 12 characters). Equivalent to its `-dsn` flag; unset skips both phases rather than failing, because the rest of the seed is useful without them. |
 
-### `POST /v1/admin/reset-data` — non-production data reset
+### `POST /v1/admin/reset-data` — the armed data reset
 
-Gated on the `MARGINCE_ENV` posture above. In production the operation does
-not exist: the environment check runs **before** auth, so a misconfigured
-production deployment 404s rather than leaking that the endpoint exists (never
-a 403). In a non-production posture:
+Gated on `operations.allow_data_reset` in `margince.yaml`, whose compiled
+default is **false in every posture, dev included**. An installation that did
+not arm it has no such operation: the switch is checked **before** auth, so a
+deployment that never asked for it 404s rather than leaking that the endpoint
+exists (never a 403).
+
+It is deliberately not a `setting` row and not inferred from `MARGINCE_ENV`.
+An admin who could arm it through the API could arm the purge of their own
+tenant's data; and a deployment labelled `staging` — real internal users, real
+records — is not thereby consenting to be wiped. The same value is what `/me`
+reports as `data_reset_available`, so a client never renders an action the
+server would refuse.
+
+```yaml
+operations:
+  allow_data_reset: true   # dev/test only; omit or false everywhere else
+```
+
+Once armed:
 
 1. **Human-only** (`auth.RequireHuman`) — an agent/passport principal is
    rejected, 403.
@@ -674,8 +689,8 @@ object purge is the exception: it cannot join that transaction and so runs
 with the rows already wiped and some stored bytes still present. Re-running
 the reset is again the recovery.
 
-`GET /v1/me`'s `non_production` field mirrors the same posture so the SPA can
-show the action only where it will work: Admin settings → *data* tab → Danger
+`GET /v1/me`'s `data_reset_available` field carries the same switch the endpoint
+gates on, so the SPA shows the action only where it will work: Admin settings → *data* tab → Danger
 zone → *Reset data*, which prompts the operator to type the organization name
 before calling the endpoint — the server is the sole validator of that string,
 the client-side prompt is only UX.
@@ -715,6 +730,47 @@ injects bounded context into declared AI tasks; `onboarding` additionally enable
 the five-step first-run flow. The default is `onboarding`. Moving backward is a
 reversible operational kill switch and never deletes confirmed company data.
 
+### Uploads
+
+The `uploads:` block sets how large a request each route that carries a **file**
+may read (OPS-CFG-12). Every other route stays on the 1 MiB JSON bound, which is
+a security invariant and is deliberately not configurable: several handlers
+decode the body with no bound of their own, and two of those routes are
+unauthenticated.
+
+| Key | Default | Route |
+|---|---|---|
+| `uploads.attachment_mb` | `25` | `POST /v1/attachments` — the documents surface |
+| `uploads.csv_import_mb` | `10` | `POST /v1/imports/sources` |
+| `uploads.linkedin_import_mb` | `8` | `POST /v1/me/linkedin-connections` |
+
+**Decimal megabytes**: `25` means 25,000,000 bytes, not 26,214,400. The value
+here is the number the server's 413 names and the number the upload form states,
+and those three agreeing is why the unit is decimal rather than binary — a
+binary constant reads as "25 MB" in a sentence while admitting 4.8% more.
+
+The ceiling bounds the **whole request**, part framing included, not the file
+alone. The overhead is a few hundred bytes, so it only matters within a rounding
+error of the limit; a client that refuses before sending should leave itself
+that much room.
+
+An omitted key takes the default. A value outside **1–100 MB** — including an
+explicit `0`, which would refuse every upload — is a boot error naming the key,
+never a silent clamp. Past 100 MB the answer is an upload straight to object
+storage rather than a larger number here, because the request is buffered
+through the api's own temp filesystem on its way to the store.
+
+`attachment_mb` is also published, read-only, as `max_upload_bytes` on
+`GET /v1/installation/settings`, which every role may read. That is what lets an
+upload surface state and enforce **this** installation's limit instead of one
+compiled into the client, so an oversize file is refused before it is sent.
+A change takes effect on restart, like every other key in this file.
+
+What the block does **not** decide is which routes may carry a file at all. That
+list is declared in source (`internal/compose/bodyceiling.go`) and is what keeps
+a route carrying no file from obtaining the wider bound by sending a multipart
+header; adding to it is a code change with two fitness gates over it.
+
 ### License
 
 The `license:` block points at the installation's entitlement token. It is
@@ -733,7 +789,7 @@ Three postures, and what each one does at boot:
 
 | posture | boot | reported as |
 |---|---|---|
-| **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev`, `staging` or `test` | `margince_license_posture{state="absent"} 1` |
+| **no token configured** | **refuses to boot in production**; boots with a warning when `MARGINCE_ENV` is `dev` or `test` | `margince_license_posture{state="absent"} 1` |
 | **token verified** | boots | `margince_license_posture{state="valid"} 1`, plus `margince_license_seats` when the license grants a seat count |
 | **token refused** | **refuses to boot** (api and worker alike), naming the module's own reason and the setting to correct | — |
 
@@ -781,7 +837,7 @@ number an admin is refused against is the number the entitlement screen and
 exactly one: `margince-license-authority`. That is not redundant with the bundled
 keyset — our non-production licensers sign with keys that keyset carries, so the
 issuer is the only thing that keeps a license minted for a test from licensing a
-customer. An installation running with `MARGINCE_ENV` set to `dev`, `staging` or
+customer. An installation running with `MARGINCE_ENV` set to `dev` or
 `test` also honors `margince-license-authority-test` and
 `margince-license-authority-dev`, which is how a developer runs the product on a
 test license. `MARGINCE_ENV` is fail-closed: unset or unrecognized is production,
@@ -855,9 +911,8 @@ each provider carries is a property of its **wire**, and is fixed in the adapter
 
 | provider | carries |
 |---|---|
-| `gemini`, `openai` | `image/*` and `application/pdf` — both wires take a document part natively |
-| `anthropic` | `image/*`. The Messages API has a document block too, but which models accept one varies per model, and this adapter cannot see which model a binding named |
-| `ollama` | `image/*`, as the chat API's per-message `images` array. A non-vision model pulled into the binding fails at the runner, visibly |
+| `anthropic`, `gemini`, `openai` | `image/*` and `application/pdf` — all three wires take a document part natively. On Anthropic that is the Messages API's `document` block, which every active model accepts and which needs no beta header |
+| `ollama` | `image/*`, as the chat API's per-message `images` array — that wire has no document part at all. A non-vision model pulled into the binding fails at the runner, visibly |
 | `openai_compatible`, `vllm` | whatever the binding declares — see `input:` below |
 | `fake` | `image/*` and `application/pdf` (the offline stub mirrors the native wires) |
 
