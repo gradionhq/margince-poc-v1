@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
@@ -28,27 +29,83 @@ import (
 type verdict string
 
 const (
-	// verdictAllow is the member having chosen this conversation.
+	// verdictAllow is a row of the INCLUSION list: the member named this
+	// conversation. Read under captureOnlyChosen and inert under the other mode.
 	verdictAllow verdict = "allow"
-	// verdictBlock is the member having ruled it out deliberately.
+	// verdictBlock is a row of the EXCLUSION list: the member left this
+	// conversation out. Read under captureEveryoneExcept and inert under the other.
 	verdictBlock verdict = "block"
-	// verdictNone is no decision at all, which the filter treats exactly as
-	// block — the difference matters only to the member's own screen, where it
-	// is what "not chosen yet" looks like next to "chosen against".
+	// verdictNone is no decision at all. What it MEANS depends on the mode — not
+	// included, or not excluded — and that is exactly what the mode is for.
 	verdictNone verdict = "none"
 )
+
+// The two ways a member can answer "which of my Zalo conversations go into the CRM?".
+//
+// THE VALUES ARE THE MEMBER'S OWN WORDS, not the column's. `all`/`custom` would have
+// told a reader — human or model — nothing about what either does; `everyone_except`
+// and `only_chosen` say it in the same language the screen asks the question in
+// ("everyone I talk to, except the people I leave out" / "only the people I choose"),
+// which is the right anchor for a contract a person reads before granting this. Which
+// stored list each one consults is stated on the constants below, so the mapping onto
+// the `allow`/`block` rows is never in doubt.
+//
+// THERE IS NO DEFAULT, and that is the line between consent and an accident. A member
+// with no mode captures NOTHING: the column is NULL until they save one, capture_enabled
+// stays false alongside it, and the database refuses to hold "armed with no mode"
+// (migration 0002). Choosing captureEveryoneExcept is an informed act by that human —
+// a default of it would mean an installation reading somebody's entire personal chat
+// life because nobody touched a screen.
+const (
+	// captureEveryoneExcept captures every conversation except the ones the member
+	// left out. Its list is the `block` rows.
+	captureEveryoneExcept = "everyone_except"
+	// captureOnlyChosen captures only the conversations the member named. Its list
+	// is the `allow` rows.
+	captureOnlyChosen = "only_chosen"
+)
+
+// consent is what one member has decided about capture: which mode they chose, when
+// they chose it, and the verdicts that mode reads.
+type consent struct {
+	// mode is captureEveryoneExcept, captureOnlyChosen, or empty for a member who
+	// has not chosen. Empty captures nothing.
+	mode string
+	// since is when this mode was chosen. It is the FLOOR under everyone_except —
+	// see admitsUnderMode.
+	since time.Time
+	// verdicts is the member's own list, keyed by counterparty.
+	verdicts map[string]verdict
+}
+
+// captures reports whether this consent could admit anything at all, which is what
+// lets the tick decide not to open a socket. Under everyone_except the answer is
+// always yes; under only_chosen it is yes only if some conversation is included.
+func (c consent) captures() bool {
+	switch c.mode {
+	case captureEveryoneExcept:
+		return true
+	case captureOnlyChosen:
+		for _, mode := range c.verdicts {
+			if mode == verdictAllow {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // admits reports whether one drained frame may be handed to capture, and names
 // the reason when it may not.
 //
 // THE ORDER IS THE ORDER IN THE DESIGN, and each step is cheaper and more
 // certain than the one after it: whose message this is comes from the frame and
-// this unit's own send markers, consent from this member's own table, and only
-// then does the cursor decide whether this particular message has already
+// this unit's own send markers, consent from this member's own choice and list, and
+// only then does the bookmark decide whether this particular message has already
 // landed.
 //
 // ours is the ids the CRM itself transmitted as this member (sentmessage.go).
-func admits(frame zaloInbound, allowed map[string]verdict, cursor string, ours map[string]bool) (bool, string) {
+func admits(frame zaloInbound, by consent, cursor string, ours map[string]bool) (bool, string) {
 	switch {
 	// 1. WHOSE OUTGOING MESSAGE IS THIS. A message this member sent comes back
 	// as an ordinary inbound frame carrying the SAME msgId, so this cannot be a
@@ -63,24 +120,85 @@ func admits(frame zaloInbound, allowed map[string]verdict, cursor string, ours m
 	// copy recommends. Only the marker separates them.
 	case frame.selfSent() && ours[frame.MsgID]:
 		return false, "own_send_already_recorded"
-	// 2. Consent. DEFAULT DENY: a counterparty this member has said nothing
-	// about is dropped exactly as one they blocked is. The default is what makes
-	// "capture nothing until the member chooses" a mechanism rather than a
-	// preference, so the absent case must not fall through to allow.
+	// 2. THE MEMBER'S OWN CHOICE, read through the mode they chose. This is the
+	// consent boundary of the whole unit and inverting either arm of it is the worst
+	// defect this code can have, which is why it is one function with one caller and
+	// its own adversarial tests.
 	//
 	// IT APPLIES TO THE OUTGOING DIRECTION TOO, keyed on the same counterparty —
 	// frame.counterparty() reads idTo for a message this member sent. A rep
-	// messaging somebody they never allowed must not pull that person into the
-	// CRM through the outbound door, which would be a hole straight through the
-	// consent story opened from the side nobody was watching.
-	case allowed[frame.counterparty()] != verdictAllow:
-		return false, "not_allowed"
-	// 3. Already landed. The cursor holds the highest msgId ingested for this
-	// member, so anything at or below it has been decided about.
+	// messaging somebody must not pull that person into the CRM through the outbound
+	// door under only_chosen, and must under everyone_except unless they are
+	// excluded. That is a hole that would otherwise open from the side nobody
+	// watches.
+	case !admitsUnderMode(frame, by, cursor):
+		return false, refusalUnder(by.mode)
+	// 3. Already landed. The bookmark holds the highest msgId ingested for THIS
+	// conversation, so anything at or below it has been decided about.
 	case atOrBelow(frame.MsgID, cursor):
 		return false, "already_landed"
 	}
 	return true, ""
+}
+
+// admitsUnderMode is the mode's own arm of the filter, and the two arms are NOT
+// mirror images — the asymmetry is deliberate and is the mode-switch decision.
+//
+// UNDER only_chosen the member named this conversation, so its whole queued history
+// is what they asked for: no floor, and a conversation included today collects the
+// messages Zalo is still holding for it. That is the promise the inclusion list
+// exists to keep.
+//
+// UNDER everyone_except the member named NOBODY. Reaching back through Zalo's queue
+// would sweep in conversations they had looked at and deliberately left out under a
+// previous mode, and "the CRM captured my doctor" is exactly the outcome this unit is
+// built to prevent. So a conversation with NO BOOKMARK — one nothing has ever been
+// captured from — is captured from the moment the mode was chosen FORWARD, and older
+// messages still sitting in the queue are not reached for.
+//
+// The cost of that floor is at most the retention window's worth of history for
+// conversations nobody has ever mentioned, and only on the tick after the switch.
+// The cost of not having it is capturing a conversation the member had already
+// decided against. A member who wants one of those conversations back can name it,
+// which is the inclusion list — and naming it is the act that removes the floor.
+//
+// A conversation that HAS a bookmark is past that question: capture has been reading
+// it, and where it got to is what the bookmark says.
+func admitsUnderMode(frame zaloInbound, by consent, cursor string) bool {
+	other := frame.counterparty()
+	switch by.mode {
+	case captureOnlyChosen:
+		return by.verdicts[other] == verdictAllow
+	case captureEveryoneExcept:
+		if by.verdicts[other] == verdictBlock {
+			return false
+		}
+		if cursor != "" {
+			return true
+		}
+		// No bookmark: this conversation has never been captured from, so the floor
+		// applies. A frame with no readable time is refused later by representable,
+		// and treating it as below the floor here keeps this arm from being the one
+		// that decides a malformed frame's fate.
+		return frame.OccurredAt.After(by.since)
+	}
+	// A mode this unit does not recognise — including none at all — captures nothing.
+	// The database refuses "armed with no mode", so this is unreachable through any
+	// writer; it is here because the safe direction for an unreachable branch in a
+	// consent filter is deny, not allow.
+	return false
+}
+
+// refusalUnder names why the mode declined, in the mode's own vocabulary, so a
+// diagnostic says "not included" or "excluded" rather than one word for both.
+func refusalUnder(mode string) string {
+	switch mode {
+	case captureEveryoneExcept:
+		return "excluded_or_before_the_mode"
+	case captureOnlyChosen:
+		return "not_included"
+	}
+	return "no_mode_chosen"
 }
 
 // orderable reads one provider message id as the NUMBER it is, and reports whether

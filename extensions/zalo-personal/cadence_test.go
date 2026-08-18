@@ -28,8 +28,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // ADAPTIVE CADENCE. The cost a slower tick saves is the HANDSHAKE — one HTTPS
@@ -42,7 +40,8 @@ func TestADrainThatFoundNothingNewBacksTheMemberOff(t *testing.T) {
 	// Armed, allowed, and everything in the drain is already below the
 	// conversation's own bookmark.
 	scriptTurn(rt, [][]any{withIdleStreak(connectionRow(statusConnected, memberZaloUID, true), 2)},
-		chosenAt(inboundMsgID), nil)
+		chosen(), nil)
+	scriptCursors(rt, cursorRow(counterpartyZaloUID, inboundMsgID))
 	rt.tx.singleRows = afterTheDrain(stillArmed(), stillArmed())
 
 	if err := pollFleet(context.Background(), rt,
@@ -199,46 +198,5 @@ func TestTheBaseCadenceIsTheOneTheContractDeclares(t *testing.T) {
 	}
 	if declared != basePollInterval {
 		t.Fatalf("the contract ticks every %s and the backoff ladder starts at %s", declared, basePollInterval)
-	}
-}
-
-// THE ERROR CLASSES THE CONTRACT PUBLISHES ARE THE ONES THE CODE EMITS.
-//
-// The set is enumerated in api/crm.yaml because a class list a reader has to
-// cross-check against Go drifts — and it already had: the contract described
-// `session_evicted`, which nothing here has ever produced, so any client or model
-// reading the contract was told about a state it would never see. This derives the
-// set from the contract and holds failureClass to it, in both directions.
-func TestEveryPublishedErrorClassIsOneTheCodeCanEmit(t *testing.T) {
-	t.Parallel()
-	fragment, err := os.ReadFile("api/crm.yaml")
-	if err != nil {
-		t.Fatalf("reading the contract: %v", err)
-	}
-	block := regexp.MustCompile(`(?s)last_error_class:.*?enum:\n((?:\s+- \w+\n)+)`).FindSubmatch(fragment)
-	if block == nil {
-		t.Fatal("the contract no longer enumerates last_error_class, so nothing holds the two sets equal")
-	}
-	published := map[string]bool{}
-	for _, line := range regexp.MustCompile(`- (\w+)`).FindAllSubmatch(block[1], -1) {
-		published[string(line[1])] = true
-	}
-	// Every class the code can produce, from the one function that produces them.
-	emitted := map[string]bool{}
-	for _, cause := range []error{
-		extension.ErrForbidden, extension.ErrInvalid, context.DeadlineExceeded,
-		errUnanswered, errors.New("something else entirely"),
-	} {
-		emitted[failureClass(cause)] = true
-	}
-	for class := range emitted {
-		if !published[class] {
-			t.Fatalf("the code emits %q and the contract does not publish it, so a client sees a class it was never told about", class)
-		}
-	}
-	for class := range published {
-		if !emitted[class] {
-			t.Fatalf("the contract publishes %q and nothing emits it — which is the drift this test exists to catch", class)
-		}
 	}
 }

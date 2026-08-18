@@ -170,9 +170,15 @@ func savingRuntime(t *testing.T, conn, saved []any) *fakeRuntime {
 	return rt
 }
 
-// oneVerdict is the document a screen submits for a single choice.
-const oneVerdict = `{"entries":[{"channel_user_id":"` + counterpartyZaloUID +
-	`","mode":"allow","display_name":"Chosen"}]}`
+// oneVerdict is the document a screen submits for a single pick under only_chosen.
+// EVERY save carries the mode: it is the answer, and the entries only refine it.
+const oneVerdict = `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"` +
+	counterpartyZaloUID + `","mode":"allow","display_name":"Chosen"}]}`
+
+// oneExclusion is the mirror document under everyone_except: the same person, on the
+// leave-out list instead of the pick list.
+const oneExclusion = `{"capture_mode":"everyone_except","entries":[{"channel_user_id":"` +
+	counterpartyZaloUID + `","mode":"block","display_name":"Left out"}]}`
 
 func TestTheFirstSaveIsWhatArmsCapture(t *testing.T) {
 	t.Parallel()
@@ -378,14 +384,14 @@ func TestADocumentTheVerdictTableCannotHoldIsRefused(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("x", extension.MaxChannelUserIDLength+1)
 	for name, args := range map[string]string{
-		"no entries at all":             `{"entries":[]}`,
-		"a person named twice":          `{"entries":[{"channel_user_id":"a","mode":"allow"},{"channel_user_id":"a","mode":"block"}]}`,
-		"a mode that is not a decision": `{"entries":[{"channel_user_id":"a","mode":"none"}]}`,
-		"an entry naming nobody":        `{"entries":[{"channel_user_id":"  ","mode":"allow"}]}`,
-		"an account id past the cap":    `{"entries":[{"channel_user_id":"` + long + `","mode":"allow"}]}`,
-		"a display name past the cap": `{"entries":[{"channel_user_id":"a","mode":"allow","display_name":"` +
+		"no entries at all":                `{"entries":[]}`,
+		"a person named twice":             `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow"},{"channel_user_id":"a","mode":"block"}]}`,
+		"an entry verdict nobody declared": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"maybe"}]}`,
+		"an entry naming nobody":           `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"  ","mode":"allow"}]}`,
+		"an account id past the cap":       `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"` + long + `","mode":"allow"}]}`,
+		"a display name past the cap": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow","display_name":"` +
 			strings.Repeat("n", extension.MaxDisplayNameRunes+1) + `"}]}`,
-		"a field the contract does not declare": `{"entries":[{"channel_user_id":"a","mode":"allow","capture":true}]}`,
+		"a field the contract does not declare": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow","capture":true}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -407,7 +413,7 @@ func TestASaveOverTheOneRequestCapIsRefused(t *testing.T) {
 		entries = append(entries, `{"channel_user_id":"u`+itoa(i)+`","mode":"allow"}`)
 	}
 	rt := newRuntime()
-	args := json.RawMessage(`{"entries":[` + strings.Join(entries, ",") + `]}`)
+	args := json.RawMessage(`{"capture_mode":"only_chosen","entries":[` + strings.Join(entries, ",") + `]}`)
 
 	if _, err := saveAllowlist(context.Background(), rt, args); !errors.Is(err, extension.ErrInvalid) {
 		t.Fatalf("a save past the cap was answered %v", err)
@@ -450,5 +456,117 @@ func TestAMemberWithNoConnectionIsNotCountedAgainst(t *testing.T) {
 		if strings.Contains(sql, "count(*)") {
 			t.Fatalf("a count was taken for a member with no connection:\n%s", sql)
 		}
+	}
+}
+
+// Removing somebody from the picker sends `none`, which takes them off the list
+// entirely — and MUST NOT forget how far their conversation was already captured.
+//
+// That property is the one the separate cursor table buys, and it is why this test
+// asserts on an absence: a member who removes a person and puts them back should
+// resume, not re-receive their whole conversation. When the bookmark lived on the
+// verdict row, deleting the verdict silently reset it.
+func TestTakingSomebodyOffTheListForgetsTheVerdictAndNotTheReadingPosition(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, memberZaloUID, true),            // read
+		connectionRow(statusConnected, memberZaloUID, true),            // brought forward
+		allowRow(entryID, counterpartyZaloUID, verdictAllow, "Chosen"), // the row being removed
+	}
+	args := json.RawMessage(`{"capture_mode":"only_chosen","entries":[{"channel_user_id":"` +
+		counterpartyZaloUID + `","mode":"none"}]}`)
+
+	if _, err := saveAllowlist(context.Background(), rt, args); err != nil {
+		t.Fatalf("taking somebody off the list: %v", err)
+	}
+	sql, delArgs := rt.tx.statementMentioning(t, "allowlist\n\t\t  WHERE user_id")
+	if delArgs[0] != callerUserID || delArgs[1] != counterpartyZaloUID {
+		t.Fatalf("the wrong row was removed: %v\n%s", delArgs, sql)
+	}
+	for _, statement := range rt.tx.statements {
+		if strings.Contains(statement, "conversation_cursor") {
+			t.Fatalf("removing a verdict touched the reading position:\n%s", statement)
+		}
+	}
+	change := rt.tx.audited[len(rt.tx.audited)-1]
+	if change.Action != extension.AuditErase || len(change.After) != 0 {
+		t.Fatalf("a removal was recorded as %q with an after-image %s", change.Action, change.After)
+	}
+	if !strings.Contains(string(change.Before), counterpartyZaloUID) {
+		t.Fatalf("the ledger does not say who was removed: %s", change.Before)
+	}
+}
+
+// Removing somebody who was never on the list is the outcome asked for, not an error:
+// a picker that removes the same person twice has done no harm.
+func TestTakingSomebodyOffAListTheyWereNeverOnIsNotAnError(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, memberZaloUID, true),
+		connectionRow(statusConnected, memberZaloUID, true),
+	}
+	rt.tx.noRows = map[int]bool{3: true}
+	args := json.RawMessage(`{"capture_mode":"only_chosen","entries":[{"channel_user_id":"` +
+		counterpartyZaloUID + `","mode":"none"}]}`)
+
+	if _, err := saveAllowlist(context.Background(), rt, args); err != nil {
+		t.Fatalf("removing somebody who was not on the list: %v", err)
+	}
+	for _, statement := range rt.tx.statements {
+		if strings.Contains(statement, "DELETE") {
+			t.Fatalf("a row that did not exist was deleted anyway:\n%s", statement)
+		}
+	}
+}
+
+// A save with a mode and NO entries is legal, and under everyone_except it is the
+// commonest first save there is: everything, with nobody left out yet.
+func TestAModeWithNoListIsAValidSave(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, memberZaloUID, false),
+		withMode(connectionRow(statusConnected, memberZaloUID, true), captureEveryoneExcept),
+	}
+
+	out, err := saveAllowlist(context.Background(), rt,
+		json.RawMessage(`{"capture_mode":"everyone_except"}`))
+	if err != nil {
+		t.Fatalf("choosing a mode with no list: %v", err)
+	}
+	got := jsonOf[struct {
+		Saved        int  `json:"saved"`
+		CaptureArmed bool `json:"capture_armed"`
+	}](t, out)
+	if got.Saved != 0 || !got.CaptureArmed {
+		t.Fatalf("choosing everyone_except with no exclusions answered %+v", got)
+	}
+	sql, args := rt.tx.statementMentioning(t, "capture_enabled = true")
+	if args[2] != captureEveryoneExcept {
+		t.Fatalf("the mode was written as %v:\n%s", args[2], sql)
+	}
+}
+
+// THE FLOOR MOVES ONLY WHEN THE MODE CHANGES. Stamping it on every save would push it
+// forward each time somebody edited a list — and under everyone_except that silently
+// loses the messages between the two saves for every conversation with no bookmark.
+func TestTheModeFloorMovesOnAChangeOfModeAndNotOnAnEdit(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{
+		withMode(connectionRow(statusConnected, memberZaloUID, true), captureEveryoneExcept),
+		withMode(connectionRow(statusConnected, memberZaloUID, true), captureEveryoneExcept),
+		allowRow(entryID, counterpartyZaloUID, verdictBlock, "Left out"),
+	}
+	rt.tx.noRows = map[int]bool{3: true}
+
+	if _, err := saveAllowlist(context.Background(), rt, json.RawMessage(oneExclusion)); err != nil {
+		t.Fatalf("editing a leave-out list: %v", err)
+	}
+	sql, _ := rt.tx.statementMentioning(t, "capture_mode_since = CASE WHEN")
+	if !strings.Contains(sql, "capture_mode, '') = $3") {
+		t.Fatalf("the floor is not conditional on the mode actually changing:\n%s", sql)
 	}
 }

@@ -7,9 +7,13 @@
 -- several statements that can disagree with the up migration rather than one
 -- that cannot.
 --
--- The cursor goes with the verdict it belongs to, which is the whole reason it is a
--- column on this table rather than on the connection: there is no second thing to
--- revert, and no state where an installation holds a bookmark into a capture nothing
--- can arm.
+-- The mode columns go too, and their CHECK constraints go with them. Reverting them
+-- leaves an installation with verdict rows and no reading of them, which is why the
+-- table goes in the same breath.
+
+ALTER TABLE ext.ext_zalo_personal_connection
+    DROP CONSTRAINT IF EXISTS ext_zalo_personal_connection_armed_has_a_mode,
+    DROP COLUMN IF EXISTS capture_mode,
+    DROP COLUMN IF EXISTS capture_mode_since;
 
 DROP TABLE IF EXISTS ext.ext_zalo_personal_allowlist;

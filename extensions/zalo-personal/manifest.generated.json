@@ -32,8 +32,8 @@
         "write"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "sha256:2eb55bf2b9f81e1a804cbd4bcffadd310680f7ecc783436bfc325c419f079c0d",
-      "digest": "sha256:b2901dd607f394f7d8011def69fa4e62a9c59b3e05b31e86086f2564a190770e"
+      "fragment_hash": "sha256:96e1a49f2c07893ccc17b2e7019420d1b5f6499d680c43ed88630626b5e7d9b5",
+      "digest": "sha256:ac048df12ebf6dcdeeabf07e56a5d3f7ff7a749c9f458348734eb3bded6203a7"
     },
     {
       "id": "tool/zalo_personal_connect_start",
@@ -112,8 +112,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "sha256:3130d4f19e7540c33e6ffb43e0ecadafd66733de8e100293ea68eb546b070230",
-      "digest": "sha256:58079cb9c3259de57321b8bd220f65a5eb1aec2ea9c6a767f24b35190ee42476"
+      "fragment_hash": "sha256:efe957028821a7edf360c4ce31ce871d9815586dfd380ff51ee5ffc90a96ebbf",
+      "digest": "sha256:e785c1531ef8effa4efe99e8a2d72492118e6b989149ddc36fc58a739482a08b"
     }
   ],
   "secrets": [

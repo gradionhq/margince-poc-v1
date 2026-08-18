@@ -598,7 +598,7 @@ func TestConnectingADifferentAccountDropsWhatWasScopedToTheOldOne(t *testing.T) 
 	// mark in the OTHER account's message-id space. The verdicts themselves are kept:
 	// capture is disarmed by the upsert, so the member re-reads their own list before
 	// anything is captured again.
-	_, cursorArgs := rt.tx.statementMentioning(t, "SET last_msg_id = NULL")
+	_, cursorArgs := rt.tx.statementMentioning(t, "conversation_cursor WHERE user_id")
 	if len(cursorArgs) != 1 || cursorArgs[0] != callerUserID {
 		t.Fatalf("the bookmarks were cleared for %v rather than for this member", cursorArgs)
 	}
@@ -623,7 +623,8 @@ func TestReScanningTheSameAccountKeepsItsSendMarkers(t *testing.T) {
 		t.Fatalf("re-scanning the same account: %v", err)
 	}
 	for _, sql := range rt.tx.statements {
-		if strings.Contains(sql, "sent_message WHERE user_id") || strings.Contains(sql, "SET last_msg_id = NULL") {
+		if strings.Contains(sql, "sent_message WHERE user_id") ||
+			strings.Contains(sql, "conversation_cursor WHERE user_id") {
 			t.Fatalf("a re-scan of the same account discarded what it had already captured:\n%s", sql)
 		}
 	}

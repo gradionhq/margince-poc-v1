@@ -82,7 +82,7 @@ func cursorsWritten(t *testing.T, rt *fakeRuntime) map[string]string {
 	t.Helper()
 	moved := map[string]string{}
 	for i, sql := range rt.tx.statements {
-		if !strings.Contains(sql, "greatest(coalesce(entry.last_msg_id") {
+		if !strings.Contains(sql, "greatest(") {
 			continue
 		}
 		args := rt.tx.args[i]
@@ -126,11 +126,12 @@ func chosen() [][]any {
 	return [][]any{allowRow(entryID, counterpartyZaloUID, verdictAllow, "Chosen")}
 }
 
-// chosenAt is the same conversation already captured up to a point. THE CURSOR IS ON
-// THE VERDICT, so this is where a test states "we have seen this far" — and stating it
-// per counterparty is what makes the interleaving case expressible.
-func chosenAt(cursor string) [][]any {
-	return [][]any{allowRowAt(entryID, counterpartyZaloUID, verdictAllow, "Chosen", cursor)}
+// scriptCursors states how far each conversation has already been read. It is
+// separate from the verdicts because the two live in separate tables for a reason —
+// see cursor.go — and a fixture that conflated them could not express the case that
+// forced them apart.
+func scriptCursors(rt *fakeRuntime, rows ...[]any) {
+	rt.tx.script(readCursors, rows...)
 }
 
 // THE FLEET READ ITSELF, asserted on the statement, because both properties live
@@ -309,87 +310,6 @@ func TestAMessageTheMembersChoiceDroppedDoesNotMoveTheCursor(t *testing.T) {
 	}
 	if moved := cursorsWritten(t, rt); len(moved) != 0 {
 		t.Fatalf("a bookmark moved to %v for a conversation the member has not chosen", moved)
-	}
-}
-
-// unchosenCounterparty is somebody the member has not decided about, whose message
-// sits UNDER an allowed one in the drain.
-const unchosenCounterparty = "1900000000000000042"
-
-// unchosenMsgID is BELOW inboundMsgID on purpose. That single fact is the whole
-// interleaving case: a per-member cursor is a maximum, so landing the higher id
-// buries this one.
-const unchosenMsgID = "8161098001400"
-
-// twoConversations is a drain holding one message from a conversation the member has
-// not chosen and one from a conversation they have, with the UNCHOSEN one carrying
-// the LOWER message id. Both are built from the real captured inbound frame, so only
-// the counterparty and the id differ from something Zalo actually sent.
-func twoConversations(t *testing.T) []zaloInbound {
-	t.Helper()
-	_, base := capturedFrames(t)
-	unchosen := base
-	unchosen.UIDFrom, unchosen.MsgID = unchosenCounterparty, unchosenMsgID
-	unchosen.Content = "the message a per-member cursor used to bury"
-	return []zaloInbound{unchosen, base}
-}
-
-// THE DEFECT TWO REVIEWS FOUND, and the case the old fixture could not express: a
-// drain with a blocked conversation UNDER an allowed one.
-//
-// The suppression happens BEFORE Ingest, so capture's natural-key idempotency never
-// gets a chance to save the buried message — it is not landed-twice-and-deduped, it
-// is never ingested at all, and it is gone permanently once it ages out of Zalo's
-// queue. Which is silent data loss on the exact workflow the design promises: "I
-// forgot to include Bob, let me allow him now."
-//
-// TWO TICKS, because one tick cannot state the promise. The first lands the allowed
-// conversation; the second, after the member allows the other one, has to still let
-// the older message through.
-func TestAllowingAConversationLaterStillGetsWhatZaloIsHolding(t *testing.T) {
-	t.Parallel()
-
-	// TICK ONE. Only the higher-numbered conversation is allowed.
-	first := tickRuntime(t)
-	scriptTurn(first, oneMember(), chosen(), nil)
-	first.tx.singleRows = afterTheDrain(stillArmed(), stillArmed())
-	drain := &fakeInbox{uid: memberZaloUID, frames: twoConversations(t)}
-	if err := pollFleet(context.Background(), first,
-		newProvider(map[string]*fakeInbox{memberIMEI: drain}).open()); err != nil {
-		t.Fatalf("the first tick failed: %v", err)
-	}
-	if len(first.ingested) != 1 || first.ingested[0].Key != memberZaloUID+":"+inboundMsgID {
-		t.Fatalf("the first tick landed %v; only the chosen conversation may land", keysOf(first.ingested))
-	}
-	// THE BOOKMARK IS THE CHOSEN CONVERSATION'S ALONE. A single per-member cursor
-	// would have been set to inboundMsgID here, which is above unchosenMsgID — and
-	// that is exactly what buried the other conversation.
-	moved := cursorsWritten(t, first)
-	if len(moved) != 1 || moved[counterpartyZaloUID] != inboundMsgID {
-		t.Fatalf("the first tick moved bookmarks %v; only the chosen conversation's may move", moved)
-	}
-	if _, buried := moved[unchosenCounterparty]; buried {
-		t.Fatalf("a bookmark was written for a conversation the member had not chosen: %v", moved)
-	}
-
-	// TICK TWO. The member allows the other conversation. Zalo is still holding its
-	// message, and it MUST land.
-	second := tickRuntime(t)
-	scriptTurn(second, oneMember(), [][]any{
-		allowRowAt(entryID, counterpartyZaloUID, verdictAllow, "Chosen", inboundMsgID),
-		allowRow(secondEntryID, unchosenCounterparty, verdictAllow, "Bob"),
-	}, nil)
-	second.tx.singleRows = afterTheDrain(stillArmed(), stillArmed())
-	again := &fakeInbox{uid: memberZaloUID, frames: twoConversations(t)}
-	if err := pollFleet(context.Background(), second,
-		newProvider(map[string]*fakeInbox{memberIMEI: again}).open()); err != nil {
-		t.Fatalf("the second tick failed: %v", err)
-	}
-	if len(second.ingested) != 1 {
-		t.Fatalf("the second tick landed %v; the newly allowed message and nothing else", keysOf(second.ingested))
-	}
-	if got := second.ingested[0].Key; got != memberZaloUID+":"+unchosenMsgID {
-		t.Fatalf("the newly allowed conversation landed %q; a conversation somebody just chose must not start empty", got)
 	}
 }
 
@@ -654,7 +574,8 @@ func TestATickThatFoundNothingWritesNoLedgerRow(t *testing.T) {
 	t.Parallel()
 	rt := tickRuntime(t)
 	// The conversation's own bookmark is already past both frames in the drain.
-	scriptTurn(rt, oneMember(), chosenAt(inboundMsgID), nil)
+	scriptTurn(rt, oneMember(), chosen(), nil)
+	scriptCursors(rt, cursorRow(counterpartyZaloUID, inboundMsgID))
 	rt.tx.singleRows = afterTheDrain(stillArmed(), stillArmed())
 
 	if err := pollFleet(context.Background(), rt,

@@ -187,7 +187,11 @@ type savedEntry struct {
 // being the act of choosing.
 func saveAllowlist(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json.RawMessage, error) {
 	args, err := extension.DecodeArgs[struct {
-		Entries []savedEntry `json:"entries"`
+		// capture_mode, not `mode`: an entry carries its OWN `mode`, and one
+		// document with two differently-scoped fields of the same name is a
+		// document somebody reads wrong.
+		CaptureMode string       `json:"capture_mode"`
+		Entries     []savedEntry `json:"entries"`
 	}](in)
 	if err != nil {
 		return nil, err
@@ -196,13 +200,16 @@ func saveAllowlist(ctx context.Context, rt extension.Runtime, in json.RawMessage
 	if err != nil {
 		return nil, err
 	}
+	if err := checkSavedMode(args.CaptureMode); err != nil {
+		return nil, err
+	}
 	if err := checkSavedEntries(args.Entries); err != nil {
 		return nil, err
 	}
 	var armed bool
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		var err error
-		if armed, err = armCaptureAndBringForward(ctx, tx, string(member)); err != nil {
+		if armed, err = armCaptureAndBringForward(ctx, tx, string(member), args.CaptureMode); err != nil {
 			return err
 		}
 		return writeVerdicts(ctx, tx, string(member), args.Entries)
@@ -215,15 +222,30 @@ func saveAllowlist(ctx context.Context, rt extension.Runtime, in json.RawMessage
 	}{Saved: len(args.Entries), CaptureArmed: armed})
 }
 
+// checkSavedMode refuses anything that is not one of the two answers.
+//
+// AN EMPTY MODE IS REFUSED HERE rather than stored, even though the column is
+// nullable: NULL is the state of a member who has never saved, and a save is by
+// definition somebody answering the question. Letting a save clear the mode would
+// give the surface a way to leave capture armed with no rule — which the database
+// refuses anyway, so it would be a 500 where a refusal belongs.
+func checkSavedMode(mode string) error {
+	if mode != captureEveryoneExcept && mode != captureOnlyChosen {
+		return fmt.Errorf("%w: %q is not one of the two answers — %q captures every conversation except the ones named here, %q captures only the ones named here",
+			extension.ErrInvalid, mode, captureEveryoneExcept, captureOnlyChosen)
+	}
+	return nil
+}
+
 // checkSavedEntries refuses a document the contract's schema describes but a
 // verdict table cannot hold, and it refuses a REPEATED counterparty rather than
 // letting the last one win: two verdicts for one person in one document is a
 // screen bug, and resolving it silently would have this unit pick which of the
 // member's two answers about the same human it acted on.
 func checkSavedEntries(entries []savedEntry) error {
-	if len(entries) == 0 {
-		return fmt.Errorf("%w: this save names no conversations — sending an empty list is not how a member turns capture off, disconnecting is", extension.ErrInvalid)
-	}
+	// AN EMPTY LIST IS LEGAL, and under everyone_except it is the commonest first
+	// save there is: "everything, and I have nobody to leave out yet". The mode is
+	// the answer; the list only refines it.
 	if len(entries) > maxSavedEntries {
 		return fmt.Errorf("%w: this save carries %d entries, over the %d one request may write", extension.ErrInvalid, len(entries), maxSavedEntries)
 	}
@@ -246,8 +268,10 @@ func checkSavedEntry(entry savedEntry) error {
 		return fmt.Errorf("%w: an entry names no Zalo account, so there is nobody it decides about", extension.ErrInvalid)
 	case len(entry.ChannelUserID) > extension.MaxChannelUserIDLength:
 		return fmt.Errorf("%w: a Zalo account id is %d bytes, over the %d capture will bind", extension.ErrInvalid, len(entry.ChannelUserID), extension.MaxChannelUserIDLength)
-	case entry.Mode != string(verdictAllow) && entry.Mode != string(verdictBlock):
-		return fmt.Errorf("%w: %q is not a decision — an entry is %q or %q, and leaving a person out of the list is what means neither", extension.ErrInvalid, entry.Mode, verdictAllow, verdictBlock)
+	case entry.Mode != string(verdictAllow) && entry.Mode != string(verdictBlock) &&
+		entry.Mode != string(verdictNone):
+		return fmt.Errorf("%w: %q is not a decision — an entry is %q, %q, or %q to take this person off the list entirely",
+			extension.ErrInvalid, entry.Mode, verdictAllow, verdictBlock, verdictNone)
 	case utf8.RuneCountInString(entry.DisplayName) > extension.MaxDisplayNameRunes:
 		return fmt.Errorf("%w: a display name is over the %d-character cap", extension.ErrInvalid, extension.MaxDisplayNameRunes)
 	}
@@ -275,7 +299,7 @@ func checkSavedEntry(entry savedEntry) error {
 // conversations for an account this installation holds no credential for would
 // record a consent that nothing can act on and that the member's own screen
 // cannot explain.
-func armCaptureAndBringForward(ctx context.Context, tx extension.Tx, member string) (bool, error) {
+func armCaptureAndBringForward(ctx context.Context, tx extension.Tx, member, mode string) (bool, error) {
 	before, err := connectionOf(ctx, tx, member)
 	switch {
 	case err != nil:
@@ -287,10 +311,23 @@ func armCaptureAndBringForward(ctx context.Context, tx extension.Tx, member stri
 	}
 	after, err := scanConnection(tx.QueryRow(ctx,
 		`UPDATE `+connectionTable+`
-		    SET capture_enabled = true, `+duePromptly+`,
+		    SET capture_enabled = true, capture_mode = $3, `+duePromptly+`,
+		        -- THE FLOOR MOVES ONLY WHEN THE MODE CHANGES. Stamping it on every
+		        -- save would push it forward each time somebody edited a list, and
+		        -- under everyone_except that silently loses the messages between the
+		        -- two saves for every conversation with no bookmark yet.
+		        --
+		        -- Spelled with coalesce and equality rather than IS DISTINCT FROM,
+		        -- which reads identically and carries the token FROM: the tree's
+		        -- SQL-scope gate parses that as introducing a table name and reports
+		        -- this statement as touching one it cannot resolve. The empty string
+		        -- stands in for "no mode yet" and no real mode is empty, so a first
+		        -- save always stamps.
+		        capture_mode_since = CASE WHEN coalesce(`+connectionTable+`.capture_mode, '') = $3
+		                                  THEN `+connectionTable+`.capture_mode_since ELSE now() END,
 		        version = version + 1, updated_at = now()
 		  WHERE user_id = $1::uuid AND version = $2
-		 RETURNING `+connectionColumns, member, before.Version).Scan)
+		 RETURNING `+connectionColumns, member, before.Version, mode).Scan)
 	if err != nil {
 		if errors.Is(err, extension.ErrNoRows) {
 			// The member disconnected — or reconnected a different account —
@@ -306,4 +343,26 @@ func armCaptureAndBringForward(ctx context.Context, tx extension.Tx, member stri
 		return false, nil
 	}
 	return true, recordConnection(ctx, tx, extension.AuditUpdate, eventCaptureArmed, before, &after)
+}
+
+// dropVerdict takes one person off the member's list entirely, which is what a
+// search-as-you-type picker does when somebody is removed from it.
+//
+// IT DOES NOT TOUCH THE READING POSITION, and that is the property the separate
+// cursor table buys: a person removed from a list and put back on it resumes where
+// capture actually got to, rather than re-offering their whole conversation. When the
+// bookmark lived on this row, deleting a verdict silently reset it.
+//
+// A person who was never on the list is not an error: "they are off it" is the
+// outcome asked for, and a picker that removes somebody twice has done no harm.
+func dropVerdict(ctx context.Context, tx extension.Tx, member string, before *allowEntry) error {
+	if before == nil {
+		return nil
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM `+allowlistTable+`
+		  WHERE user_id = $1::uuid AND channel_user_id = $2`, member, before.ChannelUserID); err != nil {
+		return err
+	}
+	return recordVerdictDropped(ctx, tx, before)
 }

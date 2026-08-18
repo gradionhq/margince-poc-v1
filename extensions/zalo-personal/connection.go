@@ -43,8 +43,9 @@ const (
 // connectionColumns is the projection every read and every write returns, in
 // one place so a column added to the table is one edit rather than five.
 const connectionColumns = `id::text, user_id::text, status, zalo_uid,
-	coalesce(display_name, ''), capture_enabled, last_polled_at,
-	coalesce(last_error_class, ''), connected_at, idle_streak, version`
+	coalesce(display_name, ''), capture_enabled, coalesce(capture_mode, ''),
+	capture_mode_since, last_polled_at, coalesce(last_error_class, ''), connected_at,
+	idle_streak, version`
 
 // duePromptly is the ONE spelling of "poll this member on the next tick", and it is
 // one spelling because three different acts mean it: a fresh connect, a save of the
@@ -76,12 +77,21 @@ type connection struct {
 	// chooses": no operation in this change turns it on, and the scheduled
 	// capture refuses to open a socket without it.
 	CaptureEnabled bool `json:"capture_enabled"`
-	// THE CURSOR IS NOT HERE, and its absence is a decision rather than an
-	// omission: it lives on each VERDICT row (allowlist.go), one per counterparty.
-	// A single cursor per member is a maximum over every conversation, so a message
-	// landing from an allowed counterparty buries every lower-numbered message
-	// dropped from a conversation the member had not yet chosen — and that
-	// conversation then starts empty the moment they choose it.
+	// CaptureMode is WHICH of the two answers the member gave — everything except
+	// the people they left out, or only the people they chose. Empty until they
+	// choose, and empty means capture nothing: there is no default mode, because a
+	// default of "everything" would be this installation reading a human's personal
+	// life without anybody deciding to.
+	CaptureMode string `json:"capture_mode,omitempty"`
+	// CaptureModeSince is when that mode was chosen, and it is rendered because it
+	// is what the member's own screen needs to say "capturing everything since
+	// Tuesday" honestly. Under all_but_blocked it is also the floor a conversation
+	// nobody has mentioned is captured from — see admitsUnderMode.
+	CaptureModeSince string `json:"capture_mode_since,omitempty"`
+	// THE READING POSITIONS ARE NOT HERE. They are one row per conversation in
+	// ext_zalo_personal_conversation_cursor (cursor.go), because a bookmark is a
+	// fact about one conversation and about what this installation has done, and
+	// every attempt to store it somewhere cheaper has broken a different case.
 	LastPolledAt string `json:"last_polled_at,omitempty"`
 	// LastErrorClass is a class this unit chose, never a provider's own
 	// message: it is rendered, and a remote party's prose is not this
@@ -97,6 +107,10 @@ type connection struct {
 	// forever to record that a schedule ran.
 	IdleStreak int `json:"-"`
 	Version    int `json:"version"`
+	// modeFloor is CaptureModeSince as a time, for the filter to compare a frame
+	// against. Unexported and off the wire: the rendered string is what a screen
+	// reads and this is what the code compares, both scanned from one column.
+	modeFloor time.Time
 }
 
 // scanConnection reads connectionColumns off one row.
@@ -108,15 +122,22 @@ type connection struct {
 // type. RFC 3339 is what the contract declares.
 func scanConnection(scan func(...any) error) (connection, error) {
 	var (
-		c                         connection
-		lastPolledAt, connectedAt *time.Time
+		c                                    connection
+		modeSince, lastPolledAt, connectedAt *time.Time
 	)
 	err := scan(&c.ID, &c.UserID, &c.Status, &c.ZaloUID, &c.DisplayName, &c.CaptureEnabled,
-		&lastPolledAt, &c.LastErrorClass, &connectedAt, &c.IdleStreak, &c.Version)
+		&c.CaptureMode, &modeSince, &lastPolledAt, &c.LastErrorClass, &connectedAt,
+		&c.IdleStreak, &c.Version)
 	if err != nil {
 		return connection{}, err
 	}
+	c.CaptureModeSince = renderTime(modeSince)
 	c.LastPolledAt, c.ConnectedAt = renderTime(lastPolledAt), renderTime(connectedAt)
+	// modeFloor keeps the parsed time the filter compares against, so the wire
+	// rendering above and the comparison below cannot disagree about the same column.
+	if modeSince != nil {
+		c.modeFloor = *modeSince
+	}
 	return c, nil
 }
 
@@ -284,14 +305,14 @@ func upsertConnection(ctx context.Context, rt extension.Runtime, member extensio
 			if err := forgetSentMarkersOf(ctx, tx, string(member)); err != nil {
 				return err
 			}
-			// The verdict cursors go with them, and for a harder reason than the
-			// markers do: a cursor is a high-water mark in the OTHER account's
-			// message-id space, so a different account whose ids happen to sit
-			// below it would have that counterparty's first messages silently
-			// filtered as already-landed. The verdicts themselves are kept —
-			// capture is disarmed above, so the member re-reads their own list
-			// before anything is captured again.
-			if err := forgetVerdictCursorsOf(ctx, tx, string(member)); err != nil {
+			// The reading positions go with them, and for a harder reason than
+			// the markers do: a position is a high-water mark in the OTHER
+			// account's message-id space, so a different account whose ids happen
+			// to sit below it would have that conversation's first messages
+			// silently filtered as already-landed. The verdicts and the mode are
+			// KEPT — capture is disarmed above, so the member re-reads their own
+			// choice before anything is captured again.
+			if err := forgetCursorsOf(ctx, tx, string(member)); err != nil {
 				return err
 			}
 		}

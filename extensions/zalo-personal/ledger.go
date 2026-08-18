@@ -55,6 +55,10 @@ const (
 	// A session that stopped being accepted. Separate from `polled` because the
 	// remedy is a human with a phone, not a retry.
 	eventReconnectNeeded = "reconnect_needed"
+	// A member took somebody off their list entirely. Announced separately from
+	// verdict_set because it is the only one that REMOVES a decision, and "when did
+	// this person stop being on the list" is a question somebody will ask.
+	eventVerdictDropped = "verdict_dropped"
 	// A message that passed the member's filter and still could not be landed.
 	// It carries the message id and never the message.
 	eventMessageDropped = "message_dropped"
@@ -182,4 +186,34 @@ func verdictImage(entry *allowEntry) (json.RawMessage, error) {
 		DisplayName:   entry.DisplayName,
 		Version:       entry.Version,
 	})
+}
+
+// recordVerdictDropped writes the ledger row and the event for one verdict a member
+// removed from their list.
+//
+// AuditErase, and the before-image is the whole record of what was removed: the row
+// is gone, so this ledger row is the only place that says a decision about this named
+// person ever existed. There is no after-image, which the published grammar enforces.
+func recordVerdictDropped(ctx context.Context, tx extension.Tx, before *allowEntry) error {
+	if before == nil {
+		return errors.New("zalo-personal: recording a removed verdict needs the row that was removed — the ledger's id comes from it")
+	}
+	beforeImage, err := verdictImage(before)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(struct {
+		ChannelUserID string `json:"channel_user_id"`
+	}{ChannelUserID: before.ChannelUserID})
+	if err != nil {
+		return err
+	}
+	return tx.Record(ctx,
+		extension.Change{
+			Action: extension.AuditErase,
+			Entity: allowlistEntity,
+			ID:     before.ID,
+			Before: beforeImage,
+		},
+		extension.Event{Verb: eventVerdictDropped, Payload: payload})
 }

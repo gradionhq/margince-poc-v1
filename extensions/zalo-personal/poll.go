@@ -226,10 +226,11 @@ func pollMember(ctx context.Context, rt extension.Runtime, conn connection, open
 	if err != nil {
 		return turn.refused(conn.Status, err), err
 	}
-	if !anyAllowed(verdictsByCounterparty(entries)) {
-		// Armed, but every verdict is a block — or the list has been emptied of
-		// allows since. Nothing this drain returned could be kept, so no socket
-		// is opened for the same reason an unarmed member's is not.
+	if !consentOf(conn, entries).captures() {
+		// Armed with a mode that admits nothing — only_allowed whose inclusion list
+		// is empty, or a mode this unit does not recognise. Nothing this drain
+		// returned could be kept, so no socket is opened for the same reason an
+		// unarmed member's is not.
 		return turn, nil
 	}
 	opened, err := openFor(ctx, rt, conn, open)
@@ -260,7 +261,7 @@ func pollMember(ctx context.Context, rt extension.Runtime, conn connection, open
 	// The cursors move in a commit of their own, AFTER every ingest has returned,
 	// and before the row write below — so a failure here costs a deduplicated replay
 	// rather than the messages.
-	if saved := advanceVerdictCursors(ctx, rt, conn.UserID, got.reached); saved != nil {
+	if saved := advanceCursors(ctx, rt, conn.UserID, got.reached); saved != nil {
 		return turn.refused(conn.Status, saved), saved
 	}
 	if err != nil {
@@ -296,15 +297,19 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 	// ONE transaction for both reads, so the verdicts and the consent they hang off
 	// are the same instant rather than two.
 	var (
-		still *connection
-		fresh []allowEntry
+		still   *connection
+		fresh   []allowEntry
+		reached map[string]string
 	)
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		var err error
 		if still, err = connectionOf(ctx, tx, conn.UserID); err != nil || still == nil {
 			return err
 		}
-		fresh, err = verdictsOf(ctx, tx, conn.UserID)
+		if fresh, err = verdictsOf(ctx, tx, conn.UserID); err != nil {
+			return err
+		}
+		reached, err = cursorsOf(ctx, tx, conn.UserID)
 		return err
 	}); err != nil {
 		return nil, err
@@ -324,11 +329,25 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 	// because a member edited their list mid-drain would leave a record unnamed for
 	// no reason.
 	return &filters{
-		allowed: verdictsByCounterparty(fresh),
-		cursors: cursorsByCounterparty(fresh),
+		// THE MODE COMES FROM THE RE-READ ROW TOO, not from the one the fleet read:
+		// a member who switched mode while the socket was open must be judged on the
+		// mode they are in now, exactly as with their list.
+		by:      consentOf(*still, fresh),
+		cursors: reached,
 		names:   namesByCounterparty(append(entries, fresh...), rosterFor(ctx, opened)),
 		ours:    ours,
 	}, nil
+}
+
+// consentOf gathers one member's whole answer to "which conversations go into the
+// CRM?" out of the row and their list, so the mode, its floor and the verdicts cannot
+// be assembled from two different reads at two different moments.
+func consentOf(conn connection, entries []allowEntry) consent {
+	return consent{
+		mode:     conn.CaptureMode,
+		since:    conn.modeFloor,
+		verdicts: verdictsByCounterparty(entries),
+	}
 }
 
 // allowedFor reads this member's verdicts and closes the transaction. It is read
@@ -347,16 +366,6 @@ func allowedFor(ctx context.Context, rt extension.Runtime, member string) ([]all
 		return err
 	})
 	return entries, err
-}
-
-// anyAllowed reports whether this member has admitted any conversation at all.
-func anyAllowed(allowed map[string]verdict) bool {
-	for _, mode := range allowed {
-		if mode == verdictAllow {
-			return true
-		}
-	}
-	return false
 }
 
 // openFor unseals this member's own credential and resumes it.

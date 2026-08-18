@@ -312,6 +312,7 @@ func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Ro
 const (
 	readFleet    = "fleet"
 	readVerdicts = "verdicts"
+	readCursors  = "cursors"
 	readMarkers  = "markers"
 )
 
@@ -324,6 +325,8 @@ func readKindOf(sql string) string {
 		return readFleet
 	case strings.Contains(sql, sentTable):
 		return readMarkers
+	case strings.Contains(sql, cursorTable):
+		return readCursors
 	case strings.Contains(sql, allowlistTable):
 		return readVerdicts
 	}
@@ -507,10 +510,34 @@ func itoa(n int) string {
 // per scripted row.
 func connectionRow(status, zaloUID string, captureEnabled bool) []any {
 	connectedAt := time.Date(2026, time.August, 18, 9, 30, 0, 0, time.UTC)
+	// A row with capture ARMED carries a mode, because the database refuses "armed
+	// with no mode" — so a fixture without one would be a state production cannot
+	// reach. only_chosen is the default here because it is the stricter of the two
+	// and because it is what most of this suite is about; withMode states the other.
+	mode, since := "", any(nil)
+	if captureEnabled {
+		mode, since = captureOnlyChosen, any(theModeChosenAt())
+	}
 	return []any{
 		connectionID, callerUserID, status, zaloUID, "Tin Nguyen", captureEnabled,
-		nil, "", connectedAt, 0, 1,
+		mode, since, nil, "", connectedAt, 0, 1,
 	}
+}
+
+// withMode is connectionRow under a stated capture mode. It is where a test says
+// "this member captures everyone except the people they left out".
+func withMode(row []any, mode string) []any {
+	scripted := append([]any(nil), row...)
+	scripted[6], scripted[7] = mode, theModeChosenAt()
+	return scripted
+}
+
+// withModeChosenAt moves the floor everyone_except measures a never-mentioned
+// conversation from, so a test can put the captured frames on either side of it.
+func withModeChosenAt(row []any, since time.Time) []any {
+	scripted := append([]any(nil), row...)
+	scripted[7] = since
+	return scripted
 }
 
 // withIdleStreak is connectionRow carrying a history of drains that found nothing.
@@ -518,7 +545,7 @@ func connectionRow(status, zaloUID string, captureEnabled bool) []any {
 // streak the row already held.
 func withIdleStreak(row []any, streak int) []any {
 	scripted := append([]any(nil), row...)
-	scripted[9] = streak
+	scripted[11] = streak
 	return scripted
 }
 

@@ -226,11 +226,11 @@ actions:
                       type: integer
                       minimum: 0
                       description: >-
-                        How many conversations this person has allowed. Zero
-                        means nothing is being captured, whatever else this
-                        answer says — capture is armed by choosing, so a
-                        connected account with no chosen conversations reads
-                        every message it is sent and keeps none of them.
+                        How many conversations this person has named. Under
+                        `only_chosen` that is the inclusion list and zero means
+                        nothing is captured at all. Under `everyone_except` it is
+                        NOT the number being captured — that list is the people
+                        left out, and everyone else is captured.
                     connection:
                       # Restated rather than $ref'd, and the same rule the
                       # sibling units' fragments record: a fragment is merged
@@ -275,15 +275,34 @@ actions:
                           type: boolean
                           description: >-
                             Whether this connection captures anything. False until the
-                            member chooses which conversations to allow, and false again
+                            member chooses how capture should work, and false again
                             whenever they connect a different account.
-                        last_msg_id:
+                        capture_mode:
                           type: string
+                          enum: [everyone_except, only_chosen]
                           description: >-
-                            How far capture has got: Zalo's own id for the most
-                            recent message already taken in for this person. It
-                            is a bookmark the scheduled capture writes, never a
-                            setting — absent before anything has been captured.
+                            HOW this person answered "which of my Zalo
+                            conversations go into the CRM?". `everyone_except`
+                            captures every conversation except the people they
+                            left out; `only_chosen` captures only the people they
+                            chose. ABSENT means they have not answered yet, which
+                            captures nothing — there is no default mode, because
+                            defaulting to `everyone_except` would have this CRM
+                            read somebody's whole personal chat life without
+                            anybody deciding to.
+                        capture_mode_since:
+                          type: string
+                          format: date-time
+                          description: >-
+                            When that answer was given. Under `everyone_except` it
+                            is also the point conversations nobody has named are
+                            captured FROM: choosing that mode does not reach back
+                            through Zalo's queue for conversations this person had
+                            already looked at and decided against under a previous
+                            answer. A conversation they DO name is captured from
+                            wherever Zalo's queue still reaches, and one already
+                            being captured is unaffected — the floor applies only
+                            where nothing has ever been captured yet.
                         last_polled_at: { type: string, format: date-time }
                         last_error_class:
                           type: string
@@ -533,20 +552,35 @@ actions:
               schema:
                 type: object
                 additionalProperties: false
-                required: [entries]
+                required: [capture_mode]
                 properties:
+                  capture_mode:
+                    type: string
+                    enum: [everyone_except, only_chosen]
+                    description: >-
+                      Which of the two answers this person is giving.
+                      `everyone_except` captures every conversation EXCEPT the
+                      people named below as `block`, so the list is who they are
+                      leaving out. `only_chosen` captures ONLY the people named
+                      below as `allow`, so the list is who they are picking. It is
+                      required on every save — there is no default, and a person
+                      who has not answered captures nothing.
                   entries:
                     type: array
-                    minItems: 1
+                    # EMPTY IS LEGAL, and under `everyone_except` it is the
+                    # commonest first save there is: everything, with nobody left
+                    # out yet. The mode is the answer; the list only refines it.
+                    minItems: 0
                     # Bounded because every entry commits a ledger row: which
                     # conversations were admitted is the record of a person's
                     # consent, not a total to be summarised. A roster past this
                     # is a screen that should page.
                     maxItems: 500
                     description: >-
-                      One entry per contact being decided about. An entry the
-                      list does not name is left exactly as it was, so a screen
-                      may save one change without resending the whole list.
+                      One entry per contact being decided about, in the sense the
+                      `capture_mode` above gives them. An entry the list does not
+                      name is left exactly as it was, so a screen may save one
+                      change without resending the whole list.
                     items:
                       type: object
                       additionalProperties: false
@@ -564,12 +598,19 @@ actions:
                             silently would be this CRM choosing.
                         mode:
                           type: string
-                          enum: [allow, block]
+                          enum: [allow, block, none]
                           description: >-
-                            `allow` captures that conversation from now on.
-                            `block` rules it out deliberately. There is no third
-                            value: leaving a person out of the list is what means
-                            "undecided", and undecided is not captured.
+                            `allow` puts this person on the pick list, which
+                            `only_chosen` reads. `block` puts them on the
+                            leave-out list, which `everyone_except` reads. `none`
+                            takes them off the list entirely, which is what
+                            removing somebody from the picker does — it does not
+                            forget how far their conversation was already
+                            captured, so putting them back resumes rather than
+                            starting over. An entry is simply inert under the
+                            other capture mode rather than wrong in it, so
+                            switching modes discards nothing somebody already
+                            told us.
                         display_name:
                           type: string
                           maxLength: 200

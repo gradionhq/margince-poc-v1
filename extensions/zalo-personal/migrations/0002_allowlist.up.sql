@@ -10,6 +10,12 @@
 -- first save turns on a capture the schema cannot bookmark. They are two halves
 -- of one capability and they land together.
 --
+-- TWO MODES, ONE TABLE. A member either captures everything except the people they
+-- leave out, or only the people they choose — and this table holds both lists: the
+-- `block` rows are the exclusion list of the first mode and the `allow` rows are the
+-- inclusion list of the second. Which list is consulted is the connection's
+-- capture_mode, added at the bottom of this file.
+--
 -- WHAT THE VERDICT TABLE IS FOR, said plainly because it is the whole consent
 -- story of this unit: a personal Zalo account has no business/private split, so
 -- the credential a member deposits reaches their family, their doctor and their
@@ -43,11 +49,15 @@ CREATE TABLE ext.ext_zalo_personal_allowlist (
     -- matched against a message without trusting a display name.
     channel_user_id text        NOT NULL CHECK (length(channel_user_id) > 0),
 
-    -- The verdict. Two values and no third, because a third would be a state
-    -- the filter has no rule for: absence already means "not allowed", so
-    -- `block` is a REFINEMENT the member can state deliberately rather than the
-    -- mechanism. What makes the mechanism the default is that this table starts
-    -- empty.
+    -- The verdict, and which of the two modes it speaks to. `allow` is a row of
+    -- the inclusion list, read only under only_chosen; `block` is a row of the
+    -- exclusion list, read only under everyone_except. A row is therefore inert in
+    -- the other mode rather than wrong in it — which is why switching modes needs
+    -- no rewrite of this table.
+    --
+    -- Two values and no third. Absence means something different in each mode
+    -- (not included, or not excluded), and that is exactly what the mode is for:
+    -- one table, two readings, no third state to invent.
     mode            text        NOT NULL
                     CHECK (mode IN ('allow', 'block')),
 
@@ -56,41 +66,6 @@ CREATE TABLE ext.ext_zalo_personal_allowlist (
     -- nullable because the provider does not always report one, and it is never
     -- used to match a message — matching is on the account id above.
     display_name    text,
-
-    -- THE CURSOR, and it is HERE — on the verdict — rather than on the connection,
-    -- which is the one placement that makes the promise this table exists for true.
-    --
-    -- It holds the highest msgId ingested FOR THIS COUNTERPARTY, and it advances
-    -- only after capture has answered. That asymmetry is the safety argument and it
-    -- is sound because capture is idempotent on the record's natural key: a cursor
-    -- not advanced past a message that landed costs one deduplicated retry, while a
-    -- cursor advanced past one that did not land costs the message.
-    --
-    -- WHY NOT ONE CURSOR PER MEMBER, which is where this started. A single
-    -- high-water mark is a MAXIMUM over every conversation, so a message that lands
-    -- from an allowed counterparty buries every lower-numbered message that was
-    -- dropped from a conversation the member had not chosen. The member then allows
-    -- that conversation while Zalo is still holding those messages, and they are
-    -- filtered as already-landed: the newly allowed conversation starts EMPTY,
-    -- which is exactly what the allowlist is supposed to prevent and exactly what
-    -- the plan promises a member who arms a conversation.
-    --
-    -- Per-counterparty is also SELF-CLEANING, which is why it beats the other
-    -- candidate fix (a per-member low-water mark advanced only past a contiguous
-    -- run). A counterparty the member has just allowed has NO cursor, so everything
-    -- of theirs still in the queue passes — the promise holds by construction
-    -- rather than by argument. A block→allow keeps only a cursor earned during an
-    -- earlier allow period, and the messages during the block were correctly never
-    -- captured. And no conversation can stall another: a busy blocked chat cannot
-    -- freeze an allowed one's cursor, which the low-water mark would have let it do
-    -- for a whole retention window.
-    --
-    -- TEXT rather than a number because it is the PROVIDER's identifier and this
-    -- unit does not own its shape. The comparison that decides "already landed" is
-    -- numeric and is made in Go, where a value that will not parse is refused
-    -- BEFORE it can be stored here — a non-numeric cursor would sit above and below
-    -- nothing and re-offer every message forever.
-    last_msg_id     text        CHECK (last_msg_id IS NULL OR last_msg_id ~ '^[0-9]+$'),
 
     -- Optimistic concurrency for the row, incremented by every update. It is
     -- ordinary here: a member saving their list on a phone while the same list
@@ -132,3 +107,38 @@ CREATE POLICY ext_zalo_personal_allowlist_tenant_isolation
 -- deliberately absent: it empties every tenant's rows without consulting the
 -- policy's USING clause.
 GRANT SELECT, INSERT, UPDATE, DELETE ON ext.ext_zalo_personal_allowlist TO margince_app;
+
+-- WHICH OF THE TWO MODES THIS MEMBER CHOSE, and when.
+--
+-- NULLABLE, and that is the honest encoding of "they have not decided yet" rather
+-- than a defaulted mode that would put words in their mouth. There is no third
+-- enum value for "unset" because capture_enabled already carries that fact, and two
+-- columns saying the same thing is two columns that can disagree.
+--
+-- CHOOSING everyone_except IS AN INFORMED ACT BY THE MEMBER, NEVER A DEFAULT. It is
+-- the line between consent and an accident: a default of "capture everything" would
+-- mean an installation reading a human's entire personal chat life because nobody
+-- touched a screen. So the default is no mode at all, capture_enabled stays false
+-- until the member saves one, and the CHECK below makes "armed with no mode" a state
+-- the database refuses to hold.
+ALTER TABLE ext.ext_zalo_personal_connection
+    ADD COLUMN capture_mode text
+        CHECK (capture_mode IN ('everyone_except', 'only_chosen')),
+
+    -- WHEN THIS MODE WAS CHOSEN, which is a floor and not a decoration: under
+    -- everyone_except a conversation nobody has ever mentioned is captured from
+    -- HERE forward rather than back through whatever Zalo is still holding. The
+    -- reasoning is in record.go, on the filter that reads it.
+    --
+    -- It moves only when the mode CHANGES, never on an ordinary edit of the lists —
+    -- otherwise re-saving an exclusion list would silently move the floor forward
+    -- and lose the messages between the two saves.
+    ADD COLUMN capture_mode_since timestamptz,
+
+    -- CAPTURE CANNOT BE ARMED WITHOUT A MODE. Without this the pair has a fourth
+    -- state — armed, mode NULL — in which the filter has no rule to apply, and the
+    -- only safe behaviour for code that reaches it is to capture nothing, which
+    -- looks exactly like a broken connector. The database refusing it means that
+    -- state cannot be reached by any writer, including a future one.
+    ADD CONSTRAINT ext_zalo_personal_connection_armed_has_a_mode
+        CHECK (capture_enabled = false OR capture_mode IS NOT NULL);

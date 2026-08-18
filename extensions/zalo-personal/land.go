@@ -40,12 +40,12 @@ func echoedIDs(frames []zaloInbound) []string {
 // takes one argument that is obviously a set of decisions rather than four
 // same-shaped maps a caller can transpose.
 type filters struct {
-	// allowed is the member's own verdict per counterparty, RE-READ after the drain
-	// — see the note on landAll.
-	allowed map[string]verdict
-	// cursors is how far capture has already got with each counterparty. A
-	// counterparty absent from it has no bookmark, which is what lets a
-	// just-allowed conversation through.
+	// by is the member's own choice — mode, when they chose it, and their list —
+	// RE-READ after the drain. See the note on landAll.
+	by consent
+	// cursors is how far capture has already got with each conversation. A
+	// conversation absent from it has no bookmark, which is what lets a
+	// just-included conversation through.
 	cursors map[string]string
 	// names is the display name this unit knows for a counterparty — never the one
 	// an outgoing frame carries, which is the member's own.
@@ -122,12 +122,12 @@ type turnLanding struct {
 
 // landAll filters the drain and hands what survives to capture, oldest first.
 //
-// IT ANSWERS A CURSOR PER COUNTERPARTY, and that is the fix for the defect a single
+// IT ANSWERS A POSITION PER CONVERSATION, and that is the fix for the defect a single
 // per-member cursor had: a maximum over every conversation buries every
 // lower-numbered message dropped from a conversation the member had not chosen, so
-// the conversation they choose next starts EMPTY. Per counterparty, a
-// just-allowed conversation has no bookmark at all and everything Zalo still holds
-// for it passes — the promise holds by construction instead of by argument.
+// the conversation they include next starts EMPTY. Per conversation, a just-included
+// one has no bookmark at all and everything Zalo still holds for it passes — the
+// promise holds by construction instead of by argument, in BOTH modes.
 //
 // A message dropped by any filter advances NOTHING, here or elsewhere.
 //
@@ -141,7 +141,7 @@ func landAll(ctx context.Context, rt extension.Runtime, conn connection, frames 
 	got := turnLanding{reached: map[string]string{}}
 	for _, frame := range frames {
 		other := frame.counterparty()
-		if keep, _ := admits(frame, against.allowed, against.cursors[other], against.ours); !keep {
+		if keep, _ := admits(frame, against.by, against.cursors[other], against.ours); !keep {
 			continue
 		}
 		// A systemic failure — the port refused this unit, the member's

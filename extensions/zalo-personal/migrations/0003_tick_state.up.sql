@@ -2,10 +2,10 @@
 -- SPDX-FileCopyrightText: 2026 Gradion
 --
 -- WHAT ONE TICK NEEDS TO KNOW ABOUT A MEMBER that the first two migrations did not
--- give it: which messages the CRM itself sent, and when this member is next worth
--- asking.
+-- give it: which messages the CRM itself sent, how far each conversation has already
+-- been read, and when this member is next worth asking.
 --
--- ONE VERSION FOR BOTH because they are one change to one thing — how a tick
+-- ONE VERSION FOR ALL THREE because they are one change to one thing — how a tick
 -- decides what to read and what to keep. Splitting them would leave a database
 -- state where the capture knows which echoes are its own but not how often to look,
 -- or the reverse, and neither half is useful alone.
@@ -140,3 +140,89 @@ ALTER TABLE ext.ext_zalo_personal_connection
 -- which is the cost the cadence exists to reduce, paid in the database instead.
 CREATE INDEX ext_zalo_personal_connection_due
     ON ext.ext_zalo_personal_connection (workspace_id, poll_after, last_polled_at);
+
+-- ============================================================================
+-- PART THREE: HOW FAR EACH CONVERSATION HAS ALREADY BEEN READ.
+--
+-- ITS OWN TABLE, AND THE FIRST DRAFT GOT THIS WRONG TWICE — once as a single mark per
+-- member, once as a column on the verdict row. The bookmark is a fact about ONE
+-- CONVERSATION and about WHAT THIS INSTALLATION HAS DONE, and each wrong home tied it
+-- to something else:
+--
+--   * ONE MARK PER MEMBER is a maximum over every conversation, so a message landing
+--     from an included conversation buries every lower-numbered message dropped from
+--     an excluded one. The member then includes that conversation and it starts
+--     EMPTY.
+--   * A COLUMN ON THE VERDICT ties the bookmark's existence to a row the MEMBER
+--     controls. Under all_but_blocked most conversations have no verdict at all, so
+--     there is nowhere to put their bookmark; and deleting a verdict would silently
+--     reset a bookmark, re-offering a whole conversation.
+--
+-- Two more reasons this table earns its own file, beyond the modes:
+--
+--   * DIFFERENT LIFECYCLES. A verdict is written by a member and read as consent; a
+--     bookmark is written by the scheduler and read as progress. Nothing that
+--     happens to one should happen to the other.
+--   * DIFFERENT RETENTION. A verdict is consent and must survive. A bookmark is
+--     scheduling state and losing one costs a deduplicated replay — you cannot prune
+--     a column on a row you must keep.
+--
+-- GROWTH IS BOUNDED BY PEOPLE, NOT BY MESSAGES: one row per counterparty a member has
+-- ever captured from, which is their real contact count. That is why this table needs
+-- no sweep while ext_zalo_personal_sent_message, at one row per MESSAGE, does.
+
+CREATE TABLE ext.ext_zalo_personal_conversation_cursor (
+    -- The tenant claim, and the column the policy below compares. The cascade is
+    -- load-bearing: without it, deleting a workspace fails on this unit's rows.
+    workspace_id    uuid        NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+
+    -- WHOSE reading position this is. Stamped by the tick from the connection it is
+    -- polling, never from anything a client sent.
+    user_id         uuid        NOT NULL,
+
+    -- WHICH conversation, as the counterparty's own Zalo account id — the same value
+    -- a verdict is keyed on, and deliberately NOT a foreign key to one: a bookmark
+    -- exists for conversations that have no verdict at all, which is the ordinary
+    -- case under all_but_blocked.
+    channel_user_id text        NOT NULL CHECK (length(channel_user_id) > 0),
+
+    -- The highest provider message id already ingested for this conversation. It
+    -- advances only AFTER capture has answered, which is the safety argument: a
+    -- bookmark not advanced past a message that landed costs one deduplicated retry,
+    -- while one advanced past a message that did not land costs the message.
+    --
+    -- NOT NULL, because a row exists only once something has landed — "no bookmark"
+    -- is the ABSENCE of a row, which is what lets a newly included conversation
+    -- through. And the CHECK is the C4 guard at the database: an id this unit cannot
+    -- order sits above and below nothing, so stored it would re-offer the whole
+    -- conversation on every tick forever.
+    last_msg_id     text        NOT NULL CHECK (last_msg_id ~ '^[0-9]+$'),
+
+    updated_at      timestamptz NOT NULL DEFAULT now(),
+
+    -- One position per conversation per member per tenant, and the PRIMARY KEY is
+    -- that uniqueness: this table hands out no identity of its own — a row IS the
+    -- statement "we have read this conversation up to here". It is also the index
+    -- the tick's read uses, which asks for one member's whole set.
+    PRIMARY KEY (workspace_id, user_id, channel_user_id)
+);
+
+-- ENABLE and FORCE, both. The owner at runtime is margince_owner, and ENABLE alone
+-- exempts a table's owner from its own policies — so without FORCE the isolation
+-- would hold for margince_app and not for the role every migration and every
+-- operator psql session arrives as.
+ALTER TABLE ext.ext_zalo_personal_conversation_cursor ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ext.ext_zalo_personal_conversation_cursor FORCE ROW LEVEL SECURITY;
+
+-- Exactly one policy, permissive, ALL commands, to PUBLIC. A second permissive
+-- policy ORs with this one and can only widen it, and USING without WITH CHECK
+-- would admit writes into another workspace.
+CREATE POLICY ext_zalo_personal_conversation_cursor_tenant_isolation
+    ON ext.ext_zalo_personal_conversation_cursor
+    USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+    WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+-- The app role runs the unit's handlers, under the policy above. TRUNCATE is
+-- deliberately absent: it empties every tenant's rows without consulting the
+-- policy's USING clause.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ext.ext_zalo_personal_conversation_cursor TO margince_app;

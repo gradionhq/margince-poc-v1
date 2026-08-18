@@ -126,16 +126,14 @@ func depositSession(t *testing.T, rt *fakeRuntime, member extension.UserID, imei
 // which is the state of a conversation the member has just allowed — and the state
 // that has to let everything Zalo is still holding through.
 func allowRow(id, counterparty string, mode verdict, name string) []any {
-	return []any{id, counterparty, string(mode), name, "", 1}
+	return []any{id, counterparty, string(mode), name, 1}
 }
 
-// allowRowAt is a verdict that has already been captured up to a point. THE CURSOR
-// IS PER COUNTERPARTY, so a fixture states it per verdict — which is what makes the
-// interleaving case (a blocked conversation under an allowed one) expressible at all.
-func allowRowAt(id, counterparty string, mode verdict, name, cursor string) []any {
-	row := allowRow(id, counterparty, mode, name)
-	row[4] = cursor
-	return row
+// cursorRow scripts one conversation's reading position, in the order cursorsOf
+// projects. A conversation with NO row here has no bookmark, which is the state that
+// lets everything Zalo is still holding for it through — so most fixtures script none.
+func cursorRow(counterparty, at string) []any {
+	return []any{counterparty, at}
 }
 
 // entryID and secondEntryID are verdict row ids, canonical because the ledger's

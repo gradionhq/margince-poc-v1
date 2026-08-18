@@ -4,16 +4,20 @@
 package zalopersonal
 
 // The verdict table: what a member has decided about each of their own
-// counterparties, and how far capture has got with each one.
+// counterparties.
 //
 // SPLIT FROM allowlist.go, which owns the two operations a member drives from their
-// screen, because this is the STORE and that is the surface. The rule most worth
-// reading is on last_msg_id: the cursor is per counterparty, and the reason is that a
-// single per-member cursor is a maximum over every conversation — so a message
-// landing from an allowed counterparty buries every lower-numbered message dropped
-// from a conversation the member had not yet chosen, and that conversation then
-// starts empty the moment they choose it. Two independent reviews found that defect;
-// per-counterparty is the shape that cannot have it.
+// screen, because this is the STORE and that is the surface.
+//
+// TWO MODES, ONE TABLE: the `block` rows are the exclusion list read under
+// all_but_blocked, and the `allow` rows are the inclusion list read under
+// only_allowed. A row is inert in the other mode rather than wrong in it, which is
+// why switching modes rewrites nothing here.
+//
+// NO READING POSITION LIVES HERE. One used to be a column on these rows, and the
+// two-mode model is what exposed it as a defect: under all_but_blocked most
+// conversations have no verdict at all, so a bookmark on the verdict row has nowhere
+// to go. Positions live in cursor.go, whose header carries the full argument.
 
 import (
 	"context"
@@ -32,8 +36,7 @@ const allowlistTable = "ext." + allowlistEntity
 
 // allowlistColumns is the projection every read and every write of a verdict
 // returns, in one place so a column added to the table is one edit.
-const allowlistColumns = `id::text, channel_user_id, mode, coalesce(display_name, ''),
-	coalesce(last_msg_id, ''), version`
+const allowlistColumns = `id::text, channel_user_id, mode, coalesce(display_name, ''), version`
 
 // allowEntry is one stored verdict.
 type allowEntry struct {
@@ -41,13 +44,7 @@ type allowEntry struct {
 	ChannelUserID string
 	Mode          verdict
 	DisplayName   string
-	// LastMsgID is the highest provider message id already ingested FOR THIS
-	// COUNTERPARTY. It is the tick's bookmark and no operation on this surface
-	// writes it: a member choosing a conversation states a verdict, not a position
-	// in it, and a newly allowed counterparty having no cursor is what lets the
-	// messages Zalo is still holding for them through.
-	LastMsgID string
-	Version   int
+	Version       int
 }
 
 // scanAllowEntry reads allowlistColumns off one row. The mode is scanned as text
@@ -59,8 +56,7 @@ func scanAllowEntry(scan func(...any) error) (allowEntry, error) {
 		entry allowEntry
 		mode  string
 	)
-	if err := scan(&entry.ID, &entry.ChannelUserID, &mode, &entry.DisplayName,
-		&entry.LastMsgID, &entry.Version); err != nil {
+	if err := scan(&entry.ID, &entry.ChannelUserID, &mode, &entry.DisplayName, &entry.Version); err != nil {
 		return allowEntry{}, err
 	}
 	entry.Mode = verdict(mode)
@@ -104,31 +100,26 @@ func verdictsByCounterparty(entries []allowEntry) map[string]verdict {
 	return byID
 }
 
-// cursorsByCounterparty is how far capture has got with each conversation. A
-// counterparty with no bookmark is absent rather than present-and-empty, which is the
-// same thing to atOrBelow and reads correctly at every call site: nothing has landed
-// for them yet.
-func cursorsByCounterparty(entries []allowEntry) map[string]string {
-	cursors := make(map[string]string, len(entries))
-	for _, entry := range entries {
-		if entry.LastMsgID != "" {
-			cursors[entry.ChannelUserID] = entry.LastMsgID
-		}
-	}
-	return cursors
-}
-
 // writeVerdicts upserts every entry and records each one.
 //
 // ONE LEDGER ROW PER VERDICT, deliberately: which counterparties a member
 // allowed is the record of their consent, and a summary saying "17 entries
 // saved" cannot answer the question somebody will actually ask, which is whether
 // this installation was ever permitted to read a named conversation.
+//
+// An entry whose verdict is `none` REMOVES the person from the list, which is what a
+// search-as-you-type picker does when somebody is taken out of it.
 func writeVerdicts(ctx context.Context, tx extension.Tx, member string, entries []savedEntry) error {
 	for _, entry := range entries {
 		before, err := verdictFor(ctx, tx, member, entry.ChannelUserID)
 		if err != nil {
 			return err
+		}
+		if entry.Mode == string(verdictNone) {
+			if err := dropVerdict(ctx, tx, member, before); err != nil {
+				return err
+			}
+			continue
 		}
 		after, err := scanAllowEntry(tx.QueryRow(ctx,
 			`INSERT INTO `+allowlistTable+`
@@ -137,14 +128,6 @@ func writeVerdicts(ctx context.Context, tx extension.Tx, member string, entries 
 			 ON CONFLICT (workspace_id, user_id, channel_user_id) DO UPDATE
 			    SET mode = EXCLUDED.mode,
 			        display_name = coalesce(EXCLUDED.display_name, `+allowlistTable+`.display_name),
-			        -- THE CURSOR IS NOT IN THIS SET LIST, and leaving it out is the
-			        -- whole of what makes a re-allow work: a counterparty allowed
-			        -- for the first time inserts with no cursor, so everything Zalo
-			        -- still holds for them passes on the next tick. One that was
-			        -- allowed, blocked and allowed again keeps the position it
-			        -- genuinely reached, and the messages during the block were
-			        -- correctly never captured. Resetting it here would re-offer a
-			        -- whole conversation every time somebody edited their list.
 			        version = `+allowlistTable+`.version + 1,
 			        updated_at = now()
 			 RETURNING `+allowlistColumns,
@@ -188,55 +171,4 @@ func countAllowed(ctx context.Context, tx extension.Tx, member string) (int, err
 		return 0, err
 	}
 	return allowed, nil
-}
-
-// advanceVerdictCursors moves each counterparty's bookmark to what this turn
-// actually landed, in ONE statement and in a transaction of its own — opened after
-// every ingest has returned, which is the rule the tick is shaped around.
-//
-// ONE STATEMENT FOR THE WHOLE TURN rather than one per counterparty: a drain can
-// touch every conversation a member has, and a round trip each would put the cursor
-// write on the same footing as the ingest it is bookkeeping for.
-//
-// It is NOT version-guarded, deliberately. A verdict that changed under the turn is
-// exactly the case where the mode matters and the position does not: if the member
-// blocked that counterparty, the cursor names messages that were already captured
-// before they blocked, and refusing to record it would re-offer them if the
-// conversation is ever allowed again. What must not happen on a changed verdict is
-// an INGEST, and that is guarded where it belongs — in the tick, by re-reading the
-// verdicts after the drain.
-//
-// GREATEST() rather than a bare assignment, so a cursor cannot go BACKWARDS if two
-// ticks overlap: the older one would otherwise re-offer the newer one's messages.
-func advanceVerdictCursors(ctx context.Context, rt extension.Runtime, member string,
-	reached map[string]string,
-) error {
-	if len(reached) == 0 {
-		return nil
-	}
-	counterparties, cursors := make([]string, 0, len(reached)), make([]string, 0, len(reached))
-	for counterparty, cursor := range reached {
-		counterparties, cursors = append(counterparties, counterparty), append(cursors, cursor)
-	}
-	return rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		_, err := tx.Exec(ctx,
-			`UPDATE `+allowlistTable+` AS entry
-			    SET last_msg_id = greatest(coalesce(entry.last_msg_id, '0')::numeric,
-			                               reached.cursor::numeric)::text,
-			        updated_at = now()
-			   FROM unnest($2::text[], $3::text[]) AS reached(counterparty, cursor)
-			  WHERE entry.user_id = $1::uuid AND entry.channel_user_id = reached.counterparty`,
-			member, counterparties, cursors)
-		return err
-	})
-}
-
-// forgetVerdictCursorsOf clears every bookmark this member holds, because the
-// account whose message ids they name is no longer the account this connection is
-// for. The verdicts themselves are kept — see the call site in connection.go.
-func forgetVerdictCursorsOf(ctx context.Context, tx extension.Tx, member string) error {
-	_, err := tx.Exec(ctx,
-		`UPDATE `+allowlistTable+` SET last_msg_id = NULL, updated_at = now()
-		  WHERE user_id = $1::uuid AND last_msg_id IS NOT NULL`, member)
-	return err
 }

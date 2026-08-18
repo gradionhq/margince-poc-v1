@@ -17,9 +17,31 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// allowingOnlyTheCounterparty is the verdict set for the captured conversation.
-func allowingOnlyTheCounterparty() map[string]verdict {
-	return map[string]verdict{counterpartyZaloUID: verdictAllow}
+// pickingTheCounterparty is only_chosen with the captured conversation on the pick
+// list, which is the mode the unit's first model was the whole of.
+func pickingTheCounterparty() consent {
+	return consent{
+		mode:     captureOnlyChosen,
+		verdicts: map[string]verdict{counterpartyZaloUID: verdictAllow},
+	}
+}
+
+// picking is only_chosen with an arbitrary list.
+func picking(verdicts map[string]verdict) consent {
+	return consent{mode: captureOnlyChosen, verdicts: verdicts}
+}
+
+// theModeChosenAt is the floor everyone_except measures a never-mentioned
+// conversation from. It sits BEFORE the captured frames on purpose, so the ordinary
+// everyone_except case admits them and a test about the floor moves the floor rather
+// than the messages.
+func theModeChosenAt() time.Time {
+	return time.UnixMilli(1786940000000).UTC()
+}
+
+// everyoneExcept is the other mode, with a leave-out list.
+func everyoneExcept(verdicts map[string]verdict) consent {
+	return consent{mode: captureEveryoneExcept, since: theModeChosenAt(), verdicts: verdicts}
 }
 
 func TestARealInboundFrameBecomesARepliableMessage(t *testing.T) {
@@ -174,56 +196,84 @@ func TestOnlyAConversationTheMemberChoseIsAdmitted(t *testing.T) {
 	echo, inbound := capturedFrames(t)
 
 	for name, tc := range map[string]struct {
-		frame   zaloInbound
-		allowed map[string]verdict
-		cursor  string
-		ours    map[string]bool
-		keep    bool
-		reason  string
+		frame  zaloInbound
+		by     consent
+		cursor string
+		ours   map[string]bool
+		keep   bool
+		reason string
 	}{
-		"an allowed counterparty": {
-			frame: inbound, allowed: allowingOnlyTheCounterparty(), keep: true,
+		"a conversation on the pick list": {
+			frame: inbound, by: pickingTheCounterparty(), keep: true,
 		},
 		// The echo of a reply the CRM itself staged: the core already wrote that
 		// activity, so capturing it would post the rep's words to the customer
 		// twice.
 		"the echo of a reply the CRM staged": {
-			frame:   echo,
-			allowed: map[string]verdict{counterpartyZaloUID: verdictAllow},
-			ours:    map[string]bool{echoMsgID: true},
-			reason:  "own_send_already_recorded",
+			frame:  echo,
+			by:     pickingTheCounterparty(),
+			ours:   map[string]bool{echoMsgID: true},
+			reason: "own_send_already_recorded",
 		},
 		// The echo of a reply the rep typed on their PHONE. Nothing here has seen
 		// it, and it is the half of the conversation the timeline was missing.
 		"the echo of a reply sent from the rep's phone": {
-			frame: echo, allowed: map[string]verdict{counterpartyZaloUID: verdictAllow}, keep: true,
+			frame: echo, by: pickingTheCounterparty(), keep: true,
 		},
 		// The consent story from the OUTBOUND side: a rep messaging somebody they
 		// never allowed must not pull that person into the CRM.
-		"a phone reply to somebody the member never allowed": {
-			frame: echo, allowed: map[string]verdict{}, reason: "not_allowed",
+		"a phone reply to somebody who is not on the pick list": {
+			frame: echo, by: picking(map[string]verdict{}), reason: "not_included",
 		},
-		"a counterparty the member blocked": {
-			frame: inbound, allowed: map[string]verdict{counterpartyZaloUID: verdictBlock}, reason: "not_allowed",
+		"a conversation left off the pick list by a block": {
+			frame: inbound, by: picking(map[string]verdict{counterpartyZaloUID: verdictBlock}), reason: "not_included",
 		},
-		"a counterparty with no verdict at all": {
-			frame: inbound, allowed: map[string]verdict{}, reason: "not_allowed",
+		"a conversation nobody has mentioned, under only_chosen": {
+			frame: inbound, by: picking(map[string]verdict{}), reason: "not_included",
 		},
-		"a member who has chosen somebody else": {
-			frame:   inbound,
-			allowed: map[string]verdict{"1900000000000000009": verdictAllow},
-			reason:  "not_allowed",
+		"a member who picked somebody else": {
+			frame:  inbound,
+			by:     picking(map[string]verdict{"1900000000000000009": verdictAllow}),
+			reason: "not_included",
 		},
-		"a message at the cursor": {
-			frame: inbound, allowed: allowingOnlyTheCounterparty(), cursor: inboundMsgID, reason: "already_landed",
+		// THE OTHER MODE. Absence means the opposite here, which is the whole point
+		// of there being a mode at all.
+		"a conversation nobody has mentioned, under everyone_except": {
+			frame: inbound, by: everyoneExcept(map[string]verdict{}), keep: true,
 		},
-		"a message below the cursor": {
-			frame: inbound, allowed: allowingOnlyTheCounterparty(), cursor: "9161098001435", reason: "already_landed",
+		"a conversation on the leave-out list": {
+			frame:  inbound,
+			by:     everyoneExcept(map[string]verdict{counterpartyZaloUID: verdictBlock}),
+			reason: "excluded_or_before_the_mode",
+		},
+		// An `allow` row is INERT under everyone_except rather than wrong in it.
+		"a pick-list row under everyone_except": {
+			frame: inbound, by: everyoneExcept(map[string]verdict{counterpartyZaloUID: verdictAllow}), keep: true,
+		},
+		"a phone reply under everyone_except": {
+			frame: echo, by: everyoneExcept(map[string]verdict{}), keep: true,
+		},
+		"a phone reply to somebody left out": {
+			frame:  echo,
+			by:     everyoneExcept(map[string]verdict{counterpartyZaloUID: verdictBlock}),
+			reason: "excluded_or_before_the_mode",
+		},
+		// NO MODE CAPTURES NOTHING. Unreachable through any writer — the database
+		// refuses "armed with no mode" — and the safe direction anyway.
+		"a member who has not answered yet": {
+			frame: inbound, by: consent{verdicts: map[string]verdict{counterpartyZaloUID: verdictAllow}},
+			reason: "no_mode_chosen",
+		},
+		"a message at the bookmark": {
+			frame: inbound, by: pickingTheCounterparty(), cursor: inboundMsgID, reason: "already_landed",
+		},
+		"a message below the bookmark": {
+			frame: inbound, by: pickingTheCounterparty(), cursor: "9161098001435", reason: "already_landed",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			keep, reason := admits(tc.frame, tc.allowed, tc.cursor, tc.ours)
+			keep, reason := admits(tc.frame, tc.by, tc.cursor, tc.ours)
 			if keep != tc.keep {
 				t.Fatalf("%s was %v, want %v (reason %q)", name, keep, tc.keep, reason)
 			}
