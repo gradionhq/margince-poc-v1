@@ -137,10 +137,11 @@ describe("the record's chronology", () => {
   });
 
   it("fetches the changes only once the reader asks for them", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", changeFeed().fetcher);
     withProviders(<PersonTimelineTab personId="p-1" view={viewWith(false)} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Changes" }));
+    await user.click(screen.getByRole("button", { name: "Changes" }));
 
     await waitFor(() => expect(screen.getByText("owner id")).toBeTruthy());
     expect(screen.getByText("Lena Fischer")).toBeTruthy();
@@ -150,10 +151,11 @@ describe("the record's chronology", () => {
   });
 
   it("puts both feeds in one order under All, newest first", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", changeFeed().fetcher);
     withProviders(<PersonTimelineTab personId="p-1" view={viewWith(false)} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    await user.click(screen.getByRole("button", { name: "All" }));
 
     await waitFor(() => expect(screen.getByText("owner id")).toBeTruthy());
     const rows = screen.getAllByRole("listitem");
@@ -168,10 +170,11 @@ describe("the record's chronology", () => {
   });
 
   it("says a failed change read failed rather than reporting nothing was ever changed", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", changeFeed(500).fetcher);
     withProviders(<PersonTimelineTab personId="p-1" view={viewWith(false)} />);
 
-    await userEvent.click(screen.getByRole("button", { name: "Changes" }));
+    await user.click(screen.getByRole("button", { name: "Changes" }));
 
     await waitFor(() =>
       expect(screen.getByText("This section did not load.")).toBeTruthy(),
