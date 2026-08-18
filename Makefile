@@ -339,6 +339,7 @@ fe-ds-gates:
 ## change owes. The script skips only when pnpm is absent, which cannot happen
 ## on this lane — check-fe fails first if the frontend deps are missing.
 fe-drift:
+	cd frontend && pnpm install --frozen-lockfile
 	@./scripts/check-contract-frontend-drift.sh
 
 ## fe-unit — the vitest suite. FE_COVERAGE=1 instruments the run so it also

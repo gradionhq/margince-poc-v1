@@ -94,7 +94,20 @@ for f in "${ARTIFACTS[@]}"; do
   [[ -f "$f" ]] || { echo "check-contract-frontend-drift: FAIL — $f does not exist; the committed contract types are missing, not merely stale" >&2; exit 1; }
 done
 
-pnpm install --frozen-lockfile
+# Installing is the frontend lane's job, not this gate's. A check that mutates
+# the tree in order to read it is doing two things, and it is also how an
+# unpinned `pnpm install` — lifecycle scripts and all — ends up in the path of a
+# Go-only target.
+if [[ ! -d node_modules ]]; then
+  echo "check-contract-frontend-drift: FAIL — pnpm is on PATH but frontend/node_modules is not installed." >&2
+  echo "  This leg regenerates ${#ARTIFACTS[@]} contract artifact(s) and diffs them; it cannot do that" >&2
+  echo "  without the toolchain. Run \`make install\` (or \`cd frontend && pnpm install\`)." >&2
+  echo "  This is a failure and not a skip on purpose: the skip exists for a checkout with NO" >&2
+  echo "  frontend toolchain, and a tree that has one but has not installed it would otherwise" >&2
+  echo "  turn this gate off quietly." >&2
+  exit 1
+fi
+
 touch "$STAMP"
 pnpm gen:api
 
