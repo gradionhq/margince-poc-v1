@@ -136,10 +136,7 @@ export function DedupeScreen() {
                     ? dispose.variables.disposition
                     : undefined
                 }
-                blocked={
-                  (dispose.isPending && dispose.variables?.id !== c.id) ||
-                  undo.isPending
-                }
+                blocked={dispose.isPending || undo.isPending}
                 onDispose={(disposition, winner) =>
                   dispose.mutate({ id: c.id, disposition, winner_id: winner })
                 }
@@ -223,8 +220,10 @@ function CandidateCard({
   // Which of this pair's own verbs is mid-write, if either: that button keeps
   // focus and draws in full ink with a turning mark.
   deciding: "merge" | "not_a_duplicate" | undefined;
-  // Another pair's decision, or an undo, is in flight: nothing here is pressable
-  // until it lands, and that is a refusal rather than a press.
+  // SOME write is in flight — this pair's, another pair's, or an undo. Every
+  // verb except the one that is turning refuses until it lands, including this
+  // pair's other verb: a reader who could still dismiss the pair they are
+  // merging would have two dispositions racing on one row.
   blocked: boolean;
   onDispose: (
     disposition: "merge" | "not_a_duplicate",
@@ -299,7 +298,10 @@ function CandidateCard({
         <Button
           variant="primary"
           pending={deciding === "merge"}
-          disabled={blocked}
+          // The README is explicit that refusal outranks pending: a control
+          // nobody may press cannot also be mid-press. So the turning button
+          // takes `pending` alone and every other one takes the refusal.
+          disabled={blocked && deciding !== "merge"}
           onClick={() => onDispose("merge", winner)}
         >
           <GitMerge aria-hidden /> {t("dedupe.mergeCta")}
@@ -307,7 +309,7 @@ function CandidateCard({
         <Button
           variant="ghost"
           pending={deciding === "not_a_duplicate"}
-          disabled={blocked}
+          disabled={blocked && deciding !== "not_a_duplicate"}
           onClick={() => onDispose("not_a_duplicate")}
         >
           {t("dedupe.notDuplicateCta")}
