@@ -194,11 +194,15 @@ func TestAFrameThisUnitCannotRepresentIsRefusedRatherThanGuessedAt(t *testing.T)
 func TestOnlyAConversationTheMemberChoseIsAdmitted(t *testing.T) {
 	t.Parallel()
 	echo, inbound := capturedFrames(t)
+	// A message from the period the member had already answered about under a
+	// previous mode: everything the everyone_except floor exists to leave alone.
+	beforeTheFloor := inbound
+	beforeTheFloor.OccurredAt = theModeChosenAt().Add(-time.Minute)
 
 	for name, tc := range map[string]struct {
 		frame  zaloInbound
 		by     consent
-		cursor string
+		mark   bookmark
 		ours   map[string]bool
 		keep   bool
 		reason string
@@ -264,16 +268,32 @@ func TestOnlyAConversationTheMemberChoseIsAdmitted(t *testing.T) {
 			frame: inbound, by: consent{verdicts: map[string]verdict{counterpartyZaloUID: verdictAllow}},
 			reason: "no_mode_chosen",
 		},
+		// THE FLOOR IS THE MODE'S, AND A BOOKMARK ANSWERS IT ONLY IF IT WAS WRITTEN
+		// UNDER THAT MODE. One written earlier says where a previous answer got to,
+		// and reading its presence as "this conversation is being captured" is what
+		// lets a mode round-trip hand over the whole excluded period.
+		"a frame below the floor, with a bookmark from before the mode": {
+			frame:  beforeTheFloor,
+			by:     everyoneExcept(map[string]verdict{}),
+			mark:   bookmark{at: echoMsgID, written: theModeChosenAt().Add(-time.Hour)},
+			reason: "excluded_or_before_the_mode",
+		},
+		"a frame below the floor, with a bookmark written under this mode": {
+			frame: beforeTheFloor,
+			by:    everyoneExcept(map[string]verdict{}),
+			mark:  bookmark{at: echoMsgID, written: theModeChosenAt().Add(time.Hour)},
+			keep:  true,
+		},
 		"a message at the bookmark": {
-			frame: inbound, by: pickingTheCounterparty(), cursor: inboundMsgID, reason: "already_landed",
+			frame: inbound, by: pickingTheCounterparty(), mark: bookmark{at: inboundMsgID}, reason: "already_landed",
 		},
 		"a message below the bookmark": {
-			frame: inbound, by: pickingTheCounterparty(), cursor: "9161098001435", reason: "already_landed",
+			frame: inbound, by: pickingTheCounterparty(), mark: bookmark{at: "9161098001435"}, reason: "already_landed",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			keep, reason := admits(tc.frame, tc.by, tc.cursor, tc.ours)
+			keep, reason := admits(tc.frame, tc.by, tc.mark, tc.ours)
 			if keep != tc.keep {
 				t.Fatalf("%s was %v, want %v (reason %q)", name, keep, tc.keep, reason)
 			}

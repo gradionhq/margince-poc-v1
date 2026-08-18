@@ -459,6 +459,14 @@ func assignScanned(dest, value any, at int) error {
 			return errScripted{at: at, want: "int", got: value}
 		}
 		*target = got
+	case *time.Time:
+		// A NOT NULL timestamptz — the cursor row's updated_at, which answers when a
+		// reading position was written. The nullable spelling is below.
+		got, ok := value.(time.Time)
+		if !ok {
+			return errScripted{at: at, want: "time.Time", got: value}
+		}
+		*target = got
 	case **time.Time:
 		// A TIME, because the column is timestamptz and the driver refuses to
 		// scan one into a string. The fake takes the type the handler asks for,

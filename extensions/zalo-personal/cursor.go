@@ -31,9 +31,39 @@ package zalopersonal
 
 import (
 	"context"
+	"time"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
+
+// bookmark is one conversation's reading position AND WHEN THAT POSITION WAS
+// WRITTEN, which is two facts because the second is what makes the first readable.
+//
+// A position alone cannot say which of the member's answers it is evidence of. Under
+// everyone_except the mode carries a floor, and the presence of a bookmark is what
+// admitsUnderMode reads as "capture has been reading this conversation, so the floor
+// is not the question here". A position minted under a PREVIOUS answer supports no
+// such reading: it says where that answer got to. Without the timestamp the two are
+// indistinguishable, and a mode round-trip re-stamps the floor and then never
+// consults it.
+type bookmark struct {
+	// at is the highest provider message id already ingested for this conversation.
+	// Empty is the ABSENCE of a bookmark, which is the state that lets everything
+	// Zalo is still holding for a newly included conversation through.
+	at string
+	// written is when this position was last advanced — the row's own updated_at,
+	// which the tick is the only writer of.
+	written time.Time
+}
+
+// postdates reports that this bookmark was written after the given floor, and is
+// therefore evidence about the consent regime that floor belongs to.
+//
+// A bookmark with no row behind it has a zero time and postdates nothing, which is
+// the correct answer: there is no bookmark to be evidence of anything.
+func (b bookmark) postdates(floor time.Time) bool {
+	return b.written.After(floor)
+}
 
 // cursorEntity is what the ledger would call this table, and cursorTable is what SQL
 // calls it — the same derivation as the unit's other tables', for the same reason.
@@ -51,21 +81,24 @@ const cursorTable = "ext." + cursorEntity
 // The whole set at once rather than a lookup per message: one drain can touch every
 // conversation a member has, and a query per frame would be a round trip per message
 // on the one path that must hold nothing open while it ingests.
-func cursorsOf(ctx context.Context, tx extension.Tx, member string) (map[string]string, error) {
+func cursorsOf(ctx context.Context, tx extension.Tx, member string) (map[string]bookmark, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT channel_user_id, last_msg_id FROM `+cursorTable+`
+		`SELECT channel_user_id, last_msg_id, updated_at FROM `+cursorTable+`
 		  WHERE user_id = $1::uuid`, member)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	found := map[string]string{}
+	found := map[string]bookmark{}
 	for rows.Next() {
-		var counterparty, at string
-		if err := rows.Scan(&counterparty, &at); err != nil {
+		var (
+			counterparty string
+			mark         bookmark
+		)
+		if err := rows.Scan(&counterparty, &mark.at, &mark.written); err != nil {
 			return nil, err
 		}
-		found[counterparty] = at
+		found[counterparty] = mark
 	}
 	return found, rows.Err()
 }

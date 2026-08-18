@@ -298,3 +298,59 @@ func TestAMemberWithNoModeHasNoSocketOpened(t *testing.T) {
 			opened.drains, keysOf(rt.ingested))
 	}
 }
+
+// A BOOKMARK OLDER THAN THE MODE DOES NOT SILENCE THE FLOOR, and the round trip is what
+// makes that reachable: everyone_except captures a conversation up to some id,
+// only_chosen then refuses everything above it while leaving the bookmark exactly where
+// it was, and switching BACK to everyone_except re-stamps the floor. The bookmark still
+// exists, so reading its mere presence as "capture has been reading this conversation"
+// hands over every message Zalo is still holding above it — from precisely the window
+// the member had left that conversation out of.
+//
+// It is the sibling of TestTheModeFloorDoesNotReachAConversationAlreadyBeingCaptured:
+// there the bookmark was written under this mode and rightly answers the question, here
+// it predates the mode and cannot.
+func TestABookmarkOlderThanTheModeDoesNotSilenceTheFloor(t *testing.T) {
+	t.Parallel()
+	_, base := capturedFrames(t)
+	switchedAt := base.OccurredAt.Add(time.Minute)
+	armed := withModeChosenAt(
+		withMode(connectionRow(statusConnected, memberZaloUID, true), captureEveryoneExcept),
+		switchedAt)
+
+	rt := tickRuntime(t)
+	scriptTurn(rt, [][]any{armed}, nil, nil)
+	// A bookmark BELOW this message, written BEFORE the switch: where the previous
+	// answer got to, and no statement about the answer in force now.
+	scriptCursors(rt, cursorRowWrittenAt(counterpartyZaloUID, echoMsgID, switchedAt.Add(-time.Minute)))
+	rt.tx.singleRows = afterTheDrain(armed, armed)
+
+	if err := pollFleet(context.Background(), rt, newProvider(map[string]*fakeInbox{
+		memberIMEI: {uid: memberZaloUID, frames: []zaloInbound{base}},
+	}).open()); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if len(rt.ingested) != 0 {
+		t.Fatalf("a bookmark from before the mode was chosen reached back through Zalo's queue and captured %v", keysOf(rt.ingested))
+	}
+	if moved := cursorsWritten(t, rt); len(moved) != 0 {
+		t.Fatalf("a message the floor refused still moved a bookmark to %v", moved)
+	}
+
+	// AND THE STALE BOOKMARK IS NOT A BLOCK: a message that arrives after the switch
+	// lands in that same conversation, which is what keeps this a floor.
+	newer := base
+	newer.MsgID, newer.OccurredAt = "8161098009200", switchedAt.Add(time.Minute)
+	after := tickRuntime(t)
+	scriptTurn(after, [][]any{armed}, nil, nil)
+	scriptCursors(after, cursorRowWrittenAt(counterpartyZaloUID, echoMsgID, switchedAt.Add(-time.Minute)))
+	after.tx.singleRows = afterTheDrain(armed, armed)
+	if err := pollFleet(context.Background(), after, newProvider(map[string]*fakeInbox{
+		memberIMEI: {uid: memberZaloUID, frames: []zaloInbound{newer}},
+	}).open()); err != nil {
+		t.Fatalf("the second tick failed: %v", err)
+	}
+	if len(after.ingested) != 1 {
+		t.Fatalf("a message sent after the switch was not captured: %v", keysOf(after.ingested))
+	}
+}

@@ -43,10 +43,10 @@ type filters struct {
 	// by is the member's own choice — mode, when they chose it, and their list —
 	// RE-READ after the drain. See the note on landAll.
 	by consent
-	// cursors is how far capture has already got with each conversation. A
-	// conversation absent from it has no bookmark, which is what lets a
-	// just-included conversation through.
-	cursors map[string]string
+	// cursors is how far capture has already got with each conversation, and when
+	// each position was written. A conversation absent from it has no bookmark,
+	// which is what lets a just-included conversation through.
+	cursors map[string]bookmark
 	// names is the display name this unit knows for a counterparty — never the one
 	// an outgoing frame carries, which is the member's own.
 	names map[string]string
@@ -149,28 +149,44 @@ func landAll(ctx context.Context, rt extension.Runtime, conn connection, frames 
 		// Nothing above this id was touched and every conversation's mark stays
 		// where its last landed message put it, so the region is read again next
 		// tick, where every record that already landed is a deduplicated no-op.
-		if err := landOne(ctx, rt, conn, frame, against.names); err != nil {
+		landed, err := landOne(ctx, rt, conn, frame, against.names)
+		if err != nil {
 			return got, err
 		}
-		got.reached[other] = higher(got.reached[other], frame.MsgID)
-		got.landed++
+		// A DROP STILL ADVANCES THE BOOKMARK — it will never land however many
+		// times it is offered, so parking on it re-reads it forever — but only when
+		// the cursor table can HOLD it. Both of the columns the advance writes are
+		// CHECKed there: a decimal message id, and a counterparty that names
+		// somebody. The advance is one multi-row statement, so a single entry the
+		// CHECK refuses fails it whole and NO conversation's bookmark moves that
+		// turn. The frame stays in Zalo's queue, so that is every tick.
+		if bookmarkable(other, frame.MsgID) {
+			got.reached[other] = higher(got.reached[other], frame.MsgID)
+		}
+		// COUNTED ONLY WHEN SOMETHING ACTUALLY LANDED. This is the cadence signal,
+		// and counting a drop as work keeps a member at the maximum poll frequency
+		// for as long as one undroppable frame sits in the queue.
+		if landed {
+			got.landed++
+		}
 	}
 	return got, nil
 }
 
 // landOne hands one message to capture, and separates the two failures that look
-// alike.
+// alike. It answers whether the message LANDED, so a caller can tell the two
+// no-error outcomes apart — a record capture took, and a record that was dropped.
 //
 // A message this unit cannot represent, or one capture calls INVALID, will never
-// land however many times it is offered — so the cursor moves past it and a
-// ledger row says why. Every other refusal is about this unit's standing, and
-// those must stop the turn rather than skip a message nobody has seen.
+// land however many times it is offered — so it is dropped with a ledger row that
+// says why. Every other refusal is about this unit's standing, and those must stop
+// the turn rather than skip a message nobody has seen.
 func landOne(ctx context.Context, rt extension.Runtime, conn connection, frame zaloInbound,
 	names map[string]string,
-) error {
+) (bool, error) {
 	rec, err := recordFor(frame, conn.ZaloUID, names)
 	if err != nil {
-		return noteDrop(ctx, rt, conn, frame, "unrepresentable")
+		return false, noteDrop(ctx, rt, conn, frame, "unrepresentable")
 	}
 	// on is the CRM MEMBER whose credential produced this message — the
 	// connection's own user id, never the Zalo account id. Capture checks that
@@ -179,11 +195,11 @@ func landOne(ctx context.Context, rt extension.Runtime, conn connection, frame z
 	// by anything this unit asserts.
 	if _, err := rt.Ingest(ctx, extension.UserID(conn.UserID), rec); err != nil {
 		if errors.Is(err, extension.ErrInvalid) {
-			return noteDrop(ctx, rt, conn, frame, "refused_by_the_core")
+			return false, noteDrop(ctx, rt, conn, frame, "refused_by_the_core")
 		}
-		return err
+		return false, err
 	}
-	return nil
+	return true, nil
 }
 
 // noteDrop records that one message will never land, and why.

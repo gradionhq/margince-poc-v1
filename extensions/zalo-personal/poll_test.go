@@ -454,22 +454,44 @@ func TestOneMembersFailureDoesNotStopTheFleet(t *testing.T) {
 // Every member failing is not one person's problem: it is this installation's
 // egress or Zalo being down, and a tick that answered success would leave a
 // fleet-wide outage with no signal anywhere but the rows.
-func TestEveryMemberFailingFailsTheTick(t *testing.T) {
+//
+// AND THE OUTAGE LEAVES EVERY ROW CONNECTED. Parking them would take the whole
+// fleet out of the fleet read at once, and nothing automatic puts a member back —
+// every rep would have to re-scan a QR with their phone because Zalo was down for
+// one tick.
+func TestEveryMemberFailingFailsTheTickAndParksNobody(t *testing.T) {
 	t.Parallel()
-	rt := newRuntime().unattended()
+	// BOTH credentials are on deposit: this is an outage, not a withdrawal.
+	rt := tickRuntime(t)
+	depositSession(t, rt, secondUserID, "another-imei")
 	scriptTurn(rt, [][]any{
 		connectionRow(statusConnected, memberZaloUID, true),
 		forMember(connectionRow(statusConnected, "1800000000000000009", true),
 			secondUserID, secondConnectionID),
 	}, chosen(), nil)
 	rt.tx.singleRows = [][]any{
-		connectionRow(statusNeedsReconnect, memberZaloUID, true),
-		forMember(connectionRow(statusNeedsReconnect, "1800000000000000009", true), secondUserID, secondConnectionID),
+		connectionRow(statusConnected, memberZaloUID, true),
+		forMember(connectionRow(statusConnected, "1800000000000000009", true), secondUserID, secondConnectionID),
+	}
+	// Neither credential is at fault: nothing this installation sent reached Zalo.
+	unreachable := newProvider(nil)
+	unreachable.openErr = &transportError{
+		Method: "GET",
+		URL:    "https://wpa.chat.zalo.me/api/login/getLoginInfo",
+		Err:    errors.New("dial tcp: i/o timeout"),
 	}
 
-	err := pollFleet(context.Background(), rt, newProvider(nil).open())
+	err := pollFleet(context.Background(), rt, unreachable.open())
 	if err == nil || !strings.Contains(err.Error(), "2 connection(s)") {
 		t.Fatalf("a fleet-wide outage answered %v", err)
+	}
+	for at, sql := range rt.tx.statements {
+		if !strings.Contains(sql, "last_polled_at = now()") {
+			continue
+		}
+		if status := rt.tx.args[at][1]; status != statusConnected {
+			t.Fatalf("a fleet-wide outage parked a connection as %v", status)
+		}
 	}
 }
 
@@ -737,4 +759,125 @@ func TestAFleetWideOutageIsReportedRatherThanTheSweepThatFollowedIt(t *testing.T
 	if err == nil || !strings.Contains(err.Error(), "1 connection(s)") {
 		t.Fatalf("a fleet-wide outage answered %v", err)
 	}
+}
+
+// A PROVIDER THIS INSTALLATION COULD NOT REACH IS NOT A DEAD CREDENTIAL, and the two
+// have opposite recoveries. needs_reconnect takes the member out of the fleet read until
+// a human re-scans a QR with their own phone, so classing an egress blip or an expired
+// per-member budget as one would demand that of every rep on the installation at once,
+// for one tick of Zalo being unreachable. A transport failure is the same shape as a
+// failed drain: the row stays connected and the turn simply failed.
+func TestAProviderThatCouldNotBeReachedDoesNotDemandAReScan(t *testing.T) {
+	t.Parallel()
+	for name, cause := range map[string]error{
+		"a session request that never reached Zalo": &transportError{
+			Method: "GET",
+			URL:    "https://wpa.chat.zalo.me/api/login/getLoginInfo",
+			Err:    errors.New("dial tcp: connection refused"),
+		},
+		"a per-member budget that expired mid-handshake": context.DeadlineExceeded,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rt := tickRuntime(t)
+			scriptTurn(rt, oneMember(), chosen(), nil)
+			rt.tx.singleRows = [][]any{connectionRow(statusConnected, memberZaloUID, true)}
+			provider := newProvider(nil)
+			provider.openErr = cause
+
+			if err := pollFleet(context.Background(), rt, provider.open()); err == nil {
+				t.Fatalf("%s answered a successful tick", name)
+			}
+			_, args := theBookkeepingWrite(t, rt)
+			if args[1] != statusConnected {
+				t.Fatalf("%s parked the connection as %v, which only a human with a phone can undo", name, args[1])
+			}
+			if args[2] != "provider_unavailable" {
+				t.Fatalf("%s was recorded as %v; the member's screen must not be told to reconnect", name, args[2])
+			}
+		})
+	}
+}
+
+// A FRAME NOTHING CAN BOOKMARK MUST NOT POISON THE WHOLE TURN'S CURSOR WRITE. The
+// advance is ONE multi-row statement and both of the columns it writes are CHECKed at
+// the database — a decimal message id, and a counterparty that names somebody — so a
+// single unwritable entry in the batch fails the statement and NO conversation's
+// bookmark moves. The frame stays in Zalo's queue, so that is every tick, forever, plus
+// one ledger row per bad frame per tick.
+func TestAFrameNothingCanBookmarkDoesNotPoisonTheTurnsCursorWrite(t *testing.T) {
+	t.Parallel()
+	armed := withMode(connectionRow(statusConnected, memberZaloUID, true), captureEveryoneExcept)
+	rt := tickRuntime(t)
+	scriptTurn(rt, [][]any{armed}, nil, nil)
+	rt.tx.singleRows = afterTheDrain(armed, armed)
+
+	if err := pollFleet(context.Background(), rt, newProvider(map[string]*fakeInbox{
+		memberIMEI: {uid: memberZaloUID, frames: framesNothingCanBookmark(t)},
+	}).open()); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	if len(rt.ingested) != 1 {
+		t.Fatalf("the landable message did not land alone: %v", keysOf(rt.ingested))
+	}
+	moved := cursorsWritten(t, rt)
+	if len(moved) != 1 || moved[counterpartyZaloUID] != inboundMsgID {
+		t.Fatalf("the bookmarks written are %v; only the conversation that landed may have one", moved)
+	}
+	if _, nameless := moved[""]; nameless {
+		t.Fatalf("a bookmark was written for a conversation with no counterparty: %v", moved)
+	}
+	if dropped := eventsVerbed(rt, eventMessageDropped); dropped != 2 {
+		t.Fatalf("%d drop(s) were recorded; both unbookmarkable frames must say why they went nowhere", dropped)
+	}
+}
+
+// A TURN THAT ONLY DROPPED FRAMES HAS LANDED NOTHING, so it takes a backoff rung.
+// Counting a drop as a landing keeps a member on the fast cadence for as long as one
+// undroppable frame sits in Zalo's queue — maximum poll frequency, forever, to re-read
+// a message that can never land.
+func TestATurnThatOnlyDroppedFramesTakesABackoffRung(t *testing.T) {
+	t.Parallel()
+	armed := withMode(connectionRow(statusConnected, memberZaloUID, true), captureEveryoneExcept)
+	rt := tickRuntime(t)
+	scriptTurn(rt, [][]any{armed}, nil, nil)
+	rt.tx.singleRows = afterTheDrain(armed, armed)
+	unlandable := framesNothingCanBookmark(t)
+
+	if err := pollFleet(context.Background(), rt, newProvider(map[string]*fakeInbox{
+		memberIMEI: {uid: memberZaloUID, frames: unlandable[:2]},
+	}).open()); err != nil {
+		t.Fatalf("the tick failed: %v", err)
+	}
+	sql, args := theBookkeepingWrite(t, rt)
+	if strings.Contains(sql, duePromptly) {
+		t.Fatalf("a turn that landed nothing asked to be polled again at once:\n%s", sql)
+	}
+	if !strings.Contains(sql, "idle_streak = idle_streak + 1") || len(args) != 5 {
+		t.Fatalf("a turn that landed nothing took no backoff rung:\n%s\n%v", sql, args)
+	}
+}
+
+// framesNothingCanBookmark is a drain holding the two frames whose values the cursor
+// table refuses — an id that is not the decimal this provider issues, and a frame naming
+// nobody at the other end — followed by one ordinary message that CAN land. The good one
+// is what makes the assertion "everything else still worked".
+func framesNothingCanBookmark(t *testing.T) []zaloInbound {
+	t.Helper()
+	_, base := capturedFrames(t)
+	unorderable, nameless := base, base
+	unorderable.UIDFrom, unorderable.MsgID = unchosenCounterparty, "not-a-decimal-id"
+	nameless.UIDFrom, nameless.MsgID = "", "8161098001500"
+	return []zaloInbound{unorderable, nameless, base}
+}
+
+// eventsVerbed counts what the turn announced under one verb.
+func eventsVerbed(rt *fakeRuntime, verb string) int {
+	var count int
+	for _, event := range rt.tx.published {
+		if event.Verb == verb {
+			count++
+		}
+	}
+	return count
 }

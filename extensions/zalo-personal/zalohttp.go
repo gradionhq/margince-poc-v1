@@ -120,60 +120,6 @@ type zaloCookie struct {
 	Path   string `json:"path"`
 }
 
-// transportError is the outcome-unknown boundary: the request left this process
-// and no answer this package can read came back. It is a distinct type because
-// "Zalo refused" and "we never heard" have opposite recovery actions on a send
-// — retrying the first is correct, retrying the second duplicates a message.
-type transportError struct {
-	Method string
-	// URL is already stripped of its query by safeURL at construction, so this
-	// struct cannot carry a credential even into a %+v.
-	URL string
-	Err error
-}
-
-func (e *transportError) Error() string {
-	return fmt.Sprintf("%s %s did not complete: %v", e.Method, e.URL, e.Err)
-}
-
-// safeURL renders a request URL with its QUERY REMOVED, which is the only form
-// that may reach a log or an operator.
-//
-// This layer's secrets travel as query parameters: `imei` is the device
-// identity, and `zcid`/`zcid_ext` derive the ephemeral login key through a
-// constant Zalo ships in its own bundle — so anyone holding a logged URL holds
-// the key that decrypts the `params` blob beside it. An error is the one value
-// on this path that is designed to be written down, so it is the one place the
-// query may never appear.
-func safeURL(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		// The URL is unusable for reporting, and guessing at a prefix of a
-		// string that may hold a credential is worse than saying nothing.
-		return "(an unparseable URL)"
-	}
-	u.RawQuery = ""
-	u.Fragment = ""
-	u.User = nil
-	return u.String()
-}
-
-func (e *transportError) Unwrap() error { return e.Err }
-
-// refusalError is the mirror of transportError: an answer Zalo actually sent,
-// in which the server read the request and said no. Every endpoint in this
-// layer reports one, and the whole point of the pair is that a caller can tell
-// "the provider refused" from "we never heard" — see errUnanswered.
-type refusalError struct {
-	Endpoint string
-	Code     int
-	Message  string
-}
-
-func (e *refusalError) Error() string {
-	return fmt.Sprintf("%s refused (error_code %d): %s", e.Endpoint, e.Code, e.Message)
-}
-
 // jar is a deliberately small http.CookieJar: match on domain suffix, ignore
 // the public-suffix list, and ignore expiry EXCEPT for deletion. Zalo spreads
 // the session across `.zalo.me`, `chat.zalo.me` and `id.zalo.me`, so a cookie
@@ -421,7 +367,7 @@ func (c *client) do(ctx context.Context, method, rawURL string, body io.Reader, 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, &transportError{Method: method, URL: safe, Err: err}
+		return nil, unreachable(method, safe, err)
 	}
 	return resp, nil
 }
@@ -442,11 +388,11 @@ func (c *client) doJSON(ctx context.Context, method, rawURL string, body io.Read
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return nil, &transportError{Method: method, URL: safe, Err: fmt.Errorf("read body: %w", err)}
+		return nil, unreachable(method, safe, fmt.Errorf("read body: %w", err))
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &transportError{Method: method, URL: safe,
-			Err: fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 200))}
+		return nil, unreachable(method, safe,
+			fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 200)))
 	}
 	return raw, nil
 }

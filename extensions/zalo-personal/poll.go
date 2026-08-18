@@ -235,9 +235,16 @@ func pollMember(ctx context.Context, rt extension.Runtime, conn connection, open
 	}
 	opened, err := openFor(ctx, rt, conn, open)
 	if err != nil {
-		// A credential that cannot be unsealed or resumed is not a transient
-		// fault: only that human scanning a QR with their phone fixes it, which
-		// is why it is a state their screen shows rather than a retry.
+		// TWO FAILURES WITH OPPOSITE RECOVERIES, told apart by the error rather
+		// than by a string: a credential Zalo has stopped accepting needs that
+		// human to scan a QR with their phone, and nothing this unit retries will
+		// fix it — while a request that never reached Zalo says nothing about the
+		// credential at all. Parking the second as needs_reconnect takes the member
+		// out of the fleet read until they re-scan, so one tick of Zalo being
+		// unreachable would demand that of every rep on the installation at once.
+		if unreachedTheProvider(err) {
+			return turn.refused(conn.Status, err), err
+		}
 		return turn.refused(statusNeedsReconnect, err), err
 	}
 	frames, err := opened.drainInbox(ctx, drainQuiet)
@@ -283,10 +290,13 @@ func pollMember(ctx context.Context, rt extension.Runtime, conn connection, open
 //
 // WHAT IT DOES NOT CLOSE, stated rather than implied. The window shrinks from "the
 // whole drain, including the network" to "the ingest loop", and it cannot reach zero
-// without re-reading the verdicts per record, which is a query per message to narrow
-// a window already measured in milliseconds. A member who blocks a counterparty
-// mid-loop may still have one message of theirs captured; the core's own erasure path
-// is what removes it, exactly as for every other connector.
+// without re-reading the verdicts per record, which is a query per message. The
+// residual window is NOT instantaneous either: the loop is one sequential Ingest per
+// surviving frame, so a large backlog spends seconds to minutes inside it. A member
+// who blocks a counterparty mid-loop may still have one message of theirs captured;
+// the core's own erasure path is what removes it, exactly as for every other
+// connector. The trade stands on the size of the window it CLOSED, not on the one it
+// leaves.
 //
 // It answers nil when there is nothing left to judge — the member is gone, or capture
 // is no longer armed — which the caller treats as an abandoned turn rather than a
@@ -299,7 +309,7 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 	var (
 		still   *connection
 		fresh   []allowEntry
-		reached map[string]string
+		reached map[string]bookmark
 	)
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		var err error

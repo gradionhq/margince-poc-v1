@@ -105,7 +105,7 @@ func (c consent) captures() bool {
 // landed.
 //
 // ours is the ids the CRM itself transmitted as this member (sentmessage.go).
-func admits(frame zaloInbound, by consent, cursor string, ours map[string]bool) (bool, string) {
+func admits(frame zaloInbound, by consent, mark bookmark, ours map[string]bool) (bool, string) {
 	switch {
 	// 1. WHOSE OUTGOING MESSAGE IS THIS. A message this member sent comes back
 	// as an ordinary inbound frame carrying the SAME msgId, so this cannot be a
@@ -131,11 +131,11 @@ func admits(frame zaloInbound, by consent, cursor string, ours map[string]bool) 
 	// door under only_chosen, and must under everyone_except unless they are
 	// excluded. That is a hole that would otherwise open from the side nobody
 	// watches.
-	case !admitsUnderMode(frame, by, cursor):
+	case !admitsUnderMode(frame, by, mark):
 		return false, refusalUnder(by.mode)
 	// 3. Already landed. The bookmark holds the highest msgId ingested for THIS
 	// conversation, so anything at or below it has been decided about.
-	case atOrBelow(frame.MsgID, cursor):
+	case atOrBelow(frame.MsgID, mark.at):
 		return false, "already_landed"
 	}
 	return true, ""
@@ -162,9 +162,14 @@ func admits(frame zaloInbound, by consent, cursor string, ours map[string]bool) 
 // decided against. A member who wants one of those conversations back can name it,
 // which is the inclusion list — and naming it is the act that removes the floor.
 //
-// A conversation that HAS a bookmark is past that question: capture has been reading
-// it, and where it got to is what the bookmark says.
-func admitsUnderMode(frame zaloInbound, by consent, cursor string) bool {
+// A conversation whose bookmark WAS WRITTEN UNDER THIS MODE is past that question:
+// capture has been reading it, and where it got to is what the bookmark says. A
+// bookmark written EARLIER is not, and the difference is what stops a round trip from
+// walking through the floor — everyone_except reads a conversation to some id,
+// only_chosen refuses everything above it while leaving the bookmark standing, and
+// coming back to everyone_except re-stamps the floor onto a conversation that still
+// has one. Reading its mere presence would then hand over the whole excluded period.
+func admitsUnderMode(frame zaloInbound, by consent, mark bookmark) bool {
 	other := frame.counterparty()
 	switch by.mode {
 	case captureOnlyChosen:
@@ -173,13 +178,14 @@ func admitsUnderMode(frame zaloInbound, by consent, cursor string) bool {
 		if by.verdicts[other] == verdictBlock {
 			return false
 		}
-		if cursor != "" {
+		if mark.postdates(by.since) {
 			return true
 		}
-		// No bookmark: this conversation has never been captured from, so the floor
-		// applies. A frame with no readable time is refused later by representable,
-		// and treating it as below the floor here keeps this arm from being the one
-		// that decides a malformed frame's fate.
+		// No bookmark under this mode: nothing has been captured from this
+		// conversation since the member chose it, so the floor applies. A frame with
+		// no readable time is refused later by representable, and treating it as
+		// below the floor here keeps this arm from being the one that decides a
+		// malformed frame's fate.
 		return frame.OccurredAt.After(by.since)
 	}
 	// A mode this unit does not recognise — including none at all — captures nothing.
@@ -351,6 +357,18 @@ func directionOf(frame zaloInbound) string {
 func isOrderableMsgID(msgID string) bool {
 	_, ok := orderable(msgID)
 	return ok
+}
+
+// bookmarkable reports whether this turn could record a reading position for this
+// frame's conversation at all.
+//
+// It is the two CHECKs the cursor table states, asked in Go before the batch is
+// built: `last_msg_id ~ '^[0-9]+$'` and `length(channel_user_id) > 0`. Asking here
+// rather than letting the database answer is not belt-and-braces — the advance is
+// ONE multi-row statement, so a value the CHECK refuses does not lose that
+// conversation's bookmark, it loses EVERY conversation's bookmark for that turn.
+func bookmarkable(counterpartyUID, msgID string) bool {
+	return strings.TrimSpace(counterpartyUID) != "" && isOrderableMsgID(msgID)
 }
 
 // representable refuses a frame this unit could never land, so the caller can

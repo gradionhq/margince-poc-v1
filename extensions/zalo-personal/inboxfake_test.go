@@ -92,6 +92,11 @@ func (f *fakeInbox) friends(context.Context) ([]zaloFriend, error) {
 type fakeProvider struct {
 	byIMEI map[string]*fakeInbox
 	opens  int
+	// openErr is why the session could not be opened, for the case that is NOT a
+	// credential Zalo has stopped accepting: a request that never reached Zalo at
+	// all. The two have opposite recoveries, so a test has to be able to say which
+	// one happened.
+	openErr error
 }
 
 func newProvider(inboxes map[string]*fakeInbox) *fakeProvider {
@@ -101,6 +106,9 @@ func newProvider(inboxes map[string]*fakeInbox) *fakeProvider {
 func (p *fakeProvider) open() openFunc {
 	return func(_ context.Context, sealed zaloSealed) (inbox, error) {
 		p.opens++
+		if p.openErr != nil {
+			return nil, p.openErr
+		}
 		opened, ok := p.byIMEI[sealed.IMEI]
 		if !ok {
 			return nil, errors.New("this session is no longer accepted")
@@ -132,8 +140,20 @@ func allowRow(id, counterparty string, mode verdict, name string) []any {
 // cursorRow scripts one conversation's reading position, in the order cursorsOf
 // projects. A conversation with NO row here has no bookmark, which is the state that
 // lets everything Zalo is still holding for it through — so most fixtures script none.
+//
+// It is written UNDER THE MODE the member is in now, which is the ordinary state and
+// the one every fixture that is not about the floor wants: theModeChosenAt is the floor
+// this suite stamps, and an hour past it is after every floor any fixture here moves to.
 func cursorRow(counterparty, at string) []any {
-	return []any{counterparty, at}
+	return cursorRowWrittenAt(counterparty, at, theModeChosenAt().Add(time.Hour))
+}
+
+// cursorRowWrittenAt scripts a reading position together with WHEN it was written,
+// which is what a test about a bookmark older than the member's current mode needs: a
+// bookmark minted under a previous answer says where THAT answer got to and nothing
+// about the mode in force now.
+func cursorRowWrittenAt(counterparty, at string, written time.Time) []any {
+	return []any{counterparty, at, written}
 }
 
 // entryID and secondEntryID are verdict row ids, canonical because the ledger's

@@ -224,9 +224,25 @@ func failureClass(cause error) string {
 		return "session_withdrawn"
 	case errors.Is(cause, extension.ErrInvalid):
 		return "connection_unusable"
-	case errors.Is(cause, context.DeadlineExceeded), errors.Is(cause, errUnanswered):
+	case unreachedTheProvider(cause):
 		return "provider_unavailable"
 	default:
 		return "poll_failed"
 	}
+}
+
+// unreachedTheProvider reports that the request left this process and no answer
+// came back — a timeout, a refused connection, a TLS handshake Zalo did not
+// finish, or the per-member budget expiring mid-call.
+//
+// IT IS THE ONE PLACE THAT DECIDES, because two different answers hang off it: the
+// class a member's screen shows, and — in pollMember — whether the row is parked
+// for a human with a phone or left connected. A transport failure says nothing
+// about the credential, so it may never do the second.
+func unreachedTheProvider(cause error) bool {
+	var unanswered *transportError
+	return errors.As(cause, &unanswered) ||
+		errors.Is(cause, errUnanswered) ||
+		errors.Is(cause, context.DeadlineExceeded) ||
+		errors.Is(cause, context.Canceled)
 }

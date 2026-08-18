@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -671,5 +672,102 @@ func TestTheRequestBuildPathIsRedactedToo(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "wpa.chat.zalo.me") {
 		t.Errorf("the request-build error no longer says which endpoint failed: %v", err)
+	}
+}
+
+// refuseToDial is a transport that never reaches anybody, which is the commonest
+// failure on this path: a timeout, a DNS miss, a refused connection, a TLS handshake
+// Zalo did not complete, or the per-member budget expiring mid-handshake.
+type refuseToDial struct{ cause error }
+
+func (r refuseToDial) RoundTrip(*http.Request) (*http.Response, error) { return nil, r.cause }
+
+// TestAFailedRoundTripReportsNoQueryParameters is the behavioural half of the guard
+// the fitness function above states: http.Client.Do answers a *url.Error whose own
+// Error() prints the WHOLE request URL, query included — the stdlib redacts userinfo
+// and nothing else — so wrapping it verbatim writes imei, zcid, zcid_ext, params and
+// signkey into the job runner's log and the member's delivery record, which is the
+// leak safeURL exists to prevent.
+func TestAFailedRoundTripReportsNoQueryParameters(t *testing.T) {
+	const (
+		imei    = "6f4a9a4c-1a2b-4c3d-8e9f-000000000002"
+		zcid    = "8ff1a0b3c2d4e5f6"
+		signkey = "d41d8cd98f00b204e9800998ecf8427e"
+	)
+	c := newClient(zaloOptions{
+		Transport: refuseToDial{cause: errors.New("dial tcp 203.0.113.7:443: connect: connection refused")},
+		Now:       newFakeClock(time.Second).now,
+	})
+
+	_, err := c.doJSON(t.Context(), http.MethodGet,
+		"https://wpa.chat.zalo.me/api/login/getLoginInfo?imei="+imei+"&zcid="+zcid+
+			"&zcid_ext=9911&params=ZW5jcnlwdGVkLWJsb2I&signkey="+signkey, nil, nil)
+	if err == nil {
+		t.Fatal("a round trip that never reached anybody produced no error")
+	}
+	for _, secret := range []string{imei, zcid, signkey, "9911", "ZW5jcnlwdGVkLWJsb2I",
+		"imei=", "zcid=", "zcid_ext=", "params=", "signkey="} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("the transport failure reports %q: %v", secret, err)
+		}
+	}
+	if !strings.Contains(err.Error(), "wpa.chat.zalo.me/api/login/getLoginInfo") {
+		t.Errorf("the transport failure no longer says which endpoint failed: %v", err)
+	}
+}
+
+// TestEveryTransportErrorIsBuiltThroughTheRedactingHelper derives the obligation from
+// the source rather than maintaining a list of wrap sites: the leak above arrives
+// INSIDE the wrapped error, where neither the 502 test nor the rawURL fitness function
+// can see it, and the only durable answer is that one function does the redacting.
+//
+// It reads the WHOLE unit rather than one file, because the next wrap site will be
+// written wherever the next endpoint is.
+func TestEveryTransportErrorIsBuiltThroughTheRedactingHelper(t *testing.T) {
+	const helper = "unreachable"
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("read the unit: %v", err)
+	}
+	fset := token.NewFileSet()
+	var read int
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		read++
+		forbidTransportErrorLiterals(t, fset, parsed, helper)
+	}
+	if read == 0 {
+		t.Fatal("this check read no source at all, so its silence means nothing")
+	}
+}
+
+// forbidTransportErrorLiterals reports every transportError built outside the helper
+// in one file.
+func forbidTransportErrorLiterals(t *testing.T, fset *token.FileSet, parsed *ast.File, helper string) {
+	t.Helper()
+	for _, decl := range parsed.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name == helper {
+			continue
+		}
+		ast.Inspect(fn, func(n ast.Node) bool {
+			lit, ok := n.(*ast.CompositeLit)
+			if !ok {
+				return true
+			}
+			if id, isNamed := lit.Type.(*ast.Ident); isNamed && id.Name == "transportError" {
+				t.Errorf("%s: %s builds a transportError itself; the wrapped error may be a *url.Error carrying the query, so it goes through %s()",
+					fset.Position(lit.Pos()), fn.Name.Name, helper)
+			}
+			return true
+		})
 	}
 }
