@@ -3292,6 +3292,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/segments/vocabulary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read what a filter may say about one record type (LVS-EXT-8).
+         * @description The per-resource filter vocabulary: every field a dynamic list, saved view
+         *     or filtered export may name for this record type, each with the operator
+         *     subset its type admits (LVS-PARAM-1).
+         *
+         *     This is the server's own vocabulary, read rather than restated. A field
+         *     this operation omits is one the engine refuses, and a field it lists is
+         *     one the engine accepts — that equivalence is what lets a filter builder
+         *     offer a field picker without keeping a second copy of the vocabulary,
+         *     which is the whole point of the vocabulary being closed.
+         */
+        get: operations["getSegmentVocabulary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/views": {
         parameters: {
             query?: never;
@@ -14276,6 +14304,57 @@ export interface components {
             data: components["schemas"]["ListMember"][];
             page: components["schemas"]["PageInfo"];
         };
+        /**
+         * @description What a filter may say about one record type (LVS-EXT-8). Read from the
+         *     engine that evaluates filters, so the set here and the set the engine
+         *     accepts are the same set.
+         */
+        SegmentVocabulary: {
+            /** @enum {string} */
+            resource: "person" | "organization" | "deal" | "lead" | "project";
+            /**
+             * @description Every nameable field, core and custom together — a filter names them
+             *     the same way, so splitting them here would invite a caller to treat
+             *     one kind as second class.
+             */
+            fields: components["schemas"]["SegmentVocabularyField"][];
+        };
+        /** @description One field a filter clause may name, with what it accepts. */
+        SegmentVocabularyField: {
+            /**
+             * @description The name a filter clause uses. For a custom field this is the
+             *     physical `cf_`-prefixed column, which is the same `column_name` the
+             *     custom-field catalog reports — join on it to show an admin's label,
+             *     since the catalog owns labels and this vocabulary does not.
+             */
+            name: string;
+            /**
+             * @description The six custom-field types plus `id` for a reference to another
+             *     record. The type decides the operators, which is why it is here.
+             * @enum {string}
+             */
+            type: "text" | "number" | "date" | "currency" | "picklist" | "boolean" | "id";
+            /**
+             * @description The operator subset this field's type admits (LVS-PARAM-1), in one
+             *     stable order. An operator absent here is one the engine refuses for
+             *     this field, so a builder can disable it rather than discover it.
+             */
+            operators: ("eq" | "neq" | "gt" | "lt" | "gte" | "lte" | "in" | "contains" | "exists")[];
+            /**
+             * @description Whether this is a workspace-defined custom-field column. Where true,
+             *     `name` is the catalog's `column_name`, and the catalog carries the
+             *     rest: an admin's `label`, and the `status` that tells a builder a
+             *     column is retired.
+             *
+             *     Retired columns ARE listed here. They stay filterable so a saved
+             *     segment built on one keeps evaluating, and omitting them would break
+             *     this operation's equivalence with the engine, which still accepts
+             *     them. Distinguishing them is the catalog's `status`, read through the
+             *     same join as `label` — this vocabulary answers what a filter MAY
+             *     name, not what a picker SHOULD offer for a new clause.
+             */
+            custom: boolean;
+        };
         /** @description A tag. Mirrors the `tag` table. */
         Tag: {
             /** Format: uuid */
@@ -23806,6 +23885,31 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    getSegmentVocabulary: {
+        parameters: {
+            query: {
+                /** @description The record type whose vocabulary to read. */
+                resource: "person" | "organization" | "deal" | "lead" | "project";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The vocabulary for this resource. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentVocabulary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     listSavedViews: {
