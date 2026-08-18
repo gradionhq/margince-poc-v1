@@ -221,7 +221,14 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   // both files are correct on their own. Hence a gate over the tree rather than a
   // rule someone has to remember while editing either sheet.
   it("declares each screen's class namespace in exactly one stylesheet", () => {
-    const namespaces = [{ prefix: "auth-", home: "screens/auth.css" }];
+    const namespaces = [
+      { prefix: "auth-", home: "screens/auth.css" },
+      // Registered the day dedupe.css was created, because this namespace is
+      // what the rule was written about: the whole `dedupe-*` block lived in
+      // onboarding.css, a sheet the screen that draws it never imports, so it
+      // was styled by accident in the app and not at all in an isolated render.
+      { prefix: "dedupe-", home: "screens/dedupe.css" },
+    ];
     const violations: string[] = [];
     for (const file of files) {
       if (!file.endsWith(".css")) {
@@ -316,7 +323,7 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   });
 
   // The card equivalent of the button rule above, and it exists for the same
-  // reason: `Card` owns five chrome values — elevated ground, a subtile border,
+  // reason: `Card` owns five chrome values — elevated ground, a subtle border,
   // the 12px radius, one padding, and the inset variant — and a surface that
   // spells `card` by hand keeps whichever of the five were true the day it was
   // written. Thirteen sites had drifted that way across the public booking page,

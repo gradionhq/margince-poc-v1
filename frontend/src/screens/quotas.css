@@ -18,31 +18,29 @@
   gap: 18px;
 }
 
-/* quota selector list */
-.quota-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 10px;
-}
-.quota-row {
+/* The quota selector's rows are the panel's own PanelRows — the hairline, the
+ * padding and the hover come from there. What is left here is the press target
+ * that fills a row, and the fill that says which row is selected. */
+.quota-row-press {
   display: block;
   width: 100%;
-  text-align: left;
+  padding: 0;
+  border: 0;
   background: transparent;
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
-  transition:
-    border-color 0.12s,
-    background 0.12s;
 }
-.quota-row:hover {
-  border-color: var(--borderStrong);
+.quota-row-press:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
-.quota-row.active {
-  border-color: var(--accent);
+/* Tinted on the ROW, so the fill reaches the panel's own edges instead of
+ * stopping at the press target inside the row's padding. The hover spelling is
+ * what keeps .panel-row:hover from repainting the selection on the way past. */
+.quota-row-on,
+.quota-row-on:hover {
   background: var(--accentLight);
 }
 .quota-row-top {
@@ -146,15 +144,14 @@
   border-radius: var(--r-full);
   flex: none;
 }
-.explain-box {
+/* The decomposition's lines. The box around them is Card's `inset` variant, so
+ * this is only how the lines stack and read inside it. */
+.explain-lines {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   font-size: 11.5px;
   color: var(--textSecondary);
-  background: var(--bgCard);
-  border-radius: var(--r-sm);
-  padding: 12px 14px;
   line-height: 1.6;
 }
 
@@ -188,17 +185,6 @@
   height: 1px;
   background: var(--borderSubtle);
   margin: 14px 0;
-}
-
-/* attainment refusal / honest error card (no ring drawn) */
-.attain-refusal {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.attain-refusal b {
-  color: var(--textPrimary);
-  font-weight: 600;
 }
 
 .quota-side {
