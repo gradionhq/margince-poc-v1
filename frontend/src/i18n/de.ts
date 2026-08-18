@@ -2291,6 +2291,27 @@ export const de = {
   "restricted.kind.call": "Anruf",
   "restricted.kind.meeting": "Meeting",
   "restricted.kind.message": "Nachricht",
+  "restricted.decide": "Entscheidung",
+  "restricted.reasonLabel": "Begründung",
+  "restricted.reasonHint":
+    "Wird mit Ihrem Namen im Audit-Protokoll festgehalten. Das macht die Entscheidung nachvollziehbar — schreiben Sie, was Sie entschieden haben und auf welcher Grundlage.",
+  "restricted.release.action": "Freigeben",
+  "restricted.release.title":
+    "Diesen Datensatz aus der Aufbewahrungspflicht entlassen?",
+  "restricted.release.body":
+    "Die Freigabe LÖSCHT den Datensatz. Er kehrt nicht in den Betrieb zurück: Das Löschersuchen, das diese Pflicht ausgesetzt hat, ist weiterhin offen — die Freigabe führt es aus. Das lässt sich nicht rückgängig machen.",
+  "restricted.release.confirm": "Freigeben und löschen",
+  "restricted.pin.action": "Datensatz festsetzen",
+  "restricted.pin.idHint":
+    "Für Korrespondenz, die die automatische Regel nicht erkennt — Lieferanten- und Einkaufspost ist nach §257 HGB aufbewahrungspflichtig und hat in diesem Produkt kein Geschäft, an dem sie hängt. Die Datensatz-ID steht im Audit-Eintrag.",
+  "restricted.pin.idMalformed":
+    "Das ist keine Datensatz-ID. Sie besteht aus 8-4-4-4-12 Hexadezimalzeichen und steht vollständig im Audit-Eintrag des Datensatzes.",
+  "restricted.pin.idPlaceholder": "Datensatz-ID",
+  "restricted.pin.title":
+    "Diesen Datensatz der Aufbewahrungspflicht unterstellen?",
+  "restricted.pin.body":
+    "Der Datensatz wird für die gesetzliche Frist zurückgehalten: in keiner normalen Ansicht sichtbar, unveränderbar, und nach Ablauf gelöscht. Seine Identifikatoren werden sofort geschwärzt.",
+  "restricted.pin.confirm": "Festsetzen und zurückhalten",
   "retention.title": "Aufbewahrung",
   "retention.sub":
     "wie lange jede Art von Datensatz aufbewahrt wird und was nach Ablauf der Frist geschieht",

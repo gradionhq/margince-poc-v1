@@ -11,6 +11,7 @@ package privacy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -82,38 +83,25 @@ func notHeldThroughAnyLink(activityID string) string {
 	      AND (coalesce(hp.legal_hold, false) OR coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
 }
 
-// expireRestriction erases one held record in its own audited transaction.
-// The lift and the erasure are ONE statement because the guard admits nothing
-// else: a lift that left the body readable would undo the restriction and
-// keep the data. The `restricted_until <= now()` predicate is the CAS — a
-// rival sweep that already completed this row matches nothing, and nothing is
-// audited twice for one erasure.
+// expireRestriction erases one held record in its own audited transaction. The
+// `restricted_until <= now()` predicate is its CAS: a rival sweep that already
+// completed this row matches nothing, and nothing is audited twice for one
+// erasure.
 func (s *RetentionService) expireRestriction(ctx context.Context, id ids.UUID) error {
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		var class string
-		err := tx.QueryRow(ctx, `
-			UPDATE activity a
-			   SET restricted_at = NULL, restricted_reason = NULL, restricted_until = NULL,
-			       subject = NULL, body = NULL, raw = NULL, counterparty_email = NULL,
-			       redacted_fields = a.redacted_fields || ARRAY(SELECT c FROM unnest(ARRAY[
-			           CASE WHEN a.subject IS NOT NULL THEN 'subject' END,
-			           CASE WHEN a.body IS NOT NULL THEN 'body' END]) AS c
-			         WHERE c IS NOT NULL),
-			       archived_at = coalesce(a.archived_at, now())
-			 WHERE a.id = $1 AND a.restricted_at IS NOT NULL AND a.restricted_until <= now()
-			 `+notHeldThroughAnyLink("a.id")+`
-			 RETURNING a.retention_class`, id).Scan(&class)
-		if err == pgx.ErrNoRows {
+		class, err := liftAndEraseHeldRecord(ctx, tx, id,
+			`AND a.restricted_until <= now() `+notHeldThroughAnyLink("a.id"))
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		if err := s.purgeExpiredRecordTraces(ctx, tx, id); err != nil {
+		if err := s.eraser.purgeHeldRecordTraces(ctx, tx, id); err != nil {
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionExpire, "activity", id, nil, nil, map[string]any{
-			evidenceKeyCause: restrictionExpiredCause, "class": class, "basis": statutoryBasisCorrespondence,
+			evidenceKeyCause: restrictionExpiredCause, evidenceKeyClass: class, evidenceKeyBasis: statutoryBasisCorrespondence,
 		})
 		if err != nil {
 			return err
@@ -123,12 +111,42 @@ func (s *RetentionService) expireRestriction(ctx context.Context, id ids.UUID) e
 	})
 }
 
-// purgeExpiredRecordTraces finishes the erasure the way the person-erase
-// cascade does for a destroyed row: the derived copies, the field-level
-// provenance of the text now gone, the attachments the restriction kept as
-// commercial substance, and the transmitted copy in the send log — which now
-// loses its substance too, on the same terms as the activity.
-func (s *RetentionService) purgeExpiredRecordTraces(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+// liftAndEraseHeldRecord is the ONE statement that ends a restriction, shared
+// by the expiry sweep and the controller's release, which differ only in what
+// makes the record due. Two copies is how the two paths would come to destroy
+// different things — a defect this file has already shipped once, in the
+// counterparty_email that migration 0291 had to add to a guard written from
+// the smaller of two content lists.
+//
+// The lift and the erasure are one statement because the data-layer guard
+// admits nothing else (0290): a lift that left the body readable would undo
+// the restriction and keep the data. due is the caller's extra predicate over
+// the activity aliased `a`; the shared arm is `restricted_at IS NOT NULL`, so
+// a record nobody is holding matches nothing and answers pgx.ErrNoRows for the
+// caller to interpret.
+func liftAndEraseHeldRecord(ctx context.Context, tx pgx.Tx, id ids.UUID, due string) (class string, err error) {
+	err = tx.QueryRow(ctx, `
+		UPDATE activity a
+		   SET restricted_at = NULL, restricted_reason = NULL, restricted_until = NULL,
+		       subject = NULL, body = NULL, raw = NULL, counterparty_email = NULL,
+		       redacted_fields = a.redacted_fields || ARRAY(SELECT c FROM unnest(ARRAY[
+		           CASE WHEN a.subject IS NOT NULL THEN 'subject' END,
+		           CASE WHEN a.body IS NOT NULL THEN 'body' END]) AS c
+		         WHERE c IS NOT NULL),
+		       archived_at = coalesce(a.archived_at, now())
+		 WHERE a.id = $1 AND a.restricted_at IS NOT NULL `+due+`
+		 RETURNING a.retention_class`, id).Scan(&class)
+	return class, err
+}
+
+// purgeHeldRecordTraces finishes the erasure over everything derived from the
+// body a lift just destroyed: the vectors, the field-level provenance of text
+// that is now gone, the transcript readings, the attachments the restriction
+// kept as commercial substance, and the transmitted copy in the send log.
+//
+// It lives on the Eraser and both lift paths call it, because a record must
+// not be more thoroughly erased by the clock than by a controller's decision.
+func (e *Eraser) purgeHeldRecordTraces(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id); err != nil {
 		return err
@@ -140,7 +158,7 @@ func (s *RetentionService) purgeExpiredRecordTraces(ctx context.Context, tx pgx.
 	if err := purgeTranscriptReadings(ctx, tx, []ids.UUID{id}); err != nil {
 		return err
 	}
-	if err := s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id); err != nil {
+	if err := e.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id); err != nil {
 		return err
 	}
 	return redactDeliveries(ctx, tx, []ids.UUID{id}, erasedName)

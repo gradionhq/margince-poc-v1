@@ -121,6 +121,10 @@ func (s *Store) RedactCapturedNoiseTx(ctx context.Context, tx pgx.Tx, activityID
 		  SELECT id, (subject IS NOT NULL OR body IS NOT NULL OR raw IS NOT NULL) AS had_content
 		    FROM activity
 		   WHERE id = ANY($1) AND archived_at IS NOT NULL
+		     -- A record held under a statutory obligation is out of reach of
+		     -- every destructive path: the data-layer guard refuses the write,
+		     -- and a refusal inside a sweep fails the whole run (A165/ADR-0114).
+		     AND restricted_at IS NULL
 		   FOR UPDATE
 		), stripped AS (
 		  UPDATE activity a
@@ -185,6 +189,11 @@ func (s *Store) LinkCapturedMailTx(ctx context.Context, tx pgx.Tx, personID ids.
 		  FROM activity a
 		 WHERE a.counterparty_email = $1
 		   AND a.kind = 'email' AND a.captured_by LIKE 'connector:%'
+		   -- A held record's counterparty_email is cleared, so it cannot match
+		   -- here — but the exclusion is stated rather than inherited: linking
+		   -- a restricted record to a live person would put it back in a
+		   -- reader's reach through that person's timeline.
+		   AND a.restricted_at IS NULL
 		   AND NOT EXISTS (
 		     SELECT 1 FROM activity_link l
 		      WHERE l.activity_id = a.id AND l.person_id IS NOT NULL)

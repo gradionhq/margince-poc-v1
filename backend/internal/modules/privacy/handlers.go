@@ -10,6 +10,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
@@ -25,6 +26,11 @@ type Handlers struct {
 	db       *database.DB
 	policies *PolicyStore
 	posture  *PostureStore
+	// eraser carries the controller's two decisions about a held record
+	// (restrictionoverride.go). It is the module's own erase engine, not an
+	// injected seam: release IS an erasure, and a second spelling of one is
+	// how the two paths would come to destroy different things.
+	eraser *Eraser
 }
 
 // NewHandlers wires the transport over the installation-bound pool and the
@@ -34,7 +40,17 @@ type Handlers struct {
 // here needs it: the posture routes read and write it, and the policy list reports
 // each row's live suppression against it.
 func NewHandlers(db *database.DB, store *settings.Store) Handlers {
-	return Handlers{db: db, policies: NewPolicyStore(db), posture: NewPostureStore(store)}
+	return Handlers{db: db, policies: NewPolicyStore(db), posture: NewPostureStore(store), eraser: NewEraser(db)}
+}
+
+// WithBlobstore gives the retention surface an eraser that reaches attachment
+// BYTES, not only their rows: a controller's release erases the record, and a
+// release that left the attachments in the object store would certify a
+// destruction it did not perform. Compose sets it wherever a store is
+// configured; without one the release refuses rather than half-erasing.
+func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
+	h.eraser = h.eraser.WithBlobstore(blob)
+	return h
 }
 
 // ListAuditLog implements (GET /audit-log).

@@ -36,17 +36,37 @@ import (
 // activity_* tables are deliberately not matched: they carry no content.
 var activityReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+activity(\s|$|\n)`)
 
-// restrictedExclusionMarkers are the spellings that exclude a held row. A
-// file carrying any of them anywhere is taken as excluding — file-level on
-// purpose: the SQL in this tree is assembled from fragments, so a per-statement
-// judgement would need to evaluate Go string concatenation, and the gate
-// would be wrong about the fragments more often than the files.
-var restrictedExclusionMarkers = []string{
+// scopeMarkers are the shared gates that carry the availability test for the
+// whole file: a reader reaching activity through one of them cannot see a held
+// row whatever else the file contains. Matched file-wide, because the gate is
+// a Go call rather than SQL and a file that makes it makes it for its reads.
+var scopeMarkers = []string{
 	"ActivityScopeClause", "ActivityAvailableClause",
 	"EnsureActivityVisible", "EnsureActivityVisibleLive",
-	"restricted_at",
 	"correspondenceFloorPredicate", "handelsbriefShielded",
-	"archived_at IS NULL",
+}
+
+// literalMarkers exclude a held row in the FUNCTION that carries them, not
+// merely somewhere in the file. That is the granularity the tree actually
+// supports: this SQL is assembled from concatenated fragments and shared
+// constants, so the `FROM activity` and its `archived_at IS NULL` are
+// routinely different string literals in one query, and matching per literal
+// would report green code as red. Per function is still far tighter than per
+// file — an `archived_at IS NULL` belonging to a different query in the same
+// file no longer answers for the activity read beside it, which is the false
+// negative both reviews of this gate found.
+//
+// `archived_at IS NULL` counts because the schema makes restricted imply
+// archived (activity_restricted_is_archived), and the guard refuses a write
+// that would un-archive a held row.
+//
+// The column may be aliased (`a.archived_at`) or bare, so the match is on the
+// column and its test rather than on one spelling of the pair — a gate that
+// only recognised the unaliased form would report green code as red, which
+// costs its own credibility faster than a miss does.
+var literalMarkers = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)restricted_at`),
+	regexp.MustCompile(`(?i)\barchived_at\s+IS\s+NULL`),
 }
 
 // restrictedReadersAdmitted ratifies the readers that carry none of the
@@ -68,10 +88,87 @@ func readsActivityTable(path string, file *ast.File) bool {
 	if strings.HasSuffix(path, "_gen.go") {
 		return false
 	}
+	return len(activityReadLiterals(file)) > 0
+}
+
+// activityReadLiterals collects every string literal in the file that reads
+// the activity table.
+func activityReadLiterals(file *ast.File) []string {
+	var reads []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(lit.Value) {
+			reads = append(reads, lit.Value)
+		}
+		return true
+	})
+	return reads
+}
+
+// unguardedActivityReaders names each function in the file that reads the
+// activity table and carries no exclusion of its own. A read at file scope —
+// a package-level SQL constant — is attributed to the file, since a fragment
+// has no function to belong to and is judged where it is declared.
+func unguardedActivityReaders(file *ast.File) []string {
+	// A file that reaches one of the shared auth gates is judged as a whole:
+	// the gate is a Go call, and this tree routinely splits one query across a
+	// reader function and the helper that builds its WHERE (ListActivitiesTx +
+	// listActivitiesFilter, listOpenTasks + openTasksFilter). Asking such a
+	// file per function would report the reader red while the scope it applies
+	// sits ten lines below, which teaches the next engineer to distrust the
+	// gate rather than to fix anything.
+	if fileCallsAnyGate(file, scopeMarkers) {
+		return nil
+	}
+	var offenders []string
+	for _, decl := range file.Decls {
+		fn, isFunc := decl.(*ast.FuncDecl)
+		var reads []string
+		ast.Inspect(decl, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(lit.Value) {
+				reads = append(reads, lit.Value)
+			}
+			return true
+		})
+		if len(reads) == 0 {
+			continue
+		}
+		guarded := false
+		ast.Inspect(decl, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && matchesAny(lit.Value, literalMarkers) {
+				guarded = true
+			}
+			return !guarded
+		})
+		if guarded {
+			continue
+		}
+		name := "a package-level SQL fragment"
+		if isFunc {
+			name = fn.Name.Name
+		}
+		offenders = append(offenders, name+": "+firstLineOf(reads[0]))
+	}
+	return offenders
+}
+
+func TestEveryReaderOfTheActivityTableExcludesRestrictedRows(t *testing.T) {
+	defer restrictedReadersAdmitted.AssertAllMatched(t)
+	for _, src := range activityReaderScope.Files(t) {
+		if restrictedReadersAdmitted.Waived(t, src.Path) {
+			continue
+		}
+		for _, offender := range unguardedActivityReaders(src.File) {
+			t.Errorf("%s: %s reads the activity table and excludes no held row — compose auth.ActivityScopeClause / ActivityAvailableClause, filter `restricted_at IS NULL` or `archived_at IS NULL`, or ratify the reader in restrictedReadersAdmitted with the cost stated (A165/ADR-0114 §2)", src.Path, offender)
+		}
+	}
+}
+
+// fileCallsAnyGate reports whether the file reaches one of the shared auth
+// gates, which are identifiers rather than SQL.
+func fileCallsAnyGate(file *ast.File, gates []string) bool {
 	found := false
 	ast.Inspect(file, func(n ast.Node) bool {
-		lit, ok := n.(*ast.BasicLit)
-		if ok && activityReadLiteral.MatchString(lit.Value) {
+		if ident, ok := n.(*ast.Ident); ok && containsAny(ident.Name, gates) {
 			found = true
 		}
 		return !found
@@ -79,37 +176,30 @@ func readsActivityTable(path string, file *ast.File) bool {
 	return found
 }
 
-func TestEveryReaderOfTheActivityTableExcludesRestrictedRows(t *testing.T) {
-	defer restrictedReadersAdmitted.AssertAllMatched(t)
-	for _, src := range activityReaderScope.Files(t) {
-		if fileCarriesAnyMarker(src.File, restrictedExclusionMarkers) || restrictedReadersAdmitted.Waived(t, src.Path) {
-			continue
-		}
-		t.Errorf("%s reads the activity table and nothing in it excludes a held row — compose auth.ActivityScopeClause / ActivityAvailableClause, filter `restricted_at IS NULL` or `archived_at IS NULL`, or ratify the reader in restrictedReadersAdmitted with the cost stated (A165/ADR-0114 §2)", src.Path)
-	}
-}
-
-// fileCarriesAnyMarker looks at identifiers and string literals alike: the
-// scope clause is reached as a selector, the SQL fragments as literals.
-func fileCarriesAnyMarker(file *ast.File, markers []string) bool {
-	found := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		var text string
-		switch node := n.(type) {
-		case *ast.Ident:
-			text = node.Name
-		case *ast.BasicLit:
-			text = node.Value
-		default:
+func containsAny(text string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
 			return true
 		}
-		for _, marker := range markers {
-			if strings.Contains(text, marker) {
-				found = true
-				return false
-			}
+	}
+	return false
+}
+
+func matchesAny(text string, markers []*regexp.Regexp) bool {
+	for _, marker := range markers {
+		if marker.MatchString(text) {
+			return true
 		}
-		return true
-	})
-	return found
+	}
+	return false
+}
+
+// firstLineOf names the offending statement in the failure without printing a
+// forty-line query into the test log.
+func firstLineOf(literal string) string {
+	trimmed := strings.TrimSpace(strings.Trim(literal, "`\""))
+	if idx := strings.IndexByte(trimmed, '\n'); idx >= 0 {
+		return trimmed[:idx] + " …"
+	}
+	return trimmed
 }

@@ -18830,6 +18830,11 @@ type RestrictedRecord struct {
 // `anonymize` and `erase` destroy data and are the two the retain-only posture suppresses.
 type RetentionAction string
 
+// RetentionOverrideRequest defines model for RetentionOverrideRequest.
+type RetentionOverrideRequest struct {
+	Reason string `json:"reason"`
+}
+
 // RetentionPolicy One storage-limitation rule (DM-DDL-10, UC-GDPR-09). At most one row exists per scope,
 // enforced by the database rather than by this surface.
 type RetentionPolicy struct {
@@ -23533,6 +23538,44 @@ type ListRestrictedActivitiesParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// PinActivityToFloorParams defines parameters for PinActivityToFloor.
+type PinActivityToFloorParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ReleaseRestrictedActivityParams defines parameters for ReleaseRestrictedActivity.
+type ReleaseRestrictedActivityParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
 // SetRoleObjectGrantParams defines parameters for SetRoleObjectGrant.
 type SetRoleObjectGrantParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -24496,6 +24539,12 @@ type CreateRetentionPolicyJSONRequestBody = CreateRetentionPolicyRequest
 
 // UpdateRetentionPolicyJSONRequestBody defines body for UpdateRetentionPolicy for application/json ContentType.
 type UpdateRetentionPolicyJSONRequestBody = UpdateRetentionPolicyRequest
+
+// PinActivityToFloorJSONRequestBody defines body for PinActivityToFloor for application/json ContentType.
+type PinActivityToFloorJSONRequestBody = RetentionOverrideRequest
+
+// ReleaseRestrictedActivityJSONRequestBody defines body for ReleaseRestrictedActivity for application/json ContentType.
+type ReleaseRestrictedActivityJSONRequestBody = RetentionOverrideRequest
 
 // UpdateRetentionSettingsJSONRequestBody defines body for UpdateRetentionSettings for application/json ContentType.
 type UpdateRetentionSettingsJSONRequestBody = UpdateRetentionSettingsRequest
@@ -31281,6 +31330,12 @@ type ServerInterface interface {
 	// List the records a statutory retention obligation is holding, and why.
 	// (GET /retention/restrictions)
 	ListRestrictedActivities(w http.ResponseWriter, r *http.Request, params ListRestrictedActivitiesParams)
+	// Pin a record to the retention floor, restricting it. Requires a stated reason; audited.
+	// (POST /retention/restrictions/{activityId}/pin)
+	PinActivityToFloor(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params PinActivityToFloorParams)
+	// Release a record from the retention floor, erasing it. Requires a stated reason; audited.
+	// (POST /retention/restrictions/{activityId}/release)
+	ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params ReleaseRestrictedActivityParams)
 	// The installation's retention posture (admin/ops).
 	// (GET /retention/settings)
 	GetRetentionSettings(w http.ResponseWriter, r *http.Request)
@@ -33438,6 +33493,18 @@ func (_ Unimplemented) UpdateRetentionPolicy(w http.ResponseWriter, r *http.Requ
 // List the records a statutory retention obligation is holding, and why.
 // (GET /retention/restrictions)
 func (_ Unimplemented) ListRestrictedActivities(w http.ResponseWriter, r *http.Request, params ListRestrictedActivitiesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pin a record to the retention floor, restricting it. Requires a stated reason; audited.
+// (POST /retention/restrictions/{activityId}/pin)
+func (_ Unimplemented) PinActivityToFloor(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params PinActivityToFloorParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Release a record from the retention floor, erasing it. Requires a stated reason; audited.
+// (POST /retention/restrictions/{activityId}/release)
+func (_ Unimplemented) ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request, activityId openapi_types.UUID, params ReleaseRestrictedActivityParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -48517,6 +48584,118 @@ func (siw *ServerInterfaceWrapper) ListRestrictedActivities(w http.ResponseWrite
 	handler.ServeHTTP(w, r)
 }
 
+// PinActivityToFloor operation middleware
+func (siw *ServerInterfaceWrapper) PinActivityToFloor(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "activityId" -------------
+	var activityId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "activityId", chi.URLParam(r, "activityId"), &activityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "activityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PinActivityToFloorParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PinActivityToFloor(w, r, activityId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReleaseRestrictedActivity operation middleware
+func (siw *ServerInterfaceWrapper) ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "activityId" -------------
+	var activityId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "activityId", chi.URLParam(r, "activityId"), &activityId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "activityId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReleaseRestrictedActivityParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReleaseRestrictedActivity(w, r, activityId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetRetentionSettings operation middleware
 func (siw *ServerInterfaceWrapper) GetRetentionSettings(w http.ResponseWriter, r *http.Request) {
 
@@ -52758,6 +52937,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/retention/restrictions", wrapper.ListRestrictedActivities)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/retention/restrictions/{activityId}/pin", wrapper.PinActivityToFloor)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/retention/restrictions/{activityId}/release", wrapper.ReleaseRestrictedActivity)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/retention/settings", wrapper.GetRetentionSettings)

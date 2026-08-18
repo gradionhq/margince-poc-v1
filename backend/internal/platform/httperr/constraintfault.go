@@ -72,7 +72,12 @@ const activityRestrictedImmutable = "activity_restricted_immutable"
 // retentionHoldUntil reads the deadline out of the guard's own message
 // ("… restricted under a statutory retention obligation until <instant>"),
 // which is the only place the refusing statement carries it.
-var retentionHoldUntil = regexp.MustCompile(` until (\S.*)$`)
+//
+// It matches a TIMESTAMP rather than "everything after until", so a reworded
+// trigger message yields no deadline instead of forwarding a fragment of
+// database text to a client. TestRetentionHoldIsLockedNotValueNotAllowed
+// pins the shape the migrations actually raise.
+var retentionHoldUntil = regexp.MustCompile(`\buntil (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}(?::?\d{2})?)`)
 
 // retentionHoldFault answers the guard's refusal as ErrRetentionHold (423): a
 // business rule like the other CHECKs, but not one the caller's input can fix

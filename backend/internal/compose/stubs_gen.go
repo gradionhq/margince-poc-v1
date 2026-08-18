@@ -1327,6 +1327,14 @@ func (stubs) ListRestrictedActivities(w nethttp.ResponseWriter, r *nethttp.Reque
 	httperr.NotImplemented(w, r, "ListRestrictedActivities")
 }
 
+func (stubs) PinActivityToFloor(w nethttp.ResponseWriter, r *nethttp.Request, activityId openapi_types.UUID, params crmcontracts.PinActivityToFloorParams) {
+	httperr.NotImplemented(w, r, "PinActivityToFloor")
+}
+
+func (stubs) ReleaseRestrictedActivity(w nethttp.ResponseWriter, r *nethttp.Request, activityId openapi_types.UUID, params crmcontracts.ReleaseRestrictedActivityParams) {
+	httperr.NotImplemented(w, r, "ReleaseRestrictedActivity")
+}
+
 func (stubs) GetRetentionSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetRetentionSettings")
 }
