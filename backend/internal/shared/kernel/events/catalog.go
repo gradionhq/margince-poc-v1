@@ -178,6 +178,15 @@ var catalog = map[string]struct {
 	// connection, because a ghost's identity must not travel through the bus.
 	"linkedin_match.decided": {personStreamEntity, 1},
 	"retention.applied":      {personStreamEntity, 1},
+	// A statutory obligation withheld, released or pinned one activity
+	// (A165/ADR-0114). It rides the person stream beside retention.applied:
+	// it is the erasure's other outcome, published from the same transaction,
+	// and a subscriber tracking one has to see the other. Its own type rather
+	// than a fourth retention.applied action, because `restrict` obliges the
+	// subscriber to drop a record that still exists — an obligation no
+	// existing action carries, so it must not reach a subscriber that never
+	// opted into it.
+	"retention.restricted": {personStreamEntity, 1},
 
 	"organization.created":  {organizationStreamEntity, 1},
 	"organization.updated":  {organizationStreamEntity, 1},

@@ -2243,6 +2243,27 @@ export const vi = {
   "privacy.legalHold":
     "Bị chặn — lệnh lưu giữ pháp lý. Người này đang trong thời hạn lưu giữ theo luật, nên quyền xoá không thắng ở đây (Art. 17(3)(b)). Việc chặn áp dụng cho mọi vai trò, kể cả quản trị — không có ngoại lệ. Lần thử này đã được ghi vào nhật ký kiểm toán.",
 
+  "restricted.title": "Bản ghi bị hạn chế",
+  "restricted.sub":
+    "những gì nghĩa vụ lưu giữ theo luật đang giữ lại sau một lần xóa — bản ghi nào, vì sao và đến khi nào. Nội dung thư từ không được hiển thị: nó bị hạn chế chính là để không bị đọc.",
+  "restricted.withheld":
+    "Chỉ quản trị viên hoặc vận hành mới thấy bản ghi nào đang bị nghĩa vụ pháp lý giữ lại. Dùng cùng quyền với thang lưu giữ.",
+  "restricted.empty":
+    "Không có bản ghi nào bị giữ lại — mọi lần xóa cho đến nay đều được hoàn tất đầy đủ.",
+  "restricted.kind": "Bản ghi",
+  "restricted.occurred": "Ngày",
+  "restricted.deals": "Giao dịch",
+  "restricted.noDeal": "Không có deal đi kèm",
+  "restricted.reason": "Giữ lại vì",
+  "restricted.until": "Giữ đến",
+  "restricted.redacted": "Đã che",
+  "restricted.nothingRedacted": "Không xóa gì",
+  "restricted.redactedCount": "Đã xóa {count} trường",
+  "restricted.class.commercialCorrespondence": "Thư từ thương mại",
+  "restricted.kind.email": "Email",
+  "restricted.kind.call": "Cuộc gọi",
+  "restricted.kind.meeting": "Cuộc họp",
+  "restricted.kind.message": "Tin nhắn",
   "retention.title": "Lưu giữ dữ liệu",
   "retention.sub":
     "mỗi loại bản ghi được giữ trong bao lâu, và điều gì xảy ra khi hết thời hạn",

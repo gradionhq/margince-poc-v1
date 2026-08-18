@@ -2258,6 +2258,27 @@ export const de = {
   "privacy.legalHold":
     "Blockiert — gesetzliche Aufbewahrungspflicht. Diese Person befindet sich innerhalb einer gesetzlichen Aufbewahrungsfrist, daher setzt sich die Löschung hier nicht durch (Art. 17 Abs. 3 lit. b). Die Sperre gilt für jede Rolle, einschließlich Admin — es gibt kein Umgehen davon. Der Versuch wurde protokolliert.",
 
+  "restricted.title": "Zurückgehaltene Datensätze",
+  "restricted.sub":
+    "was eine gesetzliche Aufbewahrungspflicht nach einer Löschung zurückhält — welcher Datensatz, warum und bis wann. Die Korrespondenz selbst wird nicht gezeigt: Sie ist genau deshalb eingeschränkt, damit sie nicht gelesen wird.",
+  "restricted.withheld":
+    "Nur ein Admin oder Ops sieht, welche Datensätze eine gesetzliche Pflicht zurückhält. Es gilt dieselbe Berechtigung wie für die Aufbewahrungsregeln.",
+  "restricted.empty":
+    "Kein Datensatz wird zurückgehalten — jede bisherige Löschung konnte vollständig ausgeführt werden.",
+  "restricted.kind": "Datensatz",
+  "restricted.occurred": "Datiert",
+  "restricted.deals": "Geschäft",
+  "restricted.noDeal": "Kein Deal hinterlegt",
+  "restricted.reason": "Zurückgehalten wegen",
+  "restricted.until": "Zurückgehalten bis",
+  "restricted.redacted": "Geschwärzt",
+  "restricted.nothingRedacted": "Nichts entfernt",
+  "restricted.redactedCount": "{count} Felder entfernt",
+  "restricted.class.commercialCorrespondence": "Handelsbrief",
+  "restricted.kind.email": "E-Mail",
+  "restricted.kind.call": "Anruf",
+  "restricted.kind.meeting": "Meeting",
+  "restricted.kind.message": "Nachricht",
   "retention.title": "Aufbewahrung",
   "retention.sub":
     "wie lange jede Art von Datensatz aufbewahrt wird und was nach Ablauf der Frist geschieht",

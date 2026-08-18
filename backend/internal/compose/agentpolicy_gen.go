@@ -225,6 +225,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/records/{entity_type}/{id}/context":                         {Op: "getRecordContext", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/records/{entity_type}/{id}/history":                         {Op: "getRecordHistory", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/retention-policies":                                         {Op: "listRetentionPolicies", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"GET /v1/retention/restrictions":                                     {Op: "listRestrictedActivities", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/retention/settings":                                         {Op: "getRetentionSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/roles":                                                      {Op: "listRoles", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/scheduled-sends":                                            {Op: "listScheduledSends", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

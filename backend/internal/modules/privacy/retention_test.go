@@ -42,7 +42,7 @@ func TestIsDestructiveSpansTheClosedActionSet(t *testing.T) {
 // duration here would keep passing while the pass outran its window.
 func TestMaxPassDurationTracksTheSelectorCount(t *testing.T) {
 	perStage := retentionBatch * maxRecordDuration
-	stages := len(retentionSelectors) + aiRetentionStages
+	stages := len(retentionSelectors) + aiRetentionStages + restrictionExpiryStages
 
 	if want := time.Duration(stages) * perStage; MaxPassDuration != want {
 		t.Fatalf("MaxPassDuration = %v, want %v (%d stages × %v)", MaxPassDuration, want, stages, perStage)

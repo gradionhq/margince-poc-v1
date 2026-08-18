@@ -44,11 +44,9 @@ import (
 // statutory floor is never shortened to 2190 days across leap years — and
 // under §147(4) AO the clock starts at the END of the record's calendar year,
 // so a January Handelsbrief keeps almost seven calendar years, never one day
-// less. The two branches deliberately differ in form: clamped interval
-// ADDITION loses days at month ends (Jan-31 + 1 month = Feb-28), so the
-// occurrence branch keeps the conservative `occurred_at > now() - interval`
-// shape (which jurisdiction.Period.Cutoff mirrors); the year-end branch adds
-// from Jan 1, where nothing clamps, and matches RetentionClass.ProtectedSince.
+// less. The window is spelled as ONE instant, floorWindowEnd, read against
+// now(): the same expression the erasure pins as restricted_until, so what
+// this predicate shields today is exactly what the restriction holds until.
 // A zero floor stringifies to a zero interval, so the ELSE branch reduces to
 // `occurred_at > now()` — nothing is shielded, exactly as before.
 func correspondenceFloorPredicate(intervalArg, anchorArg int) string {
@@ -60,11 +58,36 @@ func correspondenceFloorPredicate(intervalArg, anchorArg int) string {
 	// has silently stopped running looks exactly like one with nothing to do
 	// (A167/ADR-0116). The expiry sweep reaches these rows by its own
 	// selector, which is the only path that may.
-	return fmt.Sprintf(`AND a.restricted_at IS NULL
-		  AND NOT (a.kind NOT IN ('task','note')
-		  AND (`+handelsbriefArm+`)
-		  AND CASE WHEN $%[2]d THEN date_trunc('year', a.occurred_at) + interval '1 year' + $%[1]d::interval > now()
-		           ELSE a.occurred_at > now() - $%[1]d::interval END)`, intervalArg, anchorArg)
+	return `AND a.restricted_at IS NULL
+		  AND NOT (` + handelsbriefShielded(intervalArg, anchorArg) + `)`
+}
+
+// handelsbriefShielded is the floor's positive form: the activity aliased `a`
+// is a Handelsbrief whose statutory window is still open. correspondenceFloorPredicate
+// negates it to keep such rows out of a destructive statement; the erasure's
+// restrict step selects BY it, because those are exactly the rows it must hold
+// rather than destroy. One spelling, so what one path shields is what the
+// other restricts — a row that fell between the two would be neither erased
+// nor held.
+func handelsbriefShielded(intervalArg, anchorArg int) string {
+	return `a.kind NOT IN ('task','note')
+		  AND (` + handelsbriefArm + `)
+		  AND ` + floorWindowEnd(intervalArg, anchorArg) + ` > now()`
+}
+
+// floorWindowEnd is the instant the statutory window over the activity
+// aliased `a` closes — the value the restrict step PINS as restricted_until,
+// so a later change to the configured period never shortens an obligation
+// already recorded (A165/ADR-0114). The year-end branch adds from Jan 1,
+// where nothing clamps, and matches RetentionClass.ProtectedSince; the
+// occurrence branch adds to the record's own instant, which is what
+// jurisdiction.Period.Cutoff mirrors. Both are the SAME instant the shield
+// reads, so a row can never sit shielded from destruction yet outside the
+// window the restriction would pin — that gap would be a record neither
+// erased nor held.
+func floorWindowEnd(intervalArg, anchorArg int) string {
+	return fmt.Sprintf(`CASE WHEN $%[2]d THEN date_trunc('year', a.occurred_at) + interval '1 year' + $%[1]d::interval
+		           ELSE a.occurred_at + $%[1]d::interval END`, intervalArg, anchorArg)
 }
 
 // handelsbriefArm answers whether an activity is a Handelsbrief — correspondence

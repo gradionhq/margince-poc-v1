@@ -114,6 +114,7 @@ import { ChangePasswordCard } from "./passwordcard";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { ProductsAdmin } from "./products";
 import { FxRatesCard, ModelCostsCard } from "./rates";
+import { RestrictedRecordsCard } from "./restrictedrecords";
 import { RetentionCard } from "./retention";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
@@ -272,6 +273,11 @@ function tabContent(id: SettingsTabId): ReactNode {
               different answers to one denial on one page is what made it
               unreadable. */}
           <RetentionCard />
+          {/* What the ladder's statutory floor is holding right now, under the
+              ladder that explains why: an erasure that met a Handelsbrief
+              restricted it rather than destroying it, and the controller has
+              to be able to see that without opening the audit trail. */}
+          <RestrictedRecordsCard />
           <PrivacyInboxCard />
           {/* Last, and on the same page: the trail is what proves the three
               surfaces above it were honoured. It gates itself on the admin

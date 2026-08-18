@@ -122,6 +122,13 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// What the floor shielded from the statement above is held instead
+		// (erasure_restrict.go): the same three id sets, selected BY the
+		// floor rather than against it, so every row is one of the two.
+		activitiesHeld, err := holdShieldedTimeline(ctx, tx, subject, emails, channelActivityKeys(identities), floorInterval, floorAnchor)
+		if err != nil {
+			return err
+		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
 			return err
 		}
@@ -147,7 +154,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// this first would take that row out of `pending` under it, so the
 		// withdrawal would stop reaching the run and it would wait forever
 		// holding the payload this cascade exists to destroy.
-		if err := redactApprovalsCitingActivities(ctx, tx, activitiesRedacted, ErasedSourceWithdrawal); err != nil {
+		if err := redactApprovalsCitingActivities(ctx, tx, append(activitiesRedacted, activitiesHeld...), ErasedSourceWithdrawal); err != nil {
 			return err
 		}
 		if err := redactWorkflowRuns(ctx, tx, emails); err != nil {
@@ -171,7 +178,8 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 
 		return tombstonePersonErasure(ctx, tx, subject, reason, personErasureCounts{
 			emailsSuppressed: len(emails), rawRowsPurged: rawPurged, aiPayloadsPurged: aiPayloadsPurged,
-			activitiesRedacted: len(activitiesRedacted), channelIdentitiesSuppressed: channelsSuppressed,
+			activitiesRedacted: len(activitiesRedacted), activitiesRestricted: len(activitiesHeld),
+			channelIdentitiesSuppressed: channelsSuppressed,
 		})
 	})
 }
@@ -249,6 +257,7 @@ type personErasureCounts struct {
 	rawRowsPurged               int64
 	aiPayloadsPurged            int64
 	activitiesRedacted          int
+	activitiesRestricted        int
 	channelIdentitiesSuppressed int
 }
 
@@ -261,6 +270,7 @@ func tombstonePersonErasure(ctx context.Context, tx pgx.Tx, subject ids.PersonID
 	auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
 		"reason": reason, "emails_suppressed": counts.emailsSuppressed, "raw_rows_purged": counts.rawRowsPurged,
 		"ai_payloads_purged": counts.aiPayloadsPurged, "activities_redacted": counts.activitiesRedacted,
+		"activities_restricted":         counts.activitiesRestricted,
 		"channel_identities_suppressed": counts.channelIdentitiesSuppressed,
 	})
 	if err != nil {

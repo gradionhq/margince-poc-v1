@@ -66,7 +66,7 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 		"rejected": true, "superseded": true, "disqualified": true,
 		"received": true, "normalized": true, "skipped": true,
 		"read_back_proposed": true, "detected": true, "resolved": true,
-		"deactivated": true, "revoked": true,
+		"deactivated": true, "revoked": true, "restricted": true,
 		"invited": true, "reactivated": true,
 		"state_changed":   true,
 		"profile_created": true, "profile_updated": true, "profile_archived": true,
