@@ -20,8 +20,8 @@
 // that test can fail while every assertion in it is passing, and the failure
 // names the test rather than the wait that was slow.
 //
-// The repo had already found this once and written it down, in the one file that
-// hit it hardest — src/screens/company-context.test.tsx pins its own
+// The repo had already found this once and written it down — in
+// src/screens/company-context.test.tsx, which pins its own
 // `TEST_MS = SETTLE_MS * 4` with the reason spelled out: "it must cover EVERY
 // waiter in there: four run in sequence, each bounded by SETTLE_MS. A test whose
 // own limit is smaller than the sum lets vitest fire while a waiter still has
@@ -43,21 +43,30 @@
 export const ASYNC_UTIL_TIMEOUT_MS = 1_000;
 
 /**
- * The longest chain of sequential awaited waits in one test. Six, in
- * `src/screens/onboarding-conversation/company-act.test.tsx` — both the
- * "re-arms Continue once a skew refetch actually lands a NEW hash" case and the
- * "re-arms Continue only once a re-check finds the read confirmable" one, with
- * `voice-act.test.tsx` matching them.
+ * The largest budget any test spends waiting, among the tests that run under
+ * THIS ceiling — 7000ms, in `settings.test.tsx`'s "the diagnostics card…" case,
+ * seven default-budget waiters in sequence. Measured from the syntax tree by
+ * `src/test-budget.ts` rather than counted by hand: a hand count over this tree
+ * read one 688-line file as a single test with 39 waiters, and a ceiling built
+ * on that would have been ten times anything real.
+ *
+ * A test that deliberately raises its OWN waiters above the default — a slow
+ * settle, a poll it has to outlast — owes its own per-test ceiling and does not
+ * bear on this number. `read-conclusion.test.tsx` and `onboarding-restore.test.tsx`
+ * already work that way. The guard in src/test-budget.test.ts is what keeps the
+ * two populations honest: it holds EVERY test's waiter budget against the
+ * ceiling that test actually runs under, so a suite cannot quietly join this one
+ * while spending like the other.
  */
-export const LONGEST_WAIT_CHAIN = 6;
+export const MAX_DEFAULT_WAITER_BUDGET_MS = 7_000;
 
 /**
  * The slowest single test measured under deliberate load, in milliseconds —
  * `read-conclusion.test.tsx`'s "a long multi-snapshot run converges on the
  * review". Used whole as the allowance for the work BETWEEN the waits, which
  * deliberately over-counts: that figure already contains its own waits. An
- * over-estimate here is the safe direction, since the cost of a ceiling that is
- * too high is a slower red, and the cost of one too low is this bug.
+ * over-estimate is the safe direction here, since a ceiling that is too high
+ * costs a slower red and one too low costs this bug.
  */
 export const SLOWEST_MEASURED_TEST_MS = 3_437;
 
@@ -68,4 +77,4 @@ export const SLOWEST_MEASURED_TEST_MS = 3_437;
  * so it moves when they do.
  */
 export const TEST_TIMEOUT_MS =
-  LONGEST_WAIT_CHAIN * ASYNC_UTIL_TIMEOUT_MS + SLOWEST_MEASURED_TEST_MS;
+  MAX_DEFAULT_WAITER_BUDGET_MS + SLOWEST_MEASURED_TEST_MS;
