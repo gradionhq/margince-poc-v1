@@ -390,16 +390,20 @@ type Query struct {
 	ActivityWalk bool
 }
 
-// predicateWhere composes the three clauses every execution of a predicate runs
-// under — the resource's base clause, the compiled predicate, and the caller's
-// row scope — and answers the joined WHERE with its bind parameters.
+// predicateWhere is the admission point AND the clause composer for every
+// execution of a predicate: it takes the object read gate, then joins the
+// resource's base clause, the compiled predicate, and the caller's row scope.
 //
-// It exists so that a second executor cannot compose two of the three. The row
-// scope is the one that matters: it is what makes a predicate able only to
-// NARROW what the caller may already see, and an executor that forgot it would
-// still return plausible rows, just other people's. One composition point means
-// the question "is this scoped?" has one answer for every caller.
+// Both live here so a second executor cannot take two of the three, or the
+// clauses without the gate. The row scope is the one that matters most: it is
+// what makes a predicate able only to NARROW what the caller may already see,
+// and an executor that forgot it would still return plausible rows, just other
+// people's. One point of composition means "is this scoped?" has one answer for
+// every caller.
 func (q Query) predicateWhere(ctx context.Context, p Predicate) (string, []any, error) {
+	if err := auth.Require(ctx, q.Table, principal.ActionRead); err != nil {
+		return "", nil, err
+	}
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
@@ -439,11 +443,10 @@ func (q Query) predicateWhere(ctx context.Context, p Predicate) (string, []any, 
 //
 // Unbounded on purpose, and it is the same WHERE SelectIDs runs: same base
 // clause, same predicate, same row scope, so the count and the page it labels
-// cannot disagree about what matched.
+// cannot disagree about what MATCHING MEANS. Whether they saw the same rows is a
+// question about the snapshot, not the clause, and the caller decides that by
+// choosing which transaction to run both in.
 func (q Query) CountMatching(ctx context.Context, tx pgx.Tx, p Predicate) (int, error) {
-	if err := auth.Require(ctx, q.Table, principal.ActionRead); err != nil {
-		return 0, err
-	}
 	where, args, err := q.predicateWhere(ctx, p)
 	if err != nil {
 		return 0, err
@@ -459,12 +462,12 @@ func (q Query) CountMatching(ctx context.Context, tx pgx.Tx, p Predicate) (int, 
 // SelectIDs runs the predicate inside the caller's workspace-bound
 // transaction and returns matching row ids, deterministically ordered
 // by id (the keyset tie-breaker) and hard-capped at PredicateRowLimit.
-// The row-scope clause is composed HERE, unconditionally — a predicate
-// can only ever narrow what the caller is already allowed to see.
+//
+// The read gate and the row-scope clause both come from predicateWhere — see
+// there for why they live together — so a predicate can only ever narrow what
+// the caller is already allowed to see. The cap stays here rather than in the
+// helper: it bounds a PAGE, and a count must not inherit it.
 func (q Query) SelectIDs(ctx context.Context, tx pgx.Tx, p Predicate, limit int) ([]ids.UUID, error) {
-	if err := auth.Require(ctx, q.Table, principal.ActionRead); err != nil {
-		return nil, err
-	}
 	if limit <= 0 || limit > PredicateRowLimit {
 		limit = PredicateRowLimit
 	}

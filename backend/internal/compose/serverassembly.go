@@ -120,15 +120,17 @@ func (s *Server) wireExportSurface(pool *pgxpool.Pool, log *slog.Logger) {
 	// vocabulary with this workspace's cf_* columns, so an export cannot
 	// disagree with the list or the saved view it was built from — the same
 	// seam newPeopleHandlers wires for the record stores.
+	// One store for both surfaces: the preview rides the same engine and the same
+	// projection as the export, so a filter's count and sample cannot disagree
+	// with an export of that filter.
+	collectionsStore := NewCollectionsStore(pool)
 	s.filteredExportHandlers = filteredExportHandlers{
 		writer:      NewFilteredExportWriter(pool),
-		collections: NewCollectionsStore(pool),
+		collections: collectionsStore,
 	}
-	// The preview rides the same store and the same projection, so a filter's
-	// count and sample cannot disagree with the export of that filter.
 	s.filterPreviewHandlers = filterPreviewHandlers{
 		pool:        pool,
-		collections: NewCollectionsStore(pool),
+		collections: collectionsStore,
 	}
 	s.overlayExportHandlers = newOverlayExportHandlers(pool, log)
 }

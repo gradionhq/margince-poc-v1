@@ -19,8 +19,8 @@ package collections
 
 import (
 	"context"
-	"fmt"
 	"net/http"
+	"reflect"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -57,25 +57,29 @@ func seedPeopleWithTier(t *testing.T, e *apptest.AppEnv, gold, other int) string
 	return column
 }
 
-// ledgerRows counts every row this tree records a write in, across all three
-// ledgers rather than one.
+// ledgers counts the three places this tree records a write, SEPARATELY.
 //
-// All three, because "writes nothing" is only meaningful if it covers everywhere
-// a write could show up: the write shape commits an audit row AND an outbox event
-// together, so watching one would miss half of a mutation — and a BULK read is
-// recorded in neither. The filtered export logs to system_log on the stated
-// reasoning that an export targets no single record, so audit_log alone would
-// have made the contrast below silently vacuous.
-func ledgerRows(t *testing.T, e *apptest.AppEnv) int {
+// Separately rather than as a sum, because a sum can only say "something moved":
+// it cannot tell an export logging where it should from an export logging into
+// the record-mutation spine, and the assertions below want both. All three,
+// because "writes nothing" is only meaningful if it covers everywhere a write
+// shows up — the write shape commits an audit row AND an outbox event together,
+// and a bulk read is recorded in neither.
+//
+// Read through e.Owner precisely BECAUSE it bypasses RLS: "nothing was written
+// anywhere" must not be satisfiable by a row hidden in another workspace.
+type ledgerCounts struct{ audit, outbox, system int }
+
+func ledgers(t *testing.T, e *apptest.AppEnv) ledgerCounts {
 	t.Helper()
-	var n int
+	var c ledgerCounts
 	if err := e.Owner.QueryRow(context.Background(), `
-		SELECT (SELECT count(*) FROM audit_log)
-		     + (SELECT count(*) FROM event_outbox)
-		     + (SELECT count(*) FROM system_log)`).Scan(&n); err != nil {
+		SELECT (SELECT count(*) FROM audit_log),
+		       (SELECT count(*) FROM event_outbox),
+		       (SELECT count(*) FROM system_log)`).Scan(&c.audit, &c.outbox, &c.system); err != nil {
 		t.Fatalf("count the ledgers: %v", err)
 	}
-	return n
+	return c
 }
 
 type previewBody struct {
@@ -114,9 +118,13 @@ func TestAFilterPreviewCountsEveryMatchAndReturnsABoundedPage(t *testing.T) {
 	if got.Resource != "person" {
 		t.Errorf("resource = %q, want the one asked for", got.Resource)
 	}
-	// The non-matching four are excluded, so the filter really ran.
-	if got.MatchCount == 16 {
-		t.Error("match_count counted every person; the predicate was not applied")
+	// columns is a required field the row comparison never touches, so an empty or
+	// mis-sized one would pass every other assertion here.
+	if len(got.Columns) == 0 {
+		t.Error("columns is empty; a caller cannot render a table from row keys alone")
+	}
+	if len(got.Rows) > 0 && len(got.Columns) != len(got.Rows[0]) {
+		t.Errorf("columns lists %d names for rows carrying %d keys", len(got.Columns), len(got.Rows[0]))
 	}
 }
 
@@ -176,16 +184,19 @@ func TestAFilterPreviewDescribesTheSameSliceTheExportWrites(t *testing.T) {
 	if len(exported.Rows) != len(preview.Rows) {
 		t.Fatalf("export rows=%d preview rows=%d", len(exported.Rows), len(preview.Rows))
 	}
-	// Same keys, same values, row for row — both are ordered by id.
+	// DeepEqual, not stringified. Both sides return through the same
+	// json.Unmarshal so their types already agree — and type divergence with
+	// identical TEXT is exactly what matters here: swap rowsAsMaps for a CSV-style
+	// renderer and every value becomes a string, which a text comparison would wave
+	// through while the preview stopped being a preview of the JSON export. The
+	// per-key loop only reports which key diverged.
 	for i := range preview.Rows {
+		if reflect.DeepEqual(preview.Rows[i], exported.Rows[i]) {
+			continue
+		}
 		for key, want := range exported.Rows[i] {
-			got, present := preview.Rows[i][key]
-			if !present {
-				t.Errorf("row %d: export carries %q and the preview omits it", i, key)
-				continue
-			}
-			if fmt.Sprint(got) != fmt.Sprint(want) {
-				t.Errorf("row %d key %q: preview %v, export %v", i, key, got, want)
+			if got := preview.Rows[i][key]; !reflect.DeepEqual(got, want) {
+				t.Errorf("row %d key %q: preview %#v, export %#v", i, key, got, want)
 			}
 		}
 		for key := range preview.Rows[i] {
@@ -196,17 +207,21 @@ func TestAFilterPreviewDescribesTheSameSliceTheExportWrites(t *testing.T) {
 	}
 }
 
-// Previewing writes nothing. The export of the same filter DOES write a ledger
-// row, which is what makes this a contrast rather than an assertion about
-// silence: the ledgers provably grow on this path, and a preview does not grow
-// them. Without that second half, a broken counter would read as a passing test.
+// Previewing writes nothing, and the export of the same filter writes exactly one
+// system_log row and nothing else.
+//
+// The second half is what makes the first half mean something: without it, a
+// counter that had stopped working would read as a passing test. Naming WHICH
+// ledger the export grows also turns the reasoning behind that choice — a bulk
+// export targets no single record, so it does not belong in the audit spine —
+// from a comment into an assertion.
 func TestAFilterPreviewWritesNoLedgerRowWhereAnExportDoes(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(integration.SchemaPool(t)))
 	e.BootstrapWorkspace(t)
 	column := seedPeopleWithTier(t, e, 2, 0)
 	filter := apptest.AnyMap{"field": column, "op": "eq", "value": "gold"}
 
-	before := ledgerRows(t, e)
+	before := ledgers(t, e)
 	for range 3 {
 		var got previewBody
 		if status := e.Call(t, "POST", "/v1/filters/preview", apptest.AnyMap{
@@ -215,8 +230,8 @@ func TestAFilterPreviewWritesNoLedgerRowWhereAnExportDoes(t *testing.T) {
 			t.Fatalf("preview: status=%d", status)
 		}
 	}
-	if after := ledgerRows(t, e); after != before {
-		t.Errorf("three previews wrote %d ledger rows; a recount while somebody types must write none", after-before)
+	if after := ledgers(t, e); after != before {
+		t.Errorf("three previews moved the ledgers %+v → %+v; a recount while somebody types must write nothing", before, after)
 	}
 
 	var exported apptest.AnyMap
@@ -225,35 +240,65 @@ func TestAFilterPreviewWritesNoLedgerRowWhereAnExportDoes(t *testing.T) {
 	}, nil, &exported); status != http.StatusOK {
 		t.Fatalf("export: status=%d", status)
 	}
-	if after := ledgerRows(t, e); after <= before {
-		t.Errorf("the export grew no ledger (%d → %d), so this test cannot tell a silent preview from a broken counter", before, after)
+	after := ledgers(t, e)
+	if after.system != before.system+1 {
+		t.Errorf("system_log grew by %d, want exactly 1 — otherwise this test cannot tell a silent preview from a broken counter", after.system-before.system)
+	}
+	if after.audit != before.audit {
+		t.Errorf("the export wrote %d audit_log row(s); a bulk export targets no single record and does not belong in the record-mutation spine", after.audit-before.audit)
+	}
+	if after.outbox != before.outbox {
+		t.Errorf("the export wrote %d outbox event(s); exporting is not a domain mutation", after.outbox-before.outbox)
 	}
 }
 
-// A tree the engine refuses is a 422 naming the offending field, not a 500 and
-// not an empty preview — an empty result would read as "nothing matches".
-func TestAFilterPreviewRefusesAnUnknownFieldByName(t *testing.T) {
+// A refusal is a 422 that NAMES the offending input, which is the difference
+// between a builder highlighting the broken clause and a builder showing a
+// generic red banner. Asserting only the status code would leave that promise
+// untested — an empty field, or the wrong one, would pass.
+func TestAFilterPreviewRefusalNamesTheOffendingInput(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(integration.SchemaPool(t)))
 	e.BootstrapWorkspace(t)
+	limitTooLarge := 5000
 
-	var refused apptest.AnyMap
-	if status := e.Call(t, "POST", "/v1/filters/preview", apptest.AnyMap{
-		"resource": "person",
-		"filter":   apptest.AnyMap{"field": "not_a_column", "op": "eq", "value": "x"},
-	}, nil, &refused); status != http.StatusUnprocessableEntity {
-		t.Fatalf("unknown field: status=%d body=%v, want 422", status, refused)
-	}
-	var missingFilter apptest.AnyMap
-	if status := e.Call(t, "POST", "/v1/filters/preview", apptest.AnyMap{
-		"resource": "person",
-	}, nil, &missingFilter); status != http.StatusUnprocessableEntity {
-		t.Fatalf("absent filter: status=%d body=%v, want 422", status, missingFilter)
-	}
-	var badResource apptest.AnyMap
-	if status := e.Call(t, "POST", "/v1/filters/preview", apptest.AnyMap{
-		"resource": "activity",
-		"filter":   apptest.AnyMap{"field": "kind", "op": "eq", "value": "call"},
-	}, nil, &badResource); status != http.StatusUnprocessableEntity {
-		t.Fatalf("non-filterable resource: status=%d body=%v, want 422", status, badResource)
+	for _, c := range []struct {
+		name  string
+		body  apptest.AnyMap
+		field string
+	}{
+		{"a field the vocabulary does not admit", apptest.AnyMap{
+			"resource": "person",
+			"filter":   apptest.AnyMap{"field": "not_a_column", "op": "eq", "value": "x"},
+		}, "not_a_column"},
+		{"no filter at all", apptest.AnyMap{"resource": "person"}, "filter"},
+		{"a resource with no engine", apptest.AnyMap{
+			"resource": "activity",
+			"filter":   apptest.AnyMap{"field": "kind", "op": "eq", "value": "call"},
+		}, "resource"},
+		// The contract publishes 1..100; a value outside it is refused rather than
+		// quietly rewritten, so a caller learns their request was not honoured.
+		{"a limit past the published ceiling", apptest.AnyMap{
+			"resource": "person",
+			"filter":   apptest.AnyMap{"field": "full_name", "op": "contains", "value": "a"},
+			"limit":    limitTooLarge,
+		}, "limit"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The per-field breakdown rides details.errors (httperr's fieldDetails),
+			// not the problem's top level.
+			var problem struct {
+				Details struct {
+					Errors []struct {
+						Field string `json:"field"`
+					} `json:"errors"`
+				} `json:"details"`
+			}
+			if status := e.Call(t, "POST", "/v1/filters/preview", c.body, nil, &problem); status != http.StatusUnprocessableEntity {
+				t.Fatalf("→ %d, want 422", status)
+			}
+			if got := problem.Details.Errors; len(got) != 1 || got[0].Field != c.field {
+				t.Errorf("field errors = %v, want exactly one naming %q", got, c.field)
+			}
+		})
 	}
 }

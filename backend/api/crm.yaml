@@ -5230,6 +5230,7 @@ paths:
     post:
       tags: [Lists]
       operationId: previewFilter
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport, matching createFilteredExport
       # Human-only, and the reason is the same property that makes this operation
       # safe for a human: it is deliberately NOT audit-logged, because a count
       # that recomputes while somebody types must not write an audit row per
