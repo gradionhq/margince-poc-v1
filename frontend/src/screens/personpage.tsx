@@ -38,6 +38,7 @@ import { PersonMemory } from "./personmemory";
 import { PersonRail } from "./personrail";
 import { PersonResearchTab } from "./personresearch";
 import { PersonStrip } from "./personstrip";
+import { PERSON_TABS, type PersonTab, personTabRoute } from "./persontab";
 import {
   PersonDealsTab,
   PersonMeetingsTab,
@@ -55,22 +56,6 @@ import "./person360.css";
 type Person360 = components["schemas"]["Person360"];
 type PersonMomentAction = components["schemas"]["PersonMomentAction"];
 
-// The six tabs, in the concept's order (§5.4). URL-addressable, so a tab
-// survives a reload and can be linked to.
-//
-// Activity and History are ONE tab, as they are on the account page: what was
-// said to a contact and what was changed about them are one chronology to the
-// person reading them, and the filter above the list is what separates them.
-export const PERSON_TABS = [
-  "overview",
-  "timeline",
-  "deals",
-  "meetings",
-  "research",
-  "documents",
-] as const;
-export type PersonTab = (typeof PERSON_TABS)[number];
-
 // The tab words every record page shares. A private set for this page is how
 // the same tab came to read "Timeline" here and "History" on the account.
 const TAB_LABEL_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
@@ -81,10 +66,6 @@ const TAB_LABEL_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
   research: "tab.research",
   documents: "tab.documents",
 };
-
-export function isPersonTab(value: string | undefined): value is PersonTab {
-  return PERSON_TABS.includes((value ?? "") as PersonTab);
-}
 
 // The intent phrases a moment action can ask the composer to open with. The
 // server names the reason in its own vocabulary ("agenda", "follow_up"); the
@@ -116,8 +97,9 @@ function composerIntentOf(
  * it decides which record it is on, and this decides which face of that record
  * the reader asked for.
  *
- * Three of the six read the 360 the page already holds; Files and History own
- * their reads because the 360 carries neither.
+ * Four of them read the 360 the page already holds. Documents owns its read
+ * because the 360 carries no attachments, and the Timeline's CHANGES half
+ * owns one for the same reason — its ACTIVITIES half is the 360's own section.
  */
 function PersonTabPanel({
   tab,
@@ -308,7 +290,7 @@ export function PersonPageV2({
           <SegmentedControl
             options={PERSON_TABS}
             value={tab}
-            onChange={(next) => navigate({ screen: "contacts", id, id2: next })}
+            onChange={(next) => navigate(personTabRoute(id, next))}
             labels={{
               overview: t(TAB_LABEL_KEYS.overview),
               timeline: t(TAB_LABEL_KEYS.timeline),
@@ -494,11 +476,7 @@ function PersonActions({
       <Button variant="primary" disabled={!guardAllows} onClick={onEmail}>
         <Mail size={15} aria-hidden="true" /> {t("person.action.email")}
       </Button>
-      <Button
-        onClick={() =>
-          navigate({ screen: "contacts", id: personId, id2: "activity" })
-        }
-      >
+      <Button onClick={() => navigate(personTabRoute(personId, "timeline"))}>
         <Phone size={15} aria-hidden="true" /> {t("person.action.call")}
       </Button>
       <Button
@@ -517,9 +495,7 @@ function PersonActions({
       </Button>
       <Button
         aria-label={t("person.action.more")}
-        onClick={() =>
-          navigate({ screen: "contacts", id: personId, id2: "history" })
-        }
+        onClick={() => navigate(personTabRoute(personId, "timeline"))}
       >
         <MoreHorizontal size={15} aria-hidden="true" />
       </Button>
