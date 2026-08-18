@@ -212,9 +212,13 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"preference_token.person_id":        "gated: auth.EnsureVisible on the recipient in PreferenceTokenForEmail — the id is server-derived from the send path's workspace-predicated email→person resolve, and the minted token is a bearer credential over that person, so the mint carries the same row-scope probe the sibling read does; the public surface reads the row as the token→tenant resolver before any principal exists",
 	// Server-derived pointers: stamped from an operation's outcome,
 	// never accepted from the request body.
-	"lead.promoted_person_id":          "server-derived: stamped by PromoteLead",
-	"person.merged_into_id":            "server-derived: stamped by MergePerson",
-	"organization.merged_into_id":      "server-derived: stamped by MergeOrganization",
+	"lead.promoted_person_id":     "server-derived: stamped by PromoteLead",
+	"person.merged_into_id":       "server-derived: stamped by MergePerson",
+	"organization.merged_into_id": "server-derived: stamped by MergeOrganization",
+	// All three go through archiveMergedAway, which takes the table as a
+	// parameter — so lead's redirect pointer is written by the same statement as
+	// the two above, not by a lead-specific path a caller could reach.
+	"lead.merged_into_id":              "server-derived: stamped by MergeLead through archiveMergedAway",
 	"person.converted_from_lead_id":    "server-derived: stamped by PromoteLead",
 	"deal_stage_history.deal_id":       "server-derived: appended by CreateDeal/AdvanceDeal",
 	"deal_forecast_history.deal_id":    "server-derived: appended by UpdateDeal for the deal it has just written, and only after auth.EnsureVisible admitted that deal at the top of the same transaction — the id never comes from a request body",
@@ -244,10 +248,15 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// recordDedupeCandidate stamps them from the ensure chokepoint's own
 	// row-scoped fuzzy query, never from a request body; the disposition
 	// endpoints address the candidate row, not the pair ids.
-	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	// The lead pair (#1662) is the same INSERT in the same function: entityLead
+	// only selects a different column pair, so the reasoning above carries over
+	// verbatim rather than by analogy.
+	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
 	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
 	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
 	// The signature pass's read cursor (PO-F-2a): both ids come from the

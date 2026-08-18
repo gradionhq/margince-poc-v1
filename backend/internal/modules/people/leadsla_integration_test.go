@@ -168,7 +168,12 @@ func TestFirstResponseFromHumanStatusChangeAndDisposition(t *testing.T) {
 // delivery moves the stamp back, and a later reply never moves it forward.
 func TestFirstResponseKeepsTheEarliestReplyWhateverTheDeliveryOrder(t *testing.T) {
 	e := setupPromoteConsent(t)
-	now := time.Now().UTC()
+	// Truncated to microseconds, which is timestamptz's resolution: `early` is
+	// written to the column and then compared against what comes back, so a
+	// nanosecond remainder is lost in the round trip and Equal fails on a value
+	// that stored correctly. That made this test pass on macOS, whose clock is
+	// coarser, and fail on Linux CI, whose clock is not.
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	lead := e.seedLeadCreatedAt(t, "ordered@example.test", now.Add(-3*time.Hour))
 	late := now.Add(-time.Hour)
 	early := now.Add(-2 * time.Hour)
