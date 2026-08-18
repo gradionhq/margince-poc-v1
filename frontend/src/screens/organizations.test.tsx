@@ -2607,4 +2607,62 @@ describe("CompanyScreen — the Tasks tab", () => {
     );
     expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
+
+  // The detail modal renders on this tab and nowhere else, so a tab change
+  // takes it off screen without its own onClose ever running. An open id that
+  // survived that would be waiting the next time the reader came back to
+  // Tasks — a dialog reopening itself, having been closed by nobody.
+  //
+  // Driven through the tab pill on purpose. A reader cannot reach the pill
+  // while the dialog covers it, and that is a fact about Modal's backdrop
+  // rather than about this page: the id must not depend on it.
+  it("opens no dialog when the reader returns to Tasks after changing tab", async () => {
+    const user = userEvent.setup();
+    stubFetch(
+      async (url) => {
+        if (url.endsWith("/activities/a-1")) {
+          return jsonResponse({
+            id: openTask.activity_id,
+            organization_id: "o-1",
+            type: "task",
+            subject: openTask.subject,
+            occurred_at: "2026-08-01T09:00:00Z",
+            due_at: openTask.due_at,
+            is_done: false,
+            captured_by: "human:u1",
+            source: "manual",
+            version: 1,
+          });
+        }
+        return companyBackstop(url);
+      },
+      {
+        org360: {
+          ...org360,
+          next_steps: { ...org360.next_steps, data: [openTask] },
+        },
+      },
+    );
+    render(<CompanyScreen id="o-1" />);
+    await openTasksTab();
+    await user.click(await screen.findByText(openTask.subject));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("dialog", { name: openTask.subject }),
+      ).toBeTruthy(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Deals" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: openTask.subject }),
+      ).toBeNull(),
+    );
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(openTask.subject)).toBeTruthy(),
+    );
+    expect(screen.queryByRole("dialog", { name: openTask.subject })).toBeNull();
+  });
 });

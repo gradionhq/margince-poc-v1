@@ -1625,13 +1625,24 @@ function useCompanyTab(
 // useCompanyTab is: the route swaps one company for another without ever
 // unmounting this component, so a task detail modal opened on one account
 // would keep rendering over the next one.
+//
+// It is scoped to the TAB for the same reason at one level down. The detail
+// modal only renders on Tasks, so a tab change takes the dialog off screen
+// without its own `onClose` ever running — and an id that outlives the surface
+// holding it reopens the dialog by itself when the reader comes back to Tasks,
+// having closed nothing. That the reader cannot currently reach a tab pill
+// behind the open modal's backdrop is a property of Modal, not of this state:
+// resetting here is what makes the invariant this page's own.
 function useOpenTaskId(
   recordId: string,
+  tab: CompanyTab,
 ): [string | null, (next: string | null) => void] {
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [openTaskFor, setOpenTaskFor] = useState(recordId);
-  if (openTaskFor !== recordId) {
+  const [openTaskOn, setOpenTaskOn] = useState(tab);
+  if (openTaskFor !== recordId || openTaskOn !== tab) {
     setOpenTaskFor(recordId);
+    setOpenTaskOn(tab);
     setOpenTaskId(null);
   }
   return [openTaskId, setOpenTaskId];
@@ -1977,7 +1988,7 @@ function CompanyPage({
   // Which open task the Tasks tab has expanded into its detail modal, keyed
   // by activity id rather than a bare boolean because the row that opened it
   // is also what the modal reads.
-  const [openTaskId, setOpenTaskId] = useOpenTaskId(org.id);
+  const [openTaskId, setOpenTaskId] = useOpenTaskId(org.id, tab);
   const receipt = useCitedReceipt();
   // An archived company takes no new activity, so completing or snoozing a
   // task from here would only be refused server-side.
