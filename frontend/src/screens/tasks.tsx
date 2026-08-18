@@ -3,7 +3,6 @@ import { Bell } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { isEntityKind } from "../app/entity";
 import {
   Badge,
   Button,
@@ -21,7 +20,6 @@ import {
   useSorMode,
 } from "./common";
 import { CreateRecordModal, NewRecordButton } from "./create";
-import { EntityRef } from "./entityref";
 
 // Tasks (B-EP09.12d): open tasks grouped overdue / today / upcoming / undated
 // by due_at, with complete and snooze (+1 day) actions. Grouping compares
@@ -84,7 +82,11 @@ function ReminderControl({
           style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
         >
           <Bell aria-hidden style={{ width: 12, height: 12 }} />
-          {formatDateTime(task.remind_at, locale, "Europe/Berlin")}
+          {formatDateTime(
+            task.remind_at,
+            locale,
+            Intl.DateTimeFormat().resolvedOptions().timeZone,
+          )}
         </span>
         <Button small onClick={() => onSet(task.id, null)}>
           {t("tasks.clearReminder")}
@@ -125,6 +127,15 @@ function ReminderControl({
   );
 }
 
+// A row does NOT name the record its task is about, and that is a gap rather
+// than a choice: subjects are generated ("Follow up with the new lead"), so a
+// queue of them is a column of the same sentence. The activity carries `links[]`
+// with the record's id but no display name, and there is no batch-by-ids read in
+// the contract — so naming them costs one request per row, up to the query's
+// hundred. That is the same missing field the contacts list needs for an
+// employer column: a list read should carry the linked record's display name,
+// which is a contract change first (P3).
+//
 // One open task, with its complete / snooze / reminder actions. Extracted so
 // the grouped render tree above stays legible instead of nesting these
 // handlers deeply.
@@ -143,37 +154,20 @@ function TaskRow({
 }>) {
   const t = useT();
   const { locale } = useLocale();
-  // WHICH record this task is about. Subjects are generated ("Follow up with
-  // the new lead"), so a queue of them is a column of the same sentence and the
-  // only way to tell two apart is to open both. An activity may link to more
-  // than one record; the first the app can route to is the one named — a task
-  // reaches a person AND their deal, and either answers "which of these".
-  //
-  // One record read per named task, cached by id for a minute and shared with
-  // every other EntityRef on screen. That cost is per ROW, so it rises with the
-  // page: worth it here, where the page is a working queue and the name is the
-  // difference between reading it and opening it, and deliberately not taken in
-  // search, where a page of hits already carries its own titles.
-  const linked = (task.links ?? []).flatMap((link) =>
-    isEntityKind(link.entity_type)
-      ? [{ kind: link.entity_type, id: link.entity_id }]
-      : [],
-  )[0];
+  // A due date is a PERSONAL deadline, so it reads in the viewer's own zone —
+  // as does the reminder time above it, or one row would state two zones. Pinned
+  // to Europe/Berlin it told a reader in another zone a different day than the
+  // one their task is actually due on.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   return (
     <Card as="div" style={{ marginBottom: "var(--space-2)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <span style={{ flex: 1 }}>
           <strong>{task.subject ?? ""}</strong>
-          {linked && (
-            <span className="t-caption">
-              {" "}
-              · <EntityRef kind={linked.kind} id={linked.id} />
-            </span>
-          )}
           {task.due_at && (
             <span className="t-caption">
               {" "}
-              · {formatDateTime(task.due_at, locale, "Europe/Berlin")}
+              · {formatDateTime(task.due_at, locale, zone)}
             </span>
           )}
         </span>

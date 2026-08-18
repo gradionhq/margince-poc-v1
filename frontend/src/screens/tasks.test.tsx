@@ -149,11 +149,16 @@ describe("TasksScreen reminders (B-E16.1)", () => {
     );
     render(<TasksScreen />);
     await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
-    // The formatter itself is pinned in format.test.ts; here the row must
-    // show the stored instant rendered for the en locale in Europe/Berlin.
+    // The formatter itself is pinned in format.test.ts; here the row must show
+    // the stored instant in the READER's zone — the same zone the due date
+    // beside it uses, because one row stating two zones is worse than either.
     expect(
       screen.getByText(
-        formatDateTime("2026-07-05T07:30:00Z", "en", "Europe/Berlin"),
+        formatDateTime(
+          "2026-07-05T07:30:00Z",
+          "en",
+          Intl.DateTimeFormat().resolvedOptions().timeZone,
+        ),
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Clear reminder" })).toBeTruthy();
@@ -202,71 +207,36 @@ describe("TasksScreen reminders (B-E16.1)", () => {
 // them is a column of the same sentence and the only way to tell two apart is
 // to open both. The row names WHICH record it is about — the first link the app
 // can route to. `project` is not one of those: it has no 360 to send anyone to.
-describe("TaskRow — the record the task is about (UI polish)", () => {
-  const due = "2026-07-04T10:00:00Z";
-  // The formatter itself is pinned in format.test.ts; the row must show the
-  // stored instant rendered for the en locale in Europe/Berlin.
-  const dueLabel = formatDateTime(due, "en", "Europe/Berlin");
+describe("TaskRow — when the task is due, in the reader's own zone", () => {
+  const due = "2026-07-04T22:30:00Z";
 
-  // The row's identity cell read as the one line it is: subject, then the
-  // record, then the due date. Asserting the whole line is what proves a
-  // reference is ABSENT — a queried-for-nothing assertion cannot.
-  function taskLine(): string {
+  // A due date is a personal deadline: the row renders it in the VIEWER's zone,
+  // not a zone the product picked. Pinned to Europe/Berlin it told a reader in
+  // Ho Chi Minh City the 4th when their task is due on the 5th.
+  //
+  // The test controls the zone rather than reading the machine's, so it asserts
+  // the rule instead of wherever CI happens to run.
+  it("renders the due date in the zone the reader resolves to", async () => {
+    const resolved = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(
+      Intl.DateTimeFormat.prototype,
+      "resolvedOptions",
+    ).mockImplementation(function mocked(this: Intl.DateTimeFormat) {
+      return { ...resolved.call(this), timeZone: "Asia/Ho_Chi_Minh" };
+    });
+    vi.stubGlobal("fetch", tasksBackend([openTask({ due_at: due })], []));
+    render(<TasksScreen />);
+
+    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
     const cell = screen.getByText("Call Anna").parentElement;
     if (!cell) {
       throw new Error("the task subject rendered outside a row");
     }
-    return cell.textContent ?? "";
-  }
-
-  it("names the linked lead between the subject and the due date", async () => {
-    vi.stubGlobal(
-      "fetch",
-      tasksBackend(
-        [
-          openTask({
-            due_at: due,
-            links: [{ entity_type: "lead", entity_id: "l-1" }],
-          }),
-        ],
-        [],
-        { "/leads/l-1": { id: "l-1", full_name: "Jordan Lee" } },
-      ),
+    expect(cell.textContent).toContain(
+      formatDateTime(due, "en", "Asia/Ho_Chi_Minh"),
     );
-    render(<TasksScreen />);
-    // The resolved name is a link to the record, so the queue is somewhere to
-    // work FROM rather than a list of rows to open one by one.
-    expect(
-      await screen.findByRole("button", { name: "Jordan Lee" }),
-    ).toBeTruthy();
-    expect(taskLine()).toBe(`Call Anna · Jordan Lee · ${dueLabel}`);
-  });
-
-  it("names no record when the only link is a kind the app cannot route to", async () => {
-    vi.stubGlobal(
-      "fetch",
-      tasksBackend(
-        [
-          openTask({
-            due_at: due,
-            links: [{ entity_type: "project", entity_id: "p-1" }],
-          }),
-        ],
-        [],
-      ),
+    expect(cell.textContent).not.toContain(
+      formatDateTime(due, "en", "Europe/Berlin"),
     );
-    render(<TasksScreen />);
-    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
-    // Not even the id: every EntityRef render path titles itself with the id it
-    // was handed, so a titleless row is one that never reached for a reference.
-    expect(screen.queryByTitle("p-1")).toBeNull();
-    expect(taskLine()).toBe(`Call Anna · ${dueLabel}`);
-  });
-
-  it("leaves an unlinked task's row as its subject and due date", async () => {
-    vi.stubGlobal("fetch", tasksBackend([openTask({ due_at: due })], []));
-    render(<TasksScreen />);
-    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
-    expect(taskLine()).toBe(`Call Anna · ${dueLabel}`);
   });
 });
