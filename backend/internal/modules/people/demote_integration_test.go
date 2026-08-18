@@ -17,6 +17,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // personState reads the two columns a demotion touches on the person side.
@@ -226,5 +227,112 @@ func TestPromotePreviewNamesTheOutcomeWithoutWriting(t *testing.T) {
 	var already *AlreadyPromotedError
 	if _, err := e.store.PreviewLeadPromotion(e.ctx, known); !errors.As(err, &already) {
 		t.Errorf("preview of a promoted lead err = %v, want AlreadyPromotedError (409)", err)
+	}
+}
+
+// withGrants answers a context for the same user with exactly the object
+// grants given — how a role narrower than admin reaches the store.
+func (e *promoteConsentEnv) withGrants(objects map[string]principal.ObjectGrant) context.Context {
+	opCtx := principal.WithWorkspaceID(context.Background(), e.ws)
+	opCtx = principal.WithCorrelationID(opCtx, ids.NewV7())
+	return principal.WithActor(opCtx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + e.user.String(), UserID: e.user,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects:  objects,
+			RowScope: principal.RowScopeAll,
+		},
+	})
+}
+
+// A rep who may work leads and create contacts — the grants promotion itself
+// runs under — can also undo a promotion, without holding person.delete.
+func TestDemoteNeedsNoArchiveGrantToUndoACreatedPerson(t *testing.T) {
+	e := setupPromoteConsent(t)
+	rep := e.withGrants(map[string]principal.ObjectGrant{
+		"lead":   {Create: true, Read: true, Update: true, Delete: true},
+		"person": {Create: true, Read: true, Update: true},
+	})
+	lead := e.seedLead(t, "undo@example.test")
+	person, _, err := e.store.PromoteLead(rep, lead, PromoteLeadInput{Trigger: "human_qualify"})
+	if err != nil {
+		t.Fatalf("promote as rep: %v", err)
+	}
+	out, err := e.store.DemoteLead(rep, lead, "clicked the wrong row")
+	if err != nil {
+		t.Fatalf("demote as rep: %v — the reversal must run under the same authority as the promotion", err)
+	}
+	if out.Unwind != crmcontracts.DemoteUnwindReversed {
+		t.Errorf("unwind = %q, want reversed", out.Unwind)
+	}
+	if archived, _ := e.personState(t, ids.UUID(person.Id)); !archived {
+		t.Error("the created person must be archived by the reversal")
+	}
+}
+
+// A person that a SECOND lead has since promoted into is no longer only what
+// the first promotion minted: archiving it would strand the second lead's
+// contact, so the first lead's demote unwinds lineage-only.
+func TestDemoteKeepsAPersonAnotherLeadPromotedInto(t *testing.T) {
+	e := setupPromoteConsent(t)
+	const shared = "twice@example.test"
+	first := e.seedLead(t, shared)
+	person, merged, err := e.store.PromoteLead(e.ctx, first, PromoteLeadInput{Trigger: "human_qualify"})
+	if err != nil || merged {
+		t.Fatalf("first promote: err=%v merged=%t, want a created person", err, merged)
+	}
+	second := e.seedLead(t, shared)
+	if _, merged, err := e.store.PromoteLead(e.ctx, second, PromoteLeadInput{Trigger: "inbound_reply"}); err != nil || !merged {
+		t.Fatalf("second promote: err=%v merged=%t, want a merge into the first's person", err, merged)
+	}
+
+	out, err := e.store.DemoteLead(e.ctx, first, "the first capture was wrong")
+	if err != nil {
+		t.Fatalf("demote first: %v", err)
+	}
+	if out.Unwind != crmcontracts.DemoteUnwindMergeLineageOnly {
+		t.Errorf("unwind = %q, want merge_lineage_only: another lead depends on this person", out.Unwind)
+	}
+	if archived, _ := e.personState(t, ids.UUID(person.Id)); archived {
+		t.Error("the person the second lead promoted into must stay live")
+	}
+	var secondStatus string
+	var secondPerson *ids.UUID
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT status, promoted_person_id FROM lead WHERE id = $1`, second).Scan(&secondStatus, &secondPerson); err != nil {
+		t.Fatal(err)
+	}
+	if secondStatus != "promoted" || secondPerson == nil || *secondPerson != ids.UUID(person.Id) {
+		t.Errorf("second lead = %q -> %v; its promotion must be untouched", secondStatus, secondPerson)
+	}
+}
+
+// The preview returns a person, so it needs the person READ grant as well as
+// the lead's: a role that may work leads but not read contacts is told the
+// outcome (merge) and nothing about who.
+func TestPromotePreviewWithholdsThePersonWithoutThePersonReadGrant(t *testing.T) {
+	e := setupPromoteConsent(t)
+	const shared = "known@example.test"
+	if _, err := e.store.CreatePerson(e.ctx, CreatePersonInput{
+		FullName: "Known Contact",
+		Emails:   []PersonEmailInput{{Email: shared, EmailType: "work", IsPrimary: true}},
+		Source:   "manual",
+	}); err != nil {
+		t.Fatalf("seed the incumbent person: %v", err)
+	}
+	lead := e.seedLead(t, shared)
+	leadsOnly := e.withGrants(map[string]principal.ObjectGrant{
+		"lead": {Create: true, Read: true, Update: true, Delete: true},
+	})
+	preview, err := e.store.PreviewLeadPromotion(leadsOnly, lead)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if preview.Outcome != crmcontracts.PromoteLeadPreviewOutcomeMerge {
+		t.Errorf("outcome = %q, want merge — the outcome is a fact about the lead", preview.Outcome)
+	}
+	if preview.Person != nil || preview.PersonWithheld == nil || !*preview.PersonWithheld {
+		t.Errorf("person=%v withheld=%v; a caller without person.read must get no person and be told so",
+			preview.Person, preview.PersonWithheld)
 	}
 }
