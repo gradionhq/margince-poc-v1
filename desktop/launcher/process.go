@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -37,6 +38,11 @@ type child struct {
 	name string
 	cmd  *exec.Cmd
 	log  *os.File
+
+	// logPath is kept so a failure can quote the service's own last words.
+	// A launcher that says only "api exited" sends the user hunting for a
+	// file, and the reason it exited is already written in it.
+	logPath string
 
 	// done carries the process's exit, and gone reports that it has happened.
 	//
@@ -161,6 +167,45 @@ func (c *child) stop(sig syscall.Signal, grace time.Duration) error {
 // until its timeout expires.
 func (c *child) exited() bool {
 	return c.gone.Load()
+}
+
+// readinessLogLines is how much of a failed service's log to quote. Enough for a
+// configuration refusal, which is the common case and usually one line, without
+// pasting a startup banner over the message that matters.
+const readinessLogLines = 15
+
+// explainNotReady adds the service's own last words to a readiness failure.
+//
+// "api exited before becoming ready" names the symptom and hides the cause: the
+// service has already written why it refused, into a file the user has not been
+// told to open. A licensing refusal reached a tester as nothing but a failed
+// probe against a port, which is a round trip that the log tail removes.
+func explainNotReady(err error, c *child) error {
+	if err == nil || c == nil {
+		return err
+	}
+	tail := c.lastLog(readinessLogLines)
+	if tail == "" {
+		return err
+	}
+	return fmt.Errorf("%w\n\nthe last lines of %s:\n%s", err, c.logPath, tail)
+}
+
+// lastLog returns up to n trailing lines of this service's log.
+//
+// A read failure yields the empty string on purpose: this decorates an error
+// that is already worth reporting, and replacing it with a complaint about
+// reading a log would lose the failure the caller actually hit.
+func (c *child) lastLog(n int) string {
+	raw, err := os.ReadFile(c.logPath) // #nosec G304 -- logPath is this launcher's own log, built from the layout and the service name
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 // waitUntil polls probe until it succeeds, the context ends, or timeout

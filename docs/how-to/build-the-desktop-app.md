@@ -226,6 +226,7 @@ writes its own file.
 | Windows: "VCRUNTIME140.dll was not found" | The [Microsoft Visual C++ redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe) is not installed. It is not bundled |
 | Attachments or logos fail | No object storage. Set `MARGINCE_BLOBSTORE_*` |
 | AI answers look canned | No key or routing file, so the offline fake is driving the AI surfaces |
+| "no licence is configured and this installation is production" | `MARGINCE_ENV` was set to `production` in `margince.env` without a `MARGINCE_LICENSE` beside it. Supply the token, or remove the override and let the default `dev` posture stand |
 | Dates and times look wrong on Windows | The first run defaulted to `UTC`. Set `timezone` in `margince.yaml` |
 
 To stop a stuck instance, find it by the port it listens on rather than by

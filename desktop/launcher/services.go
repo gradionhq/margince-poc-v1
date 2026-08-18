@@ -60,9 +60,9 @@ func (b *eventBus) start(ctx context.Context) error {
 	}
 	b.proc = proc
 
-	return waitUntil(ctx, "bus", 30*time.Second, proc.exited, func() error {
+	return explainNotReady(waitUntil(ctx, "bus", 30*time.Second, proc.exited, func() error {
 		return dialTCP(b.addr())
-	})
+	}), proc)
 }
 
 func (b *eventBus) stop() error { return b.proc.stop(syscall.SIGTERM, 15*time.Second) }
@@ -93,25 +93,44 @@ func (b *backend) migrate() error {
 	return nil
 }
 
-// childEnv is the environment a role inherits: the user's settings first, then
-// the values this launcher decides and the user may not.
+// childEnv is the environment a role inherits, in three layers: what this
+// launcher DEFAULTS, what the user sets, and what the launcher OWNS outright.
 //
-// EVERY DSN travels here rather than on the command line. A Windows DSN
+// EVERY DSN is in the third layer rather than on the command line. A Windows DSN
 // carries the database password, and any local process can read another
-// process's arguments — which is the same reason initdb is handed its password
-// in a file (postgres_windows.go). An environment is not secret either, but
-// reading another process's takes more than `ps`.
+// process's arguments — the same reason initdb is handed its password in a file
+// (postgres_windows.go). An environment is not secret either, but reading
+// another process's takes more than `ps`. Nothing in margince.env can displace
+// them, because they come last and the last value of a duplicated key wins.
 //
-// Order is the enforcement: these come after the user's settings, so nothing
-// in margince.env can override them. MARGINCE_ENV is one of them because a
-// desktop installation holds real records and takes the production posture,
-// which keeps the dev-only destructive switches (today, the admin data-reset
-// endpoint) off. That is not a setting to expose beside an API key.
+// MARGINCE_ENV is in the FIRST layer, and that is a deliberate reversal.
+//
+// A serving role boots on a license or it does not boot, and MARGINCE_ENV is
+// fail-closed: an installation that names nothing is production and is held to a
+// license it was never issued. So a desktop bundle pinned to production could
+// not start at all — which is what happened, with the reason buried in api.log.
+//
+// `dev` is what a single person running their own copy actually is. What it
+// costs is narrow and worth naming precisely, because the obvious fear is
+// wrong: it does NOT arm the admin data-reset endpoint. That needs
+// operations.allow_data_reset in margince.yaml, which layout.go never writes,
+// and the posture alone leaves it a 404. What the posture does change is that
+// /me reports non_production, and that a license minted by a test authority
+// would be honoured — this installation has neither.
+//
+// It is a default rather than a decision, so an operator who HAS a license can
+// put MARGINCE_ENV=production in margince.env and be held to it.
 func (b *backend) childEnv(launcherOwned ...string) []string {
-	env := append([]string{}, b.userEnv...)
-	env = append(env, launcherOwned...)
-	return append(env, "MARGINCE_ENV=production")
+	env := []string{"MARGINCE_ENV=" + defaultRuntimeEnv}
+	env = append(env, b.userEnv...)
+	return append(env, launcherOwned...)
 }
+
+// defaultRuntimeEnv is the posture a desktop installation takes unless its
+// margince.env names another. The value is the one the api parses; anything it
+// does not recognise means production, so a typo here would silently demand a
+// license.
+const defaultRuntimeEnv = "dev"
 
 // aiFlags decides how the AI surfaces are driven.
 //
@@ -167,7 +186,7 @@ func (b *backend) start(ctx context.Context) error {
 	if err := waitUntil(ctx, "api", 120*time.Second, api.exited, func() error {
 		return httpOK(b.baseURL() + "/readyz")
 	}); err != nil {
-		return err
+		return explainNotReady(err, api)
 	}
 
 	// The worker owns the automation time-scan and the retention sweeps; the

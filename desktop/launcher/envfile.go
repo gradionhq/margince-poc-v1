@@ -111,6 +111,20 @@ const envTemplate = `# Margince settings.
 # It is never overwritten by an update.
 
 # ---------------------------------------------------------------------------
+# Licence and posture
+#
+# This installation runs in the "dev" posture, which is what lets it start
+# without a licence token. That is the honest description of one person running
+# their own copy, and it does NOT arm the destructive admin endpoints — those
+# need allow_data_reset in margince.yaml, which is absent.
+#
+# If you have been issued a licence for this installation, name it here and
+# switch the posture to production; a serving role then holds itself to it.
+# ---------------------------------------------------------------------------
+# MARGINCE_LICENSE=
+# MARGINCE_ENV=production
+
+# ---------------------------------------------------------------------------
 # Where Margince listens. Keep this stable so your browser bookmark keeps
 # working. Margince refuses to start if the port is already in use rather
 # than silently moving.

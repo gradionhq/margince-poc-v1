@@ -272,10 +272,25 @@ Its contents become the api's and worker's environment — the same 12-factor
 surface a server deployment sets, supplied by a file because a desktop
 installation has no deployment to set it. Two rules hold:
 
-- **`MARGINCE_ENV` is appended last and cannot be overridden.** An
-  installation holding real customer records stays in the production posture,
-  which keeps the dev-only destructive switches (today, the admin data-reset
-  endpoint) off. That is not a switch to expose beside an API key.
+- **`MARGINCE_ENV` defaults to `dev`, and margince.env may override it.** This
+  is the one place the desktop shape and the server shape genuinely disagree,
+  and the reason is licensing: a serving role boots on a licence or it does not
+  boot, and `MARGINCE_ENV` is fail-closed, so an installation that names nothing
+  is production and is held to a licence it was never issued. Pinned to
+  production, the bundle could not start at all.
+
+  What the `dev` posture costs is narrower than it sounds, and worth stating
+  precisely because the obvious fear is the wrong one: it does **not** arm the
+  admin data-reset endpoint. That is gated by `operations.allow_data_reset` in
+  `margince.yaml`, which the first run never writes, so the route stays a 404
+  whatever the posture says. What the posture does change is that `/me` reports
+  `non_production`, and that a licence minted by a test authority would be
+  honoured — this installation has neither.
+
+  It is a default and not a decision. An operator issued a licence puts
+  `MARGINCE_LICENSE` and `MARGINCE_ENV=production` in `margince.env`, and the
+  installation is held to both. The DSNs, by contrast, are still appended after
+  the user's settings and cannot be displaced.
 - **A malformed line refuses the start**, naming the file and line. Silently
   skipping a mistyped setting is how a user concludes a feature is broken.
 
