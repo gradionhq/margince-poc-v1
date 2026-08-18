@@ -192,6 +192,58 @@ export const Explain: Story = {
   play: clickButton("Explain this number"),
 };
 
+// The three absences a slot has to tell apart, side by side, because they are
+// three different facts and one of them used to be drawn as €0.00. A category
+// the report returned no row for was measured in no currency at all; a band of
+// deals nobody priced has a currency but no figure; a stored zero IS a figure.
+export const ForecastAbsences: Story = {
+  render: () => (
+    <StoryProviders>
+      <StatStrip>
+        <ForecastTile
+          label="No deals"
+          amountMinor={null}
+          weightedMinor={null}
+          currency="EUR"
+          locale="en"
+        />
+        <ForecastTile
+          label="Unpriced"
+          amountMinor={null}
+          weightedMinor={null}
+          currency={null}
+          locale="en"
+        />
+        <ForecastTile
+          label="Stored zero"
+          amountMinor={0}
+          weightedMinor={0}
+          currency="EUR"
+          locale="en"
+        />
+      </StatStrip>
+    </StoryProviders>
+  ),
+};
+
+// A currency whose scale is not the euro's, so a minor-unit slip shows up as
+// three orders of magnitude rather than as a rounding difference.
+export const ForecastZeroDecimalCurrency: Story = {
+  render: () => (
+    <StoryProviders>
+      <StatStrip>
+        <ForecastTile
+          label="Commit"
+          amountMinor={4500000000}
+          weightedMinor={1800000000}
+          currency="VND"
+          locale="en"
+        />
+      </StatStrip>
+    </StoryProviders>
+  ),
+};
+
 // One forecast slot on its own, in the plate it actually renders in: the raw
 // total is the reading, the weighted total the basis it was drawn from.
 export const ForecastSlots: Story = {

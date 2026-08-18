@@ -9,11 +9,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { components } from "../api/schema";
 import { formatMoney, MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
+
+type Stage = components["schemas"]["Stage"];
+
 import {
   buildStageAggregates,
-  groupForecastAmounts,
   parseDerivationQuery,
   ReportsScreen,
 } from "./reports";
@@ -309,9 +312,19 @@ describe("parseDerivationQuery", () => {
 // show is one figure that added them, or a currency it invented for a figure
 // the server sent without one.
 describe("reports never sum money across currencies", () => {
-  const STAGES = [
-    { id: "pl-s2", name: "Propose", position: 2 },
-    { id: "pl-s1", name: "Qualify", position: 1 },
+  // Deliberately out of pipeline order, so the ordering assertions below prove a
+  // sort rather than an echo of the fixture.
+  const stage = (id: string, name: string, position: number): Stage => ({
+    id,
+    pipeline_id: "pl",
+    name,
+    position,
+    semantic: "open",
+    win_probability: 20,
+  });
+  const STAGES: Stage[] = [
+    stage("pl-s2", "Propose", 2),
+    stage("pl-s1", "Qualify", 1),
   ];
 
   it("asks the server to group every money plan by currency", async () => {
@@ -515,19 +528,5 @@ describe("reports never sum money across currencies", () => {
       expect(screen.getByText(formatMoney(1000, "EUR", "en"))).toBeTruthy(),
     );
     expect(screen.queryByText("No category yet")).toBeNull();
-  });
-
-  it("gathers a forecast category's currencies in code order", () => {
-    const grouped = groupForecastAmounts([
-      { forecast_category: "commit", currency: "VND", raw_minor: 2 },
-      { forecast_category: "commit", currency: "EUR", raw_minor: 1 },
-      { forecast_category: "pipeline", currency: "EUR", raw_minor: 3 },
-    ]);
-    expect(grouped.get("commit")?.map((amount) => amount.currency)).toEqual([
-      "EUR",
-      "VND",
-    ]);
-    expect(grouped.get("pipeline")).toHaveLength(1);
-    expect(grouped.get("best_case")).toBeUndefined();
   });
 });

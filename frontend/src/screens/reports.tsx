@@ -267,7 +267,15 @@ function ForecastStrip({
           The band is labelled with the currency code itself rather than a
           translated name: it is what the figures beneath it are denominated in,
           and it is already the word every one of them carries. */}
-      {byCurrency(rows).map(([currency, band]) => (
+      {/* No rows at all is not "nothing to draw": it means no open deal reached
+          any category, and five slots each saying so is the honest report. A
+          blank area under the banner would read as a screen that failed to
+          load. The band carries no currency because there are no figures for one
+          to belong to. */}
+      {(byCurrency(rows).length > 0
+        ? byCurrency(rows)
+        : ([[null, []]] as [string | null, ReportRow[]][])
+      ).map(([currency, band]) => (
         <div
           key={currency ?? UNCATEGORISED}
           style={{ marginTop: "var(--space-4)" }}
