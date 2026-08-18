@@ -707,6 +707,8 @@ export const de = {
   "tab.timeline": "Verlauf",
   "tab.documents": "Dokumente",
   "tab.profile": "Profil",
+  "tab.meetings": "Termine",
+  "tab.research": "Recherche",
   // Das Briefing nach den Fragen, die es beantwortet, und die Art jeder
   // Aussage — eine Einschätzung darf nicht wie ein Fakt wirken.
   "co.brief.section.snapshot": "Was sie sind",
@@ -1133,17 +1135,17 @@ export const de = {
   "co.connections.group.intro_path": "der warme Einstieg",
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
-  "co.chronology.label": "Was im Verlauf angezeigt wird",
-  "co.chronology.activities": "Aktivitäten",
-  "co.chronology.changes": "Änderungen",
-  "co.chronology.all": "Alles",
-  "co.chronology.changesEmpty":
+  "chronology.label": "Was im Verlauf angezeigt wird",
+  "chronology.activities": "Aktivitäten",
+  "chronology.changes": "Änderungen",
+  "chronology.all": "Alles",
+  "chronology.changesEmpty":
     "Seit dem Anlegen wurde kein Feld dieses Datensatzes geändert.",
-  "co.chronology.allEmpty": "Zu diesem Account ist noch nichts passiert.",
-  "co.chronology.truncated":
+  "chronology.allEmpty": "Zu diesem Datensatz ist noch nichts passiert.",
+  "chronology.truncated":
     "Ältere Einträge fehlen hier — es gibt mehr von beidem, als diese Ansicht in eine Reihenfolge bringen kann. Wähle Aktivitäten oder Änderungen, um weiter zurückzulesen.",
-  "co.chronology.truncatedActivities":
-    "Dieser Account hat mehr Aktivitäten, als hier hineinpassen. Gezeigt werden nur die neuesten.",
+  "chronology.truncatedActivities":
+    "Es gibt hier mehr Aktivitäten, als hineinpassen. Gezeigt werden nur die neuesten.",
   "timeline.sent": "Gesendet",
   "timeline.received": "Erhalten",
   "timeline.textMore": "Lesen",
@@ -5021,14 +5023,7 @@ export const de = {
     "Diese Unternehmensverbindung entfernen?",
   "person.rail.removeEmploymentBody":
     "Die Verbindung zu {org} und die daran hängende Historie verschwinden, und das lässt sich nicht rückgängig machen. {org} selbst bleibt. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
-  "person.tab.overview": "Übersicht",
-  "person.tab.activity": "Aktivität",
-  "person.tab.deals": "Deals",
-  "person.tab.meetings": "Termine",
-  "person.tab.research": "Recherche",
-  "person.tab.files": "Dateien",
-  "person.tab.history": "Verlauf",
-  "person.activity.empty": "Mit ihnen wurde noch nichts erfasst.",
+  "person.timeline.empty": "Mit ihnen wurde noch nichts erfasst.",
   "person.deals.empty": "Sie sind auf keinem Deal erfasst.",
   "person.deals.untitled": "Deal ohne Titel",
   "person.deals.noStage": "Noch keine Phase",
@@ -5038,7 +5033,7 @@ export const de = {
   "person.meetings.noneLogged": "Es ist kein Termin mit ihnen erfasst.",
   "person.meetings.untitled": "Termin ohne Betreff",
   "person.meetings.participants": "Im Raum",
-  "person.files.empty": "Zu diesem Kontakt liegt keine Datei.",
+  "person.documents.empty": "Zu diesem Kontakt liegt keine Datei.",
   "person.research.empty": "Zu ihnen wurde noch nichts recherchiert.",
   "person.research.fields": "Belege der Anreicherung",
   "person.research.fieldsEmpty":

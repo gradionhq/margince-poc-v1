@@ -6,9 +6,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import {
-  PersonActivityTab,
   PersonDealsTab,
   PersonMeetingsTab,
+  PersonTimelineTab,
 } from "./persontabs";
 
 type Person360 = components["schemas"]["Person360"];
@@ -90,14 +90,22 @@ const withheld: Person360 = {
   sections_omitted: ["activities", "deal_roles", "next_meeting"],
 } as unknown as Person360;
 
-describe("the activity tab", () => {
+describe("the timeline tab", () => {
   it("draws the exchanges the 360 carried", () => {
-    withProviders(<PersonActivityTab view={view} />);
+    withProviders(<PersonTimelineTab personId="p-1" view={view} />);
     expect(screen.getByText("Fleet renewal")).toBeTruthy();
   });
 
+  it("opens on the activities the record already holds, not on its changes", () => {
+    // The changes feed is a second read, and a tab that fired it on open
+    // would spend it on every reader who never asked for changes.
+    withProviders(<PersonTimelineTab personId="p-1" view={view} />);
+    const activities = screen.getByRole("button", { name: "Activities" });
+    expect(activities.getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("says the section is withheld rather than drawing it empty", () => {
-    withProviders(<PersonActivityTab view={withheld} />);
+    withProviders(<PersonTimelineTab personId="p-1" view={withheld} />);
     expect(screen.queryByText(/Nothing has been logged/)).toBeNull();
     expect(
       screen.getByText("Hidden — your role cannot read this"),

@@ -2257,7 +2257,7 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     );
     expect(
       screen.getByText(
-        "This account has more activities than fit here. Only the most recent ones are listed.",
+        "There are more activities here than fit. Only the most recent ones are listed.",
       ),
     ).toBeTruthy();
   });

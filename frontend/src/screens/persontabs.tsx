@@ -5,61 +5,138 @@ import { Avatar } from "../design-system/atoms";
 import { GroupedTimelineList } from "../design-system/composed";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
-import { SurfaceState, sectionState } from "../design-system/surfacestate";
+import {
+  type SectionState,
+  SurfaceState,
+  sectionState,
+} from "../design-system/surfacestate";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { useViewerId } from "./common";
 import { RECORD_ZONE } from "./company360";
 import { PersonCommercialCard, readableRole } from "./personcards";
+import {
+  CHRONOLOGY_EMPTY_KEYS,
+  ChronologyFilter,
+  ChronologyFooter,
+  hasChronologyFooter,
+  type RecordChronology,
+  type TimelineFilter,
+  useChronologyFilter,
+  useRecordChronology,
+} from "./recordchronology";
 import { groupChronology } from "./timelinegroups";
 import "./person360.css";
 
-// The three tabs that are a READ of what the 360 already assembled — the same
-// rule the overview cards hold to (personcards.tsx): none of them fetches, so
-// a tab can never show a record the tab beside it is withholding. Files and
-// History fetch, because the 360 does not carry them.
+// The tabs beside Overview that read what the 360 already assembled — the same
+// rule the overview cards hold to (personcards.tsx): a tab can never show a
+// record the tab beside it is withholding. The Timeline's CHANGES half and the
+// Files tab are the exceptions, and they fetch because the 360 carries
+// neither.
 
 type Person360 = components["schemas"]["Person360"];
 type Activity = components["schemas"]["Activity"];
 
-// --- Activity ---------------------------------------------------------------
+// --- Timeline ---------------------------------------------------------------
 
 /**
- * PersonActivityTab is the chronology, grouped into the exchanges a reader
- * recognises rather than one row per transport event.
+ * PersonTimelineTab is the contact's ONE chronology: what was said to them and
+ * what was changed about them, in one order, through the same
+ * `useRecordChronology` the account page reads. They were two tabs for a
+ * release, and a reader who wanted them in order had to interleave two lists
+ * by hand.
  *
- * It reads the 360's own activities section, which is a PAGE: when the server
- * says there is more, the tab says so through `partial` rather than letting a
- * cut list read as the whole ledger.
+ * The activities half is the 360's own section — already fetched, and a PAGE:
+ * when the server says there is more, the tab says so rather than letting a
+ * cut list read as the whole ledger. The changes half is fetched here, and
+ * only once the reader asks for it.
  */
-export function PersonActivityTab({
+export function PersonTimelineTab({
+  personId,
   view,
   loading = false,
-}: Readonly<{ view?: Person360; loading?: boolean }>) {
+}: Readonly<{ personId: string; view?: Person360; loading?: boolean }>) {
   const t = useT();
-  const viewerId = useViewerId();
+  const [filter, setFilter] = useChronologyFilter(personId);
   const logged = view?.activities?.data ?? [];
   const hasMore = view?.activities?.page.has_more ?? false;
-  const base = sectionState(
-    view,
-    "activities",
-    Boolean(view?.activities),
-    logged.length,
-    loading,
-  );
-  const groups = groupChronology(activityTimeline(logged, viewerId), hasMore);
+  const chronology = useRecordChronology({
+    kind: "person",
+    recordId: personId,
+    filter,
+    activities: logged,
+    activitiesHaveMore: hasMore,
+  });
   return (
-    <Panel title={t("person.tab.activity")}>
+    <Panel
+      title={t("tab.timeline")}
+      titleAction={<ChronologyFilter filter={filter} onFilter={setFilter} />}
+      actions={
+        hasChronologyFooter(filter, chronology) ? (
+          <ChronologyFooter filter={filter} chronology={chronology} />
+        ) : undefined
+      }
+    >
       <PanelBody>
         <SurfaceState
-          state={base === "ready" && hasMore ? "partial" : base}
-          emptyLabel={t("person.activity.empty")}
+          state={timelineState(
+            view,
+            filter,
+            chronology,
+            logged.length,
+            loading,
+          )}
+          emptyLabel={
+            filter === "activities"
+              ? t("person.timeline.empty")
+              : t(CHRONOLOGY_EMPTY_KEYS[filter])
+          }
+          detail={
+            filter === "activities"
+              ? undefined
+              : { onRetry: chronology.changes.refetch }
+          }
         >
-          <GroupedTimelineList groups={groups} zone={RECORD_ZONE} />
+          <GroupedTimelineList
+            groups={groupChronology(chronology.entries, hasMore)}
+            zone={RECORD_ZONE}
+          />
         </SurfaceState>
       </PanelBody>
     </Panel>
   );
+}
+
+/**
+ * timelineState reads the state of whichever feed the FILTER is actually
+ * showing. The two halves fail independently: a 360 that withheld its
+ * activities says nothing about the change feed, and reporting the Changes
+ * view as withheld on that basis would hide rows that loaded perfectly well.
+ */
+function timelineState(
+  view: Person360 | undefined,
+  filter: TimelineFilter,
+  chronology: RecordChronology,
+  activityCount: number,
+  loading: boolean,
+): SectionState {
+  if (filter === "activities") {
+    const base = sectionState(
+      view,
+      "activities",
+      Boolean(view?.activities),
+      activityCount,
+      loading,
+    );
+    return base === "ready" && chronology.truncated ? "partial" : base;
+  }
+  if (chronology.loading) {
+    return "loading";
+  }
+  if (chronology.failed) {
+    return "failed";
+  }
+  return chronology.entries.length === 0 ? "empty" : "ready";
 }
 
 // --- Deals ------------------------------------------------------------------
@@ -88,7 +165,7 @@ export function PersonDealsTab({
   );
   return (
     <div className="pe-overview-stack">
-      <Panel title={t("person.tab.deals")}>
+      <Panel title={t("tab.deals")}>
         <SurfaceState state={state} emptyLabel={t("person.deals.empty")}>
           {roles.map((role) => (
             <PanelRow className="pe-row" key={role.relationship_id}>

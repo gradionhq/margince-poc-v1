@@ -19,7 +19,6 @@ import { RecordView } from "../design-system/composed";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
-import { RecordHistoryTab } from "./history";
 import {
   hasCommercial,
   hasCommitments,
@@ -40,9 +39,9 @@ import { PersonRail } from "./personrail";
 import { PersonResearchTab } from "./personresearch";
 import { PersonStrip } from "./personstrip";
 import {
-  PersonActivityTab,
   PersonDealsTab,
   PersonMeetingsTab,
+  PersonTimelineTab,
 } from "./persontabs";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
@@ -56,27 +55,31 @@ import "./person360.css";
 type Person360 = components["schemas"]["Person360"];
 type PersonMomentAction = components["schemas"]["PersonMomentAction"];
 
-// The seven tabs, in the concept's order (§5.4). URL-addressable, so a tab
+// The six tabs, in the concept's order (§5.4). URL-addressable, so a tab
 // survives a reload and can be linked to.
+//
+// Activity and History are ONE tab, as they are on the account page: what was
+// said to a contact and what was changed about them are one chronology to the
+// person reading them, and the filter above the list is what separates them.
 export const PERSON_TABS = [
   "overview",
-  "activity",
+  "timeline",
   "deals",
   "meetings",
   "research",
-  "files",
-  "history",
+  "documents",
 ] as const;
 export type PersonTab = (typeof PERSON_TABS)[number];
 
+// The tab words every record page shares. A private set for this page is how
+// the same tab came to read "Timeline" here and "History" on the account.
 const TAB_LABEL_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
-  overview: "person.tab.overview",
-  activity: "person.tab.activity",
-  deals: "person.tab.deals",
-  meetings: "person.tab.meetings",
-  research: "person.tab.research",
-  files: "person.tab.files",
-  history: "person.tab.history",
+  overview: "tab.overview",
+  timeline: "tab.timeline",
+  deals: "tab.deals",
+  meetings: "tab.meetings",
+  research: "tab.research",
+  documents: "tab.documents",
 };
 
 export function isPersonTab(value: string | undefined): value is PersonTab {
@@ -122,20 +125,16 @@ function PersonTabPanel({
   view,
 }: Readonly<{ tab: PersonTab; personId: string; view: Person360 }>) {
   switch (tab) {
-    case "activity":
-      return <PersonActivityTab view={view} />;
+    case "timeline":
+      return <PersonTimelineTab personId={personId} view={view} />;
     case "deals":
       return <PersonDealsTab view={view} />;
     case "meetings":
       return <PersonMeetingsTab view={view} />;
     case "research":
       return <PersonResearchTab view={view} />;
-    case "files":
+    case "documents":
       return <PersonFilesTab personId={personId} />;
-    case "history":
-      // The record-level audit projection every record page shares — the
-      // person's own spelling of it would be a second rendering of one spine.
-      return <RecordHistoryTab kind="person" id={personId} />;
     // Overview is drawn by the page itself, above this component: its stack
     // reads the page's other queries (the brief) and its moment drives the
     // page's own action loop.
@@ -312,12 +311,11 @@ export function PersonPageV2({
             onChange={(next) => navigate({ screen: "contacts", id, id2: next })}
             labels={{
               overview: t(TAB_LABEL_KEYS.overview),
-              activity: t(TAB_LABEL_KEYS.activity),
+              timeline: t(TAB_LABEL_KEYS.timeline),
               deals: t(TAB_LABEL_KEYS.deals),
               meetings: t(TAB_LABEL_KEYS.meetings),
               research: t(TAB_LABEL_KEYS.research),
-              files: t(TAB_LABEL_KEYS.files),
-              history: t(TAB_LABEL_KEYS.history),
+              documents: t(TAB_LABEL_KEYS.documents),
             }}
           />
         </div>

@@ -720,6 +720,8 @@ export const en = {
   "tab.timeline": "History",
   "tab.documents": "Documents",
   "tab.profile": "Profile",
+  "tab.meetings": "Meetings",
+  "tab.research": "Research",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",
@@ -1146,17 +1148,17 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
-  "co.chronology.label": "What to show in the timeline",
-  "co.chronology.activities": "Activities",
-  "co.chronology.changes": "Changes",
-  "co.chronology.all": "All",
-  "co.chronology.changesEmpty":
+  "chronology.label": "What to show in the timeline",
+  "chronology.activities": "Activities",
+  "chronology.changes": "Changes",
+  "chronology.all": "All",
+  "chronology.changesEmpty":
     "No field on this record has been changed since it was created.",
-  "co.chronology.allEmpty": "Nothing has happened on this account yet.",
-  "co.chronology.truncated":
+  "chronology.allEmpty": "Nothing has happened on this record yet.",
+  "chronology.truncated":
     "Older entries are not shown here — there are more of both kinds than this view can put in order. Pick Activities or Changes to read further back.",
-  "co.chronology.truncatedActivities":
-    "This account has more activities than fit here. Only the most recent ones are listed.",
+  "chronology.truncatedActivities":
+    "There are more activities here than fit. Only the most recent ones are listed.",
   "timeline.sent": "Sent",
   "timeline.received": "Received",
   "timeline.textMore": "Read it",
@@ -5012,14 +5014,7 @@ export const en = {
   "person.rail.removeEmploymentTitle": "Remove this company connection?",
   "person.rail.removeEmploymentBody":
     "The link to {org} and the history hanging off it disappear, and this cannot be undone. {org} itself stays. If they simply left, mark it ended instead.",
-  "person.tab.overview": "Overview",
-  "person.tab.activity": "Activity",
-  "person.tab.deals": "Deals",
-  "person.tab.meetings": "Meetings",
-  "person.tab.research": "Research",
-  "person.tab.files": "Files",
-  "person.tab.history": "History",
-  "person.activity.empty": "Nothing has been logged with them yet.",
+  "person.timeline.empty": "Nothing has been logged with them yet.",
   "person.deals.empty": "They are not recorded on any deal.",
   "person.deals.untitled": "Untitled deal",
   "person.deals.noStage": "No stage yet",
@@ -5029,7 +5024,7 @@ export const en = {
   "person.meetings.noneLogged": "No meeting with them has been logged.",
   "person.meetings.untitled": "Untitled meeting",
   "person.meetings.participants": "In the room",
-  "person.files.empty": "No file has been filed against this contact.",
+  "person.documents.empty": "No file has been filed against this contact.",
   "person.research.empty": "Nothing has been researched about them yet.",
   "person.research.fields": "Enrichment evidence",
   "person.research.fieldsEmpty": "No enriched field carries evidence yet.",

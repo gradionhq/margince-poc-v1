@@ -72,10 +72,10 @@ export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
           : "ready";
 
   return (
-    <Panel title={t("person.tab.files")}>
+    <Panel title={t("tab.documents")}>
       <SurfaceState
         state={state}
-        emptyLabel={t("person.files.empty")}
+        emptyLabel={t("person.documents.empty")}
         detail={
           state === "failed"
             ? { onRetry: () => void query.refetch() }

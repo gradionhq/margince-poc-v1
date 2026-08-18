@@ -49,7 +49,7 @@ export function PersonResearchTab({
   // this says it once.
   if (view && providerHasNothing && fieldsState === "empty") {
     return (
-      <Panel title={t("person.tab.research")}>
+      <Panel title={t("tab.research")}>
         <PanelBody>
           <SurfaceState state="empty" emptyLabel={t("person.research.empty")}>
             {null}

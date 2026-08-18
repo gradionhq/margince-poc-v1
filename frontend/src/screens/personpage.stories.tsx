@@ -21,9 +21,9 @@ import { PersonPageV2 } from "./personpage";
 import { PersonRail } from "./personrail";
 import { PersonStrip } from "./personstrip";
 import {
-  PersonActivityTab,
   PersonDealsTab,
   PersonMeetingsTab,
+  PersonTimelineTab,
 } from "./persontabs";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
@@ -1717,18 +1717,18 @@ export const ProviderNotConfigured: Story = {
 // not reach the section sees — the withheld half is the one a stubbed empty
 // state would silently misreport as "there is none".
 
-export const TabActivity: Story = {
+export const TabTimeline: Story = {
   render: () => (
     <StoryProviders>
-      <PersonActivityTab view={populated} />
+      <PersonTimelineTab personId="p-1" view={populated} />
     </StoryProviders>
   ),
 };
 
-export const TabActivityWithheld: Story = {
+export const TabTimelineWithheld: Story = {
   render: () => (
     <StoryProviders>
-      <PersonActivityTab view={withheld} />
+      <PersonTimelineTab personId="p-1" view={withheld} />
     </StoryProviders>
   ),
 };
