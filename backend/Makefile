@@ -245,10 +245,18 @@ test-db-up: composition ## (Re)build the migrated margince_test template the par
 test-it: composition ## Run ONE integration package (optionally RUN=Regex) on a throwaway clone: make test-it DIR=backend/internal/modules/people [RUN=TestName]
 	@$(GOWORK_COMPOSED) bash ../scripts/test-integration-one.sh "$(DIR)" "$(RUN)"
 
+# The lane's connection ceiling and budget, for a lane that runs ONE package at a
+# time. Declared in scripts/lib-testdb.sh like every other lane's, and evaluated
+# lazily (`=`, not `:=`) so a make invocation that never runs the serial lane
+# does not pay for a shell. The harness asserts both rather than skipping: this
+# target fails on any SKIP, so a capacity check that quietly opted out would take
+# the whole lane red for a reason that has nothing to do with the tests.
+LANE_BUDGET_ENV = $(shell bash -c 'cd .. && source scripts/lib-testdb.sh && declare_lane_budget 1 && echo LANE_CONN_BUDGET=$$LANE_CONN_BUDGET MARGINCE_TEST_POOL_MAX_CONNS=$$MARGINCE_TEST_POOL_MAX_CONNS')
+
 test-integration-serial: composition ## Escape hatch: the old sequential lane, all packages on the shared margince_test DB (debugging a parallel-isolation issue).
 	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && ensure_template'
 	@log=$$(mktemp); st=$$(mktemp); \
-	{ $(GOWORK_COMPOSED) $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
+	{ $(GOWORK_COMPOSED) env $(LANE_BUDGET_ENV) $(GO) test -tags integration -p 1 -v ./... 2>&1; echo $$? >"$$st"; } | tee "$$log"; \
 	code=$$(cat "$$st"); rm -f "$$st"; \
 	if [ "$$code" -ne 0 ]; then rm -f "$$log"; exit "$$code"; fi; \
 	if grep -q -- '--- SKIP' "$$log"; then \
