@@ -24,7 +24,10 @@ import { DetailsGrid } from "./companyraildetails";
 
 type Organization = components["schemas"]["Organization"];
 
-const ORG = {
+// A COMPLETE Organization, not a cast one: a fixture asserted into the contract
+// type can drop a required field and still compile, so the test would go on
+// passing after the wire shape moved under it.
+const ORG: Organization = {
   id: "o-1",
   display_name: "Brandt Automotive GmbH",
   lifecycle: "customer",
@@ -35,7 +38,12 @@ const ORG = {
   version: 1,
   created_at: "2026-06-01T08:00:00Z",
   updated_at: "2026-06-01T08:00:00Z",
-} as unknown as Organization;
+};
+
+// The same record with one address part filled — the state that keeps the
+// disclosure open. Typed, so a part name the wire stops carrying fails here
+// rather than quietly asserting on a field the grid no longer reads.
+const ORG_WITH_CITY: Organization = { ...ORG, address: { city: "Berlin" } };
 
 // The six part labels, in the order the grid draws them.
 const PART_LABELS = [
@@ -114,10 +122,7 @@ describe("the postal address, behind one line until it has something in it", () 
   });
 
   it("opens on a half-filled address and reads the part that is set", async () => {
-    await renderSettledGrid({
-      ...ORG,
-      address: { city: "Berlin" },
-    } as unknown as Organization);
+    await renderSettledGrid(ORG_WITH_CITY);
 
     expect(document.querySelector("details")?.open).toBe(true);
     expect(screen.getByText("Address")).toBeVisible();

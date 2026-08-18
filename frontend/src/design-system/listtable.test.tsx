@@ -642,6 +642,7 @@ describe("pagination", () => {
   });
 
   it("clicking page 2 renders rows 26 through 50", async () => {
+    const user = userEvent.setup();
     const data = testRows(60);
     render(
       <ListTable
@@ -651,7 +652,7 @@ describe("pagination", () => {
         unit="rows"
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Page 2" }));
+    await user.click(screen.getByRole("button", { name: "Page 2" }));
     expect(screen.getByText(data[25].name)).toBeTruthy();
     expect(screen.queryByText(data[0].name)).toBeNull();
   });
@@ -746,6 +747,7 @@ describe("pagination", () => {
   });
 
   it("reaches page one from the strip rather than by walking Prev", async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <ListTable
         rows={testRows(100)}
@@ -757,12 +759,12 @@ describe("pagination", () => {
     const slots = () => container.querySelectorAll(".lt-pager > *").length;
     const atFirstPage = slots();
 
-    await userEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    await user.click(screen.getByRole("button", { name: "Page 3" }));
     // The room a gap would take is rendered, not merely counted, so the strip
     // holds its width and Next stays where the reader clicked it.
     expect(slots()).toBe(atFirstPage);
 
-    await userEvent.click(screen.getByRole("button", { name: "Page 1" }));
+    await user.click(screen.getByRole("button", { name: "Page 1" }));
     expect(
       screen
         .getByRole("button", { name: "Page 1" })
@@ -784,6 +786,7 @@ describe("pagination", () => {
   });
 
   it("disables Next on the last loaded page when hasMore is false, and enables it (calling onLoadMore) when hasMore is true", async () => {
+    const user = userEvent.setup();
     const data = testRows(60);
     const onLoadMore = vi.fn();
     const { rerender } = render(
@@ -795,7 +798,7 @@ describe("pagination", () => {
         hasMore={false}
       />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "Page 3" }));
+    await user.click(screen.getByRole("button", { name: "Page 3" }));
     expect(
       screen.getByRole("button", { name: "Next ›" }).hasAttribute("disabled"),
     ).toBe(true);
@@ -814,7 +817,7 @@ describe("pagination", () => {
     );
     const next = screen.getByRole("button", { name: "Next ›" });
     expect(next.hasAttribute("disabled")).toBe(false);
-    await userEvent.click(next);
+    await user.click(next);
     expect(onLoadMore).toHaveBeenCalled();
   });
 });

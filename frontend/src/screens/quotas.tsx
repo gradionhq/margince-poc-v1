@@ -414,7 +414,7 @@ function QuotaSelector({
     // bordered boxes inset inside a card. The press target fills the row: the
     // row is what a reader aims at, and PanelRow keeps the hairline and hover.
     <Panel
-      title={t("quotas.tab")}
+      title={t("quotas.selector.title")}
       titleAction={
         <SetTargetAction label={t("quotas.target.new")} onCreated={onCreated} />
       }

@@ -4637,6 +4637,10 @@ export const vi = {
   // Quotas & attainment (RD-T06): human-set revenue targets with
   // server-computed attainment, surfaced under the Reports "Quotas" segment.
   "quotas.tab": "Chỉ tiêu",
+  // The selector panel's own title. The Reports segment picker directly above
+  // it already reads "Quotas", so this names what the LIST holds — one row per
+  // owner or team carrying a target — rather than repeating the page.
+  "quotas.selector.title": "Ai đang có chỉ tiêu",
   "quotas.sub": "mục tiêu doanh thu — do người đặt, mức đạt do hệ thống tính",
   "quotas.role.owner": "Chỉ tiêu cá nhân",
   "quotas.role.team": "Chỉ tiêu nhóm",

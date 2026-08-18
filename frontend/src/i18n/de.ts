@@ -4665,6 +4665,10 @@ export const de = {
   // Quotas & Zielerreichung (RD-T06): menschlich gesetzte Umsatzziele mit
   // serverseitig berechneter Zielerreichung, im Reports-Segment „Quotas“.
   "quotas.tab": "Quotas",
+  // Der Titel des Auswahl-Panels. Die Segmentleiste direkt darüber sagt schon
+  // „Quotas“, deshalb benennt dieser Titel, was die LISTE enthält — eine Zeile
+  // je Inhaber oder Team mit einem Ziel — statt die Seite zu wiederholen.
+  "quotas.selector.title": "Wer eine Quota hat",
   "quotas.sub": "Umsatzziele — menschlich gesetzt, Zielerreichung berechnet",
   "quotas.role.owner": "Individuelle Quota",
   "quotas.role.team": "Team-Quota",

@@ -52,6 +52,25 @@ const allowedFamilies = new Set([
 // nothing. Declared on the suite so every gate this file grows inherits it.
 const scanBudget = { timeout: 60_000 };
 
+// The value of a JSX attribute when the source states it as a literal string.
+// The role gate below needs the value itself, not the initializer's text: a
+// substring test for `status` reads `role={role}` as some other role and
+// `role="statusbar"` as `status`, wrong in both directions. Anything computed —
+// a variable, a call, a template with a substitution — has no value this file
+// can read, and returns undefined.
+function literalAttributeValue(initializer: ts.Node): string | undefined {
+  if (
+    ts.isStringLiteral(initializer) ||
+    ts.isNoSubstitutionTemplateLiteral(initializer)
+  ) {
+    return initializer.text;
+  }
+  if (ts.isJsxExpression(initializer) && initializer.expression !== undefined) {
+    return literalAttributeValue(initializer.expression);
+  }
+  return undefined;
+}
+
 describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   it("uses only the three §2 type families", () => {
     for (const file of files) {
@@ -340,7 +359,11 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   // able to claim it is a modal — so a surface that has to announce itself as a
   // `dialog` (app/fab.tsx's anchored panel) or a `note`
   // (design-system/explain.tsx's popover) has no component to reach for. Both
-  // say so in-source where they do it.
+  // say so in-source where they do it. The exemption reads the role's LITERAL
+  // value and compares it exactly to `status`. A role the source computes
+  // (`role={role}`) is NOT an exemption: the gate cannot know what it evaluates
+  // to, so it asks rather than assumes — an unreadable role that waved the card
+  // through would be the one surface nobody was checking.
   it("renders every card through Card — no hand-rolled card classes", () => {
     const violations: string[] = [];
     for (const file of files) {
@@ -377,13 +400,17 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
             const tokens = fragment.split(/\s+/);
             return tokens.includes("card") || tokens.includes("card-inset");
           });
-          const declaresOtherRole = node.parent.properties.some(
-            (property) =>
-              ts.isJsxAttribute(property) &&
-              property.name.getText() === "role" &&
-              property.initializer !== undefined &&
-              !property.initializer.getText().includes("status"),
-          );
+          const declaresOtherRole = node.parent.properties.some((property) => {
+            if (
+              !ts.isJsxAttribute(property) ||
+              property.name.getText() !== "role" ||
+              property.initializer === undefined
+            ) {
+              return false;
+            }
+            const role = literalAttributeValue(property.initializer);
+            return role !== undefined && role !== "status";
+          });
           if (handRolled && !declaresOtherRole) {
             const { line } = source.getLineAndCharacterOfPosition(
               node.getStart(),
