@@ -286,6 +286,14 @@ func sarRecordSections(pkg *SARPackage) []sarSection {
 		      OR l.id IN (SELECT converted_from_lead_id FROM person WHERE id = $1 AND converted_from_lead_id IS NOT NULL)
 		      OR (l.email IS NOT NULL AND EXISTS (
 		            SELECT 1 FROM person_email pe WHERE pe.person_id = $1 AND pe.email = lower(l.email)))`, nil},
+		// Art. 15 reaches a record the statutory floor is HOLDING about this
+		// subject, and does so deliberately: the restriction bars further
+		// PROCESSING of the record, not the subject's own access to what is
+		// held about them (A165/ADR-0114 — the subject's Art. 15 access is
+		// named among what does not change). Every other reader in this tree
+		// excludes `restricted_at IS NOT NULL`; this is the one that must not,
+		// and saying so here is what keeps the omission a decision rather than
+		// an oversight the next reader "fixes".
 		{&pkg.Activities, `SELECT a.id, a.kind, a.subject, a.body, a.occurred_at, a.source_system
 		   FROM activity a JOIN activity_link l ON l.activity_id = a.id
 		   WHERE l.person_id = $1`, nil},

@@ -184,7 +184,8 @@ func (s *Store) MarkSignatureRead(ctx context.Context, personID ids.PersonID, ac
 		// number, and only one of them can be the row itself.
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO person_signature_enrich_state (workspace_id, person_id, activity_id, last_activity_at)
-			SELECT $1, $2, a.id, a.occurred_at FROM activity a WHERE a.id = $3
+			SELECT $1, $2, a.id, a.occurred_at FROM activity a
+			 WHERE a.id = $3 AND a.restricted_at IS NULL
 			ON CONFLICT (person_id) DO UPDATE
 			SET activity_id = EXCLUDED.activity_id,
 			    last_activity_at = GREATEST(person_signature_enrich_state.last_activity_at,

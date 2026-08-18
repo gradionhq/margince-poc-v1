@@ -2291,6 +2291,8 @@ export const en = {
   "restricted.pin.action": "Pin a record",
   "restricted.pin.idHint":
     "For correspondence the automatic rule cannot recognise — supplier and purchasing mail qualifies under §257 HGB and has no deal in this product to hang off. The record id is on its audit entry.",
+  "restricted.pin.idMalformed":
+    "That is not a record id. It looks like 8-4-4-4-12 hexadecimal characters, and the audit entry for the record shows it in full.",
   "restricted.pin.idPlaceholder": "Record id",
   "restricted.pin.title": "Place this record under the retention floor?",
   "restricted.pin.body":

@@ -2304,6 +2304,8 @@ export const de = {
   "restricted.pin.action": "Datensatz festsetzen",
   "restricted.pin.idHint":
     "Für Korrespondenz, die die automatische Regel nicht erkennt — Lieferanten- und Einkaufspost ist nach §257 HGB aufbewahrungspflichtig und hat in diesem Produkt kein Geschäft, an dem sie hängt. Die Datensatz-ID steht im Audit-Eintrag.",
+  "restricted.pin.idMalformed":
+    "Das ist keine Datensatz-ID. Sie besteht aus 8-4-4-4-12 Hexadezimalzeichen und steht vollständig im Audit-Eintrag des Datensatzes.",
   "restricted.pin.idPlaceholder": "Datensatz-ID",
   "restricted.pin.title":
     "Diesen Datensatz der Aufbewahrungspflicht unterstellen?",

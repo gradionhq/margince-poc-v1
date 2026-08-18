@@ -60,25 +60,19 @@ func (e *Eraser) ReleaseRestriction(ctx context.Context, activityID ids.UUID, re
 		if err != nil {
 			return err
 		}
-		var class string
-		err = tx.QueryRow(ctx, `
-			UPDATE activity a
-			   SET restricted_at = NULL, restricted_reason = NULL, restricted_until = NULL,
-			       subject = NULL, body = NULL, raw = NULL, counterparty_email = NULL,
-			       redacted_fields = a.redacted_fields || ARRAY(SELECT c FROM unnest(ARRAY[
-			           CASE WHEN a.subject IS NOT NULL THEN 'subject' END,
-			           CASE WHEN a.body IS NOT NULL THEN 'body' END]) AS c
-			         WHERE c IS NOT NULL),
-			       archived_at = coalesce(a.archived_at, now())
-			 WHERE a.id = $1 AND a.restricted_at IS NOT NULL
-			 RETURNING a.retention_class`, activityID).Scan(&class)
+		// The same lift the expiry sweep performs, under the same legal-hold
+		// exclusion: a litigation hold says somebody must keep this record,
+		// and it outranks BOTH the clock and a controller's decision until it
+		// is lifted. A release that destroyed held evidence would spoliate
+		// exactly what the nightly pass refuses to touch.
+		class, err := liftAndEraseHeldRecord(ctx, tx, activityID, notHeldThroughAnyLink("a.id"))
 		if errors.Is(err, pgx.ErrNoRows) {
 			return releaseFoundNothing(ctx, tx, activityID)
 		}
 		if err != nil {
 			return err
 		}
-		if err := e.purgeReleasedRecordTraces(ctx, tx, activityID); err != nil {
+		if err := e.purgeHeldRecordTraces(ctx, tx, activityID); err != nil {
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionRelease, "activity", activityID, nil, nil, map[string]any{
@@ -95,44 +89,29 @@ func (e *Eraser) ReleaseRestriction(ctx context.Context, activityID ids.UUID, re
 	})
 }
 
-// releaseFoundNothing tells the two ways a release matches no row apart. A
-// record that never existed — or that this workspace does not hold — is a 404;
-// one that exists and is no longer restricted is a 409, because the window
-// elapsed or another administrator released it first and there is nothing
-// left to release. Reporting both as not-found would tell an administrator
-// their decision failed when the outcome they wanted already happened.
+// releaseFoundNothing tells the three ways a release matches no row apart,
+// because an administrator acting on a list needs to know which happened. A
+// record that never existed — or that this workspace does not hold — is a 404.
+// One under a legal hold is a 409 naming the hold: the decision was refused,
+// not lost. One that exists and is no longer restricted is also a 409, because
+// the window elapsed or another administrator released it first and there is
+// nothing left to release. Reporting any of them as not-found would tell an
+// administrator their target does not exist when it does.
 func releaseFoundNothing(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
-	var exists bool
-	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM activity WHERE id = $1)`, activityID).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
+	var exists, held bool
+	err := tx.QueryRow(ctx, `
+		SELECT true, NOT EXISTS (SELECT 1 FROM activity a WHERE a.id = $1 `+notHeldThroughAnyLink("a.id")+`)
+		  FROM activity WHERE id = $1`, activityID).Scan(&exists, &held)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return apperrors.ErrNotFound
 	}
+	if err != nil {
+		return err
+	}
+	if held {
+		return fmt.Errorf("a legal hold on a record linked to this one outranks the erasure until it is lifted: %w", apperrors.ErrConflict)
+	}
 	return fmt.Errorf("the record is no longer under a retention obligation: %w", apperrors.ErrConflict)
-}
-
-// purgeReleasedRecordTraces finishes the erasure over the copies derived from
-// the body a release just destroyed — the same set the expiry sweep purges,
-// because the two paths end in the same place and a record must not be more
-// thoroughly erased by the clock than by a controller's decision.
-func (e *Eraser) purgeReleasedRecordTraces(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, activityID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM field_provenance WHERE object_type = 'activity' AND object_id = $1`, activityID); err != nil {
-		return err
-	}
-	if err := purgeTranscriptReadings(ctx, tx, []ids.UUID{activityID}); err != nil {
-		return err
-	}
-	if err := e.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, activityID); err != nil {
-		return err
-	}
-	return redactDeliveries(ctx, tx, []ids.UUID{activityID}, erasedName)
 }
 
 // PinToFloor places a record under the statutory floor that the derivation
@@ -147,6 +126,12 @@ func (e *Eraser) purgeReleasedRecordTraces(ctx context.Context, tx pgx.Tx, activ
 // class's period or treatment; what a pin sets is the claim that THIS record
 // is correspondence of that class — a finding of fact about a document, made
 // by a named person, recorded with a reason.
+//
+// `restricted_reason` on the row carries the CLASS, exactly as a derived
+// restriction writes it (erasure_restrict.go), NOT the controller's words:
+// the row says which obligation holds it, and who decided and why lives in
+// the evidence row and the audit tombstone, where an accountability question
+// is actually answered.
 func (e *Eraser) PinToFloor(ctx context.Context, activityID ids.UUID, reason StatedReason) error {
 	interval, anchor := statutoryFloorArgs()
 	return e.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -154,8 +139,11 @@ func (e *Eraser) PinToFloor(ctx context.Context, activityID ids.UUID, reason Sta
 		if err != nil {
 			return err
 		}
-		if err := pinnableActivity(ctx, tx, activityID); err != nil {
-			return err
+		if err := auth.EnsureActivityVisible(ctx, tx, activityID); err != nil {
+			// A held record reads as gone to every reader (A165 §2), so a
+			// not-found here is ambiguous on its own. pinRefusalFor says which
+			// it was: a record that is not there, or one already held.
+			return pinRefusalFor(ctx, tx, activityID, err)
 		}
 		if err := recordPinEvidence(ctx, tx, activityID, decision); err != nil {
 			return err
@@ -201,18 +189,21 @@ func (e *Eraser) PinToFloor(ctx context.Context, activityID ids.UUID, reason Sta
 	})
 }
 
-// pinnableActivity resolves the record a pin names, and tells "not there" from
-// "already held" — which the ordinary visibility probe cannot, because a held
-// record reads as gone to every reader by design (A165 §2). Answering
-// not-found for a record another administrator pinned a moment earlier would
-// tell the second one their target does not exist, when it exists and is
-// already doing what they asked for.
-func pinnableActivity(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
+// pinRefusalFor reads a visibility refusal for what it actually was. The probe
+// answers not-found for a record that is not there AND for one already held,
+// because holding a record is what makes it unreadable — so telling the second
+// administrator their target does not exist, when it exists and is already
+// doing what they asked for, would be a lie the probe cannot help making.
+// Any other refusal (a row scope that genuinely excludes the caller) stands.
+func pinRefusalFor(ctx context.Context, tx pgx.Tx, activityID ids.UUID, refusal error) error {
+	if !errors.Is(refusal, apperrors.ErrNotFound) {
+		return refusal
+	}
 	var held bool
 	err := tx.QueryRow(ctx,
 		`SELECT restricted_at IS NOT NULL FROM activity WHERE id = $1`, activityID).Scan(&held)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return apperrors.ErrNotFound
+		return refusal
 	}
 	if err != nil {
 		return err
@@ -220,9 +211,7 @@ func pinnableActivity(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error
 	if held {
 		return fmt.Errorf("the record is already under a retention obligation: %w", apperrors.ErrConflict)
 	}
-	// Not held, so the ordinary row scope decides — an administrator pins a
-	// record they can see, like every other decision about one.
-	return auth.EnsureActivityVisible(ctx, tx, activityID)
+	return refusal
 }
 
 // pinnedRecordLeavesDerivedCopies drops what a similarity probe or a proposal

@@ -399,7 +399,8 @@ func (s *PendingStore) noiseMail(ctx context.Context, extra string, limit int) (
 			SELECT DISTINCT a.id, a.occurred_at
 			  FROM activity a
 			  JOIN capture_pending_counterparty p ON p.email = a.counterparty_email
-			 WHERE p.status = 'noise' AND `+noiseMailScope+extra+`
+			 WHERE p.status = 'noise' AND a.restricted_at IS NULL
+			   AND `+noiseMailScope+extra+`
 			 ORDER BY a.occurred_at
 			 LIMIT $1`, limit)
 		if err != nil {

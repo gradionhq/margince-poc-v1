@@ -533,6 +533,58 @@ func TestAControllerReleasesAHeldRecordByErasingIt(t *testing.T) {
 	}
 }
 
+// TestALegalHoldOutranksAControllerRelease pins the rule the sweep already
+// keeps and the release used to skip: a litigation hold says somebody must
+// keep this record, and it outranks the subject's Art. 17 request — and a
+// controller's decision — until it is lifted. Destroying held evidence is
+// spoliation, and it is the one thing neither path may do.
+func TestALegalHoldOutranksAControllerRelease(t *testing.T) {
+	e := Setup(t)
+	f := seedRestrictionFixture(t, e)
+	eraser := privacy.NewEraser(e.DB())
+	if err := eraser.ErasePerson(e.Admin(), f.person, "test"); err != nil {
+		t.Fatalf("erasing the subject → %v", err)
+	}
+	// Counsel places the hold on the deal the correspondence hangs off, after
+	// the record is already held under the statutory floor.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE deal SET legal_hold = true WHERE id = $1`, f.deal)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reason, err := privacy.ParseStatedReason("reviewed: not commercial correspondence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	controller := controllerCtx(e, principal.ObjectGrant{Read: true, Update: true})
+	if err := eraser.ReleaseRestriction(controller, f.email, reason); !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("a release under a legal hold → %v, want a conflict", err)
+	}
+	// Refused means the record is untouched, not half-erased.
+	var body *string
+	var stillHeld bool
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT body, restricted_at IS NOT NULL FROM activity WHERE id = $1`, f.email).Scan(&body, &stillHeld)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if body == nil || !stillHeld {
+		t.Fatalf("the refused release destroyed evidence anyway: body=%v held=%v", body, stillHeld)
+	}
+	// Lifting the hold returns the decision to the controller.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `UPDATE deal SET legal_hold = false WHERE id = $1`, f.deal)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := eraser.ReleaseRestriction(controller, f.email, reason); err != nil {
+		t.Fatalf("releasing once the hold is lifted → %v", err)
+	}
+}
+
 // TestAControllerPinsCorrespondenceTheDerivationCannotSee is A165 §4's other
 // direction, and DEPACK-AC-5h's named case: supplier correspondence qualifies
 // under §257 HGB and has no deal in this product to hang off, so no automatic

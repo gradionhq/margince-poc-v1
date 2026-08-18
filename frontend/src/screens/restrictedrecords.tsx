@@ -44,6 +44,14 @@ export const RESTRICTED_RECORDS_KEY = ["retention", "restrictions"] as const;
 
 const PANEL_SUB: CSSProperties = { marginBottom: "var(--space-3)" };
 
+// A pin names its record by id, and the id has to be well-formed BEFORE the
+// confirm opens: the dialog behind it warns about an irreversible act on a
+// record the controller cannot otherwise see, so letting a typo through means
+// reading that warning, typing a reason, and only then learning they named
+// nothing. Shape only — whether the record exists is the server's answer.
+const RECORD_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // The obligation's class is the first token of the server's reason
 // ("commercial_correspondence · §257 HGB / §147 AO"); the statute after the
 // separator is shown as written, because it is the citation and not a label.
@@ -168,6 +176,7 @@ export function RestrictedRecordsCard() {
   const [releasing, setReleasing] = useState<OverrideTarget | null>(null);
   const [pinning, setPinning] = useState<OverrideTarget | null>(null);
   const [pinId, setPinId] = useState("");
+  const pinIdIsWellFormed = RECORD_ID_RE.test(pinId.trim());
 
   const records = useQuery({
     queryKey: RESTRICTED_RECORDS_KEY,
@@ -304,6 +313,11 @@ export function RestrictedRecordsCard() {
               <Field
                 label={t("restricted.pin.action")}
                 hint={t("restricted.pin.idHint")}
+                error={
+                  pinId.trim() !== "" && !pinIdIsWellFormed
+                    ? t("restricted.pin.idMalformed")
+                    : undefined
+                }
               >
                 {(control) => (
                   <TextInput
@@ -314,7 +328,7 @@ export function RestrictedRecordsCard() {
                   />
                 )}
               </Field>
-              <Button small type="submit" disabled={pinId.trim() === ""}>
+              <Button small type="submit" disabled={!pinIdIsWellFormed}>
                 {t("restricted.pin.action")}
               </Button>
             </form>

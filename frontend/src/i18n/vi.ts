@@ -2287,6 +2287,8 @@ export const vi = {
   "restricted.pin.action": "Ghim một bản ghi",
   "restricted.pin.idHint":
     "Dành cho thư từ mà quy tắc tự động không nhận ra — thư nhà cung cấp và mua hàng thuộc diện lưu giữ theo §257 HGB nhưng không có deal nào trong sản phẩm này để gắn vào. Mã bản ghi nằm trong mục kiểm toán của nó.",
+  "restricted.pin.idMalformed":
+    "Đó không phải mã bản ghi. Mã gồm 8-4-4-4-12 ký tự thập lục phân và hiển thị đầy đủ trong mục kiểm toán của bản ghi.",
   "restricted.pin.idPlaceholder": "Mã bản ghi",
   "restricted.pin.title": "Đặt bản ghi này dưới nghĩa vụ lưu giữ?",
   "restricted.pin.body":
