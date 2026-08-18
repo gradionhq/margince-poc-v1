@@ -1297,6 +1297,28 @@ describe("Shell", () => {
   // One h1 per railed page, and exactly one — on a list, a report, a settings
   // surface, the shell mints it, so a screen that also prints its own title at
   // heading level is printing a duplicate rather than filling a gap.
+  // Which pages keep the reading column, and the one distinction that is easy to
+  // get wrong: a company RECORD is capped, the company LIST is not, and the only
+  // thing separating them is the id. The marker is what the stylesheet keys the
+  // cap on, so a route landing in the wrong family is a layout regression that
+  // nothing else would catch. The set itself is GRIDDED_RECORD_SCREENS.
+  it.each([
+    ["#/settings/account", true],
+    ["#/companies/o-1", true],
+    ["#/contacts/p-1", true],
+    ["#/companies", false],
+    ["#/contacts", false],
+    ["#/deals", false],
+    ["#/reports", false],
+  ])("reads the column policy off the route: %s", (hash, capped) => {
+    window.location.hash = String(hash);
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const main = container.querySelector("main");
+    expect(main?.className.includes("main-gridded")).toBe(capped);
+  });
+
   it("mints the page-level heading on a route that names no record", () => {
     window.location.hash = "#/contacts";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);

@@ -33,6 +33,7 @@ import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
 import { EXTENSION_SCREEN, findExtension } from "./extensions";
 import {
+  GRIDDED_RECORD_SCREENS,
   MOBILE_PRIMARY,
   NAV,
   type NavCounts,
@@ -937,6 +938,11 @@ export function Shell({
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
   const leveled = route.screen === SETTINGS_SCREEN;
+  // Record pages only: the id is what makes it one. `#/companies` is the list,
+  // and a list belongs to the other family.
+  const griddedRecord =
+    route.id !== undefined && GRIDDED_RECORD_SCREENS.has(route.screen);
+  const gridded = leveled || griddedRecord;
   const [collapsed, setCollapsed] = useState(
     () => readStored(COLLAPSE_KEY) === "1",
   );
@@ -1024,7 +1030,11 @@ export function Shell({
       {/* Focusable only as the skip link's destination — never a tab stop of its
           own, which is what tabIndex -1 buys. A reader who takes the skip lands
           here, and the next Tab continues into the page's own controls. */}
-      <main className="main" ref={contentRegion} tabIndex={-1}>
+      <main
+        className={gridded ? "main main-gridded" : "main"}
+        ref={contentRegion}
+        tabIndex={-1}
+      >
         {leveled ? (
           <SettingsPageHead
             route={route}
