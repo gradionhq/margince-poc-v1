@@ -708,6 +708,44 @@ seeded alongside on first run; both are gitignored. `--config` reaches
 **both** the api and worker, so a posture like `ai.capture_payloads` applies
 to every role. Delete `config/margince.yaml` and re-run `make dev` to reset.
 
+#### The file layer is two files: a base and the posture's overlay
+
+`MARGINCE_ENV` selects an overlay read on top of the base, named by inserting
+the posture before the extension — so `--config config/margince.yaml` under
+`MARGINCE_ENV=dev` also reads
+[`config/margince.dev.yaml`](../../config/margince.dev.yaml). Neither file has
+to exist. The derivation is the same for every posture, production included, so
+a deployment that wants the split gets it by the same rule rather than by an
+exception.
+
+The full order, which is OPS-CFG-1 with the file layer split in two:
+
+```
+compiled defaults → margince.yaml → margince.<posture>.yaml → env vars → flags
+```
+
+Later wins. Within the file layer, how a key merges is legible from the YAML
+itself:
+
+| The base key is | The overlay | Why |
+|---|---|---|
+| a scalar (`connector_enabled: false`) | replaces it | one value, one answer |
+| a mapping (`model_pricing:`) | merges key by key | an overlay adds a provider without restating the others |
+| a list (`fx_currencies: [USD, GBP]`) | replaces it entirely | half a list is not a list — `[SEK]` means SEK |
+
+The consequence worth knowing: an overlay can add a mapping key and change one,
+but cannot **remove** one. A posture that must not have a key takes it out of
+the base and puts it in the postures that want it.
+
+Both files decode strictly. An unknown key in either is a boot error naming the
+file that holds it, and validation runs once over the merged result — so an
+overlay may complete a section the base only starts.
+
+`MARGINCE_ENV` is a **configuration selector, not a trust boundary**. Nothing
+destructive keys off it: the data reset is armed by `operations.allow_data_reset`
+below, which is why the dev arming lives in the tracked
+`config/margince.dev.yaml` and every other posture gets the compiled default.
+
 `capture.trace_payloads` (default `false`) turns on payload capture in the
 24-hour Capture activity trace every member sees under Settings. With it off,
 the trace records what the pipeline decided about each message and nothing about

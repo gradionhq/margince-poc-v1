@@ -26,7 +26,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/licensecheck"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // bindInstallation settles what this installation IS before anything serves:
@@ -41,7 +40,7 @@ import (
 // Returns the loaded deployment config every later boot phase reads, and the
 // license watcher whose posture baseComposeOptions reports.
 func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, logger *slog.Logger) (deployconfig.Config, *licensecheck.Watcher, error) {
-	deployCfg, err := deployconfig.Load(cfg.configPath)
+	deployCfg, err := deployconfig.Load(cfg.configPath, cfg.posture)
 	if err != nil {
 		return deployconfig.Config{}, nil, err
 	}
@@ -66,7 +65,7 @@ func bindInstallation(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, lo
 	// The deployment posture decides which license authorities are honored: a
 	// production installation accepts one, and only a non-production one also
 	// runs on a license minted for a test.
-	license, err := compose.EnsureLicense(ctx, logger, deployCfg, runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar)), config.FromOS)
+	license, err := compose.EnsureLicense(ctx, logger, deployCfg, cfg.posture, config.FromOS)
 	if err != nil {
 		return deployconfig.Config{}, nil, err
 	}
@@ -101,7 +100,6 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 	// about whether the reset is live. It is stated by the deployment rather
 	// than inferred from MARGINCE_ENV, which is still read here for the posture
 	// itself — a different question, and no longer a destructive one.
-	env := runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
 	allowDataReset := deployCfg.Operations.AllowDataReset
 	// Said out loud at boot because each role reads its own --config: an api
 	// armed beside a worker that was not given the file purges the workspace and
@@ -129,7 +127,7 @@ func declaredSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool, 
 	opts = append(opts, reset.opts...)
 	// /me carries both facts, from two options, because they are two facts: the
 	// deployment posture, and whether the reset exists here at all.
-	opts = append(opts, compose.WithNonProduction(env), compose.WithDataResetAvailable(allowDataReset))
+	opts = append(opts, compose.WithNonProduction(cfg.posture), compose.WithDataResetAvailable(allowDataReset))
 	// Gate 1: the connector's whole route group — /mcp, the authorization
 	// server and both discovery documents — exists only when the deployment
 	// declared it. The boot check in bindInstallation already proved the

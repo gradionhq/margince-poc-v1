@@ -128,6 +128,26 @@ state="${rundir}/env"
 log_colour=0
 [[ "${MARGINCE_LOG_LEVEL:-info}" == "debug" ]] && log_colour=1
 
+# effective_flag KEY — what the api will see for a boolean key, printed as
+# "true", "false", or "" when neither file names it (the compiled default).
+#
+# The overlay is consulted first because MARGINCE_ENV=dev makes it the winning
+# layer, and a key it names decides even when it names `false`. Both files are
+# grepped rather than parsed: this is a status line, and a shell YAML parser
+# would be a second implementation of the loader that could disagree with it.
+effective_flag() { # key
+  local key=$1 f value
+  for f in "$dev_cfg" "$deploy_cfg"; do
+    [[ -f "$f" ]] || continue
+    value=$(grep -E "^[[:space:]]+${key}:[[:space:]]*(true|false)[[:space:]]*$" "$f" \
+      | tail -1 | sed -E 's/.*:[[:space:]]*//; s/[[:space:]]*$//')
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return
+    fi
+  done
+}
+
 log_as() { # role — tag each line of stdin and append to $log
   awk -v mode=tag -v role="$1" -v colour="$log_colour" \
     -f "${repo_root}/scripts/lib/devlog.awk" >>"$log"
@@ -451,6 +471,7 @@ up)
   # posture (e.g. ai.capture_payloads for Layer-3 capture) and it persists across
   # restarts (it lives in config/, not the scratch rundir dev-stop clears).
   deploy_cfg="config/margince.yaml"
+  dev_cfg="config/margince.dev.yaml"
   admin_pw_file="config/margince-admin-password"
   # The OPERATOR's password, which is deliberately not the one anybody signs in
   # with. A configured bootstrap requires the admin to replace it before the
@@ -464,32 +485,29 @@ up)
   fi
   if [[ ! -f "$deploy_cfg" ]]; then
     cp config/margince.example.yaml "$deploy_cfg"
-    # The destructive switch is armed HERE, not in the example, because the
-    # example is the file a deployment is told to mount. A production
-    # installation that copied it verbatim must not thereby arm a purge of its
-    # own tenant data — which is the same "inferred consent" this switch exists
-    # to end, and it would be worse in a file than in an env var operators are
-    # warned about.
-    cat >>"$deploy_cfg" <<'DEVOPS'
-
-# Added by `make dev` — a dev stack wants the Reset data button. Delete this to
-# take it away; a real deployment never has it.
-operations:
-  allow_data_reset: true
-DEVOPS
-    echo "dev: seeded $deploy_cfg from config/margince.example.yaml (+ operations.allow_data_reset for dev) — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
+    echo "dev: seeded $deploy_cfg from config/margince.example.yaml — edit it to change org/admin or AI posture (e.g. ai.capture_payloads)"
   fi
+  # The dev posture's own differences — the Reset data button among them — live
+  # in the TRACKED config/margince.dev.yaml, which MARGINCE_ENV=dev selects on
+  # top of the file above. They used to be appended here, which meant the most
+  # destructive capability a dev stack has was armed by a heredoc no review ever
+  # saw as a diff, in a file git does not track.
   # Report which deployment config the api + worker are using, and its AI
   # posture — mirrors the ai-routing line above so both configs are visible.
-  if grep -Eq '^[[:space:]]*capture_payloads:[[:space:]]*true' "$deploy_cfg"; then
+  #
+  # Both keys are read the way the api reads them: the dev overlay first,
+  # because it wins, and the base only for a key the overlay is silent about. A
+  # status line that reported the base alone would contradict the running
+  # process the moment anyone used the overlay for what it is for.
+  if [[ "$(effective_flag capture_payloads)" == "true" ]]; then
     capture_note="ai.capture_payloads ON"
   else
     capture_note="ai.capture_payloads off"
   fi
-  echo "dev: using $deploy_cfg for the deployment config ($capture_note)"
+  echo "dev: using $deploy_cfg (+ $dev_cfg) for the deployment config ($capture_note)"
   # An operator flipping mcp.connector_enabled needs to see that it took
   # effect — the gate is otherwise silent until a client actually tries it.
-  if grep -Eq '^[[:space:]]*connector_enabled:[[:space:]]*true' "$deploy_cfg"; then
+  if [[ "$(effective_flag connector_enabled)" == "true" ]]; then
     echo "dev: mcp.connector_enabled ON — connect a client at http://localhost:${fe_port}/mcp"
   else
     echo "dev: mcp.connector_enabled off"

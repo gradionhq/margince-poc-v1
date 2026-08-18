@@ -12,6 +12,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // apiConfig is the parsed boot configuration of the api process.
@@ -43,6 +44,11 @@ type apiConfig struct {
 	webhookKey          string
 	metricsToken        string
 	oauthAccessTokenTTL time.Duration
+	// posture is what MARGINCE_ENV says this deployment is, read ONCE here
+	// (OPS-CFG-2) rather than at each of the three places that used to ask.
+	// It selects the configuration overlay and which license authorities are
+	// honoured; it decides nothing destructive — see shared/runtimeenv.
+	posture runtimeenv.Environment
 	// unknownVars are the MARGINCE_* variables found in the environment that
 	// this role does not read. Computed during parsing, where the surface is
 	// assembled, and REPORTED once the logger exists — an operator has to see
@@ -127,6 +133,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	// After Apply, so the report describes the environment the role actually
 	// consulted.
 	cfg.unknownVars = registry.Undeclared(config.Environ())
+	cfg.posture = runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
 	if cfg.dsn == "" {
 		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
 	}

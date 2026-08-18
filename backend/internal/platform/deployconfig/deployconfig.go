@@ -277,26 +277,14 @@ type MCP struct {
 	ConnectorEnabled bool `yaml:"connector_enabled"`
 }
 
-// Load reads and strictly validates the configuration file. A missing
-// file is not an error: it returns the zero configuration (version 1,
-// all defaults), which boots an existing installation but cannot
-// bootstrap an empty database.
-func Load(path string) (Config, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- the operator's own --config path; reading it is the function's purpose
-	if errors.Is(err, os.ErrNotExist) {
-		return Config{Version: 1}, nil
-	}
-	if err != nil {
-		return Config{}, fmt.Errorf("deployconfig: reading %s: %w", path, err)
-	}
-	return Parse(raw)
-}
-
-// Parse strictly decodes and validates configuration bytes. Unknown
-// fields, invalid values, and incompatible combinations are errors — a
+// Parse strictly decodes and validates a single configuration document.
+// Unknown fields, invalid values, and incompatible combinations are errors — a
 // typo must never silently disable authentication.
+//
+// One document: what a running process reads is the base file plus its
+// posture's overlay, which is Load in layers.go.
 func Parse(raw []byte) (Config, error) {
-	var cfg Config
+	cfg := Config{Version: 1}
 	dec := yaml.NewDecoder(strings.NewReader(string(raw)))
 	dec.KnownFields(true)
 	if err := dec.Decode(&cfg); err != nil {

@@ -7,6 +7,12 @@
 #
 # The api bootstraps the demo organization + admin from this file the first time
 # it boots against an empty database; an existing installation just reads it.
+#
+# This is the BASE. MARGINCE_ENV selects an overlay beside it —
+# config/margince.dev.yaml for a dev stack — and its keys win over this file's.
+# Within a key: a scalar replaces, a mapping merges, a list replaces entirely.
+# The whole file layer still sits between compiled defaults and the environment
+# (OPS-CFG-1): defaults -> this file -> the overlay -> env vars -> flags.
 version: 1
 
 organization:
@@ -193,9 +199,9 @@ company_context:
 # COMMENTED OUT, and that is the shipped posture — every switch is off unless an
 # operator writes it, so a deployment that mounts this file as-is arms nothing.
 #
-# `make dev` appends the dev arming to its own copy (config/margince.yaml) when
-# it seeds it, which is why a dev stack has the Reset data button and this file
-# still does not.
+# A dev stack gets the Reset data button from config/margince.dev.yaml, the
+# tracked overlay MARGINCE_ENV=dev selects on top of this file — which is why a
+# dev stack has the button and this file still does not.
 #
 # operations:
 #   # Arms POST /v1/admin/reset-data, the lanes behind it, and the "Reset data"
