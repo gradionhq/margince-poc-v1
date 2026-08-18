@@ -200,9 +200,9 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
                 count: String(superseded.length),
               })}
             </span>
-            <button
-              type="button"
-              className="co-rowlink rec-foot-action"
+            <Button
+              small
+              className="rec-foot-action"
               aria-pressed={showSuperseded}
               onClick={() => setShowSuperseded(!showSuperseded)}
             >
@@ -211,7 +211,7 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
                   ? "docs.superseded.hide"
                   : "docs.superseded.show",
               )}
-            </button>
+            </Button>
           </>
         ) : undefined
       }
