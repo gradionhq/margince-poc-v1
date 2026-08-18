@@ -29,6 +29,8 @@ type demoConfig struct {
 	Consent          []demoConsent       `json:"consent"`
 	FinanceCustomers []string            `json:"finance_customers"`
 	Lifecycle        map[string][]string `json:"lifecycle"`
+	Partners         []demoPartner       `json:"partners"`
+	PartnerEdges     []demoPartnerEdge   `json:"partner_edges"`
 }
 
 // anchorCompany is the installation's own company — the record that answers
@@ -226,4 +228,52 @@ type demoConsent struct {
 	PersonIndex int    `json:"person_index"`
 	Purpose     string `json:"purpose"`
 	State       string `json:"state"`
+}
+
+// demoPartner is one channel partner: a company the installation SELLS WITH
+// rather than sells to.
+//
+// Invented, and marked Synthetic so nothing mistakes one for a crawled
+// prospect: a partnership is a commercial agreement, and no amount of reading
+// a website reveals one. The three exist to fill the Partners screen, which is
+// built and would otherwise be demonstrated empty.
+//
+// PartnerRole, CertStatus, MarginTier and RelationshipStage are the product's
+// own enums (UpsertPartnerRequest in crm.yaml), not free text — the dataset
+// gives each partner a different value for all four so the screen shows range.
+type demoPartner struct {
+	Domain            string            `json:"domain"`
+	DisplayName       string            `json:"display_name"`
+	LegalName         string            `json:"legal_name"`
+	Industry          string            `json:"industry"`
+	Locale            string            `json:"locale"`
+	Synthetic         bool              `json:"synthetic"`
+	PartnerRole       string            `json:"partner_role"`
+	CertStatus        string            `json:"cert_status"`
+	MarginTier        string            `json:"margin_tier"`
+	RelationshipStage string            `json:"relationship_stage"`
+	NextStep          string            `json:"next_step"`
+	OwnerRef          string            `json:"owner_ref"`
+	People            []demoPartnerPers `json:"people"`
+}
+
+// demoPartnerPers is somebody at a partner company. Invented like the company
+// itself, so unlike a crawled person there is no published-versus-synthesized
+// distinction to preserve: the address is built from the partner's own
+// .example domain, which RFC 2606 reserves and nothing can deliver to.
+type demoPartnerPers struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
+// demoPartnerEdge ties a partner to an account it works on.
+//
+// Direction is not symmetric and the field names carry it: Organization is
+// the ACCOUNT and Partner is the counterparty, which is the shape the
+// contract states for partner_of / referred_by / co_sell_with. Reversing the
+// two would file the partner as somebody else's account.
+type demoPartnerEdge struct {
+	Partner      string `json:"partner"`      // a partner's domain
+	Organization string `json:"organization"` // the account's domain
+	Kind         string `json:"kind"`         // partner_of | referred_by | co_sell_with
 }

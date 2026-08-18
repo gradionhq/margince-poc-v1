@@ -43,6 +43,7 @@ func verifySeed(c *client, cfg demoConfig, mode runMode) error {
 		checkLifecycleIsSet,
 		checkCoverage,
 		checkTheSurfacesAreNotEmpty,
+		checkPartnersArePromoted,
 	} {
 		found, err := check(c, cfg)
 		if err != nil {
@@ -372,6 +373,56 @@ func checkTheSurfacesAreNotEmpty(c *client, _ demoConfig) ([]verifyFinding, erro
 		}
 	}
 	return findings, nil
+}
+
+// checkPartnersArePromoted reads the list the Partners screen reads.
+//
+// This rule exists because the screen shipped fully built and showing
+// nothing: demo.json named three partners, no code wrote them, and every
+// other count in the seeder's report was correct — so the hole was invisible
+// until somebody opened the screen.
+//
+// It asks /v1/partners rather than counting organizations, because that is
+// the question the screen asks. An org that was created but never promoted
+// answers this list with nothing, which is exactly the failure to catch.
+func checkPartnersArePromoted(c *client, cfg demoConfig) ([]verifyFinding, error) {
+	if len(cfg.Partners) == 0 {
+		return nil, nil
+	}
+	promoted := map[string]bool{}
+	err := c.getAll("/v1/partners", nil, func(raw json.RawMessage) error {
+		var rows []struct {
+			OrganizationID string `json:"organization_id"`
+		}
+		if err := json.Unmarshal(raw, &rows); err != nil {
+			return err
+		}
+		for _, row := range rows {
+			promoted[row.OrganizationID] = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing partners: %w", err)
+	}
+	orgIDs, err := orgIDsByDomain(c)
+	if err != nil {
+		return nil, err
+	}
+	var missing []string
+	for _, p := range cfg.Partners {
+		id, seeded := orgIDs[strings.ToLower(p.Domain)]
+		if !seeded || !promoted[id] {
+			missing = append(missing, p.DisplayName)
+		}
+	}
+	if len(missing) == 0 {
+		return nil, nil
+	}
+	return []verifyFinding{{
+		Rule:   "the partners are promoted",
+		Detail: fmt.Sprintf("%d of %d named partners are absent from /v1/partners (%s) — the Partners screen renders empty", len(missing), len(cfg.Partners), sample(missing)),
+	}}, nil
 }
 
 // sample names the first few offenders, because a bare count sends the reader
