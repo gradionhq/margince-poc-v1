@@ -29,7 +29,17 @@
       "@composition/copy": ["./src/composition/extlocales.gen"]
     }
   },
-  "include": ["vite.config.ts", "vite.mcp-apps.config.ts", "scripts/**/*.ts", "src"],
+  // vitest.budget.ts sits beside the vite configs because it is config: the
+  // per-test time ceiling, derived from measurements it carries. vite.config.ts
+  // reads it and so does src/test-budget.test.ts, so it has to be in the same
+  // program as both.
+  "include": [
+    "vite.config.ts",
+    "vite.mcp-apps.config.ts",
+    "vitest.budget.ts",
+    "scripts/**/*.ts",
+    "src"
+  ],
   // src/screens/ext/ is the COMPOSED lane's program — its screens call routes
   // that are in `paths` only under the merged contract — so it cannot be typed
   // here any more than it can in the app project, and `@composition/screens`
