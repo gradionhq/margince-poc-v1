@@ -96,9 +96,9 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 		owner *ids.UUID
 	}{{e.mine, &actor}, {e.theirs, &stranger}} {
 		if _, err := owner.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Anna Muster', 'manual', 'human:test')`,
-			p.id, e.ws, p.owner); err != nil {
+			INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, 'Anna Muster', 'manual', 'human:test')`,
+			p.id, p.owner); err != nil {
 			t.Fatal(err)
 		}
 	}

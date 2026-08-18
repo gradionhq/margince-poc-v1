@@ -316,8 +316,8 @@ func TestGateRejectsDMLOnCoreRelations(t *testing.T) {
 	unit := unitName(t, "dml")
 	ns := namespaceOf(t, unit)
 	up := scaffoldUp(ns) + `
-INSERT INTO person (workspace_id, full_name, source, captured_by)
-SELECT id, 'smuggled', 'gate', 'gate' FROM workspace;
+INSERT INTO person (full_name, source, captured_by)
+VALUES ('smuggled', 'gate', 'gate');
 `
 	err := runGate(t, unit, migrationDir(t, up, scaffoldDown(ns)))
 	requireRefusal(t, err, "permission denied for table person", "0001_gate.up.sql")

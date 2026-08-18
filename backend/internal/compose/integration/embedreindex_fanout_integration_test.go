@@ -70,13 +70,18 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	archived := SeedExtraWorkspace(t, re.Owner, "reindex-archived", true)
 
 	// Both live tenants get an entity to embed, so each child has real work and
-	// the victim's write actually reaches the fault.
-	re.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Person', 'manual', 'human:x')`)
-	healthyPersonID := ids.NewV7()
+	// the victim's write actually reaches the fault. A LEAD, not a person:
+	// ADR-0091 §8 phase D took the tenant column off person, so a person belongs
+	// to the installation and the first child to embed one covers it for every
+	// other — which would leave the second child nothing to do and the fault
+	// nothing to fire on. A lead still carries its tenant, so each child has
+	// work that is its own.
+	re.Seed(t, `INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Lead', 'manual', 'human:x')`)
+	healthyLeadID := ids.NewV7()
 	if _, err := re.Owner.Exec(context.Background(),
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Fanout Person', 'manual', 'human:x')`,
-		healthyPersonID, healthy); err != nil {
-		t.Fatalf("seeding the healthy tenant's person: %v", err)
+		`INSERT INTO lead (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Fanout Lead', 'manual', 'human:x')`,
+		healthyLeadID, healthy); err != nil {
+		t.Fatalf("seeding the healthy tenant's lead: %v", err)
 	}
 	// Permanent, not transient: a fault that healed would let the tenant
 	// complete on a later attempt and read as green — the outcome this denies.
@@ -109,12 +114,12 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	// The pass is only worth a row if it did the work.
 	var model string
 	if err := re.Owner.QueryRow(context.Background(),
-		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
-		healthy, healthyPersonID).Scan(&model); err != nil {
+		`SELECT model FROM embedding WHERE entity_type = 'lead' AND entity_id = $1 AND chunk_ix = 0`,
+		healthyLeadID).Scan(&model); err != nil {
 		t.Fatalf("reading the healthy tenant's embedding: %v", err)
 	}
 	if model != re.identity {
-		t.Errorf("the healthy tenant's person is embedded under %q, want %q", model, re.identity)
+		t.Errorf("the healthy tenant's lead is embedded under %q, want %q", model, re.identity)
 	}
 
 	// The archived tenant must have no row at all. This count is fenced on the

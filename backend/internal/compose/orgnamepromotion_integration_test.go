@@ -48,8 +48,8 @@ func seedSigningEmployee(t *testing.T, e *integration.Env, org ids.UUID, fullNam
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'gmail:seed', 'connector:gmail')`, person, e.WS, fullName); err != nil {
+			INSERT INTO person (id, full_name, source, captured_by)
+			VALUES ($1, $2, 'gmail:seed', 'connector:gmail')`, person, fullName); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -59,9 +59,8 @@ func seedSigningEmployee(t *testing.T, e *integration.Env, org ids.UUID, fullNam
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person_profile_field (workspace_id, person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
-			VALUES ($1, $2, 'org_name', $3, $3, 'activity:seed', 0.9, 'capture_enrich', 'agent:enrich')`,
-			e.WS, person, signedName)
+			INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
+			VALUES ( $1, 'org_name', $2, $2, 'activity:seed', 0.9, 'capture_enrich', 'agent:enrich')`, person, signedName)
 		return err
 	})
 	if err != nil {

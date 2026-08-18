@@ -27,7 +27,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 
-	person := SeedRow(t, owner, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Warm Contact', 'manual', 'human:x')`, e.WS)
+	person := SeedIDRow(t, owner, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Warm Contact', 'manual', 'human:x')`)
 	org := SeedIDRow(t, owner, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Warm GmbH', 'manual', 'human:x')`)
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by) VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`,

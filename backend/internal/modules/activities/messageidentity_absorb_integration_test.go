@@ -89,8 +89,8 @@ func (e *sendEnv) seedPerson(t *testing.T, name string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, id, e.ws, name, e.rep); err != nil {
+		INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, $2, $3, 'manual', 'human:x')`, id, name, e.rep); err != nil {
 		t.Fatalf("seeding the person: %v", err)
 	}
 	return id

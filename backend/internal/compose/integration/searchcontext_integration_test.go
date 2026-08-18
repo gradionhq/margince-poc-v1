@@ -31,10 +31,10 @@ type contextFixture struct {
 func seedContextFixture(t *testing.T, e *queryEnv) contextFixture {
 	t.Helper()
 	return contextFixture{
-		rep1Person: e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Annegret Turbinenbau', 'manual', 'human:x')`, e.Rep1),
-		rep3Person: e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Bernhard Turbinenbau', 'manual', 'human:x')`, e.Rep3),
+		rep1Person: e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, 'Annegret Turbinenbau', 'manual', 'human:x')`, e.Rep1),
+		rep3Person: e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, 'Bernhard Turbinenbau', 'manual', 'human:x')`, e.Rep3),
 	}
 }
 

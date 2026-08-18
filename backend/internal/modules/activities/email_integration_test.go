@@ -231,8 +231,8 @@ func (e *sendEnv) linkToPersonOwnedBy(t *testing.T, anchor ids.ActivityID, owner
 	t.Helper()
 	person := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Buyer', $3, 'manual', 'human:x')`, person, e.ws, owner); err != nil {
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Buyer', $2, 'manual', 'human:x')`, person, owner); err != nil {
 		t.Fatalf("seeding the linked person: %v", err)
 	}
 	if _, err := e.owner.Exec(context.Background(),

@@ -106,10 +106,10 @@ func seedMeetingFixture(t *testing.T, e *SearchEnv) meetingFixture {
 	f.rep1Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
 		VALUES ($1, $2, 'Turbinenbau Renewal', $3, $4, $5, 'manual', 'human:x')`,
 		e.Rep1, f.pipeline, f.stage, f.rep1Org)
-	f.organizer = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Annegret Weiss', 'manual', 'human:x')`, e.Rep1)
-	f.otherPerson = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Bernhard Klein', 'manual', 'human:x')`, e.Rep1)
+	f.organizer = e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Annegret Weiss', 'manual', 'human:x')`, e.Rep1)
+	f.otherPerson = e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Bernhard Klein', 'manual', 'human:x')`, e.Rep1)
 	return f
 }
 
@@ -308,8 +308,8 @@ func TestAMeetingNeverDisclosesTheRecordBehindALinkTheCallerCannotSee(t *testing
 func TestAMeetingNeverDisclosesAnAttendeeTheCallerCannotSee(t *testing.T) {
 	e := SetupSearch(t)
 	f := seedMeetingFixture(t, e)
-	hidden := e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Dieter Fremd', 'manual', 'human:x')`, e.Rep3)
+	hidden := e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Dieter Fremd', 'manual', 'human:x')`, e.Rep3)
 	meeting := seedMeeting(t, e, "Joint review")
 	linkMeeting(t, e, meeting, "deal", "deal_id", f.rep1Deal)
 	addParty(t, e, meeting, "organizer", &hidden, "dieter@othertteam.example")
@@ -354,16 +354,16 @@ func TestTheOrganizerSurvivesAnOversizedInvitation(t *testing.T) {
 	// seeded FIRST, so every one of them holds a lower id than the organizer.
 	if _, err := e.Owner.Exec(context.Background(), `
 		WITH room AS (
-		    INSERT INTO person (workspace_id, owner_id, full_name, source, captured_by)
-		    SELECT $1, $2, 'Attendee ' || n, 'manual', 'human:x' FROM generate_series(1, 60) n
+		    INSERT INTO person (owner_id, full_name, source, captured_by)
+		    SELECT $1, 'Attendee ' || n, 'manual', 'human:x' FROM generate_series(1, 60) n
 		    RETURNING id
 		)
 		INSERT INTO activity_participant (activity_id, role, person_id)
-		SELECT $3, 'attendee', id FROM room`, e.WS, e.Rep1, meeting); err != nil {
+		SELECT $2, 'attendee', id FROM room`, e.Rep1, meeting); err != nil {
 		t.Fatalf("seeding the oversized invitation: %v", err)
 	}
-	organizer := e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Zoe Organizer', 'manual', 'human:x')`, e.Rep1)
+	organizer := e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Zoe Organizer', 'manual', 'human:x')`, e.Rep1)
 	addParty(t, e, meeting, "organizer", &organizer, "zoe@turbinenbau.example")
 
 	assembled, err := prepFor(e.Admin(), t, e, meeting)

@@ -58,12 +58,11 @@ func ResolveOrCreateChannelIdentity(ctx context.Context, tx pgx.Tx, personID ids
 	// channel, and unlike a mail message there is no per-record id worth
 	// stamping — the binding outlives every message that refreshed it.
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO person_channel_identity
-			(workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $3, $6)
+		INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
+		VALUES ( $1, $2, $3, NULLIF($4, ''), $2, $5)
 		ON CONFLICT (provider, channel_user_id) WHERE archived_at IS NULL
 		DO NOTHING`,
-		workspaceID(ctx), personID, ci.Provider, ci.ChannelUserID, ci.Username, by)
+		personID, ci.Provider, ci.ChannelUserID, ci.Username, by)
 	if err != nil {
 		return ids.PersonID{}, fmt.Errorf("people: binding channel identity: %w", err)
 	}

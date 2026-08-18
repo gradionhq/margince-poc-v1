@@ -61,8 +61,8 @@ func TestConnectorCapturedMailPutsAColleagueOnTheAccount(t *testing.T) {
 	var contact ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO person (workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
+			VALUES (
 			        'Pat Counterparty', $1, 'gmail:seed', 'connector:gmail', 'workspace')
 			RETURNING id`, owner).Scan(&contact)
 	}); err != nil {
@@ -114,8 +114,8 @@ func TestADepartedColleagueIsNotOfferedAsAWayIn(t *testing.T) {
 	var contact ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			INSERT INTO person (workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
+			VALUES (
 			        'Known Contact', $1, 'manual', 'human:test', 'workspace')
 			RETURNING id`, e.Rep1).Scan(&contact)
 	}); err != nil {

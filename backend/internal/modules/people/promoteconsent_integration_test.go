@@ -212,13 +212,13 @@ func TestPromotionMergeAppliesWithdrawalWinsAndStateStands(t *testing.T) {
 	// already has newsletter granted.
 	personID := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-		 VALUES ($1, $2, 'Lena Person', 'manual', 'human:x')`, personID, e.ws); err != nil {
+		`INSERT INTO person (id, full_name, source, captured_by)
+		 VALUES ($1, 'Lena Person', 'manual', 'human:x')`, personID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by)
-		 VALUES ($1, $2, lower($3), 'work', true, 1, 'manual', 'human:x')`, e.ws, personID, email); err != nil {
+		`INSERT INTO person_email (person_id, email, email_type, is_primary, position, source, captured_by)
+		 VALUES ($1, lower($2), 'work', true, 1, 'manual', 'human:x')`, personID, email); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.owner.Exec(context.Background(),

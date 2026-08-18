@@ -72,12 +72,12 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 	var f exportFixture
 	// rep1 (team1) carries a social row to prove the child relation
 	// travels with its parent.
-	f.rep1Person = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep1 Person', 'manual', 'human:x')`, e.Rep1)
-	e.Seed(t, `INSERT INTO person_social (id, workspace_id, person_id, platform, handle)
-		VALUES ($1, $2, $3, 'linkedin', 'in/rep1')`, f.rep1Person)
-	f.rep3Person = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep3 Person', 'manual', 'human:x')`, e.Rep3)
+	f.rep1Person = e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Rep1 Person', 'manual', 'human:x')`, e.Rep1)
+	e.SeedID(t, `INSERT INTO person_social (id, person_id, platform, handle)
+		VALUES ($1, $2, 'linkedin', 'in/rep1')`, f.rep1Person)
+	f.rep3Person = e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Rep3 Person', 'manual', 'human:x')`, e.Rep3)
 	f.rep1Org = e.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, 'Rep1 Org', 'manual', 'human:x')`, e.Rep1)
 	f.rep3Org = e.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)

@@ -130,8 +130,8 @@ func addPersonEmail(t *testing.T, e *integration.Env, personID ids.UUID, email s
 	t.Helper()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'work', true, 'manual', 'human:x')`,
+			INSERT INTO person_email (person_id, email, email_type, is_primary, source, captured_by)
+			VALUES ( $1, $2, 'work', true, 'manual', 'human:x')`,
 			personID, email)
 		return err
 	}); err != nil {

@@ -50,13 +50,13 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, title, source, captured_by)
-			 VALUES ($1, `+wsClause+`, 'Selma Subject', 'Selma', 'CFO', 'manual', 'human:x')`, personID); err != nil {
+			`INSERT INTO person (id, full_name, first_name, title, source, captured_by)
+			 VALUES ($1, 'Selma Subject', 'Selma', 'CFO', 'manual', 'human:x')`, personID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-			 VALUES (`+wsClause+`, $1, $2, 'manual', 'human:x')`, personID, subjectEmail); err != nil {
+			`INSERT INTO person_email (person_id, email, source, captured_by)
+			 VALUES ( $1, $2, 'manual', 'human:x')`, personID, subjectEmail); err != nil {
 			return err
 		}
 		activityID := ids.NewV7()
@@ -273,10 +273,9 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 
 	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, source, captured_by)
-			 VALUES ($1, `+ws+`, 'Held Subject', 'Held', 'manual', 'human:x')`, personID); err != nil {
+			`INSERT INTO person (id, full_name, first_name, source, captured_by)
+			 VALUES ($1, 'Held Subject', 'Held', 'manual', 'human:x')`, personID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -380,10 +379,9 @@ func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
 
 	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, source, captured_by)
-			 VALUES ($1, `+ws+`, 'Floored Subject', 'Floored', 'manual', 'human:x')`, personID); err != nil {
+			`INSERT INTO person (id, full_name, first_name, source, captured_by)
+			 VALUES ($1, 'Floored Subject', 'Floored', 'manual', 'human:x')`, personID); err != nil {
 			return err
 		}
 		// A recent external email — commercial correspondence within the floor.

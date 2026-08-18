@@ -31,8 +31,8 @@ func seatPersonCapturedBy(t *testing.T, e *integration.Env, fullName, capturedBy
 	t.Helper()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'test', $5)`, ids.NewV7(), e.WS, e.Rep1, fullName, capturedBy)
+			INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, $3, 'test', $4)`, ids.NewV7(), e.Rep1, fullName, capturedBy)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding %s: %v", fullName, err)
@@ -124,9 +124,8 @@ func TestCapturedByKindNarrowsRowScopeAndNeverWidensIt(t *testing.T) {
 	// An AI-created person owned by Rep3, who sits in the other team.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, 'Other Team AI Record', 'test', 'agent:capture_counterparty_verdict')`,
-			ids.NewV7(), e.WS, e.Rep3)
+			INSERT INTO person (id, owner_id, full_name, source, captured_by)
+			VALUES ($1, $2, 'Other Team AI Record', 'test', 'agent:capture_counterparty_verdict')`, ids.NewV7(), e.Rep3)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding: %v", err)

@@ -79,14 +79,14 @@ func (w *flipWriters) ReconcileIdentities(ctx context.Context) error {
 // exactly what this is meant to adopt.
 // flipTenantScope is the workspace predicate for the ONE query this file
 // templates over five native tables, and it is per-object because ADR-0091 §8
-// phase D removes the column from them at different times — deal already, the
-// rest still to come. A predicate spelled for all five fails the statement
-// outright for whichever has lost it; spelled for none, a reconstruction adopts
-// the EXPORTING installation's records as its own. Each entry drops out as its
-// slice lands, and the function goes with the last one.
+// phase D removes the column from them at different times — only lead still
+// carries it. A predicate spelled for all five fails the statement outright for
+// whichever has lost it; spelled for none, a reconstruction adopts the
+// EXPORTING installation's records as its own. The last entry drops out with
+// the lead slice, and the function goes with it.
 func flipTenantScope(object string) string {
 	switch object {
-	case flipObjectPerson, flipObjectLead:
+	case flipObjectLead:
 		return "\n\t\t\t  AND n.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid"
 	default:
 		return ""

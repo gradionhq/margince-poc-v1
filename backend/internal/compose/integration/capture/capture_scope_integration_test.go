@@ -120,8 +120,8 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 
 func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t *testing.T) {
 	e := integration.SetupSearch(t)
-	foreign := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Foreign Counterparty', $3, 'manual', 'human:x')`, e.Rep3)
+	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, 'Foreign Counterparty', $2, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityActivity,

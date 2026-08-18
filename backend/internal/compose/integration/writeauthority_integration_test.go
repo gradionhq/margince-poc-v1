@@ -49,9 +49,9 @@ type sharedPersonFixture struct {
 func seedSharedPerson(t *testing.T, name string) sharedPersonFixture {
 	t.Helper()
 	e := SetupSearch(t)
-	person := e.Seed(t,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, $4, $3, 'manual', 'human:x')`, e.Rep3, name)
+	person := e.SeedID(t,
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, $3, $2, 'manual', 'human:x')`, e.Rep3, name)
 	return sharedPersonFixture{
 		env:    e,
 		person: person,
@@ -235,9 +235,9 @@ func leadActor(e *SearchEnv, user ids.UUID, scope principal.RowScope, teams []id
 func TestAMergeNeedsWriteAuthorityOnBothEnds(t *testing.T) {
 	f := seedSharedPerson(t, "Merge Source")
 	e := f.env
-	survivor := e.Seed(t,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Merge Survivor', $3, 'manual', 'human:x')`, e.Rep3)
+	survivor := e.SeedID(t,
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Merge Survivor', $2, 'manual', 'human:x')`, e.Rep3)
 	store := people.NewStore(e.DB())
 
 	// Read on the source, write on the survivor: the caller may change what the

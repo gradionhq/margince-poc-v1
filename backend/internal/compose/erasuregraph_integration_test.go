@@ -54,16 +54,15 @@ func TestErasureRemovesTheSubjectFromTheRelationshipGraph(t *testing.T) {
 	var activityID ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO person (workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES (`+ws+`, 'Erase Me', $1, 'manual', 'human:test', 'workspace')
+			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
+			VALUES ( 'Erase Me', $1, 'manual', 'human:test', 'workspace')
 			RETURNING id`, e.Rep1).Scan(&person); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-			VALUES (`+ws+`, $1, $2, true, 'manual', 'human:test')`, person, subjectEmail); err != nil {
+			INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+			VALUES ( $1, $2, true, 'manual', 'human:test')`, person, subjectEmail); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `

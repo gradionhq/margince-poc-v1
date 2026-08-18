@@ -108,14 +108,14 @@ func seedOfflineDemoAccount(t *testing.T, e *integration.Env, owner ids.UUID, sl
 	}
 	var personID ids.UUID
 	err = e.Pool.QueryRow(ctx, `
-		INSERT INTO person (workspace_id, full_name, source, captured_by)
-		VALUES ($1, $2, 'test', 'human:test') RETURNING id`, e.WS, "Petra "+slug).Scan(&personID)
+		INSERT INTO person (full_name, source, captured_by)
+		VALUES ( $1, 'test', 'human:test') RETURNING id`, "Petra "+slug).Scan(&personID)
 	if err != nil {
 		t.Fatalf("seeding a person: %v", err)
 	}
 	if _, err := e.Pool.Exec(ctx, `
-		INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, $3, true, 'test', 'human:test')`, e.WS, personID, "petra@"+slug+".example"); err != nil {
+		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ( $1, $2, true, 'test', 'human:test')`, personID, "petra@"+slug+".example"); err != nil {
 		t.Fatalf("seeding an address: %v", err)
 	}
 	if _, err := e.Pool.Exec(ctx, `

@@ -47,9 +47,9 @@ func (e *dedupeEnv) resolveOrCreatePersonForIdentity(ctx context.Context, name s
 		}
 		candidate := ids.New[ids.PersonKind]()
 		if _, err := speculative.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5)`,
-			candidate, workspaceID(ctx), name, ci.Provider, "connector:"+ci.Provider); err != nil {
+			INSERT INTO person (id, full_name, source, captured_by)
+			VALUES ($1, $2, $3, $4)`,
+			candidate, name, ci.Provider, "connector:"+ci.Provider); err != nil {
 			return err
 		}
 		owner, err := ResolveOrCreateChannelIdentity(ctx, speculative, candidate, ci)

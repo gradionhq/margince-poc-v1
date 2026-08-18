@@ -88,7 +88,6 @@ func (s *Store) ApplyDiscoveredFields(ctx context.Context, personID ids.PersonID
 // result can never overwrite what a signature, a site read or a human
 // already answered.
 func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID, by string, fields []DiscoveredField) ([]string, error) {
-	wsID := workspaceID(ctx)
 	var applied []string
 	// Keyed by FIELD and carrying the value actually written: this becomes the
 	// audit after-image, and field history projects per field from it. A list
@@ -105,10 +104,10 @@ func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 			continue
 		}
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO person_profile_field (workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+			VALUES ( $1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (person_id, field) DO NOTHING`,
-			wsID, personID, f.Field, value, snippet, f.SourceRef, searchFieldSource, by)
+			personID, f.Field, value, snippet, f.SourceRef, searchFieldSource, by)
 		if err != nil {
 			return nil, fmt.Errorf("people: discovered field evidence row (%s): %w", f.Field, err)
 		}
