@@ -33,10 +33,8 @@ type Approvals interface {
 	// The two facts are one answer because a caller needs both to say anything
 	// true to the agent: an id alone cannot distinguish "wait for a human" from
 	// "spend what you are holding", and an agent told to wait for a decision it
-	// already has asks the question again. That is not hypothetical — it is how
-	// one enrichment collected four approvals against the same organization at
-	// the same version with the same diff hash, every one of them answered by a
-	// human and none of them ever spent.
+	// already has asks the question again — which is how one act comes to hold
+	// several approvals, each answered separately and none of them spent.
 	StageCall(ctx context.Context, in StageRequest) (id ids.ApprovalID, alreadyApproved bool, err error)
 	// StageQuotaRelease puts a §2.4 step-up in front of the human who lent this
 	// passport, and reports whether anything was staged: a question that human

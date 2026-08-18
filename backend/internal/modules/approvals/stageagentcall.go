@@ -8,20 +8,16 @@ package approvals
 // A refused 🟡 agent call is not a proposal a worker re-derives; it is a
 // QUESTION an agent asks and then asks again, because the answer it gets back —
 // "a human has to decide this" — is indistinguishable from the answer it got the
-// first time. Every gate stager used to mint a fresh approval for each attempt,
-// so one enrichment collected four approvals against the same organization at
-// the same version with the same diff hash, a human answered all four, and not
-// one of them was ever spent: the agent was holding the id of a row it had
-// already been told was invalid, and each retry that arrived before a human
-// clicked sent it back to stage another.
+// first time. A stager that mints a fresh approval per attempt therefore turns
+// one act into an inbox full of identical questions, each of which a human has to
+// answer separately and only one of which any retry can spend.
 //
 // So the engine answers the question the caller is actually asking — "what is
-// the authority object for THIS call" — rather than the one the old signature
-// implied. Two rows can already be the same question, and both cases are
-// handled here: a PENDING one is joined (stageOrJoinPendingInTx, the path every
-// engine stager has always taken), and an APPROVED, unspent one is handed back
-// so the agent redeems the decision it already has instead of asking for a
-// second one.
+// the authority object for THIS call" — rather than "record a new one". Two rows
+// can already be the same question, and both cases are handled here under ONE
+// predicate: a PENDING one is joined, and an APPROVED, unspent one is handed back
+// so the agent redeems the decision it already has instead of asking for a second
+// one.
 
 import (
 	"context"
@@ -75,59 +71,116 @@ func (s *Service) StageAgentCall(ctx context.Context, in StageInput) (ids.Approv
 		if err := lockProposalIdentity(ctx, tx, wsID, in); err != nil {
 			return err
 		}
-		released, found, err := s.releasedApprovalInTx(ctx, tx, in, p)
+		live, found, err := s.liveApprovalForCallInTx(ctx, tx, in, p)
 		if err != nil {
 			return err
 		}
 		if found {
-			id, approved = released, true
+			id, approved = live.id, live.approved
 			return nil
 		}
-		// stageOrJoinPendingInTx joins unconditionally — the JoinPending flag
-		// selects this path in Stage and is not consulted once inside it — so a
-		// second attempt at an undecided call lands on the row already waiting.
-		id, err = s.stageOrJoinPendingInTx(ctx, tx, in)
+		id, err = s.insertProposalInTx(ctx, tx, in)
 		return err
 	})
 	return id, approved, err
 }
 
-// releasedApprovalInTx answers an approval this caller could redeem for this
-// exact call right now, if one exists.
+// liveAuthority is one existing approval this call may use: its id, and whether
+// a human has already approved it. The two travel together because a caller
+// cannot say anything true to the agent with only the id (see StageCall).
+type liveAuthority struct {
+	id       ids.ApprovalID
+	approved bool
+}
+
+// liveApprovalForCallInTx answers the approval THIS caller already has for THIS
+// call — approved and unspent if there is one, otherwise the undecided one still
+// sitting in the inbox.
 //
-// "Could redeem" is asked of the redemption itself (validateRedemption +
-// validateRedemptionTarget) rather than re-expressed as a wider WHERE clause,
-// because a second spelling of that predicate is a second answer to it: one that
-// admits a token the redemption then refuses hands the agent a dead id and buys
-// exactly the loop this file exists to close. The SQL narrows to the rows that
-// could plausibly qualify; the redemption decides.
-func (s *Service) releasedApprovalInTx(ctx context.Context, tx pgx.Tx, in StageInput, p principal.Principal) (ids.ApprovalID, bool, error) {
-	rows, err := tx.Query(ctx, `SELECT id FROM approval
-		 WHERE kind = $1 AND target_entity_id IS NOT DISTINCT FROM $2 AND diff_hash = $3
-		   AND status = $4 AND consumed_at IS NULL
+// ONE predicate governs both halves, and that is why the undecided half is not
+// delegated to stageOrJoinPendingInTx. That function joins any pending row of the
+// kind against the target, whatever credential staged it — right for an engine
+// stager, whose proposal is about a RECORD and belongs to no credential, and
+// wrong for a call, which is an act one passport is authorized to perform.
+// Joining across credentials would hand passport B the id staged by passport A:
+// B cannot redeem it, since the redemption checks the binding, so it loops on a
+// dead id — and a caller with NO passport CAN redeem it, because the redemption
+// enforces that binding only against a caller presenting one. Volunteering
+// somebody else's authority object is not something a deduplication may do.
+//
+// So the credential is in the predicate, IS NOT DISTINCT FROM: a passport is
+// offered only its own approvals, a passport-less caller only passport-less ones.
+// That is strictly narrower than the redemption in both directions, which is what
+// makes the id handed back one the caller can actually spend.
+// target_entity_type is there for the same reason target_entity_id is — the pair
+// is the discriminated reference, and matching half of it would let two types
+// that share an id answer for each other.
+//
+// Approved beats undecided when both exist, because the agent can act on an
+// approved one immediately. Among equals the canonical order takes the OLDEST,
+// which for the undecided half is the card the human has had in front of them
+// longest.
+func (s *Service) liveApprovalForCallInTx(ctx context.Context, tx pgx.Tx, in StageInput, p principal.Principal) (liveAuthority, bool, error) {
+	// FOR UPDATE in the canonical order, so finding a row and a decision or
+	// redemption landing on it are ordered rather than interleaved. The identity
+	// lock above covers what a row lock cannot: an empty result locks nothing, and
+	// two attempts that both read before either writes would both stage.
+	rows, err := tx.Query(ctx, `SELECT id, status FROM approval
+		 WHERE kind = $1 AND diff_hash = $2
+		   AND target_entity_id IS NOT DISTINCT FROM $3
+		   AND target_entity_type IS NOT DISTINCT FROM $4
+		   AND passport_id IS NOT DISTINCT FROM $5
+		   AND ((status = $6 AND expires_at > now()) OR (status = $7 AND consumed_at IS NULL))
 		 `+lockOrder+`
-		 FOR UPDATE`, in.Kind, nullUUID(in.TargetID), in.DiffHash, approvalStatusApproved)
+		 FOR UPDATE`,
+		in.Kind, in.DiffHash, nullUUID(in.TargetID), nullStr(in.TargetType), nullUUID(p.PassportID),
+		statusPending, approvalStatusApproved)
 	if err != nil {
-		return ids.ApprovalID{}, false, fmt.Errorf("lock the released approvals for this call: %w", err)
+		return liveAuthority{}, false, fmt.Errorf("lock the live approvals for this call: %w", err)
 	}
-	candidates, err := pgx.CollectRows(rows, pgx.RowTo[ids.ApprovalID])
+	type candidate struct {
+		ID     ids.ApprovalID
+		Status string
+	}
+	candidates, err := pgx.CollectRows(rows, pgx.RowToStructByPos[candidate])
 	if err != nil {
-		return ids.ApprovalID{}, false, fmt.Errorf("read the released approvals for this call: %w", err)
+		return liveAuthority{}, false, fmt.Errorf("read the live approvals for this call: %w", err)
 	}
-	for _, id := range candidates {
-		a, err := get(ctx, tx, id)
-		if err != nil {
-			return ids.ApprovalID{}, false, fmt.Errorf("read released approval %s: %w", id, err)
+	var undecided ids.ApprovalID
+	for _, c := range candidates {
+		if c.Status == statusPending {
+			if undecided.IsZero() {
+				undecided = c.ID
+			}
+			continue
 		}
-		spendable, err := s.redeemableNowInTx(ctx, tx, a, p, in.Kind, in.DiffHash)
+		spendable, err := s.spendableApprovalInTx(ctx, tx, c.ID, p, in)
 		if err != nil {
-			return ids.ApprovalID{}, false, err
+			return liveAuthority{}, false, err
 		}
 		if spendable {
-			return id, true, nil
+			return liveAuthority{id: c.ID, approved: true}, true, nil
 		}
 	}
-	return ids.ApprovalID{}, false, nil
+	if !undecided.IsZero() {
+		return liveAuthority{id: undecided}, true, nil
+	}
+	return liveAuthority{}, false, nil
+}
+
+// spendableApprovalInTx reports whether this caller's next retry would actually
+// consume this approved approval.
+//
+// "Could redeem" is asked of the redemption itself rather than re-expressed as a
+// second predicate, because a second spelling is a second answer: one that admits
+// a token the redemption then refuses hands the agent a dead id and buys exactly
+// the loop this file exists to close.
+func (s *Service) spendableApprovalInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, p principal.Principal, in StageInput) (bool, error) {
+	a, err := get(ctx, tx, id)
+	if err != nil {
+		return false, fmt.Errorf("read the approved approval %s for this call: %w", id, err)
+	}
+	return s.redeemableNowInTx(ctx, tx, a, p, in.Kind, in.DiffHash)
 }
 
 // redeemableNowInTx reports whether this caller's next retry would spend this

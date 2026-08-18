@@ -79,9 +79,9 @@ func TestOneRefusedAgentCallCollectsExactlyOneApprovalHoweverOftenItIsRetried(t 
 		t.Fatalf("human approve → %d", status)
 	}
 
-	// After the decision, an identical call carrying no approval_id — exactly
-	// what the agent did at 05:09:17 on staging, 0.7s after the approval — is
-	// pointed at the decision it already has.
+	// After the decision, an identical call carrying no approval_id — the shape a
+	// retry takes when the agent has discarded the id it was given — is pointed at
+	// the decision that already exists.
 	released := c.stagedApproval(t, invoke, args)
 	if released.ApprovalID != first.ApprovalID {
 		t.Fatalf("after approval the gate answered %s, want the approved one (%s)", released.ApprovalID, first.ApprovalID)
@@ -180,9 +180,16 @@ func TestAnApprovedCallWhoseTargetMovedIsStagedAfreshRatherThanHandedBackDead(t 
 // A decision is bound to the passport it was staged by (ADR-0036 — the row IS
 // the authority object), so recognizing "this call already has an approval" must
 // not reach across credentials. Handing passport B the approval a human granted
-// to passport A would let a revoked or narrower credential inherit authority it
-// was never given — and it would fail redemption anyway, since the redemption
-// checks the binding this probe has to agree with.
+// to passport A would let a narrower or revoked credential inherit authority it
+// was never given.
+//
+// This is the end-to-end half and it deliberately proves less than it looks like
+// it does: BOTH callers present a passport here, and the redemption refuses a
+// cross-passport token on its own, so this would still pass over a probe that
+// scoped nothing. The case that needs the probe's own predicate is a caller with
+// NO passport, whom the redemption admits — that one is held in
+// approvals.TestAnAgentCallIsOnlyOfferedApprovalsItsOwnCredentialHolds, where the
+// principal can be built without one.
 func TestAnApprovalStagedByOnePassportIsNeverOfferedToAnother(t *testing.T) {
 	c := setupChannelSend(t)
 	args := fmt.Sprintf(`{"activity_id":%q,"body":"Yes — shipping Monday.","consent_purpose":"transactional"}`, c.activityID)

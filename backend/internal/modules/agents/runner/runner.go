@@ -311,6 +311,27 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		out, err := r.invokePermitted(ctx, job, step.Tool, step.Args)
 		var staged *workflow.StagedApprovalError
 		switch {
+		case errors.As(err, &staged) && staged.AlreadyApproved:
+			// A human has ALREADY answered this exact call, so there is nothing
+			// to wait for — and waiting here strands the run for good: a
+			// suspended run is resumed by the approval.decided event
+			// (compose/runnerservice.go), which for this approval fired before
+			// this step ever ran. Spend it now, exactly as Resume spends the
+			// decision it was woken for.
+			out, err = r.retryWithApproval(ctx, job, step, staged.ApprovalID)
+			if err == nil {
+				win.observe(step.Tool, string(out))
+				acc.Steps = append(acc.Steps, Step{
+					Tool: step.Tool, Args: step.Args, Observation: truncate(string(out)),
+					ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+					Admission: "executed",
+				})
+				continue
+			}
+			// The release did not hold after all — the decision lapsed, the
+			// target moved, the passport died. That is a refusal the model can
+			// re-plan around, not a run to park on an id nothing will resume.
+			acc.Steps = append(acc.Steps, observeRefusal(win, step, err, meta, resp))
 		case errors.As(err, &staged):
 			// 🟡 mid-loop: the proposal is durably staged; suspend, never
 			// block (§5). The snapshot makes the run resumable.
@@ -410,6 +431,18 @@ func parseStep(text string) (modelStep, error) {
 		step.Args = json.RawMessage(`{}`)
 	}
 	return step, nil
+}
+
+// retryWithApproval re-makes one step's call presenting the approval a human has
+// already granted for it, through the same allowlisted door every other call in
+// this package takes — an approved id is authority to perform an action, never
+// authority to reach a verb this run's catalog entry does not name.
+func (r *Runner) retryWithApproval(ctx context.Context, job Job, step modelStep, id ids.ApprovalID) (json.RawMessage, error) {
+	args, err := withApprovalID(step.Args, id)
+	if err != nil {
+		return nil, err
+	}
+	return r.invokePermitted(ctx, job, step.Tool, args)
 }
 
 // withApprovalID re-forms the staged call with the redemption id — the

@@ -198,9 +198,9 @@ func (t updateRecord) applySplit(ctx context.Context, args updateRecordArgs, spl
 // splitStagingNote is what the agent reads about the fields that were withheld.
 //
 // The already-approved half is not a nicety: an agent told to wait for a human
-// who has already answered re-sends the call, which used to stage a second
+// who has already answered re-sends the call, and each re-send is another
 // approval for the same withheld fields — so the line that says which of the two
-// happened is the line that keeps one act to one authority object.
+// happened is what keeps one act to one authority object.
 func splitStagingNote(conflicts []string, id ids.ApprovalID, alreadyApproved bool) string {
 	fields := strings.Join(conflicts, ", ")
 	if alreadyApproved {

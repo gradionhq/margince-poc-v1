@@ -200,10 +200,9 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 		httperr.Write(w, r, sErr)
 		return
 	}
-	// A decision this caller already holds is not a decision to wait for. An
-	// agent told to wait re-sends the request, and re-sending used to mint a
-	// second approval for the identical call — four of them, on the loop this
-	// door's MCP twin was reported on.
+	// A decision this caller already holds is not a decision to wait for: an
+	// agent told to wait re-sends the request, and each re-send is another
+	// authority object for one act.
 	if alreadyApproved {
 		httperr.Write(w, r, fmt.Errorf(
 			"a human has already approved this exact request as approval %s — repeat it with the %s: %s header and do not stage another: %w",

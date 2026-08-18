@@ -276,8 +276,8 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 //
 // The already-approved half is the same distinction the MCP twin draws
 // (agents.splitStagingNote): an agent told to wait for a human who has already
-// answered re-sends the request, and re-sending used to stage a second approval
-// for the identical withheld fields.
+// answered re-sends the request, and each re-send is another approval for one
+// set of withheld fields.
 func splitStagingNote(conflicts []string, approvalID ids.ApprovalID, alreadyApproved bool) string {
 	fields := strings.Join(conflicts, ", ")
 	if alreadyApproved {

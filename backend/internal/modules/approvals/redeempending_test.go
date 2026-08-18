@@ -42,6 +42,22 @@ func TestRedeemingAnUndecidedApprovalIsRetryableAndNotAnInvalidToken(t *testing.
 	if !strings.Contains(err.Error(), pending.ID.String()) {
 		t.Fatalf("refusal %q does not name the approval still awaiting a decision", err)
 	}
+	// "Retry this exact call" is only true advice for a caller whose call IS the
+	// staged one. A mismatched tool or hash against a pending row is a bad token,
+	// not a call to retry — telling it to wait would send it back for a decision
+	// that could never release the call it is actually making.
+	for name, mismatch := range map[string]struct{ tool, hash string }{
+		"another tool":   {"deepread", "c276f789"},
+		"another change": {"enrich", "20be9e19"},
+	} {
+		err := validateRedemption(pending, principal.Principal{}, mismatch.tool, mismatch.hash, now)
+		if !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
+			t.Fatalf("%s against a pending approval → %v, want ErrApprovalTokenInvalid", name, err)
+		}
+		if errors.Is(err, apperrors.ErrRequiresApproval) {
+			t.Fatalf("%s against a pending approval → %v, must not invite a retry", name, err)
+		}
+	}
 }
 
 // Every OTHER refusal stays token-invalid. A pending row past its expiry is one
@@ -126,8 +142,8 @@ func TestStagingAnAgentCallRefusesALogicalIdentityAndAnUnboundActor(t *testing.T
 	if err == nil || !strings.Contains(err.Error(), "takes no Identity") {
 		t.Fatalf("staging an agent call with an Identity → %v, want it refused", err)
 	}
-	// No actor means no passport to bind the approval to, and the probe's whole
-	// premise is "an approval THIS caller could spend".
+	// No actor at all: there is nobody for the staging to record as proposer and
+	// nobody whose credential the probe could scope to.
 	_, _, err = svc.StageAgentCall(context.Background(), StageInput{Kind: "enrich", DiffHash: "c276f789"})
 	if err == nil || !strings.Contains(err.Error(), "no actor") {
 		t.Fatalf("staging an agent call with no actor → %v, want it refused", err)

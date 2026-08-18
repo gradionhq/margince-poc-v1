@@ -404,10 +404,17 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 		t.Fatalf("staged_approval = %+v, want exactly full_name staged", result.StagedApproval)
 	}
 
-	// Before approval the replay is refused and writes nothing.
+	// Before approval the replay is refused and writes nothing. It is refused as
+	// STILL REQUIRING the approval rather than as an invalid token: the id is the
+	// live one this call was staged under, and calling it invalid is what sends an
+	// agent back to stage the same question again (approvals/redeem.go).
 	replay := replayWithApprovalID(t, result.StagedApproval.Replay, result.StagedApproval.ApprovalID)
-	if _, err := invoke("update_record", replay); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
-		t.Fatalf("replay before approval → %v, want ErrApprovalTokenInvalid", err)
+	_, replayErr := invoke("update_record", replay)
+	if !errors.Is(replayErr, apperrors.ErrRequiresApproval) {
+		t.Fatalf("replay before approval → %v, want ErrRequiresApproval", replayErr)
+	}
+	if errors.Is(replayErr, apperrors.ErrApprovalTokenInvalid) {
+		t.Fatalf("replay before approval → %v, must not read as an invalid token", replayErr)
 	}
 
 	// A human approves; the replay redeems and lands exactly the field.
