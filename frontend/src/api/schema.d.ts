@@ -2948,6 +2948,9 @@ export interface paths {
         /**
          * List leads (their OWN list, distinct from contacts; cursor-paginated).
          * @description Leads are segregated by construction — they never appear in /people.
+         *     Without an explicit `sort`, the operational queue is ordered by SLA urgency
+         *     (breached, at risk, within SLA), then score descending, then oldest first.
+         *     Explicit sort values retain their documented field ordering.
          */
         get: operations["listLeads"];
         put?: never;
@@ -3140,7 +3143,13 @@ export interface paths {
             };
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List current and superseded human-provided qualification signals.
+         * @description Returns the stored band, score effect, confidence, reason, author and lifecycle directly.
+         *     Clients must not reconstruct these facts from score factors because several bands have
+         *     the same point value and the decomposition does not contain superseded rows.
+         */
+        get: operations["listLeadManualSignals"];
         /**
          * Enter or replace a human-provided scoring factor (S-E13.6).
          * @description A rep supplies a qualification signal capture cannot fetch — a traffic band, an
@@ -13847,6 +13856,15 @@ export interface components {
             readonly last_activity_at?: string | null;
             /** @description Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169). */
             readonly open_task_count?: number | null;
+            /** @description Subject of the earliest open task linked to this lead. */
+            readonly next_task_subject?: string | null;
+            /**
+             * Format: date-time
+             * @description Due time of the earliest open task linked to this lead; undated tasks follow dated ones.
+             */
+            readonly next_task_due_at?: string | null;
+            /** @description The highest-impact factor in the retained current score explanation, for a compact queue reason. */
+            readonly score_reason?: string | null;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
@@ -14067,6 +14085,9 @@ export interface components {
             superseded_at?: string | null;
             /** @description Names the auto source that took over, so the rep sees WHAT replaced their estimate. */
             superseded_by?: string | null;
+        };
+        LeadManualSignalListResponse: {
+            data: components["schemas"]["LeadManualSignal"][];
         };
         SetLeadManualSignalRequest: {
             /** @enum {string} */
@@ -23621,6 +23642,30 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadScoreExplanation"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listLeadManualSignals: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Manual qualification signals, current rows first and then retained superseded rows. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadManualSignalListResponse"];
                 };
             };
             404: components["responses"]["NotFound"];

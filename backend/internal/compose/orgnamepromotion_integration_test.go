@@ -53,14 +53,13 @@ func seedSigningEmployee(t *testing.T, e *integration.Env, org ids.UUID, fullNam
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, is_current_primary, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, true, 'gmail:seed', 'connector:gmail')`,
-			e.WS, person, org); err != nil {
+			INSERT INTO relationship (kind, person_id, organization_id, is_current_primary, source, captured_by)
+			VALUES ('employment', $1, $2, true, 'gmail:seed', 'connector:gmail')`, person, org); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
-			VALUES ( $1, 'org_name', $2, $2, 'activity:seed', 0.9, 'capture_enrich', 'agent:enrich')`, person, signedName)
+			VALUES ($1, 'org_name', $2, $2, 'activity:seed', 0.9, 'capture_enrich', 'agent:enrich')`, person, signedName)
 		return err
 	})
 	if err != nil {
@@ -75,7 +74,7 @@ func seedDossierName(t *testing.T, e *integration.Env, org ids.UUID, legalName s
 	t.Helper()
 	e.WsExec(t, `
 		INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-		VALUES ( $1, 'legal_name', $2, $2, 'https://gitex.example', 0.9, 'site_read', 'agent:siteread')`,
+		VALUES ($1, 'legal_name', $2, $2, 'https://gitex.example', 0.9, 'site_read', 'agent:siteread')`,
 		org, legalName)
 }
 

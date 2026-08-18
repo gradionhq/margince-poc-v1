@@ -76,7 +76,7 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	moveAt := func(stage ids.UUID, at time.Time) {
 		fx.exec(t, `
 			INSERT INTO deal_stage_history (deal_id, to_stage_id, changed_by, changed_at)
-			VALUES ( $1, $2, 'human:test', $3)`, board.ownDeal, stage, at)
+			VALUES ($1, $2, 'human:test', $3)`, board.ownDeal, stage, at)
 	}
 	moveAt(board.openStage, now.AddDate(0, 0, -1))
 	moveAt(board.openStage, now.AddDate(0, 0, -5))
@@ -129,10 +129,10 @@ func TestPreviewDraftOverrideAndValidation(t *testing.T) {
 	autoID := fx.seedAutomation(t, "stage_change_create_task")
 	ctx := fx.humanCtx(fx.rep1, principal.RowScopeOwn)
 
-	fx.exec(t, `INSERT INTO lead (workspace_id, full_name, source, captured_by) VALUES ($1, 'Unrouted A', 'manual', 'human:test')`, fx.ws)
-	fx.exec(t, `INSERT INTO lead (workspace_id, full_name, source, captured_by) VALUES ($1, 'Unrouted B', 'manual', 'human:test')`, fx.ws)
-	fx.exec(t, `INSERT INTO lead (workspace_id, full_name, owner_id, status, source, captured_by) VALUES ($1, 'Routed', $2, 'working', 'manual', 'human:test')`, fx.ws, fx.rep2)
-	fx.exec(t, `INSERT INTO lead (workspace_id, full_name, status, source, captured_by) VALUES ($1, 'Dead', 'disqualified', 'manual', 'human:test')`, fx.ws)
+	fx.exec(t, `INSERT INTO lead (full_name, source, captured_by) VALUES ('Unrouted A', 'manual', 'human:test')`)
+	fx.exec(t, `INSERT INTO lead (full_name, source, captured_by) VALUES ('Unrouted B', 'manual', 'human:test')`)
+	fx.exec(t, `INSERT INTO lead (full_name, owner_id, status, source, captured_by) VALUES ('Routed', $1, 'working', 'manual', 'human:test')`, fx.rep2)
+	fx.exec(t, `INSERT INTO lead (full_name, status, source, captured_by) VALUES ('Dead', 'disqualified', 'manual', 'human:test')`)
 
 	// A draft override previews another recipe under the same stored
 	// instance's RBAC/404 anchor (the editor's preview-before-save).

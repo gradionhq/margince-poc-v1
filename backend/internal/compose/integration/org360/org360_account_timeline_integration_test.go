@@ -48,8 +48,8 @@ func accountMailAt(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject string, a
 // the graph draws them in.
 func employ(t *testing.T, e *integration.Env, person, org ids.UUID, title string) {
 	t.Helper()
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, role, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, $4, 'manual', 'human:x')`, e.WS, person, org, title)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, role, source, captured_by)
+		VALUES ('employment', $1, $2, $3, 'manual', 'human:x')`, person, org, title)
 }
 
 // employAt ties a person to an organization. endedOn nil is a live employment;
@@ -57,9 +57,8 @@ func employ(t *testing.T, e *integration.Env, person, org ids.UUID, title string
 func employAt(t *testing.T, e *integration.Env, person, org ids.UUID, endedOn *time.Time) {
 	t.Helper()
 	e.WsExec(t, `INSERT INTO relationship
-		(workspace_id, kind, person_id, organization_id, started_at, ended_at, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, DATE '2026-01-01', $4::date, 'manual', 'human:x')`,
-		e.WS, person, org, endedOn)
+		(kind, person_id, organization_id, started_at, ended_at, source, captured_by)
+		VALUES ('employment', $1, $2, DATE '2026-01-01', $3::date, 'manual', 'human:x')`, person, org, endedOn)
 }
 
 // accountTimeline lists the account's timeline the way GET /activities does.

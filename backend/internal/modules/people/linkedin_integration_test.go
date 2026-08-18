@@ -205,7 +205,7 @@ func (e *dedupeEnv) seedEmail(t *testing.T, person ids.PersonID, email string) {
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-			VALUES ( $1, $2, true, 'manual', 'human:test')`, person, email)
+			VALUES ($1, $2, true, 'manual', 'human:test')`, person, email)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding email for %s: %v", person, err)
@@ -218,8 +218,8 @@ func (e *dedupeEnv) employ(t *testing.T, person ids.PersonID, org ids.Organizati
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, 'employment', $2, $3, 'manual', 'human:test')`, e.ws, person, org)
+			INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+			VALUES ('employment', $1, $2, 'manual', 'human:test')`, person, org)
 		return err
 	}); err != nil {
 		t.Fatalf("employing %s: %v", person, err)

@@ -363,10 +363,10 @@ func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a,
 		leftCol, rightCol = "left_lead_id", "right_lead_id"
 	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
-		INSERT INTO dedupe_candidate (workspace_id, entity_type, %s, %s, confidence, evidence, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		INSERT INTO dedupe_candidate (entity_type, %s, %s, confidence, evidence, source, captured_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT DO NOTHING`, leftCol, rightCol),
-		workspaceID(ctx), entityType, left, right, confidence, payload, source, by)
+		entityType, left, right, confidence, payload, source, by)
 	if err != nil {
 		return false, fmt.Errorf("people: recording dedupe candidate: %w", err)
 	}

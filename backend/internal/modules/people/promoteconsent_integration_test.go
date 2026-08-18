@@ -114,9 +114,9 @@ func (e *promoteConsentEnv) seedLead(t *testing.T, email string) ids.LeadID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO lead (id, workspace_id, full_name, email, status, source, captured_by)
-		 VALUES ($1, $2, 'Lena Lead', lower($3), 'working', 'inbound', 'human:x')`,
-		id, e.ws, email); err != nil {
+		`INSERT INTO lead (id, full_name, email, status, source, captured_by)
+		 VALUES ($1, 'Lena Lead', lower($2), 'working', 'inbound', 'human:x')`,
+		id, email); err != nil {
 		t.Fatal(err)
 	}
 	return ids.From[ids.LeadKind](id)

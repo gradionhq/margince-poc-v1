@@ -28,14 +28,35 @@ const liveOnlyClause = ` AND archived_at IS NULL`
 // from activity_link rather than storing them on the lead: the last touch,
 // and how many tasks are still open against it. Every lead read is FROM the
 // unaliased table, which is what lets them name lead.id.
-const leadColumns = `id, workspace_id, full_name, email, title, company_name, candidate_org_key,
+const leadColumns = `id, full_name, email, title, company_name, candidate_org_key,
 	linkedin_url, status, score, score_override_reason, score_computed, owner_id, project_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at,
 	routed_at, first_response_at,
 	(SELECT max(a.occurred_at) FROM activity_link l JOIN activity a ON a.id = l.activity_id
 	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL),
 	(SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done)`
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done),
+	(SELECT a.subject FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
+	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
+	(SELECT a.due_at FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
+	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
+	(SELECT factor.value->>'factor'
+	   FROM LATERAL (
+	     SELECT factors FROM lead_score_history
+	      WHERE lead_id = lead.id
+	      ORDER BY computed_at DESC, id DESC LIMIT 1
+	   ) history
+	   CROSS JOIN LATERAL jsonb_array_elements(
+	     CASE WHEN jsonb_typeof(history.factors) = 'array' THEN history.factors ELSE '[]'::jsonb END
+	   ) WITH ORDINALITY factor(value, position)
+	  WHERE jsonb_typeof(factor.value->'factor') = 'string'
+	    AND jsonb_typeof(factor.value->'points') = 'number'
+	  ORDER BY abs(CASE WHEN jsonb_typeof(factor.value->'points') = 'number'
+	                    THEN (factor.value->>'points')::numeric END) DESC,
+	           factor.position
+	  LIMIT 1)`
 
 // readLead resolves one lead row; active names the custom-field columns
 // to carry alongside the core ones — nil for internal decision reads whose
@@ -57,7 +78,7 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.A
 // __cursor_key there, exactly as scanPerson does.
 func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Lead, error) {
 	var l crmcontracts.Lead
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var ownerID, projectID, promotedPerson *ids.UUID
 	var email *string
 	var status string
@@ -65,10 +86,11 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var openTasks int
 
 	dests := []any{
-		&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
+		&id, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &projectID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
 		&l.RoutedAt, &l.FirstResponseAt, &l.LastActivityAt, &openTasks,
+		&l.NextTaskSubject, &l.NextTaskDueAt, &l.ScoreReason,
 	}
 	cf := storekit.ScanDests(active)
 	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {

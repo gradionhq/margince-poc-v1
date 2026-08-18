@@ -172,9 +172,9 @@ func TestAReadShareCannotArchiveOrEraseThePersonItOpens(t *testing.T) {
 // and it changes what the pipeline says a lead is worth.
 func TestAReadShareOfALeadCannotScoreIt(t *testing.T) {
 	e := SetupSearch(t)
-	lead := e.Seed(t,
-		`INSERT INTO lead (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Shared Lead', $3, 'manual', 'human:x')`, e.Rep3)
+	lead := e.SeedID(t,
+		`INSERT INTO lead (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Shared Lead', $2, 'manual', 'human:x')`, e.Rep3)
 	owner := leadActor(e, e.Rep3, principal.RowScopeOwn, nil)
 	holder := leadActor(e, e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
 	store := people.NewStore(e.DB())

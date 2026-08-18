@@ -95,8 +95,8 @@ func TestOrganizationGraphOmitsAGroupTheCallerMayNotRead(t *testing.T) {
 	employ(t, e, employee, org, "cto")
 	deal := e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
-		VALUES ($1, 'deal_stakeholder', $2, $3, 'champion', 'manual', 'human:x')`, e.WS, employee, deal)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, deal_id, role, source, captured_by)
+		VALUES ('deal_stakeholder', $1, $2, 'champion', 'manual', 'human:x')`, employee, deal)
 
 	full, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -179,14 +179,14 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 	myPartner := e.SeedOrg(t, "My Partner", &e.Rep1)
 	theirPartner := e.SeedOrg(t, "Their Partner", &e.Rep3)
 	for _, partner := range []ids.UUID{myPartner, theirPartner} {
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
-			VALUES ($1, 'referred_by', $2, $3, 'manual', 'human:x')`, e.WS, partner, org)
+		e.WsExec(t, `INSERT INTO relationship (kind, organization_id, counterparty_org_id, source, captured_by)
+			VALUES ('referred_by', $1, $2, 'manual', 'human:x')`, partner, org)
 	}
 
 	// A seat on the caller's own deal held by a person they cannot read: the
 	// deal is visible, the person is not, so the edge must not appear.
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
-		VALUES ($1, 'deal_stakeholder', $2, $3, 'blocker', 'manual', 'human:x')`, e.WS, theirs, myDeal)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, deal_id, role, source, captured_by)
+		VALUES ('deal_stakeholder', $1, $2, 'blocker', 'manual', 'human:x')`, theirs, myDeal)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {

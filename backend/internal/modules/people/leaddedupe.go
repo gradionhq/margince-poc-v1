@@ -97,8 +97,7 @@ func (s *Store) fuzzyLead(ctx context.Context, tx pgx.Tx, lead crmcontracts.Lead
 	rows, err := tx.Query(ctx, `
 		SELECT id, full_name, company_name, coalesce(split_part(email, '@', 2), '')
 		  FROM lead
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND archived_at IS NULL AND id <> $1
+		 WHERE archived_at IS NULL AND id <> $1
 		   AND (f_fold_apostrophes(lower(coalesce(full_name, ''))) % f_fold_apostrophes(lower($2))
 		        OR ($3 <> '' AND lower(company_name) = lower($3))
 		        OR ($4 <> '' AND lower(split_part(email, '@', 2)) = $4))`,

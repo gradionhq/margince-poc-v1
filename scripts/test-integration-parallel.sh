@@ -104,6 +104,14 @@ if [[ -n "${COVERDIR:-}" && -z "${INTEGRATION_TIMEOUT:-}" ]] && (( SHARD_TOTAL =
 fi
 export IT_TIMEOUT
 
+ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
+JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
+
+# The lane's connection budget, declared once in scripts/lib-testdb.sh and
+# computed for THIS run's concurrency. Exports MARGINCE_TEST_POOL_MAX_CONNS and
+# LANE_CONN_BUDGET for the harness.
+declare_lane_budget "$JOBS"
+
 # Build the migrated template once, fresh, before fanning out. Every package
 # clones from it (CREATE DATABASE ... TEMPLATE) instead of re-migrating.
 echo "test-integration-parallel: building migrated template ${TEMPLATE_NAME}…"
@@ -111,9 +119,6 @@ build_template
 
 # Every integration test in this repo lives in the backend module.
 GO_DIRS=(backend)
-
-ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
-JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
 
 # Redis logical dbs available to the lane: every db the server serves except 0,
 # which `make dev` owns. Must match --databases in infra/docker-compose.dev.yml.

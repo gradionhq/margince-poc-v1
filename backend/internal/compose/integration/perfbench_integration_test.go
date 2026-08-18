@@ -338,13 +338,13 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	        SELECT count(*) AS n FROM organization
 	      ), people AS (
 	        SELECT id, (row_number() OVER () - 1) % (SELECT n FROM total) + 1 AS target_rn
-	        FROM person LIMIT $2
+	        FROM person LIMIT $1
 	      ), orgs AS (
 	        SELECT id, row_number() OVER () AS rn FROM organization
 	      )
-	      INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-	      SELECT $1, 'employment', p.id, o.id, 'manual', 'human:bench'
-	      FROM people p JOIN orgs o ON o.rn = p.target_rn`, ws, spec.relationships)
+	      INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+	      SELECT 'employment', p.id, o.id, 'manual', 'human:bench'
+	      FROM people p JOIN orgs o ON o.rn = p.target_rn`, spec.relationships)
 
 	anchor := seedBenchAnchor(t, owner, ws, spec)
 
@@ -360,7 +360,7 @@ func seedBenchAnchor(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierS
 	var anchor ids.UUID
 	if err := owner.QueryRow(context.Background(),
 		`INSERT INTO person (full_name, source, captured_by)
-		 VALUES ( 'Anchor Hamburg', 'manual', 'human:bench') RETURNING id`).Scan(&anchor); err != nil {
+		 VALUES ('Anchor Hamburg', 'manual', 'human:bench') RETURNING id`).Scan(&anchor); err != nil {
 		t.Fatalf("seeding anchor: %v", err)
 	}
 	benchExec(t, owner, spec.tier, `WITH act AS (

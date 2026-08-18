@@ -255,12 +255,11 @@ func upsertPartnerRow(ctx context.Context, tx pgx.Tx, in UpsertPartnerInput, fit
 		segments = *in.ServedSegments
 	}
 	row := tx.QueryRow(ctx, `
-		INSERT INTO partner (workspace_id, organization_id, partner_role, cert_status, margin_tier,
+		INSERT INTO partner (organization_id, partner_role, cert_status, margin_tier,
 		                     certified_staff, retention_rate, relationship_stage, next_step,
 		                     next_step_due_at, served_segments, partner_fit_score,
 		                     partner_fit_score_computed, partner_fit_override_reason, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, coalesce($3, 'applied'), $4, coalesce($5, 0), $6,
+		VALUES ($1, $2, coalesce($3, 'applied'), $4, coalesce($5, 0), $6,
 		        coalesce($8, 'research'), $9, $10, $11, $12, $13, $14, 'manual', $7)
 		ON CONFLICT (organization_id) DO UPDATE SET
 		  partner_role = EXCLUDED.partner_role,

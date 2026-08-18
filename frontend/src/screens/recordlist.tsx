@@ -88,14 +88,16 @@ export function lastActivityColumn<Row extends OwnedRecord>(
  */
 export function standardViews(
   viewerId: string | undefined,
+  options: Readonly<{ sort?: string; mineFirst?: boolean }> = {},
 ): readonly ViewSpec[] {
-  const views: ViewSpec[] = [{ label: "list.viewAll", sort: "-created_at" }];
-  if (viewerId) {
-    views.push({
-      label: "list.viewMine",
-      sort: "-created_at",
-      filters: { owner_id: viewerId },
-    });
-  }
-  return views;
+  const sort = options.sort ?? "-created_at";
+  const all: ViewSpec = { label: "list.viewAll", sort };
+  if (!viewerId) return [all];
+
+  const mine: ViewSpec = {
+    label: "list.viewMine",
+    sort,
+    filters: { owner_id: viewerId },
+  };
+  return options.mineFirst ? [mine, all] : [all, mine];
 }

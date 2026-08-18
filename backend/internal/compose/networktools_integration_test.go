@@ -34,8 +34,8 @@ func employAt(t *testing.T, e *integration.Env, person, org ids.UUID) {
 	t.Helper()
 	seedAsAdmin(t, e, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES (`+wsGUC+`, 'employment', $1, $2, 'manual', 'human:test')`, person, org)
+			INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
+			VALUES ('employment', $1, $2, 'manual', 'human:test')`, person, org)
 		return err
 	}, "recording employment")
 }
@@ -64,7 +64,7 @@ func TestIntroPathNamesBothEndsOfTheRouteAndSaysWhenItWasCapped(t *testing.T) {
 	seedAsAdmin(t, e, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
 			INSERT INTO organization (display_name, source, captured_by)
-			VALUES ( 'Acme GmbH', 'manual', 'human:test') RETURNING id`).Scan(&orgID)
+			VALUES ('Acme GmbH', 'manual', 'human:test') RETURNING id`).Scan(&orgID)
 	}, "seeding the account")
 	person, err := e.People.CreatePerson(ctx, people.CreatePersonInput{
 		FullName: "Jonas Bach", Source: "manual",
@@ -187,18 +187,18 @@ func seedOpenDeal(t *testing.T, e *integration.Env) ids.UUID {
 	seedAsAdmin(t, e, func(ctx context.Context, tx pgx.Tx) error {
 		var pipelineID, stageID ids.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO pipeline (name) VALUES ( 'At-risk test')
+			INSERT INTO pipeline (name) VALUES ('At-risk test')
 			RETURNING id`).Scan(&pipelineID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO stage (pipeline_id, name, position)
-			VALUES ( $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
+			VALUES ($1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, `
 			INSERT INTO deal (name, stage_id, pipeline_id, owner_id, source, captured_by)
-			VALUES ( 'Threadless', $1, $2, $3, 'manual', 'human:test')
+			VALUES ('Threadless', $1, $2, $3, 'manual', 'human:test')
 			RETURNING id`, stageID, pipelineID, e.Rep1).Scan(&dealID)
 	}, "seeding the deal")
 	return dealID

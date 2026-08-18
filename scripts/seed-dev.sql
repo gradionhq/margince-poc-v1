@@ -115,7 +115,7 @@ BEGIN
   UPDATE person       SET owner_id = admin_id WHERE owner_id IS NULL;
   UPDATE organization SET owner_id = admin_id WHERE owner_id IS NULL;
   UPDATE deal         SET owner_id = admin_id WHERE owner_id IS NULL;
-  UPDATE lead         SET owner_id = admin_id WHERE workspace_id = ws AND owner_id IS NULL;
+  UPDATE lead         SET owner_id = admin_id WHERE owner_id IS NULL;
 
   -- 2nd full-seat user so the Share picker / "who has access" have a real
   -- subject beyond the lone admin.

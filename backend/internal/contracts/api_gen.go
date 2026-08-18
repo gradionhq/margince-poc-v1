@@ -14877,6 +14877,12 @@ type Lead struct {
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.
 	LinkedinUrl *string `json:"linkedin_url,omitempty"`
 
+	// NextTaskDueAt Due time of the earliest open task linked to this lead; undated tasks follow dated ones.
+	NextTaskDueAt *time.Time `json:"next_task_due_at,omitempty"`
+
+	// NextTaskSubject Subject of the earliest open task linked to this lead.
+	NextTaskSubject *string `json:"next_task_subject,omitempty"`
+
 	// OpenTaskCount Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169).
 	OpenTaskCount *int                `json:"open_task_count,omitempty"`
 	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
@@ -14900,6 +14906,9 @@ type Lead struct {
 
 	// ScoreOverrideReason Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.
 	ScoreOverrideReason *string `json:"score_override_reason,omitempty"`
+
+	// ScoreReason The highest-impact factor in the retained current score explanation, for a compact queue reason.
+	ScoreReason *string `json:"score_reason,omitempty"`
 
 	// SlaDeadlineAt Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.
 	SlaDeadlineAt *time.Time `json:"sla_deadline_at,omitempty"`
@@ -14966,6 +14975,11 @@ type LeadManualSignalFactor string
 // `judgement` — a read of the situation. Shown on the factor, never
 // blended into an auto-captured signal (AC-S7a).
 type LeadManualSignalKind string
+
+// LeadManualSignalListResponse defines model for LeadManualSignalListResponse.
+type LeadManualSignalListResponse struct {
+	Data []LeadManualSignal `json:"data"`
+}
 
 // LeadScoreEntry One point in the retained series — what the score was, and why.
 type LeadScoreEntry struct {
@@ -27100,6 +27114,22 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "linkedin_url")
 	}
 
+	if raw, found := object["next_task_due_at"]; found {
+		err = json.Unmarshal(raw, &a.NextTaskDueAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'next_task_due_at': %w", err)
+		}
+		delete(object, "next_task_due_at")
+	}
+
+	if raw, found := object["next_task_subject"]; found {
+		err = json.Unmarshal(raw, &a.NextTaskSubject)
+		if err != nil {
+			return fmt.Errorf("error reading 'next_task_subject': %w", err)
+		}
+		delete(object, "next_task_subject")
+	}
+
 	if raw, found := object["open_task_count"]; found {
 		err = json.Unmarshal(raw, &a.OpenTaskCount)
 		if err != nil {
@@ -27178,6 +27208,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'score_override_reason': %w", err)
 		}
 		delete(object, "score_override_reason")
+	}
+
+	if raw, found := object["score_reason"]; found {
+		err = json.Unmarshal(raw, &a.ScoreReason)
+		if err != nil {
+			return fmt.Errorf("error reading 'score_reason': %w", err)
+		}
+		delete(object, "score_reason")
 	}
 
 	if raw, found := object["sla_deadline_at"]; found {
@@ -27342,6 +27380,20 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.NextTaskDueAt != nil {
+		object["next_task_due_at"], err = json.Marshal(a.NextTaskDueAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'next_task_due_at': %w", err)
+		}
+	}
+
+	if a.NextTaskSubject != nil {
+		object["next_task_subject"], err = json.Marshal(a.NextTaskSubject)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'next_task_subject': %w", err)
+		}
+	}
+
 	if a.OpenTaskCount != nil {
 		object["open_task_count"], err = json.Marshal(a.OpenTaskCount)
 		if err != nil {
@@ -27407,6 +27459,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		object["score_override_reason"], err = json.Marshal(a.ScoreOverrideReason)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'score_override_reason': %w", err)
+		}
+	}
+
+	if a.ScoreReason != nil {
+		object["score_reason"], err = json.Marshal(a.ScoreReason)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'score_reason': %w", err)
 		}
 	}
 
@@ -31383,6 +31442,9 @@ type ServerInterface interface {
 	// Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
 	// (POST /leads/{id}/demote)
 	DemoteLead(w http.ResponseWriter, r *http.Request, id Id, params DemoteLeadParams)
+	// List current and superseded human-provided qualification signals.
+	// (GET /leads/{id}/manual-signals)
+	ListLeadManualSignals(w http.ResponseWriter, r *http.Request, id Id)
 	// Enter or replace a human-provided scoring factor (S-E13.6).
 	// (PUT /leads/{id}/manual-signals)
 	SetLeadManualSignal(w http.ResponseWriter, r *http.Request, id Id)
@@ -33051,6 +33113,12 @@ func (_ Unimplemented) UpdateLead(w http.ResponseWriter, r *http.Request, id Id,
 // Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
 // (POST /leads/{id}/demote)
 func (_ Unimplemented) DemoteLead(w http.ResponseWriter, r *http.Request, id Id, params DemoteLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List current and superseded human-provided qualification signals.
+// (GET /leads/{id}/manual-signals)
+func (_ Unimplemented) ListLeadManualSignals(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -41156,6 +41224,40 @@ func (siw *ServerInterfaceWrapper) DemoteLead(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DemoteLead(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListLeadManualSignals operation middleware
+func (siw *ServerInterfaceWrapper) ListLeadManualSignals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLeadManualSignals(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -53108,6 +53210,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/leads/{id}/demote", wrapper.DemoteLead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/leads/{id}/manual-signals", wrapper.ListLeadManualSignals)
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/leads/{id}/manual-signals", wrapper.SetLeadManualSignal)

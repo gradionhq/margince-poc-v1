@@ -44,5 +44,14 @@ describe("one record list, three record types", () => {
       "list.viewMine",
     ]);
     expect(standardViews("u-1")[1]?.filters).toEqual({ owner_id: "u-1" });
+    expect(
+      standardViews("u-1", { sort: "", mineFirst: true }).map((view) => ({
+        label: view.label,
+        sort: view.sort,
+      })),
+    ).toEqual([
+      { label: "list.viewMine", sort: "" },
+      { label: "list.viewAll", sort: "" },
+    ]);
   });
 });

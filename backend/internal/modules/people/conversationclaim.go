@@ -105,11 +105,11 @@ func (s *Store) RecordConversationClaim(ctx context.Context, in ClaimInput) (crm
 		var id ids.UUID
 		err := tx.QueryRow(ctx, `
 			INSERT INTO conversation_claim
-				(workspace_id, person_id, kind, body, source_activity_id, source_quote,
+				(person_id, kind, body, source_activity_id, source_quote,
 				 due_at, evidence_fingerprint, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 			RETURNING id`,
-			storekit.MustWorkspace(ctx), in.PersonID, in.Kind, in.Body,
+			in.PersonID, in.Kind, in.Body,
 			in.ActivityID, in.Quote, in.DueAt,
 			claimFingerprint(in), in.Source, by).Scan(&id)
 		if err != nil {

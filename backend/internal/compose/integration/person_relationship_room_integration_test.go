@@ -318,10 +318,10 @@ func TestPerson360AssemblesEverySectionFromRealRows(t *testing.T) {
 	org := e.SeedOrg(t, "ScaleCommerce", &e.Rep1)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 
-	SeedRow(t, owner, `INSERT INTO relationship
-		(id, workspace_id, kind, person_id, organization_id, role, is_current_primary, source, captured_by)
-		VALUES ($1, $2, 'employment', '`+mine.String()+`', '`+org.String()+`',
-		        'Head of Procurement', true, 'manual', 'human:x')`, e.WS)
+	SeedIDRow(t, owner, `INSERT INTO relationship
+		(id, kind, person_id, organization_id, role, is_current_primary, source, captured_by)
+		VALUES ($1, 'employment', '`+mine.String()+`', '`+org.String()+`',
+		        'Head of Procurement', true, 'manual', 'human:x')`)
 
 	// One inbound message and one open task: the timeline, the last-touch
 	// pair and the next-steps section each read a different slice of these.

@@ -158,7 +158,7 @@ func TestLeadLinkedInRefusesNonURLsAsTheCallersFault(t *testing.T) {
 	}); !errors.As(err, &parseErr) {
 		t.Fatalf("create with a non-http URL → %v, want a values.ParseError (422)", err)
 	}
-	if n := e.count(t, `SELECT count(*) FROM lead WHERE workspace_id = $1`, e.ws); n != 0 {
+	if n := e.count(t, `SELECT count(*) FROM lead`); n != 0 {
 		t.Fatalf("a refused create left %d lead rows", n)
 	}
 	if _, err := e.store.FindLeadByLinkedInURL(ctx, "://nope"); !errors.As(err, &parseErr) {

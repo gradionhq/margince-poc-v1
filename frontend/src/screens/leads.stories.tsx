@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { LeadBoard, StatusBadge } from "./leadpresentation";
 import { LeadScreen, LeadsScreen } from "./leads";
+import { LeadManualSignals } from "./leadsignals";
+import { standardViews } from "./recordlist";
 import {
   installFetchStub,
   jsonResponse,
@@ -251,4 +254,76 @@ export const LeadsBoard: Story = {
       </StoryProviders>
     );
   },
+};
+
+export const LeadPresentationComponents: Story = {
+  render: () => (
+    <StoryProviders>
+      <div style={{ display: "grid", gap: "var(--space-3)" }}>
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <StatusBadge status="new" />
+          <StatusBadge status="working" />
+        </div>
+        <LeadBoard
+          rows={[
+            { ...lead, status: "new", score: 82 },
+            {
+              ...lead,
+              id: "l-2",
+              full_name: "Petra Vogel",
+              status: "working",
+              score: 54,
+            },
+          ]}
+          onMoved={() => undefined}
+          hasMore={false}
+          loadMore={() => undefined}
+        />
+      </div>
+    </StoryProviders>
+  ),
+};
+
+export const ManualQualificationEvidence: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /leads/l-1/manual-signals": () =>
+        jsonResponse({
+          data: [
+            {
+              factor: "budget_hint",
+              band: "confirmed",
+              points: 18,
+              signal_kind: "fact",
+              confidence: 0.9,
+              reason: "Budget confirmed during discovery call.",
+              set_by: "u-9",
+              set_at: "2026-06-20T08:00:00Z",
+            },
+          ],
+        }),
+      "GET /users": () =>
+        jsonResponse({
+          data: [{ id: "u-9", display_name: "Mina Rep" }],
+          page: { next_cursor: null, has_more: false },
+        }),
+    });
+    return (
+      <StoryProviders>
+        <LeadManualSignals id="l-1" />
+      </StoryProviders>
+    );
+  },
+};
+
+export const SharedRecordViews: Story = {
+  render: () => (
+    <ul>
+      {standardViews("u-9", { sort: "", mineFirst: true }).map((view) => (
+        <li key={view.label}>
+          {view.label}: {view.filters?.owner_id ?? "workspace"}
+        </li>
+      ))}
+    </ul>
+  ),
 };

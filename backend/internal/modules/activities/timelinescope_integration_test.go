@@ -34,9 +34,9 @@ func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
 	e := setupPromises(t)
 	hiddenLeadID, visiblePersonID, activityID := ids.NewV7(), ids.NewV7(), ids.NewV7()
 
-	e.exec(t, `INSERT INTO lead (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Hidden Prospect', $3, 'seed', 'system')`,
-		hiddenLeadID, e.ws, e.other)
+	e.exec(t, `INSERT INTO lead (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, 'Hidden Prospect', $2, 'seed', 'system')`,
+		hiddenLeadID, e.other)
 	e.exec(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
 		VALUES ($1, 'Visible Contact', $2, 'seed', 'system')`,
 		visiblePersonID, e.rep)
@@ -70,8 +70,8 @@ func TestNarrowingTheTimelineToAReadableLeadReturnsIt(t *testing.T) {
 	e := setupPromises(t)
 	ownLeadID, activityID := ids.NewV7(), ids.NewV7()
 
-	e.exec(t, `INSERT INTO lead (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'My Prospect', $3, 'seed', 'system')`, ownLeadID, e.ws, e.rep)
+	e.exec(t, `INSERT INTO lead (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, 'My Prospect', $2, 'seed', 'system')`, ownLeadID, e.rep)
 	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'note', 'Asked for a Q4 quote', now(), 'seed', 'system')`,
 		activityID)

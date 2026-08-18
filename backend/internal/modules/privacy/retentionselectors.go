@@ -19,8 +19,7 @@ package privacy
 // activities, the holds of every linked record plus the statutory floor.
 var retentionSelectors = map[string]string{
 	"lead/unconverted": `SELECT id FROM lead
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
+		WHERE status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
 		  AND full_name IS DISTINCT FROM 'Anonymized Lead'
 		  AND created_at < now() - make_interval(days => $1) LIMIT $2`,
 	"activity/": `SELECT a.id FROM activity a
