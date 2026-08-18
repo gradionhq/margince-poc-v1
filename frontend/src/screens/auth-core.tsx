@@ -42,15 +42,24 @@ export type AuthPhase =
 
 function coreState(phase: AuthPhase): MarginceCoreState {
   if (phase === "signing-in") {
-    return "working";
+    // Work in flight, and the only work this surface ever does.
+    return "reasoning";
   }
-  if (phase === "idle") {
-    // Waiting on the user, and saying so. `idle` would be honest too, but the
-    // surface IS asking for something, and `listening` is the state that means
-    // that in the closed vocabulary.
-    return "listening";
+  if (phase === "success") {
+    return "applied";
   }
-  return phase;
+  if (phase === "error") {
+    return "error";
+  }
+  if (phase === "unavailable") {
+    // The installation cannot be reached, which is the same shape of failure as
+    // a source the agent cannot get to: nothing is wrong, nothing is reachable.
+    return "disconnected";
+  }
+  // idle and quiet both: nothing is running and nothing is staged. The surface
+  // is waiting on a person, and the Core does not claim to be listening for
+  // them — the agent reads captured activity, it holds no conversation.
+  return "dormant";
 }
 
 const providerKeys: Record<AssistantProfile["providers"][number], MessageKey> =

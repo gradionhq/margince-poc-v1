@@ -28,12 +28,13 @@ import "./agentdock.css";
 // same reason — a success green beside "Configured" would read as a health
 // check nobody performed.
 //
-// The orb is the Core primitive (WDS-CORE-1), the same sphere sign-in and
+// The orb is the Core primitive (WDS-CORE-1), the same ball sign-in and
 // onboarding show — there is one orb in the product, and a CSS lookalike in
-// permanent chrome would be a second. `quiet` is the honest beat for a surface
-// claiming configuration rather than work in flight, and the feed is off:
-// nothing is arriving, and a mote drifting through the page head is a moving
-// speck beside the page title.
+// permanent chrome would be a second. `dormant` is the honest state for a
+// surface claiming configuration rather than work in flight — the waiting count
+// beside it is what carries the one live signal this dock has, in a number a
+// reader can act on. The feed is off: nothing is arriving here, and a mote
+// drifting through the page head is a moving speck beside the page title.
 
 // The tools the catalog actually carries, split by how they act. Absent a
 // loaded catalog the row that reads this is not rendered — "0 auto-execute" is
@@ -68,7 +69,7 @@ function DockPanel({
     >
       <div className="agentpanelhead">
         <MarginceCoreScene
-          state="quiet"
+          state="dormant"
           feed={false}
           className="agentorb big"
         />
@@ -162,7 +163,7 @@ export function AgentDock({
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
       >
-        <MarginceCoreScene state="quiet" feed={false} className="agentorb" />
+        <MarginceCoreScene state="dormant" feed={false} className="agentorb" />
         <span className="agentwho">
           <b>{t("agent.title")}</b>
           <span className="agentstate">{t("agent.configured")}</span>

@@ -254,7 +254,7 @@ function GateColumn({
   }> =
     scan === undefined
       ? {
-          core: running === true ? "working" : "listening",
+          core: running === true ? "ingesting" : "dormant",
           title: name
             ? t("ob.gate.title", { name })
             : t("ob.gate.titleAnonymous"),
@@ -303,9 +303,11 @@ const BROKEN: ReadonlySet<CompanySiteRead["status"]> = new Set([
 
 function coreStateFor(status: CompanySiteRead["status"]): MarginceCoreState {
   if (SETTLED.has(status)) {
-    return "success";
+    return "applied";
   }
-  return BROKEN.has(status) ? "error" : "working";
+  // A site read IS intake: pages arriving, one after another. `reasoning` would
+  // overclaim — the agent is not yet doing anything with what it has read.
+  return BROKEN.has(status) ? "error" : "ingesting";
 }
 
 // The one phase line, from the only two fields that carry a phase. `status`

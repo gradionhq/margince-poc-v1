@@ -1,21 +1,30 @@
 /*
  * The Margince Core — WDS-CORE-1..4 (ADR-0076).
  *
- * One primitive, one stylesheet. It replaces the CSS orbital scene (orbits,
- * nodes, approval gate, threads, mark shell) with the liquid-glass Core the
- * interactive mockup designs against — ported from that repo's
- * `shared/core/core.css` so the two trees can stay diffable.
+ * One primitive, one stylesheet: four liquid dots sealed in a glass ball. The
+ * dots are moved by the engine (margince-core-engine.ts) off the pure motion
+ * table (margince-core-motion.ts); everything a reader would call the LOOK of it
+ * is here, and nothing here knows what a frame is.
  *
  * State (WDS-CORE-2) arrives as `data-core-state` and resolves to exactly three
- * custom properties, `--coreTint`, `--coreTintMix` and `--coreBeat`. Every rule
- * below reads those rather than branching per state, so adding a state is one
- * block and changing what a state means is one line. The shader reads
- * --coreTint and --coreTintMix too (see margince-core-liquid.tsx), which is what
- * keeps the sphere inside the token layer instead of carrying its own palette.
+ * custom properties: `--coreC1` (the light end — the dots' own colour, the halo,
+ * the caustic), `--coreC2` (the body: glass tint, rim, the depth the ball is seen
+ * through) and `--coreC3` (the second dot tone, so four dots are not four of one
+ * thing). Every rule below reads those rather than branching per state, so adding
+ * a state is one block and changing what one means is one line.
  *
- * NO state changes the hue. The Core is always the brand green, and state is
- * carried in the rhythm alone — see the state block below for why, and for what
- * carries a failure or a success to the reader instead.
+ * State DOES change the hue here, and the change is the design rather than a
+ * drift: the agent's work lifecycle is greens (dormant through applied), a
+ * problem it cannot resolve alone is amber, a source it cannot reach is grey, and
+ * a failed run is the one red in the product. What state must never do is REPLACE MOTION with colour — a reader
+ * tells reasoning from drafting by how the mass moves, and every surface still
+ * states the condition in words beside the orb (WDS-CORE-4).
+ *
+ * The glass is built in layers, the way a real glass ball reads: a darkened
+ * interior, a thick refracting rim, one sharp specular with a soft sheen behind
+ * it, a bounce crescent from below, and a caustic on the ground. No single
+ * gradient fakes all of that at once, which is why there are five elements and
+ * not one.
  */
 
 .core {
@@ -31,30 +40,54 @@
   --coreCap: 24vw;
   max-width: min(var(--coreCap), var(--coreSize));
   max-height: min(var(--coreCap), var(--coreSize));
-  /* Defaults, overridden per state below. A Core with no data-core-state still
-     renders as idle rather than as nothing. */
-  --coreTint: var(--accent);
-  /* How hard the shader pulls its colour ramp toward --coreTint. LOW, and that
-     is the point rather than a tuning: the ramp the shader ships IS the
-     artifact's pale mint glass, and --accent is the colour of an ACTION (a
-     filled button, a link) at a saturation no material should carry. Pulling
-     72% of the way there turned the sphere into a dark emerald marble. At 0.22
-     the palette still steers the hue, so a re-themed accent still moves the
-     Core, and the glass stays glass. No state overrides this — the sphere is
-     one material, lit one way, whatever the machine is doing. */
-  --coreTintMix: 0.22;
-  --coreBeat: 5.6s;
   --coreSize: 230px;
   --coreGlass: 172px;
-  /* Sine-shaped in-out, and every rhythm here reads it. `ease-in-out` is a cubic
-     whose ends flatten harder than a sine's, and on a loop that flat part is a
-     pause — the Core looked like it held its breath at each end. */
-  --coreEase: cubic-bezier(0.37, 0, 0.63, 1);
+  /* The state triple, dormant's by default: a Core with no data-core-state
+     renders as rest rather than as nothing. */
+  --coreC1: var(--orbMint);
+  --coreC2: var(--accent);
+  --coreC3: var(--orbJade);
+  /* How long the environment sheen takes to travel once round the ball. The one
+     rhythm still in CSS: it is a slow rotation of a conic gradient, which the
+     compositor does for free, and moving it into the engine would buy a
+     per-frame style write for something no state changes. */
+  --coreSheenTime: 26s;
   /* How far outside itself the feed reaches, as a multiplier on the per-mote
      fractions of --coreSize. 1 is the hero: motes born well outside the lit area,
      drifting in. A layout that sits the Core NEXT TO copy pulls this in, because
      a mote crossing a paragraph is not atmosphere, it is a bug that moves. */
   --coreFeedReach: 1;
+  /* Derived, so a state sets three properties and the whole ball follows. */
+  --coreWellCore: color-mix(in srgb, var(--coreC2) 5%, transparent);
+  --coreWellRim: color-mix(in srgb, var(--coreC2) 14%, transparent);
+  --coreTint: color-mix(in srgb, var(--coreC1) 5%, transparent);
+  --coreTintEdge: color-mix(in srgb, var(--coreC2) 15%, transparent);
+  --coreContact: color-mix(in srgb, var(--overlayDark) 12%, transparent);
+  /*
+   * The white budget, and it is deliberately THIN. The dots are the subject and
+   * the glass is what they are seen through, so every value here was pulled back
+   * until the four read at a glance: the tint, the specular and the sheen are all
+   * material stacked between the reader and the thing they are meant to look at,
+   * and a beautifully lit ball nobody can read the state of is a failed status
+   * channel. Every highlight on the glass is a share of --overlayLight,
+   * and the four below are named rather than inlined for one reason: a dark page
+   * needs LESS of them, not the same. On a light canvas white reads as a
+   * reflection; on a dark one the same white is the brightest thing on screen, so
+   * the specular becomes a lamp, the sheen fogs the whole ball and the interior
+   * washes out to a pale disc. The dark block after the state list halves them.
+   */
+  --coreSheenLight: color-mix(in srgb, var(--overlayLight) 34%, transparent);
+  --coreSpecular: color-mix(in srgb, var(--overlayLight) 72%, transparent);
+  --coreFalloff: color-mix(in srgb, var(--overlayLight) 8%, transparent);
+  --coreBounce: color-mix(in srgb, var(--overlayLight) 6%, transparent);
+  --coreCrescent: color-mix(in srgb, var(--overlayLight) 32%, transparent);
+  /* The light the Core throws: the halo, the caustic under it, the feed motes.
+     The light end of the triple, softened toward white — light leaving a body is
+     less saturated than the body. */
+  --coreLight: color-mix(in oklab, var(--coreC1) 78%, var(--overlayLight));
+  /* Size queries below read this, so the ball's own box is what decides how much
+     glass detail it can carry. */
+  container-type: inline-size;
 }
 .core-md {
   --coreSize: 150px;
@@ -62,260 +95,379 @@
 }
 
 /* ---- state: the whole vocabulary, in one place -------------------------- */
-/* Every state is the SAME green. The Core is the product's identity, not a
-   status light: a sphere that turns amber or red reads as the brand changing
-   character, and a grey one reads as switched off. So state is carried in the
-   RHYTHM alone — how fast it breathes — and the hue never moves off the accent.
-   `idle` is the `.core` default above and needs no block of its own.
-
-   Nothing is lost by this. Every surface that shows a Core also states its
-   condition in words beside it (the workbench's status line, the read theatre's
-   phase and counts, the gate's notice) and marks it on a small status dot that
-   IS allowed to carry the danger and success hues. Those are the signals a
-   reader acts on; the sphere was only ever repeating them in a colour. */
-/* listening: nothing has been claimed yet. */
-.core[data-core-state="listening"] {
-  --coreBeat: 3.4s;
+/*
+ * The agent's work lifecycle, in the order it runs. `dormant` is the `.core`
+ * default above and needs no block of its own.
+ *
+ * Each state declares its triple and NOTHING else — the movement that actually
+ * distinguishes it lives in the motion table, and the speed and depth of its
+ * breath with it. A state needing a rule here beyond three colours would be a
+ * state restyling the primitive.
+ */
+/* ingesting: pulling in captured calls, mail and meetings. The jade end leads,
+   because intake is the agent at its most ordinary. */
+.core[data-core-state="ingesting"] {
+  --coreC1: var(--orbJade);
+  --coreC2: var(--accent);
+  --coreC3: var(--orbMint);
 }
-.core[data-core-state="working"] {
-  --coreBeat: 2.2s;
+/* reasoning: traversing the context graph. Lime is the one high-energy green in
+   the set, and this is the only state that spins. */
+.core[data-core-state="reasoning"] {
+  --coreC1: var(--orbLime);
+  --coreC2: var(--accent);
+  --coreC3: var(--orbJade);
 }
-/* Settled: the slowest breath in the set. Rest, not celebration. */
-.core[data-core-state="success"] {
-  --coreBeat: 6.4s;
+/* drafting: composing proposals. Lighter than reasoning — the thinking is done
+   and what is left is putting it down. */
+.core[data-core-state="drafting"] {
+  --coreC1: var(--orbLime);
+  --coreC2: var(--orbJade);
+  --coreC3: var(--orbMint);
 }
-/* attention / error: quicker than rest, so the sphere is visibly unsettled
-   without borrowing the warn or danger hue to say it. */
-.core[data-core-state="attention"] {
-  --coreBeat: 2.8s;
+/* applied: a human confirmed. Back to the resting green, at the end of the
+   lifecycle rather than the start of it. */
+.core[data-core-state="applied"] {
+  --coreC1: var(--orbMint);
+  --coreC2: var(--accent);
+  --coreC3: var(--orbLime);
 }
+/* flagged: a contradiction, or an action without the permission it needs. Amber
+   against ink — held under tension, and unmistakably not progress. */
+.core[data-core-state="flagged"] {
+  --coreC1: var(--orbAmber);
+  --coreC2: var(--orbInk);
+  --coreC3: var(--orbAmber);
+}
+/* disconnected: a source the agent cannot reach. Desaturated on purpose —
+   nothing is wrong with the data, the agent simply cannot get to it. */
+.core[data-core-state="disconnected"] {
+  --coreC1: var(--orbGrey);
+  --coreC2: var(--orbInk);
+  --coreC3: var(--orbDeep);
+}
+/* error: the run failed. Red is the one colour outside the product's palette,
+   which is exactly why it works here — nothing else in Margince looks like this,
+   so it can never be mistaken for a state that is merely busy. */
 .core[data-core-state="error"] {
-  --coreBeat: 4.2s;
+  --coreC1: var(--orbRed);
+  --coreC2: var(--orbInk);
+  --coreC3: var(--orbRed);
 }
-/* quiet: present, not working — nearly still, and still green, so it never
-   reads as a disabled control. */
-.core[data-core-state="quiet"] {
-  --coreBeat: 9s;
-}
-/* unavailable: the one state that does not breathe. A server we cannot reach
-   should not look busy — but it is not a dead grey ball either. */
-.core[data-core-state="unavailable"] .core-glass,
-.core[data-core-state="unavailable"] .core-glow {
-  animation: none;
-}
-.core[data-core-state="unavailable"] .core-feed {
+/* The feed is context ARRIVING. Three states are not receiving anything, and a
+   mote drifting into an orb that cannot reach its source, or has already failed,
+   draws a connection that is not there. */
+.core[data-core-state="disconnected"] .core-feed,
+.core[data-core-state="error"] .core-feed,
+.core[data-core-state="flagged"] .core-feed {
   display: none;
 }
 
-/* ---- the glass ---------------------------------------------------------- */
-/* The stage the glass is centred in: the sphere is --coreGlass across inside a
-   --coreSize box, so without this it would sit in the corner. It holds the Core
-   STILL in its box — the sphere breathes in place and never travels, so a Core
-   next to copy cannot drift into it and one on a dense surface cannot be
-   mistaken for something the page is moving. */
-.core-tilt {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
+/* ---- dark: the same ball, lit for a dark room ---------------------------- */
+/*
+ * A glass ball on a dark canvas is a LIGHT SOURCE, and the light values that read
+ * as reflections over a pale page read as glare over a dark one — the specular
+ * becomes a lamp, the conic sheen fogs the whole sphere, and the interior tint
+ * lifts until the dots inside are swimming in milk. Measured on the app's own
+ * dark canvas, the ball came back brighter than any surface around it, which for
+ * a decorative primitive is the wrong thing to be.
+ *
+ * So the white budget is roughly halved and the interior is allowed to stay dark.
+ * What does NOT change is the state triple: the dots and the glow are the Core's
+ * identity and they carry the same colour in both themes — it is the GLASS that
+ * is lit differently, which is also what happens to real glass in a dark room.
+ */
+:root[data-theme="dark"] .core,
+:root:not([data-theme="light"]) .core {
+  --coreSheenLight: color-mix(in srgb, var(--overlayLight) 8%, transparent);
+  --coreSpecular: color-mix(in srgb, var(--overlayLight) 48%, transparent);
+  --coreFalloff: color-mix(in srgb, var(--overlayLight) 4%, transparent);
+  --coreBounce: color-mix(in srgb, var(--overlayLight) 3%, transparent);
+  --coreCrescent: color-mix(in srgb, var(--overlayLight) 16%, transparent);
+  /* The interior keeps its depth: on a dark page the well is what the dots are
+     read AGAINST, so lifting it is what flattened the ball. */
+  --coreWellCore: color-mix(in srgb, var(--coreC2) 8%, transparent);
+  --coreTint: color-mix(in srgb, var(--coreC1) 4%, transparent);
+  --coreTintEdge: color-mix(in srgb, var(--coreC2) 10%, transparent);
+  /* The contact shadow has nothing to darken on a dark canvas, so it goes
+     deeper rather than wider — a grey smudge under the ball is worse than none. */
+  --coreContact: color-mix(in srgb, var(--overlayDark) 62%, transparent);
 }
-.core-glass {
-  position: relative;
-  width: var(--coreGlass);
-  height: var(--coreGlass);
-  z-index: 1;
-  border-radius: var(--r-full);
-  /* The washes over the liquid are TINT-led, not white-led. White at 65% over
-     the top third was most of why the sphere read pale: it desaturated the one
-     part of the Core that is supposed to look like a lit material, and it did it
-     directly over the brightest interior. The white that remains is the entry
-     point of the light source and stops at 24%; the body wash below it carries
-     the green instead. */
-  background:
-    radial-gradient(
-      circle at 30% 22%,
-      color-mix(in srgb, var(--overlayLight) 40%, transparent) 0%,
-      transparent 24%
-    ),
-    radial-gradient(
-      circle at 50% 42%,
-      color-mix(in srgb, var(--coreTint) 34%, transparent) 0%,
-      color-mix(in srgb, var(--coreTint) 16%, transparent) 100%
-    );
-  /* NO hairline ring here, and its absence is deliberate: a 1.5px near-white
-     inset used to outline the sphere, and an outline is the one thing a light
-     source does not have — it read as a drawn circle sitting in front of the
-     glow. The shader's fresnel term carries the edge instead, which is an edge
-     made of light rather than of ink.
 
-     The shade below is 18% ALPHA, not an opaque dark green. `color-mix(…
-     var(--overlayDark) 18%)` mixes toward black and stays fully opaque, which
-     painted a solid dark crescent over two thirds of the sphere and is what made
-     the Core read as a dark marble. The artifact's value is the same hue at 18%
-     alpha — barely there. */
-  box-shadow:
-    inset -8px -12px 22px
-    color-mix(
-      in srgb,
-      color-mix(in oklab, var(--coreTint) 55%, var(--overlayDark)) 18%,
-      transparent
-    ),
-    inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 20%, transparent),
-    /* The bounce light off the bottom of the glass. The artifact's is nearly
-       white at 45% alpha: this is the sphere's SECOND light source, and rendering
-       it in the shade colour at a lower alpha is what made the glass look unlit
-       from below. */
-    inset
-    0 -3px 12px color-mix(in srgb, var(--coreLight) 55%, transparent),
-    /* Light LEAVING the stone, not a shadow cast by it. These were offset
-       downward — `0 18px 34px` — which is what a solid object does to the light
-       falling on it, and it read as a green drop shadow under a green ball. A
-       source is lit evenly around itself, so these are centred and graded from a
-       tight bloom to a wide bleed. The ground contact is `.core-caustic`'s job,
-       and it still does it. */
-    0
-    0 16px color-mix(in srgb, var(--coreLight) 50%, transparent),
-    0 0 38px color-mix(in srgb, var(--coreTint) 28%, transparent),
-    0 0 78px color-mix(in srgb, var(--coreTint) 12%, transparent);
-  /* Breath and sheen share ONE period. At 1 : 0.7 two close periods beat against
-     each other, so the swell and the brightening drifted in and out of phase over
-     a ~19s cycle — read as the Core stuttering rather than as two rhythms. */
-  animation:
-    core-breathe var(--coreBeat) var(--coreEase) infinite,
-    core-sheen var(--coreBeat) var(--coreEase) infinite;
-}
-/* Light pooling on the ground under the glass. Sized from --coreSize like the
-   halo, so it tracks every breakpoint instead of the artifact's fixed 150×26px.
-   Without it the sphere floats rather than sitting somewhere. */
-.core-caustic {
+/* ---- the ball ----------------------------------------------------------- */
+/*
+ * The shell is what the engine transforms — its scale, its opacity, its lean
+ * toward the cursor — so nothing else may set a transform on it. It is centred
+ * absolutely, which holds the Core STILL in its box: the ball breathes in place
+ * and never travels, so one next to copy cannot drift into it.
+ */
+.core-shell {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(var(--coreSize) * 0.65);
-  height: calc(var(--coreSize) * 0.113);
-  margin: calc(var(--coreSize) * 0.417) 0 0 calc(var(--coreSize) * -0.326);
-  z-index: 0;
-  border-radius: var(--r-full);
-  pointer-events: none;
-  opacity: 0.85;
-  background: radial-gradient(
-    ellipse,
-    color-mix(in srgb, var(--coreLight) 40%, transparent),
-    transparent 70%
-  );
-  filter: blur(6px);
+  width: var(--coreGlass);
+  height: var(--coreGlass);
+  margin: calc(var(--coreGlass) / -2) 0 0 calc(var(--coreGlass) / -2);
+  z-index: 1;
+  will-change: transform;
 }
-/* The surface lighting, ABOVE the canvas. Without it the liquid inside is the
-   only thing lighting the glass, which is most of why the sphere read flat. */
-.core-glass::after {
+/* The contact shadow, so the ball sits on something instead of floating in
+   soup. Sized from the ball, so it tracks every breakpoint. */
+.core-shell::after {
   content: "";
   position: absolute;
-  inset: 0;
-  z-index: 2;
+  left: 8%;
+  bottom: -13%;
+  width: 84%;
+  height: 11%;
   border-radius: var(--r-full);
   pointer-events: none;
-  /*
-   * THREE lights, not one, and the count is the point. A single soft ellipse is
-   * the highlight of a matte plastic ball; polished stone has a hard specular
-   * kernel sitting inside a broad sheen, and a translucent stone also passes
-   * light out the far side. All three live in one pseudo-element as stacked
-   * gradients, so this is still a single paint and no new box in the tree.
-   *
-   * They stay in CSS rather than moving into the shader on purpose: a hard
-   * highlight rendered into a 96..160px buffer and then upscaled swims and
-   * shimmers as the sphere breathes. Here it is resolution-independent.
-   */
-  background:
-/* the star: small, near-opaque, barely softened — the light source itself */
-    radial-gradient(
-      ellipse 9% 6% at 27% 20%,
-      color-mix(in srgb, var(--overlayLight) 96%, transparent) 0%,
-      transparent 68%
-    ),
-    /* the sheen: broad and soft, offset from the star — the waxy surface */
-    radial-gradient(
-      ellipse 22% 15% at 31% 24%,
-      color-mix(in srgb, var(--overlayLight) 55%, transparent) 0%,
-      transparent 72%
-    ),
-    /* the far side: light that went THROUGH the stone and left again, opposite
-       the source. This is the cue that reads as translucency rather than as a
-       lit opaque ball, and it is why it is tinted and not white. */
-    radial-gradient(
-      ellipse 34% 24% at 68% 78%,
-      color-mix(in srgb, var(--coreLight) 34%, transparent) 0%,
-      transparent 70%
-    );
-  filter: blur(0.5px);
+  background: radial-gradient(circle, var(--coreContact), transparent 70%);
+  filter: blur(10px);
 }
-/* One swell per period, out and back. The stops were 42% / 68% under
-   `ease-in-out`, which re-accelerates at every stop: the sphere lurched out,
-   checked itself on the way back, and settled with a visible stop. A single
-   midpoint has no interior stop to hitch on, and the smaller amplitude is what
-   turns a pulse into a breath. */
-@keyframes core-breathe {
-  0%,
-  100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.042);
-  }
-}
-/* the Core answers: the glass brightens as light lands, on the same breath */
-@keyframes core-sheen {
-  0%,
-  100% {
-    filter: brightness(1) saturate(1);
-  }
-  50% {
-    filter: brightness(1.035) saturate(1.04);
-  }
-}
-
-/* the liquid inside the glass, clipped to the sphere. The shell stays CSS. */
-.core-liquid {
+/* The interior, and the clip: what is inside the glass stays inside it. Clear,
+   not milky — a faint tint and a darkening at the rim, where a real glass ball
+   has the most material to look through. */
+.core-well {
   position: absolute;
   inset: 0;
   border-radius: var(--r-full);
   overflow: hidden;
-  pointer-events: none;
+  /* Thin in the middle, a touch denser where you look through more material —
+     and it stops THERE. The last stop used to run to a near-black mix, which is
+     what drew a hard dark circle around the ball: an outline is the one thing a
+     lit body does not have, and it read as ink over the glass rather than as
+     depth in it. The rim highlight above carries the edge instead, which is an
+     edge made of light. */
+  background: radial-gradient(
+    circle at 50% 50%,
+    var(--coreWellCore) 0%,
+    var(--coreWellCore) 62%,
+    var(--coreWellRim) 100%
+  );
 }
-.core-fluid {
+/* The thickness of the shell: bright just inside the edge, dark at the very
+   edge. This is the layer that reads as glass rather than as a coloured disc. */
+.core-rim {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
+  border-radius: var(--r-full);
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 50% 50%,
+    transparent 72%,
+    color-mix(in srgb, var(--overlayLight) 6%, transparent) 86%,
+    color-mix(in srgb, var(--overlayLight) 15%, transparent) 95%,
+    color-mix(in srgb, var(--overlayLight) 24%, transparent) 98.5%,
+    transparent 100%
+  );
 }
-/*
- * WDS-CORE-3, the non-GPU rendering — and it is per state, not one gradient for
- * all eight, because the fallback is a *rendering of the state* and not an
- * apology for the shader. This is what runs with no WebGL context, which
- * includes every test run: jsdom has no GL, so the ladder's lower rung is the
- * one the suite exercises by default.
- */
-.core-fluid.off {
+/* The environment sheen — the thing that makes a STILL ball look like glass, and
+   the reason the Core does not have to move to look real. */
+.core-sheen {
+  position: absolute;
+  inset: -2%;
+  border-radius: var(--r-full);
+  pointer-events: none;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--coreSheenLight) 40deg,
+    transparent 90deg,
+    transparent 200deg,
+    var(--coreSheenLight) 250deg,
+    transparent 310deg
+  );
+  mix-blend-mode: screen;
+  filter: blur(9px);
+  animation: core-sheen var(--coreSheenTime) linear infinite;
+}
+@keyframes core-sheen {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The glass itself, above the interior: the specular, the falloff around it, the
+   bounce from below, and the tint that thickens toward the edge where you are
+   looking through more material. */
+.core-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-full);
+  pointer-events: none;
   background:
-    radial-gradient(
-      circle at 62% 38%,
-      color-mix(in oklab, var(--coreTint) 70%, var(--overlayLight) 30%) 0%,
-      transparent 62%
-    ),
-    radial-gradient(
-      circle at 36% 66%,
-      color-mix(in oklab, var(--coreTint) 88%, var(--overlayDark) 12%) 0%,
-      transparent 66%
-    ),
+/* the sharp specular — the light source itself, kept small so it does not
+       wash the ball grey */
+    radial-gradient(20% 13% at 30% 20%, var(--coreSpecular), transparent 100%),
+    /* the tight falloff around it */
+    radial-gradient(34% 24% at 32% 22%, var(--coreFalloff), transparent 100%),
+    /* light bouncing back up through the bottom of the ball */
+    radial-gradient(62% 30% at 62% 97%, var(--coreBounce), transparent 70%),
     radial-gradient(
       circle at 50% 50%,
       var(--coreTint) 0%,
-      color-mix(in oklab, var(--coreTint) 60%, var(--overlayDark) 40%) 100%
+      var(--coreTint) 55%,
+      var(--coreTintEdge) 100%
     );
+  /* No border, and no dark inset: both drew a ring, and a ring in front of a
+     glowing ball reads as a drawn circle sitting on top of it. What is left is
+     light — a hairline of white just inside the edge, the bounce under the body,
+     and the ball's own bloom. */
+  box-shadow:
+    inset 0 -40px 60px -46px var(--coreC1),
+    inset 0 0 0 1px color-mix(in srgb, var(--overlayLight) 8%, transparent),
+    0 0 44px -22px var(--coreC2);
+}
+/* The crescent of reflected light on the lower-right rim: the cue that says
+   there is a second light in the room. */
+.core-glass::before {
+  content: "";
+  position: absolute;
+  inset: 6%;
+  border-radius: var(--r-full);
+  background: linear-gradient(
+    210deg,
+    transparent 66%,
+    var(--coreCrescent) 86%,
+    transparent 94%
+  );
+  filter: blur(1px);
+  opacity: 0.7;
+}
+/* The caustic: light that came THROUGH the glass and pooled under it. Without it
+   the ball floats rather than sitting somewhere. */
+.core-glass::after {
+  content: "";
+  position: absolute;
+  left: 12%;
+  bottom: -9%;
+  width: 76%;
+  height: 16%;
+  border-radius: var(--r-full);
+  background: radial-gradient(circle, var(--coreLight), transparent 68%);
+  filter: blur(9px);
+  opacity: 0.34;
+}
+
+/* ---- the liquid dots ---------------------------------------------------- */
+/*
+ * Four dots, fused by the goo filter the component renders (a tight blur plus an
+ * alpha ramp steep enough to snap the result back to hard edges, so they MERGE
+ * instead of going soft). Position and scale are written by the engine;
+ * everything else is here.
+ *
+ * Two tones across the four, alternating: four of one colour is a pattern, and
+ * the second tone is what lets a reader see the mass fold over itself.
+ */
+.core-goo {
+  position: absolute;
+  inset: 0;
+}
+.core-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 38px at the reference 300px ball, proportional at every other size. The
+     engine's constants are expressed against that same reference. */
+  width: 12.667%;
+  height: 12.667%;
+  margin: -6.333% 0 0 -6.333%;
+  border-radius: var(--r-full);
+  background: var(--coreC1);
+  will-change: transform;
+}
+.core-dot:nth-child(2) {
+  background: var(--coreC3);
+}
+/*
+ * The third dot is the ramp's BODY tone, and it is lifted a third of the way
+ * toward the light end rather than used raw. Raw, it is the same colour as the
+ * glass tint it sits behind: on a small orb — where the tint covers a bigger
+ * share of the disc and the fusion blur eats the edges — that dot disappears, and
+ * three of four dots is a rendering fault, not a design.
+ */
+.core-dot:nth-child(3) {
+  background: color-mix(in oklab, var(--coreC2) 68%, var(--coreC1));
+}
+.core-dot:nth-child(4) {
+  background: var(--coreC3);
+}
+/*
+ * `applied` draws a check mark, and a fused check mark is a blob with corners —
+ * so the engine sets this class and the filter comes off. The dots become real
+ * strokes, sized in px by the engine, which is why nothing here sets a width for
+ * them.
+ */
+.core-shell.core-strokes .core-goo {
+  filter: none !important;
+}
+
+/* ---- optical sizing ----------------------------------------------------- */
+/*
+ * A dot that is proportionally right at 230px is a hairline at 34px, and the rim
+ * darkening and the edge — fixed weights both — cover a far bigger share of a
+ * small disc and turn it grey. So the smaller the ball, the larger its dots and
+ * the lighter its glass; and below the small rung the fine detail comes off
+ * entirely, because at 34px a crescent, a caustic and a conic sheen are three
+ * kinds of noise stacked on eleven pixels of colour.
+ *
+ * Keyed on the CONTAINER, not on the caller's size name, so a layout that sizes
+ * a Core through `--coreGlass` gets the right treatment without knowing these
+ * rungs exist.
+ */
+@container (max-width: 90px) {
+  .core {
+    --coreWellRim: color-mix(in srgb, var(--coreC2) 12%, transparent);
+    --coreTint: color-mix(in srgb, var(--coreC1) 4%, transparent);
+    --coreTintEdge: color-mix(in srgb, var(--coreC2) 8%, transparent);
+    --coreContact: color-mix(in srgb, var(--overlayDark) 12%, transparent);
+  }
+  .core-dot {
+    width: 19.5%;
+    height: 19.5%;
+    margin: -9.75% 0 0 -9.75%;
+  }
+  /* Two tones, not three: at this size the body tone reads as a shadow between
+     the other dots rather than as a dot of its own. */
+  .core-dot:nth-child(3) {
+    background: var(--coreC3);
+  }
+  .core-sheen,
+  .core-glass::before,
+  .core-glass::after {
+    display: none;
+  }
+  .core-rim {
+    opacity: 0.45;
+  }
+  .core-glass {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--overlayLight) 6%, transparent),
+      0 0 12px -7px var(--coreC2);
+  }
+}
+@container (max-width: 44px) {
+  .core {
+    --coreWellRim: color-mix(in srgb, var(--coreC2) 10%, transparent);
+    --coreTint: color-mix(in srgb, var(--coreC1) 6%, transparent);
+    --coreTintEdge: color-mix(in srgb, var(--coreC2) 8%, transparent);
+    --coreContact: transparent;
+  }
+  .core-dot {
+    width: 23.5%;
+    height: 23.5%;
+    margin: -11.75% 0 0 -11.75%;
+  }
+  .core-rim,
+  .core-shell::after {
+    display: none;
+  }
 }
 
 /* ---- the halo ----------------------------------------------------------- */
-/* Heavily blurred so the light dissolves into the page — no hard ring. */
+/* Heavily blurred so the light dissolves into the page — no hard ring. Plain
+   alpha over the page, never a blend mode: an additive glow needs a dark canvas
+   to read as light, and on our light surfaces it turns into grey haze. */
 .core-glow {
   position: absolute;
   top: 50%;
@@ -326,16 +478,10 @@
   border-radius: var(--r-full);
   pointer-events: none;
   z-index: 0;
-  /*
-   * TWO layers: a tight bloom hugging the glass, over the wide falloff that
-   * dissolves into the page. One gradient could only be tight or wide — as one
-   * it read as a flat disc of tint painted behind the sphere. Light leaving a
-   * bright body is brightest right at the body, and the near bloom is what says
-   * the sphere is the source rather than something sitting on a halo.
-   *
-   * Plain alpha over the page, never a blend mode. An additive glow needs a dark
-   * canvas to read as light; on our light surfaces it turns into grey haze.
-   */
+  /* TWO layers: a tight bloom hugging the glass, over the wide falloff that
+     dissolves into the page. Light leaving a bright body is brightest right at
+     the body, and the near bloom is what says the ball is the source rather than
+     something sitting on a halo. */
   background:
     radial-gradient(
       circle,
@@ -350,27 +496,13 @@
       color-mix(in srgb, var(--coreLight) 3%, transparent) 60%,
       transparent 74%
     );
-  animation: core-fed var(--coreBeat) var(--coreEase) infinite;
-}
-/* The halo is light leaving the sphere, so it swells WITH the sphere — on the
-   beat, not at 0.7 of it, which put the brightest halo over a shrinking body. */
-@keyframes core-fed {
-  0%,
-  100% {
-    opacity: 0.88;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.035);
-  }
 }
 
 /* ---- the feed: context arriving at the Core ----------------------------- */
-/* Points of light drift in from outside and dissolve at the glass. It is the
-   one honest thing to animate here — the AI is fed by what it reads, and
-   nothing leaves. Angles and speeds differ per particle so the loop never reads
-   as a repeating pattern. Pure CSS transforms, no canvas. */
+/* Points of light drift in from outside and dissolve at the glass. It is the one
+   honest thing to animate here — the agent is fed by what it reads, and nothing
+   leaves. Angles and speeds differ per particle so the loop never reads as a
+   repeating pattern. Pure CSS transforms, no canvas. */
 .core-feed {
   position: absolute;
   inset: 0;
@@ -430,48 +562,53 @@
 }
 .core-progress circle {
   fill: none;
-  stroke: color-mix(in srgb, var(--coreTint) 14%, transparent);
+  stroke: color-mix(in srgb, var(--coreC2) 14%, transparent);
   stroke-width: 2;
 }
 .core-progress .core-progress-value {
-  stroke: var(--coreTint);
+  stroke: var(--coreC1);
   stroke-linecap: round;
   transition: stroke-dasharray 0.4s ease;
+}
+/* The filter definitions the component renders: never seen, and never allowed to
+   take part in layout. */
+.core-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
 /* ---- an unfocused window: the Core goes still ---------------------------- */
 /*
  * Nobody is watching a window that sits behind another one, so every rhythm
- * stops together — the breath and the sheen, the halo, and the motes on their
- * way in. The liquid inside stops too, in the same breath and off the same
- * signal: `window-focus.ts` owns one `focus`/`blur` pair for the document, sets
- * this attribute, and parks the WebGL loop (margince-core-liquid.tsx). ONE
- * signal, so the sphere and its glow can never disagree about whether the Core
- * is moving.
+ * stops together — the sheen, the motes on their way in, and the dots inside the
+ * glass. The dots stop because the engine parks its loop off the same signal
+ * `window-focus.ts` sets this attribute from: ONE signal, so the ball and its
+ * glow can never disagree about whether the Core is moving.
  *
  * PAUSED, not `animation: none`. A paused animation holds the frame it reached,
  * which is what coming back to a Core should look like; removing the animation
- * would snap the sphere to its unanimated size and brightness — a visible jump
- * every time the reader clicks away.
+ * would snap the sheen to its origin — a visible jump every time the reader
+ * clicks away.
  */
-:root[data-window-blurred] .core-glass,
-:root[data-window-blurred] .core-glow,
+:root[data-window-blurred] .core-sheen,
 :root[data-window-blurred] .core-feed i {
   animation-play-state: paused;
 }
 
 /* ---- reduced motion: the END state, never nothing ----------------------- */
 /*
- * The feed is atmosphere and is the one thing safe to simply remove. Everything
- * else stops where its animation ends rather than reverting: a Core that
- * renders nothing under reduced motion is broken, not accessible.
+ * The feed is atmosphere and is the one thing safe to simply remove. The sheen
+ * stops where it is, and the engine draws each state's rest composition once and
+ * parks: a Core that renders nothing under reduced motion is broken, not
+ * accessible.
  */
 @media (prefers-reduced-motion: reduce) {
   .core-feed {
     display: none;
   }
-  .core-glass,
-  .core-glow {
+  .core-sheen {
     animation: none;
   }
 }

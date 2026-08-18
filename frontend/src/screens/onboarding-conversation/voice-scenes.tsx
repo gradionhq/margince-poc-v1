@@ -454,7 +454,7 @@ export function VoiceBuildScene({
   return (
     <div className="ob-scene ob-voice-building">
       <div className="ob-voice-orb">
-        <MarginceCoreScene state="working" progress={progress} feed={false} />
+        <MarginceCoreScene state="reasoning" progress={progress} feed={false} />
         {/* Decorative: the stage checklist below and the rail's own log
             (role="log" in ConversationThread) already carry the build's
             progress in words, so the crawling digits stay out of the a11y
