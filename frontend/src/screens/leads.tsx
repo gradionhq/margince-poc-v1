@@ -49,6 +49,7 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef, OwnerName, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
+import { LeadManualSignals } from "./leadsignals";
 import {
   type ListPage,
   type ListQuery,
@@ -1333,6 +1334,11 @@ function LeadLifecycle({
         scoreFieldId={scoreFieldId}
         reasonFieldId={reasonFieldId}
         patch={patch}
+      />
+
+      <LeadManualSignals
+        id={id}
+        readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
       />
 
       <LeadOwner
