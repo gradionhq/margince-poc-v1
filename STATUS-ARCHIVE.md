@@ -78,6 +78,23 @@ test cannot have been passing. And the three webhooks stories that `fe-uat`
 reported were reproduced on a clean detached `origin/main`, which is #476,
 whose own stated cause is also stale.
 
+**Looking at it beat reading it, four times.** Every gate was green and every fix
+mutation-tested before the seeded dataset went behind the screens; pointing the app at 65 real
+deals in three currencies then found four defects no test had reason to catch. The forecast
+dropped every deal whose `forecast_category` is null — 22 of 27 open deals, over €2M plus
+US$608,200 and ₫262,000,000,000, in no tile at all, beneath a screen showing four dashes and one
+figure. A board column that correctly refuses a cross-currency sum said nothing about refusing
+it, so five of six columns showed a deal count and a blank, indistinguishable from unpriced. The
+account slot printed its lifecycle word twice. The duplicates queue let every card size its own
+columns, so four stacked cards read as four tables. Each was invisible in fixtures for the same
+reason: a fixture has one row, one currency, one card.
+
+**The ground-truth habit is what made the money check worth anything.** Before opening Reports I
+queried the database for deals by stage and currency, so the screen was compared against fourteen
+known figures rather than against whether it looked reasonable — and they matched to the cent,
+including the €5,397,942,900.00 cross-currency sum that had to be absent and was. A money screen
+that "looks right" is precisely the failure the invariant exists to prevent.
+
 **And one of my own conclusions was wrong, found by testing it on a live stack.** The fresh-org
 crash (#1250) had a mechanism that explained every symptom — two effects rewriting the hash at
 each other, with `Shell` blamed only for being the deepest `useRoute` subscriber. It needed one
