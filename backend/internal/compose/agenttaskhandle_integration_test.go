@@ -18,8 +18,11 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -70,6 +73,13 @@ func TestATaskHandleIsAnsweredToThePassportThatHoldsItAndToNoOther(t *testing.T)
 	stolen, err := tasks.Create(asPassport(e, theirs), newTask)
 	if err == nil {
 		t.Fatalf("a second passport was answered handle %s for another passport's task", stolen.ID)
+	}
+	// The no-row refusal specifically, not merely "some error". The conflict arm's
+	// predicate declines and RETURNING yields nothing, which is what mintTask
+	// degrades from; any OTHER failure here — a broken predicate, a missing FK —
+	// would satisfy "an error happened" while proving nothing about the contract.
+	if !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("a second passport's create → %v, want the no-row refusal the fallback reads", err)
 	}
 	if !stolen.ID.IsZero() {
 		t.Fatalf("a refused create still answered handle %s", stolen.ID)

@@ -566,8 +566,15 @@ func TestAnExistingTaskHandleIsAnsweredOnlyToItsOwnPassportAndOnlyWhileLive(t *t
 	}
 	afterCancel := rpcResult(t, mcpRaw(e.AppEnv, t, http.MethodPost, "/mcp", call,
 		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
-	if afterCancel["taskId"] == taskID {
-		t.Errorf("a cancelled handle (%v) was answered for a live approval", taskID)
+	// NO handle at all, which is the documented fallback — not merely a different
+	// one. A fresh handle would be wrong twice over: it would mint a second task
+	// against one approval, and it would leave the cancelled row behind it.
+	if afterCancel["resultType"] == "task" {
+		t.Errorf("a live approval whose task was cancelled answered a handle (%v), want the plain refusal",
+			afterCancel["taskId"])
+	}
+	if id, ok := afterCancel["taskId"].(string); ok && id != "" {
+		t.Errorf("the refusal still carried a task id (%s)", id)
 	}
 
 	// Another credential: the row belongs to the first passport, so the second is
