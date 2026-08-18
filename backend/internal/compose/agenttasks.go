@@ -64,6 +64,20 @@ func taskPassport(ctx context.Context, verb string) (ids.UUID, error) {
 // Create records the handle. It commits before answering, which is the
 // specification's own requirement: a client must never have to poll
 // speculatively for its own task to appear.
+//
+// ONE handle per approval, which is what idx_agent_task_approval already says —
+// so a second call arriving at the same approval is answered with the handle
+// that exists rather than failing on the index. It reaches here because a
+// repeated 🟡 call is now answered with the approval already on the table
+// (approvals.StageAgentCall) instead of a fresh one, and there is exactly one
+// right answer for the agent: the task tracking the decision it is waiting for.
+// Minting a second handle would give one question two answers, and letting the
+// insert fail would drop the agent back to a bare refusal and lose the handle it
+// had.
+//
+// The existing row is returned UNCHANGED. Its status is whatever the executor
+// has since made it, and overwriting that with this call's "created" would erase
+// a completion or a failure the agent is entitled to read.
 func (t agentTasks) Create(ctx context.Context, in agents.NewTask) (agents.Task, error) {
 	passport, err := taskPassport(ctx, "creating")
 	if err != nil {
@@ -71,9 +85,23 @@ func (t agentTasks) Create(ctx context.Context, in agents.NewTask) (agents.Task,
 	}
 	var task agents.Task
 	err = database.WithWorkspaceTx(ctx, t.pool, func(tx pgx.Tx) error {
+		// DO UPDATE over DO NOTHING, because DO NOTHING returns no row at all and
+		// this needs the existing one. Touching a column it already holds is what
+		// makes RETURNING fire; approval_id is the conflict key, so the write is a
+		// no-op by construction.
+		//
+		// The WHERE is the credential guard, and it is here rather than trusted
+		// upstream: a task id is worthless to anyone but its owner (taskPassport),
+		// so a handle is only ever answered to the passport that holds it. A row
+		// belonging to another passport fails the predicate, RETURNING yields
+		// nothing, and the caller gets the plain refusal instead of somebody
+		// else's handle. Reachable only if the approval probe ever widened past
+		// one credential, which is exactly the assumption worth not depending on.
 		row := tx.QueryRow(ctx, `
 			INSERT INTO agent_task (approval_id, passport_id, tool, status_message, expires_at)
 			VALUES ($1, $2, $3, NULLIF($4, ''), $5)
+			ON CONFLICT (approval_id) DO UPDATE SET approval_id = agent_task.approval_id
+			  WHERE agent_task.passport_id = $2
 			RETURNING `+taskColumns,
 			in.ApprovalID, passport, in.Tool, in.StatusMessage, in.ExpiresAt)
 		return scanTask(row, &task)

@@ -357,9 +357,17 @@ func TestATaskWhoseExecutionLeftNoOutcomeFailsRatherThanRunningAgain(t *testing.
 }
 
 // Re-issuing the same 🟡 call — exactly what the pre-task refusal trained agents
-// to do — stages a fresh proposal and answers a fresh handle. Neither collides
-// with the first, which is what the one-task-per-approval index is for.
-func TestRepeatingAStagedCallAnswersItsOwnHandle(t *testing.T) {
+// to do — answers the handle that already exists, because it is answered with the
+// approval that already exists (approvals.StageAgentCall).
+//
+// One act, one authority object, one handle. A fresh proposal per attempt is what
+// left four approvals against one organization, every one of them answered by a
+// human and none ever spent; a fresh HANDLE per attempt is the same fault one
+// layer up, and it is what the one-task-per-approval index has always said must
+// not happen. The index is now a dedupe rather than an error path: a second call
+// that fails the insert would drop the agent back to a bare refusal and lose the
+// handle it was holding.
+func TestRepeatingAStagedCallAnswersTheHandleItAlreadyHas(t *testing.T) {
 	e := setupConnector(t)
 	bearer := apptest.PassportBearer(t, e.AppEnv, "task client", "read", "write")
 	leadID := createDisqualifiableLead(t, e.AppEnv)
@@ -372,13 +380,13 @@ func TestRepeatingAStagedCallAnswersItsOwnHandle(t *testing.T) {
 		modernHeaders(bearer, "tools/call", "disqualify_lead")).Body)
 
 	if second["resultType"] != "task" {
-		t.Fatalf("the repeated call answered %v, want a handle of its own", second["resultType"])
+		t.Fatalf("the repeated call answered %v, want the handle it already has", second["resultType"])
 	}
-	if first["taskId"] == second["taskId"] {
-		t.Errorf("both calls answered one handle (%v); each staged its own proposal", first["taskId"])
+	if first["taskId"] != second["taskId"] {
+		t.Errorf("the repeated call answered handle %v, want the first one (%v)", second["taskId"], first["taskId"])
 	}
-	if staged := stagedApprovalCount(t, e.AppEnv); staged != 2 {
-		t.Errorf("%d proposals staged for two calls, want 2", staged)
+	if staged := stagedApprovalCount(t, e.AppEnv); staged != 1 {
+		t.Errorf("%d proposals staged for two identical calls, want 1", staged)
 	}
 }
 
