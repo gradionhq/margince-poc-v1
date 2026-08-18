@@ -73,15 +73,19 @@ untracked() {
 # bundle, and a spacing gate that stopped at frontend/src would hold the core to
 # a scale the extension tier escapes.
 #
-# A git pathspec `**/` requires an intermediate directory, so `<tree>/**/*.tsx`
-# does NOT match a file sitting directly in <tree> — and every unit screen sits
-# directly at extensions/<unit>/frontend/screen.tsx. Each recursive pattern
-# therefore carries its direct-child sibling. The lists are spelled ONCE and
-# shared by the tracked and untracked collectors below: two copies is how the
-# extensions entry lost its sibling while the frontend/src entry kept one.
+# ONE pattern per tree, and it is the plain one. A git pathspec is not :(glob)
+# magic, so its `*` spans directory separators: 'frontend/src/*.tsx' already
+# matches every depth under frontend/src. It is `**/` that carries the
+# requirement — an intermediate directory — so '<tree>/**/*.tsx' silently misses
+# a file sitting DIRECTLY in <tree>. That is what the extension entry was, on
+# its own, while every unit screen sits at extensions/<unit>/frontend/screen.tsx.
+# Do not add a `**/` sibling back: it can only ever match a subset.
+#
+# Spelled ONCE and shared by the tracked and untracked collectors below — two
+# copies is how these two trees came to disagree in the first place.
 # check-ds-spacing.test.sh holds the census these have to keep collecting.
-TSX_PATHSPEC=('frontend/src/**/*.tsx' 'frontend/src/*.tsx' 'extensions/*/frontend/**/*.tsx' 'extensions/*/frontend/*.tsx')
-CSS_PATHSPEC=('frontend/src/**/*.css' 'frontend/src/*.css' 'extensions/*/frontend/**/*.css' 'extensions/*/frontend/*.css')
+TSX_PATHSPEC=('frontend/src/*.tsx' 'extensions/*/frontend/*.tsx')
+CSS_PATHSPEC=('frontend/src/*.css' 'extensions/*/frontend/*.css')
 
 # Read-loop rather than mapfile — the CI/dev host ships bash 3.2 (no mapfile),
 # same portability constraint as check-ds-purity.sh.
