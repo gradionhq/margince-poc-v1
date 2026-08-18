@@ -25,6 +25,12 @@ const LicenseTokenEnvVar = "MARGINCE_LICENSE"
 // An installation with no license section runs unlicensed — every development
 // and CI process in this repository does.
 type License struct {
+	// TokenRef is the reference form: ${file:...} or ${env:...}. Named for the
+	// reference rather than the value, because Token() below is what hands a
+	// caller the value and the two must not read alike.
+	TokenRef Secret `yaml:"token"`
+	// TokenFile is the original spelling, still honoured so an existing
+	// deployment boots unchanged. Prefer `token`.
 	TokenFile string `yaml:"token_file"`
 }
 
@@ -48,6 +54,13 @@ const TokenLimit = 64 << 10
 func (l License) Token(lookup config.Lookup) (string, error) {
 	if token := strings.TrimSpace(lookup(LicenseTokenEnvVar)); token != "" {
 		return token, nil
+	}
+	// The reference form, where a deployment used it. It outranks token_file
+	// for the same reason the environment outranks both: it is the newer,
+	// deliberate spelling, and an operator who wrote one did not also mean the
+	// other.
+	if l.TokenRef.Configured() {
+		return l.TokenRef.withField("license.token").Resolve(lookup)
 	}
 	if l.TokenFile == "" {
 		return "", nil
@@ -93,6 +106,9 @@ func (l License) TokenSource(lookup config.Lookup) func() (string, error) {
 func (l License) TokenOrigin(lookup config.Lookup) string {
 	if strings.TrimSpace(lookup(LicenseTokenEnvVar)) != "" {
 		return LicenseTokenEnvVar
+	}
+	if l.TokenRef.Configured() {
+		return "license.token"
 	}
 	if l.TokenFile != "" {
 		return "license.token_file"

@@ -18,6 +18,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
@@ -121,27 +122,60 @@ type Organization struct {
 }
 
 // BootstrapAdmin identifies the first administrator. The password is a
-// file reference so the secret can be deleted after first boot — once the
+// reference so the secret can be deleted after first boot — once the
 // organization exists this whole section may be removed.
 type BootstrapAdmin struct {
-	Email        string `yaml:"email"`
-	DisplayName  string `yaml:"display_name"`
+	Email       string `yaml:"email"`
+	DisplayName string `yaml:"display_name"`
+	// Password is the reference form: ${file:...} or ${env:...}.
+	Password Secret `yaml:"password"`
+	// PasswordFile is the original spelling, still honoured so an existing
+	// deployment boots unchanged. It is a bare path rather than a reference,
+	// which is why it is not a Secret: it names a file and cannot name the
+	// environment. Prefer `password`.
 	PasswordFile string `yaml:"password_file"`
 }
 
-// Password reads the bootstrap admin's password from its file reference.
-// Called only on the bootstrap path — an already-bootstrapped installation
-// never needs (or reads) the secret.
-func (b BootstrapAdmin) Password() (string, error) {
-	raw, err := os.ReadFile(b.PasswordFile)
-	if err != nil {
-		return "", fmt.Errorf("deployconfig: reading bootstrap_admin.password_file: %w", err)
+// ResolvePassword reads the bootstrap admin's password from whichever source
+// the deployment named. Called only on the bootstrap path — an
+// already-bootstrapped installation never needs (or reads) the secret.
+//
+// The reference wins when both are present, because it is the form that can
+// name the environment and the one an operator migrating forward would have
+// added deliberately.
+func (b BootstrapAdmin) ResolvePassword(lookup config.Lookup) (string, error) {
+	var pw string
+	var err error
+	switch {
+	case b.Password.Configured():
+		pw, err = b.Password.withField("bootstrap_admin.password").Resolve(lookup)
+	case b.PasswordFile != "":
+		pw, err = Secret{kind: secretFromFile, arg: b.PasswordFile, field: "bootstrap_admin.password_file"}.Resolve(lookup)
+	default:
+		return "", errors.New("deployconfig: bootstrap_admin names no password — set bootstrap_admin.password to ${file:/run/secrets/admin-password} or ${env:MARGINCE_ADMIN_PASSWORD}")
 	}
-	pw := strings.TrimRight(string(raw), "\r\n")
-	if len(pw) < 12 {
-		return "", errors.New("deployconfig: bootstrap_admin password must be at least 12 characters")
+	if err != nil {
+		return "", err
+	}
+	if pw == "" {
+		return "", b.passwordRef().Missing()
+	}
+	// The floor is the product's, not this file's: a bootstrap that planted a
+	// password the change route would refuse would strand the account it
+	// created.
+	if len([]rune(pw)) < 12 {
+		return "", errors.New("deployconfig: the bootstrap_admin password must be at least 12 characters")
 	}
 	return pw, nil
+}
+
+// passwordRef is whichever of the two spellings this deployment used, so a
+// failure names the key the operator actually wrote.
+func (b BootstrapAdmin) passwordRef() Secret {
+	if b.Password.Configured() {
+		return b.Password.withField("bootstrap_admin.password")
+	}
+	return Secret{kind: secretFromFile, arg: b.PasswordFile, field: "bootstrap_admin.password_file"}
 }
 
 // Seeds externalizes the workspace defaults bootstrap previously seeded
@@ -239,25 +273,29 @@ type Email struct {
 }
 
 // SMTP names the operator's outbound relay; the credential arrives as a
-// file reference.
+// reference, never a value.
 type SMTP struct {
-	Host         string `yaml:"host"`
-	Port         int    `yaml:"port"`
-	Username     string `yaml:"username"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Username string `yaml:"username"`
+	// Password is the reference form: ${file:...} or ${env:...}.
+	Password Secret `yaml:"password"`
+	// PasswordFile is the original spelling, still honoured so an existing
+	// deployment boots unchanged. Prefer `password`.
 	PasswordFile string `yaml:"password_file"`
 }
 
-// SMTPPassword reads the SMTP credential's file reference; empty when no
-// reference is configured (an unauthenticated relay).
-func (e Email) SMTPPassword() (string, error) {
-	if e.SMTP.PasswordFile == "" {
+// SMTPPassword resolves the SMTP credential; empty when none is configured,
+// which is an unauthenticated relay rather than a mistake.
+func (e Email) SMTPPassword(lookup config.Lookup) (string, error) {
+	switch {
+	case e.SMTP.Password.Configured():
+		return e.SMTP.Password.withField("email.smtp.password").Resolve(lookup)
+	case e.SMTP.PasswordFile != "":
+		return Secret{kind: secretFromFile, arg: e.SMTP.PasswordFile, field: "email.smtp.password_file"}.Resolve(lookup)
+	default:
 		return "", nil
 	}
-	raw, err := os.ReadFile(e.SMTP.PasswordFile)
-	if err != nil {
-		return "", fmt.Errorf("deployconfig: reading email.smtp.password_file: %w", err)
-	}
-	return strings.TrimRight(string(raw), "\r\n"), nil
 }
 
 // AIConfig carries operator-posture switches for the AI runtime. It names
