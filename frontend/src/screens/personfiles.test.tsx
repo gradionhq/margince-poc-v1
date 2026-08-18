@@ -181,7 +181,10 @@ describe("the person's files tab", () => {
     show(<PersonFilesTab personId="p-42" />);
 
     await screen.findByText("No file has been filed against this contact.");
-    const url = new URL((lastRequest as Request).url);
+    if (!lastRequest) {
+      throw new Error("the tab asked for nothing at all");
+    }
+    const url = new URL(lastRequest.url);
     expect(url.searchParams.get("entity_type")).toBe("person");
     expect(url.searchParams.get("entity_id")).toBe("p-42");
   });

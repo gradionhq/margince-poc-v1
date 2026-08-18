@@ -84,6 +84,7 @@ describe("the contact record's tabs", () => {
     // The tab ids are URL segments and `navigate` takes them as a bare string,
     // so a rename can leave a verb pointing at an id nothing serves — the
     // router then falls back to Overview and says nothing about it.
+    const user = userEvent.setup();
     mount("overview");
     // The header's verb, not the rail's: the rail offers its own Call, and
     // the two land in different places on purpose.
@@ -95,7 +96,7 @@ describe("the contact record's tabs", () => {
     if (!header) {
       throw new Error("the record's header is not around its own heading");
     }
-    await userEvent.click(within(header).getByRole("button", { name: "Call" }));
+    await user.click(within(header).getByRole("button", { name: "Call" }));
     expect(window.location.hash).toBe("#/contacts/p-1/timeline");
   });
 });
