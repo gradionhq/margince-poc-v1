@@ -28,7 +28,9 @@ package backendarch
 // therefore required to be PRESENT and non-zero before the arithmetic runs.
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,7 +39,7 @@ import (
 
 const (
 	ciWorkflowPath  = "../.github/workflows/ci.yml"
-	laneScriptPath  = "../scripts/test-integration-parallel.sh"
+	laneScriptPath  = "../scripts/lib-testdb.sh"
 	composeInfraYML = "../infra/docker-compose.dev.yml"
 )
 
@@ -103,21 +105,36 @@ func readRepoFile(t *testing.T, path string) string {
 	return string(b)
 }
 
-// laneConnectionDemand is the arithmetic itself, kept in one place so the test
-// below and its own defect test cannot disagree about what is being asserted.
+// laneConnectionDemand asks the lane's own declaration for the number, by
+// running declare_lane_budget the way every lane runs it.
 //
-// The `+1` per job is the admin connection a slot can be holding for a clone
-// CREATE/DROP at the same moment its package is at its own ceiling: cmd/migrate's
-// db verbs open one connection each, not a pool, and at a handover JOBS of them
-// overlap.
+// It deliberately does NOT re-implement `jobs * (perPackage + 1) + fixed`. A
+// second spelling of one formula is the defect this whole gate is about: drop
+// the `+1` in the shell and a Go copy would go on asserting the old arithmetic
+// and passing, while the runtime guard in the integration lane compared against
+// a different number. There is one expression, and this reads it.
 //
-// Spelled "one connection" rather than naming the pgx constructor on purpose:
-// scripts/check-test-lanes.sh greps untagged test files for the real-infra
-// constructors and does not strip comments first, so the token alone in this
-// prose reported this file as a unit test opening a real database (#1741).
-func laneConnectionDemand(jobs, perPackage, fixed int) int {
-	return jobs*(perPackage+1) + fixed
+// The shell is invoked rather than parsed for the same reason: a regex over the
+// expression would be a third reading of it.
+func laneConnectionDemand(t *testing.T, jobs int) int {
+	t.Helper()
+	out, err := exec.Command("bash", "-c",
+		fmt.Sprintf("cd .. && source scripts/lib-testdb.sh && declare_lane_budget %d && printf %%s \"$LANE_CONN_BUDGET\"", jobs)).Output()
+	if err != nil {
+		t.Fatalf("asking %s for the budget at %d job(s): %v", laneScriptPath, jobs, err)
+	}
+	demand, convErr := strconv.Atoi(strings.TrimSpace(string(out)))
+	if convErr != nil || demand <= 0 {
+		t.Fatalf("%s's declare_lane_budget answered %q at %d job(s), which is not a positive connection count", laneScriptPath, out, jobs)
+	}
+	return demand
 }
+
+// fits is the comparison itself, named so that both directions of it can be
+// exercised. Inline, it was reachable only through the happy path: a test that
+// asserts "today's configuration passes" says nothing about whether the
+// comparison still refuses anything.
+func fits(demand, maxConns int) bool { return demand <= maxConns }
 
 func TestTheLaneFitsInsideTheClusterItRunsAgainst(t *testing.T) {
 	script := readRepoFile(t, laneScriptPath)
@@ -134,8 +151,8 @@ func TestTheLaneFitsInsideTheClusterItRunsAgainst(t *testing.T) {
 		t.Fatalf("LANE_CONNS_PER_PACKAGE=%d is below LANE_POOL_MAX_CONNS=%d — a package opens more than one pool from these DSNs, so its allowance cannot be smaller than one pool's ceiling", perPackage, perPool)
 	}
 
-	demand := laneConnectionDemand(jobs, perPackage, fixed)
-	if demand > maxConns {
+	demand := laneConnectionDemand(t, jobs)
+	if !fits(demand, maxConns) {
 		t.Fatalf(`the integration lane can demand %d connections and %s allows %d.
 
     INTEGRATION_JOBS                 %3d   %s
@@ -158,24 +175,35 @@ different package set every run (#1109).`,
 	}
 }
 
-// The gate above is only a gate if it can fail, and the failure it must catch is
-// the configuration this repo actually shipped: CI's 16 jobs against a stock
-// cluster nobody had sized. This runs the same arithmetic over that
-// configuration and asserts it does NOT fit — so a future edit that makes the
-// relation vacuous (a term dropped, a comparison inverted) is caught by the same
-// file that states it.
+// The gate above is only a gate if it can fail, and there are two ways it can
+// quietly stop being able to.
+//
+// The first is the arithmetic: it has to still refuse the configuration this
+// repo actually shipped — CI's 16 jobs against a cluster nobody had sized.
+//
+// The second is the COMPARISON, and it is the one an inline `if` hides. A test
+// that only ever asserts "today's configuration passes" passes just as happily
+// with the comparison inverted, at which point the gate refuses every correct
+// configuration and accepts every broken one while reading green here. So both
+// directions of `fits` are exercised by name.
 func TestTheBudgetGateRefusesTheConfigurationThatShipped(t *testing.T) {
 	const (
-		jobsInCI          = 16  // .github/workflows/ci.yml, at the time of #1109
-		poolCeilingPerPkg = 32  // two pools at database.NewPool's un-pinned 16
-		stockMaxConns     = 100 // what a Postgres with no max_connections serves
+		jobsInCI      = 16  // .github/workflows/ci.yml, at the time of #1109
+		stockMaxConns = 100 // what a Postgres with no max_connections serves
 	)
-	script := readRepoFile(t, laneScriptPath)
-	fixed := laneTerm(t, script, "LANE_FIXED_CONNS")
-
-	if demand := laneConnectionDemand(jobsInCI, poolCeilingPerPkg, fixed); demand <= stockMaxConns {
-		t.Fatalf("the budget arithmetic makes the pre-#1109 configuration fit (%d <= %d); it demanded %d against a stock cluster and this gate would have passed over it",
-			demand, stockMaxConns, demand)
+	demand := laneConnectionDemand(t, jobsInCI)
+	if fits(demand, stockMaxConns) {
+		t.Fatalf("the budget arithmetic makes the pre-#1109 configuration fit (%d <= %d); the lane demanded that much against a stock cluster and this gate would have passed over it",
+			demand, stockMaxConns)
+	}
+	if !fits(demand, demand) {
+		t.Fatalf("fits() refuses a cluster sized exactly to the demand (%d), so the gate would fail a correct configuration", demand)
+	}
+	if !fits(demand, demand+1) {
+		t.Fatalf("fits() refuses a cluster larger than the demand (%d against %d) — the comparison is inverted, and the gate now rejects every configuration that is big enough", demand, demand+1)
+	}
+	if fits(demand+1, demand) {
+		t.Fatalf("fits() accepts a demand of %d against a cluster of %d — the comparison no longer refuses anything", demand+1, demand)
 	}
 }
 

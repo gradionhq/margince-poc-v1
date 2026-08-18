@@ -25,7 +25,13 @@ import (
 // per test. The connections are the cost: a package's tests run sequentially
 // against one clone database, and each test was opening a pool that eagerly
 // dialled MinConns backends, using them once and closing them — while the lane
-// runs several packages at once against one server with max_connections=100.
+// runs several packages at once against ONE server. How many connections that
+// server has is not a fact this file may assume: it is the lane's arithmetic,
+// declared in scripts/lib-testdb.sh and provisioned in
+// infra/docker-compose.dev.yml, and this pool's part in it is the ceiling it is
+// handed (see PoolMaxConnsEnv). It used to say "max_connections=100" here, which
+// was the stock default nobody had set and is now wrong in the file that would
+// be read first.
 
 // ErrSchemaNotReady is returned when a pool is asked for before EnsureSchema has
 // migrated the database.

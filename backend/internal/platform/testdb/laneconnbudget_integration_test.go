@@ -19,11 +19,13 @@ package testdb_test
 // So this reads the live setting and the budget the lane computed for THIS run,
 // and fails while the run is still explainable.
 //
-// Both tests below skip when their variable is absent, and that skip cannot hide
-// anything: the parallel lane exports both unconditionally, and it FAILS ON ANY
-// SKIP. So inside the lane the skip path is unreachable by construction, and
-// outside it — `make test-it`, one package by hand — there is no product of
-// concurrent packages to be over budget in the first place.
+// Neither test skips. Every lane that runs integration tests declares the budget
+// through scripts/lib-testdb.sh's declare_lane_budget — the parallel lane with
+// its concurrency, the one-package and serial lanes with 1 — so an absent
+// variable means the harness was reached by a route that did not size the
+// cluster, and that is a setup failure of exactly the kind sharedAppPool already
+// refuses for the DSNs. A skipped capacity check reads exactly like a passing
+// one; the serial lane makes the point concrete by failing outright on any SKIP.
 
 import (
 	"context"
@@ -43,7 +45,7 @@ const laneConnBudgetEnv = "LANE_CONN_BUDGET"
 func TestTheClusterSeatsTheBudgetTheLaneComputed(t *testing.T) {
 	raw, ok := os.LookupEnv(laneConnBudgetEnv)
 	if !ok || raw == "" {
-		t.Skipf("%s is unset — this package is not running under the parallel lane, which is the only caller whose demand is a product", laneConnBudgetEnv)
+		t.Fatalf("%s is unset — every lane declares it through scripts/lib-testdb.sh's declare_lane_budget (the parallel lane with its concurrency, the one-package and serial lanes with 1), so reaching this test without it means the harness was entered by a route that never sized the cluster", laneConnBudgetEnv)
 	}
 	budget, err := strconv.Atoi(raw)
 	if err != nil || budget <= 0 {
@@ -58,14 +60,21 @@ func TestTheClusterSeatsTheBudgetTheLaneComputed(t *testing.T) {
 	}
 
 	if maxConns < budget {
-		t.Fatalf(`the cluster serves max_connections=%d and this lane run budgeted for %d.
-
-The committed infra/docker-compose.dev.yml is checked by
-TestTheLaneFitsInsideTheClusterItRunsAgainst in `+"`make check`"+`, so a green tree
-and a short cluster together mean the CONTAINER predates the configuration:
-Postgres fixes max_connections at startup. Recreate it — `+"`make db-up`"+` after a
-`+"`docker compose -f infra/docker-compose.dev.yml up -d --force-recreate postgres`"+`
-— rather than lowering the budget to fit what is running.`, maxConns, budget)
+		// Two causes produce this, and they need opposite actions — a message
+		// that names only one sends half its readers to do something that
+		// cannot help. Which one it is is decided by whether the budget was
+		// computed for MORE concurrency than the committed configuration
+		// provisions, and the run knows that: INTEGRATION_JOBS is the knob.
+		remedy := "the CONTAINER predates the configuration — Postgres fixes max_connections at startup, so recreate it with " +
+			"`docker compose -f infra/docker-compose.dev.yml up -d --force-recreate postgres` and re-run. " +
+			"The committed compose file is separately checked by TestTheLaneFitsInsideTheClusterItRunsAgainst in `make check`, " +
+			"so a green tree plus a short cluster is this case."
+		if jobs := os.Getenv("INTEGRATION_JOBS"); jobs != "" {
+			remedy = "this run set INTEGRATION_JOBS=" + jobs + ", so it budgeted for more concurrency than infra/docker-compose.dev.yml provisions. " +
+				"Recreating the container CANNOT help — the compose file's max_connections is sized for the concurrency CI uses. " +
+				"Either lower INTEGRATION_JOBS for this run, or raise max_connections and the terms in scripts/lib-testdb.sh together."
+		}
+		t.Fatalf("the cluster serves max_connections=%d and this lane run budgeted for %d.\n\n%s", maxConns, budget, remedy)
 	}
 }
 
@@ -78,7 +87,7 @@ Postgres fixes max_connections at startup. Recreate it — `+"`make db-up`"+` af
 func TestTheSharedPoolTakesTheCeilingTheLaneHandedIt(t *testing.T) {
 	raw, ok := os.LookupEnv(testdb.PoolMaxConnsEnv)
 	if !ok || raw == "" {
-		t.Skipf("%s is unset — no ceiling was declared for this run, so the pool correctly keeps database.NewPool's fallback", testdb.PoolMaxConnsEnv)
+		t.Fatalf("%s is unset — declare_lane_budget exports it for every lane, so an absent ceiling means the pools are back on database.NewPool's fallback while the budget above still says otherwise", testdb.PoolMaxConnsEnv)
 	}
 	want, err := strconv.Atoi(raw)
 	if err != nil || want <= 0 {

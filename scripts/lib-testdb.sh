@@ -61,6 +61,92 @@ db_admin() {
   ( cd backend && MARGINCE_OWNER_DSN="${O_PREFIX}/postgres${O_QUERY:+?$O_QUERY}" go run ./cmd/migrate "$@" )
 }
 
+# ---------------------------------------------------------------------------
+# The lane's CONNECTION budget, and it is a product the way the lock budget in
+# infra/docker-compose.dev.yml is.
+#
+# Concurrent packages run against ONE server, and each opens pools sized by
+# database.NewPool's fallback — 16 per pool whenever nothing says otherwise.
+# Nothing related the two numbers, so the demand was
+# jobs x (however many pools a package happens to open) x 16, against a server
+# whose max_connections nobody had ever set: the stock 100. At CI's 16 jobs that
+# is a ceiling of 256 for the shared pools alone. It passed anyway, because
+# MaxConns is a ceiling and not a reservation — pgxpool dials lazily, so whether
+# a run fits under 100 was decided by how the bursts happened to overlap, which
+# is precisely the reported symptom: connect-time failures in a DIFFERENT
+# package set every run, green in isolation, green at INTEGRATION_JOBS=3 (#1109).
+#
+# The terms below make the demand a number the lane can state. They are read
+# back by TestTheLaneFitsInsideTheClusterItRunsAgainst
+# (backend/laneconnbudget_test.go), which fails `make check` when the committed
+# max_connections in infra/docker-compose.dev.yml stops covering them — so the
+# arithmetic cannot drift the way it drifted to get here. That test asks THIS
+# function for the number rather than re-implementing the expression: two
+# spellings of one formula is the shape the whole issue is about.
+#
+#   LANE_POOL_MAX_CONNS   ceiling for EACH pool the shared harness opens, handed
+#                         to it as MARGINCE_TEST_POOL_MAX_CONNS (testdb's
+#                         PoolMaxConnsEnv). 8 rather than database.NewPool's 16
+#                         because the measured high-water mark for a WHOLE
+#                         package at 16 jobs is 16 connections — both shared
+#                         pools and every ad-hoc connection together.
+#                         It travels as an ENV VAR and not in the DSN: cmd/migrate
+#                         and every bare pgx connection a fixture opens parse the
+#                         same DSNs with pgx.ParseConfig, which forwards an
+#                         unknown pool_* key to the server as a startup parameter
+#                         and dies with `FATAL: unrecognized configuration
+#                         parameter`.
+#   LANE_CONNS_PER_PACKAGE  what one package may hold at once. A SUM, because the
+#                         parts are bounded by different things:
+#                           2 x LANE_POOL_MAX_CONNS = 16, the two pools testdb
+#                             keys by DSN (owner + app) — this part is ENFORCED;
+#                           + 8 for everything the pin does not reach. That is
+#                             not only the ad-hoc pgx connections a fixture
+#                             opens: 49 integration test files build their OWN
+#                             pool from the same DSNs, and those keep
+#                             database.NewPool's fallback of 16. So this term is
+#                             a MEASURED budget, not a proved ceiling — the
+#                             high-water mark for one package is 16 with the pin
+#                             applied, and 24 is that plus half again. #1744
+#                             carries bringing those pools under the pin, which
+#                             is what would make this a ceiling.
+#                         An earlier revision set this to 16, which is EXACTLY
+#                         the observed peak. A budget equal to its own
+#                         measurement is not a budget.
+#   LANE_FIXED_CONNS      what the lane costs beyond the packages: one admin
+#                         connection per slot for CREATE/DROP DATABASE is counted
+#                         per job below (cmd/migrate's db verbs open one
+#                         connection each, not a pool, and at a slot handover
+#                         jobs of them overlap); this covers the template migrate
+#                         (2), superuser_reserved_connections (3), and an
+#                         operator's own psql or a metrics scrape while the lane
+#                         runs (3).
+#
+# Raise the concurrency and every term moves with it. That is the point: the
+# guard reads these, not a number somebody wrote down once.
+LANE_POOL_MAX_CONNS=8
+LANE_CONNS_PER_PACKAGE=24
+LANE_FIXED_CONNS=8
+
+# declare_lane_budget <jobs> — export the ceiling the harness applies and the
+# total this run may demand.
+#
+# Exported and not merely set, because the parallel lane's workers run in
+# re-exec'd shells: a ceiling that expands to empty in them leaves every pool
+# back at database.NewPool's fallback with the budget describing nothing.
+#
+# Every lane calls it, including the one-package and serial lanes where jobs is
+# 1. They oversubscribe nothing, but the harness ASSERTS both variables rather
+# than skipping when they are absent — a skipped capacity check reads exactly
+# like a passing one, and the serial lane fails outright on any SKIP.
+declare_lane_budget() {
+  local jobs="${1:?declare_lane_budget needs a job count}"
+  LANE_CONN_BUDGET=$(( jobs * (LANE_CONNS_PER_PACKAGE + 1) + LANE_FIXED_CONNS ))
+  export LANE_CONN_BUDGET
+  export MARGINCE_TEST_POOL_MAX_CONNS="$LANE_POOL_MAX_CONNS"
+}
+# ---------------------------------------------------------------------------
+
 # The migrated template every per-package clone is copied from. Exported so the
 # xargs -P worker subshells (fresh bash processes) see it — make_clone reads it.
 export TEMPLATE_NAME="${TEMPLATE_NAME:-margince_test}"

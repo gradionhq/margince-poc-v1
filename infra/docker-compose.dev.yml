@@ -74,13 +74,13 @@ services:
     # #1109 it was the one number here nobody had ever set: the stock 100.
     #
     # The demand is a product, exactly as the lock demand above is, and
-    # scripts/test-integration-parallel.sh is where its terms are declared —
-    # this number is their sum, not a round figure chosen to be comfortable:
+    # scripts/lib-testdb.sh is where its terms are declared — this number is
+    # their sum, not a round figure chosen to be comfortable:
     #
     #   INTEGRATION_JOBS                   16   (.github/workflows/ci.yml)
     #   x LANE_CONNS_PER_PACKAGE           24   two pools at LANE_POOL_MAX_CONNS=8,
-    #                                           plus 8 for the ad-hoc pgx.Conn a
-    #                                           fixture dials, which no pool bounds
+    #                                           plus 8 for what the pin does not
+    #                                           reach — see the term's own note
     #   + one admin connection per slot     1   CREATE/DROP DATABASE at a handover
     #   ------------------------------------
     #     16 x (24 + 1)                  = 400
@@ -90,7 +90,7 @@ services:
     #                                    = 408
     #
     # Measured, so the terms are not guesses: at INTEGRATION_JOBS=16 the whole
-    # cluster peaks at 85 backends and one package at 24, sampled every 100ms
+    # cluster peaks at 86 backends and one package at 16, sampled every 100ms
     # from OUTSIDE the lane's transactions — a sample taken inside one is frozen
     # for that transaction's lifetime and under-reports. The gap between 85 and
     # 408 is the point: the ceiling is what has to fit, because whether a run
@@ -98,9 +98,9 @@ services:
     # entire content of #1109.
     #
     # TestTheLaneFitsInsideTheClusterItRunsAgainst (backend/laneconnbudget_test.go)
-    # reads INTEGRATION_JOBS from the workflow, the three LANE_ terms from the
-    # lane script and this number from this file, and fails `make check` when the
-    # sum stops fitting. Raising INTEGRATION_JOBS without raising this is
+    # reads INTEGRATION_JOBS from the workflow and this number from this file, and
+    # asks the lane script's own declare_lane_budget for the sum rather than
+    # re-implementing it. It fails `make check` when the two stop fitting. Raising INTEGRATION_JOBS without raising this is
     # therefore a red gate rather than a lane that fails somewhere else.
     #
     # The other half of #1109 is that the per-package ceiling is now PINNED
