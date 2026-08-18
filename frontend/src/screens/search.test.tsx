@@ -94,8 +94,37 @@ describe("SearchScreen", () => {
     );
     render(<SearchScreen q="acme" />);
     await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
-    expect(screen.getByText("from HubSpot")).toBeTruthy();
+    // The tier covers every overlay and connector source, so the badge names
+    // none of them: a hit carries no provider field, and a vendor name here
+    // would be stamped on rows mirrored from a different system.
+    expect(screen.getByText("from a connected system")).toBeTruthy();
+    expect(screen.queryByText(/HubSpot/)).toBeNull();
     // authoritative's badge never renders alongside a mirrored hit.
+    expect(screen.queryByText("verified")).toBeNull();
+  });
+
+  // A tier the record CARRIES and the page does not draw reads as a record with
+  // nothing to declare, which is the opposite of what unverified means.
+  it("badges an unverified hit rather than leaving it unmarked", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            {
+              type: "person",
+              id: "p2",
+              title: "Sam Unknown",
+              trust_tier: "unverified",
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    render(<SearchScreen q="acme" />);
+    await waitFor(() => expect(screen.getByText("Sam Unknown")).toBeTruthy());
+    expect(screen.getByText("unverified")).toBeTruthy();
     expect(screen.queryByText("verified")).toBeNull();
   });
 

@@ -221,7 +221,15 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   // both files are correct on their own. Hence a gate over the tree rather than a
   // rule someone has to remember while editing either sheet.
   it("declares each screen's class namespace in exactly one stylesheet", () => {
-    const namespaces = [{ prefix: "auth-", home: "screens/auth.css" }];
+    const namespaces = [
+      { prefix: "auth-", home: "screens/auth.css" },
+      // The dedupe namespace spent months declared in onboarding.css, a sheet
+      // dedupe.tsx does not import: the screen drew correctly only because
+      // another screen had already pulled that sheet into the bundle, and it
+      // rendered as an unstyled wireframe anywhere it was mounted alone.
+      // Registered here so the namespace cannot drift back out of its own home.
+      { prefix: "dedupe-", home: "screens/dedupe.css" },
+    ];
     const violations: string[] = [];
     for (const file of files) {
       if (!file.endsWith(".css")) {

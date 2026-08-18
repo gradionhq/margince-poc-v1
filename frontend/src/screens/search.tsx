@@ -142,8 +142,18 @@ function SearchHit({ hit }: Readonly<{ hit: SearchResult }>) {
         {hit.trust_tier === "authoritative" && (
           <Badge tone="success">{t("search.tier.authoritative")}</Badge>
         )}
+        {/* `external` covers every overlay- and connector-sourced row, so the
+            badge cannot name the system it came from: the hit carries no
+            provider field, and naming one vendor would label rows mirrored
+            from the others with it. `unverified` gets a badge of its own —
+            a tier the record CARRIES and the page does not draw reads as a
+            record with nothing to declare, which is the opposite of what
+            unverified means. */}
         {hit.trust_tier === "external" && (
           <Badge tone="accent">{t("search.tier.mirrored")}</Badge>
+        )}
+        {hit.trust_tier === "unverified" && (
+          <Badge tone="warn">{t("search.tier.unverified")}</Badge>
         )}
       </div>
       {hit.snippet && <p className="search-hit-snippet">“{hit.snippet}”</p>}

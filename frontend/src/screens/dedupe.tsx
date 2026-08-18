@@ -5,7 +5,9 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button, Radio } from "../design-system/atoms";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
+import "./dedupe.css";
 import { EntityRef } from "./entityref";
 
 // The dedupe review queue (M4, DH-EXT-1/2): confidence-sorted open pairs
@@ -15,6 +17,20 @@ import { EntityRef } from "./entityref";
 // number and every evidence line on this screen is a persisted row.
 
 type Candidate = components["schemas"]["DedupeCandidate"];
+
+// The three signals the detector records (data-semantics: agree | collide |
+// one_sided), in the reader's own language.
+const SIGNAL_KEYS = {
+  agree: "dedupe.signalAgree",
+  collide: "dedupe.signalCollide",
+  one_sided: "dedupe.signalOneSided",
+} as const satisfies Record<string, MessageKey>;
+
+function signalWord(signal: string, t: ReturnType<typeof useT>): string {
+  return signal in SIGNAL_KEYS
+    ? t(SIGNAL_KEYS[signal as keyof typeof SIGNAL_KEYS])
+    : signal;
+}
 
 const queueKey = ["dedupe-candidates"];
 
@@ -176,6 +192,7 @@ function CandidateCard({
         <thead>
           <tr>
             <th>{t("dedupe.field")}</th>
+            <th>{t("dedupe.signal")}</th>
             <th>
               <Radio
                 name={`winner-${candidate.id}`}
@@ -198,6 +215,16 @@ function CandidateCard({
           {candidate.evidence.map((e) => (
             <tr key={e.field} data-signal={e.signal}>
               <td>{e.field}</td>
+              {/* The signal in words, not only in colour. A conflicting field
+                  was told apart by red text alone, which reaches nobody who
+                  cannot see the difference and nothing at all on a monochrome
+                  print — and the other two signals were told apart by nothing,
+                  so a reader could not tell "these agree" from "only one side
+                  has it". The wire types this field as a plain string rather
+                  than a closed enum, so an unrecognised value renders as
+                  itself: a signal we cannot name is still one the detector
+                  acted on, and hiding it would read as no signal at all. */}
+              <td className="dedupe-signal">{signalWord(e.signal, t)}</td>
               <td>{e.left_value ?? "—"}</td>
               <td>{e.right_value ?? "—"}</td>
             </tr>

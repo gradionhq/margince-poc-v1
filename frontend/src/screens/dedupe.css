@@ -1,0 +1,60 @@
+/* The duplicate review queue's own sheet.
+ *
+ * These rules lived in onboarding.css, which dedupe.tsx does not import — so the
+ * screen was styled only because some OTHER screen had already pulled that sheet
+ * into the bundle. In the app that reads as working; in an isolated story or a
+ * test render it is an unstyled wireframe, and nothing fails when it happens.
+ * A screen owns its namespace, declares it here, and imports it itself.
+ */
+
+/* Dedupe review queue (M4): evidence table + per-pair decision. */
+.dedupe-card {
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+}
+.dedupe-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.dedupe-evidence {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--space-3);
+}
+.dedupe-evidence th,
+.dedupe-evidence td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+/* Colour REINFORCES the signal word beside it; it never carries the signal on
+   its own. A conflicting row told apart by red text alone says nothing to a
+   reader who cannot see the difference, and nothing at all in print. */
+.dedupe-evidence tr[data-signal="collide"] td {
+  color: var(--danger);
+}
+/* The signal reads as a label on the row rather than as one more value: the two
+   values either side of it are the record's own words, and this one is ours. */
+.dedupe-signal {
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+  white-space: nowrap;
+}
+.dedupe-actions {
+  display: flex;
+  gap: var(--space-3);
+}
+.dedupe-error {
+  color: var(--danger);
+}
+.dedupe-undo {
+  background: none;
+  border: none;
+  color: var(--textMeta);
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
