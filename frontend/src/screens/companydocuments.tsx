@@ -325,7 +325,7 @@ function DocumentRow({
               a reader looks for; the filename is what arrived, and it is what
               the saved file is called. */}
           <a
-            className="docs-name co-rowlink rec-title"
+            className="co-rowlink rec-title"
             href={`/v1/attachments/${doc.id}`}
             download={doc.filename}
           >

@@ -272,15 +272,18 @@ function ContractRow({
         )}
         {(mayWrite || mayArchive) && (
           <OverflowMenu label={t("contracts.rowMenu")}>
+            {/* Menu items are Buttons, like every other menu in the product.
+                A bare <button> here drew as centred unstyled text inside a
+                panel that was otherwise the design system's. */}
             {mayWrite && (
-              <button type="button" onClick={onEdit}>
+              <Button small onClick={onEdit}>
                 {t("contracts.edit")}
-              </button>
+              </Button>
             )}
             {mayArchive && (
-              <button type="button" onClick={() => setAsking(true)}>
+              <Button small variant="danger" onClick={() => setAsking(true)}>
                 {t("contracts.archive")}
-              </button>
+              </Button>
             )}
           </OverflowMenu>
         )}
@@ -355,21 +358,26 @@ function ContractPaper({
   return (
     <span className="rec-files">
       <span className="t-caption rec-files-label">{t("contracts.files")}</span>
-      {files.map((file) => (
-        // The filename, not the title: a paper's title is very often the
-        // agreement's own title, and a link repeating the row it sits on names
-        // nothing.
-        <FileChip
-          key={file.id}
-          href={`/v1/attachments/${file.id}`}
-          filename={file.filename}
-          size={
-            file.byte_size == null
-              ? undefined
-              : formatBytes(file.byte_size, locale)
-          }
-        />
-      ))}
+      {/* The cards wrap as their OWN group. Left in the label's row they wrap
+          back to the panel's edge, so a second file starts to the left of the
+          first and the label stops reading as a label for both. */}
+      <span className="rec-files-items">
+        {files.map((file) => (
+          // The filename, not the title: a paper's title is very often the
+          // agreement's own title, and a link repeating the row it sits on
+          // names nothing.
+          <FileChip
+            key={file.id}
+            href={`/v1/attachments/${file.id}`}
+            filename={file.filename}
+            size={
+              file.byte_size == null
+                ? undefined
+                : formatBytes(file.byte_size, locale)
+            }
+          />
+        ))}
+      </span>
     </span>
   );
 }

@@ -1027,7 +1027,10 @@
   display: none;
 }
 /* The items are whatever the caller renders — buttons of every variant. They
-   read as a menu here: full width, left-aligned, no competing fills. */
+   read as a menu here: full width, left-aligned, no competing fills. An item is
+   a `Button`, which is why this styles the class: a caller who hands the menu a
+   bare <button> gets centred unstyled text, and the fix is the atom at the call
+   site rather than a second spelling of a button defined here. */
 .overflow-menu-items .btn {
   width: 100%;
   justify-content: flex-start;

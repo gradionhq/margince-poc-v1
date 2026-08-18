@@ -1301,28 +1301,6 @@
   margin-bottom: var(--space-5);
 }
 
-/* The document and contract rows: a name that can run long, its meta held to
-   the right of it, and the row's verbs last. `docs-row` is the class both cards
-   were already asking for and nothing defined — they rendered as bare list
-   items until this landed. */
-.docs-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-}
-.docs-name,
-.docs-row .co-rowlink {
-  flex: 1 1 12rem;
-  min-width: 0;
-  font-weight: var(--fw-medium);
-  overflow-wrap: anywhere;
-}
-/* The verbs sit at the far end, so a reader's eye lands on the agreement rather
-   than on what can be done to it. */
-.docs-row > *:last-child {
-  margin-left: auto;
-}
 .docs-filters {
   display: flex;
   gap: var(--space-2);
@@ -1396,16 +1374,24 @@
   font-variant-numeric: tabular-nums;
   font-weight: var(--fw-medium);
 }
-/* The paper sits under the agreement's own line, as its own row of cards. */
+/* The paper sits under the agreement's own line, as its own row of cards: a
+   label that stays put, and the cards wrapping in their own column beside it so
+   a second file lines up under the first rather than under the word "Files". */
 .rec-files {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  align-items: baseline;
   gap: var(--space-2);
   margin-top: var(--space-1);
 }
 .rec-files-label {
+  flex: none;
   min-width: 3rem;
+}
+.rec-files-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-width: 0;
 }
 /* A count on a filter chip: the same word, one shade back, so the chip reads
    as "Legal, of which there are two" rather than as two labels. */
