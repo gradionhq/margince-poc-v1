@@ -888,23 +888,24 @@ webhooks, agents, privacy. Configuration and machinery rather than records,
 which is why the stakes were low, but low is not none and a reader should not
 have to infer it from migration numbers.
 
-### Where phase D stands: 66 tables
+### Where phase D stands: 32 tables
 
-Merged since the gate: briefs (#1486), capture (#1491), overlay (#1510,
-fork-owned so it lands in `migrations/custom/`), ai + migration (#1525, split
-across both namespaces because the importer is fork-owned). 103 → 66.
+Merged: briefs (#1486), capture (#1491), overlay (#1510, fork-owned so it lands
+in `migrations/custom/`), ai + migration (#1525, split across both namespaces
+because the importer is fork-owned), deals quoting & delivery (#1543), activity
+satellites (#1547), deal spine (#1635), activity spine (#1655). 103 → 38.
+
+Open and stacked, in merge order: **#1701** organization cluster → **#1720**
+person cluster → **#1723** lead/relationship/partner cluster. 38 → 32 when the
+three land.
 
 **What is left, and the shape of each:**
 
 | group | tables | note |
 |---|---|---|
-| deals — the spine | `deal`, `pipeline`, `stage`, `deal_stage_history`, `deal_forecast_history` | ~97 sites. The most-referenced table after `person`; take it alone |
-| deals — quoting & delivery | `offer`, `offer_line_item`, `offer_template`, `product`, `project`, `project_phase_history`, `fx_rate` | ~31 sites, and the natural next slice |
-| people | `person` and its satellites, `organization` and its, `lead`, `relationship`, `partner`, `dedupe_candidate`, `site_read`, `conversation_claim` | ~20 tables, the largest group |
-| identity | `app_user`, `session`, `role`, `role_assignment`, `team`, `team_membership`, `passport`, `oauth_*`, `auth_token`, `record_grant`, `extension_secret`, `onboarding_wizard_state` | `app_user` is what `MustWorkspace` ultimately hangs on |
-| activities | `activity`, `activity_link`, `activity_participant`, `activity_participant_replay`, `attachment`, `booking_page`, `scheduled_send`, `transcript_read` | |
-| search | `embedding`, `graph_interaction_edge` | entangled with the re-embed fan-out — do the run-lifecycle collapse first |
-| the rest | `idempotency_key`, `field_provenance`, `user_record_view`, `suggestion_dismissal`, `person_moment_dismissal`, `signal_thread_scan`, `linkedin_*`, `mirror_*` leftovers | |
+| identity | `app_user`, `session`, `role`, `role_assignment`, `team`, `team_membership`, `passport`, `oauth_*`, `auth_token`, `record_grant`, `extension_secret`, `onboarding_wizard_state` | `app_user` is what `MustWorkspace` ultimately hangs on — take it last within the group |
+| search | `embedding`, `graph_interaction_edge` | see below: the fan-out is now redundant machinery over one corpus, and collapsing it is the prerequisite |
+| the rest | `idempotency_key`, `field_provenance`, `user_record_view`, `suggestion_dismissal`, `signal_thread_scan`, `linkedin_account`, `linkedin_connection` | singletons; one slice |
 | **last** | `audit_log`, `system_log` | the append-only ledgers, by the decision recorded above |
 
 **Slice by ownership, not by convenience.** Two of the four merged slices had to
@@ -912,6 +913,16 @@ be split or moved mid-flight because a table turned out to be fork-owned
 (`migrations/custom/`, ADR-0017): overlay entirely, the importer half of the AI
 slice. Check `grep -rl "CREATE TABLE.*<name>" migrations/` before writing the
 migration, not after `migrate up` refuses.
+
+**Sweep `scripts/` too, and do not trust a Go-literal sweep to find it.**
+Three consecutive slices — organization, person, lead — shipped a
+`scripts/seed-dev.sql` still naming the dropped column, because every slice's
+sweep parses Go string literals and that file is not Go. Each was caught by
+`live-boot`, the slowest job on the board and the only one that executes the
+file; `scripts/seed-demo-company.sh` has no such job and is broken on `main`
+today (#1724). The gate gap is #1725. Until it exists, grep `scripts/` by hand:
+`grep -rn workspace_id scripts/` and check each hit against the tables the slice
+touches.
 
 **Sweep `backend/tools/` too — it is a second Go module and `go build ./...`
 never compiles it.** The capture slice swept `internal/`, `extensions/`,
@@ -943,6 +954,20 @@ the steal still able to recover a wedged run. That is a coherent piece of work
 and a different one from the three above, which is why it is written down here
 rather than started at the end of a long session. Its column drop
 (`embedding`) waits on it.
+
+**Since #1723, the fan-out is redundant machinery over a single corpus, and one
+test assertion has been retired that said otherwise.** `lead` was the last
+tenant-scoped embeddable entity, so `pendingSources` and `liveEntitiesOf` no
+longer scope anything: a pass given one workspace rebuilds exactly the rows a
+pass given any other would. That also killed a property the fan-out suite
+asserted — that a tenant whose embedding writes fail is the only child to fail.
+It has no mechanism left, because an embedding row is keyed on
+`(entity_type, entity_id, chunk_ix)` alone since phase B: whichever child runs
+first rebuilds everything, and the second finds every row fresh, writes nothing,
+and cannot meet a write fault however permanently it is armed. The assertion was
+removed with the reason written into the test rather than weakened in place.
+**What that means for the collapse: there is no isolation left to preserve, so
+the lifecycle question is the whole of the work.**
 
 **The vocabulary step is done (#1240); the first collapse hit one open
 question, and it is worth answering before writing code.** `role: worker` now
