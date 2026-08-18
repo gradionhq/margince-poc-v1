@@ -70,13 +70,17 @@ func (r *Retriever) AssembleContext(ctx context.Context, anchor datasource.Entit
 	for _, section := range assembled {
 		sec := retrieval.Section{Name: section.name}
 		for _, item := range section.items {
+			// No evidence entry, and that is the honest answer rather than a
+			// missing one: a walked item's only source is the row it IS, so a
+			// citation assembled from its own ref and its own summary states the
+			// item twice and grounds nothing. On the anchor's own profile section
+			// it reached a reader as "Ruebenase Gert" proved by "Ruebenase Gert",
+			// beside a link to the page they were already on. Ref and Summary
+			// carry both halves already; evidence is for a source the item does
+			// not contain — a Search hit's matched snippet, a connector's message.
 			sec.Items = append(sec.Items, retrieval.Item{
 				Ref:     datasource.EntityRef{Type: datasource.EntityType(item.entityType), ID: item.id},
 				Summary: item.summary,
-				Evidence: []retrieval.Evidence{{
-					Source:  item.entityType + ":" + item.id.String(),
-					Snippet: item.summary,
-				}},
 			})
 		}
 		if len(sec.Items) > 0 {

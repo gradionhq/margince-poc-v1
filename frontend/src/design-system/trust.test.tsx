@@ -194,3 +194,48 @@ describe("the lines an evidence chip was read from", () => {
     expect(screen.queryByText(/^lines? /)).toBeNull();
   });
 });
+
+// A chip exists to make a claim checkable by a reader. A record reference —
+// the shape the contract documents an evidence source to be — is checkable by
+// the system and by nobody else, so the reader gets the record KIND and the row
+// id stays in the title.
+describe("the source an evidence chip names", () => {
+  const LEAD_REF = "lead:019fff1e-8439-75fe-adfe-78ab4b497f12";
+
+  it("names the record kind, never the row id, when the source is a record reference", () => {
+    const { container } = render(
+      <EvidenceChip
+        evidence={{ snippet: "Ruebenase Gert", source: LEAD_REF }}
+      />,
+    );
+    const chip = container.querySelector(".evidence-chip");
+    expect(chip?.textContent).toBe('"Ruebenase Gert" · lead');
+    expect(chip?.getAttribute("title")).toBe(LEAD_REF);
+  });
+
+  it("keeps the row id out of the compact form too, where the source is all there is", () => {
+    const { container } = render(
+      <EvidenceChip
+        evidence={{ snippet: "Ruebenase Gert", source: LEAD_REF }}
+        collapsed
+      />,
+    );
+    const toggle = container.querySelector(".evidence-chip-toggle");
+    expect(toggle?.textContent).toBe("lead");
+    expect(toggle?.getAttribute("title")).toBe(LEAD_REF);
+  });
+
+  it("shows a source somebody wrote exactly as written, tooltip and all", () => {
+    // A colon does not make a source a record reference: these two are words,
+    // and shortening either would hide what the claim rests on.
+    for (const source of ["email 12 Jun", "deal_coverage_risk:margin_thin"]) {
+      cleanup();
+      const { container } = render(
+        <EvidenceChip evidence={{ snippet: "…offer of 48k…", source }} />,
+      );
+      const chip = container.querySelector(".evidence-chip");
+      expect(chip?.textContent).toBe(`"…offer of 48k…" · ${source}`);
+      expect(chip?.hasAttribute("title")).toBe(false);
+    }
+  });
+});
