@@ -5,11 +5,13 @@ import { useEffect, useRef } from "react";
 import type { MarginceCoreState } from "./margince-core";
 import {
   BEHAVIOUR,
+  BLOBS,
   breath,
   type CoreMotion,
   current,
   DOTS,
   dotTarget,
+  liquidBlob,
 } from "./margince-core-motion";
 import { usePrefersReducedMotion } from "./motion";
 import {
@@ -232,23 +234,23 @@ function easeDots(
 }
 
 /**
- * The body of liquid inside the glass.
+ * The liquid filling the ball: a few large masses on their own slow paths,
+ * stretched along the way they travel and fused where they overlap.
  *
- * It drifts on the current and turns slowly, and it is ONE element: two blurred
- * masses painted on it (see the stylesheet) are enough for a reader to see the
- * fluid move, and moving one element is one composited transform rather than a
- * second animation to keep in phase.
+ * Written the same way the dots are — transform only, one composited layer each —
+ * and carried by the same current, so the fluid and the things suspended in it
+ * can never disagree about which way the ball is moving.
  */
-function writeLiquid(liquid: HTMLElement | null, time: number, box: Box) {
-  if (!liquid) {
-    return;
-  }
+function writeLiquid(blobs: readonly HTMLElement[], time: number, box: Box) {
   const flow = current(time);
-  // A fraction of the ball, so the fluid always fills it — a liquid that travels
-  // far enough to show its own edge is a liquid sloshing in a half-empty ball,
-  // which is a different (and much noisier) idea.
-  const travel = box.width * 0.06;
-  liquid.style.transform = `translate3d(${(flow.x * travel).toFixed(2)}px,${(flow.y * travel).toFixed(2)}px,0) rotate(${(time * 3.4).toFixed(2)}deg)`;
+  const carry = box.width * 0.05;
+  for (let index = 0; index < blobs.length; index += 1) {
+    const mass = liquidBlob(index, time);
+    const x = mass.x * box.scale + flow.x * carry;
+    const y = mass.y * box.scale + flow.y * carry;
+    blobs[index].style.transform =
+      `translate3d(${x.toFixed(2)}px,${y.toFixed(2)}px,0) rotate(${mass.rotation.toFixed(2)}deg) scale(${mass.sx.toFixed(3)},${mass.sy.toFixed(3)})`;
+  }
 }
 
 function writeShell(
@@ -296,7 +298,13 @@ function runOrbLoop(
   let onScreen = true;
   let windowFocused = isWindowFocused();
   let box = measure(shell, dots[0]?.el);
-  const liquid = shell.querySelector<HTMLElement>(".core-liquid");
+  // The masses the markup actually carries. Sliced to what the motion module
+  // knows how to place: a fourth blob in the DOM would otherwise sit unmoved in
+  // the middle of the ball, which is the one thing in a liquid that cannot happen.
+  const blobs = [...shell.querySelectorAll<HTMLElement>(".core-blob")].slice(
+    0,
+    BLOBS,
+  );
   // The filter lives in the component's own subtree, so it is found rather than
   // passed: the engine drives the DOM the component rendered, and threading an
   // element reference through for one attribute would be a second contract
@@ -328,7 +336,7 @@ function runOrbLoop(
     // Under reduced motion the easing is instant: a settle animation IS motion,
     // however small, so the one frame drawn has to be the settled one.
     easeDots(dots, behaviour.motion, time, box, lean, reduced ? 1 : dt);
-    writeLiquid(liquid, time, box);
+    writeLiquid(blobs, time, box);
     for (const dot of dots) {
       writeDot(dot, box, lineMode);
     }

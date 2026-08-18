@@ -351,59 +351,64 @@
 
 /* ---- the liquid ---------------------------------------------------------- */
 /*
- * The ball is FULL, and this is what fills it: two soft masses of the state's own
- * colours, heavily blurred, drifting on the current the engine also carries the
- * dots on. Two and not one, because a single mass is a vignette — it is the
- * SECOND mass moving against the first that a reader sees as fluid.
+ * The ball is FULL, and this is what fills it: three masses of the state's body
+ * tone, fused by their own filter, travelling slow paths and stretched along the
+ * way they go (the engine writes both). Three, because two masses can only pass
+ * each other and three can mix; the movement is what makes it liquid — a static
+ * gradient behind glass reads as fog, which is what the first attempt did.
  *
- * Under the dots and above the well's tint, so the order reads as depth: glass,
- * fluid, things suspended in the fluid, glass again. Blurred hard enough that no
- * edge of it is ever visible, since an edge would be the surface of a
- * half-filled ball and this one is full.
- *
- * Not fused with the dots: the goo filter is what makes the dots one material,
- * and putting the fluid through it would weld them into the body — the dots would
- * stop being suspended in something and become lumps of it.
+ * Under the dots, above the well's tint, so the order reads as depth: glass,
+ * fluid, things suspended in the fluid, glass again.
  */
 .core-liquid {
   position: absolute;
-  /* Oversized on purpose: it travels a few percent of the ball, and the inset
-     keeps its own boundary outside the glass at every point of that travel. */
-  inset: -18%;
+  inset: 0;
   border-radius: var(--r-full);
   pointer-events: none;
-  filter: blur(14px);
+}
+.core-blob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* Large: each mass is over half the ball, so at any moment two of them overlap
+     and the fluid has no gaps. Smaller and the ball reads as three drifting dots
+     behind four sharper ones, which is one idea too many. */
+  width: 62%;
+  height: 62%;
+  margin: -31% 0 0 -31%;
+  border-radius: var(--r-full);
   will-change: transform;
   /*
-   * Both masses are the BODY tone, and both are thin. Two rules came out of
-   * seeing it dense: a fluid painted in the DOT colours makes the dots vanish
-   * into it — they have to stay the brightest thing in the ball, so the fluid
-   * takes the darker end of the triple and they keep the light one — and a fluid
-   * past roughly a fifth opacity stops reading as liquid and starts reading as
-   * paint filling a shape.
+   * The BODY tone, and thin. Two things came out of seeing it dense: a fluid in
+   * the dot colours swallows the dots it is meant to suspend — they have to stay
+   * the brightest thing in the ball — and past roughly a third opacity the fluid
+   * stops reading as liquid and starts reading as paint filling a shape. Denser
+   * at its own centre, so a mass has a middle rather than being a flat patch.
    */
-  background:
-    /* the upper mass, where the light enters, the lighter of the two */
-    radial-gradient(
-      circle at 36% 34%,
-      color-mix(in srgb, var(--coreC2) 15%, transparent) 0%,
-      color-mix(in srgb, var(--coreC2) 6%, transparent) 40%,
-      transparent 64%
-    ),
-    /* the lower mass, denser, so the fluid has a bottom to settle into */
-    radial-gradient(
-      circle at 64% 68%,
-      color-mix(in srgb, var(--coreC2) 22%, transparent) 0%,
-      color-mix(in srgb, var(--coreC2) 9%, transparent) 44%,
-      transparent 70%
-    );
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--coreC2) 30%, transparent) 0%,
+    color-mix(in srgb, var(--coreC2) 18%, transparent) 58%,
+    transparent 100%
+  );
 }
-/* At small sizes the blur is a bigger share of the ball than the fluid is, so the
-   two masses smear into one wash. One less thing on eleven pixels of colour. */
+/* The second mass carries the lighter tone, which is what makes the mixing
+   visible: three masses of one colour merge into one shape and the movement
+   inside the fluid disappears with them. */
+.core-blob:nth-child(2) {
+  background: radial-gradient(
+    circle at 50% 50%,
+    color-mix(in srgb, var(--coreC3) 26%, transparent) 0%,
+    color-mix(in srgb, var(--coreC3) 14%, transparent) 58%,
+    transparent 100%
+  );
+}
+/* At the small rungs the fusion blur is a bigger share of the ball than the
+   masses are, so the three smear into one wash: the fluid becomes a single tint
+   and the dots keep the room. */
 @container (max-width: 90px) {
   .core-liquid {
-    filter: blur(6px);
-    opacity: 0.7;
+    opacity: 0.55;
   }
 }
 

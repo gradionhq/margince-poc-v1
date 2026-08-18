@@ -345,6 +345,56 @@ export function current(time: number): Readonly<{ x: number; y: number }> {
   };
 }
 
+/** Masses of liquid in the ball. Three: two can only ever pass, three mix. */
+export const BLOBS = 3;
+
+/**
+ * Where one mass of liquid is, and how it is deformed, at a given moment.
+ *
+ * The fluid is not a texture that drifts — that was the first attempt and it
+ * read as fog behind glass. It is a few large masses that travel on their own
+ * long paths, overlap, and get STRETCHED along the direction they are moving,
+ * which is what a liquid does and a gradient does not. The goo filter fuses them
+ * where they meet, so the merging is surface tension rather than two shapes
+ * crossing.
+ *
+ * Deliberately slower than any dot formation, and slower per mass than the
+ * current that carries them: fluid in a sealed ball moves because the ball moved.
+ * Each mass gets its own irrational-ish frequency pair so the three never line up
+ * into a pattern a viewer can learn.
+ */
+export function liquidBlob(index: number, time: number): DotTarget {
+  const phase = index * 2.1;
+  const speed = 0.5 + index * 0.11;
+  const slow = time * 0.07 * speed;
+  const x =
+    Math.sin(slow * 1.7 + phase) * 0.42 + Math.cos(slow * 0.9 + phase) * 0.2;
+  const y =
+    Math.cos(slow * 1.3 + phase * 1.4) * 0.4 +
+    Math.sin(slow * 2.1 + phase) * 0.18;
+  // The velocity, taken a beat later: the stretch has to follow where the mass is
+  // GOING, and a mass that stretches across its own path reads as a wobbling blob
+  // rather than as something moving through liquid.
+  const ahead = slow + 0.12;
+  const vx =
+    Math.sin(ahead * 1.7 + phase) * 0.42 +
+    Math.cos(ahead * 0.9 + phase) * 0.2 -
+    x;
+  const vy =
+    Math.cos(ahead * 1.3 + phase * 1.4) * 0.4 +
+    Math.sin(ahead * 2.1 + phase) * 0.18 -
+    y;
+  const pace = Math.min(1, Math.hypot(vx, vy) * 9);
+  return {
+    x: x * R,
+    y: y * R,
+    sx: 1 + pace * 0.26,
+    sy: 1 - pace * 0.14,
+    // Turned into its own travel, so the stretch lies along the path.
+    rotation: (Math.atan2(vy, vx) * 180) / Math.PI,
+  };
+}
+
 /**
  * The breath: two frequencies through an asymmetric curve, so the inhale is
  * quicker than the exhale.

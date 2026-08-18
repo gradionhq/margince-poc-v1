@@ -65,6 +65,7 @@ export function MarginceCoreScene({
   // which is the one thing that has to differ between a 230px hero and the 34px
   // orb in the shell's rail.
   const goo = useId();
+  const pool = useId();
   useCoreEngine(shell, state);
 
   const classes = ["core", size === "md" ? "core-md" : "", className]
@@ -79,10 +80,17 @@ export function MarginceCoreScene({
             above and is what light happens on. Two elements because a ball whose
             interior is not clipped is a disc with dots wandering off it. */}
         <div className="core-well">
-          {/* The fluid the ball is FULL of. It sits under the dots and drifts on
-              the same current they are carried by, which is what makes them read
-              as suspended in it rather than drawn over it. */}
-          <div className="core-liquid" />
+          {/* The fluid the ball is FULL of: three masses travelling their own
+              slow paths, fused by their own filter so they merge and part like
+              liquid, and carried by the same current as the dots — which is what
+              makes the dots read as suspended IN it rather than drawn over it.
+              Its own filter, not the dots': fused together, the dots would stop
+              being things in a fluid and become lumps of it. */}
+          <div className="core-liquid" style={{ filter: `url(#${pool})` }}>
+            <i className="core-blob" />
+            <i className="core-blob" />
+            <i className="core-blob" />
+          </div>
           {/* Written out rather than mapped, and the count is not a variable: a
               dot's POSITION in this list is its identity in the motion table
               (which one leaves the mass, which stroke of the check mark it
@@ -135,6 +143,25 @@ export function MarginceCoreScene({
             in="fused"
             mode="matrix"
             values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 32 -14"
+          />
+        </filter>
+        {/*
+          The liquid's own fusion, with a wider blur and a gentler ramp than the
+          dots': the masses are several times larger, and the same steep ramp gave
+          them hard edges — a hard edge inside a full ball is the surface of
+          something, and there is no surface in a vessel with no air in it.
+        */}
+        <filter id={pool}>
+          <feGaussianBlur
+            className="core-pool-blur"
+            in="SourceGraphic"
+            stdDeviation="14"
+            result="pooled"
+          />
+          <feColorMatrix
+            in="pooled"
+            mode="matrix"
+            values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 14 -5"
           />
         </filter>
       </svg>
