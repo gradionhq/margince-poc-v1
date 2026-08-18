@@ -451,9 +451,7 @@ function DetailsGridBody({
         <DescriptionRow {...row} />
       </FieldGrid>
       <Disclosure
-        summary={t(
-          anyAddressPartSet ? "co.address.summary" : "co.address.add",
-        )}
+        summary={t(anyAddressPartSet ? "co.address.summary" : "co.address.add")}
         open={anyAddressPartSet}
       >
         <FieldGrid>

@@ -1,5 +1,5 @@
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -351,12 +351,20 @@ function DerivationRows({ derivation }: Readonly<{ derivation: Derivation }>) {
 // "Explain this number", as the same titled Card the quotas surface draws for
 // the same feature — one route, one feature, one surface.
 function ExplainCard({
+  id,
   url,
   query,
-}: Readonly<{ url: string | null; query: UseQueryResult<Derivation> }>) {
+}: Readonly<{
+  // The toggle above points `aria-controls` here, so the card has to carry the
+  // id the toggle was given rather than mint one of its own.
+  id: string;
+  url: string | null;
+  query: UseQueryResult<Derivation>;
+}>) {
   const t = useT();
   return (
     <Card
+      id={id}
       ariaLabel={t("explain.title")}
       title={t("explain.title")}
       sub={query.data?.definition ?? t("reports.planNote")}
@@ -393,6 +401,7 @@ export function ReportsScreen() {
   const t = useT();
   const { locale } = useLocale();
   const [explain, setExplain] = useState(false);
+  const explainId = useId();
   const [segment, setSegment] = useState<Segment>("deals-by-stage");
   // The report machinery needs a valid ReportKey; while "quotas" is active the
   // report/pipeline queries are disabled, so this fallback key is inert.
@@ -536,13 +545,26 @@ export function ReportsScreen() {
                 />
               )}
               <div className="card-actions">
-                <Button small onClick={() => setExplain((value) => !value)}>
+                {/* A toggle, and it says so: the button reveals and hides the
+                    card below, so it announces the open state and names what
+                    it controls — the same pair the quotas surface draws for
+                    the same feature. */}
+                <Button
+                  small
+                  aria-expanded={explain}
+                  aria-controls={explainId}
+                  onClick={() => setExplain((value) => !value)}
+                >
                   {t("explain.open")}
                 </Button>
               </div>
             </Card>
             {explain && (
-              <ExplainCard url={derivationUrl} query={derivationQuery} />
+              <ExplainCard
+                id={explainId}
+                url={derivationUrl}
+                query={derivationQuery}
+              />
             )}
           </>
         )}

@@ -126,7 +126,20 @@ export function DedupeScreen() {
               <CandidateCard
                 key={c.id}
                 candidate={c}
-                busy={dispose.isPending || undo.isPending}
+                // The two states the README keeps apart. `deciding` names the
+                // verb whose own write is in flight — react-query's `variables`
+                // carry both the pair and the disposition it was fired for, so
+                // only the button the reader actually pressed turns. `blocked` is
+                // somebody else's write, and reads as refusal.
+                deciding={
+                  dispose.isPending && dispose.variables?.id === c.id
+                    ? dispose.variables.disposition
+                    : undefined
+                }
+                blocked={
+                  (dispose.isPending && dispose.variables?.id !== c.id) ||
+                  undo.isPending
+                }
                 onDispose={(disposition, winner) =>
                   dispose.mutate({ id: c.id, disposition, winner_id: winner })
                 }
@@ -163,15 +176,23 @@ export function DedupeScreen() {
           live="status"
           className="dedupe-notice"
           actions={
+            // The design system's Button, not `.link-button`: this control
+            // has TWO unavailable states and the class can only draw one of
+            // them. Its own undo in flight is `pending` — aria-disabled, so
+            // the reader keeps the focus they just put here. A disposition in
+            // flight is refusal: that write is about to replace this notice
+            // outright, and letting both run left the two onSuccess handlers
+            // resetting each other's state, so the reader saw whichever
+            // landed second.
             decided.status === "not_a_duplicate" ? (
-              <button
-                type="button"
-                className="link-button"
-                disabled={undo.isPending}
+              <Button
+                small
+                pending={undo.isPending}
+                disabled={dispose.isPending}
                 onClick={() => undo.mutate(decided.id)}
               >
                 {t("dedupe.undoCta")}
-              </button>
+              </Button>
             ) : undefined
           }
         >
@@ -194,11 +215,17 @@ function queueState(pending: boolean, count: number): SectionState {
 
 function CandidateCard({
   candidate,
-  busy,
+  deciding,
+  blocked,
   onDispose,
 }: {
   candidate: Candidate;
-  busy: boolean;
+  // Which of this pair's own verbs is mid-write, if either: that button keeps
+  // focus and draws in full ink with a turning mark.
+  deciding: "merge" | "not_a_duplicate" | undefined;
+  // Another pair's decision, or an undo, is in flight: nothing here is pressable
+  // until it lands, and that is a refusal rather than a press.
+  blocked: boolean;
   onDispose: (
     disposition: "merge" | "not_a_duplicate",
     winner?: string,
@@ -271,14 +298,16 @@ function CandidateCard({
       <div className="card-actions">
         <Button
           variant="primary"
-          disabled={busy}
+          pending={deciding === "merge"}
+          disabled={blocked}
           onClick={() => onDispose("merge", winner)}
         >
           <GitMerge aria-hidden /> {t("dedupe.mergeCta")}
         </Button>
         <Button
           variant="ghost"
-          disabled={busy}
+          pending={deciding === "not_a_duplicate"}
+          disabled={blocked}
           onClick={() => onDispose("not_a_duplicate")}
         >
           {t("dedupe.notDuplicateCta")}

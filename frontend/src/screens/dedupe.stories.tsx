@@ -156,10 +156,37 @@ export const Loading: Story = {
 };
 
 // The decision notice: a pair the server answered as not-a-duplicate, with the
-// way back sitting in the Callout's own action slot (`.link-button`, so the undo
-// never competes with the Merge button that is still the page's primary verb).
-// Driven through the control rather than a hand-set flag — the notice exists
-// only after a write lands.
+// way back sitting in the Callout's own action slot. A ghost `Button` rather
+// than a link, because only `Button` can spell a write in flight — and it stays
+// quiet enough not to compete with Merge, which is still the page's primary
+// verb. Driven through the control rather than a hand-set flag: the notice
+// exists only after a write lands.
+// A decision mid-flight, which is the state the pending/refusal split exists
+// for: the verb the reader pressed turns in full ink and keeps focus, its
+// sibling on the same pair is refused, and so is every other pair's. The write
+// never resolves here, so the frame holds.
+export const DecidingInFlight: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /dedupe/candidates": queue(pair(), pair({ id: "dc-2" })),
+      "POST /dedupe/candidates/dc-1/disposition": () =>
+        new Promise<Response>(() => {}),
+    });
+    return (
+      <StoryProviders>
+        <DedupeScreen />
+      </StoryProviders>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const merge = await canvas.findAllByRole("button", {
+      name: /merge into selected/i,
+    });
+    await userEvent.click(merge[0]);
+  },
+};
+
 export const DecisionSaved: Story = {
   render: () => {
     installFetchStub({
