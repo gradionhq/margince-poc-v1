@@ -168,7 +168,13 @@ func TestFirstResponseFromHumanStatusChangeAndDisposition(t *testing.T) {
 // delivery moves the stamp back, and a later reply never moves it forward.
 func TestFirstResponseKeepsTheEarliestReplyWhateverTheDeliveryOrder(t *testing.T) {
 	e := setupPromoteConsent(t)
-	now := time.Now().UTC()
+	// Truncated to what timestamptz actually stores. Postgres keeps
+	// microseconds and Go carries nanoseconds, so an untruncated stamp comes
+	// back a few hundred nanoseconds short and Equal fails — on roughly 999
+	// runs in 1000, whenever time.Now() does not happen to land on a
+	// microsecond boundary. The test is about which reply WINS, not about
+	// clock resolution.
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	lead := e.seedLeadCreatedAt(t, "ordered@example.test", now.Add(-3*time.Hour))
 	late := now.Add(-time.Hour)
 	early := now.Add(-2 * time.Hour)
