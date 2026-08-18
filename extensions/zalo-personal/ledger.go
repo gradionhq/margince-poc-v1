@@ -16,6 +16,7 @@ package zalopersonal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -28,13 +29,35 @@ import (
 // cannot drift into two tables.
 const connectionEntity = "ext_zalo_personal_connection"
 
+// allowlistEntity's ledger name is declared beside the table in allowlist.go,
+// for the same reason connectionEntity is declared here: one spelling, derived
+// into the schema-qualified one, so the two cannot drift into two tables.
+
 // The verbs this unit publishes about its own rows. The type on the bus is
 // `ext_zalo_personal.<verb>` — the core prefixes the namespace, so these are
-// verbs and not types. Only the two this change can actually produce are
-// declared; the capture that lands next brings its own.
+// verbs and not types.
 const (
+	// A member connected their own account, or withdrew it.
 	eventConnected    = "connected"
 	eventDisconnected = "disconnected"
+	// A member decided about one counterparty. One event per verdict, because
+	// which conversations an installation was permitted to read is the record of
+	// their consent and a count cannot answer that question later.
+	eventVerdictSet = "verdict_set"
+	// The moment this installation began reading a named human's personal
+	// messages at all. It is announced separately from the verdicts that caused
+	// it because it happens ONCE per connection and is the fact a listener would
+	// actually act on.
+	eventCaptureArmed = "capture_armed"
+	// A tick that learned something: a cursor that moved, or a class that
+	// changed. A tick that found nothing announces nothing.
+	eventPolled = "polled"
+	// A session that stopped being accepted. Separate from `polled` because the
+	// remedy is a human with a phone, not a retry.
+	eventReconnectNeeded = "reconnect_needed"
+	// A message that passed the member's filter and still could not be landed.
+	// It carries the message id and never the message.
+	eventMessageDropped = "message_dropped"
 )
 
 // recordConnection writes the ledger row and the event for one connection
@@ -92,4 +115,71 @@ func connectionImage(c *connection) (json.RawMessage, error) {
 		return nil, nil
 	}
 	return json.Marshal(c)
+}
+
+// recordVerdict writes the ledger row and the event for one verdict, in the
+// caller's transaction.
+//
+// It records the COUNTERPARTY and the decision and nothing about the
+// conversation, which is the whole of what a later reader needs: whether this
+// installation was ever permitted to read a named person's messages, and when
+// that changed.
+func recordVerdict(ctx context.Context, tx extension.Tx, before, after *allowEntry) error {
+	if after == nil {
+		return errors.New("zalo-personal: recording a verdict needs the row the write returned — the ledger's id comes from it")
+	}
+	beforeImage, err := verdictImage(before)
+	if err != nil {
+		return err
+	}
+	afterImage, err := verdictImage(after)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(struct {
+		ChannelUserID string `json:"channel_user_id"`
+		Mode          string `json:"mode"`
+	}{ChannelUserID: after.ChannelUserID, Mode: string(after.Mode)})
+	if err != nil {
+		return err
+	}
+	return tx.Record(ctx,
+		extension.Change{
+			Action: verdictActionFor(before),
+			Entity: allowlistEntity,
+			ID:     after.ID,
+			Before: beforeImage,
+			After:  afterImage,
+		},
+		extension.Event{Verb: eventVerdictSet, Payload: payload})
+}
+
+// verdictActionFor reports whether this write created the verdict or changed one.
+// Recording a change as a create would put a ledger row with no before-image over
+// a state that existed, and read as "this person was allowed for the first time"
+// for a member who merely re-saved their list.
+func verdictActionFor(before *allowEntry) extension.AuditAction {
+	if before == nil {
+		return extension.AuditCreate
+	}
+	return extension.AuditUpdate
+}
+
+// verdictImage renders one side of a verdict change, or nothing at all. A missing
+// image is nil rather than `null`, exactly as connectionImage's is.
+func verdictImage(entry *allowEntry) (json.RawMessage, error) {
+	if entry == nil {
+		return nil, nil
+	}
+	return json.Marshal(struct {
+		ChannelUserID string `json:"channel_user_id"`
+		Mode          string `json:"mode"`
+		DisplayName   string `json:"display_name,omitempty"`
+		Version       int    `json:"version"`
+	}{
+		ChannelUserID: entry.ChannelUserID,
+		Mode:          string(entry.Mode),
+		DisplayName:   entry.DisplayName,
+		Version:       entry.Version,
+	})
 }

@@ -4,14 +4,17 @@
 package zalopersonal
 
 // The zalo*.go files are this unit's PROTOCOL LAYER: the QR login handshake,
-// the session handshake that turns cookies into a working key, and the ONE
-// authenticated call this change wires — send. They speak the personal-Zalo
+// the session handshake that turns cookies into a working key, the roster read,
+// and the two directions traffic moves — send over REST, and the message socket
+// that is the only path inbound messages take. They speak the personal-Zalo
 // (Zalo Web) wire and nothing else.
 //
-// The roster read, the socket settings and the accessors a websocket would need
-// are absent rather than waiting: this change connects an account and sends on
-// it, and a call nothing invokes is a claim about reach this unit does not
-// have. They land with the capture that needs them.
+// Everything here has a caller. The rule that keeps this layer honest is that a
+// call nothing invokes is a claim about reach this unit does not have, so
+// surface arrives with the feature that reads it rather than ahead of it — which
+// is why the roster and the socket settings were absent while this unit could
+// only connect and send, and are here now that a member chooses which
+// conversations to capture and a drain needs the ping interval.
 //
 // They import nothing from the core, which is what keeps them testable: the
 // whole layer is exercised end to end against an httptest.Server with no
@@ -33,5 +36,7 @@ package zalopersonal
 // re-derived by zaloResume, because cached protocol state that goes stale
 // silently is how a connector reports "connected" while transmitting nothing.
 //
-// Inbound messages do not arrive over REST at all — they arrive on a websocket
-// with its own payload key and framing, which this layer does not yet speak.
+// Inbound messages do not arrive over REST at all. They arrive on a websocket
+// with its own payload key and its own framing, and the queue behind it must be
+// ASKED for rather than waited on — see zalolisten.go, which is where getting
+// that wrong looks exactly like a member with an empty inbox.

@@ -379,7 +379,10 @@ func TestStatusReturnsNoByteOfTheSession(t *testing.T) {
 	t.Parallel()
 	rt := newRuntime()
 	rt.secrets.stored[callerUserID+"/"+sessionKey] = []byte(`{"cookies":[{"name":"zpsid","value":"SECRETCOOKIEVALUE"}]}`)
-	rt.tx.singleRows = [][]any{connectionRow(statusConnected, "u-42", false)}
+	// Two single-row reads: the connection, then how many conversations are
+	// armed. The count is scripted rather than defaulted so the answer's
+	// allowed_count comes from the statement the handler issued.
+	rt.tx.singleRows = [][]any{connectionRow(statusConnected, "u-42", false), {0}}
 
 	out, err := status(context.Background(), rt, json.RawMessage(`{}`))
 	if err != nil {
@@ -391,6 +394,7 @@ func TestStatusReturnsNoByteOfTheSession(t *testing.T) {
 	got := jsonOf[struct {
 		Connected        bool `json:"connected"`
 		SessionDeposited bool `json:"session_deposited"`
+		AllowedCount     int  `json:"allowed_count"`
 		Connection       struct {
 			ZaloUID        string `json:"zalo_uid"`
 			CaptureEnabled bool   `json:"capture_enabled"`
@@ -505,8 +509,20 @@ func TestTheDeclarationMatchesTheConstantsTheHandlersUse(t *testing.T) {
 	if !declared[sessionKey] || !declared[pendingKey] {
 		t.Fatalf("the handlers address keys the declaration does not request: %v", declared)
 	}
-	if len(unit.Ingress) != 0 || len(unit.Jobs) != 0 {
-		t.Fatal("this change declares an ingress or a job it cannot yet perform")
+	if len(unit.Ingress) != 1 || unit.Ingress[0].System != ingressSystem {
+		t.Fatalf("the declared ingress is %+v; the system must be %q", unit.Ingress, ingressSystem)
+	}
+	if err := unit.Ingress[0].Validate(); err != nil {
+		t.Fatalf("the declared ingress source is refused at boot: %v", err)
+	}
+	// EMPTY MERGES, asserted rather than assumed: declaring a merge key would
+	// vouch for an identity field Zalo does not report, and the core would then
+	// let this unit's records name people by it.
+	if len(unit.Ingress[0].Merges) != 0 {
+		t.Fatalf("the ingress vouches for %v; Zalo reports no address anywhere", unit.Ingress[0].Merges)
+	}
+	if len(unit.Jobs) != 1 || unit.Jobs[0].Name != "poll_inbox" || unit.Jobs[0].Handle == nil {
+		t.Fatalf("the declared jobs are %+v; one poll_inbox with a handler is expected", unit.Jobs)
 	}
 }
 
@@ -560,4 +576,55 @@ func confirmedScan() (*fakeRuntime, *fakeLogin, *fakeSession) {
 		State: zaloScanConfirmed, DisplayName: "Tin Nguyen", Avatar: "https://zalo.example/avatar.png", Sealed: &sealed,
 	}}
 	return rt, login, &fakeSession{uid: "u-42"}
+}
+
+// Connecting a DIFFERENT Zalo account invalidates everything scoped to the old
+// one, in one statement each and in one place: the chosen-conversations flag and
+// the cursor on the upsert itself, and this member's send markers beside it. An id
+// minted by the account just replaced would otherwise suppress a real message in
+// the new one.
+func TestConnectingADifferentAccountDropsWhatWasScopedToTheOldOne(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, "old-account", true),
+		connectionRow(statusConnected, "new-account", false),
+	}
+
+	if err := upsertConnection(context.Background(), rt, callerUserID, "new-account", "Tin"); err != nil {
+		t.Fatalf("connecting a different account: %v", err)
+	}
+	// The per-counterparty bookmarks are cleared, because a bookmark is a high-water
+	// mark in the OTHER account's message-id space. The verdicts themselves are kept:
+	// capture is disarmed by the upsert, so the member re-reads their own list before
+	// anything is captured again.
+	_, cursorArgs := rt.tx.statementMentioning(t, "SET last_msg_id = NULL")
+	if len(cursorArgs) != 1 || cursorArgs[0] != callerUserID {
+		t.Fatalf("the bookmarks were cleared for %v rather than for this member", cursorArgs)
+	}
+	_, args := rt.tx.statementMentioning(t, "sent_message WHERE user_id")
+	if len(args) != 1 || args[0] != callerUserID {
+		t.Fatalf("the markers were dropped for %v rather than for this member", args)
+	}
+}
+
+// Re-scanning the SAME account keeps them. A member whose Zalo Web session evicted
+// theirs is fixing a session, not changing who they are — dropping their markers
+// would make every reply in flight a duplicate on the next tick.
+func TestReScanningTheSameAccountKeepsItsSendMarkers(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.tx.singleRows = [][]any{
+		connectionRow(statusConnected, "same-account", true),
+		connectionRow(statusConnected, "same-account", true),
+	}
+
+	if err := upsertConnection(context.Background(), rt, callerUserID, "same-account", "Tin"); err != nil {
+		t.Fatalf("re-scanning the same account: %v", err)
+	}
+	for _, sql := range rt.tx.statements {
+		if strings.Contains(sql, "sent_message WHERE user_id") || strings.Contains(sql, "SET last_msg_id = NULL") {
+			t.Fatalf("a re-scan of the same account discarded what it had already captured:\n%s", sql)
+		}
+	}
 }

@@ -15,6 +15,7 @@ package zalopersonal
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/pkg/extension"
@@ -216,5 +217,72 @@ func outbound(body string) extension.OutboundMessage {
 		Body:           body,
 		IdempotencyKey: "delivery-1",
 		Attempt:        1,
+	}
+}
+
+// A send remembers its own message id, so the capture can tell this reply's echo
+// from one the rep typed on their phone. AFTER the transmission, because the id it
+// keys on does not exist until the send returns one.
+func TestASendRemembersItsOwnMessageIDSoTheEchoIsNotCapturedTwice(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.secrets.stored[callerUserID+"/"+sessionKey] = []byte(`{"cookies":[],"imei":"device-1"}`)
+	live := &fakeSession{uid: "u-42", receipt: zaloReceipt{MsgID: "m-991"}}
+
+	if _, err := sendVia(context.Background(), rt, outbound("hello"), live.resume()); err != nil {
+		t.Fatalf("sending: %v", err)
+	}
+	sql, args := rt.tx.statementMentioning(t, "ON CONFLICT (workspace_id, user_id, provider_message_id)")
+	if args[0] != callerUserID || args[1] != "m-991" {
+		t.Fatalf("the marker was written as %v:\n%s", args, sql)
+	}
+	// The member is the invocation's, stamped like every other user_id in this
+	// unit: a forged one here would suppress the capture of somebody else's
+	// messages.
+	if strings.Contains(sql, "$3") {
+		t.Fatalf("the marker statement takes more than the member and the id:\n%s", sql)
+	}
+}
+
+// THE ORDERING DECISION, gated rather than asserted in a comment: a marker write
+// that fails must NOT fail the send. The message is already at the recipient and
+// the receipt is owed to the core, which would otherwise retry a delivery that
+// arrived — the customer messaged twice, which no human can undo. What is lost
+// instead is one duplicated row on a timeline.
+func TestAMarkerThatCouldNotBeWrittenStillReturnsTheReceipt(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.secrets.stored[callerUserID+"/"+sessionKey] = []byte(`{"cookies":[],"imei":"device-1"}`)
+	rt.tx.execErr = errors.New("the marker could not be written")
+	live := &fakeSession{uid: "u-42", receipt: zaloReceipt{MsgID: "m-991"}}
+
+	receipt, err := sendVia(context.Background(), rt, outbound("hello"), live.resume())
+	if err != nil {
+		t.Fatalf("a lost marker failed a send that had already transmitted: %v", err)
+	}
+	if receipt.ProviderMessageID != "m-991" {
+		t.Fatalf("the receipt is %+v; the core needs the provider id or it retries", receipt)
+	}
+}
+
+// A transmission whose outcome is unknown records NOTHING, and that is the right
+// answer rather than a gap: there is no message id to key a marker on, and if the
+// message did reach the customer its echo will be captured as a reply the rep sent
+// — which is what the timeline should show, since the core wrote no activity for a
+// send it was told nothing about.
+func TestAnUnknownOutcomeRemembersNothing(t *testing.T) {
+	t.Parallel()
+	rt := newRuntime()
+	rt.secrets.stored[callerUserID+"/"+sessionKey] = []byte(`{"cookies":[],"imei":"device-1"}`)
+	live := &fakeSession{uid: "u-42", sendErr: errUnanswered}
+
+	_, err := sendVia(context.Background(), rt, outbound("hello"), live.resume())
+	if !errors.Is(err, extension.ErrSendOutcomeUnknown) {
+		t.Fatalf("an unanswered transmission answered %v", err)
+	}
+	for _, sql := range rt.tx.statements {
+		if strings.Contains(sql, "provider_message_id") {
+			t.Fatalf("a marker was written for a message nobody knows was sent:\n%s", sql)
+		}
 	}
 }

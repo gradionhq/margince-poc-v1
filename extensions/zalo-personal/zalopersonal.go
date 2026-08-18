@@ -20,23 +20,41 @@
 //     and thereby read that colleague's private life through this unit's own
 //     front door.
 //   - CAPTURE IS OFF UNTIL THE MEMBER CHOOSES. connection.capture_enabled
-//     defaults false and no operation here turns it on; the scheduled ingress
-//     that lands in the next change refuses to open a socket without it, so
-//     connecting an account captures nothing on its own.
+//     defaults false and exactly ONE operation turns it on — the save of the
+//     member's own allow/block list. The scheduled tick opens no socket for a
+//     member without it, so connecting an account captures nothing on its own
+//     and an unchosen conversation is never read rather than read and discarded.
 //   - THE SESSION IS NEVER A COLUMN. It is one sealed document in the unit's
 //     user-scoped secret namespace, and no operation returns it, masked or
 //     otherwise. The connection row records only THAT one is on deposit.
 //
 // Which file does what:
 //
-//   - migrations/ — ext_zalo_personal_connection, one row per connected
-//     member. Status, the account's Zalo uid, and whether capture is armed.
+//   - migrations/ — ext_zalo_personal_connection, one row per connected member
+//     (status, the account's Zalo uid, whether capture is armed, the cursor);
+//     ext_zalo_personal_allowlist, that member's own verdicts about their own
+//     counterparties; and ext_zalo_personal_sent_message, which is what tells a
+//     reply the CRM staged from one the rep typed on their phone.
 //   - connection.go — the four operations a member drives from the screen.
 //     Connect is TWO of them because the QR handshake's own steps are a 100s
 //     and a 120s long-poll, which cannot live inside one HTTP call; the
 //     in-flight jar is sealed under a second secret between them.
+//   - allowlist.go — the chooser: the member's roster with their verdicts against
+//     it, and the save that records them. It is the ONLY writer of
+//     capture_enabled, so there is one place to look when asking how this
+//     installation came to be reading somebody's messages.
+//   - poll.go — the scheduled tick, and the part most worth reading: a member who
+//     has not chosen is not enumerated at all, the three filters run before any
+//     ingest, and the cursor advances in a separate commit afterwards.
+//   - record.go — the three filters and the mapping from one drained frame to one
+//     record capture can land.
 //   - send.go — the transport half. A reply leaves on the member's own
 //     session, and Live answers from the row rather than by spending it.
+//   - sentmessage.go — the marker every send leaves behind. Zalo delivers a
+//     member's own outgoing messages back to their own socket, and this is the
+//     only thing that separates the CRM's own reply from one they typed on their
+//     phone — which is captured, because otherwise every conversation is
+//     one-sided in exactly the way this unit's consent copy recommends working.
 //   - ledger.go — every state change on a connection row is recorded, because
 //     a member's personal account becoming readable by this installation is a
 //     fact somebody may later ask about.
@@ -67,11 +85,6 @@ var migrations embed.FS
 // a constant here is a name the generator cannot resolve. The literals below
 // are duplicated as constants elsewhere in the package on purpose, and tests
 // hold the two equal.
-//
-// No Ingress and no Jobs yet: this change connects an account and sends on it.
-// The scheduled capture that needs both lands next, and declaring an ingress
-// source before anything ingests would advertise a reach this unit does not
-// have.
 func New() extension.Extension {
 	return extension.Extension{
 		Name:    "zalo-personal",
@@ -85,6 +98,23 @@ func New() extension.Extension {
 		Secrets: []extension.SecretsRequest{
 			{Key: "session", Scope: extension.SecretScopeUser},
 			{Key: "pending-login", Scope: extension.SecretScopeUser},
+		},
+		// The declaration that lets this unit reach core capture, and the source
+		// every record it lands is attributed to. A record naming anything else
+		// is refused at the call rather than landed under an invented provenance.
+		//
+		// MERGES IS EMPTY, AND THAT IS A STATEMENT RATHER THAN AN OMISSION.
+		// Zalo hands out an opaque account id and a display name and no address
+		// anywhere, so declaring MergeKeyEmail would vouch for a field that does
+		// not exist. Identity flows through the counterparty's ChannelIdentity,
+		// which the core ranks above an address anyway and which is what makes a
+		// captured message repliable. A phone number would be the honest second
+		// key here and the core carries none yet.
+		Ingress: []extension.IngressSource{
+			{
+				System: "zalo-personal", //NOSONAR — a literal for the reason Name is
+				Lands:  []extension.RecordKind{extension.KindActivity},
+			},
 		},
 		// The transport this unit supplies (ADR-0107/A158). A message it
 		// carries lands as kind `message` with `zalo_personal` on the provider
@@ -100,6 +130,15 @@ func New() extension.Extension {
 			{Name: "zalo_personal_connect_status", Handle: connectStatus},
 			{Name: "zalo_personal_status", Handle: status},
 			{Name: "zalo_personal_disconnect", Handle: disconnect},
+			{Name: "zalo_personal_contacts", Handle: contacts},
+			{Name: "zalo_personal_allowlist_save", Handle: saveAllowlist},
+		},
+		// One scheduled job. Its cadence and wall clocks are api/jobs.yaml's,
+		// which is also where the two River kinds are declared: a cadenced
+		// dispatcher that enumerates the fleet and a workspace child that takes
+		// one tenant's turn.
+		Jobs: []extension.Job{
+			{Name: "poll_inbox", Handle: pollInbox},
 		},
 		Migrations: migrations,
 	}
@@ -108,6 +147,16 @@ func New() extension.Extension {
 // provider is this unit's key in channel_provider, spelled once. It is the same
 // string as the channel literal above on purpose, and a test holds them equal.
 const provider = "zalo_personal"
+
+// ingressSystem is the declared source above, spelled once for the Go side. The
+// core pairs it with the unit name to derive `ext:zalo-personal:zalo-personal`,
+// the provenance every landed record carries — so this constant and the literal
+// in the declaration are the same string on purpose, and a test holds them equal.
+//
+// It is KEBAB where `provider` is snake, and the difference is not a slip: the
+// provenance grammar admits hyphens and the channel_provider column admits
+// underscores, so one string could not have served both.
+const ingressSystem = "zalo-personal"
 
 // The two declared secret keys, spelled once for the handlers that address
 // them. Same strings as the literals above; a test holds them equal.

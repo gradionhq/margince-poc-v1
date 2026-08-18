@@ -4,6 +4,38 @@
   "version": "1.0.0",
   "risk_tiers": [
     {
+      "id": "job/poll_inbox",
+      "unit": "zalo-personal",
+      "kind": "extension_job",
+      "contract": "jobs.yaml",
+      "operation": "extension.job.tick",
+      "operation_id": "ext_zalo_personal_poll_inbox",
+      "route": "",
+      "method": "",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:175fd1043f0237597034e3b729a7d6f4243da1eca292048cb447c0de925acce1",
+      "digest": "sha256:8656508c48e0649da9666f232e4baf5a8d8213355552a3b29b2fac8acdd6a480"
+    },
+    {
+      "id": "tool/zalo_personal_allowlist_save",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalSaveAllowlist",
+      "route": "/ext/zalo-personal/allowlist",
+      "method": "PUT",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:2eb55bf2b9f81e1a804cbd4bcffadd310680f7ecc783436bfc325c419f079c0d",
+      "digest": "sha256:b2901dd607f394f7d8011def69fa4e62a9c59b3e05b31e86086f2564a190770e"
+    },
+    {
       "id": "tool/zalo_personal_connect_start",
       "unit": "zalo-personal",
       "kind": "agent_tool",
@@ -36,6 +68,22 @@
       "digest": "sha256:9b9a09b933eed5fded99b35b499b779f57dca3a2a61910d347d1a211e037b5cd"
     },
     {
+      "id": "tool/zalo_personal_contacts",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalContacts",
+      "route": "/ext/zalo-personal/contacts",
+      "method": "GET",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:d130f4421b695d6bd66ac723f4fec3f6e828e9b75288059ec3ca34c1596c673c",
+      "digest": "sha256:eaf5d4a3b7fa414948857ac3cf87e4e18120bbac1f03fd000c3b4b49be78043e"
+    },
+    {
       "id": "tool/zalo_personal_disconnect",
       "unit": "zalo-personal",
       "kind": "agent_tool",
@@ -64,8 +112,8 @@
         "read"
       ],
       "tier": "auto_execute",
-      "fragment_hash": "sha256:4a569240917d95070a1eb24ae39442c50f10d29cec755bcc062607e5cde760ac",
-      "digest": "sha256:3933bd50892ac2ef3434f3b88e831b7002d40f619f6e6dfd56cd866240e2be5d"
+      "fragment_hash": "sha256:3130d4f19e7540c33e6ffb43e0ecadafd66733de8e100293ea68eb546b070230",
+      "digest": "sha256:58079cb9c3259de57321b8bd220f65a5eb1aec2ea9c6a767f24b35190ee42476"
     }
   ],
   "secrets": [
@@ -76,6 +124,14 @@
     {
       "key": "session",
       "scope": "user"
+    }
+  ],
+  "ingress": [
+    {
+      "system": "zalo-personal",
+      "lands": [
+        "activity"
+      ]
     }
   ],
   "channels": [

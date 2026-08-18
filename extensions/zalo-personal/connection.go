@@ -30,20 +30,32 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// The two statuses this change writes. The column's CHECK admits a third,
-// `needs_reconnect`, which the scheduled capture writes when it finds a dead
-// session — declaring a constant for it here, with no writer behind it, would
-// be a name that reads as a state this code can produce.
+// The three statuses this unit writes. `needs_reconnect` is the scheduled
+// capture's: a session that stopped being accepted, which only that human
+// re-scanning a QR with their phone restores — which is why it is a state a
+// screen shows rather than a fault a retry clears.
 const (
-	statusConnected    = "connected"
-	statusDisconnected = "disconnected"
+	statusConnected      = "connected"
+	statusNeedsReconnect = "needs_reconnect"
+	statusDisconnected   = "disconnected"
 )
 
 // connectionColumns is the projection every read and every write returns, in
 // one place so a column added to the table is one edit rather than five.
 const connectionColumns = `id::text, user_id::text, status, zalo_uid,
 	coalesce(display_name, ''), capture_enabled, last_polled_at,
-	coalesce(last_error_class, ''), connected_at, version`
+	coalesce(last_error_class, ''), connected_at, idle_streak, version`
+
+// duePromptly is the ONE spelling of "poll this member on the next tick", and it is
+// one spelling because three different acts mean it: a fresh connect, a save of the
+// conversation list, and any drain that produced a record.
+//
+// The middle one is the reason it has to be shared rather than repeated. A member
+// who has been quiet for a week is sitting inside a capped backoff; the moment they
+// arm a conversation they must not wait that backoff out before anything appears —
+// they would read that as the feature not working, and they would be right. Two
+// spellings of this clause is exactly the drift that would reintroduce that.
+const duePromptly = `idle_streak = 0, poll_after = NULL`
 
 // connection is one member's connection, as this unit reads and renders it.
 //
@@ -63,14 +75,28 @@ type connection struct {
 	// CaptureEnabled is the mechanism behind "capture nothing until the member
 	// chooses": no operation in this change turns it on, and the scheduled
 	// capture refuses to open a socket without it.
-	CaptureEnabled bool   `json:"capture_enabled"`
-	LastPolledAt   string `json:"last_polled_at,omitempty"`
+	CaptureEnabled bool `json:"capture_enabled"`
+	// THE CURSOR IS NOT HERE, and its absence is a decision rather than an
+	// omission: it lives on each VERDICT row (allowlist.go), one per counterparty.
+	// A single cursor per member is a maximum over every conversation, so a message
+	// landing from an allowed counterparty buries every lower-numbered message
+	// dropped from a conversation the member had not yet chosen — and that
+	// conversation then starts empty the moment they choose it.
+	LastPolledAt string `json:"last_polled_at,omitempty"`
 	// LastErrorClass is a class this unit chose, never a provider's own
 	// message: it is rendered, and a remote party's prose is not this
 	// installation's to display.
 	LastErrorClass string `json:"last_error_class,omitempty"`
 	ConnectedAt    string `json:"connected_at,omitempty"`
-	Version        int    `json:"version"`
+	// IdleStreak is how many consecutive drains produced nothing new, and the only
+	// input to how long this member waits for the next one.
+	//
+	// OFF THE WIRE AND OFF THE LEDGER IMAGE, deliberately: it is a scheduling
+	// counter rather than a fact about this member's account, and putting it in the
+	// audit image would churn one field-history entry per member per cadence
+	// forever to record that a schedule ran.
+	IdleStreak int `json:"-"`
+	Version    int `json:"version"`
 }
 
 // scanConnection reads connectionColumns off one row.
@@ -86,7 +112,7 @@ func scanConnection(scan func(...any) error) (connection, error) {
 		lastPolledAt, connectedAt *time.Time
 	)
 	err := scan(&c.ID, &c.UserID, &c.Status, &c.ZaloUID, &c.DisplayName, &c.CaptureEnabled,
-		&lastPolledAt, &c.LastErrorClass, &connectedAt, &c.Version)
+		&lastPolledAt, &c.LastErrorClass, &connectedAt, &c.IdleStreak, &c.Version)
 	if err != nil {
 		return connection{}, err
 	}
@@ -117,9 +143,18 @@ func status(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json
 	if err != nil {
 		return nil, err
 	}
-	var found *connection
+	var (
+		found   *connection
+		allowed int
+	)
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		found, err = connectionOf(ctx, tx, string(member))
+		if found, err = connectionOf(ctx, tx, string(member)); err != nil || found == nil {
+			return err
+		}
+		// Counted only where there IS a connection: how many conversations are
+		// armed is a question about an account, and asking it for a member who
+		// has connected none would spend a statement to answer nothing.
+		allowed, err = countAllowed(ctx, tx, string(member))
 		return err
 	}); err != nil {
 		return nil, err
@@ -133,10 +168,12 @@ func status(ctx context.Context, rt extension.Runtime, in json.RawMessage) (json
 	return json.Marshal(struct {
 		Connected        bool        `json:"connected"`
 		SessionDeposited bool        `json:"session_deposited"`
+		AllowedCount     int         `json:"allowed_count"`
 		Connection       *connection `json:"connection,omitempty"`
 	}{
 		Connected:        found != nil && found.Status == statusConnected,
 		SessionDeposited: deposited,
+		AllowedCount:     allowed,
 		Connection:       found,
 	})
 }
@@ -226,11 +263,37 @@ func upsertConnection(ctx context.Context, rt extension.Runtime, member extensio
 			        -- counterparties of the account they just replaced.
 			        capture_enabled = CASE WHEN `+connectionTable+`.zalo_uid = EXCLUDED.zalo_uid
 			                               THEN `+connectionTable+`.capture_enabled ELSE false END,
+			        -- A RE-SCAN IS DUE NOW, whichever account it was. A member who
+			        -- fixed a dead session is standing in front of the screen
+			        -- waiting for it to work, and making them wait out a backoff
+			        -- earned while the session was broken reads as the re-scan
+			        -- having failed.
+			        `+duePromptly+`,
 			        version = `+connectionTable+`.version + 1,
 			        updated_at = now()
 			 RETURNING `+connectionColumns, string(member), uid, displayName).Scan)
 		if err != nil {
 			return err
+		}
+		// A DIFFERENT ACCOUNT INVALIDATES EVERYTHING SCOPED TO THE OLD ONE, and
+		// this is the one place that says what that is: the statement above has
+		// already dropped the chosen-conversations flag and the cursor, and the
+		// send markers go with them. An id minted by the account just replaced
+		// would otherwise suppress a real message in the new one.
+		if before != nil && before.ZaloUID != after.ZaloUID {
+			if err := forgetSentMarkersOf(ctx, tx, string(member)); err != nil {
+				return err
+			}
+			// The verdict cursors go with them, and for a harder reason than the
+			// markers do: a cursor is a high-water mark in the OTHER account's
+			// message-id space, so a different account whose ids happen to sit
+			// below it would have that counterparty's first messages silently
+			// filtered as already-landed. The verdicts themselves are kept —
+			// capture is disarmed above, so the member re-reads their own list
+			// before anything is captured again.
+			if err := forgetVerdictCursorsOf(ctx, tx, string(member)); err != nil {
+				return err
+			}
 		}
 		return recordConnection(ctx, tx, auditActionFor(before), eventConnected, before, &after)
 	})

@@ -8,6 +8,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ZaloPersonalScreen, { CONNECT_POLL_MS } from "./screen";
@@ -63,7 +64,20 @@ const CONNECTION = {
 const CONNECTED = {
   connected: true,
   session_deposited: true,
+  allowed_count: 0,
   connection: CONNECTION,
+};
+
+/**
+ * The roster as the server hands it over: what Zalo reported, MERGED with the
+ * verdicts this member already holds. Both start undecided, which is the state
+ * default deny actually protects.
+ */
+const CONTACT_IDS = { mai: "8801", tuan: "8802" } as const;
+
+const CONTACT_NAMES: Readonly<Record<string, string>> = {
+  [CONTACT_IDS.mai]: "Chi Mai",
+  [CONTACT_IDS.tuan]: "Anh Tuan",
 };
 
 const NOT_CONNECTED = { connected: false, session_deposited: false };
@@ -77,7 +91,7 @@ const NOT_CONNECTED = { connected: false, session_deposited: false };
  */
 const LEAKED_SESSION = "zpw_sek_leaked_by_the_server";
 
-type Handler = (body: unknown) => unknown;
+type Handler = (body: unknown) => unknown | Promise<unknown>;
 
 function stubTransport(
   authorization: unknown,
@@ -110,7 +124,11 @@ function stubTransport(
       // card that looks like the server's.
       return json({ code: "unavailable" }, 503);
     }
-    return json(handler(raw === "" ? null : JSON.parse(raw)));
+    // AWAITED, so a handler may return a promise the case resolves itself:
+    // that is the only way to hold a request in flight on a fake clock, and
+    // "the save is still going" is a state a member sees and a control has to
+    // reflect.
+    return json(await handler(raw === "" ? null : JSON.parse(raw)));
   };
   return { calls, fetchStub };
 }
@@ -165,6 +183,103 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * Render, and let BOTH reads a connected screen makes land: the chooser mounts
+ * only once the status read has answered, so its roster read starts a beat
+ * later, and one drain leaves every assertion below about a skeleton.
+ */
+async function openChooser() {
+  renderScreen();
+  await flush();
+  await flush();
+}
+
+/** One contact's verdict control, by the name the member reads beside it. */
+function verdictFor(contact: string) {
+  return screen.getByRole("combobox", { name: contact });
+}
+
+/**
+ * Change one contact's verdict, the way a member does. The core's own
+ * `pickOption` is not on the published extension surface, so the two steps live
+ * here — on the ROLES, so this holds while the control keeps its semantics.
+ */
+function chooseVerdict(contact: string, verdict: string) {
+  fireEvent.click(verdictFor(contact));
+  const listbox = screen.getByRole("listbox");
+  fireEvent.click(within(listbox).getByRole("option", { name: verdict }));
+}
+
+/** The save, by the words on it. */
+function saveButton() {
+  return screen.getByRole("button", { name: "Save choices" });
+}
+
+/**
+ * What the card reports as armed, read from the fact's own row: a bare
+ * `getByText("1")` would pass on any stray digit anywhere on the screen.
+ */
+function armedRow(): string {
+  const row = screen
+    .getByText("Contacts being captured")
+    .closest(".factlist-row");
+  if (!row) {
+    throw new Error("the armed fact rendered outside a fact row");
+  }
+  return row.textContent ?? "";
+}
+
+/**
+ * The verdicts the screen sent, validated rather than assumed: a save that
+ * posted the wrong shape would otherwise read as an empty list, and every
+ * assertion about it would pass vacuously.
+ */
+function verdictsIn(
+  body: unknown,
+): { channel_user_id: string; mode: string; display_name?: string }[] {
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("entries" in body) ||
+    !Array.isArray(body.entries)
+  ) {
+    throw new Error("the save carried no `entries` array");
+  }
+  return body.entries;
+}
+
+/**
+ * A server that remembers what it was told: the screen shows what the RE-READ
+ * says, so a fixed body would let a broken save look like a working one.
+ */
+function rosterServer(modes: Map<string, string>) {
+  const armed = () => [...modes.values()].filter((m) => m === "allow").length;
+  return {
+    "/ext/zalo-personal/status": () => ({
+      connected: true,
+      session_deposited: true,
+      allowed_count: armed(),
+      connection: { ...CONNECTION, capture_enabled: armed() > 0 },
+    }),
+    "/ext/zalo-personal/contacts": () => ({
+      roster_available: true,
+      contacts: [...modes].map(([id, mode]) => ({
+        channel_user_id: id,
+        display_name: CONTACT_NAMES[id],
+        mode,
+      })),
+    }),
+    "/ext/zalo-personal/allowlist": (body: unknown) => {
+      const armedBefore = armed();
+      const entries = verdictsIn(body);
+      for (const entry of entries) {
+        modes.set(entry.channel_user_id, entry.mode);
+      }
+      return { saved: entries.length, capture_armed: armedBefore === 0 };
+    },
+  };
+}
+
 describe("the personal Zalo screen", () => {
   it("names the page in the one level-1 heading a unit screen owns", async () => {
     const { fetchStub } = stubTransport(FULL_GRANT, {
@@ -197,6 +312,11 @@ describe("the personal Zalo screen", () => {
     expect(
       screen.getByText(/No conversation is captured until you pick one/),
     ).toBeTruthy();
+    // And it says where the picking happens, because the first version of this
+    // screen promised a chooser and shipped none.
+    expect(
+      screen.getByText(/a list of your Zalo contacts and choose which of them/),
+    ).toBeTruthy();
     // From now on, never "your history": personal Zalo has no history API, and a
     // member expecting last month's conversation files a bug that is real.
     expect(
@@ -224,6 +344,12 @@ describe("the personal Zalo screen", () => {
     const { calls, fetchStub } = stubTransport(FULL_GRANT, {
       "/ext/zalo-personal/status": () =>
         connected ? CONNECTED : NOT_CONNECTED,
+      // Connecting reveals the chooser, which reads the roster: a member who has
+      // just scanned lands on an account with nothing chosen yet.
+      "/ext/zalo-personal/contacts": () => ({
+        roster_available: true,
+        contacts: [],
+      }),
       "/ext/zalo-personal/connect/start": () => ({
         qr_image: QR_IMAGE,
         expires_at: "2026-08-13T09:20:00Z",
@@ -270,9 +396,10 @@ describe("the personal Zalo screen", () => {
     expect(screen.getByText("3684092176")).toBeTruthy();
     // Capture has NOT started, and the screen says so rather than leaving a
     // member to assume their conversations are already arriving.
-    expect(screen.getByText("Not started")).toBeTruthy();
+    expect(screen.getByText("Not started — nothing chosen yet")).toBeTruthy();
+    // And the note now POINTS AT the chooser rather than promising one.
     expect(
-      screen.getByText(/Nothing is captured until you choose/),
+      screen.getByText(/You choose which contacts are captured, in the list/),
     ).toBeTruthy();
     // The code is spent, so it is off the screen rather than sitting there as
     // an instruction.
@@ -554,10 +681,286 @@ describe("the personal Zalo screen", () => {
     );
   });
 
+  // THE DEFECT THIS CARD EXISTS FOR: a real account was connected, the screen
+  // promised "nothing is captured until you choose", and there was no chooser.
+  it("lets a member allow one contact, save, and see what that armed", async () => {
+    const modes = new Map([
+      [CONTACT_IDS.mai, "none"],
+      [CONTACT_IDS.tuan, "none"],
+    ]);
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, rosterServer(modes));
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    // Default deny, stated and then shown: both contacts rest at "not
+    // captured", and the count agrees with them.
+    expect(screen.getByText(/Nothing is captured by default/)).toBeTruthy();
+    expect(verdictFor("Chi Mai").textContent).toContain("Not chosen");
+    expect(verdictFor("Anh Tuan").textContent).toContain("Not chosen");
+    expect(armedRow()).toContain("0");
+    expect(screen.getByText(/Nothing is being captured yet/)).toBeTruthy();
+    // Nothing has been sent, and the save has nothing to send.
+    expect(saveButton().hasAttribute("disabled")).toBe(true);
+    expect(
+      calls.some((call) => call.path === "/ext/zalo-personal/allowlist"),
+    ).toBe(false);
+
+    chooseVerdict("Chi Mai", "Capture");
+    await flush();
+    // Chosen and NOT yet in force: a member who walks away here has armed
+    // nothing, and the screen says so.
+    expect(verdictFor("Chi Mai").textContent).toContain("Capture");
+    expect(screen.getByText(/Not saved yet/)).toBeTruthy();
+    expect(armedRow()).toContain("0");
+
+    fireEvent.click(saveButton());
+    await flush();
+    await flush();
+
+    // Exactly one verdict, for the contact they touched: posting the untouched
+    // one too would be writing a decision nobody made.
+    const saved = calls.find(
+      (call) => call.path === "/ext/zalo-personal/allowlist",
+    );
+    expect(saved?.method).toBe("PUT");
+    expect(verdictsIn(saved?.body)).toEqual([
+      {
+        channel_user_id: CONTACT_IDS.mai,
+        mode: "allow",
+        // The name the screen was showing, stored so the list still reads as
+        // people the next time Zalo cannot be reached.
+        display_name: "Chi Mai",
+      },
+    ]);
+
+    // And the screen reflects the RE-READ: one contact armed, capture on, and
+    // no unsaved claim left standing.
+    expect(armedRow()).toContain("1");
+    expect(screen.getByText("On, for the contacts you allowed")).toBeTruthy();
+    expect(screen.queryByText(/Not saved yet/)).toBeNull();
+    expect(saveButton().hasAttribute("disabled")).toBe(true);
+  });
+
+  // Blocking is a refinement on top of default deny, not the thing doing the
+  // work — but a member who shuts somebody out has to see that it stuck.
+  it("records a blocked contact, and does not count it as armed", async () => {
+    const modes = new Map([[CONTACT_IDS.mai, "none"]]);
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, rosterServer(modes));
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+    chooseVerdict("Chi Mai", "Never capture");
+    await flush();
+    fireEvent.click(saveButton());
+    await flush();
+    await flush();
+
+    expect(
+      verdictsIn(
+        calls.find((call) => call.path === "/ext/zalo-personal/allowlist")
+          ?.body,
+      ),
+    ).toEqual([
+      {
+        channel_user_id: CONTACT_IDS.mai,
+        mode: "block",
+        display_name: "Chi Mai",
+      },
+    ]);
+    expect(verdictFor("Chi Mai").textContent).toContain("Never capture");
+    // A block arms nothing, so the count and the connection card both still say
+    // nothing is being captured.
+    expect(armedRow()).toContain("0");
+    expect(screen.getByText("Not started — nothing chosen yet")).toBeTruthy();
+  });
+
+  // A ROSTER CALL THAT FAILED UPSTREAM. The server degrades to the stored
+  // entries, so what arrives is the member's own verdicts with no names on them
+  // — and the one thing they must never lose is the ability to change a decision
+  // they already made.
+  it("still shows and changes stored verdicts when Zalo did not answer", async () => {
+    const modes = new Map([["7788", "block"]]);
+    const server = rosterServer(modes);
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, {
+      ...server,
+      "/ext/zalo-personal/contacts": () => ({
+        // Zalo did not answer, so the server degrades to the stored entries —
+        // which carry no display name, because nothing here ever named them.
+        roster_available: false,
+        contacts: [...modes].map(([id, mode]) => ({
+          channel_user_id: id,
+          mode,
+        })),
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    // The card admits WHY the list is short.
+    expect(screen.getByText(/Zalo did not answer just now/)).toBeTruthy();
+    // Named by its channel id rather than drawn as an empty row: an entry
+    // nobody can name is still an entry somebody chose.
+    expect(verdictFor("7788").textContent).toContain("Never capture");
+
+    chooseVerdict("7788", "Capture");
+    await flush();
+    fireEvent.click(saveButton());
+    await flush();
+    await flush();
+
+    expect(
+      verdictsIn(
+        calls.find((call) => call.path === "/ext/zalo-personal/allowlist")
+          ?.body,
+      ),
+      // NO display_name is sent, because none was known: posting the channel id
+      // back would store an id as somebody's name, and that stored name is what
+      // the next degraded list reads people by.
+    ).toEqual([{ channel_user_id: "7788", mode: "allow" }]);
+    expect(armedRow()).toContain("1");
+  });
+
+  // An account with no contacts is the ordinary first minute after a scan.
+  it("says there is nothing to choose from yet, and offers no empty save", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-personal/status": () => CONNECTED,
+      "/ext/zalo-personal/contacts": () => ({
+        roster_available: true,
+        contacts: [],
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    expect(screen.getByText(/No contacts to show yet/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save choices" })).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+  });
+
+  // Capture runs FORWARD from the save, and a member who reads this card and
+  // expects last month's conversation files a bug that is real. It captures both
+  // SIDES from then on, which is a different claim and must not blur into that
+  // one — the consent panel recommends the phone app, so the path the product
+  // recommends is the path whose answers would otherwise be missing.
+  it("promises no history, captures both sides, and arms nothing before a save", async () => {
+    const modes = new Map([[CONTACT_IDS.mai, "none"]]);
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, rosterServer(modes));
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    expect(
+      screen.getByText(/Capture runs forward from the moment you save/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Your earlier conversations are not fetched/),
+    ).toBeTruthy();
+    // Both directions, bound to that same moment rather than to the past.
+    expect(screen.getByText(/From that same moment/)).toBeTruthy();
+    expect(screen.getByText(/your own replies are captured too/)).toBeTruthy();
+    // And it says HOW, because the CRM does not read anybody's phone.
+    expect(
+      screen.getByText(/the way it delivers it to your other devices/),
+    ).toBeTruthy();
+    // Nothing armed, nothing sent, nothing claimed.
+    expect(armedRow()).toContain("0");
+    expect(
+      calls.some((call) => call.path === "/ext/zalo-personal/allowlist"),
+    ).toBe(false);
+  });
+
+  // A save in flight, and one that never came back: the first must not invite a
+  // second press, and the second must not leave a member believing a choice
+  // landed.
+  it("holds the choice while a save is in flight, and admits one that failed", async () => {
+    // A holder rather than a bare `let`: the compiler cannot see the promise
+    // executor run, so a nulled variable narrows to `never` at the guard below.
+    const inFlight: { fail?: () => void } = {};
+    const modes = new Map([[CONTACT_IDS.mai, "none"]]);
+    const server = rosterServer(modes);
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...server,
+      // A response that never arrives, then does not arrive at all — the lost
+      // answer, which is the failure this mutation is shaped around.
+      "/ext/zalo-personal/allowlist": () =>
+        new Promise((_resolve, reject) => {
+          inFlight.fail = () => reject(new Error("the connection was lost"));
+        }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+    chooseVerdict("Chi Mai", "Capture");
+    await flush();
+    fireEvent.click(saveButton());
+    await flush();
+
+    // In flight: the verb refuses a second press, and the verdict controls stop
+    // moving under a save that is already carrying them.
+    expect(
+      screen.getByRole("button", { name: "Saving…" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(verdictFor("Chi Mai").hasAttribute("disabled")).toBe(true);
+
+    if (!inFlight.fail) {
+      throw new Error("the save never reached the transport");
+    }
+    inFlight.fail();
+    await flush();
+    await flush();
+
+    // It says what a member can act on — the list above is what to check — and
+    // their choice is still there to press again rather than silently dropped.
+    expect(screen.getByRole("alert").textContent).toContain(
+      "may not have been saved",
+    );
+    expect(verdictFor("Chi Mai").textContent).toContain("Capture");
+    expect(screen.getByText(/Not saved yet/)).toBeTruthy();
+    expect(armedRow()).toContain("0");
+    expect(saveButton().hasAttribute("disabled")).toBe(false);
+  });
+
+  // A seat that may read and not write sees what was chosen and cannot change
+  // it: a control that leads to a 403 is worse than one that is not there.
+  it("shows a read-only seat the verdicts without a way to change them", async () => {
+    const modes = new Map([[CONTACT_IDS.mai, "allow"]]);
+    const { fetchStub } = stubTransport(READ_ONLY_GRANT, rosterServer(modes));
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    expect(verdictFor("Chi Mai").hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save choices" })).toBeNull();
+    expect(armedRow()).toContain("1");
+  });
+
+  // The chooser belongs to an account: beside the invitation to scan, it would
+  // ask a member to rule on a contact list that does not exist.
+  it("offers no chooser before there is an account to choose for", async () => {
+    const { calls, fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-personal/status": () => NOT_CONNECTED,
+      "/ext/zalo-personal/contacts": () => ({
+        roster_available: true,
+        contacts: [],
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await flush();
+
+    expect(screen.queryByText("Which conversations are captured")).toBeNull();
+    expect(
+      calls.some((call) => call.path === "/ext/zalo-personal/contacts"),
+    ).toBe(false);
+  });
+
   // No operation returns a Zalo session, and the screen must not display one it
   // was handed anyway. The assertion is on the rendered MARKUP rather than on
-  // visible text, so a credential smuggled into an attribute — a title, a
-  // value, an image source — fails here too.
+  // visible text, so a credential smuggled into an attribute fails here too.
   it("renders no session material, in any state the server can produce", async () => {
     const leak = { session: LEAKED_SESSION, cookie: LEAKED_SESSION };
     let connected = false;

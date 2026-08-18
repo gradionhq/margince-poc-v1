@@ -104,11 +104,36 @@ func sendVia(ctx context.Context, rt extension.Runtime, msg extension.OutboundMe
 	}
 	receipt, err := resumed.SendText(ctx, recipient, body)
 	if err != nil {
+		// NOTHING IS REMEMBERED ON AN UNKNOWN OUTCOME, and it is worth saying why
+		// that is the right answer rather than a gap. A transmission whose reply
+		// never came back returned no message id, so there is no key to record —
+		// but the consequence is also the one we want: if the message DID reach
+		// the customer, its echo has no marker, so the capture lands it as a
+		// reply the rep sent. The core wrote no activity for a send it was told
+		// nothing about, so nothing is duplicated, and a message that really went
+		// appears on the timeline instead of vanishing.
 		return extension.Receipt{}, transmissionRefusal(err)
 	}
+	// REMEMBERED, and this is where the two halves of the echo problem meet.
+	// Zalo delivers this message back to the member's own socket as an ordinary
+	// inbound frame carrying this same id, and the capture has to tell it apart
+	// from a reply the rep typed on their phone — which it does by asking whether
+	// the CRM sent this id. See sentmessage.go.
+	//
+	// AFTER the transmission, because the id does not exist until the send returns
+	// one: there is no "record first" version of this to choose against. What IS a
+	// choice is the failure below.
+	//
+	// A MARKER WRITE THAT FAILS DOES NOT FAIL THE SEND. The message is already at
+	// the recipient and the receipt is owed to the core, which would otherwise
+	// retry a delivery that arrived — the rep's customer messaged twice, which no
+	// human can undo. What is lost instead is the marker, and what THAT costs is
+	// one duplicated reply on a timeline: visible, and survivable. A test holds
+	// this open rather than leaving it a claim in a comment.
+	//craft:ignore swallowed-errors the message is already at the recipient, so reporting this would have the core retry a delivery that arrived — a customer messaged twice, against the one duplicate timeline row a lost marker costs
+	_ = rememberSent(ctx, rt, msg.Member, receipt.MsgID)
 	// The provider's own id for the sent message, which is what makes a later
-	// reply anchorable — and the id the member's own echo will carry back when
-	// capture lands, so the connector can tell its own send from an inbound.
+	// reply anchorable.
 	return extension.Receipt{ProviderMessageID: receipt.MsgID}, nil
 }
 

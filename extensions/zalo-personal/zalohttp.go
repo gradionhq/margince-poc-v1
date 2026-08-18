@@ -307,6 +307,23 @@ func (j *jar) load(cookies []zaloCookie) {
 	}
 }
 
+// cookieString renders the jar the way a browser would for one origin. The
+// websocket handshake needs it: that request is hand-built rather than issued
+// through this client, so the header is not applied by the transport.
+func (j *jar) cookieString(rawURL string) (string, error) {
+	safe := safeURL(rawURL)
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", fmt.Errorf("parse %q: %w", safe, err)
+	}
+	sending := j.Cookies(u)
+	parts := make([]string, 0, len(sending))
+	for _, c := range sending {
+		parts = append(parts, c.Name+"="+c.Value)
+	}
+	return strings.Join(parts, "; "), nil
+}
+
 type client struct {
 	http      *http.Client
 	jar       *jar

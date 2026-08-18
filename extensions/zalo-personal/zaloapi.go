@@ -241,3 +241,67 @@ func (s *zaloSession) SendText(ctx context.Context, toUID, body string) (zaloRec
 	}
 	return zaloReceipt{MsgID: receipt.MsgID.String()}, nil
 }
+
+// friendsPageSize is how many roster rows one request asks for, and it is the
+// bound on what a member sees: a personal contact list is not a directory, so
+// one page of this size is the ordinary case, and the connector does not walk
+// further pages. A member with more contacts than this configures the first
+// [friendsPageSize] of them — which costs nothing that is not recoverable,
+// because the roster is enrichment and a verdict already stored survives a
+// roster that no longer lists the person.
+const friendsPageSize = 2000
+
+// wireFriend is the roster row as Zalo sends it, narrowed to the three fields
+// [zaloFriend] keeps. It exists so the drop happens while DECODING rather than
+// after: a wire row also reports a date of birth and presence telemetry, and a
+// field never unmarshalled is a field no later change can accidentally store.
+type wireFriend struct {
+	UserID      string `json:"userId"`
+	DisplayName string `json:"displayName"`
+	Avatar      string `json:"avatar"`
+}
+
+// friends reads the member's roster, which is what lets them choose which
+// conversations may be captured.
+//
+// It is an ENRICHMENT over what a message frame already says, never the identity
+// source: a first-time prospect is by definition not a friend, so their uid is
+// not here at all, and identity resolves from the frame's own uidFrom/dName.
+func (s *zaloSession) friends(ctx context.Context) ([]zaloFriend, error) {
+	base, err := s.serviceURL("profile")
+	if err != nil {
+		return nil, err
+	}
+
+	encrypted, err := s.encryptedParams(map[string]any{
+		"incInvalid":  1,
+		"page":        1,
+		"count":       friendsPageSize,
+		"avatar_size": 120,
+		"actiontime":  0,
+		"imei":        s.imei,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := s.call(ctx, http.MethodGet, base+"/api/social/friend/getfriends",
+		map[string]string{"params": encrypted}, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	var rows []wireFriend
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("parse the roster: %w", err)
+	}
+
+	roster := make([]zaloFriend, 0, len(rows))
+	for _, row := range rows {
+		// A conversion rather than a field-by-field copy: the two types are the
+		// same shape by design, and the day one of them gains a field this stops
+		// compiling — which is exactly the review that divergence deserves.
+		roster = append(roster, zaloFriend(row))
+	}
+	return roster, nil
+}

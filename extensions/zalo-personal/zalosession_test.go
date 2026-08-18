@@ -24,6 +24,10 @@ import (
 const (
 	testUID      = "1234567890123456789"
 	testChatHost = "https://tw-chat.zalo.me"
+
+	// testSocketEndpoint is a Zalo host, which matters: the dialler refuses one
+	// that is not, because the handshake carries the member's session.
+	testSocketEndpoint = "wss://ws4-msg.chat.zalo.me"
 )
 
 // chatServer is a fake of the authenticated surface: the handshake pair plus
@@ -31,6 +35,12 @@ const (
 type chatServer struct {
 	sessionKey string
 	logged     bool
+
+	// wsEndpoints and pingIntervalMS are what the message socket needs of the
+	// handshake: which endpoints this session was issued, and how often the
+	// server wants a keep-alive. A provider chooses both, so a test does too.
+	wsEndpoints    []string
+	pingIntervalMS int
 
 	// chatHost is the host the login info names for the `chat` capability.
 	// A provider chooses this, so a test gets to choose it too.
@@ -43,10 +53,12 @@ type chatServer struct {
 
 func newChatServer() *chatServer {
 	return &chatServer{
-		sessionKey: vectorSessionKey,
-		logged:     true,
-		chatHost:   testChatHost,
-		calls:      map[string]func(*testing.T, map[string]any) string{},
+		sessionKey:     vectorSessionKey,
+		logged:         true,
+		chatHost:       testChatHost,
+		wsEndpoints:    []string{testSocketEndpoint},
+		pingIntervalMS: 180_000,
+		calls:          map[string]func(*testing.T, map[string]any) string{},
 	}
 }
 
@@ -72,6 +84,12 @@ func (s *chatServer) answer(t *testing.T, r *http.Request) (string, error) {
 	switch r.URL.Path {
 	case "/api/login/getLoginInfo":
 		return s.loginInfo(r.URL.Query())
+	case "/api/login/getServerInfo":
+		// Zalo's own misspelling of the key, reproduced because both spellings
+		// are in the wild and a reader that knows only the correct one silently
+		// falls back to a made-up ping interval.
+		return fmt.Sprintf(`{"error_code":0,"data":{"setttings":{"features":{"socket":{"ping_interval":%d}}}}}`,
+			s.pingIntervalMS), nil
 	case "/jr/userinfo":
 		return fmt.Sprintf(`{"error_code":0,"data":{"logged":%t,"session_chat_valid":true,"info":{"name":"Ngọc Anh","avatar":"https://avatar"}}}`,
 			s.logged), nil
@@ -97,9 +115,13 @@ func (s *chatServer) loginInfo(q url.Values) (string, error) {
 		return "", fmt.Errorf("derive the client's login key: %w", err)
 	}
 
+	endpoints, err := json.Marshal(s.wsEndpoints)
+	if err != nil {
+		return "", fmt.Errorf("encode the socket endpoints: %w", err)
+	}
 	payload := fmt.Sprintf(
-		`{"error_code":0,"data":{"uid":%q,"zpw_enk":%q,"zpw_service_map_v3":{"chat":[%q]}}}`,
-		testUID, s.sessionKey, s.chatHost)
+		`{"error_code":0,"data":{"uid":%q,"zpw_enk":%q,"zpw_service_map_v3":{"chat":[%q],"profile":[%q]},"zpw_ws":%s}}`,
+		testUID, s.sessionKey, s.chatHost, s.chatHost, endpoints)
 
 	sealed, err := encodeAESBase64(enc.encryptKey, payload)
 	if err != nil {

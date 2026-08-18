@@ -36,6 +36,13 @@ type zaloOptions struct {
 	Language  string            // empty = "vi"
 	Transport http.RoundTripper // nil = http.DefaultTransport
 	Now       func() time.Time  // nil = time.Now
+
+	// After is the one seam the message socket needs beyond a clock: the drain
+	// decides the queue has gone quiet by waiting, and the ping loop fires on
+	// the server's own interval. A test that had to spend real seconds on
+	// either would be a test that flakes on a loaded machine, so the waiting
+	// itself is injectable. nil = time.After.
+	After func(time.Duration) <-chan time.Time
 }
 
 func (o zaloOptions) userAgent() string {
@@ -66,6 +73,13 @@ func (o zaloOptions) clock() func() time.Time {
 	return o.Now
 }
 
+func (o zaloOptions) afterFunc() func(time.Duration) <-chan time.Time {
+	if o.After == nil {
+		return time.After
+	}
+	return o.After
+}
+
 // zaloSession is everything zaloResume DERIVES from a zaloSealed. None of it is sealed.
 type zaloSession struct {
 	c        *client
@@ -73,8 +87,16 @@ type zaloSession struct {
 	secret   string
 	uid      string
 	service  map[string][]string
+	wsURLs   []string
 	sealed   zaloSealed
 	resumeAt time.Time
+
+	// The two seams the message socket runs on, carried here because the drain
+	// hangs off a session rather than off a constructor a test can reach:
+	// [zaloSession.dial] is which websocket client opens the socket (DESIGN
+	// §9.6 keeps that swappable), and after is how the drain waits.
+	dial  zaloDialer
+	after func(time.Duration) <-chan time.Time
 }
 
 // UID is the account's own numeric id — the `toid` a contact would address to
@@ -119,8 +141,11 @@ func zaloResume(ctx context.Context, sealed zaloSealed, opts zaloOptions) (*zalo
 		secret:   info.ZPWEnk,
 		uid:      info.UID,
 		service:  info.ZPWServiceV3,
+		wsURLs:   info.ZPWWS,
 		sealed:   sealed,
 		resumeAt: c.now(),
+		dial:     dialZaloSocket,
+		after:    opts.afterFunc(),
 	}, nil
 }
 
@@ -128,6 +153,11 @@ type loginInfo struct {
 	UID          string              `json:"uid"`
 	ZPWEnk       string              `json:"zpw_enk"`
 	ZPWServiceV3 map[string][]string `json:"zpw_service_map_v3"`
+
+	// The message socket's endpoints. Zalo issues a handful and they are
+	// per-session, so a hardcoded one is a connector that works until Zalo
+	// rebalances its fleet.
+	ZPWWS []string `json:"zpw_ws"`
 }
 
 // getLoginInfo is the one call encrypted under the ephemeral login key rather
@@ -210,4 +240,91 @@ func parseLoginInfo(raw []byte, encryptKey string) (*loginInfo, error) {
 		return nil, &refusalError{Endpoint: "getLoginInfo", Code: body.ErrorCode, Message: body.ErrorMsg}
 	}
 	return &body.Data, nil
+}
+
+// zaloServerSettings is the socket configuration the server hands out
+// separately from the session key.
+type zaloServerSettings struct {
+	Features struct {
+		Socket struct {
+			PingInterval int `json:"ping_interval"`
+		} `json:"socket"`
+	} `json:"features"`
+}
+
+// pingInterval is how often the message socket expects a keep-alive. The
+// fallback is not a guess at Zalo's value but a floor: pinging more often than
+// asked keeps a socket alive, whereas pinging less often loses it, so an
+// answer we could not read must err on the frequent side.
+func (s *zaloServerSettings) pingInterval() time.Duration {
+	if s == nil || s.Features.Socket.PingInterval <= 0 {
+		return time.Minute
+	}
+	return time.Duration(s.Features.Socket.PingInterval) * time.Millisecond
+}
+
+// getServerInfo returns the socket settings. It is deliberately NOT part of
+// zaloResume: resume runs on every send, and a send has no use for a ping
+// interval, so folding this in would double the request cost of the hot path.
+// The message drain calls it because it is the one caller that reads the
+// answer — which is also why the call exists again at all (issue #1644 removed
+// it as unread surface when nothing held a socket).
+//
+// It is unencrypted and signed over a DIFFERENT parameter set than every other
+// call — the signature covers four keys and the query carries those four plus
+// the signature, with no version pair — which is the kind of inconsistency a
+// port has to reproduce exactly rather than tidy up.
+func getServerInfo(ctx context.Context, c *client, imei string) (*zaloServerSettings, error) {
+	signed := map[string]string{
+		"imei":           imei,
+		"type":           fmt.Sprint(apiType),
+		"client_version": fmt.Sprint(apiVersion),
+		"computer_name":  "Web",
+	}
+	params := make(map[string]string, len(signed)+1)
+	for k, v := range signed {
+		params[k] = v
+	}
+	params["signkey"] = getSignKey("getserverinfo", signed)
+
+	rawURL, err := makeURL("https://wpa.chat.zalo.me/api/login/getServerInfo", params, false)
+	if err != nil {
+		return nil, err
+	}
+
+	raw, err := c.doJSON(ctx, http.MethodGet, rawURL, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("getServerInfo: %w", err)
+	}
+	return parseServerInfo(raw)
+}
+
+func parseServerInfo(raw []byte) (*zaloServerSettings, error) {
+	var env struct {
+		Data *struct {
+			Settings *zaloServerSettings `json:"settings"`
+			// Zalo misspells the key; both spellings are in the wild, and a
+			// reader that knows only the correct one silently gets the
+			// fallback interval on live traffic.
+			Setttings *zaloServerSettings `json:"setttings"`
+		} `json:"data"`
+		ErrorCode int    `json:"error_code"`
+		ErrorMsg  string `json:"error_message"`
+	}
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, fmt.Errorf("getServerInfo did not answer JSON (%s): %w", truncate(string(raw), 120), err)
+	}
+	if env.ErrorCode != 0 || env.Data == nil {
+		return nil, &refusalError{Endpoint: "getServerInfo", Code: env.ErrorCode, Message: env.ErrorMsg}
+	}
+
+	if env.Data.Settings != nil {
+		return env.Data.Settings, nil
+	}
+	if env.Data.Setttings != nil {
+		return env.Data.Setttings, nil
+	}
+	// Neither spelling present is not an error: the caller's only use for this
+	// answer is the ping interval, and the zero value reports the floor.
+	return &zaloServerSettings{}, nil
 }

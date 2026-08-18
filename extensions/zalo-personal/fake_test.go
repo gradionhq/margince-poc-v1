@@ -23,6 +23,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -56,6 +57,17 @@ type fakeRuntime struct {
 	// expired Runtime, an unwired role — which every handler must propagate
 	// rather than answer over.
 	txErr error
+
+	// ingested is every record handed to capture, in order, and ingestErr is what
+	// the port answers from the nth call onward. The pair is what lets a test say
+	// "the turn stopped at the third message and moved the cursor no further".
+	ingested    []extension.Record
+	ingestedOn  []extension.UserID
+	ingestErr   error
+	ingestFrom  int
+	ingestCalls int
+	// skips makes capture answer DispositionSkipped, which is a success.
+	skips bool
 }
 
 func newRuntime() *fakeRuntime {
@@ -115,14 +127,48 @@ func (r *fakeRuntime) Tx(ctx context.Context, fn func(context.Context, extension
 	if r.txErr != nil {
 		return r.txErr
 	}
+	// Marked open for the duration, so a handler that ingested from inside one
+	// meets the same refusal the core gives.
+	r.tx.open = true
+	defer func() { r.tx.open = false }()
 	return fn(ctx, r.tx)
 }
 
-// Ingest refuses, because this unit declares no ingress source yet. A fake that
-// accepted a record would let a handler start landing one under a provenance
-// the manifest does not advertise.
-func (r *fakeRuntime) Ingest(context.Context, extension.UserID, extension.Record) (extension.Result, error) {
-	return extension.Result{}, extension.ErrForbidden
+// Ingest records what the unit handed capture, applies the same record grammar
+// the real port applies, and refuses from inside a transaction exactly as it
+// does.
+//
+// BOTH REFUSALS ARE THE POINT. The nesting one is the defect this unit's tick is
+// shaped to avoid, and a fake that allowed it would let that shape rot silently
+// while production hung on a small pool. The grammar one is the lesson this tree
+// already paid for once: a fake that accepts what the core refuses lets a whole
+// suite agree with a bug, with production as the only dissenting voice.
+func (r *fakeRuntime) Ingest(_ context.Context, on extension.UserID, rec extension.Record) (extension.Result, error) {
+	if r.tx.open {
+		return extension.Result{}, extension.ErrNestedIngest
+	}
+	r.ingestCalls++
+	// Recorded BEFORE any refusal: what the unit HANDED capture is the thing
+	// under test, and a record dropped here is one a failing test cannot show.
+	r.ingested = append(r.ingested, rec)
+	r.ingestedOn = append(r.ingestedOn, on)
+	if err := rec.Validate(); err != nil {
+		return extension.Result{}, fmt.Errorf("%w: %s", extension.ErrInvalid, err)
+	}
+	if r.ingestErr != nil && r.ingestCalls >= r.ingestFrom {
+		return extension.Result{}, r.ingestErr
+	}
+	return extension.Result{Disposition: r.disposition()}, nil
+}
+
+// disposition is what capture answers. DispositionSkipped is a SUCCESS — the core
+// drops a wholly-internal message deliberately — so a test can assert that a
+// skip advances the cursor exactly as an acceptance does.
+func (r *fakeRuntime) disposition() extension.Disposition {
+	if r.skips {
+		return extension.DispositionSkipped
+	}
+	return extension.DispositionAccepted
 }
 
 // fakeSecrets is the unit's namespace, USER SCOPE ONLY — this unit declares no
@@ -194,9 +240,35 @@ type fakeTx struct {
 	// rather than as a failure.
 	noRows map[int]bool
 
+	// queryRows is what a multi-row read hands back, keyed by the TABLE the
+	// statement names rather than by the order the reads happen in.
+	//
+	// POSITIONAL SCRIPTING WAS THE WRONG SHAPE HERE, and it is worth saying why it
+	// changed: one turn reads the fleet, the member's verdicts, the verdicts AGAIN
+	// after the drain, and the send markers. Four positional entries per member
+	// meant every test stated the same three sets in the same order, and inserting a
+	// read renumbered all of them — which is a fixture that couples to the sequence
+	// of a function rather than to its behaviour.
+	//
+	// Each table's entries are consumed in order, and once a table runs out the LAST
+	// set repeats. That default is the honest one: a test that scripts the verdicts
+	// once is saying "nothing changed between the two reads", which is the ordinary
+	// case. A test about a member who blocks somebody mid-drain scripts two, and
+	// then the difference is the point of the test rather than an artefact of
+	// counting.
+	queryRows map[string][][][]any
+
 	audited   []extension.Change
 	published []extension.Event
 	rowCalls  int
+	// open reports whether a transaction is in flight, which is what makes the
+	// nested-ingest refusal above real rather than declared.
+	open bool
+	// execErr is what a statement that returns no rows answers. It exists because
+	// this unit has one write whose FAILURE is a deliberate outcome rather than an
+	// error path — the send marker — and a claim like that has to be gated by a
+	// test rather than stated in a comment.
+	execErr error
 }
 
 // Core is nil: this unit files nothing through the governed core port, and a
@@ -220,7 +292,7 @@ func (t *fakeTx) Record(_ context.Context, ch extension.Change, ev extension.Eve
 
 func (t *fakeTx) Exec(_ context.Context, sql string, args ...any) (int64, error) {
 	t.record(sql, args)
-	return 0, nil
+	return 0, t.execErr
 }
 
 // record keeps the statement and puts its verb on the shared trace, so an
@@ -232,8 +304,77 @@ func (t *fakeTx) record(sql string, args []any) {
 
 func (t *fakeTx) Query(_ context.Context, sql string, args ...any) (extension.Rows, error) {
 	t.record(sql, args)
-	return nil, errors.New("no operation in this unit reads more than one row")
+	return &fakeRows{rows: t.nextRows(readKindOf(sql))}, nil
 }
+
+// The kinds of multi-row read this unit issues, named for what they ARE rather than
+// for the statement that fetches them.
+const (
+	readFleet    = "fleet"
+	readVerdicts = "verdicts"
+	readMarkers  = "markers"
+)
+
+// readKindOf names a read by the table it addresses, which is the same discriminator
+// production uses. An unrecognised read fails the test loudly rather than answering
+// an empty set: a new read answered with "nothing" is a silent behaviour change.
+func readKindOf(sql string) string {
+	switch {
+	case strings.Contains(sql, connectionTable):
+		return readFleet
+	case strings.Contains(sql, sentTable):
+		return readMarkers
+	case strings.Contains(sql, allowlistTable):
+		return readVerdicts
+	}
+	return "an unscriptable read: " + sql
+}
+
+// nextRows answers one read of the given kind, repeating the last scripted set once
+// a kind runs out — see the note on queryRows.
+func (t *fakeTx) nextRows(kind string) [][]any {
+	queued := t.queryRows[kind]
+	switch len(queued) {
+	case 0:
+		return nil
+	case 1:
+		return queued[0]
+	}
+	t.queryRows[kind] = queued[1:]
+	return queued[0]
+}
+
+// script states what a read of one kind answers. Called twice for the same kind, the
+// two answers are handed out in order.
+func (t *fakeTx) script(kind string, rows ...[]any) {
+	if t.queryRows == nil {
+		t.queryRows = map[string][][][]any{}
+	}
+	t.queryRows[kind] = append(t.queryRows[kind], rows)
+}
+
+// fakeRows answers a multi-row read. Err is scriptable because a read that fails
+// PART WAY is a real case the tick has to propagate rather than treat as a short
+// list — a fleet silently truncated to its first two members looks exactly like
+// an installation with two members.
+type fakeRows struct {
+	rows   [][]any
+	cursor int
+	closed bool
+	err    error
+}
+
+func (r *fakeRows) Next() bool {
+	if r.cursor >= len(r.rows) {
+		return false
+	}
+	r.cursor++
+	return true
+}
+
+func (r *fakeRows) Scan(dest ...any) error { return scanInto(dest, r.rows[r.cursor-1]) }
+func (r *fakeRows) Close()                 { r.closed = true }
+func (r *fakeRows) Err() error             { return r.err }
 
 func (t *fakeTx) QueryRow(_ context.Context, sql string, args ...any) extension.Row {
 	t.record(sql, args)
@@ -368,8 +509,25 @@ func connectionRow(status, zaloUID string, captureEnabled bool) []any {
 	connectedAt := time.Date(2026, time.August, 18, 9, 30, 0, 0, time.UTC)
 	return []any{
 		connectionID, callerUserID, status, zaloUID, "Tin Nguyen", captureEnabled,
-		nil, "", connectedAt, 1,
+		nil, "", connectedAt, 0, 1,
 	}
+}
+
+// withIdleStreak is connectionRow carrying a history of drains that found nothing.
+// It is what a backoff assertion needs: the wait a turn writes is derived from the
+// streak the row already held.
+func withIdleStreak(row []any, streak int) []any {
+	scripted := append([]any(nil), row...)
+	scripted[9] = streak
+	return scripted
+}
+
+// forMember is connectionRow re-pointed at another member, so a fleet test can
+// script more than one connection without every row belonging to one person.
+func forMember(row []any, id, rowID string) []any {
+	scripted := append([]any(nil), row...)
+	scripted[0], scripted[1] = rowID, id
+	return scripted
 }
 
 // fakeLogin is the QR handshake as a test scripts it: what each call answers,

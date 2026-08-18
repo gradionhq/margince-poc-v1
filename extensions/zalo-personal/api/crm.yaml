@@ -8,8 +8,9 @@
 # document — not the Go — is where every operation's risk tier, Passport scope,
 # RBAC object, prose and I/O schemas are declared.
 #
-# FOUR OPERATIONS, all about the CALLER's own account. NONE of them takes a user
-# id, and that absence is the load-bearing part of this document. This unit's
+# SIX OPERATIONS, all about the CALLER's own account: four that connect, report
+# and withdraw it, and two that decide which of its conversations this CRM may
+# read. NONE of them takes a user id, and that absence is the load-bearing part of this document. This unit's
 # credential is a personal Zalo login: it reads the member's family, their
 # doctor, their other employer. An operation that let one holder of this RBAC
 # object start a login, confirm one, inspect one or withdraw one for ANOTHER
@@ -209,7 +210,7 @@ actions:
                 schema:
                   type: object
                   additionalProperties: false
-                  required: [connected, session_deposited]
+                  required: [connected, session_deposited, allowed_count]
                   properties:
                     connected:
                       type: boolean
@@ -221,6 +222,15 @@ actions:
                       description: >-
                         Whether a sealed Zalo session is held for this person.
                         It is a yes-or-no about a credential nothing returns.
+                    allowed_count:
+                      type: integer
+                      minimum: 0
+                      description: >-
+                        How many conversations this person has allowed. Zero
+                        means nothing is being captured, whatever else this
+                        answer says — capture is armed by choosing, so a
+                        connected account with no chosen conversations reads
+                        every message it is sent and keeps none of them.
                     connection:
                       # Restated rather than $ref'd, and the same rule the
                       # sibling units' fragments record: a fragment is merged
@@ -267,13 +277,39 @@ actions:
                             Whether this connection captures anything. False until the
                             member chooses which conversations to allow, and false again
                             whenever they connect a different account.
+                        last_msg_id:
+                          type: string
+                          description: >-
+                            How far capture has got: Zalo's own id for the most
+                            recent message already taken in for this person. It
+                            is a bookmark the scheduled capture writes, never a
+                            setting — absent before anything has been captured.
                         last_polled_at: { type: string, format: date-time }
                         last_error_class:
                           type: string
+                          # ENUMERATED rather than described, because a class list a
+                          # reader has to cross-check against Go is the kind of thing
+                          # that drifts — and it already had: this said
+                          # `session_evicted`, which nothing in the code has ever
+                          # produced. A test now derives the set from this schema and
+                          # holds failureClass to it, so the two cannot disagree
+                          # again.
+                          enum:
+                            - session_withdrawn
+                            - connection_unusable
+                            - provider_unavailable
+                            - poll_failed
                           description: >-
-                            What went wrong last, in this unit's own vocabulary
-                            (`session_evicted`, `provider_unavailable`, …). Zalo's own
-                            message is deliberately not carried.
+                            What went wrong the last time capture ran, in this
+                            connector's own vocabulary — Zalo's own message is
+                            deliberately not carried, because this is rendered and a
+                            remote party's prose is not this installation's to
+                            display. `session_withdrawn` means the person's Zalo
+                            session is no longer on deposit and they must connect
+                            again; `connection_unusable` means this connection cannot
+                            be acted on as it stands; `provider_unavailable` means
+                            Zalo did not answer in time; `poll_failed` is anything
+                            else. Absent when the last run was clean.
                         connected_at: { type: string, format: date-time }
                         version: { type: integer }
           '401': { $ref: '#/components/responses/Unauthorized' }
@@ -357,3 +393,218 @@ actions:
                         found is deleted either way.
           '401': { $ref: '#/components/responses/Unauthorized' }
           '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/zalo-personal/contacts']
+    update:
+      # GET, and it takes no arguments at all: the list it reports belongs to
+      # whoever is calling, so there is nothing left to name. The read scope is
+      # honest even though it reaches Zalo — it fetches that person's own contact
+      # list and writes nothing, here or there.
+      get:
+        operationId: zaloPersonalContacts
+        summary: List the calling member's own Zalo contacts and what they have chosen about each.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        x-rbac-action: read
+        x-mcp-tool:
+          verb: zalo_personal_contacts
+          version: 1.0.0
+          title: Zalo contacts and choices
+          # 🟢 read: it reads this unit's own verdict rows and asks Zalo for the
+          # caller's own contact list. Nothing is written and no conversation is
+          # read.
+          tier: auto_execute
+          scope: read
+          description: >-
+            List the people on the calling person's own personal Zalo contact
+            list, together with what that person has already decided about each
+            one: `allow` means the CRM captures that conversation, `block` means
+            they ruled it out, and `none` means they have not decided, which is
+            the same as not captured. It reports that person's own contacts only.
+            If Zalo cannot be reached it still returns the choices they have
+            already saved, and says so, so they can always see and change what
+            they chose.
+        responses:
+          '200':
+            description: The caller's contacts, with the choice recorded against each.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [contacts, roster_available]
+                  properties:
+                    roster_available:
+                      type: boolean
+                      description: >-
+                        Whether the contact list could be read from Zalo just
+                        now. False means the list below is only what this person
+                        has already chosen about — which is deliberately not
+                        reported as an empty contact list, because "you know
+                        nobody" and "we could not ask" are different things to
+                        tell somebody deciding what to share.
+                    contacts:
+                      type: array
+                      maxItems: 5000
+                      description: >-
+                        One entry per person, ordered by the name shown. It
+                        always includes everyone this person has already decided
+                        about, even where Zalo no longer lists them as a contact
+                        — a conversation being captured must not disappear from
+                        the screen that controls it.
+                      items:
+                        # Restated rather than $ref'd, and the same rule the
+                        # sibling units' fragments record: this generator
+                        # resolves no references, so an unresolved one would be
+                        # advertised to a model as the shape.
+                        type: object
+                        additionalProperties: false
+                        required: [channel_user_id, mode]
+                        properties:
+                          channel_user_id:
+                            type: string
+                            maxLength: 256
+                            description: >-
+                              Zalo's own id for this person. It is what a choice
+                              is stored against and what a message is matched
+                              by; a display name is never used to match anybody.
+                          display_name:
+                            type: string
+                            description: What Zalo calls this person, or what it called them when the choice was saved.
+                          avatar_url:
+                            type: string
+                            description: >-
+                              The picture Zalo reports for them, for the person's
+                              own screen. It identifies nobody.
+                          mode:
+                            type: string
+                            enum: [allow, block, none]
+                            description: >-
+                              `allow` is captured. `block` is ruled out
+                              deliberately. `none` is undecided, and is treated
+                              exactly as blocked — nothing is captured until
+                              somebody chooses it.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/zalo-personal/allowlist']
+    update:
+      # PUT: the document IS the set of verdicts being stated, and saving the same
+      # set twice is the same save. It carries a body, which is why it is not the
+      # GET-shaped read above — and it must not be a GET for a harder reason: the
+      # seat ceiling classifies a mutation by method, so a GET requesting write
+      # scope would be a read seat's route to arming capture.
+      put:
+        operationId: zaloPersonalSaveAllowlist
+        summary: Record which of the calling member's own conversations the CRM may capture.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        x-rbac-action: update
+        x-mcp-tool:
+          verb: zalo_personal_allowlist_save
+          version: 1.0.0
+          title: Choose which Zalo conversations are captured
+          # 🟢 write, and it is worth being explicit about what this write DOES,
+          # because it is the most consequential 🟢 in this unit: the first save
+          # switches capture on for that person's own personal account. It is
+          # auto_execute for the same structural reason disconnect is — the
+          # extension seam cannot stage an approval for a served tool (issue
+          # #1651) — and what bounds it meanwhile is that the RBAC object is held
+          # by no seeded role, that the operation can only ever act on the
+          # caller's own account, and that every verdict commits a ledger row
+          # naming the counterparty it admitted.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Record which of the calling person's own Zalo conversations the CRM
+            may capture. Each entry names one contact and says `allow` or
+            `block`; anyone left out of the list is not captured, which is also
+            the state before anybody saves anything. THE FIRST SAVE IS WHAT
+            SWITCHES CAPTURE ON for that person's account — before it, their
+            messages are read by nobody here — so it is a decision to make on
+            somebody's explicit instruction and never on their behalf. It always
+            saves for whoever is calling: there is no way to choose conversations
+            for somebody else. Messages already captured stay; this changes what
+            is captured from now on.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [entries]
+                properties:
+                  entries:
+                    type: array
+                    minItems: 1
+                    # Bounded because every entry commits a ledger row: which
+                    # conversations were admitted is the record of a person's
+                    # consent, not a total to be summarised. A roster past this
+                    # is a screen that should page.
+                    maxItems: 500
+                    description: >-
+                      One entry per contact being decided about. An entry the
+                      list does not name is left exactly as it was, so a screen
+                      may save one change without resending the whole list.
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [channel_user_id, mode]
+                      properties:
+                        channel_user_id:
+                          type: string
+                          minLength: 1
+                          maxLength: 256
+                          description: >-
+                            Zalo's own id for the contact, as the contacts list
+                            reports it. Naming the same one twice in one document
+                            is refused rather than resolved: two decisions about
+                            one person is a mistake, and picking one of them
+                            silently would be this CRM choosing.
+                        mode:
+                          type: string
+                          enum: [allow, block]
+                          description: >-
+                            `allow` captures that conversation from now on.
+                            `block` rules it out deliberately. There is no third
+                            value: leaving a person out of the list is what means
+                            "undecided", and undecided is not captured.
+                        display_name:
+                          type: string
+                          maxLength: 200
+                          description: >-
+                            What the screen was showing for this person when the
+                            choice was made, stored so the list still reads as
+                            people when Zalo cannot be reached. It is never used
+                            to match a message.
+        responses:
+          '200':
+            description: What was saved, and whether this save armed capture.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [saved, capture_armed]
+                  properties:
+                    saved:
+                      type: integer
+                      minimum: 0
+                      description: How many choices this save recorded.
+                    capture_armed:
+                      type: boolean
+                      description: >-
+                        True when THIS save is what switched capture on for the
+                        account — the first one after connecting, or after
+                        connecting a different account. False afterwards, because
+                        capture was already on.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+          # Declared because this operation genuinely answers all three: 404 when
+          # the caller has connected no Zalo account, 409 when the connection
+          # changed while the list was being saved, and 422 for a document the
+          # verdict table cannot hold.
+          '404': { $ref: '#/components/responses/NotFound' }
+          '409': { $ref: '#/components/responses/Conflict' }
+          '422': { $ref: '#/components/responses/ValidationError' }
