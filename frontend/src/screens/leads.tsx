@@ -1160,14 +1160,18 @@ function LeadScorePanel({
 function LeadIdentityFields({
   lead,
   save,
+  saving,
   readOnlyReason,
 }: Readonly<{
   lead: Lead;
   save: (body: UpdateLeadRequest) => Promise<void>;
+  saving: boolean;
   readOnlyReason?: string;
 }>) {
   const t = useT();
-  const canEdit = !readOnlyReason;
+  // One write at a time: a second row opened while a save is in flight would
+  // carry the If-Match the first write is about to make stale.
+  const canEdit = !readOnlyReason && !saving;
   return (
     <Panel title={t("lead.details")}>
       <PanelBody>
@@ -1279,6 +1283,7 @@ function LeadLifecycle({
       <LeadIdentityFields
         lead={lead}
         save={saveField}
+        saving={patch.isPending}
         readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
       />
 
@@ -1292,7 +1297,13 @@ function LeadLifecycle({
               new: t("lead.status.new"),
               working: t("lead.status.working"),
             }}
-            onChange={(status) => patch.mutate({ status })}
+            onChange={(status) => {
+              // Same one-write-at-a-time rule as the inline rows: a status
+              // sent while another save is in flight races it for If-Match.
+              if (!patch.isPending) {
+                patch.mutate({ status });
+              }
+            }}
           />
         </div>
       )}
