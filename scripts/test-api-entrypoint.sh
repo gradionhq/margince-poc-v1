@@ -99,7 +99,12 @@ verdict present "$([ -e "$pwfile" ] && echo present || echo absent)" \
     "an unprovisioned installation gets the credential it was given"
 verdict s3cret-passw0rd "$(cat "$pwfile" 2>/dev/null || echo '')" \
     "written verbatim, with no trailing newline a password would absorb"
-verdict 600 "$(stat -f '%OLp' "$pwfile" 2>/dev/null || stat -c '%a' "$pwfile" 2>/dev/null)" \
+# GNU first, and the order is load-bearing rather than alphabetical. BSD `stat
+# -c` fails cleanly and falls through; GNU `stat -f` means "filesystem status",
+# so on Linux it SUCCEEDS on a file argument and prints something that is not a
+# mode — a BSD-first probe never reaches the fallback and silently compares
+# against garbage. It passed on a laptop and failed only in CI.
+verdict 600 "$(stat -c '%a' "$pwfile" 2>/dev/null || stat -f '%OLp' "$pwfile" 2>/dev/null)" \
     "0600, so nothing else in the container can read it"
 
 run false "" || true
