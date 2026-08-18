@@ -23,6 +23,7 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		AiWritten:       params.AiWritten,
 		MinScore:        params.MinScore,
 		Source:          params.Source,
+		SLAState:        params.SlaState,
 		Sort:            params.Sort,
 	}
 	if params.Status != nil {

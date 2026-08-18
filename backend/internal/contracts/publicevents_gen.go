@@ -84,6 +84,7 @@ const (
 	LeadDisqualified          SubscribableEventType = "lead.disqualified"
 	LeadMerged                SubscribableEventType = "lead.merged"
 	LeadPromoted              SubscribableEventType = "lead.promoted"
+	LeadSlaBreached           SubscribableEventType = "lead.sla_breached"
 	LeadUpdated               SubscribableEventType = "lead.updated"
 	LinkedinAccountChanged    SubscribableEventType = "linkedin_account.changed"
 	LinkedinMatchDecided      SubscribableEventType = "linkedin_match.decided"
@@ -200,6 +201,8 @@ func (e SubscribableEventType) Valid() bool {
 	case LeadMerged:
 		return true
 	case LeadPromoted:
+		return true
+	case LeadSlaBreached:
 		return true
 	case LeadUpdated:
 		return true
@@ -690,6 +693,18 @@ type PublicEventLeadPromoted struct {
 
 	// Trigger The genuine-engagement trigger that authorized promotion: inbound_reply, meeting_booked, meeting_held, or human_qualify.
 	Trigger string `json:"trigger"`
+}
+
+// PublicEventLeadSlaBreached Payload for lead.sla_breached (formulas §18.2) — the first scan on which a lead's first-response deadline passed unanswered. Emitted at most once per breach occurrence; the escalation hangs off it.
+type PublicEventLeadSlaBreached struct {
+	// Deadline The first-response deadline that passed.
+	Deadline time.Time `json:"deadline"`
+
+	// EscalationTarget The user the escalation task is assigned to (absent when nobody owns the lead).
+	EscalationTarget *openapi_types.UUID `json:"escalation_target,omitempty"`
+
+	// OwnerId The lead's owner at breach time (absent when unrouted).
+	OwnerId *openapi_types.UUID `json:"owner_id,omitempty"`
 }
 
 // PublicEventLeadUpdated Payload for lead.updated — an OPEN envelope: emit sites carry divergent shapes (a flat column patch that includes runtime cf_* custom-field columns, and behavioral-recompute/routing deltas), so the honest shape is a change-set map rather than a fixed field list.
@@ -1489,6 +1504,10 @@ func (PublicEventLeadPromoted) EventType() string { return "lead.promoted" }
 
 func (PublicEventLeadPromoted) EntityType() string { return "lead" }
 
+func (PublicEventLeadSlaBreached) EventType() string { return "lead.sla_breached" }
+
+func (PublicEventLeadSlaBreached) EntityType() string { return "lead" }
+
 func (PublicEventLeadUpdated) EventType() string { return "lead.updated" }
 
 func (PublicEventLeadUpdated) EntityType() string { return "lead" }
@@ -1726,6 +1745,7 @@ var PublicEventVersions = map[string]int{
 	"lead.disqualified":            1,
 	"lead.merged":                  1,
 	"lead.promoted":                1,
+	"lead.sla_breached":            1,
 	"lead.updated":                 1,
 	"linkedin_account.changed":     1,
 	"linkedin_match.decided":       1,

@@ -114,7 +114,12 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
-import { createdColumn, ownerColumn, standardViews } from "./recordlist";
+import {
+  createdColumn,
+  lastActivityColumn,
+  ownerColumn,
+  standardViews,
+} from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
@@ -667,6 +672,7 @@ export function CompaniesScreen() {
               ) : null,
           },
           ownerColumn<Organization>(t),
+          lastActivityColumn<Organization>(t, locale),
           createdColumn<Organization>(t, locale),
         ]}
         tools={<SaveViewAction resource="organizations" query={state.query} />}

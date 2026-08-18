@@ -20,6 +20,7 @@ import type { ViewSpec } from "./listquery";
 export type OwnedRecord = {
   owner_id?: string | null;
   created_at?: string;
+  last_activity_at?: string | null;
 };
 
 type Translate = ReturnType<typeof useT>;
@@ -55,6 +56,28 @@ export function createdColumn<Row extends OwnedRecord>(
       </span>
     ),
     sort: "created_at",
+  };
+}
+
+/**
+ * The Last activity column: the timeline's clock, maintained in the schema so
+ * the server can sort on it; empty until something has happened.
+ */
+export function lastActivityColumn<Row extends OwnedRecord>(
+  t: Translate,
+  locale: Locale,
+): ListColumn<Row> {
+  return {
+    key: "lastActivity",
+    header: t("list.lastActivity"),
+    cell: (row) => (
+      <span className="t-caption">
+        {row.last_activity_at
+          ? formatDateAbbrev(row.last_activity_at, locale, RECORD_ZONE)
+          : ""}
+      </span>
+    ),
+    sort: "last_activity_at",
   };
 }
 

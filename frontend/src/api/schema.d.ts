@@ -10037,6 +10037,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             version?: components["schemas"]["RowVersion"];
+            /**
+             * Format: date-time
+             * @description When something last happened with this person — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
+             */
+            readonly last_activity_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -10225,6 +10230,11 @@ export interface components {
             } | null;
             partner?: components["schemas"]["Partner"];
             version?: components["schemas"]["RowVersion"];
+            /**
+             * Format: date-time
+             * @description When something last happened with this account — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
+             */
+            readonly last_activity_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -13737,6 +13747,33 @@ export interface components {
             promoted_person_id?: string | null;
             /** Format: date-time */
             promoted_at?: string | null;
+            /**
+             * Format: date-time
+             * @description When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.
+             */
+            readonly routed_at?: string | null;
+            /**
+             * Format: date-time
+             * @description First genuine response to this lead (formulas §18): an outbound activity, a human status change off `new`, or an explicit disposition. A cold-outbound auto-touch does NOT satisfy it.
+             */
+            readonly first_response_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.
+             */
+            readonly sla_deadline_at?: string | null;
+            /**
+             * @description Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
+             * @enum {string|null}
+             */
+            readonly sla_state?: "within_target" | "at_risk" | "breached" | null;
+            /**
+             * Format: date-time
+             * @description Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.
+             */
+            readonly last_activity_at?: string | null;
+            /** @description Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169). */
+            readonly open_task_count?: number | null;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
@@ -22991,6 +23028,8 @@ export interface operations {
                 unassigned?: boolean;
                 /** @description Filter by capture source (inbound, webform, referral, import, crawl, manual, ...). */
                 source?: string;
+                /** @description Triage by first-response SLA state (formulas §18.1). `breached` is the overdue queue. */
+                sla_state?: "within_target" | "at_risk" | "breached";
                 /** @description Triage by score. */
                 min_score?: number;
                 q?: string;

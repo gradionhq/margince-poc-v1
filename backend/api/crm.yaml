@@ -4604,6 +4604,10 @@ paths:
           in: query
           schema: { type: string }
           description: Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
+        - name: sla_state
+          in: query
+          schema: { type: string, enum: [within_target, at_risk, breached] }
+          description: 'Triage by first-response SLA state (formulas §18.1). `breached` is the overdue queue.'
         - name: min_score
           in: query
           schema: { type: integer }
@@ -14921,6 +14925,15 @@ components:
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: >-
+            When something last happened with this person — the newest `occurred_at` of an activity
+            linked to it, maintained on the activity write exactly as `deal.last_activity_at` is
+            (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must
+            reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -15161,6 +15174,15 @@ components:
         raw: { type: [object, 'null'], additionalProperties: true }
         partner: { $ref: '#/components/schemas/Partner' }
         version: { $ref: '#/components/schemas/RowVersion' }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: >-
+            When something last happened with this account — the newest `occurred_at` of an activity
+            linked to it, maintained on the activity write exactly as `deal.last_activity_at` is
+            (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must
+            reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -19127,6 +19149,17 @@ components:
         source_id: { type: [string, 'null'] }
         promoted_person_id: { type: [string, 'null'], format: uuid, description: Set on promotion (convenience mirror). }
         promoted_at: { type: [string, 'null'], format: date-time }
+        routed_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.' }
+        first_response_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'First genuine response to this lead (formulas §18): an outbound activity, a human status change off `new`, or an explicit disposition. A cold-outbound auto-touch does NOT satisfy it.' }
+        sla_deadline_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.' }
+        sla_state:
+          type: [string, 'null']
+          enum: [within_target, at_risk, breached]
+          x-enum-varnames: [LeadSlaStateWithinTarget, LeadSlaStateAtRisk, LeadSlaStateBreached]
+          readOnly: true
+          description: 'Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).'
+        last_activity_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.' }
+        open_task_count: { type: [integer, 'null'], readOnly: true, description: 'Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169).' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }

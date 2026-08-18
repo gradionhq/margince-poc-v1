@@ -162,7 +162,7 @@ func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []Person
 const personColumns = `id, workspace_id, full_name, first_name, last_name, title, owner_id,
 	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 	merged_into_id, converted_from_lead_id, source, captured_by,
-	version, created_at, updated_at, archived_at`
+	version, created_at, updated_at, archived_at, last_activity_at`
 
 // readPerson resolves one person row; active names the custom-field
 // columns to carry alongside the core ones — nil for internal decision
@@ -202,7 +202,7 @@ func scanPerson(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcon
 		&id, &wsID, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&mergedInto, &fromLead, &p.Source, &p.CapturedBy,
-		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt,
+		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt, &p.LastActivityAt,
 	}
 	cf := storekit.ScanDests(active)
 	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {
