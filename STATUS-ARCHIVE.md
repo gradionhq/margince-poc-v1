@@ -21,6 +21,72 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-18 — a surface may not state what the data does not carry (PR #1714, draft)
+
+Nine invariants, all the same rule from different sides. Written up for the
+reasoning rather than the fixes, because **six of the findings this session was
+handed were wrong, and checking them first was worth more than building them.**
+
+**What the premises got wrong.** The handoff ranked "Reports and the pipeline
+board sum across currencies" first. The board does not: `buildStageTotals`
+already groups by `["stage_id","currency"]` and hides a mixed sum. It also said
+the fix needed a contract change for a currency dimension — which had shipped
+already in `7f8f14c1`. So the most damaging item on the list was a
+frontend-only fix, and cheaper than believed. #1499's "six sites" was sixteen,
+one of them a render crash. #1088's stated blocker (needs a TS predicate, needs
+new i18n keys) was stale on both halves. Home's "Nothing sent yet" was not an
+empty-state contradiction at all — the same key sits beside an `AutonomyDot
+tier="confirm"` elsewhere, so it means nothing has gone out; withdrawn. And the
+`.co-strip` → `StatStrip` conversion was not the mechanical swap it looked
+like: `StatStrip` counts slots with `Children.toArray`, which counts ELEMENTS,
+and the company row's slots were wrapper components that returned `null` —
+which is precisely why that row measured the DOM with a ref.
+
+**The money rule reached further than the UI.** `run_report`'s default plan for
+two prebuilt reports summed `amount_minor` across currencies, and the default
+plan is what an agent calls first. That is a normative violation
+(`data-semantics §1 r4`, `AC-DS-FX1`), not a cosmetic one, and it was invisible
+because no screen requested the defaults. Held now as two fitness tests over
+the catalog rather than as a fix to three reports.
+
+**Optionality was the defect twice.** `ifMatch(version?)` returned an empty
+precondition when the version was absent, so forgetting was the default;
+requiring it exposed nineteen writes that could have shipped unpinned, because
+`version` is not `required` on any mutable entity schema. And `StatCard`'s
+`value: string` plus `BoardDeal.currency: string` were what *forced* callers to
+coalesce `?? "EUR"` upstream — a fix confined to screens would have left the
+next caller to reinvent it. Both are the same lesson as the report catalog: the
+type or the seam is where the invariant lives, not the call site.
+
+**Two in-tree statements disagreed and one was false.** `FINANCE_READINGS`'
+comment said the Finance tab does not carry the lifetime figure; a test excluded
+lifetime from the strip *because* it is "a Finance-tab headline reading".
+`companyfinance.tsx` renders the open balance and overdue and does not render
+lifetime anywhere — so the comment was right, the test's premise was false, and
+the founder's instruction to put lifetime in the detail line was implemented
+while the overdue half of it was declined on that evidence: the tab already
+headlines overdue one click away, and a second answer to the same question
+drifts.
+
+**Three things were failing silently and none had a gate.** `#/dedupe` imported
+no stylesheet — its namespace lived in `onboarding.css`, so the screen drew
+correctly only while another screen had pulled that sheet into the bundle, and
+drew as a wireframe anywhere it was mounted alone. An `e2e` assertion required
+a KPI figure at ≥14px while the shared clamp computes to exactly 13px at the
+suite's pinned viewport, byte-identical before and after the change — so that
+test cannot have been passing. And the three webhooks stories that `fe-uat`
+reported were reproduced on a clean detached `origin/main`, which is #476,
+whose own stated cause is also stale.
+
+**Process, learned the hard way.** A subagent's shell starts in the SESSION
+working directory, not in the worktree its file scope names. Two sessions lost
+uncommitted work to agents running `git stash` from there — "stash only file X"
+is wrong twice over, wrong tree and wrong breadth. Giving agents a disjoint file
+scope is not sufficient; they need a cwd discipline and an outright ban on
+git commands that write, because the tool that reverts a file does not respect a
+file scope. Mutation-checking by hand-editing (or `cp` to a scratchpad) is the
+only safe way.
+
 ## 2026-08-17 — the filter vocabulary's own follow-ups, and what two review rounds found in the fixes for them (PRs #1476, #1477, #1485, #1490, #1473; foundation#1327)
 
 The four issues #1286's review filed against itself, plus #920. What is worth
