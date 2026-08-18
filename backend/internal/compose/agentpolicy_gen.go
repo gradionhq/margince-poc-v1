@@ -398,6 +398,8 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/relationships":                                             {Op: "createRelationship", Access: "tool", Tool: "create_record", RecordType: "relationship", Tier: "auto_execute", Scope: "write"},
 	"POST /v1/reports/{report}":                                          {Op: "runReport", Access: "tool", Tool: "run_report", RecordType: "", Tier: "auto_execute", Scope: "read"},
 	"POST /v1/retention-policies":                                        {Op: "createRetentionPolicy", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/retention/restrictions/{activityId}/pin":                   {Op: "pinActivityToFloor", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/retention/restrictions/{activityId}/release":               {Op: "releaseRestrictedActivity", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/scheduled-sends/{id}/cancel":                               {Op: "cancelScheduledSend", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/signals":                                                   {Op: "createSignal", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/signals/{id}/resolve":                                      {Op: "resolveSignal", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

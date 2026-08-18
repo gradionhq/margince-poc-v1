@@ -13,6 +13,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // ListRestrictedActivities implements (GET /retention/restrictions).
@@ -66,4 +67,47 @@ func restrictedRecordToWire(record RestrictedRecord) crmcontracts.RestrictedReco
 		Deals:           deals,
 		RedactedFields:  &redacted,
 	}
+}
+
+// ReleaseRestrictedActivity implements (POST /retention/restrictions/{activityId}/release).
+func (h Handlers) ReleaseRestrictedActivity(w http.ResponseWriter, r *http.Request, activityID openapi_types.UUID, _ crmcontracts.ReleaseRestrictedActivityParams) {
+	reason, ok := decodeStatedReason(w, r)
+	if !ok {
+		return
+	}
+	if err := h.eraser.ReleaseRestriction(r.Context(), ids.UUID(activityID), reason); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// PinActivityToFloor implements (POST /retention/restrictions/{activityId}/pin).
+func (h Handlers) PinActivityToFloor(w http.ResponseWriter, r *http.Request, activityID openapi_types.UUID, _ crmcontracts.PinActivityToFloorParams) {
+	reason, ok := decodeStatedReason(w, r)
+	if !ok {
+		return
+	}
+	if err := h.eraser.PinToFloor(r.Context(), ids.UUID(activityID), reason); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// decodeStatedReason reads the one field both overrides carry and refuses an
+// unstated one before any transaction opens. Shared because release and pin
+// ask exactly the same thing of a caller, and two spellings of one refusal
+// drift the first time either changes.
+func decodeStatedReason(w http.ResponseWriter, r *http.Request) (StatedReason, bool) {
+	var req crmcontracts.RetentionOverrideRequest
+	if !httperr.Decode(w, r, &req) {
+		return StatedReason{}, false
+	}
+	reason, err := ParseStatedReason(req.Reason)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return StatedReason{}, false
+	}
+	return reason, true
 }

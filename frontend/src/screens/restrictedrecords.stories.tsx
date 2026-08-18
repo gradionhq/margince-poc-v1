@@ -21,11 +21,17 @@ const HELD = {
   redacted_fields: ["raw", "counterparty_email"],
 };
 
-function restricted(records: unknown[]) {
+function restricted(records: unknown[], decide = false) {
   return () => {
     installFetchStub({
       "GET /me": () =>
-        jsonResponse(meFixture({ allow: { retention_policy: ["read"] } })),
+        jsonResponse(
+          meFixture({
+            allow: {
+              retention_policy: decide ? ["read", "update"] : ["read"],
+            },
+          }),
+        ),
       "GET /retention/restrictions": () =>
         jsonResponse({
           data: records,
@@ -53,4 +59,11 @@ export const NothingHeld: Story = { render: restricted([]) };
 export const HeldDark: Story = {
   globals: { theme: "dark" },
   render: restricted([HELD]),
+};
+
+// The controller's own view: the release action on the row and the pin form
+// above it. Both are irreversible and both demand a typed reason, which is
+// what the confirm dialog behind them is for.
+export const WithTheRetentionAuthority: Story = {
+  render: restricted([HELD], true),
 };

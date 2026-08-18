@@ -2279,6 +2279,23 @@ export const en = {
   "restricted.kind.call": "Call",
   "restricted.kind.meeting": "Meeting",
   "restricted.kind.message": "Message",
+  "restricted.decide": "",
+  "restricted.reasonLabel": "Why",
+  "restricted.reasonHint":
+    "Recorded in the audit trail with your name. This is what makes the decision accountable, so say what you decided and on what basis.",
+  "restricted.release.action": "Release",
+  "restricted.release.title": "Release this record from the retention floor?",
+  "restricted.release.body":
+    "Releasing ERASES the record. It does not put it back in use: the erasure request this obligation suspended is still outstanding, so lifting the obligation completes it. This cannot be undone.",
+  "restricted.release.confirm": "Release and erase",
+  "restricted.pin.action": "Pin a record",
+  "restricted.pin.idHint":
+    "For correspondence the automatic rule cannot recognise — supplier and purchasing mail qualifies under §257 HGB and has no deal in this product to hang off. The record id is on its audit entry.",
+  "restricted.pin.idPlaceholder": "Record id",
+  "restricted.pin.title": "Place this record under the retention floor?",
+  "restricted.pin.body":
+    "The record is held for the statutory window: hidden from every ordinary view, unchangeable, and erased when the window closes. Its identifiers are redacted now.",
+  "restricted.pin.confirm": "Pin and hold",
   "retention.title": "Retention",
   "retention.sub":
     "how long each kind of record is kept, and what happens when its window runs out",

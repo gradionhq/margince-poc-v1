@@ -8279,6 +8279,64 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /retention/restrictions/{activityId}/release:
+    parameters:
+      - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Compliance]
+      operationId: releaseRestrictedActivity
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      # The classification is a proxy for a legal judgement that belongs to the
+      # controller (Art. 5(2)). Releasing ERASES the record — it does not return
+      # it to ordinary use, because the erasure request it suspended is still
+      # outstanding. The reason is mandatory: this narrows DEPACK-AC-5a to "no
+      # SILENT override", not "no override".
+      summary: Release a record from the retention floor, erasing it. Requires a stated reason; audited.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RetentionOverrideRequest' }
+      responses:
+        '204': { description: Released and erased. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: >-
+            The record is no longer restricted — the window elapsed and the
+            suspended erasure already completed, or another administrator
+            released it first. Re-read the list; there is nothing left to release.
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /retention/restrictions/{activityId}/pin:
+    parameters:
+      - { name: activityId, in: path, required: true, schema: { type: string, format: uuid } }
+    post:
+      tags: [Compliance]
+      operationId: pinActivityToFloor
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      # The other direction: a Handelsbrief the derivation did not recognise.
+      # Pinning restricts it for the statutory window from the floor in force.
+      summary: Pin a record to the retention floor, restricting it. Requires a stated reason; audited.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RetentionOverrideRequest' }
+      responses:
+        '204': { description: Pinned and restricted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: The record is already restricted. Pinning is not a way to extend a window already running.
+        '422': { $ref: '#/components/responses/ValidationError' }
   /retention-policies:
     get:
       tags: [Compliance]
@@ -21757,6 +21815,14 @@ components:
         lawful_basis: { type: [string, 'null'] }
         enabled: { type: boolean }
 
+    RetentionOverrideRequest:
+      type: object
+      # The reason is what makes the override a decision rather than a toggle:
+      # DEPACK-AC-5a forbids a SILENT override, and this is the field that
+      # makes it un-silent. It is audited verbatim.
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 2000 }
     RestrictedRecord:
       type: object
       # A165/ADR-0114. What a statutory obligation is holding, stated without
