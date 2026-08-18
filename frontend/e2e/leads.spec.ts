@@ -21,12 +21,10 @@ test("AC-leads-list: a row names its owner and opens the lead's own page", async
   // The owner column answers "whose lead is this" — the same column the
   // people and company lists carry, never "typed by a person".
   await expect(row).toContainText("Lena Fischer");
-  // By ROLE, not by text: the row also carries the selection checkbox's
-  // screen-reader label ("<name> select"), so a bare text match resolves to two
-  // elements and the click cannot say which it meant. The identity cell is the
-  // link — that is the thing under test, and naming it that way is what keeps
-  // this spec working when the row grows another mention of the same name.
-  await row.getByRole("link", { name: /Jonas Petersen/ }).click();
+  // Exactly the name cell: since rows became selectable, every row also holds
+  // an sr-only "<name> auswählen" label for its checkbox, and a substring
+  // match resolves to both.
+  await row.getByText("Jonas Petersen", { exact: true }).click();
   await expect(page).toHaveURL(/#\/leads\/l-1$/);
   await expect(
     page.getByRole("heading", { level: 1, name: "Jonas Petersen" }),
