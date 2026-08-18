@@ -142,6 +142,10 @@ export const deals = [
     organization_id: "o-brandt",
     status: "open",
     stalled: true,
+    // Every mutable record carries its row version, because the advance and the
+    // patch send it back as their precondition. A fixture without one lets a
+    // write ship unpinned in the test while the real client refuses it.
+    version: 2,
     source: "manual",
     captured_by: "human:u1",
     created_at: "2026-05-01T08:00:00Z",
@@ -159,6 +163,7 @@ export const deals = [
     organization_id: "o-brandt",
     status: "open",
     stalled: false,
+    version: 5,
     source: "manual",
     captured_by: "human:u1",
     created_at: "2026-06-15T08:00:00Z",
@@ -1110,7 +1115,15 @@ export async function mockApi(
       return json(page(deals));
     }
     if (path.startsWith("/deals/") && path.endsWith("/advance")) {
-      return json({ ...deals[0], stage_id: "s4", status: "won" });
+      // A write answers with the row it wrote, so the version has moved. Echoing
+      // the seed's version would hand the client a stale precondition for its
+      // next write and call it fresh.
+      return json({
+        ...deals[0],
+        stage_id: "s4",
+        status: "won",
+        version: deals[0].version + 1,
+      });
     }
     if (path.startsWith("/deals/") && path.endsWith("/stakeholders")) {
       return json(page([]));
