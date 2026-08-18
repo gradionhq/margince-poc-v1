@@ -37,9 +37,9 @@ func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
 	e.exec(t, `INSERT INTO lead (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Hidden Prospect', $3, 'seed', 'system')`,
 		hiddenLeadID, e.ws, e.other)
-	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, 'Visible Contact', $3, 'seed', 'system')`,
-		visiblePersonID, e.ws, e.rep)
+	e.exec(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, 'Visible Contact', $2, 'seed', 'system')`,
+		visiblePersonID, e.rep)
 	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'note', 'Called about the rollout', now(), 'seed', 'system')`,
 		activityID)

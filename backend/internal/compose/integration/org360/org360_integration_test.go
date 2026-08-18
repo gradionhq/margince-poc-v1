@@ -141,8 +141,8 @@ func TestOrganization360ContactsCarryStrengthRolesAndConsent(t *testing.T) {
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
 		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
-	e.WsExec(t, `INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-		VALUES ($1, $2, 'dana@acme.test', true, 'manual', 'human:x')`, e.WS, contact)
+	e.WsExec(t, `INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+		VALUES ( $1, 'dana@acme.test', true, 'manual', 'human:x')`, contact)
 
 	// Two qualifying interactions inside the §4 window, one each way, so
 	// the score is non-zero and reciprocity is balanced.

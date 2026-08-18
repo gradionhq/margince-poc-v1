@@ -140,8 +140,8 @@ func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenDealID ids.UUID)
 		VALUES ($1, 'Default', true, 1)`, pipelineID)
 	e.exec(t, `INSERT INTO stage (id, pipeline_id, name, position, win_probability)
 		VALUES ($1, $2, 'Qualified', 1, 20)`, stageID, pipelineID)
-	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, 'seed', 'system')`, personID, e.ws, visiblePersonNam, e.rep)
+	e.exec(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		VALUES ($1, $2, $3, 'seed', 'system')`, personID, visiblePersonNam, e.rep)
 	// Owned by the OTHER rep, so an own-scoped caller cannot read it.
 	e.exec(t, `INSERT INTO deal (id, name, organization_id, owner_id, pipeline_id, stage_id, source, captured_by)
 		VALUES ($1, $2, $3, $4, $5, $6, 'seed', 'system')`,

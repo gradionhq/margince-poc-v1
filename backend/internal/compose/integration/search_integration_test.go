@@ -26,7 +26,7 @@ import (
 // out-see the entity lists (object RBAC before row scope).
 func TestSearchHonorsObjectRBAC(t *testing.T) {
 	e := SetupSearch(t)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Rostock Person', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Rostock Person', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Rostock Werft', 'manual', 'human:x')`)
 
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
@@ -54,11 +54,11 @@ func TestSearchHonorsObjectRBAC(t *testing.T) {
 
 func TestSearchRanksAcrossObjectTypes(t *testing.T) {
 	e := SetupSearch(t)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Heike Hamburg', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Heike Hamburg', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Hamburg Logistics GmbH', 'manual', 'human:x')`)
 	e.Seed(t, `INSERT INTO lead (id, workspace_id, company_name, email, source, captured_by) VALUES ($1, $2, 'Hamburg Freight', 'lead@hamburg.test', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO activity (id, kind, subject, body, source, captured_by) VALUES ($1, 'note', 'Hamburg visit', 'Met the Hamburg team at the Hamburg office in Hamburg', 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Unrelated Munich', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Unrelated Munich', 'manual', 'human:x')`)
 
 	page, err := e.Store.Search(e.Admin(), search.Input{Query: "hamburg"})
 	if err != nil {
@@ -88,8 +88,8 @@ func TestSearchRanksAcrossObjectTypes(t *testing.T) {
 
 func TestSearchHitsCarryTheCallersRowScope(t *testing.T) {
 	e := SetupSearch(t)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by) VALUES ($1, $2, 'Scoped Bremen', $3, 'manual', 'human:x')`, e.Rep3)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Shared Bremen', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Scoped Bremen', $2, 'manual', 'human:x')`, e.Rep3)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Shared Bremen', 'manual', 'human:x')`)
 
 	// rep1 (team1, row_scope=team) must not see rep3's (team2) record —
 	// but the ownerless row is workspace-shared.
@@ -112,7 +112,7 @@ func TestSearchHitsCarryTheCallersRowScope(t *testing.T) {
 
 func TestSearchExcludesArchivedRows(t *testing.T) {
 	e := SetupSearch(t)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by, archived_at) VALUES ($1, $2, 'Archived Kiel', 'manual', 'human:x', now())`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by, archived_at) VALUES ($1, 'Archived Kiel', 'manual', 'human:x', now())`)
 	page, err := e.Store.Search(e.Admin(), search.Input{Query: "kiel"})
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestSearchRankedCursorWalksAllHitsOnce(t *testing.T) {
 	e := SetupSearch(t)
 	want := map[string]bool{}
 	for i := 0; i < 5; i++ {
-		id := e.Seed(t, fmt.Sprintf(`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Dresden Contact %d', 'manual', 'human:x')`, i))
+		id := e.SeedID(t, fmt.Sprintf(`INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Dresden Contact %d', 'manual', 'human:x')`, i))
 		want[id.String()] = false
 	}
 	got := 0

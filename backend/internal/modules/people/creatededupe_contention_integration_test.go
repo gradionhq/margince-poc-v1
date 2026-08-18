@@ -68,8 +68,8 @@ func (e *dedupeEnv) beginHeldPhoneCreate(ctx context.Context, t *testing.T, name
 	}
 	id := ids.New[ids.PersonKind]()
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', $4)`,
-		id, e.ws, name, by); err != nil {
+		`INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, $2, 'manual', $3)`,
+		id, name, by); err != nil {
 		t.Fatalf("inserting the in-flight person: %v", err)
 	}
 	if err := insertPersonPhones(ctx, tx, workspaceID(ctx), id, "manual", by,

@@ -112,7 +112,7 @@ BEGIN
   -- anything else. A seed that creates users with a published password was
   -- never safe to point at real data; the tenant predicate narrowed the damage
   -- but was never what made it safe.
-  UPDATE person       SET owner_id = admin_id WHERE workspace_id = ws AND owner_id IS NULL;
+  UPDATE person       SET owner_id = admin_id WHERE owner_id IS NULL;
   UPDATE organization SET owner_id = admin_id WHERE owner_id IS NULL;
   UPDATE deal         SET owner_id = admin_id WHERE owner_id IS NULL;
   UPDATE lead         SET owner_id = admin_id WHERE workspace_id = ws AND owner_id IS NULL;

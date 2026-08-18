@@ -179,7 +179,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 			t.Errorf("%s = %d, want %d", name, n, want)
 		}
 	}
-	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 3)
+	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'mirror:hubspot:%'`, 3)
 	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
@@ -188,9 +188,8 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id
 		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
 	assertCount("reconstructed employment", `
-		SELECT count(*) FROM relationship r JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
-		WHERE r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND r.kind = 'employment' AND p.source = 'mirror:hubspot:person:p-1'`, 1)
+		SELECT count(*) FROM relationship r JOIN person p ON p.id = r.person_id
+		WHERE r.kind = 'employment' AND p.source = 'mirror:hubspot:person:p-1'`, 1)
 	// The bundle's owner map named the SOURCE workspace's admin, who does
 	// not exist in this clean instance — so ownership falls to the
 	// rebuild's own operator rather than landing ownerless (an ownerless
@@ -249,7 +248,7 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 	// The order is the foreign keys' — a deal points at its stage, its pipeline
 	// and its organization — and the predicate is per table because ADR-0091 §8
 	// phase D has reached some of these and not others. A `workspace_id = $1`
-	// spelled for all seven fails outright on the three that no longer have it.
+	// spelled for all seven fails outright on the six that no longer have it.
 	for _, t2 := range []struct {
 		table        string
 		tenantScoped bool
@@ -258,7 +257,7 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 		{"stage", false},
 		{"pipeline", false},
 		{"organization", false},
-		{"person", true},
+		{"person", false},
 		{"lead", true},
 		{"activity", false},
 	} {

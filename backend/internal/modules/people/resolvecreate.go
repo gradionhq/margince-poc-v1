@@ -107,17 +107,15 @@ func createPerson(ctx context.Context, tx pgx.Tx, match PersonResolution, spec P
 	id := ids.New[ids.PersonKind]()
 	addr := addressColumns(spec.Address)
 	cfCols, cfHolders, args := storekit.InsertFragments(spec.Active, spec.CustomFields, []any{
-		id, wsID, spec.FullName, spec.FirstName, spec.LastName, spec.Title, spec.OwnerID,
+		id, spec.FullName, spec.FirstName, spec.LastName, spec.Title, spec.OwnerID,
 		addr.Line1, addr.Line2, addr.City, addr.Region, addr.PostalCode, addr.Country,
 		spec.Source, spec.CapturedBy, spec.Visibility, spec.Quarantined, spec.ConvertedFromLeadID,
 	})
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO person (id, workspace_id, full_name, first_name, last_name, title, owner_id,
-		                     address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-		                     source, captured_by, visibility, quarantined_at, converted_from_lead_id`+cfCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-		         coalesce(NULLIF($16, ''), 'workspace'),
-		         CASE WHEN $17 THEN now() ELSE NULL END, $18`+cfHolders+`)`,
+		`INSERT INTO person (id, full_name, first_name, last_name, title, owner_id, address_line1, address_line2, address_city, address_region, address_postal_code, address_country, source, captured_by, visibility, quarantined_at, converted_from_lead_id`+cfCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+		         coalesce(NULLIF($15, ''), 'workspace'),
+		         CASE WHEN $16 THEN now() ELSE NULL END, $17`+cfHolders+`)`,
 		args...); err != nil {
 		return ids.PersonID{}, fmt.Errorf("insert person: %w", err)
 	}

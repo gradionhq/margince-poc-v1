@@ -94,15 +94,14 @@ func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids
 	if value == "" {
 		return false, nil
 	}
-	wsID := workspaceID(ctx)
 
 	// The evidence row is the admission ticket: one row per (person, field),
 	// first verdict wins — a later pass can never overwrite it.
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO person_profile_field (workspace_id, person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
+		VALUES ( $1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (person_id, field) DO NOTHING`,
-		wsID, personID, f.Name, value, f.Evidence, sourceRef, f.Confidence, enrichSource, enrichCapturedBy)
+		personID, f.Name, value, f.Evidence, sourceRef, f.Confidence, enrichSource, enrichCapturedBy)
 	if err != nil {
 		return false, fmt.Errorf("people: signature evidence row (%s): %w", f.Name, err)
 	}
@@ -128,11 +127,11 @@ func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids
 	case "phone":
 		// A first phone only — a person with any live phone row keeps it.
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
-			SELECT $1, $2, $3, 'work', true, 0, $4, $5
+			INSERT INTO person_phone (person_id, phone, phone_type, is_primary, position, source, captured_by)
+			SELECT $1, $2, 'work', true, 0, $3, $4
 			WHERE NOT EXISTS (
-				SELECT 1 FROM person_phone WHERE person_id = $2 AND archived_at IS NULL)`,
-			wsID, personID, value, enrichSource, enrichCapturedBy)
+				SELECT 1 FROM person_phone WHERE person_id = $1 AND archived_at IS NULL)`,
+			personID, value, enrichSource, enrichCapturedBy)
 		if err != nil {
 			return false, fmt.Errorf("people: signature phone fill: %w", err)
 		}
@@ -183,15 +182,15 @@ func (s *Store) MarkSignatureRead(ctx context.Context, personID ids.PersonID, ac
 		// caller: the watermark and the candidate query must compare the same
 		// number, and only one of them can be the row itself.
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO person_signature_enrich_state (workspace_id, person_id, activity_id, last_activity_at)
-			SELECT $1, $2, a.id, a.occurred_at FROM activity a
-			 WHERE a.id = $3 AND a.restricted_at IS NULL
+			INSERT INTO person_signature_enrich_state (person_id, activity_id, last_activity_at)
+			SELECT $1, a.id, a.occurred_at FROM activity a
+			 WHERE a.id = $2 AND a.restricted_at IS NULL
 			ON CONFLICT (person_id) DO UPDATE
 			SET activity_id = EXCLUDED.activity_id,
 			    last_activity_at = GREATEST(person_signature_enrich_state.last_activity_at,
 			                                EXCLUDED.last_activity_at),
 			    attempted_at = now()`,
-			workspaceID(ctx), personID, activityID)
+			personID, activityID)
 		if err != nil {
 			return err
 		}

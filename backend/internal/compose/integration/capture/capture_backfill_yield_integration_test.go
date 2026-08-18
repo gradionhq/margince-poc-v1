@@ -235,14 +235,14 @@ func seedForeignCounterparties(t *testing.T, e *integration.SearchEnv) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		for _, q := range []string{
-			`INSERT INTO person (workspace_id, full_name, source, captured_by)
-			   VALUES (current_setting('app.workspace_id')::uuid, 'Other Connection One', 'capture', 'connector:gmail'),
-			          (current_setting('app.workspace_id')::uuid, 'Other Connection Two', 'capture', 'connector:gmail'),
-			          (current_setting('app.workspace_id')::uuid, 'Other Connection Three', 'capture', 'connector:gmail')`,
-			`INSERT INTO person (workspace_id, full_name, source, captured_by)
-			   VALUES (current_setting('app.workspace_id')::uuid, 'Manually Typed', 'manual', 'human:someone')`,
+			`INSERT INTO person (full_name, source, captured_by)
+			   VALUES ('Other Connection One', 'capture', 'connector:gmail'),
+			          ('Other Connection Two', 'capture', 'connector:gmail'),
+			          ('Other Connection Three', 'capture', 'connector:gmail')`,
+			`INSERT INTO person (full_name, source, captured_by)
+			   VALUES ('Manually Typed', 'manual', 'human:someone')`,
 			`INSERT INTO organization (display_name, source, captured_by)
-			   VALUES ( 'Other Connection Co', 'capture', 'connector:gmail')`,
+			   VALUES ('Other Connection Co', 'capture', 'connector:gmail')`,
 		} {
 			if _, execErr := tx.Exec(e.Admin(), q); execErr != nil {
 				return execErr

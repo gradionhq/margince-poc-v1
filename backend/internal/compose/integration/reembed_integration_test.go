@@ -52,7 +52,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	names := []string{"Reembed One", "Reembed Two", "Reembed Three"}
 	personIDs := make([]ids.UUID, len(names))
 	for i, name := range names {
-		id := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`, name)
+		id := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`, name)
 		if _, err := e.Store.UpsertEmbedding(e.Admin(), "person", id, name, staleEmbedder); err != nil {
 			t.Fatalf("seeding the stale-identity baseline for %s: %v", name, err)
 		}
@@ -155,10 +155,10 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 	}
 
 	healthy := SeedExtraWorkspace(t, e.Owner, "reembed-healthy", false)
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Tenant Person', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Faulted Tenant Person', 'manual', 'human:x')`)
 	healthyPersonID := ids.NewV7()
-	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Tenant Person', 'manual', 'human:x')`,
-		healthyPersonID, healthy); err != nil {
+	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Healthy Tenant Person', 'manual', 'human:x')`,
+		healthyPersonID); err != nil {
 		t.Fatalf("seeding the healthy tenant's person: %v", err)
 	}
 	failEmbeddingWritesFor(t, e.Owner, e.WS)
@@ -171,13 +171,10 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](healthy), embedder); err != nil {
 		t.Fatalf("the healthy tenant's pass, while the victim's is faulted: %v", err)
 	}
-	// Read outside e.WS: SearchEnv.storedEmbeddingModel is pinned to the
-	// harness's own workspace, and a cross-tenant claim has to read the tenant
-	// it is making the claim about.
 	var model string
 	if err := e.Owner.QueryRow(ctx,
-		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
-		healthy, healthyPersonID).Scan(&model); err != nil {
+		`SELECT model FROM embedding WHERE entity_type = 'person' AND entity_id = $1 AND chunk_ix = 0`,
+		healthyPersonID).Scan(&model); err != nil {
 		t.Fatalf("reading the healthy tenant's embedding: %v", err)
 	}
 	if model != identity {
@@ -203,7 +200,7 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	if err := e.Store.SeedBinding(ctx, markerIdentity); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Drift Person', 'manual', 'human:x')`)
+	personID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Drift Person', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'stale-hash', $3, '[1,2,3]'::vector)`,

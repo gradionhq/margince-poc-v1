@@ -45,9 +45,8 @@ const telegramProvider = "telegram"
 func seedChannelIdentity(t *testing.T, e *integration.Env, person ids.UUID, channelUserID, username string) {
 	t.Helper()
 	e.WsExec(t, `
-		INSERT INTO person_channel_identity
-		  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
+		VALUES (
 		        $1, 'telegram', $2, $3, 'telegram', 'connector:telegram')`,
 		person, channelUserID, username)
 }
@@ -366,8 +365,8 @@ func TestSARIncludesAChannelOnlySubjectsRawCapture(t *testing.T) {
 func seedPersonEmail(t *testing.T, e *integration.Env, person ids.UUID, email string) {
 	t.Helper()
 	e.WsExec(t, `
-		INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'manual', 'user:test')`,
+		INSERT INTO person_email (person_id, email, source, captured_by)
+		VALUES ( $1, $2, 'manual', 'user:test')`,
 		person, email)
 }
 

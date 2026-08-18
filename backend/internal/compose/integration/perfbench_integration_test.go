@@ -299,9 +299,9 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	// Every ~97th person carries the FTS token the canonical search
 	// query hits, so the query does real ranking work over a real
 	// selectivity, not a table scan of universal matches.
-	exec(`INSERT INTO person (workspace_id, full_name, source, captured_by)
-	      SELECT $1, 'Person ' || i || CASE WHEN i % 97 = 0 THEN ' Hamburg' ELSE '' END, 'manual', 'human:bench'
-	      FROM generate_series(1, $2) AS i`, ws, spec.persons)
+	exec(`INSERT INTO person (full_name, source, captured_by)
+	      SELECT 'Person ' || i || CASE WHEN i % 97 = 0 THEN ' Hamburg' ELSE '' END, 'manual', 'human:bench'
+	      FROM generate_series(1, $1) AS i`, spec.persons)
 	exec(`INSERT INTO organization (display_name, source, captured_by)
 	      SELECT 'Org ' || i || CASE WHEN i % 89 = 0 THEN ' Hamburg GmbH' ELSE '' END, 'manual', 'human:bench'
 	      FROM generate_series(1, $1) AS i`, spec.organizations)
@@ -320,25 +320,25 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	               'Body ' || i,
 	               now() - (i % 720 || ' hours')::interval,
 	               'manual', 'human:bench'
-	        FROM generate_series(1, $2) AS i
+	        FROM generate_series(1, $1) AS i
 	        RETURNING id
 	      ), total AS (
-	        SELECT count(*) AS n FROM person WHERE workspace_id = $1
+	        SELECT count(*) AS n FROM person
 	      ), numbered AS (
 	        SELECT id, (row_number() OVER () - 1) % (SELECT n FROM total) + 1 AS target_rn FROM act
 	      ), people AS (
-	        SELECT id, row_number() OVER () AS rn FROM person WHERE workspace_id = $1
+	        SELECT id, row_number() OVER () AS rn FROM person
 	      )
 	      INSERT INTO activity_link (activity_id, entity_type, person_id)
 	      SELECT n.id, 'person', p.id
-	      FROM numbered n JOIN people p ON p.rn = n.target_rn`, ws, spec.bulkActivities)
+	      FROM numbered n JOIN people p ON p.rn = n.target_rn`, spec.bulkActivities)
 
 	// Employment edges for the ADR-0021 edge-count evidence.
 	exec(`WITH total AS (
 	        SELECT count(*) AS n FROM organization
 	      ), people AS (
 	        SELECT id, (row_number() OVER () - 1) % (SELECT n FROM total) + 1 AS target_rn
-	        FROM person WHERE workspace_id = $1 LIMIT $2
+	        FROM person LIMIT $2
 	      ), orgs AS (
 	        SELECT id, row_number() OVER () AS rn FROM organization
 	      )
@@ -359,8 +359,8 @@ func seedBenchAnchor(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierS
 	t.Helper()
 	var anchor ids.UUID
 	if err := owner.QueryRow(context.Background(),
-		`INSERT INTO person (workspace_id, full_name, source, captured_by)
-		 VALUES ($1, 'Anchor Hamburg', 'manual', 'human:bench') RETURNING id`, ws).Scan(&anchor); err != nil {
+		`INSERT INTO person (full_name, source, captured_by)
+		 VALUES ( 'Anchor Hamburg', 'manual', 'human:bench') RETURNING id`).Scan(&anchor); err != nil {
 		t.Fatalf("seeding anchor: %v", err)
 	}
 	benchExec(t, owner, spec.tier, `WITH act AS (

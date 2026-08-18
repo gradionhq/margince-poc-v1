@@ -142,8 +142,8 @@ func TestAReadShareOfARecordCannotDecideAChangeStagedAgainstIt(t *testing.T) {
 	holder := e.As(e.Rep1, []ids.UUID{e.Team1}, grantsAtTeamScope("person", "approval"))
 
 	person := ids.NewV7()
-	e.WsExec(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Staged Subject', 'manual', 'human:x')`, person, e.WS, e.Rep3)
+	e.WsExec(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Staged Subject', 'manual', 'human:x')`, person, e.Rep3)
 
 	staged, err := svc.Stage(e.AgentCtx(), approvals.StageInput{
 		Kind: "archive_record", ProposedChange: json.RawMessage(`{}`),
@@ -181,8 +181,8 @@ func TestAReadShareCannotRevokeSomebodyElsesShare(t *testing.T) {
 	holder := e.As(e.Rep1, []ids.UUID{e.Team1}, grantsAtTeamScope("person"))
 
 	person := ids.NewV7()
-	e.WsExec(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Twice Shared', 'manual', 'human:x')`, person, e.WS, e.Rep3)
+	e.WsExec(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Twice Shared', 'manual', 'human:x')`, person, e.Rep3)
 	shareRecord(owner, t, e, "person", person, e.Rep2, "write")
 	shareRecord(owner, t, e, "person", person, e.Rep1, "read")
 	colleagues := grantIDsFor(t, e, person, e.Rep2)
@@ -219,8 +219,8 @@ func TestAReadOnlySeatCanStillDeclineItsOwnShare(t *testing.T) {
 	})
 
 	person := ids.NewV7()
-	e.WsExec(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Unwanted Share', 'manual', 'human:x')`, person, e.WS, e.Rep3)
+	e.WsExec(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Unwanted Share', 'manual', 'human:x')`, person, e.Rep3)
 	shareRecord(owner, t, e, "person", person, e.Rep1, "read")
 
 	if err := svc.RevokeRecordGrant(readOnly, grantIDsFor(t, e, person, e.Rep1)); err != nil {

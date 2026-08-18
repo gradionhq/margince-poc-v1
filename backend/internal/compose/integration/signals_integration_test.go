@@ -73,7 +73,7 @@ func personCount(t *testing.T, e *SearchEnv) int {
 	t.Helper()
 	var n int
 	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM person WHERE workspace_id = $1`, e.WS).Scan(&n); err != nil {
+		`SELECT count(*) FROM person`).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -99,12 +99,12 @@ func (e *SearchEnv) seedOrgWithDomain(t *testing.T, name, domain string) ids.UUI
 // match and the warm/cold join both read.
 func (e *SearchEnv) seedEmployedContact(t *testing.T, orgID ids.UUID, name, email string) ids.UUID {
 	t.Helper()
-	personID := e.Seed(t,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, name, e.Rep1)
+	personID := e.SeedID(t,
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, $2, $3, 'manual', 'human:x')`, name, e.Rep1)
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO person_email (id, workspace_id, person_id, email, is_primary, source, captured_by)
-		 VALUES ($1, $2, $3, $4, true, 'manual', 'human:x')`, ids.NewV7(), e.WS, personID, email); err != nil {
+		`INSERT INTO person_email (id, person_id, email, is_primary, source, captured_by)
+		 VALUES ($1, $2, $3, true, 'manual', 'human:x')`, ids.NewV7(), personID, email); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
@@ -152,9 +152,9 @@ func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	e := SetupSearch(t)
 	store := signalStore(e)
 
-	foreignPerson := e.Seed(t,
-		`INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $2, 'Foreign Contact', $3, 'manual', 'human:x')`, e.Rep3)
+	foreignPerson := e.SeedID(t,
+		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
+		 VALUES ($1, 'Foreign Contact', $2, 'manual', 'human:x')`, e.Rep3)
 	personType := "person"
 	pid := ids.UUID(foreignPerson)
 	sig, err := store.CreateSignal(e.adminSignals(), signals.CreateSignalInput{

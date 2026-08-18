@@ -120,9 +120,8 @@ func seedRollupDealLinkedActivity(t *testing.T, e *Env, st rollupStages, org ids
 func seedRollupPersonLinkedActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.Time) {
 	t.Helper()
 	personID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-		VALUES ($1, $2, 'Rollup Contact', 'manual', 'human:test')`,
-		personID, e.WS)
+	e.WsExec(t, `INSERT INTO person (id, full_name, source, captured_by)
+		VALUES ($1, 'Rollup Contact', 'manual', 'human:test')`, personID)
 	e.WsExec(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
 		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:test')`,
 		ids.NewV7(), e.WS, personID, org)

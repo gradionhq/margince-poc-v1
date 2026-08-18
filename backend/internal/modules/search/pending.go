@@ -42,7 +42,7 @@ type pendingSource struct {
 // to BOTH maps; they must never diverge, since the pending count and the
 // live indexer must agree on what "this entity's text" means.
 var pendingSources = map[string]pendingSource{
-	entityPerson:       {table: entityPerson, text: "t.full_name", tenantScoped: true},
+	entityPerson:       {table: entityPerson, text: "t.full_name"},
 	entityOrganization: {table: entityOrganization, text: "concat_ws(' ', t.display_name, t.legal_name, t.industry)"},
 	entityDeal:         {table: entityDeal, text: "t.name"},
 	entityLead:         {table: entityLead, text: "concat_ws(' ', t.full_name, t.company_name, t.title)", tenantScoped: true},

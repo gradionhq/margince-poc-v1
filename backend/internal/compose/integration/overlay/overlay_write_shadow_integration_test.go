@@ -218,7 +218,7 @@ func TestOverlayArchivePersonWritesBack(t *testing.T) {
 
 // The verbs the provider declares unsupported still answer 422, and never
 // reach the native handler — proven by the native table holding nothing
-// for the workspace afterward, not just by the status code.
+// afterward, not just by the status code.
 func TestOverlayUnsupportedWritesStillRefused(t *testing.T) {
 	e := setupOverlayWrite(t)
 	placeholder := ids.NewV7().String()
@@ -247,7 +247,7 @@ func TestOverlayUnsupportedWritesStillRefused(t *testing.T) {
 	var personCount int
 	if err := e.Owner.QueryRow(
 		context.Background(),
-		`SELECT count(*) FROM person WHERE workspace_id = (SELECT id FROM workspace WHERE slug = $1)`, e.Slug,
+		`SELECT count(*) FROM person`,
 	).Scan(&personCount); err != nil {
 		t.Fatalf("counting native person rows: %v", err)
 	}

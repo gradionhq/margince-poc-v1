@@ -49,17 +49,15 @@ func seedChannelSubject(t *testing.T, e *Env) ids.UUID {
 	personID := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			 VALUES ($1, `+wsClause+`, 'Tilda Telegram', 'connector:telegram', 'connector:telegram')`,
+			`INSERT INTO person (id, full_name, source, captured_by)
+			 VALUES ($1, 'Tilda Telegram', 'connector:telegram', 'connector:telegram')`,
 			personID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person_channel_identity
-			  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
-			VALUES (`+wsClause+`, $1, 'telegram', $2, 'tilda', 'connector:telegram', 'connector:telegram')`,
+			INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
+			VALUES ( $1, 'telegram', $2, 'tilda', 'connector:telegram', 'connector:telegram')`,
 			personID, channelSubjectAccount)
 		return err
 	})

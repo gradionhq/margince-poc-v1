@@ -204,8 +204,8 @@ func (e *dedupeEnv) seedEmail(t *testing.T, person ids.PersonID, email string) {
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person_email (workspace_id, person_id, email, is_primary, source, captured_by)
-			VALUES ($1, $2, $3, true, 'manual', 'human:test')`, e.ws, person, email)
+			INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
+			VALUES ( $1, $2, true, 'manual', 'human:test')`, person, email)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding email for %s: %v", person, err)

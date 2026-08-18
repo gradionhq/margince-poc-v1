@@ -500,7 +500,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`)
 	assertOne("primary employment relationship", `
 		SELECT count(*) FROM relationship r
-		JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
+		JOIN person p ON p.id = r.person_id
 		WHERE r.kind = 'employment' AND r.is_current_primary AND p.source = 'mirror:hubspot:person:p-1'`)
 	assertOne("activity link", `
 		SELECT count(*) FROM activity_link al
@@ -514,7 +514,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 	// are pinned per-record rather than by count.
 	assertOne("imported person's email", `
 		SELECT count(*) FROM person_email pe
-		JOIN person p ON p.id = pe.person_id AND p.workspace_id = pe.workspace_id
+		JOIN person p ON p.id = pe.person_id
 		WHERE p.source = 'mirror:hubspot:person:p-1' AND pe.email = 'mor@baer-pharma.test'`)
 	assertOne("imported organization's domain", `
 		SELECT count(*) FROM organization_domain od

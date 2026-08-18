@@ -59,9 +59,9 @@ func (e *dedupeEnv) seedContact(t *testing.T, name string) ids.PersonID {
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, $3, $4, 'manual', 'human:test', 'workspace')`,
-			id, e.ws, name, e.rep)
+			INSERT INTO person (id, full_name, owner_id, source, captured_by, visibility)
+			VALUES ($1, $2, $3, 'manual', 'human:test', 'workspace')`,
+			id, name, e.rep)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding contact %s: %v", name, err)

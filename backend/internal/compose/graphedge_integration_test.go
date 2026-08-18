@@ -79,8 +79,8 @@ func (v edgeEnv) person(t *testing.T, name string) ids.PersonID {
 	id := ids.New[ids.PersonKind]()
 	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person (workspace_id, id, full_name, owner_id, source, captured_by, visibility)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'manual', 'human:test', 'workspace')`,
+			INSERT INTO person (id, full_name, owner_id, source, captured_by, visibility)
+			VALUES ( $1, $2, $3, 'manual', 'human:test', 'workspace')`,
 			id, name, v.e.Rep1)
 		return err
 	}); err != nil {

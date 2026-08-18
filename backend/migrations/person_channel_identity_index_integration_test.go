@@ -45,7 +45,7 @@ func TestPersonChannelIdentityCascadeIndexIsUnconditional(t *testing.T) {
 	if predicate != nil {
 		t.Errorf("the index the person cascade relies on is partial (%s); the cascade cannot use it", *predicate)
 	}
-	if len(columns) < 2 || columns[0] != "workspace_id" || columns[1] != "person_id" {
-		t.Errorf("index columns = %v, want (workspace_id, person_id) — the cascade's own key", columns)
+	if len(columns) < 1 || columns[0] != "person_id" {
+		t.Errorf("index columns = %v, want person_id leading — the cascade's own key", columns)
 	}
 }

@@ -196,7 +196,7 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 	if err := e.Owner.QueryRow(context.Background(), `SELECT id FROM deal LIMIT 1`).Scan(&dealID); err != nil {
 		t.Fatal(err)
 	}
-	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Graph Contact', 'manual', 'human:x')`)
+	personID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Graph Contact', 'manual', 'human:x')`)
 	noteID := e.SeedID(t, `INSERT INTO activity (id, kind, subject, source, captured_by) VALUES ($1, 'note', 'Kickoff call', 'manual', 'human:x')`)
 	taskID := e.SeedID(t, `INSERT INTO activity (id, kind, subject, is_done, source, captured_by) VALUES ($1, 'task', 'Send offer', false, 'manual', 'human:x')`)
 	for _, activityID := range []ids.UUID{noteID, taskID} {

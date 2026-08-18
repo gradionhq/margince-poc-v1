@@ -31,9 +31,9 @@ func (e *privacyEnv) seedAddress(t *testing.T, person ids.PersonID, email string
 	ctx := e.as(e.owner, principal.RowScopeAll)
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-			VALUES ($1, $2, $3, 'gmail:seed', 'connector:gmail')`,
-			e.ws, person, email)
+			INSERT INTO person_email (person_id, email, source, captured_by)
+			VALUES ( $1, $2, 'gmail:seed', 'connector:gmail')`,
+			person, email)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the address: %v", err)

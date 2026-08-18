@@ -64,15 +64,14 @@ func seedMailRecipient(t *testing.T, e *Env) ids.UUID {
 	personID := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			 VALUES ($1, `+wsClause+`, 'Erika Recipient', 'manual', 'human:x')`, personID); err != nil {
+			`INSERT INTO person (id, full_name, source, captured_by)
+			 VALUES ($1, 'Erika Recipient', 'manual', 'human:x')`, personID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-			 VALUES (`+wsClause+`, $1, $2, 'manual', 'human:x')`, personID, mailRecipientEmail)
+			`INSERT INTO person_email (person_id, email, source, captured_by)
+			 VALUES ( $1, $2, 'manual', 'human:x')`, personID, mailRecipientEmail)
 		return err
 	})
 	if err != nil {

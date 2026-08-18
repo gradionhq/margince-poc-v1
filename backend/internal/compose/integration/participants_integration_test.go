@@ -121,8 +121,8 @@ func TestAKnownContactResolvesFromAnUntrustedHeaderToo(t *testing.T) {
 	owner := OwnerConn(t)
 	activity := seedInteraction(t, e)
 	person := e.SeedPerson(t, "Sam Second", &e.Rep1)
-	SeedRow(t, owner, `INSERT INTO person_email (id, workspace_id, person_id, email, source, captured_by)
-		VALUES ($1, $2, '`+person.String()+`', 'sam@target.example', 'manual', 'human:x')`, e.WS)
+	SeedIDRow(t, owner, `INSERT INTO person_email (id, person_id, email, source, captured_by)
+		VALUES ($1, '`+person.String()+`', 'sam@target.example', 'manual', 'human:x')`)
 
 	stampParties(t, e, activity, false,
 		connector.MessageParticipant{Email: "sam@target.example", Role: connector.ParticipantRoleCC})

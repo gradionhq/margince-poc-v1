@@ -46,8 +46,7 @@ var retentionSelectors = map[string]string{
 		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
 		LIMIT $2`,
 	"person/no_consent_no_deal": `SELECT p.id FROM person p
-		WHERE p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND p.archived_at IS NULL AND NOT p.legal_hold
+		WHERE p.archived_at IS NULL AND NOT p.legal_hold
 		  AND p.full_name IS DISTINCT FROM 'Erased Subject'
 		  AND p.created_at < now() - make_interval(days => $1)
 		  AND NOT EXISTS (SELECT 1 FROM person_consent pc WHERE pc.person_id = p.id AND pc.state = 'granted')
