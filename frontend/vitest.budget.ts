@@ -32,9 +32,21 @@
 // have to remember to copy.
 //
 // That file keeps its own numbers and is deliberately untouched: it overrides
-// the per-wait budget as well as the per-test one, and the defect it is still
-// carrying (#613) is starvation rather than arithmetic. The ceiling below is
-// SMALLER than its 10s-per-waiter budget, so it cannot mask that.
+// the per-waiter budget as well as the per-test one, and the defect it is still
+// carrying (issue 613) is starvation rather than arithmetic. Its two starved
+// cases are exempted by name in scripts/test-budget.test.ts so they stay
+// fast-red.
+//
+// Two of its OTHER cases state no ceiling of their own, so they sit in the
+// population this ceiling is measured over and are what set its width at
+// 10000ms. That is a real cost and it is recorded rather than smoothed over:
+// the whole suite's ceiling is being driven by one file's local waiter
+// override, and until issue 613 is settled and that file can be edited, the
+// right fix — giving those two cases their own ceiling, as
+// integrations-provider.test.tsx does — is not available. Issue 1717 carries
+// it. Do not read the ceiling below as "smaller than anything company-context
+// waits for": it is larger, and what keeps issue 613 fast-red is the exemption,
+// not this number.
 //
 // So the ceiling has to clear the longest chain the suite legitimately composes,
 // plus the render and act work sitting between those waits.
@@ -44,21 +56,27 @@ export const ASYNC_UTIL_TIMEOUT_MS = 1_000;
 
 /**
  * The largest budget any test spends waiting, among the tests that run under
- * THIS ceiling — 7000ms, in `settings.test.tsx`'s "the diagnostics card…" case,
- * seven default-budget waiters in sequence. Measured from the syntax tree by
- * `src/test-budget.ts` rather than counted by hand: a hand count over this tree
- * read one 688-line file as a single test with 39 waiters, and a ceiling built
- * on that would have been ten times anything real.
+ * THIS ceiling — 10000ms, in `company-context.test.tsx`'s two write-posture
+ * cases, whose render helper waits once at that file's own `SETTLE_MS`. They
+ * state no ceiling of their own, so they belong to this population and set its
+ * width; that file's two `clickRefresh` cases are a different matter and are
+ * exempted by name in scripts/test-budget.test.ts.
+ *
+ * Measured from the syntax tree by `scripts/test-budget.ts` rather than counted
+ * by hand: a hand count over this tree read one 688-line file as a single test
+ * with 39 waiters, and a ceiling built on that would have been ten times
+ * anything real.
  *
  * A test that deliberately raises its OWN waiters above the default — a slow
- * settle, a poll it has to outlast — owes its own per-test ceiling and does not
- * bear on this number. `read-conclusion.test.tsx` and `onboarding-restore.test.tsx`
- * already work that way. The guard in src/test-budget.test.ts is what keeps the
+ * settle, a poll it has to outlast — owes its own per-test ceiling and then
+ * leaves this population. `read-conclusion.test.tsx`, `onboarding-restore.test.tsx`,
+ * `voice-act.test.tsx`, `integrations-provider.test.tsx` and `onboarding.test.tsx`
+ * all work that way. The guard in scripts/test-budget.test.ts is what keeps the
  * two populations honest: it holds EVERY test's waiter budget against the
  * ceiling that test actually runs under, so a suite cannot quietly join this one
  * while spending like the other.
  */
-export const MAX_DEFAULT_WAITER_BUDGET_MS = 7_000;
+export const MAX_DEFAULT_WAITER_BUDGET_MS = 10_000;
 
 /**
  * The slowest single test measured under deliberate load, in milliseconds —
