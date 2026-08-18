@@ -888,25 +888,53 @@ webhooks, agents, privacy. Configuration and machinery rather than records,
 which is why the stakes were low, but low is not none and a reader should not
 have to infer it from migration numbers.
 
-### Where phase D stands: 32 tables
+### Where phase D stands: 26 tables
 
 Merged: briefs (#1486), capture (#1491), overlay (#1510, fork-owned so it lands
 in `migrations/custom/`), ai + migration (#1525, split across both namespaces
 because the importer is fork-owned), deals quoting & delivery (#1543), activity
-satellites (#1547), deal spine (#1635), activity spine (#1655). 103 → 38.
+satellites (#1547), deal spine (#1635), activity spine (#1655), organization
+cluster (#1701), person cluster (#1720), lead/relationship/partner cluster
+(#1723). **103 → 26**, counted from the migrated schema rather than from this
+list — `make test-db-up`, then:
 
-Open and stacked, in merge order: **#1701** organization cluster → **#1720**
-person cluster → **#1723** lead/relationship/partner cluster. 38 → 32 when the
-three land.
+```sql
+SELECT c.relname FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_attribute a ON a.attrelid = c.oid
+ WHERE n.nspname = 'public' AND c.relkind = 'r'
+   AND a.attname = 'workspace_id' AND a.attnum > 0 AND NOT a.attisdropped
+ ORDER BY 1;
+```
+
+Every record-bearing table is done. What remains is identity, search's two, a
+handful of singletons, and the two ledgers.
 
 **What is left, and the shape of each:**
 
 | group | tables | note |
 |---|---|---|
-| identity | `app_user`, `session`, `role`, `role_assignment`, `team`, `team_membership`, `passport`, `oauth_*`, `auth_token`, `record_grant`, `extension_secret`, `onboarding_wizard_state` | `app_user` is what `MustWorkspace` ultimately hangs on — take it last within the group |
+| identity | `app_user`, `session`, `role`, `role_assignment`, `team`, `team_membership`, `passport`, `oauth_client`, `oauth_grant`, `oauth_authorization_code`, `oauth_refresh_token`, `auth_token`, `record_grant`, `extension_secret`, `onboarding_wizard_state` | 15 tables. `app_user` is what `MustWorkspace` ultimately hangs on — take it last within the group |
 | search | `embedding`, `graph_interaction_edge` | see below: the fan-out is now redundant machinery over one corpus, and collapsing it is the prerequisite |
 | the rest | `idempotency_key`, `field_provenance`, `user_record_view`, `suggestion_dismissal`, `signal_thread_scan`, `linkedin_account`, `linkedin_connection` | singletons; one slice |
 | **last** | `audit_log`, `system_log` | the append-only ledgers, by the decision recorded above |
+
+**Two findings from the last three slices that outlive them**, both about a
+write shape or a number nobody was checking:
+
+- A per-workspace rollup got summed into a fleet total in **three** places,
+  and its entries are the SAME rows once no entity carries a tenant — so each
+  sum multiplied one corpus by the workspace count, and that figure prices the
+  re-embed. `Store.EntitiesPending` was fixed in #1723; the status transport
+  had its own copy of the arithmetic and never called it, so the number on the
+  wire did not change until #1767. The cost estimator is the third and still
+  has it — that one needs a ruling on whose rate sheet prices one shared
+  corpus (#1738). **Fixing the method and not grepping for the other summers
+  is the sibling-copy miss README rule 1 names**; it cost a round trip here.
+- Two capture-path writers (`plantEmploymentEdge`, `recordDedupeCandidate`)
+  commit the domain row with no `audit_log` and no `event_outbox` row. Both
+  predate ADR-0091 and are filed as #1745; the fix needs an event-vocabulary
+  decision, not just the two calls.
 
 **Slice by ownership, not by convenience.** Two of the four merged slices had to
 be split or moved mid-flight because a table turned out to be fork-owned
