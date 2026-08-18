@@ -23,6 +23,7 @@ import {
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
 } from "./listquery";
 
@@ -502,7 +503,7 @@ async function fetchPartnersPage(
       query: {
         sort: query.sort || undefined,
         cursor: cursor || undefined,
-        limit: query.perPage,
+        limit: listFetchLimit(query.perPage),
         partner_role: asPartnerRole(query.filters.partner_role ?? ""),
         cert_status: asCertStatus(query.filters.cert_status ?? ""),
       },

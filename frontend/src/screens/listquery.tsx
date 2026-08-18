@@ -42,16 +42,40 @@ export type ListQuery = {
   includeArchived: boolean;
   filters: Record<string, string>;
   /**
-   * Rows per page, chosen by the reader in the table footer and sent to the
-   * server as the page limit. One number: the table renders exactly the page
-   * the server answered, so "25 of 50 loaded so far" — a count that reads as
-   * two different page sizes in one screen — cannot happen.
+   * Rows per page, chosen by the reader in the table footer. It is the size of
+   * a RENDERED page, not of a read: one read fetches several of these at once
+   * (see `listFetchLimit`) so the pager can offer them as numbers the reader
+   * reaches without waiting.
    */
   perPage: number;
 };
 
 /** The page sizes the footer offers; the first is the default. */
 export const LIST_PAGE_SIZES = [25, 50, 100] as const;
+
+/** The most rows one list read may ask for (the contract's CAP-PAGE ceiling). */
+const MAX_ROWS_PER_READ = 200;
+
+/**
+ * How many rows to fetch for a footer page size of `perPage`: as many WHOLE
+ * rendered pages as one read is allowed to carry.
+ *
+ * A keyset cursor can only walk forward one read at a time, so a pager can
+ * only number the pages already in hand. Reading a page at a time therefore
+ * numbers exactly one, and every further number has to be earned by a round
+ * trip — which is what made a second page appear only after the reader had
+ * been told none existed. Reading in whole multiples instead puts several
+ * numbered pages in hand at once, each of them a slice of ONE response, so
+ * they are also one consistent snapshot: no row shows up twice and none is
+ * skipped between them.
+ *
+ * Whole multiples matter. A remainder would leave a last page shorter than the
+ * size the footer names, and asking for more than the ceiling gets silently
+ * clamped, leaving the pager offering numbers the response has no rows for.
+ */
+export function listFetchLimit(perPage: number): number {
+  return Math.max(1, Math.floor(MAX_ROWS_PER_READ / perPage)) * perPage;
+}
 
 export type ListPage<Row> = {
   data: Row[];

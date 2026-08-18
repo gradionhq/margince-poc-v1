@@ -17,9 +17,11 @@ import { LocaleProvider } from "../i18n";
 import { ProblemError } from "./common";
 import {
   type FilterSpec,
+  LIST_PAGE_SIZES,
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
   type ViewSpec,
 } from "./listquery";
@@ -381,6 +383,24 @@ describe("removing an applied filter", () => {
         "status",
       ),
     );
+  });
+});
+
+describe("listFetchLimit — one read carries several rendered pages", () => {
+  it("fetches whole rendered pages, never a remainder, for every offered size", () => {
+    for (const perPage of LIST_PAGE_SIZES) {
+      const limit = listFetchLimit(perPage);
+      // A remainder would leave a last page shorter than the size the footer
+      // names; over the ceiling the server clamps and the pager offers numbers
+      // with no rows behind them.
+      expect(limit % perPage).toBe(0);
+      expect(limit).toBeLessThanOrEqual(200);
+      expect(limit).toBeGreaterThan(200 - perPage);
+    }
+  });
+
+  it("fills the default page size's strip in one read", () => {
+    expect(listFetchLimit(25) / 25).toBe(8);
   });
 });
 

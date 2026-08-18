@@ -35,6 +35,7 @@ import {
   type ListPage,
   type ListQuery,
   ListTable,
+  listFetchLimit,
   useListQuery,
   useOwnerChips,
 } from "./listquery";
@@ -78,7 +79,7 @@ async function fetchPeoplePage(
         sort: query.sort || undefined,
         include_archived: query.includeArchived || undefined,
         cursor: cursor || undefined,
-        limit: query.perPage,
+        limit: listFetchLimit(query.perPage),
         ...query.filters,
       },
     },

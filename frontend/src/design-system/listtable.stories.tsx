@@ -160,11 +160,13 @@ export const Paged: Story = {
   render: () => <Surface rows={companies(60)} />,
 };
 
-// hasMore is what a keyset cursor reports: there is no total and no arbitrary
-// page to jump to, so Next stays enabled on the last loaded page and fetches
-// the next one instead of the pager inventing a page count.
+// hasMore is what a keyset cursor reports: no total, so the pager numbers the
+// pages in hand and Next stays enabled on the last of them to fetch the next
+// rather than the strip inventing a page count. Six pages in hand is enough to
+// show the whole strip: page one anchored, the window around the current page,
+// and a gap standing for the pages between them.
 export const MoreToFetch: Story = {
-  render: () => <Surface rows={companies(30)} hasMore />,
+  render: () => <Surface rows={companies(150)} hasMore />,
 };
 
 // The first page is in flight. The header, the dials and the primary action

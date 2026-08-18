@@ -21,6 +21,7 @@ import {
   type ListColumn,
   ListTable,
   type ListView,
+  pagerSlots,
 } from "./listtable";
 import { pickOption } from "./select-testing";
 
@@ -690,6 +691,71 @@ describe("pagination", () => {
     expect(
       screen.getByRole("combobox", { name: "Rows per page" }),
     ).toHaveProperty("disabled", true);
+  });
+
+  it("puts the current page between its neighbours and keeps page one reachable", () => {
+    // Page one is where a reader who has lost their place goes back to, and
+    // walking there one Prev at a time is not going back.
+    expect(pagerSlots(1, 6)).toEqual(["room", "room", 1, 2, 3, "gap"]);
+    expect(pagerSlots(4, 6)).toEqual([1, "gap", 3, 4, 5, "gap"]);
+    expect(pagerSlots(6, 6)).toEqual([1, "gap", 4, 5, 6, "room"]);
+  });
+
+  it("marks skipped pages only, so a gap never stands for a page nobody fetched", () => {
+    // Every page in hand is on the strip, so nothing is being held back. A gap
+    // here would read as hidden pages rather than unfetched ones, which is
+    // Next's to say.
+    expect(pagerSlots(2, 3)).toEqual(["room", "room", 1, 2, 3, "room"]);
+    expect(pagerSlots(1, 2)).toEqual(["room", "room", 1, 2, "room", "room"]);
+  });
+
+  it("holds one width so Next stays where the reader clicked it", () => {
+    for (const [current, lastPage] of [
+      [1, 1],
+      [1, 3],
+      [2, 6],
+      [4, 6],
+      [6, 6],
+      [9, 40],
+    ]) {
+      expect(pagerSlots(current, lastPage)).toHaveLength(6);
+    }
+  });
+
+  it("reaches page one from the strip rather than by walking Prev", async () => {
+    const { container } = render(
+      <ListTable
+        rows={testRows(100)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    const slots = () => container.querySelectorAll(".lt-pager > *").length;
+    const atFirstPage = slots();
+
+    await userEvent.click(screen.getByRole("button", { name: "3" }));
+    // The room a gap would take is rendered, not merely counted, so the strip
+    // holds its width and Next stays where the reader clicked it.
+    expect(slots()).toBe(atFirstPage);
+
+    await userEvent.click(screen.getByRole("button", { name: "1" }));
+    expect(
+      screen.getByRole("button", { name: "1" }).getAttribute("aria-current"),
+    ).toBe("page");
+  });
+
+  it("stops the window at the ends rather than numbering pages it has no rows for", () => {
+    render(
+      <ListTable
+        rows={testRows(60)}
+        columns={columns}
+        rowKey={(row) => row.id}
+        unit="rows"
+      />,
+    );
+    expect(screen.getByRole("button", { name: "3" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "4" })).toBeNull();
   });
 
   it("disables Next on the last loaded page when hasMore is false, and enables it (calling onLoadMore) when hasMore is true", async () => {
