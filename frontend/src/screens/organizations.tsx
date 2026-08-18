@@ -32,7 +32,11 @@ import {
   ConfidenceMeter,
   EvidenceChip,
 } from "../design-system/trust";
-import { formatDateTime, formatMoney } from "../format/format";
+import {
+  formatDateAbbrev,
+  formatDateTime,
+  formatMoney,
+} from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
@@ -96,6 +100,7 @@ import {
 } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
+import { OwnerName } from "./entityref";
 import {
   EvidenceVerdict,
   factClaim,
@@ -114,7 +119,6 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
-import { createdColumn, ownerColumn, standardViews } from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
@@ -666,8 +670,41 @@ export function CompaniesScreen() {
                 </span>
               ) : null,
           },
-          ownerColumn<Organization>(t),
-          createdColumn<Organization>(t, locale),
+          {
+            key: "owner",
+            header: t("list.owner"),
+            cell: (org: Organization) => (
+              <OwnerName ownerId={org.owner_id} unowned={t("list.unowned")} />
+            ),
+            sort: "owner_id",
+          },
+          {
+            // When something last happened with this record — the timeline's
+            // clock, kept by the activity write, so it can be sorted on the
+            // server. Empty when nothing has, which is a fact, not a gap.
+            key: "lastActivity",
+            header: t("list.lastActivity"),
+            cell: (org: Organization) => (
+              <span className="t-caption">
+                {org.last_activity_at
+                  ? formatDateAbbrev(org.last_activity_at, locale, RECORD_ZONE)
+                  : ""}
+              </span>
+            ),
+            sort: "last_activity_at",
+          },
+          {
+            key: "created",
+            header: t("list.created"),
+            cell: (org: Organization) => (
+              <span className="t-caption">
+                {org.created_at
+                  ? formatDateAbbrev(org.created_at, locale, RECORD_ZONE)
+                  : ""}
+              </span>
+            ),
+            sort: "created_at",
+          },
         ]}
         tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
@@ -694,7 +731,16 @@ export function CompaniesScreen() {
         ]}
         dataViews={savedViews}
         views={[
-          ...standardViews(viewerId),
+          { label: "list.viewAll", sort: "-created_at" },
+          ...(viewerId
+            ? [
+                {
+                  label: "list.viewMine" as const,
+                  sort: "-created_at",
+                  filters: { owner_id: viewerId },
+                },
+              ]
+            : []),
           {
             label: "list.viewCustomers",
             sort: "display_name",

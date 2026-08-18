@@ -364,11 +364,6 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	"internal/modules/people:person_consent":       "merge carries the survivor's consent state in the single transaction",
 	"internal/modules/people:consent_event":        "merge re-points the append-only consent proof log in the single transaction",
 
-	// activities maintains the deal-timeline denormalization where the
-	// activity lands: deal.last_activity_at moves in the same transaction
-	// as the activity insert or the two drift.
-	"internal/modules/activities:deal": "deal.last_activity_at is denormalized from the timeline; it must move in the activity's own transaction",
-
 	// The outbound-send reconcile folds the provider's own captured echo of a
 	// message this workspace sent into the send's own row. That fold is one
 	// indivisible act — links copied, review moved, key released, row archived

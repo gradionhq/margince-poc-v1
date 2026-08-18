@@ -574,6 +574,7 @@ export const en = {
   "list.unowned": "Unassigned",
   "list.created": "Created",
   "list.updated": "Updated",
+  "list.lastActivity": "Last activity",
   "list.filterOwnerMe": "My records",
   "list.filterOwnerAll": "Any owner",
   "list.filterOwnerUnassigned": "Unassigned",
