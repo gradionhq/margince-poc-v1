@@ -53,6 +53,45 @@ it("does not mount its items until the menu is first opened", async () => {
   ).toBeTruthy();
 });
 
+// A card that hides its own overflow — every Panel does, so full-bleed rows
+// respect its radius — used to clip this panel to the card's edge, and a menu
+// on the last row lost the actions it exists to offer. The panel is drawn at
+// the body and positioned against the trigger, so no ancestor can crop it.
+it("draws its panel outside the container that would clip it", async () => {
+  const { container } = render(
+    <OverflowMenu label="More actions">
+      <button type="button">Archive</button>
+    </OverflowMenu>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "More actions" }));
+
+  const items = screen.getByRole("button", { name: "Archive" }).parentElement;
+  expect(items?.className).toContain("overflow-menu-items");
+  expect(container.contains(items)).toBe(false);
+  expect(document.body.contains(items)).toBe(true);
+  // Positioned, not statically placed: a panel at the document's top-left is a
+  // panel that has lost its trigger.
+  expect(items?.getAttribute("style")).toContain("top:");
+});
+
+// The panel is a sibling of the trigger in the DOM now, so "click outside" has
+// to mean outside BOTH — otherwise pressing an item reads as clicking away and
+// closes the menu under the reader's finger.
+it("stays open when an item inside the portalled panel is clicked", async () => {
+  render(
+    <OverflowMenu label="More actions">
+      <button type="button">Archive</button>
+    </OverflowMenu>,
+  );
+  const trigger = screen.getByRole("button", { name: "More actions" });
+  await userEvent.click(trigger);
+
+  await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+  expect(trigger.getAttribute("aria-expanded")).toBe("true");
+});
+
 // The label is half the control. Every hand-rolled site this atom replaces got
 // its accessible name from a <label> wrapping the input, and a reader ticks the
 // box by clicking the words — so both are asserted through the label text, not

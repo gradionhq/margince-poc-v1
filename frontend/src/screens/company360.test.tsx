@@ -640,9 +640,7 @@ describe("company view — overlay mode", () => {
     // No half-page: the overview's own panels (the account, its worth, the
     // pipeline, the money) are absent entirely rather than showing cards
     // that would each read as an empty account.
-    expect(
-      document.querySelector(".co-panel-stack")?.textContent,
-    ).toBeFalsy();
+    expect(document.querySelector(".co-panel-stack")?.textContent).toBeFalsy();
   });
 });
 

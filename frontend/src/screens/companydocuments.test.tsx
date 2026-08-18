@@ -88,12 +88,17 @@ describe("the account's document library", () => {
   it("prefers the display title a human gave over the filename that arrived", async () => {
     stub(DOCS);
     show(<CompanyDocumentsCard orgId="o-1" />);
-    // "Framework agreement — signed" is what a reader looks for;
-    // "Rahmenvertrag.pdf" is what the scanner produced.
-    expect(
-      await screen.findByText("Framework agreement — signed"),
-    ).toBeTruthy();
-    expect(screen.queryByText("Rahmenvertrag.pdf")).toBeNull();
+    // "Framework agreement — signed" is what a reader looks for and what the
+    // row is named by; "Rahmenvertrag.pdf" is what the scanner produced, and it
+    // is what lands in the downloads folder — so it reads underneath as the
+    // quieter of the two rather than in the name's place.
+    const named = await screen.findByRole("link", {
+      name: "Framework agreement — signed",
+    });
+    expect(named.getAttribute("download")).toBe("Rahmenvertrag.pdf");
+    expect(screen.getByText("Rahmenvertrag.pdf").className).toContain(
+      "t-caption",
+    );
   });
 
   it("makes every document's name its download", async () => {
@@ -169,10 +174,12 @@ describe("the account's document library", () => {
     show(<CompanyDocumentsCard orgId="o-1" />);
     await screen.findByText("Framework agreement — signed");
     // Three uploads of one document are one document to a rep. The history is
-    // reachable, not gone: the toggle names how much of it there is.
+    // reachable, not gone: the footer says how much of it is being held back,
+    // beside the control that holds it.
     expect(screen.queryByText("scan_0001_v0.pdf")).toBeNull();
+    expect(screen.getByText("1 superseded document is hidden.")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Superseded (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show superseded" }));
     expect(await screen.findByText("scan_0001_v0.pdf")).toBeTruthy();
   });
 

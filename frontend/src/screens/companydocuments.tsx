@@ -125,6 +125,20 @@ function emptyReason(
   return "docs.empty";
 }
 
+// What the footer says about the history it is holding — written out per case
+// rather than assembled from fragments, because the message layer does not
+// speak ICU and a key built by concatenation is a key no search for it finds.
+function supersededLine(shown: boolean, count: number): MessageKey {
+  if (shown) {
+    return count === 1
+      ? "docs.superseded.shownOne"
+      : "docs.superseded.shownMany";
+  }
+  return count === 1
+    ? "docs.superseded.hiddenOne"
+    : "docs.superseded.hiddenMany";
+}
+
 export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
   const canWriteDeals = useCanWriteDeals();
   const t = useT();
@@ -134,14 +148,16 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
   // is how a library of forty files reads as a library of ninety.
   const [showSuperseded, setShowSuperseded] = useState(false);
 
+  // ONE read, unfiltered, and the category chosen here. The endpoint filters by
+  // category, but a filtered read can only report what it returned — the chips
+  // would carry no counts, and "no documents of that kind" would be a claim
+  // made from a request that never asked about the other kinds. The account's
+  // library is a page of rows, not a feed.
   const query = useQuery({
-    queryKey: ["orgDocuments", orgId, category],
+    queryKey: ["orgDocuments", orgId],
     queryFn: async () => {
       const { data, error } = await api.GET("/organizations/{id}/documents", {
-        params: {
-          path: { id: orgId },
-          query: category ? { category } : {},
-        },
+        params: { path: { id: orgId } },
       });
       if (error) {
         throwProblem(error);
@@ -155,9 +171,12 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
   // from `contract_id`, which the upload files and nothing infers.
   const unfiled = returned.filter((doc) => !doc.contract_id);
   const superseded = unfiled.filter((doc) => doc.doc_state === "superseded");
-  const documents = showSuperseded
+  const live = showSuperseded
     ? unfiled
     : unfiled.filter((doc) => doc.doc_state !== "superseded");
+  const documents = category
+    ? live.filter((doc) => doc.category === category)
+    : live;
 
   // Its own endpoint, so its own state — not a 360 section, and
   // `sections_omitted` has no word for it. A failed read is UNAVAILABLE and
@@ -167,38 +186,52 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
   const present = state === "ready" || state === "empty";
 
   return (
-    <Panel title={t("docs.title")}>
-      {present && (
-        <PanelBody className="docs-filters">
-          <Button
-            small
-            aria-pressed={category === ""}
-            onClick={() => setCategory("")}
-          >
-            {t("docs.category.all")}
-          </Button>
-          {FILTER_CATEGORIES.map((key) => (
-            <Button
-              key={key}
-              small
-              aria-pressed={category === key}
-              onClick={() => setCategory(category === key ? "" : key)}
-            >
-              {t(CATEGORY_LABELS[key])}
-            </Button>
-          ))}
-          {/* The toggle shows only when there IS history to show. A control
-              that can never change anything teaches a reader to ignore the
-              row it sits in. */}
-          {superseded.length > 0 && (
-            <Button
-              small
+    <Panel
+      title={t("docs.title")}
+      // The history that is being held back, said in the footer where the
+      // control that holds it back also lives. A count with no way to act on it
+      // is a puzzle; a control with no count is a guess.
+      footer={
+        present && superseded.length > 0 ? (
+          <>
+            <span>
+              {t(supersededLine(showSuperseded, superseded.length), {
+                count: String(superseded.length),
+              })}
+            </span>
+            <button
+              type="button"
+              className="co-rowlink rec-foot-action"
               aria-pressed={showSuperseded}
               onClick={() => setShowSuperseded(!showSuperseded)}
             >
-              {t("docs.superseded.show", { count: String(superseded.length) })}
-            </Button>
-          )}
+              {t(
+                showSuperseded
+                  ? "docs.superseded.hide"
+                  : "docs.superseded.show",
+              )}
+            </button>
+          </>
+        ) : undefined
+      }
+    >
+      {present && (
+        <PanelBody className="docs-filters">
+          <FilterChip
+            label={t("docs.category.all")}
+            count={live.length}
+            pressed={category === ""}
+            onPress={() => setCategory("")}
+          />
+          {FILTER_CATEGORIES.map((key) => (
+            <FilterChip
+              key={key}
+              label={t(CATEGORY_LABELS[key])}
+              count={live.filter((doc) => doc.category === key).length}
+              pressed={category === key}
+              onPress={() => setCategory(category === key ? "" : key)}
+            />
+          ))}
         </PanelBody>
       )}
       {present ? (
@@ -215,9 +248,25 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
             </EmptyState>
           </PanelBody>
         ) : (
-          documents.map((doc) => (
-            <DocumentRow key={doc.id} doc={doc} canWriteDeals={canWriteDeals} />
-          ))
+          <>
+            {/* The column names, once, above the rows — the same table the
+                agreements above are read as, so a reader crossing from one
+                panel to the other is reading the same shape. */}
+            <PanelRow className="rec-head rec-row rec-row-doc">
+              <span>{t("docs.col.document")}</span>
+              <span>{t("docs.col.type")}</span>
+              <span>{t("docs.col.version")}</span>
+              <span>{t("docs.col.added")}</span>
+              <span />
+            </PanelRow>
+            {documents.map((doc) => (
+              <DocumentRow
+                key={doc.id}
+                doc={doc}
+                canWriteDeals={canWriteDeals}
+              />
+            ))}
+          </>
         )
       ) : (
         <PanelBody>
@@ -233,6 +282,29 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
         </PanelBody>
       )}
     </Panel>
+  );
+}
+
+// One category, with how many documents are behind it. The count is what makes
+// the chip a decision rather than a gamble: a reader presses "Legal" knowing
+// whether there is one file there or none, and a kind with nothing in it says
+// so instead of leading to an empty list.
+function FilterChip({
+  label,
+  count,
+  pressed,
+  onPress,
+}: Readonly<{
+  label: string;
+  count: number;
+  pressed: boolean;
+  onPress: () => void;
+}>) {
+  return (
+    <Button small aria-pressed={pressed} onClick={onPress}>
+      {label}
+      <span className="rec-chip-count">{count}</span>
+    </Button>
   );
 }
 
@@ -254,45 +326,59 @@ function DocumentRow({
 
   return (
     <Fragment>
-      <PanelRow className="docs-row">
-        {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
-        {/* The NAME is the download. A reader who wants a document clicks its
-            title — a separate action word at the far end of the row is a second
-            thing to find for the only thing this row does. The title if
-            somebody gave it one, else the filename: a display name is what a
-            reader looks for; the filename is what arrived, and it is what the
-            saved file is called. */}
-        <a
-          className="docs-name co-rowlink"
-          href={`/v1/attachments/${doc.id}`}
-          download={doc.filename}
-        >
-          {doc.title || doc.filename}
-        </a>
-        {doc.category && <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>}
-        {doc.doc_state && (
-          <Badge tone={STATE_TONE[doc.doc_state]}>
-            {t(STATE_LABELS[doc.doc_state])}
-          </Badge>
-        )}
-        <span className="t-caption">
-          {formatDateTime(doc.created_at, locale, RECORD_ZONE)}
-        </span>
-        {offersReading && (
-          <Button
-            small
-            aria-expanded={reading}
-            onClick={() => setReading(!reading)}
+      <PanelRow className="rec-row rec-row-doc">
+        <span className="rec-namecell">
+          {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
+          {/* The NAME is the download. A reader who wants a document clicks its
+              title — a separate action word at the far end of the row is a
+              second thing to find for the only thing this row does. The title
+              if somebody gave it one, else the filename: a display name is what
+              a reader looks for; the filename is what arrived, and it is what
+              the saved file is called. */}
+          <a
+            className="docs-name co-rowlink rec-title"
+            href={`/v1/attachments/${doc.id}`}
+            download={doc.filename}
           >
-            {t(reading ? "docs.reading.hide" : "docs.reading.show")}
-          </Button>
-        )}
+            {doc.title || doc.filename}
+          </a>
+          {/* The filename under a title the reader gave it: the two are
+              different names for one file, and only one of them is what lands
+              in the downloads folder. Absent when they are the same string,
+              because a row that says one thing twice says it once. */}
+          {doc.title && doc.title !== doc.filename && (
+            <span className="t-caption rec-sub">{doc.filename}</span>
+          )}
+        </span>
+        <span>{doc.category && t(CATEGORY_LABELS[doc.category])}</span>
+        <span>
+          {doc.doc_state && (
+            <Badge tone={STATE_TONE[doc.doc_state]}>
+              {t(STATE_LABELS[doc.doc_state])}
+            </Badge>
+          )}
+        </span>
+        <span className="rec-added">
+          <span>{formatDateTime(doc.created_at, locale, RECORD_ZONE)}</span>
+          <span className="t-caption">{doc.source}</span>
+        </span>
+        <span className="rec-actions">
+          {offersReading && (
+            <Button
+              small
+              aria-expanded={reading}
+              onClick={() => setReading(!reading)}
+            >
+              {t(reading ? "docs.reading.hide" : "docs.reading.show")}
+            </Button>
+          )}
+        </span>
       </PanelRow>
       {/* The staged reading sits UNDER its own row rather than inside it: what
           it offers is about the document above it, and a panel wedged into a
           list row would push the filename and the download out of line. */}
       {offersReading && reading && (
-        <PanelRow className="docs-row">
+        <PanelRow className="rec-reading">
           <DocumentExtractionPanel
             attachmentId={doc.id}
             canAccept={canWriteDeals}

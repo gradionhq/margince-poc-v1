@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
@@ -10,9 +10,10 @@ import {
   OverflowMenu,
 } from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
+import { FileChip } from "../design-system/filechip";
 import { Panel, PanelBody, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
-import { formatDate, formatMoney } from "../format/format";
+import { formatBytes, formatDate, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
@@ -169,9 +170,23 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
               </EmptyState>
             </PanelBody>
           ) : (
-            contracts.map((contract) => (
-              <Fragment key={contract.id}>
+            <>
+              {/* The column names, once, above the rows. A row of five facts
+                  each drawn in its own shape is read as five facts; the same
+                  row under headings is read as a table, and a reader comparing
+                  two agreements is comparing columns rather than re-reading
+                  labels. */}
+              <PanelRow className="rec-head rec-row rec-row-contract">
+                <span>{t("contracts.col.contract")}</span>
+                <span>{t("contracts.col.reference")}</span>
+                <span className="rec-num">{t("contracts.col.value")}</span>
+                <span>{t("contracts.col.status")}</span>
+                <span>{t("contracts.col.term")}</span>
+                <span />
+              </PanelRow>
+              {contracts.map((contract) => (
                 <ContractRow
+                  key={contract.id}
                   contract={contract}
                   orgId={orgId}
                   mayWrite={mayWrite}
@@ -181,8 +196,8 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
                     setFormOpen(true);
                   }}
                 />
-              </Fragment>
-            ))
+              ))}
+            </>
           )
         ) : (
           <PanelBody>
@@ -213,6 +228,7 @@ function ContractRow({
   const { locale } = useLocale();
   const queryClient = useQueryClient();
   const [asking, setAsking] = useState(false);
+  const basis = basisLabel(contract);
 
   // The id is a VARIABLE, never closed over: a click landing before React
   // re-arms the mutation would otherwise archive whatever the previous render
@@ -234,38 +250,53 @@ function ContractRow({
   });
 
   return (
-    <PanelRow className="docs-row">
+    <PanelRow className="rec-row rec-row-contract">
       {/* The title opens the same form the add button does. A row a reader
           cannot open is a row they cannot correct, and a mistyped value is the
           most likely thing they came here to fix. */}
-      <button type="button" className="co-rowlink" onClick={onEdit}>
+      <button type="button" className="co-rowlink rec-title" onClick={onEdit}>
         {contract.title}
       </button>
-      {contract.contract_number && (
-        <span className="t-caption">{contract.contract_number}</span>
-      )}
-      <span>{contractValue(contract, locale, perYearLabel(t))}</span>
-      {contract.status && (
-        <Badge tone={STATUS_TONE[contract.status]}>
-          {t(STATUS_LABELS[contract.status])}
-        </Badge>
-      )}
-      <ContractTermState contract={contract} />
+      <span className="t-mono t-caption">{contract.contract_number ?? ""}</span>
+      {/* The figure and the basis it is stated on, stacked: a reader scanning
+          the column compares amounts on one line and reads what they mean on
+          the next, instead of parsing "€120,000.00 / year" as one string. */}
+      <span className="rec-num">
+        <span className="rec-amount">{contractAmount(contract, locale)}</span>
+        {basis !== "" && <span className="t-caption">{t(basis)}</span>}
+      </span>
+      <span>
+        {contract.status && (
+          <Badge tone={STATUS_TONE[contract.status]}>
+            {t(STATUS_LABELS[contract.status])}
+          </Badge>
+        )}
+      </span>
+      <span className="rec-term">
+        <ContractTerm contract={contract} />
+        <ContractTermState contract={contract} />
+      </span>
+      <span className="rec-actions">
+        {(mayWrite || mayArchive) && (
+          <OverflowMenu label={t("contracts.rowMenu")}>
+            {mayWrite && (
+              <button type="button" onClick={onEdit}>
+                {t("contracts.edit")}
+              </button>
+            )}
+            {mayArchive && (
+              <button type="button" onClick={() => setAsking(true)}>
+                {t("contracts.archive")}
+              </button>
+            )}
+          </OverflowMenu>
+        )}
+      </span>
+      {/* The paper spans the whole row under the agreement's facts: a file is
+          about the agreement rather than about any one of its columns, and a
+          chip wedged into the value column would push the figures out of
+          line. */}
       <ContractPaper contractId={contract.id} orgId={orgId} />
-      {(mayWrite || mayArchive) && (
-        <OverflowMenu label={t("contracts.rowMenu")}>
-          {mayWrite && (
-            <button type="button" onClick={onEdit}>
-              {t("contracts.edit")}
-            </button>
-          )}
-          {mayArchive && (
-            <button type="button" onClick={() => setAsking(true)}>
-              {t("contracts.archive")}
-            </button>
-          )}
-        </OverflowMenu>
-      )}
       <ConfirmModal
         open={asking}
         onClose={() => setAsking(false)}
@@ -308,6 +339,8 @@ function ContractPaper({
   contractId,
   orgId,
 }: Readonly<{ contractId: string; orgId: string }>) {
+  const t = useT();
+  const { locale } = useLocale();
   const query = useQuery({
     queryKey: ["contractPaper", orgId, contractId],
     queryFn: async () => {
@@ -332,21 +365,24 @@ function ContractPaper({
     return null;
   }
   return (
-    <>
+    <span className="rec-files">
+      <span className="t-caption rec-files-label">{t("contracts.files")}</span>
       {files.map((file) => (
-        <a
+        // The filename, not the title: a paper's title is very often the
+        // agreement's own title, and a link repeating the row it sits on names
+        // nothing.
+        <FileChip
           key={file.id}
-          className="co-rowlink"
           href={`/v1/attachments/${file.id}`}
-          download={file.filename}
-        >
-          {/* The filename, not the title: a paper's title is very often the
-              agreement's own title, and a link repeating the row it sits on
-              names nothing. */}
-          {file.filename}
-        </a>
+          filename={file.filename}
+          size={
+            file.byte_size == null
+              ? undefined
+              : formatBytes(file.byte_size, locale)
+          }
+        />
       ))}
-    </>
+    </span>
   );
 }
 
@@ -396,25 +432,46 @@ function ContractTermState({ contract }: Readonly<{ contract: Contract }>) {
   return null;
 }
 
-// perYearLabel hands the value formatter its translated suffix, so the "/ year"
-// a reader sees is in their language rather than Latin shorthand.
-function perYearLabel(t: ReturnType<typeof useT>) {
-  return (amount: string) => t("contracts.perYear", { amount });
-}
-
-// One agreement's value, with the basis said in words.
+// One agreement's figure, and separately the basis it is stated on.
 //
-// An annualized figure NEVER renders as a bare amount: a reader who cannot tell
-// a three-year total from a per-year figure has been handed a number they will
-// misuse, and the row is the last place that distinction can be made.
-export function contractValue(
-  contract: Contract,
-  locale: Locale,
-  perYear: (amount: string) => string,
-): string {
+// The two are drawn on their own lines rather than joined into one string, but
+// they are still one fact: an annualized figure NEVER appears without its
+// basis, because a reader who cannot tell a three-year total from a per-year
+// figure has been handed a number they will misuse, and the row is the last
+// place that distinction can be made. An agreement with no figure recorded
+// shows neither — an empty column, not a zero.
+export function contractAmount(contract: Contract, locale: Locale): string {
   if (contract.value_minor == null || !contract.currency) {
     return "";
   }
-  const amount = formatMoney(contract.value_minor, contract.currency, locale);
-  return contract.value_basis === "annualized_12m" ? perYear(amount) : amount;
+  return formatMoney(contract.value_minor, contract.currency, locale);
+}
+
+export function basisLabel(contract: Contract): MessageKey | "" {
+  if (contract.value_minor == null || !contract.currency) {
+    return "";
+  }
+  return contract.value_basis === "annualized_12m"
+    ? "contracts.value.perYear"
+    : "contracts.value.total";
+}
+
+// The term as the two dates that bound it. Absent dates say so in words: a
+// blank column reads as "not loaded", and an agreement whose term nobody
+// recorded is a real and common state — it is entered from an invoice as
+// often as from the paper.
+function ContractTerm({ contract }: Readonly<{ contract: Contract }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const on = (date: string) => formatDate(date, locale, RECORD_ZONE);
+  if (!contract.starts_on && !contract.ends_on) {
+    return <span className="t-caption">{t("contracts.noTerm")}</span>;
+  }
+  return (
+    <span className="rec-term-dates">
+      {contract.starts_on ? on(contract.starts_on) : t("contracts.openStart")}
+      {" – "}
+      {contract.ends_on ? on(contract.ends_on) : t("contracts.openEnd")}
+    </span>
+  );
 }

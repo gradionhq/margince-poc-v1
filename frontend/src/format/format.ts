@@ -133,6 +133,31 @@ export function formatDateTime(
   }).format(new Date(utcIso));
 }
 
+// A stored file's size, for a reader deciding whether to open it — never for
+// arithmetic. The unit steps with the file rather than being fixed: a 412-byte
+// note rendered on a kilobyte scale reads "0 kB", which looks like a file that
+// failed to upload. The unit words ride Intl's own vocabulary, so de and vi
+// read correctly without a lookup table here.
+export function formatBytes(bytes: number, locale: Locale): string {
+  const [value, unit] = byteScale(bytes);
+  return new Intl.NumberFormat(INTL_LOCALE[locale], {
+    style: "unit",
+    unit,
+    unitDisplay: "short",
+    maximumFractionDigits: unit === "byte" ? 0 : 1,
+  }).format(value);
+}
+
+function byteScale(bytes: number): [number, "byte" | "kilobyte" | "megabyte"] {
+  if (bytes >= 1_000_000) {
+    return [bytes / 1_000_000, "megabyte"];
+  }
+  if (bytes >= 1000) {
+    return [bytes / 1000, "kilobyte"];
+  }
+  return [bytes, "byte"];
+}
+
 // Idle/SLA spans display as ABSOLUTE durations (no naive calendar diff —
 // architecture/10 §2): the input is a millisecond span already computed
 // upstream from two UTC instants.

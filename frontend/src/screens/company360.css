@@ -1329,6 +1329,134 @@
   flex-wrap: wrap;
 }
 
+/* The agreements and the library are read as TABLES: the same fact in the same
+   place on every row, under a heading that names it once. A row of five facts
+   each in its own shape is read five times; a row under columns is compared
+   against the row above it, which is what a reader crossing this tab is
+   actually doing. Both panels share the row mechanics and differ only in their
+   column track list. */
+.rec-row {
+  display: grid;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+.rec-row-contract {
+  grid-template-columns:
+    minmax(11rem, 2fr) minmax(6rem, auto) minmax(6rem, auto)
+    minmax(4rem, auto) minmax(8rem, auto) auto;
+}
+.rec-row-doc {
+  grid-template-columns:
+    minmax(11rem, 2fr) minmax(5rem, auto) minmax(5rem, auto)
+    minmax(8rem, auto) auto;
+}
+/* The heading row is a label, not a row of data: it never lights up under the
+   pointer, and it sits on the panel's own ground so the rows below read as the
+   content. */
+.rec-head {
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+.rec-head:hover {
+  background: none;
+}
+.rec-title {
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+/* The name column carries a badge, the name, and the filename under it — three
+   things about ONE document, so they stack inside the cell rather than taking
+   columns of their own. */
+.rec-namecell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.rec-sub,
+.rec-namecell {
+  overflow-wrap: anywhere;
+}
+.rec-sub {
+  flex-basis: 100%;
+}
+/* A figure and what it is stated on, stacked and right-aligned: amounts are
+   compared down the column, and a column of numbers only compares when the
+   digits line up. */
+.rec-num {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  text-align: right;
+}
+.rec-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+}
+.rec-term,
+.rec-added {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.rec-term-dates {
+  font-variant-numeric: tabular-nums;
+}
+.rec-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+/* The paper belongs to the whole agreement, so it spans the row's columns
+   under them rather than crowding one of them. */
+.rec-files {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.rec-files-label {
+  min-width: 3rem;
+}
+/* A count on a filter chip: the same word, one shade back, so the chip reads
+   as "Legal, of which there are two" rather than as two labels. */
+.rec-chip-count {
+  margin-left: var(--space-2);
+  color: var(--textMeta);
+  font-variant-numeric: tabular-nums;
+}
+.rec-foot-action {
+  margin-left: auto;
+}
+/* The staged reading is about the row above it and spans the whole panel. */
+.rec-reading {
+  display: block;
+}
+/* One column, no headings, on a narrow screen: a five-column table on a phone
+   is five columns of two characters each. */
+@media (max-width: 720px) {
+  .rec-row-contract,
+  .rec-row-doc {
+    grid-template-columns: 1fr;
+  }
+  .rec-head {
+    display: none;
+  }
+  .rec-num,
+  .rec-actions {
+    align-items: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+  }
+}
+
 /* The file input covers its drop zone so a click anywhere opens the picker,
    while staying a real focusable input for anyone not using a mouse. */
 .dropzone {
