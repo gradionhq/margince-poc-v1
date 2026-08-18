@@ -66,7 +66,7 @@ export function ClientSurfaceScreen() {
         </div>
 
         {lookup.isSuccess && lookup.data.length > 0 && (
-          <Card style={{ marginTop: 14 }}>
+          <Card style={{ marginTop: "var(--space-3)" }}>
             {lookup.data.map((hit) => (
               <div
                 key={hit.id}
@@ -85,7 +85,7 @@ export function ClientSurfaceScreen() {
         )}
 
         {lookup.isSuccess && lookup.data.length === 0 && (
-          <Card inset style={{ marginTop: 14 }}>
+          <Card inset style={{ marginTop: "var(--space-3)" }}>
             <p className="t-label">{t("client.unknown")}</p>
             <p className="t-caption" style={{ marginTop: 4 }}>
               {t("client.unknownDetail")}

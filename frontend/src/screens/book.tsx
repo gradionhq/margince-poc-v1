@@ -172,7 +172,7 @@ function SessionBookingScreen() {
         </QueryGate>
       )}
       {book.isError && (
-        <Card as="div" inset style={{ marginTop: 12 }}>
+        <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {problemMessageOf(book.error, t)}
@@ -333,7 +333,7 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         </QueryGate>
       )}
       {book.isError && (
-        <Card as="div" inset style={{ marginTop: 12 }}>
+        <Card as="div" inset style={{ marginTop: "var(--space-3)" }}>
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {problemMessageOf(book.error, t)}

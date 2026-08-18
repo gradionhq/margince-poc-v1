@@ -2710,7 +2710,6 @@ export const de = {
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
   "ob.s4.googleLive": "Verbindung bestätigt — Hintergrund-Erfassung läuft",
-  "dedupe.title": "Mögliche Duplikate",
   "dedupe.intro":
     "Paare, die die Erfassung als vermutlich dieselbe Person oder Firma erkannt hat. Zusammenführen erhält die Historie beider Datensätze; Verwerfen bedeutet: nie wieder nach diesem Paar fragen.",
   "dedupe.loading": "Prüf-Warteschlange wird geladen…",

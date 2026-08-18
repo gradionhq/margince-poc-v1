@@ -623,6 +623,7 @@ function SettingsPageHead({
 const PAGE_SUB_KEYS: Record<string, MessageKey> = {
   inbox: "inbox.sub",
   ai: "ai.sub",
+  dedupe: "dedupe.intro",
 };
 
 // Off-rail screens (reached from Settings, not the NAV rail) carry their own

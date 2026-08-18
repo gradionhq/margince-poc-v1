@@ -2689,7 +2689,6 @@ export const vi = {
   "ob.s4.googleOkBody":
     "Việc thu thập đang chạy nền — email mới lên timeline trong khoảng một phút, và từ giờ tự giữ đồng bộ.",
   "ob.s4.googleLive": "Đã xác minh kết nối — thu thập nền đang bật",
-  "dedupe.title": "Có thể trùng lặp",
   "dedupe.intro":
     "Những cặp mà luồng thu thập đánh dấu là nhiều khả năng cùng một người hay cùng một công ty. Việc gộp giữ lại lịch sử của cả hai bản ghi; việc bỏ qua báo cho hệ thống đừng hỏi về cặp này nữa.",
   "dedupe.loading": "Đang tải hàng đợi rà soát…",

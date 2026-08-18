@@ -2689,7 +2689,6 @@ export const en = {
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
   "ob.s4.googleLive": "Connection verified — background capture is on",
-  "dedupe.title": "Possible duplicates",
   "dedupe.intro":
     "Pairs the capture pipeline flagged as likely the same person or company. Merging keeps both records' history; dismissing tells the system to never ask about this pair again.",
   "dedupe.loading": "Loading the review queue…",
