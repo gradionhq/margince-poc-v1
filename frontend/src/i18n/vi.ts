@@ -1487,6 +1487,8 @@ export const vi = {
 
   "deal.offers": "Báo giá",
   "deal.newOffer": "Báo giá mới",
+  "deal.offerNeedsCurrency":
+    "Hãy định giá thương vụ này trước — báo giá được lập theo tiền tệ của thương vụ.",
   "deal.offerNumber": "Số báo giá",
   "deal.offerRevision": "Bản",
   "deal.offersEmpty": "Chưa có báo giá",
@@ -2021,6 +2023,7 @@ export const vi = {
   "tasks.clearReminder": "Xoá lời nhắc",
 
   "reports.sub": "deal theo giai đoạn — chưa trọng số cạnh có trọng số",
+  "reports.currency": "Tiền tệ",
   "reports.count": "Deal",
   "reports.unweighted": "Chưa trọng số",
   "reports.weighted": "Có trọng số",

@@ -3,6 +3,7 @@ import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import {
   type BoardMoneyColumn,
@@ -123,6 +124,45 @@ describe("DealCard + PipelineBoard", () => {
     render(<PipelineBoard columns={[column]} />);
     expect(screen.getByText("137 deals")).toBeTruthy();
     expect(screen.queryByText("1 deals")).toBeNull();
+  });
+
+  // A money figure is an amount AND its currency. Either half absent leaves no
+  // figure to draw, and both substitutes state something false: a zero is an
+  // amount the server never sent, and a currency sign the card chose cannot be
+  // told apart from one the deal actually carries.
+  it("a deal with an amount but no currency states no figure, never a currency the card chose", () => {
+    render(<DealCard deal={{ ...deal, currency: null }} />);
+    expect(screen.getByText(MONEY_ABSENT)).toBeTruthy();
+    expect(screen.queryByText(/48,000/)).toBeNull();
+  });
+
+  it("a deal with a currency but no amount states no figure, never a zero", () => {
+    render(<DealCard deal={{ ...deal, valueMinor: null }} />);
+    expect(screen.getByText(MONEY_ABSENT)).toBeTruthy();
+    expect(screen.queryByText("€0.00")).toBeNull();
+  });
+
+  // The count is a fact the column has even when the total is not: a stage of
+  // deals nobody priced still holds them, and a zero total beside that count
+  // reads as an empty stage.
+  it("a column whose total names no currency draws both figures as absent and keeps its count", () => {
+    const column: BoardMoneyColumn = {
+      stage: "proposal",
+      label: "Proposal",
+      probabilityPct: 40,
+      rawMinor: null,
+      weightedMinor: null,
+      currency: null,
+      deals: [deal],
+      count: 4,
+    };
+    render(<PipelineBoard columns={[column]} />);
+    expect(screen.getByText("4 deals")).toBeTruthy();
+    expect(screen.getByText(`weighted ${MONEY_ABSENT}`)).toBeTruthy();
+    expect(
+      screen.getByText(MONEY_ABSENT, { selector: ".board-col-money" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/€0\.00/)).toBeNull();
   });
 });
 

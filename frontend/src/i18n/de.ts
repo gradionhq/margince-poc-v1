@@ -1489,6 +1489,8 @@ export const de = {
 
   "deal.offers": "Angebote",
   "deal.newOffer": "Neues Angebot",
+  "deal.offerNeedsCurrency":
+    "Bepreisen Sie zuerst diesen Deal — ein Angebot wird in der Währung des Deals erstellt.",
   "deal.offerNumber": "Angebots-Nr.",
   "deal.offerRevision": "Rev.",
   "deal.offersEmpty": "Noch keine Angebote",
@@ -2035,6 +2037,7 @@ export const de = {
   "tasks.clearReminder": "Erinnerung entfernen",
 
   "reports.sub": "Deals je Phase — ungewichtet neben gewichtet",
+  "reports.currency": "Währung",
   "reports.count": "Deals",
   "reports.unweighted": "Ungewichtet",
   "reports.weighted": "Gewichtet",

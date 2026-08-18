@@ -983,8 +983,12 @@ export async function mockApi(
           ...deals[0],
           id: "d-new",
           name: String(body.name),
+          // Echoed, both halves, exactly as the write sent them. A deal created
+          // with no currency comes back with none — a fixture that supplied one
+          // would hide from every e2e run the unpriced deal the real server
+          // returns.
           amount_minor: body.amount_minor ?? null,
-          currency: body.currency ?? "EUR",
+          currency: body.currency ?? null,
           stage_id: String(body.stage_id),
         },
         201,
@@ -1304,18 +1308,32 @@ export async function mockApi(
       return json({
         report: "deals-by-stage",
         plan: { group_by: ["stage_id"] },
-        columns: ["stage_id", "raw_minor", "deal_count"],
+        // The aliases are the REQUEST's, not this file's taste: the board asks
+        // for `count as deals` and reads `row.deals`, so a row keyed
+        // `deal_count` is a row it counts as nothing — every board column here
+        // reported "0 deals" beside a real card. The weighted total is asked for
+        // on the same request and is the server's own per-deal-rounded figure,
+        // never the raw total scaled by the stage probability.
+        columns: [
+          "stage_id",
+          "currency",
+          "raw_minor",
+          "weighted_minor",
+          "deals",
+        ],
         rows: [
           {
             stage_id: "s1",
             raw_minor: 1_250_000,
-            deal_count: 1,
+            weighted_minor: 250_000,
+            deals: 1,
             currency: "EUR",
           },
           {
             stage_id: "s2",
             raw_minor: 4_800_000,
-            deal_count: 1,
+            weighted_minor: 1_920_000,
+            deals: 1,
             currency: "EUR",
           },
         ],

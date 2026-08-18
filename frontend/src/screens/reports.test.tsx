@@ -9,8 +9,14 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { formatMoney, MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
-import { parseDerivationQuery, ReportsScreen } from "./reports";
+import {
+  buildStageAggregates,
+  groupForecastAmounts,
+  parseDerivationQuery,
+  ReportsScreen,
+} from "./reports";
 
 // D2 acceptance: a report picker over deals-by-stage (unchanged), forecast
 // (unweighted category tiles + a weighted-vs-unweighted banner), and
@@ -294,5 +300,160 @@ describe("parseDerivationQuery", () => {
     expect(q.by).toEqual(["stage_id"]);
     expect(q.agg).toEqual(["sum:amount_minor:raw"]);
     expect(q.stage_id).toBe("s1");
+  });
+});
+
+// Money never sums across currencies (data-semantics §1 r4, AC-DS-FX1): every
+// plan this screen runs groups by currency, so a stage or a category holding
+// two currencies has two totals and the screen shows both. What it must never
+// show is one figure that added them, or a currency it invented for a figure
+// the server sent without one.
+describe("reports never sum money across currencies", () => {
+  const STAGES = [
+    { id: "pl-s2", name: "Propose", position: 2 },
+    { id: "pl-s1", name: "Qualify", position: 1 },
+  ];
+
+  it("asks the server to group every money plan by currency", async () => {
+    const bodies: { key: string; body: Record<string, unknown> }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({ onRun: (key, body) => bodies.push({ key, body }) }),
+    );
+    render(<ReportsScreen />);
+    await waitFor(() => expect(screen.getByText("Qualify")).toBeTruthy());
+    const stagePlan = bodies.find((sent) => sent.key === "deals-by-stage");
+    expect(stagePlan?.body).toMatchObject({
+      group_by: ["stage_id", "currency"],
+    });
+  });
+
+  it("renders a stage's two currencies as two rows and no combined figure", async () => {
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        stageRows: [
+          {
+            stage_id: "pl-s1",
+            raw_minor: 100_000,
+            weighted_minor: 20_000,
+            deal_count: 2,
+            currency: "EUR",
+          },
+          {
+            stage_id: "pl-s1",
+            raw_minor: 4_500_000_000,
+            weighted_minor: 900_000_000,
+            deal_count: 3,
+            currency: "VND",
+          },
+        ],
+      }),
+    );
+    render(<ReportsScreen />);
+    expect(
+      await screen.findByText(formatMoney(100_000, "EUR", "en")),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(formatMoney(4_500_000_000, "VND", "en")),
+    ).toBeTruthy();
+    expect(screen.getAllByText("EUR").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("VND").length).toBeGreaterThan(0);
+    // The figure the old ungrouped plan printed: both currencies added and
+    // labelled with whichever one happened to arrive first.
+    expect(
+      screen.queryByText(formatMoney(4_500_100_000, "EUR", "en")),
+    ).toBeNull();
+  });
+
+  it("renders an unpriced stage as absent rather than as zero euros", async () => {
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        stageRows: [
+          {
+            stage_id: "pl-s1",
+            raw_minor: null,
+            weighted_minor: null,
+            deal_count: 4,
+            currency: null,
+          },
+        ],
+      }),
+    );
+    render(<ReportsScreen />);
+    await waitFor(() => expect(screen.getByText("Qualify")).toBeTruthy());
+    // The count is real and stays; only the money is unknown.
+    expect(screen.getByText("4")).toBeTruthy();
+    expect(screen.getAllByText(MONEY_ABSENT).length).toBeGreaterThan(0);
+    expect(screen.queryByText(formatMoney(0, "EUR", "en"))).toBeNull();
+  });
+
+  it("renders a forecast category with no deals as absent rather than as zero euros", async () => {
+    vi.stubGlobal("fetch", reportsStub({ forecastRows: [] }));
+    render(<ReportsScreen />);
+    await userEvent.setup().click(await screen.findByText("Forecast"));
+    await waitFor(() =>
+      expect(screen.getAllByText(MONEY_ABSENT).length).toBeGreaterThan(0),
+    );
+    expect(screen.queryByText(formatMoney(0, "EUR", "en"))).toBeNull();
+  });
+
+  it("orders stage rows down the pipeline, then by currency code", () => {
+    const rows = [
+      { stage_id: "pl-s2", currency: "VND", raw_minor: 1, deal_count: 1 },
+      { stage_id: "pl-s1", currency: "VND", raw_minor: 1, deal_count: 1 },
+      { stage_id: "pl-s2", currency: "EUR", raw_minor: 1, deal_count: 1 },
+      { stage_id: "pl-s1", currency: "EUR", raw_minor: 1, deal_count: 1 },
+    ];
+    expect(
+      buildStageAggregates(rows, STAGES).map(
+        (row) => `${row.stageName}/${row.currency}`,
+      ),
+    ).toEqual(["Qualify/EUR", "Qualify/VND", "Propose/EUR", "Propose/VND"]);
+  });
+
+  it("sorts a row whose stage the pipeline no longer carries to the end", () => {
+    const rows = [
+      { stage_id: "gone", currency: "EUR", raw_minor: 1, deal_count: 1 },
+      { stage_id: "pl-s1", currency: "EUR", raw_minor: 1, deal_count: 1 },
+    ];
+    expect(
+      buildStageAggregates(rows, STAGES).map((row) => row.stageId),
+    ).toEqual(["pl-s1", "gone"]);
+  });
+
+  it("keeps an absent measure absent rather than reading it as zero", () => {
+    const [row] = buildStageAggregates(
+      [
+        {
+          stage_id: "pl-s1",
+          currency: null,
+          raw_minor: null,
+          weighted_minor: null,
+          deal_count: 3,
+        },
+      ],
+      STAGES,
+    );
+    expect(row.rawMinor).toBeNull();
+    expect(row.weightedMinor).toBeNull();
+    expect(row.currency).toBeNull();
+    // A count of zero would be a claim; the server did send this one.
+    expect(row.count).toBe(3);
+  });
+
+  it("gathers a forecast category's currencies in code order", () => {
+    const grouped = groupForecastAmounts([
+      { forecast_category: "commit", currency: "VND", raw_minor: 2 },
+      { forecast_category: "commit", currency: "EUR", raw_minor: 1 },
+      { forecast_category: "pipeline", currency: "EUR", raw_minor: 3 },
+    ]);
+    expect(grouped.get("commit")?.map((amount) => amount.currency)).toEqual([
+      "EUR",
+      "VND",
+    ]);
+    expect(grouped.get("pipeline")).toHaveLength(1);
+    expect(grouped.get("best_case")).toBeUndefined();
   });
 });

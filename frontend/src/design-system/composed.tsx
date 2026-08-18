@@ -10,7 +10,11 @@ import {
 import type { ReactNode } from "react";
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { splitEmailBody } from "../format/emailtext";
-import { formatDate, formatDuration, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDuration,
+  formatMoneyOrAbsent,
+} from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Avatar, Badge, Button } from "./atoms";
@@ -82,8 +86,19 @@ export type BoardDeal = {
   /** The company's resolved mark. Absent leaves the monogram, which is the
    *  floor rather than a fallback. */
   orgLogoUrl?: string | null;
-  valueMinor: number;
-  currency: string;
+  /**
+   * The deal's money, as the two halves it actually has: an integer minor
+   * amount and its ISO currency, either of which can be missing on a deal
+   * nobody has priced. Required and nullable rather than optional, because a
+   * caller owes the card an answer about the money — `null` is that answer
+   * where there is no figure, and the card draws it as absent.
+   *
+   * Definite types here are what made every caller invent a currency: a prop
+   * demanding a `string` leaves `?? "EUR"` as the only way to satisfy it, and
+   * a euro sign on a figure that might be dong is worse than no figure.
+   */
+  valueMinor: number | null;
+  currency: string | null;
   ageMs: number;
   stalled?: boolean;
   singleThreaded?: boolean;
@@ -119,12 +134,18 @@ export type BoardColumn = {
  * optional is not what these are — a deal column without them renders
  * `undefined%` in its header, which is worse than failing to compile. The
  * variant that reads them is the variant that requires them.
+ *
+ * The three money fields are nullable, which is not the same as optional: the
+ * caller still owes every column an answer, and `null` is the answer where the
+ * server stated no figure — an aggregate over unpriced deals, or a stage whose
+ * rows name no currency. Drawn as absent, never as a zero: a stage total of
+ * `€0.00` beside a real deal count reads as an empty stage.
  */
 export type BoardMoneyColumn = BoardColumn & {
   probabilityPct: number;
-  rawMinor: number;
-  weightedMinor: number;
-  currency: string;
+  rawMinor: number | null;
+  weightedMinor: number | null;
+  currency: string | null;
 };
 
 export function DealCard({
@@ -169,7 +190,7 @@ export function DealCard({
       )}
       <span className="deal-meta">
         <span className="deal-value">
-          {formatMoney(deal.valueMinor, deal.currency, locale)}
+          {formatMoneyOrAbsent(deal.valueMinor, deal.currency, locale)}
         </span>
         <span>{formatDuration(deal.ageMs, locale)}</span>
         {deal.archived && <Badge>{t("deal.archived")}</Badge>}
@@ -263,7 +284,11 @@ export function PipelineBoard({
               <span className="board-col-total">
                 {money && !column.sumHidden && (
                   <span className="board-col-money">
-                    {formatMoney(money.rawMinor, money.currency, locale)}
+                    {formatMoneyOrAbsent(
+                      money.rawMinor,
+                      money.currency,
+                      locale,
+                    )}
                   </span>
                 )}
                 <span>
@@ -275,7 +300,7 @@ export function PipelineBoard({
               {money && !column.sumHidden && (
                 <span className="board-col-weighted">
                   {t("board.weighted", {
-                    value: formatMoney(
+                    value: formatMoneyOrAbsent(
                       money.weightedMinor,
                       money.currency,
                       locale,

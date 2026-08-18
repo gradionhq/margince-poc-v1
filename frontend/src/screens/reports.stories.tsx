@@ -6,8 +6,9 @@ import { LocaleProvider } from "../i18n";
 import { ForecastTile } from "./reports";
 
 // ForecastTile is prop-driven (Card + typography, no fetch) — the reports
-// screen maps forecast-category rows onto it. Shown here for the commit and
-// best-case categories.
+// screen maps forecast-category rows onto it. The report groups by currency, so
+// a tile takes a LIST of readings: the four states below are the ones the
+// screen can actually hand it.
 const meta: Meta = {
   title: "Records/Reports",
   parameters: { layout: "padded" },
@@ -27,19 +28,39 @@ export const Commit: Story = {
   render: () => (
     <ForecastTile
       label="Commit"
-      amountMinor={500000}
-      currency="EUR"
+      amounts={[{ currency: "EUR", rawMinor: 500000, weightedMinor: 425000 }]}
       locale="en"
     />
   ),
 };
 
-export const BestCase: Story = {
+// Two currencies in one category: two totals, never a third that adds them.
+export const TwoCurrencies: Story = {
   render: () => (
     <ForecastTile
       label="Best case"
-      amountMinor={1250000}
-      currency="EUR"
+      amounts={[
+        { currency: "EUR", rawMinor: 1250000, weightedMinor: 500000 },
+        { currency: "VND", rawMinor: 4500000000, weightedMinor: 1800000000 },
+      ]}
+      locale="en"
+    />
+  ),
+};
+
+// A category the report returned no row for. Not a zero — nothing was measured
+// in any currency for it to be zero of.
+export const NoDeals: Story = {
+  render: () => <ForecastTile label="Omitted" amounts={[]} locale="en" />,
+};
+
+// Deals nobody has priced: the report groups them under a null currency, and a
+// reading with no currency cannot be rendered as money at all.
+export const Unpriced: Story = {
+  render: () => (
+    <ForecastTile
+      label="Pipeline"
+      amounts={[{ currency: null, rawMinor: null, weightedMinor: null }]}
       locale="en"
     />
   ),

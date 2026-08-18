@@ -303,10 +303,10 @@ describe("buildColumns", () => {
     expect(columns[1].sumHidden).toBe(true);
   });
 
-  it("a stage with no totals row (still loading, or genuinely empty) shows zero, not a stale figure", () => {
+  it("a stage with no totals row states no figure and no currency", () => {
     const columns = buildColumns(stages, [], new Map());
-    expect(columns[0].rawMinor).toBe(0);
-    expect(columns[0].weightedMinor).toBe(0);
+    expect(columns[0].rawMinor).toBeNull();
+    expect(columns[0].currency).toBeNull();
     expect(columns[0].sumHidden).toBeFalsy();
   });
 });

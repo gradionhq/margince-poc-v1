@@ -1492,6 +1492,8 @@ export const en = {
 
   "deal.offers": "Offers",
   "deal.newOffer": "New offer",
+  "deal.offerNeedsCurrency":
+    "Price this deal first — an offer is written in the deal's own currency.",
   "deal.offerNumber": "Offer #",
   "deal.offerRevision": "Rev.",
   "deal.offersEmpty": "No offers yet",
@@ -2023,6 +2025,7 @@ export const en = {
   "tasks.clearReminder": "Clear reminder",
 
   "reports.sub": "deals by stage — unweighted next to weighted",
+  "reports.currency": "Currency",
   "reports.count": "Deals",
   "reports.unweighted": "Unweighted",
   "reports.weighted": "Weighted",

@@ -39,6 +39,7 @@ import {
   formatDateTime,
   formatMoney,
   formatMoneyCompact,
+  formatMoneyOrAbsent,
 } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -1053,7 +1054,7 @@ export function DealsCard({
           <p className="co-row-meta">
             <span>
               {t("co.deals.wonLifetime")}{" "}
-              {formatMoney(won?.amount_minor ?? 0, won?.currency ?? "", locale)}
+              {formatMoneyOrAbsent(won?.amount_minor, won?.currency, locale)}
             </span>
             <span>{t("co.deals.lostCount", { count: deals.lost_count })}</span>
           </p>
@@ -1099,9 +1100,9 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
         <span>{deal.stage_name ?? t("co.deals.noStage")}</span>
         {deal.amount?.amount_minor != null && (
           <span className="t-mono">
-            {formatMoney(
+            {formatMoneyOrAbsent(
               deal.amount.amount_minor,
-              deal.amount.currency ?? "",
+              deal.amount.currency,
               locale,
             )}
           </span>
@@ -1174,19 +1175,11 @@ export function CommercialPanel({
           <PanelBody className="co-figures">
             <CommercialFigure
               label={t("co.deals.wonLifetime")}
-              // Both halves or nothing: an amount with no currency cannot be
-              // rendered without picking one, and a fabricated €0 would say
-              // "square with us" about a figure the server never sent.
-              value={
-                deals.won_lifetime?.amount_minor != null &&
-                deals.won_lifetime.currency
-                  ? formatMoney(
-                      deals.won_lifetime.amount_minor,
-                      deals.won_lifetime.currency,
-                      locale,
-                    )
-                  : undefined
-              }
+              value={formatMoneyOrAbsent(
+                deals.won_lifetime?.amount_minor,
+                deals.won_lifetime?.currency,
+                locale,
+              )}
             />
             <CommercialFigure
               label={t("co.commercial.lostFigure")}
@@ -1217,9 +1210,9 @@ export function CommercialPanel({
                 {deal.stage_name && <Badge>{deal.stage_name}</Badge>}
                 {deal.amount?.amount_minor != null && (
                   <span className="t-mono">
-                    {formatMoney(
+                    {formatMoneyOrAbsent(
                       deal.amount.amount_minor,
-                      deal.amount.currency ?? "",
+                      deal.amount.currency,
                       locale,
                     )}
                   </span>
@@ -1245,13 +1238,14 @@ export function CommercialPanel({
 function CommercialFigure({
   label,
   value,
-}: Readonly<{ label: string; value?: string }>) {
+}: Readonly<{ label: string; value: string }>) {
   return (
     <div className="co-figure">
       <Eyebrow>{label}</Eyebrow>
-      {/* An absent value renders as a dash with its label intact, so the
-          reader sees WHICH figure is missing rather than a shorter row. */}
-      <span className="co-figure-value">{value ?? "—"}</span>
+      {/* A figure the page does not have still occupies its slot, as the
+          absence its formatter returned: the reader sees WHICH reading is
+          missing rather than a shorter row that reads as complete. */}
+      <span className="co-figure-value">{value}</span>
     </div>
   );
 }

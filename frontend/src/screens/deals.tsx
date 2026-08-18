@@ -17,6 +17,7 @@ import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { approvalDotTier, useAgentTierMap, verbTier } from "../app/autonomy";
 import { navigate } from "../app/router";
+import { useInstallationSettings } from "../app/uploadlimit";
 import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Badge,
@@ -39,7 +40,12 @@ import { type ListChip, ListSurface } from "../design-system/listsurface";
 import type { ListColumn } from "../design-system/listtable";
 import { Select } from "../design-system/select";
 import { AutonomyDot } from "../design-system/trust";
-import { formatDate, formatDuration, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDuration,
+  formatMoney,
+  formatMoneyOrAbsent,
+} from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
@@ -310,8 +316,11 @@ function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
     // then shows the deal alone rather than a blank chip beside it.
     org: org?.name ?? "",
     orgLogoUrl: org?.logoUrl,
-    valueMinor: deal.amount_minor ?? 0,
-    currency: deal.currency ?? "EUR",
+    // Both halves as the wire sent them. Nobody has priced every deal, and a
+    // card that filled in either half would state a figure this deal does not
+    // have — a zero amount, or a euro sign over an unknown currency.
+    valueMinor: deal.amount_minor ?? null,
+    currency: deal.currency ?? null,
     ageMs: Math.max(0, Date.now() - new Date(since).getTime()),
     stalled: deal.stalled ?? false,
     archived: deal.archived_at != null,
@@ -437,11 +446,25 @@ export function dealEditFields(
 // showing a confidently wrong sum.
 export type StageTotals = {
   count: number;
-  rawMinor: number;
-  weightedMinor: number;
-  currency: string;
+  // Null where the report stated no figure. A stage can hold a real count of
+  // deals nobody has priced, and its `SUM` then arrives as null with no
+  // currency beside it — which is not the zero a naive read makes of it.
+  rawMinor: number | null;
+  weightedMinor: number | null;
+  currency: string | null;
   sumHidden: boolean;
 };
+
+// A report cell as a figure, or nothing. An absent or non-numeric cell is the
+// report declining to state an amount, and `Number(null)` turns that into a 0
+// the server never sent.
+function reportMinor(value: unknown): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
 
 // buildStageTotals shapes a deals-by-stage report grouped by
 // `["stage_id","currency"]` into one entry per stage. More than one
@@ -466,12 +489,20 @@ export function buildStageTotals(
     );
     const mixed = stageRows.length > 1;
     const single = stageRows[0];
+    // ONE row is not the same fact as one CURRENCY. A stage whose deals are all
+    // unpriced groups into a single row whose `currency` is null, so the
+    // cross-currency test says nothing about it — and its figures belong to no
+    // currency at all. Naming EUR there is indistinguishable from a real EUR
+    // total, which is the reading a rep would act on.
+    const currency =
+      !mixed && typeof single.currency === "string" && single.currency !== ""
+        ? single.currency
+        : null;
     totals.set(stageId, {
       count,
-      rawMinor: mixed ? 0 : Number(single.raw_minor ?? 0),
-      weightedMinor: mixed ? 0 : Number(single.weighted_minor ?? 0),
-      currency:
-        !mixed && typeof single.currency === "string" ? single.currency : "EUR",
+      rawMinor: currency ? reportMinor(single.raw_minor) : null,
+      weightedMinor: currency ? reportMinor(single.weighted_minor) : null,
+      currency,
       sumHidden: mixed,
     });
   }
@@ -493,9 +524,12 @@ export function buildColumns(
         stage: stage.id,
         label: stage.name,
         probabilityPct: stage.win_probability,
-        rawMinor: stageTotals?.rawMinor ?? 0,
-        weightedMinor: stageTotals?.weightedMinor ?? 0,
-        currency: stageTotals?.currency ?? "EUR",
+        // No totals row yet — the report is still in flight, or this stage was
+        // not in it. Either way the figure is unknown rather than zero, and the
+        // column draws it as absent while still stating the count below.
+        rawMinor: stageTotals?.rawMinor ?? null,
+        weightedMinor: stageTotals?.weightedMinor ?? null,
+        currency: stageTotals?.currency ?? null,
         deals: stageDeals.map((deal) => toBoardDeal(deal, orgs)),
         // The true count, not the loaded page's — falls back to the page
         // count while totals are still loading, so the column shows SOME
@@ -1323,21 +1357,30 @@ function DealTable({
 // exported so a later Storybook task can render it without a live fetch.
 export function FxLine({
   amountMinor,
+  baseCurrency,
   fxRateToBase,
   fxRateDate,
   locale,
 }: Readonly<{
-  amountMinor: number;
+  amountMinor: number | null;
+  // The installation's own base currency, from its settings. Not a constant:
+  // an installation whose base is not the euro was reading a euro sign over a
+  // figure converted into something else, which is the one error a converted
+  // figure must not make. Null while the settings read is in flight or refused
+  // — an unnamed base is not a euro base.
+  baseCurrency: string | null;
   fxRateToBase: string;
   fxRateDate: string | null;
   locale: Locale;
 }>) {
   const t = useT();
-  const baseMinor = Math.round(amountMinor * Number(fxRateToBase));
+  // A deal carrying a rate but no amount converts to nothing, not to zero.
+  const baseMinor =
+    amountMinor == null ? null : Math.round(amountMinor * Number(fxRateToBase));
   return (
     <p className="t-caption">
       {t("deal.fxBase", {
-        value: formatMoney(baseMinor, "EUR", locale),
+        value: formatMoneyOrAbsent(baseMinor, baseCurrency, locale),
         rate: fxRateToBase,
         date: fxRateDate
           ? formatDate(fxRateDate, locale, "Europe/Berlin")
@@ -1592,16 +1635,25 @@ function DealApprovals({
   );
 }
 
-function OffersPanel({
+// Exported so a render test can reach the refusal state directly. It is not as
+// self-contained as FxLine — it reads the system-of-record mode, so it needs a
+// query client around it — but whether the New-offer control is refused depends
+// on its props alone.
+export function OffersPanel({
   offers,
   creating,
   locale,
+  dealCurrency,
   onCreate,
 }: Readonly<{
   offers: Offer[] | undefined;
   creating: boolean;
   locale: Locale;
-  onCreate: () => void;
+  // An offer is written in the DEAL's currency, so a deal nobody has priced
+  // has nothing to write one in. Null refuses the control and says why rather
+  // than creating an offer denominated in a currency the code chose.
+  dealCurrency: string | null;
+  onCreate: (currency: string) => void;
 }>) {
   const t = useT();
   // Offers are read (and created) against a mirrored deal — the list read 404s
@@ -1619,7 +1671,21 @@ function OffersPanel({
     <Card
       title={t("deal.offers")}
       actions={
-        <Button small disabled={creating} onClick={onCreate}>
+        <Button
+          small
+          // `reason` disables the control AND points at the explanation. Passing
+          // `disabled` beside it would cancel the refusal it sets, so the
+          // in-flight case stays on `disabled` and the state case on `reason`.
+          disabled={dealCurrency !== null && creating}
+          reason={
+            dealCurrency === null ? t("deal.offerNeedsCurrency") : undefined
+          }
+          onClick={() => {
+            if (dealCurrency !== null) {
+              onCreate(dealCurrency);
+            }
+          }}
+        >
           {t("deal.newOffer")}
         </Button>
       }
@@ -1683,6 +1749,7 @@ function DealOverviewPane({
   offers,
   creatingOffer,
   locale,
+  baseCurrency,
   onCreateOffer,
   overlay,
 }: Readonly<{
@@ -1697,7 +1764,8 @@ function DealOverviewPane({
   offers: Offer[] | undefined;
   creatingOffer: boolean;
   locale: Locale;
-  onCreateOffer: () => void;
+  baseCurrency: string | null;
+  onCreateOffer: (currency: string) => void;
   overlay: boolean;
 }>) {
   const t = useT();
@@ -1705,7 +1773,8 @@ function DealOverviewPane({
     <>
       {deal.fx_rate_to_base != null && (
         <FxLine
-          amountMinor={deal.amount_minor ?? 0}
+          amountMinor={deal.amount_minor ?? null}
+          baseCurrency={baseCurrency}
           fxRateToBase={deal.fx_rate_to_base}
           fxRateDate={deal.fx_rate_date ?? null}
           locale={locale}
@@ -1762,6 +1831,7 @@ function DealOverviewPane({
         offers={offers}
         creating={creatingOffer}
         locale={locale}
+        dealCurrency={deal.currency ?? null}
         onCreate={onCreateOffer}
       />
       <CustomFieldsCard object="deal" record={deal} />
@@ -1789,6 +1859,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const pipelineQuery = usePipeline();
+  // One shared singleton read (the ["installation-settings"] key), not a
+  // per-deal request: the FX line has to name the base currency it converted
+  // into, and nothing on the deal itself carries it.
+  const baseCurrency = useInstallationSettings().data?.base_currency ?? null;
   const me = useMe();
   const viewerId = useViewerId();
   // Overlay serves a read-only mirror: entity-scoped activity reads (timeline)
@@ -1955,9 +2029,8 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   offers={offersQuery.data?.data}
                   creatingOffer={createOffer.isPending}
                   locale={locale}
-                  onCreateOffer={() =>
-                    createOffer.mutate(deal.currency ?? "EUR")
-                  }
+                  baseCurrency={baseCurrency}
+                  onCreateOffer={(currency) => createOffer.mutate(currency)}
                   overlay={overlay}
                 />
               )}
