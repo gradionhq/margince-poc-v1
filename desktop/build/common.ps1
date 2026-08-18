@@ -130,3 +130,93 @@ function Get-DirectorySize {
     $bytes = (Get-ChildItem -Recurse -File -LiteralPath $Path | Measure-Object -Property Length -Sum).Sum
     return '{0:N0} MB' -f ($bytes / 1MB)
 }
+
+# Get-VsShellOutput runs a command in the MSVC environment and RETURNS its
+# output, where Invoke-InVsShell only shows it. Two functions rather than a
+# switch: a helper that sometimes returns output is the shape that put make's
+# entire log into a return value once already.
+function Get-VsShellOutput {
+    param(
+        [Parameter(Mandatory)][string]$What,
+        [Parameter(Mandatory)][string]$Command
+    )
+    $devCmd = Get-VsDevCmd
+    $out = & cmd.exe '/c' "call `"$devCmd`" -arch=amd64 -host_arch=amd64 >nul && $Command"
+    if ($LASTEXITCODE -ne 0) {
+        throw "$What failed (exit $LASTEXITCODE): $Command"
+    }
+    return $out
+}
+
+# DLLs Windows itself provides. A binary asking for one of these is satisfied by
+# the operating system, so their absence from the folder is never a defect.
+# Matched as prefixes, which is what covers the api-ms-win-* CRT façade set.
+$script:SystemDlls = @(
+    'kernel32', 'advapi32', 'user32', 'ws2_32', 'shell32', 'secur32', 'netapi32',
+    'userenv', 'version', 'crypt32', 'dbghelp', 'wldap32', 'bcrypt', 'ole32',
+    'oleaut32', 'gdi32', 'comdlg32', 'winspool', 'wsock32', 'iphlpapi', 'msvcrt',
+    'api-ms-win', 'rpcrt4', 'shlwapi', 'psapi', 'winmm', 'comctl32', 'imm32',
+    'uxtheme', 'dwmapi', 'setupapi', 'cfgmgr32', 'powrprof', 'ntdll', 'pdh',
+    'oleacc', 'msimg32', 'ktmw32', 'mpr', 'winhttp', 'wintrust', 'authz'
+)
+
+# Test-NativeDependencies fails the build when a binary in Directory imports a
+# DLL that is neither beside it nor supplied by Windows.
+#
+# THIS IS THE CHECK THAT WAS MISSING. Running `postgres.exe --version` proves the
+# binary starts ON THE BUILD MACHINE, and a build machine has the MSVC runtime
+# because the C++ workload this lane requires installs it system-wide. So the
+# bundle shipped without vcruntime140.dll and every Postgres binary failed on a
+# clean Windows with 0xC0000135 (STATUS_DLL_NOT_FOUND) -- a status code that
+# names no file. Reading the import tables asks the question the smoke test
+# cannot: not "does it run here" but "does the FOLDER carry what it needs".
+function Test-NativeDependencies {
+    param(
+        [Parameter(Mandatory)][string]$Directory,
+        [string[]]$Ignore = @()
+    )
+    Write-Step "checking the import tables under $(Split-Path $Directory -Leaf)"
+
+    $present = @{}
+    foreach ($f in Get-ChildItem -LiteralPath $Directory -File) {
+        $present[$f.Name.ToLowerInvariant()] = $true
+    }
+
+    $binaries = Get-ChildItem -LiteralPath $Directory -File |
+        Where-Object { $_.Extension -in @('.exe', '.dll') } |
+        Where-Object { $_.Name -notin $Ignore }
+    if ($binaries.Count -eq 0) {
+        throw "no binaries under $Directory to check -- this gate cannot pass by scanning nothing"
+    }
+
+    $missing = @{}
+    foreach ($bin in $binaries) {
+        $out = Get-VsShellOutput "reading the imports of $($bin.Name)" `
+            "dumpbin /nologo /dependents `"$($bin.FullName)`""
+        foreach ($line in $out) {
+            if ($line -notmatch '^\s{4}(\S+\.dll)\s*$') { continue }
+            $dll = $Matches[1]
+            $low = $dll.ToLowerInvariant()
+            if ($present.ContainsKey($low)) { continue }
+            if ($SystemDlls | Where-Object { $low.StartsWith($_) }) { continue }
+            if (-not $missing.ContainsKey($dll)) { $missing[$dll] = @() }
+            $missing[$dll] += $bin.Name
+        }
+    }
+
+    if ($missing.Count -gt 0) {
+        $report = ($missing.GetEnumerator() | Sort-Object Key | ForEach-Object {
+                "  $($_.Key) -- needed by $($_.Value.Count) file(s), e.g. $($_.Value[0])"
+            }) -join "`n"
+        throw @"
+the bundle is missing $($missing.Count) DLL(s) it imports:
+
+$report
+
+They are neither in the folder nor supplied by Windows, so every binary that
+needs one fails on a clean machine with 0xC0000135 and no file named. Ship them
+beside the executables.
+"@
+    }
+    Write-Step "every imported DLL is either in the folder or supplied by Windows"
+}

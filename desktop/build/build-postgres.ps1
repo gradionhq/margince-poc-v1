@@ -80,6 +80,67 @@ function Remove-Extras {
         ForEach-Object { Remove-Item -Recurse -Force -LiteralPath $_.FullName }
 }
 
+# Copy-VcRuntime puts the Microsoft C runtime beside the binaries that need it.
+#
+# WHY THIS IS NOT OPTIONAL. Every PostgreSQL binary here imports
+# VCRUNTIME140.dll, and postgres.exe and initdb.exe reach MSVCP140.dll through
+# icuuc67.dll. Neither ships with Windows -- they arrive with the Visual C++
+# redistributable, which a developer machine has because the C++ workload
+# installs it and a user's machine very often does not. Without them the launcher
+# dies on its first command with 0xC0000135, STATUS_DLL_NOT_FOUND, a status that
+# names no file and reads like a corrupt download.
+#
+# App-local deployment is the documented, licensed way to ship these: the
+# redistributable files list permits copying them beside the application, which
+# is also what makes the folder self-contained rather than dependent on what the
+# user installed years ago.
+function Copy-VcRuntime {
+    Write-Step 'copying the Visual C++ runtime beside the server binaries'
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    $vsRoot = & $vswhere -latest -products '*' `
+        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+        -property installationPath
+    if (-not $vsRoot) { throw 'could not locate Visual Studio to copy the C runtime from' }
+
+    # The redist tree is versioned (VC\Redist\MSVC\<ver>\x64\Microsoft.VC14x.CRT).
+    # Newest wins, which is the one the toolchain just linked against.
+    $crt = Get-ChildItem -Path (Join-Path $vsRoot 'VC\Redist\MSVC') -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending |
+        ForEach-Object { Get-ChildItem -Path (Join-Path $_.FullName 'x64') -Directory -Filter 'Microsoft.VC*.CRT' -ErrorAction SilentlyContinue } |
+        Select-Object -First 1
+    if (-not $crt) {
+        throw @'
+no Visual C++ redistributable files found under the Visual Studio installation.
+Install the "Desktop development with C++" workload, which includes them.
+'@
+    }
+
+    # VCRUNTIME140_1 is not imported by anything the launcher runs, but it is
+    # part of the same runtime and costs 40 KB; shipping the set rather than the
+    # subset means a future Postgres build cannot need one we left behind.
+    foreach ($dll in @('vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll')) {
+        $from = Join-Path $crt.FullName $dll
+        if (-not (Test-Path $from)) { throw "the redistributable is missing $dll ($($crt.FullName))" }
+        Copy-Item $from (Join-Path $out 'bin') -Force
+    }
+    Write-Step "copied the C runtime from $($crt.Name)"
+}
+
+# Remove-GuiExtras drops what the EDB tree carries for pgAdmin and StackBuilder.
+#
+# bin/ is kept wholesale because that is where Postgres keeps its own DLLs, and
+# it also holds a wxWidgets GUI stack and a StackBuilder the bundle never starts:
+# megabytes of code a user downloads and nothing runs, and the only files that
+# import VCRUNTIME140_1. Named individually rather than pattern-swept, because a
+# wildcard over bin/ is one typo away from deleting the server.
+function Remove-GuiExtras {
+    Write-Step 'dropping the pgAdmin and StackBuilder leftovers'
+    $bin = Join-Path $out 'bin'
+    Get-ChildItem -LiteralPath $bin -File |
+        Where-Object { $_.Name -like 'wx*_vc_x64_custom.dll' -or $_.Name -eq 'stackbuilder.exe' } |
+        ForEach-Object { Remove-Item -Force -LiteralPath $_.FullName }
+}
+
 function Test-Staged {
     Write-Step 'verifying the tree is self-contained'
 
@@ -106,6 +167,11 @@ function Test-Staged {
     if ($LASTEXITCODE -ne 0) {
         throw 'the staged postgres.exe could not run -- a runtime DLL is missing from the tree'
     }
+    # Reading the import tables, not just starting one binary: the smoke test
+    # above runs on a machine that HAS the C runtime, so it cannot see a folder
+    # that lacks it. See Test-NativeDependencies.
+    Test-NativeDependencies -Directory (Join-Path $out 'bin')
+
     Write-Step 'extensions present: vector unaccent pg_trgm btree_gist'
     Write-Step "size: $(Get-DirectorySize $out)"
 }
@@ -114,4 +180,6 @@ New-Item -ItemType Directory -Force -Path $Work | Out-Null
 Expand-Postgres
 Build-PgVector
 Remove-Extras
+Remove-GuiExtras
+Copy-VcRuntime
 Test-Staged

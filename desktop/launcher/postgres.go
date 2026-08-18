@@ -93,7 +93,7 @@ func initCluster(l layout, build func(dataDir string) *exec.Cmd) error {
 	}
 
 	if out, err := build(staging).CombinedOutput(); err != nil {
-		return fmt.Errorf("initdb failed: %w\n%s", err, out)
+		return fmt.Errorf("initdb failed: %w\n%s", explainStartFailure("the database initialiser", err), out)
 	}
 	if err := os.Rename(staging, l.pgData()); err != nil {
 		return fmt.Errorf("move the new database into place: %w", err)

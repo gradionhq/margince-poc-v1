@@ -90,6 +90,13 @@ function Test-Dist {
         }
     }
 
+    # The same question over the ASSEMBLED tree, which is the copy that leaves
+    # this machine: every DLL a shipped binary imports must be in the folder or
+    # supplied by Windows. Running one binary here proves only that THIS machine
+    # can start it.
+    Test-NativeDependencies -Directory (Join-Path $dist 'runtime\pgsql\bin')
+    Test-NativeDependencies -Directory (Join-Path $dist 'runtime')
+
     # The launcher refuses to start without these, and finding that out here
     # costs a second rather than a support conversation.
     foreach ($required in @('margince.exe', 'Start Margince.cmd', 'runtime\api.exe',
