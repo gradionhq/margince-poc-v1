@@ -12,6 +12,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -207,6 +208,45 @@ func (h Handlers) ApplyTag(w http.ResponseWriter, r *http.Request, id crmcontrac
 		return
 	}
 	httperr.WriteJSON(w, http.StatusCreated, wireTaggable(applied))
+}
+
+// GetFilterVocabulary answers what a filter may say about one record type.
+//
+// The generated wrapper binds `resource` as a plain string and never calls the
+// Valid() it also generates, so an unknown value arrives here rather than being
+// refused at the door. It earns a 422 naming the parameter, like every other
+// enum-valued query parameter in this tree: a bare 404 for `?resource=peron`
+// says neither what went wrong nor what to do.
+//
+// That leaves the 404 below for the case it actually describes — a resource the
+// contract admits and no engine serves. It is unreachable while the two agree
+// (TestEveryResourceTheContractAdmitsHasAnEngine holds them to that), and it is
+// still the right answer if they ever stop: an empty field list would read as
+// "this type has nothing to filter on", which is a different and false statement.
+func (h Handlers) GetFilterVocabulary(w http.ResponseWriter, r *http.Request, params crmcontracts.GetFilterVocabularyParams) {
+	if !params.Resource.Valid() {
+		httperr.Write(w, r, httperr.Validation("resource", "invalid_enum",
+			"resource must be one of person, organization, deal, lead, project"))
+		return
+	}
+	resource := string(params.Resource)
+	fields, ok, err := h.store.FilterVocabulary(r.Context(), resource)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	if !ok {
+		writeErr(w, r, apperrors.ErrNotFound)
+		return
+	}
+	data := make([]crmcontracts.FilterVocabularyField, 0, len(fields))
+	for _, f := range fields {
+		data = append(data, wireVocabularyField(f))
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.FilterVocabulary{
+		Resource: crmcontracts.FilterVocabularyResource(resource),
+		Fields:   data,
+	})
 }
 
 func (h Handlers) ListSavedViews(w http.ResponseWriter, r *http.Request, params crmcontracts.ListSavedViewsParams) {

@@ -5186,6 +5186,46 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
+  # ------------------------- /filters/vocabulary -----------------------------
+  /filters/vocabulary:
+    get:
+      tags: [Lists]
+      operationId: getFilterVocabulary
+      summary: Read what a new filter clause may name on one record type (LVS-EXT-8).
+      description: |
+        The per-resource filter vocabulary: every field a dynamic list, saved view
+        or filtered export may name for this record type, each with the operator
+        subset its type admits (LVS-PARAM-1).
+
+        This is the server's own vocabulary, read rather than restated, so a
+        filter builder can offer a field picker without keeping a second copy of
+        it — which is the whole point of the vocabulary being closed.
+
+        What that guarantees, stated as the subset relation it is rather than the
+        equality it resembles: **everything listed here is accepted by the
+        engine**, so a clause composed from this operation cannot be refused as
+        unknown. The converse does not hold, and the gap is exactly the RETIRED
+        set. A retired field keeps its column and its values, so a saved segment
+        naming one keeps evaluating — while retire means "hidden from API and
+        filtering" (CUSTOM-FIELDS-AC-13), so nothing offers it for a NEW clause.
+        The admin catalog read is the one surface that still shows retired fields
+        (CUSTOM-FIELDS-AC-14); this is not that surface.
+      parameters:
+        - name: resource
+          in: query
+          required: true
+          description: The record type whose vocabulary to read.
+          schema: { type: string, enum: [person, organization, deal, lead, project] }
+      responses:
+        '200':
+          description: The vocabulary for this resource.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FilterVocabulary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------ /views ------------------------------------
   /views:
     get:
@@ -19633,6 +19673,66 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/ListMember' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    FilterVocabulary:
+      type: object
+      description: |
+        What a filter may say about one record type (LVS-EXT-8). Read from the
+        engine that evaluates filters, so the set here and the set the engine
+        accepts are the same set.
+      required: [resource, fields]
+      properties:
+        resource:
+          type: string
+          enum: [person, organization, deal, lead, project]
+        fields:
+          type: array
+          description: |
+            Every offerable field, core and custom together — a filter names them
+            the same way, so splitting them here would invite a caller to treat
+            one kind as second class. A retired field of either kind is absent
+            (see `custom`); a core field retired by an ADR is absent for the same
+            reason and has no catalog row a client could learn that from.
+          items: { $ref: '#/components/schemas/FilterVocabularyField' }
+
+    FilterVocabularyField:
+      type: object
+      description: One field a filter clause may name, with what it accepts.
+      required: [name, type, operators, custom]
+      properties:
+        name:
+          type: string
+          description: |
+            The name a filter clause uses. For a custom field this is the
+            physical `cf_`-prefixed column, which is the same `column_name` the
+            custom-field catalog reports — join on it to show an admin's label,
+            since the catalog owns labels and this vocabulary does not.
+        type:
+          type: string
+          enum: [text, number, date, currency, picklist, boolean, id]
+          description: |
+            The six custom-field types plus `id` for a reference to another
+            record. The type decides the operators, which is why it is here.
+        operators:
+          type: array
+          description: |
+            The operator subset this field's type admits (LVS-PARAM-1), in one
+            stable order. An operator absent here is one the engine refuses for
+            this field, so a builder can disable it rather than discover it.
+          items:
+            type: string
+            enum: [eq, neq, gt, lt, gte, lte, in, contains, exists]
+        custom:
+          type: boolean
+          description: |
+            Whether this is a workspace-defined custom-field column. Where true,
+            `name` is the catalog's `column_name` — join on it to show an admin's
+            `label`, which the catalog owns and this vocabulary does not.
+
+            Only ACTIVE custom fields appear, which is the same set a record write
+            may set. A retired one is absent here and still accepted by the
+            engine, so no `status` lookup is needed to know whether to offer a
+            field: if this operation listed it, it is offerable.
 
     Tag:
       type: object

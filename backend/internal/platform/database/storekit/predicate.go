@@ -129,6 +129,37 @@ var operatorsByType = map[FieldType]map[string]bool{
 	FieldBoolean:  {OpEq: true, OpNeq: true, OpExists: true},
 }
 
+// operatorOrder is the one reading order for an operator list: equality,
+// then ordering, then membership, then presence. The matrix above is a map,
+// so iterating it directly would answer a different order on every call and
+// make a vocabulary response unstable between two identical requests.
+var operatorOrder = []string{
+	OpEq, OpNeq, OpGt, OpGte, OpLt, OpLte, OpIn, OpContains, OpExists,
+}
+
+// OperatorsFor answers the operators this field type admits, in operatorOrder.
+//
+// It exists so a surface that has to TELL a caller what a field accepts —
+// the filter-vocabulary read — derives the answer from the same matrix
+// compileLeaf refuses against, rather than carrying a second copy of it. The
+// two cannot then disagree, which is the failure this arc has already paid for
+// once: a vocabulary restated beside the engine offers a field the engine
+// rejects, and the caller learns the difference as a 422 it could not predict.
+//
+// An unknown type answers an empty slice, not every operator: a field the
+// matrix does not describe is one compileLeaf refuses outright, so promising
+// operators for it would be the exact drift this function prevents.
+func OperatorsFor(t FieldType) []string {
+	admitted := operatorsByType[t]
+	ops := make([]string, 0, len(admitted))
+	for _, op := range operatorOrder {
+		if admitted[op] {
+			ops = append(ops, op)
+		}
+	}
+	return ops
+}
+
 // PredicateError is the typed validation failure: the transport maps it
 // onto the httperr.Validation 422 shape (data-model §13.5's
 // "anything else → 422"). Field carries the offending filter field (or

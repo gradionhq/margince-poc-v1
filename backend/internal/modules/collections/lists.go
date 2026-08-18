@@ -29,9 +29,10 @@ type Store struct {
 	// db binds the installation's workspace itself (ADR-0091 §9 step 3).
 	db *database.DB
 	// catalog widens the filter vocabulary with the workspace's own cf_*
-	// columns. Optional by design: nil is the port's pass-through, and a
-	// store without one filters on core fields alone.
-	catalog fieldcatalog.FilterableReader
+	// columns, and answers which of them are still offered. Optional by design:
+	// nil is the port's pass-through, and a store without one filters on core
+	// fields alone.
+	catalog CatalogReader
 }
 
 // NewStore binds the store to the pool every read and write runs through.
@@ -39,10 +40,25 @@ func NewStore(db *database.DB) *Store {
 	return &Store{db: db}
 }
 
+// CatalogReader is what collections needs of the custom-field catalogue, which
+// is BOTH readers rather than the filterable one alone — because this module asks
+// the catalogue two different questions.
+//
+// What a filter may SAY includes a retired column, so a saved segment built on
+// one keeps evaluating (FilterableColumns). What a builder may OFFER for a new
+// clause does not, per CUSTOM-FIELDS-AC-13's "hidden from API + filtering"
+// (ActiveColumns). One reader cannot answer both, and the difference between them
+// IS the retired set — which is why the fieldcatalog seam's own note that "a
+// consumer of one has no use for the other" no longer holds for this consumer.
+type CatalogReader interface {
+	fieldcatalog.FilterableReader
+	fieldcatalog.Reader
+}
+
 // WithFieldCatalog injects the custom-field vocabulary source. Compose calls it;
 // a caller that never filters (the workflow adapter's list writes) needs no
 // catalog and passes none.
-func (s *Store) WithFieldCatalog(r fieldcatalog.FilterableReader) *Store {
+func (s *Store) WithFieldCatalog(r CatalogReader) *Store {
 	s.catalog = r
 	return s
 }

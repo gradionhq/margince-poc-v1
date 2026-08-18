@@ -110,7 +110,8 @@ var segmentEngines = map[string]storekit.Query{
 			// release it survives: a saved segment written against it must keep
 			// evaluating until its author has moved it to lifecycle. Dropping the
 			// field would turn every such list into an error at read time, which
-			// is a worse answer than a stale one.
+			// is a worse answer than a stale one. Named in retiredCoreFields
+			// below, so no surface OFFERS it for a new clause.
 			"classification": {Expr: "t.classification", Type: storekit.FieldPicklist},
 			tagFilterField:   tagLinkFor("organization"),
 		},
@@ -150,6 +151,24 @@ var segmentEngines = map[string]storekit.Query{
 			tagFilterField:    tagLinkFor(projectEntity),
 		},
 	},
+}
+
+// retiredCoreFields names core vocabulary entries that a filter may still SAY
+// and no surface may still OFFER, per resource.
+//
+// Retirement has two sources and they are genuinely different questions, so this
+// is deliberately not one mechanism with the custom-field half. A custom column's
+// status is per-workspace admin state, read from the catalogue; a core field's is
+// a decision in this file, taken by an ADR, identical in every installation. A
+// map keyed by a name the catalogue has never heard of is the only place the
+// second can live — organization.classification has no `custom_field` row, so no
+// catalogue read and no client-side join can ever discover that it is retired.
+//
+// Keyed by resource rather than by bare name: two resources may legitimately
+// carry a field of the same name where only one of them has retired it.
+var retiredCoreFields = map[string]map[string]bool{
+	// ADR-0079/A124 replaced it with lifecycle.
+	"organization": {"classification": true},
 }
 
 // SegmentEngine returns the ONE predicate engine for a filterable resource: the

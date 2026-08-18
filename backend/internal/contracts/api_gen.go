@@ -3936,6 +3936,105 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 	}
 }
 
+// Defines values for FilterVocabularyResource.
+const (
+	FilterVocabularyResourceDeal         FilterVocabularyResource = "deal"
+	FilterVocabularyResourceLead         FilterVocabularyResource = "lead"
+	FilterVocabularyResourceOrganization FilterVocabularyResource = "organization"
+	FilterVocabularyResourcePerson       FilterVocabularyResource = "person"
+	FilterVocabularyResourceProject      FilterVocabularyResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyResource enum.
+func (e FilterVocabularyResource) Valid() bool {
+	switch e {
+	case FilterVocabularyResourceDeal:
+		return true
+	case FilterVocabularyResourceLead:
+		return true
+	case FilterVocabularyResourceOrganization:
+		return true
+	case FilterVocabularyResourcePerson:
+		return true
+	case FilterVocabularyResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterVocabularyFieldOperators.
+const (
+	Contains FilterVocabularyFieldOperators = "contains"
+	Eq       FilterVocabularyFieldOperators = "eq"
+	Exists   FilterVocabularyFieldOperators = "exists"
+	Gt       FilterVocabularyFieldOperators = "gt"
+	Gte      FilterVocabularyFieldOperators = "gte"
+	In       FilterVocabularyFieldOperators = "in"
+	Lt       FilterVocabularyFieldOperators = "lt"
+	Lte      FilterVocabularyFieldOperators = "lte"
+	Neq      FilterVocabularyFieldOperators = "neq"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyFieldOperators enum.
+func (e FilterVocabularyFieldOperators) Valid() bool {
+	switch e {
+	case Contains:
+		return true
+	case Eq:
+		return true
+	case Exists:
+		return true
+	case Gt:
+		return true
+	case Gte:
+		return true
+	case In:
+		return true
+	case Lt:
+		return true
+	case Lte:
+		return true
+	case Neq:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterVocabularyFieldType.
+const (
+	FilterVocabularyFieldTypeBoolean  FilterVocabularyFieldType = "boolean"
+	FilterVocabularyFieldTypeCurrency FilterVocabularyFieldType = "currency"
+	FilterVocabularyFieldTypeDate     FilterVocabularyFieldType = "date"
+	FilterVocabularyFieldTypeId       FilterVocabularyFieldType = "id"
+	FilterVocabularyFieldTypeNumber   FilterVocabularyFieldType = "number"
+	FilterVocabularyFieldTypePicklist FilterVocabularyFieldType = "picklist"
+	FilterVocabularyFieldTypeText     FilterVocabularyFieldType = "text"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyFieldType enum.
+func (e FilterVocabularyFieldType) Valid() bool {
+	switch e {
+	case FilterVocabularyFieldTypeBoolean:
+		return true
+	case FilterVocabularyFieldTypeCurrency:
+		return true
+	case FilterVocabularyFieldTypeDate:
+		return true
+	case FilterVocabularyFieldTypeId:
+		return true
+	case FilterVocabularyFieldTypeNumber:
+		return true
+	case FilterVocabularyFieldTypePicklist:
+		return true
+	case FilterVocabularyFieldTypeText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FilteredExportRequestFormat.
 const (
 	FilteredExportRequestFormatCsv  FilteredExportRequestFormat = "csv"
@@ -9404,22 +9503,22 @@ func (e VoiceProfileVersionStatus) Valid() bool {
 
 // Defines values for WebhookDeliveryStatus.
 const (
-	DeadLettered WebhookDeliveryStatus = "dead_lettered"
-	Delivered    WebhookDeliveryStatus = "delivered"
-	Pending      WebhookDeliveryStatus = "pending"
-	Retrying     WebhookDeliveryStatus = "retrying"
+	WebhookDeliveryStatusDeadLettered WebhookDeliveryStatus = "dead_lettered"
+	WebhookDeliveryStatusDelivered    WebhookDeliveryStatus = "delivered"
+	WebhookDeliveryStatusPending      WebhookDeliveryStatus = "pending"
+	WebhookDeliveryStatusRetrying     WebhookDeliveryStatus = "retrying"
 )
 
 // Valid indicates whether the value is a known member of the WebhookDeliveryStatus enum.
 func (e WebhookDeliveryStatus) Valid() bool {
 	switch e {
-	case DeadLettered:
+	case WebhookDeliveryStatusDeadLettered:
 		return true
-	case Delivered:
+	case WebhookDeliveryStatusDelivered:
 		return true
-	case Pending:
+	case WebhookDeliveryStatusPending:
 		return true
-	case Retrying:
+	case WebhookDeliveryStatusRetrying:
 		return true
 	default:
 		return false
@@ -10014,6 +10113,33 @@ func (e GetFieldHistoryParamsActorType) Valid() bool {
 	case GetFieldHistoryParamsActorTypeHuman:
 		return true
 	case GetFieldHistoryParamsActorTypeSystem:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetFilterVocabularyParamsResource.
+const (
+	GetFilterVocabularyParamsResourceDeal         GetFilterVocabularyParamsResource = "deal"
+	GetFilterVocabularyParamsResourceLead         GetFilterVocabularyParamsResource = "lead"
+	GetFilterVocabularyParamsResourceOrganization GetFilterVocabularyParamsResource = "organization"
+	GetFilterVocabularyParamsResourcePerson       GetFilterVocabularyParamsResource = "person"
+	GetFilterVocabularyParamsResourceProject      GetFilterVocabularyParamsResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the GetFilterVocabularyParamsResource enum.
+func (e GetFilterVocabularyParamsResource) Valid() bool {
+	switch e {
+	case GetFilterVocabularyParamsResourceDeal:
+		return true
+	case GetFilterVocabularyParamsResourceLead:
+		return true
+	case GetFilterVocabularyParamsResourceOrganization:
+		return true
+	case GetFilterVocabularyParamsResourcePerson:
+		return true
+	case GetFilterVocabularyParamsResourceProject:
 		return true
 	default:
 		return false
@@ -14078,6 +14204,57 @@ type FieldHistoryListResponse struct {
 	Data []FieldHistoryEntry `json:"data"`
 	Page PageInfo            `json:"page"`
 }
+
+// FilterVocabulary What a filter may say about one record type (LVS-EXT-8). Read from the
+// engine that evaluates filters, so the set here and the set the engine
+// accepts are the same set.
+type FilterVocabulary struct {
+	// Fields Every offerable field, core and custom together — a filter names them
+	// the same way, so splitting them here would invite a caller to treat
+	// one kind as second class. A retired field of either kind is absent
+	// (see `custom`); a core field retired by an ADR is absent for the same
+	// reason and has no catalog row a client could learn that from.
+	Fields   []FilterVocabularyField  `json:"fields"`
+	Resource FilterVocabularyResource `json:"resource"`
+}
+
+// FilterVocabularyResource defines model for FilterVocabulary.Resource.
+type FilterVocabularyResource string
+
+// FilterVocabularyField One field a filter clause may name, with what it accepts.
+type FilterVocabularyField struct {
+	// Custom Whether this is a workspace-defined custom-field column. Where true,
+	// `name` is the catalog's `column_name` — join on it to show an admin's
+	// `label`, which the catalog owns and this vocabulary does not.
+	//
+	// Only ACTIVE custom fields appear, which is the same set a record write
+	// may set. A retired one is absent here and still accepted by the
+	// engine, so no `status` lookup is needed to know whether to offer a
+	// field: if this operation listed it, it is offerable.
+	Custom bool `json:"custom"`
+
+	// Name The name a filter clause uses. For a custom field this is the
+	// physical `cf_`-prefixed column, which is the same `column_name` the
+	// custom-field catalog reports — join on it to show an admin's label,
+	// since the catalog owns labels and this vocabulary does not.
+	Name string `json:"name"`
+
+	// Operators The operator subset this field's type admits (LVS-PARAM-1), in one
+	// stable order. An operator absent here is one the engine refuses for
+	// this field, so a builder can disable it rather than discover it.
+	Operators []FilterVocabularyFieldOperators `json:"operators"`
+
+	// Type The six custom-field types plus `id` for a reference to another
+	// record. The type decides the operators, which is why it is here.
+	Type FilterVocabularyFieldType `json:"type"`
+}
+
+// FilterVocabularyFieldOperators defines model for FilterVocabularyField.Operators.
+type FilterVocabularyFieldOperators string
+
+// FilterVocabularyFieldType The six custom-field types plus `id` for a reference to another
+// record. The type decides the operators, which is why it is here.
+type FilterVocabularyFieldType string
 
 // FilteredExportRequest A filtered export request. Supply exactly ONE source: an inline `object` (with a required `filter`), a `view_id` (a saved view whose filter state is exported), or a `list_id` (a dynamic list whose definition is exported). The slice is always row-scoped to the caller through the one filter engine.
 type FilteredExportRequest struct {
@@ -21782,6 +21959,15 @@ type GetFieldHistoryParamsEntityType string
 
 // GetFieldHistoryParamsActorType defines parameters for GetFieldHistory.
 type GetFieldHistoryParamsActorType string
+
+// GetFilterVocabularyParams defines parameters for GetFilterVocabulary.
+type GetFilterVocabularyParams struct {
+	// Resource The record type whose vocabulary to read.
+	Resource GetFilterVocabularyParamsResource `form:"resource" json:"resource"`
+}
+
+// GetFilterVocabularyParamsResource defines parameters for GetFilterVocabulary.
+type GetFilterVocabularyParamsResource string
 
 // ListFxRatesParams defines parameters for ListFxRates.
 type ListFxRatesParams struct {
@@ -31020,6 +31206,9 @@ type ServerInterface interface {
 	// Per-field change history for one record, projected from audit_log before/after diffs.
 	// (GET /field-history)
 	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
+	// Read what a new filter clause may name on one record type (LVS-EXT-8).
+	// (GET /filters/vocabulary)
+	GetFilterVocabulary(w http.ResponseWriter, r *http.Request, params GetFilterVocabularyParams)
 	// List current FX rates (latest per currency), or one pair's history.
 	// (GET /fx-rates)
 	ListFxRates(w http.ResponseWriter, r *http.Request, params ListFxRatesParams)
@@ -32622,6 +32811,12 @@ func (_ Unimplemented) ListExtensions(w http.ResponseWriter, r *http.Request) {
 // Per-field change history for one record, projected from audit_log before/after diffs.
 // (GET /field-history)
 func (_ Unimplemented) GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read what a new filter clause may name on one record type (LVS-EXT-8).
+// (GET /filters/vocabulary)
+func (_ Unimplemented) GetFilterVocabulary(w http.ResponseWriter, r *http.Request, params GetFilterVocabularyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -40003,6 +40198,47 @@ func (siw *ServerInterfaceWrapper) GetFieldHistory(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetFieldHistory(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFilterVocabulary operation middleware
+func (siw *ServerInterfaceWrapper) GetFilterVocabulary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetFilterVocabularyParams
+
+	// ------------- Required query parameter "resource" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "resource", r.URL.Query(), &params.Resource, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "resource"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resource", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFilterVocabulary(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -52666,6 +52902,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/filters/vocabulary", wrapper.GetFilterVocabulary)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/fx-rates", wrapper.ListFxRates)
