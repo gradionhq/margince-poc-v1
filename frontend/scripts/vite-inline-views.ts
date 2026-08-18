@@ -353,6 +353,27 @@ export function inlineViews(): Plugin {
       const html = single(bundle, (name) => name.endsWith(".html"), "document");
       const js = single(bundle, (name) => name.endsWith(".js"), "entry chunk");
       const css = single(bundle, (name) => name.endsWith(".css"), "stylesheet");
+      // THE CARDINALITY CHECK, and it is the one that catches every asset-leak
+      // class at once: a worker, a wasm module, a `new URL(…, import.meta.url)`
+      // sibling, a copied public file. Each of those is a second origin-bearing
+      // file the document would have to name, and none of them has its own
+      // check.
+      //
+      // It names the three files a view is allowed to be built from rather than
+      // counting what survives the fold below, because the bundle cannot be
+      // counted after being written to: rolldown honours a deleted key when it
+      // writes the directory but keeps reporting it from `Object.keys`, so a
+      // count taken afterwards sees three files where one reached the disk.
+      const extra = Object.keys(bundle).filter(
+        (name) => name !== html && name !== js && name !== css,
+      );
+      if (extra.length > 0) {
+        throw new Error(
+          `mcp-apps: the build emitted ${extra.length} file(s) beyond the document, its ` +
+            `entry chunk and its stylesheet (${extra.join(", ")}); a view must be exactly ` +
+            "one self-contained document",
+        );
+      }
       const chunk = bundle[js];
       const style = bundle[css];
       const shell = bundle[html];
@@ -371,20 +392,10 @@ export function inlineViews(): Plugin {
         String(style.source),
       );
       shell.source = inlined;
+      // Now redundant — their bytes are in the document — and the deletion is
+      // what keeps them off the disk, where build-mcp-apps.mjs counts again.
       delete bundle[js];
       delete bundle[css];
-      // THE CARDINALITY CHECK, and it is the one that catches every asset-leak
-      // class at once: a worker, a wasm module, a `new URL(…, import.meta.url)`
-      // sibling, a copied public file. Each of those is a second origin-bearing
-      // file the document would have to name, and none of them has its own
-      // check.
-      const left = Object.keys(bundle);
-      if (left.length !== 1 || !left[0].endsWith(".html")) {
-        throw new Error(
-          `mcp-apps: the build emitted ${left.length} files (${left.join(", ")}); ` +
-            "a view must be exactly one self-contained document",
-        );
-      }
       refuse(inlined);
     },
   };
