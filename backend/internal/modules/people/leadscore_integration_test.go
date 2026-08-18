@@ -16,11 +16,14 @@ package people
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
+	"time"
 
 	openapitypes "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -92,6 +95,56 @@ func TestACreatedLeadCarriesItsOwnExplanation(t *testing.T) {
 	}
 	if out.Current.OverrideReason != nil {
 		t.Errorf("a machine-computed score carries no override reason: %v", *out.Current.OverrideReason)
+	}
+}
+
+func TestLeadReasonUsesTheCurrentTiedHistoryAndToleratesMalformedFactors(t *testing.T) {
+	ctx, store := newLeadScoreEnv(t)
+	leadID := seedScoredLead(ctx, t, store)
+	if _, err := store.SetLeadManualSignal(ctx, leadID, SetLeadManualSignalInput{
+		Factor: "employees", Band: "201+", SignalKind: "assumption", Reason: "team estimate",
+	}); err != nil {
+		t.Fatalf("adding a second score history entry: %v", err)
+	}
+
+	sharedTime := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
+	if _, err := store.db.Pool().Exec(ctx,
+		`UPDATE lead_score_history SET computed_at = $2 WHERE lead_id = $1`, leadID, sharedTime); err != nil {
+		t.Fatalf("giving the history entries a shared timestamp: %v", err)
+	}
+	explanation, err := store.ExplainLeadScore(ctx, leadID, ExplainLeadScoreInput{Limit: 10})
+	if err != nil || explanation.Current == nil || explanation.Current.Factors == nil {
+		t.Fatalf("reading the current tied explanation: out=%+v err=%v", explanation, err)
+	}
+	wantReason := ""
+	maxImpact := -1.0
+	for _, factor := range *explanation.Current.Factors {
+		if impact := math.Abs(float64(factor.Points)); impact > maxImpact {
+			maxImpact = impact
+			wantReason = factor.Factor
+		}
+	}
+	lead, err := store.GetLead(ctx, leadID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("reading a lead with tied score history: %v", err)
+	}
+	if lead.ScoreReason == nil || *lead.ScoreReason != wantReason {
+		t.Fatalf("score reason = %v, want current history factor %q", lead.ScoreReason, wantReason)
+	}
+
+	if _, err := store.db.Pool().Exec(ctx, `
+		UPDATE lead_score_history
+		   SET factors = '[{"factor":"broken","points":"not-a-number"}]'::jsonb
+		 WHERE id = (SELECT id FROM lead_score_history WHERE lead_id = $1
+		             ORDER BY computed_at DESC, id DESC LIMIT 1)`, leadID); err != nil {
+		t.Fatalf("simulating malformed retained factors: %v", err)
+	}
+	lead, err = store.GetLead(ctx, leadID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("malformed retained factors broke the lead read: %v", err)
+	}
+	if lead.ScoreReason != nil {
+		t.Fatalf("malformed retained factors produced score reason %q", *lead.ScoreReason)
 	}
 }
 

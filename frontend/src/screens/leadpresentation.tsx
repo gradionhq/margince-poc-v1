@@ -259,14 +259,14 @@ export function LeadBoard({
         columnDropHandlers={(column) => ({
           onDragOver: (event) => {
             event.preventDefault();
-            (event.currentTarget as HTMLElement).classList.add("droptarget");
+            event.currentTarget.classList.add("droptarget");
           },
           onDragLeave: (event) => {
-            (event.currentTarget as HTMLElement).classList.remove("droptarget");
+            event.currentTarget.classList.remove("droptarget");
           },
           onDrop: (event) => {
             event.preventDefault();
-            (event.currentTarget as HTMLElement).classList.remove("droptarget");
+            event.currentTarget.classList.remove("droptarget");
             const id =
               event.dataTransfer.getData("text/plain") || dragging.current;
             dragging.current = null;

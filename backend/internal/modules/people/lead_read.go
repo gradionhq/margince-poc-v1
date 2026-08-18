@@ -43,10 +43,19 @@ const leadColumns = `id, workspace_id, full_name, email, title, company_name, ca
 	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
 	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
 	(SELECT factor.value->>'factor'
-	   FROM lead_score_history history
-	   CROSS JOIN LATERAL jsonb_array_elements(history.factors) factor(value)
-	  WHERE history.lead_id = lead.id
-	  ORDER BY history.computed_at DESC, abs((factor.value->>'points')::numeric) DESC
+	   FROM LATERAL (
+	     SELECT factors FROM lead_score_history
+	      WHERE lead_id = lead.id
+	      ORDER BY computed_at DESC, id DESC LIMIT 1
+	   ) history
+	   CROSS JOIN LATERAL jsonb_array_elements(
+	     CASE WHEN jsonb_typeof(history.factors) = 'array' THEN history.factors ELSE '[]'::jsonb END
+	   ) WITH ORDINALITY factor(value, position)
+	  WHERE jsonb_typeof(factor.value->'factor') = 'string'
+	    AND jsonb_typeof(factor.value->'points') = 'number'
+	  ORDER BY abs(CASE WHEN jsonb_typeof(factor.value->'points') = 'number'
+	                    THEN (factor.value->>'points')::numeric END) DESC,
+	           factor.position
 	  LIMIT 1)`
 
 // readLead resolves one lead row; active names the custom-field columns

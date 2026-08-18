@@ -31,10 +31,17 @@ func TestLeadQueueCursorRoundTrip(t *testing.T) {
 }
 
 func TestLeadQueueCursorRejectsMalformedAndImpossibleValues(t *testing.T) {
+	outOfRange, err := encodeLeadQueueCursor(leadQueueCursor{
+		AsOf: time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC), Rank: leadQueueRankInactive + 1, Score: 50,
+		CreatedAt: time.Date(2026, 8, 18, 10, 0, 0, 0, time.UTC), ID: ids.NewV7(),
+	})
+	if err != nil {
+		t.Fatalf("encode out-of-range cursor: %v", err)
+	}
 	tests := []string{
 		"not-base64",
 		"e30", // {}
-		"eyJyYW5rIjo5LCJzY29yZSI6NTB9",
+		outOfRange,
 	}
 	for _, token := range tests {
 		if _, err := decodeLeadQueueCursor(token); !errors.As(err, new(*storekit.MalformedCursorError)) {

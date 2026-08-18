@@ -1119,11 +1119,9 @@ function LeadIdentityFields({
             </FieldRow>
           )}
         </FieldGrid>
-        {/* Email is NOT here. It is the lead's dedupe key: changing it can
-            collide with a live lead and answer 409 with an incumbent id, which
-            is a conversation (view the existing record) rather than a field
-            edit. The Edit modal owns it, where that answer has somewhere to
-            render. */}
+        {/* Email is read-only here because it is the lead's dedupe key. The Edit
+            modal owns the write so a 409 collision with a live lead has a place
+            to link the incumbent record. */}
       </PanelBody>
     </Panel>
   );

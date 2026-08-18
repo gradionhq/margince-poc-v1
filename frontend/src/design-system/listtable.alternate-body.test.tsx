@@ -34,5 +34,29 @@ describe("ListTable alternate body paging ownership", () => {
     expect(screen.getByText("Complete board")).toBeTruthy();
     expect(screen.queryByText(/of 1 rows/)).toBeNull();
     expect(screen.queryByRole("navigation", { name: "Pages" })).toBeNull();
+
+    cleanup();
+    render(
+      <LocaleProvider initial="en">
+        <ListTable
+          rows={[{ id: "lead-1" }]}
+          columns={[
+            {
+              key: "id",
+              header: "Name",
+              cell: (row) => row.id,
+              fixed: true,
+            },
+          ]}
+          rowKey={(row) => row.id}
+          unit="rows"
+          search={{ value: "", onChange: () => undefined }}
+          hasMore
+        />
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByText("1–1 of 1 rows loaded so far")).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Pages" })).toBeTruthy();
   });
 });

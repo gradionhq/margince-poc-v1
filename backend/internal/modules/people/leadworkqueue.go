@@ -33,6 +33,13 @@ type leadQueueCursor struct {
 	ID        ids.UUID  `json:"id"`
 }
 
+const (
+	leadQueueRankBreached = iota
+	leadQueueRankAtRisk
+	leadQueueRankWithinTarget
+	leadQueueRankInactive
+)
+
 func encodeLeadQueueCursor(cursor leadQueueCursor) (string, error) {
 	raw, err := json.Marshal(cursor)
 	if err != nil {
@@ -47,7 +54,7 @@ func decodeLeadQueueCursor(token string) (leadQueueCursor, error) {
 	if err != nil || json.Unmarshal(raw, &cursor) != nil || cursor.AsOf.IsZero() || cursor.CreatedAt.IsZero() || cursor.ID.IsZero() {
 		return cursor, &storekit.MalformedCursorError{}
 	}
-	if cursor.Rank < 0 || cursor.Rank > 3 || cursor.Score < 0 || cursor.Score > 100 {
+	if cursor.Rank < leadQueueRankBreached || cursor.Rank > leadQueueRankInactive || cursor.Score < 0 || cursor.Score > 100 {
 		return cursor, &storekit.MalformedCursorError{}
 	}
 	return cursor, nil
@@ -137,11 +144,12 @@ func leadQueueRank(arg func(any) int, asOf time.Time) string {
 	minutes := int(FirstResponseTarget / time.Minute)
 	risk := int(slaAtRiskWindow / time.Minute)
 	deadline := storekit.SQLf("COALESCE(routed_at, created_at) + $%d * interval '1 minute'", arg(minutes))
-	return storekit.SQLf(`CASE
-		WHEN archived_at IS NOT NULL OR first_response_at IS NOT NULL THEN 3
-		WHEN `+deadline+` < $%d THEN 0
-		WHEN `+deadline+` - $%d * interval '1 minute' <= $%d THEN 1
-		ELSE 2 END`, arg(asOf), arg(risk), arg(asOf))
+	return fmt.Sprintf(`CASE
+		WHEN archived_at IS NOT NULL OR first_response_at IS NOT NULL THEN %d
+		WHEN %s < $%d THEN %d
+		WHEN %s - $%d * interval '1 minute' <= $%d THEN %d
+		ELSE %d END`, leadQueueRankInactive, deadline, arg(asOf), leadQueueRankBreached,
+		deadline, arg(risk), arg(asOf), leadQueueRankAtRisk, leadQueueRankWithinTarget)
 }
 
 func (s *Store) readLeadQueuePage(ctx context.Context, query string, args []any, active []fieldcatalog.Column, limit int, asOf time.Time) ([]crmcontracts.Lead, storekit.Page, error) {
