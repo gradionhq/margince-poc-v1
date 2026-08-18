@@ -33,12 +33,11 @@ import (
 func seedUnansweredOutbound(t *testing.T, e *integration.Env, org ids.UUID) {
 	t.Helper()
 	owner := integration.OwnerConn(t)
-	sent := integration.SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, direction, subject, occurred_at, created_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'outbound', 'Proposal — following up',
-		        '2026-05-10T09:00:00Z', '2026-05-10T09:00:00Z', 'manual', 'human:x')`, e.WS)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, sent, org)
+	sent := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, direction, subject, occurred_at, created_at, source, captured_by)
+		VALUES ($1, 'email', 'outbound', 'Proposal — following up',
+		        '2026-05-10T09:00:00Z', '2026-05-10T09:00:00Z', 'manual', 'human:x')`)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, sent, org)
 }
 
 // The rules must look PAST the section page cap.
@@ -60,15 +59,14 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 	// older notes would sort behind it and it would sit inside the page after all.
 	for i := range 30 {
 		note := ids.NewV7()
-		if _, err := owner.Exec(context.Background(), `INSERT INTO activity
-			(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
-			VALUES ($1, $2, 'note', $3, $4, $4, 'manual', 'human:x')`,
-			note, e.WS, fmt.Sprintf("note %d", i),
+		if _, err := owner.Exec(context.Background(), `INSERT INTO activity (id, kind, subject, occurred_at, created_at, source, captured_by)
+			VALUES ($1, 'note', $2, $3, $3, 'manual', 'human:x')`,
+			note, fmt.Sprintf("note %d", i),
 			org360Clock.Add(-time.Duration(i)*time.Hour)); err != nil {
 			t.Fatalf("seeding note %d: %v", i, err)
 		}
-		e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-			VALUES ($1, $2, 'organization', $3)`, e.WS, note, org.UUID)
+		e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+			VALUES ( $1, 'organization', $2)`, note, org.UUID)
 	}
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), org)
@@ -229,14 +227,13 @@ func TestNoNextStepSeesATaskThePageDoesNot(t *testing.T) {
 
 	// One task, reachable only through the deal — never linked to the account.
 	task := ids.NewV7()
-	if _, err := owner.Exec(context.Background(), `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by, is_done)
-		VALUES ($1, $2, 'task', 'Call the CFO', $3, $3, 'manual', 'human:x', false)`,
-		task, e.WS, org360Clock); err != nil {
+	if _, err := owner.Exec(context.Background(), `INSERT INTO activity (id, kind, subject, occurred_at, created_at, source, captured_by, is_done)
+		VALUES ($1, 'task', 'Call the CFO', $2, $2, 'manual', 'human:x', false)`,
+		task, org360Clock); err != nil {
 		t.Fatalf("seeding the task: %v", err)
 	}
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, 'deal', $3)`, e.WS, task, deal)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
+		VALUES ( $1, 'deal', $2)`, task, deal)
 
 	view, err := svc.Assemble(rep, org)
 	if err != nil {

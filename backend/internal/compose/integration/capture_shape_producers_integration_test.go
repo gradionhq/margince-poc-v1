@@ -246,8 +246,8 @@ func TestAConversationWithNoNameableReaderIsRefusedRatherThanShared(t *testing.T
 		 lifecycle = 'opportunity' WHERE id = $1`, org)
 	notice := seedUnlinkedMessage(t, e, "thread-nameless", "Renewal for 2027",
 		"We have decided not to renew.", "inbound", captureShapeClock.Add(-48*time.Hour))
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, notice, org)
 
 	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
 		"They wrote that they will not renew.", 0.95)}
@@ -284,8 +284,8 @@ func TestAPrivateAccountSuppliesTheReaderItsOwnMailAnswersTo(t *testing.T) {
 		 lifecycle = 'opportunity' WHERE id = $1`, org, e.Rep1)
 	notice := seedUnlinkedMessage(t, e, "thread-private-account", "Renewal for 2027",
 		"We have decided not to renew.", "inbound", captureShapeClock.Add(-48*time.Hour))
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, notice, org)
 
 	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
 		"They wrote that they will not renew.", 0.95)}

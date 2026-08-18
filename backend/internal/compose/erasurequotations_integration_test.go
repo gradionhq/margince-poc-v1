@@ -60,8 +60,8 @@ func transcriptSubject(t *testing.T, e *integration.Env) (ids.PersonID, ids.UUID
 
 	activityID := seedTranscript(t, e, "1: Tom: Where did we land on pricing?\n2: "+quotedTranscriptLine)
 	e.WsExec(t, `
-		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, 'person', $3)`, e.WS, activityID, person)
+		INSERT INTO activity_link (activity_id, entity_type, person_id)
+		VALUES ( $1, 'person', $2)`, activityID, person)
 	e.WsExec(t, `
 		INSERT INTO transcript_read (id, activity_id, status, line_count, requested_by, started_at, finished_at)
 		VALUES ($1, $2, 'done', 2, 'human:seed', now(), now())`, ids.NewV7(), activityID)
@@ -77,9 +77,9 @@ func seedTranscript(t *testing.T, e *integration.Env, body string) ids.UUID {
 	t.Helper()
 	activityID := ids.NewV7()
 	e.WsExec(t, `
-		INSERT INTO activity (id, workspace_id, kind, subject, body, source_system, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Quarterly review', $3, 'transcript', now(), 'manual', 'human:seed')`,
-		activityID, e.WS, body)
+		INSERT INTO activity (id, kind, subject, body, source_system, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Quarterly review', $2, 'transcript', now(), 'manual', 'human:seed')`,
+		activityID, body)
 	return activityID
 }
 
@@ -199,8 +199,8 @@ func TestErasureLeavesTheQuotationOfAMeetingItMayNotDestroy(t *testing.T) {
 	shared := seedTranscript(t, e, "1: "+quote)
 	for _, participant := range []any{subject, colleague} {
 		e.WsExec(t, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES ($1, $2, 'person', $3)`, e.WS, shared, participant)
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, shared, participant)
 	}
 	approvalID := stageQuotingProposal(t, e, shared, quote, "Loop in the renewal contact")
 

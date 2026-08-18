@@ -21,6 +21,7 @@ beforeEach(() => {
 });
 
 type FinanceSummary = components["schemas"]["OrganizationFinanceSummary"];
+type FinanceInvoice = components["schemas"]["FinanceInvoice"];
 
 const CONNECTED: FinanceSummary = {
   organization_id: "o-1",
@@ -117,5 +118,40 @@ describe("the finance card is absent only where FIN-AC-3 says so", () => {
     expect(await screen.findByText("€186,420.00")).toBeTruthy();
     expect(screen.getByText("Finance")).toBeTruthy();
     expect(screen.queryByText("Finance · historical")).toBeNull();
+  });
+});
+
+describe("how late an invoice was, counted in whole days", () => {
+  const invoice = (
+    id: string,
+    status: FinanceInvoice["status"],
+    daysLate: number,
+  ): FinanceInvoice => ({
+    id,
+    number: id,
+    issued_at: "2026-07-01",
+    due_at: "2026-07-31",
+    status,
+    currency: "EUR",
+    gross_minor: 100_000,
+    open_minor: status === "paid" ? 0 : 100_000,
+    days_late: daysLate,
+  });
+
+  function withInvoices(invoices: FinanceInvoice[]) {
+    stub({ ...CONNECTED, recent_invoices: invoices });
+    render(<CompanyFinanceCard orgId="o-1" lifecycle="customer" />);
+  }
+
+  it("says one day late in the singular, and the rest in the plural", async () => {
+    withInvoices([invoice("INV-1", "paid", 1), invoice("INV-2", "paid", 8)]);
+    expect(await screen.findByText("1 day late")).toBeTruthy();
+    expect(screen.getByText("8 days late")).toBeTruthy();
+  });
+
+  it("counts an unpaid invoice's lateness the same way", async () => {
+    withInvoices([invoice("INV-3", "open", 1), invoice("INV-4", "open", 3)]);
+    expect(await screen.findByText("1 day overdue")).toBeTruthy();
+    expect(screen.getByText("3 days overdue")).toBeTruthy();
   });
 });

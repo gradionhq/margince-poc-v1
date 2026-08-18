@@ -89,8 +89,8 @@ func seedMeetingLinkedTo(t *testing.T, e *apptest.AppEnv, personID string) strin
 		t.Fatalf("reading the workspace: %v", err)
 	}
 	if _, err := e.Owner.Exec(t.Context(), `
-		INSERT INTO activity_participant (workspace_id, activity_id, role, address)
-		VALUES ($1, $2, 'attendee', 'nobody@example.test')`, wsID, meeting.ID); err != nil {
+		INSERT INTO activity_participant (activity_id, role, address)
+		VALUES ( $1, 'attendee', 'nobody@example.test')`, meeting.ID); err != nil {
 		t.Fatalf("seeding the unmatched attendee: %v", err)
 	}
 	return meeting.ID

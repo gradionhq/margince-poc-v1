@@ -114,8 +114,8 @@ func seedReplyAnchor(t *testing.T, e *integration.Env) ids.UUID {
 	id := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+			VALUES ($1,
 			        'email', 'Pricing question', now(), 'manual', 'human:x')`, id)
 		return err
 	}); err != nil {

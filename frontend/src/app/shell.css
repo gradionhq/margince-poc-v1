@@ -49,10 +49,15 @@
   /* Standard/in-out, because the panel starts and ends on screen. A decelerate
      curve belongs to something entering from off-canvas. */
   --shellEase: cubic-bezier(0.2, 0, 0, 1);
-  /* ONE content column for the whole app, named once. The page head and every
-     screen's wrap both read it, which is what keeps a heading and the content
-     under it on the same left edge at any window width — they used to agree
-     only until the column stopped growing. */
+  /* The reading column, for the pages that want one. Read DOWN — a settings
+     form, a company or contact record with its rail of facts beside prose — and
+     a measured line is the point; a label a monitor away from its control is
+     worse, not wider. Scanned ACROSS — a list, a board, a report — and the cap
+     only ever pushed columns off the right edge of a wide display. Which
+     screens are in which family is decided in ONE place, `GRIDDED_RECORD_SCREENS`
+     in app/nav.ts, because it is a judgement made by opening the page.
+     The page head is never capped: full width on every screen, and a capped
+     column is centred under it. */
   --pageColumn: 1280px;
 
   display: grid;
@@ -131,13 +136,25 @@
    the content beneath it start on the same line — the shell no longer insets
    this column, the column does. */
 .wrap {
-  max-width: var(--pageColumn);
-  margin: 0 auto;
   padding: var(--space-1) var(--space-6) var(--space-16);
   width: 100%;
 }
+/* The pages that keep the reading column — see --pageColumn and
+   GRIDDED_RECORD_SCREENS. Centred in the page: the column is the thing being
+   read, so it sits in the middle of the space it is given rather than hugging
+   one edge of it. The page head above stays full width and is therefore wider
+   than it on a big display — deliberately, since the head is the window's
+   chrome and the column is the document. */
+.main-gridded .wrap {
+  max-width: var(--pageColumn);
+  margin: 0 auto;
+}
+/* The rail-less surfaces — sign-in, onboarding, a public booking page. These
+   render no page head to align with, and they are a single centred column on
+   purpose, so they carry their own centring rather than inheriting it. */
 .wrap.narrow {
   max-width: 780px;
+  margin: 0 auto;
 }
 /* Screens drop content blocks straight into .wrap, which has no row gap, so two
    stacked top-level cards would otherwise touch. This is the default rhythm so
@@ -169,6 +186,15 @@
 .list-head-actions {
   display: flex;
   gap: var(--space-2);
+}
+/* A head whose only child is its actions: the page's name is printed by the
+   shell, so there is no title beside them to push them across. The `flex: 1`
+   above is for the TITLE stack that is normally first — left on a lone button
+   it stretches the control the full width of the page. */
+.list-head > .list-head-actions:only-child,
+.list-head > button:only-child {
+  flex: none;
+  margin-left: auto;
 }
 
 /* ===== sidebar =====
@@ -768,13 +794,14 @@
  * the content under it and the page reads as one column. */
 .pagehead {
   display: flex;
-  align-items: flex-start;
+  /* Centred, not top-aligned: the two sides are a heading and a row of chrome
+     of different heights, and hung from a shared top edge the shorter one reads
+     as having slipped. */
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
   flex: none;
   width: 100%;
-  max-width: var(--pageColumn);
-  margin: 0 auto;
   padding: var(--space-5) var(--space-6) var(--space-3);
 }
 .pagetitle {
@@ -792,6 +819,16 @@
      are translated strings, so wrapping here is a guard against a long
      translation, not against user data. */
   overflow-wrap: anywhere;
+}
+/* The line under the page's name, for a page whose name alone does not say what
+   it is for. Quiet and one step down the type scale: it explains the heading,
+   so reading it must never compete with reading the heading. */
+.pagesub {
+  margin: 0;
+  max-width: 68ch;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--textSecondary);
 }
 /* The trail on a record route, standing where the heading stands on every other
    one. It is quiet on purpose: the record's own name, at full size, is the next

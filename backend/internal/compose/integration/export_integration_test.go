@@ -99,12 +99,12 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`, f.rep3Person, f.rep3Org)
 
 	// Activities scope through their links.
-	f.rep1Activity = e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Rep1 note', now(), 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep1Activity, f.rep1Person)
-	f.rep3Activity = e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Rep3 note', now(), 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, f.rep3Activity, f.rep3Person)
+	f.rep1Activity = e.SeedID(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Rep1 note', now(), 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id) VALUES ($1, $2, 'person', $3)`, f.rep1Activity, f.rep1Person)
+	f.rep3Activity = e.SeedID(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Rep3 note', now(), 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id) VALUES ($1, $2, 'person', $3)`, f.rep3Activity, f.rep3Person)
 
 	// Attachments on each rep's person — the files manifest source.
 	e.SeedID(t, `INSERT INTO attachment (id, entity_type, entity_id, filename, storage_key, source, captured_by)

@@ -197,11 +197,11 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 		t.Fatal(err)
 	}
 	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Graph Contact', 'manual', 'human:x')`)
-	noteID := e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, source, captured_by) VALUES ($1, $2, 'note', 'Kickoff call', 'manual', 'human:x')`)
-	taskID := e.Seed(t, `INSERT INTO activity (id, workspace_id, kind, subject, is_done, source, captured_by) VALUES ($1, $2, 'task', 'Send offer', false, 'manual', 'human:x')`)
+	noteID := e.SeedID(t, `INSERT INTO activity (id, kind, subject, source, captured_by) VALUES ($1, 'note', 'Kickoff call', 'manual', 'human:x')`)
+	taskID := e.SeedID(t, `INSERT INTO activity (id, kind, subject, is_done, source, captured_by) VALUES ($1, 'task', 'Send offer', false, 'manual', 'human:x')`)
 	for _, activityID := range []ids.UUID{noteID, taskID} {
-		e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, deal_id) VALUES ($1, $2, $3, 'deal', $4)`, activityID, dealID)
-		e.Seed(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, $3, 'person', $4)`, activityID, personID)
+		e.SeedID(t, `INSERT INTO activity_link (id, activity_id, entity_type, deal_id) VALUES ($1, $2, 'deal', $3)`, activityID, dealID)
+		e.SeedID(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id) VALUES ($1, $2, 'person', $3)`, activityID, personID)
 	}
 
 	// AssembleContext never calls the embedder (it's Search's seam), but

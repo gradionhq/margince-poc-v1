@@ -181,12 +181,11 @@ func (e *sendEnv) seedAnchor(t *testing.T, sourceID, threadKey string) ids.Activ
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction,
-		                      source_system, source_id, source, captured_by, thread_key)
-		VALUES ($1, $2, 'email', 'Pricing question', now(), 'inbound',
-		        CASE WHEN $3 = '' THEN NULL ELSE 'gmail' END, NULLIF($3, ''),
-		        'gmail', 'human:x', NULLIF($4, ''))`,
-		id, e.ws, sourceID, threadKey); err != nil {
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, source_system, source_id, source, captured_by, thread_key)
+		VALUES ($1, 'email', 'Pricing question', now(), 'inbound',
+		        CASE WHEN $2 = '' THEN NULL ELSE 'gmail' END, NULLIF($2, ''),
+		        'gmail', 'human:x', NULLIF($3, ''))`,
+		id, sourceID, threadKey); err != nil {
 		t.Fatalf("seeding the anchor: %v", err)
 	}
 	return id
@@ -217,10 +216,9 @@ func (e *sendEnv) seedNonMailAnchor(t *testing.T, sourceID string) ids.ActivityI
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at,
-		                      source_system, source_id, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Discovery call', now(), 'gcal', $3, 'gcal', 'connector:gcal')`,
-		id, e.ws, sourceID); err != nil {
+		INSERT INTO activity (id, kind, subject, occurred_at, source_system, source_id, source, captured_by)
+		VALUES ($1, 'meeting', 'Discovery call', now(), 'gcal', $2, 'gcal', 'connector:gcal')`,
+		id, sourceID); err != nil {
 		t.Fatalf("seeding the calendar anchor: %v", err)
 	}
 	return id
@@ -238,8 +236,8 @@ func (e *sendEnv) linkToPersonOwnedBy(t *testing.T, anchor ids.ActivityID, owner
 		t.Fatalf("seeding the linked person: %v", err)
 	}
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		 VALUES ($1, $2, 'person', $3)`, e.ws, anchor, person); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, person_id)
+		 VALUES ( $1, 'person', $2)`, anchor, person); err != nil {
 		t.Fatalf("linking the anchor: %v", err)
 	}
 }
@@ -248,8 +246,7 @@ func (e *sendEnv) outboundCount(t *testing.T) int {
 	t.Helper()
 	var n int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM activity WHERE workspace_id = $1 AND direction = 'outbound'`,
-		e.ws).Scan(&n); err != nil {
+		`SELECT count(*) FROM activity WHERE direction = 'outbound'`).Scan(&n); err != nil {
 		t.Fatalf("counting outbound activities: %v", err)
 	}
 	return n

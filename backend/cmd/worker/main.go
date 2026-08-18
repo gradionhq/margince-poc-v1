@@ -64,6 +64,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	cfg, deployCfg, logger := boot.cfg, boot.deploy, boot.log
+	config.WarnUndeclared(logger, cfg.unknownVars)
 
 	// Before a pool exists, because the license needs no database and an
 	// operator mistake must not leave a worker running on a license the api

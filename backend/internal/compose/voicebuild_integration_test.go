@@ -559,9 +559,9 @@ func seedReplyActivity(t *testing.T, env *voiceBuildEnv) ids.UUID {
 	id := ids.NewV7()
 	err := database.WithWorkspaceTx(env.owner, env.e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, source_system, source_id, source, captured_by)
-			VALUES ($1, $2, 'email', 'the plan', 'Can you confirm the plan?', 'gmail', $3, 'gmail:'||$3, 'connector:gmail')`,
-			id, env.e.WS, "voice-"+id.String())
+			INSERT INTO activity (id, kind, subject, body, source_system, source_id, source, captured_by)
+			VALUES ($1, 'email', 'the plan', 'Can you confirm the plan?', 'gmail', $2, 'gmail:'||$2, 'connector:gmail')`,
+			id, "voice-"+id.String())
 		return err
 	})
 	if err != nil {

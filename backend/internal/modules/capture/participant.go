@@ -153,9 +153,8 @@ func StampFurtherParticipants(
 	// counterparty promotion does — the row records which address was actually
 	// written to, and a person may hold several.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO activity_participant (workspace_id, activity_id, user_id, person_id, address, role)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		       $1, u.id, pe.person_id, inp.address, inp.role
+		INSERT INTO activity_participant (activity_id, user_id, person_id, address, role)
+		SELECT $1, u.id, pe.person_id, inp.address, inp.role
 		  FROM unnest($2::text[], $3::text[]) AS inp(address, role)
 		  LEFT JOIN app_user u
 		         ON $4 AND lower(u.email) = inp.address
@@ -192,8 +191,8 @@ func insertParticipant(
 	// read off the wire, over a participant row that is a nicety rather than
 	// the point of the write.
 	_, err := tx.Exec(ctx, `
-		INSERT INTO activity_participant (workspace_id, activity_id, user_id, person_id, address, role)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, NULLIF($4, ''), $5
+		INSERT INTO activity_participant (activity_id, user_id, person_id, address, role)
+		SELECT $1, $2, $3, NULLIF($4, ''), $5
 		 WHERE $2::uuid IS NULL
 		    OR EXISTS (SELECT 1 FROM app_user u WHERE u.id = $2)
 		ON CONFLICT DO NOTHING`,

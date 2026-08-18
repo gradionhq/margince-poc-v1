@@ -140,9 +140,8 @@ func backfillParticipants(ctx context.Context, tx pgx.Tx, limit int) (int, error
 		     ORDER BY a.id
 		     LIMIT $1
 		)
-		INSERT INTO activity_participant (workspace_id, activity_id, user_id, person_id, address, role)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		       c.id, r.user_id, r.person_id, r.address, r.role
+		INSERT INTO activity_participant (activity_id, user_id, person_id, address, role)
+		SELECT c.id, r.user_id, r.person_id, r.address, r.role
 		  FROM candidate c
 		  CROSS JOIN LATERAL (
 		       -- Our side: the role follows the direction, exactly as capture

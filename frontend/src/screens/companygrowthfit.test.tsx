@@ -67,6 +67,41 @@ async function show(fit: GrowthFit) {
   await screen.findByText(/as of /i);
 }
 
+describe("the wait before the first assessment", () => {
+  // A cold assessment is assembled on the request, model call included, and
+  // that runs into tens of seconds. For all of it the panel drew its heading
+  // and then a mute grey rectangle, which reads as a panel that is broken
+  // rather than one that is working — and to a screen reader it read as
+  // nothing at all.
+  it("says what it is waiting for, out loud and to assistive tech", () => {
+    // A fetch that never settles IS the pending state; there is no clock here
+    // to advance and nothing to wait for.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+    const { container } = render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <GrowthFitPanel orgId="o-1" enabled />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    const live = container.querySelector("[role='status'][aria-busy='true']");
+    expect(live).toBeTruthy();
+    expect(live?.textContent).toContain(
+      "Working out what this account is worth",
+    );
+    // And it must not have resolved into any of the panel's verdicts.
+    expect(screen.queryByText("Not enough to judge")).toBeNull();
+  });
+});
+
 describe("how well this company fits what we sell", () => {
   it("says it could not judge, rather than showing a low score", async () => {
     await show(ABSTAINED);

@@ -31,9 +31,8 @@ import (
 // seedInteraction records one captured email to hang participants off.
 func seedInteraction(t *testing.T, e *Env) ids.ActivityID {
 	t.Helper()
-	id := SeedRow(t, OwnerConn(t), `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Q3 terms', '2026-08-01T09:00:00Z', 'inbound', 'gmail', 'connector:gmail')`, e.WS)
+	id := SeedIDRow(t, OwnerConn(t), `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', 'Q3 terms', '2026-08-01T09:00:00Z', 'inbound', 'gmail', 'connector:gmail')`)
 	return ids.From[ids.ActivityKind](id)
 }
 
@@ -164,9 +163,8 @@ func TestStampingTheSamePartiesTwiceAddsNothing(t *testing.T) {
 // must not see them.
 func TestANonInteractionKindStampsNoParties(t *testing.T) {
 	e := Setup(t)
-	note := ids.From[ids.ActivityKind](SeedRow(t, OwnerConn(t), `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'thinking', '2026-08-01T09:00:00Z', 'manual', 'human:x')`, e.WS))
+	note := ids.From[ids.ActivityKind](SeedIDRow(t, OwnerConn(t), `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'thinking', '2026-08-01T09:00:00Z', 'manual', 'human:x')`))
 
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {

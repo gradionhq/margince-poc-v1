@@ -71,9 +71,9 @@ func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service) hel
 	const to = draftRecipient
 	owner := integration.OwnerConn(t)
 	person := e.SeedPerson(t, "Anna Weber", nil)
-	anchor := integration.SeedRow(t, owner, `
-		INSERT INTO activity (id, workspace_id, kind, direction, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'inbound', 'Kickoff', now(), 'test', 'human:seed')`, e.WS)
+	anchor := integration.SeedIDRow(t, owner, `
+		INSERT INTO activity (id, kind, direction, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'inbound', 'Kickoff', now(), 'test', 'human:seed')`)
 	// The purpose the send is gated against. Seeded with class
 	// business_correspondence, which is the class that is never consent-gated
 	// (ADR-0098 D1) — answering somebody who wrote to you rests on
@@ -96,11 +96,11 @@ func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service) hel
 
 	// The counterparty on the thread, carrying the address a reply answers.
 	e.WsExec(t, `
-		INSERT INTO activity_participant (id, workspace_id, activity_id, role, person_id, address)
-		VALUES ($1, $2, $3, 'from', $4, $5)`, ids.NewV7(), e.WS, anchor, person, to)
+		INSERT INTO activity_participant (id, activity_id, role, person_id, address)
+		VALUES ($1, $2, 'from', $3, $4)`, ids.NewV7(), anchor, person, to)
 	e.WsExec(t, `
-		INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, $3, 'person', $4)`, ids.NewV7(), e.WS, anchor, person)
+		INSERT INTO activity_link (id, activity_id, entity_type, person_id)
+		VALUES ($1, $2, 'person', $3)`, ids.NewV7(), anchor, person)
 
 	proposal := automation.HeldDraftProposal{
 		AnchorActivityID: anchor,

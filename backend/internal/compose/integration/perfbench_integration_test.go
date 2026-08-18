@@ -314,9 +314,8 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	// sides' row_numbers forces the planner into a nested loop that is
 	// pathological at the mid-market tier.
 	exec(`WITH act AS (
-	        INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, source, captured_by)
-	        SELECT $1,
-	               CASE WHEN i % 5 = 0 THEN 'task' ELSE 'email' END,
+	        INSERT INTO activity (kind, subject, body, occurred_at, source, captured_by)
+	        SELECT CASE WHEN i % 5 = 0 THEN 'task' ELSE 'email' END,
 	               'Subject ' || i || CASE WHEN i % 101 = 0 THEN ' Hamburg' ELSE '' END,
 	               'Body ' || i,
 	               now() - (i % 720 || ' hours')::interval,
@@ -330,8 +329,8 @@ func seedBenchTier(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierSpe
 	      ), people AS (
 	        SELECT id, row_number() OVER () AS rn FROM person WHERE workspace_id = $1
 	      )
-	      INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-	      SELECT $1, n.id, 'person', p.id
+	      INSERT INTO activity_link (activity_id, entity_type, person_id)
+	      SELECT n.id, 'person', p.id
 	      FROM numbered n JOIN people p ON p.rn = n.target_rn`, ws, spec.bulkActivities)
 
 	// Employment edges for the ADR-0021 edge-count evidence.
@@ -365,9 +364,8 @@ func seedBenchAnchor(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierS
 		t.Fatalf("seeding anchor: %v", err)
 	}
 	benchExec(t, owner, spec.tier, `WITH act AS (
-	        INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, source, captured_by)
-	        SELECT $1,
-	               CASE WHEN i % 4 = 0 THEN 'task' ELSE 'meeting' END,
+	        INSERT INTO activity (kind, subject, body, occurred_at, source, captured_by)
+	        SELECT CASE WHEN i % 4 = 0 THEN 'task' ELSE 'meeting' END,
 	               'Anchor touch ' || i, 'Anchor body ' || i,
 	               now() - (i || ' hours')::interval,
 	               'manual', 'human:bench'
@@ -378,14 +376,14 @@ func seedBenchAnchor(t *testing.T, owner *pgx.Conn, ws ids.UUID, spec benchTierS
 	      ), numbered AS (
 	        SELECT id, (row_number() OVER () - 1) % (SELECT n FROM total) + 1 AS target_rn FROM act
 	      ), links AS (
-	        INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-	        SELECT $1, id, 'person', $2 FROM numbered
+	        INSERT INTO activity_link (activity_id, entity_type, person_id)
+	        SELECT id, 'person', $2 FROM numbered
 	        RETURNING activity_id
 	      ), orgs AS (
 	        SELECT id, row_number() OVER () AS rn FROM organization WHERE workspace_id = $1
 	      )
-	      INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-	      SELECT $1, n.id, 'organization', o.id
+	      INSERT INTO activity_link (activity_id, entity_type, organization_id)
+	      SELECT n.id, 'organization', o.id
 	      FROM numbered n JOIN orgs o ON o.rn = n.target_rn`, ws, anchor, spec.anchorTouches)
 	return anchor
 }

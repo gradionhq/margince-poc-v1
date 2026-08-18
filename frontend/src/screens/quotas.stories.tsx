@@ -1,4 +1,8 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import { AttainmentRing } from "../design-system/atoms";
 import { LocaleProvider } from "../i18n";
 import { QuotasView } from "./quotas";
@@ -110,6 +114,21 @@ type Story = StoryObj<typeof QuotasView>;
 export const AttainmentMet: Story = { render: withAttainment("met") };
 export const AttainmentAccent: Story = { render: withAttainment("accent") };
 export const AttainmentBehind: Story = { render: withAttainment("behind") };
+
+// The decomposition open. It is the same titled Card the reports screen draws
+// for the same feature — `inset` here because it opens INSIDE the attainment
+// card rather than on the page's own ground — so this story is what stops the
+// two spellings of one feature drifting apart again.
+export const ExplainOpen: Story = {
+  render: withAttainment("accent"),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement).findByRole("button", {
+        name: "Explain this number",
+      }),
+    );
+  },
+};
 
 export const NoQuota: Story = {
   render: quotaStory({

@@ -86,7 +86,7 @@ func (w *flipWriters) ReconcileIdentities(ctx context.Context) error {
 // slice lands, and the function goes with the last one.
 func flipTenantScope(object string) string {
 	switch object {
-	case flipObjectPerson, flipObjectOrganization, flipObjectLead, flipObjectActivity:
+	case flipObjectPerson, flipObjectOrganization, flipObjectLead:
 		return "\n\t\t\t  AND n.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid"
 	default:
 		return ""

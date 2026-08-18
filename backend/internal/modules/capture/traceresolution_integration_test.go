@@ -101,9 +101,8 @@ func seedRecord(ctx context.Context, t *testing.T, db *database.DB,
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, channel_provider, occurred_at, source_system,
-			                      source_id, source, captured_by, counterparty_email)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (id, kind, channel_provider, occurred_at, source_system, source_id, source, captured_by, counterparty_email)
+			VALUES ($1,
 			        CASE WHEN $4 = '' THEN 'note' ELSE 'message' END, NULLIF($4, ''),
 			        now(), $5, $2, $5, 'connector:' || $5, $3)`,
 			activityID, sourceID, sender, channelProvider, system); err != nil {

@@ -62,7 +62,15 @@ function openTask(overrides: Partial<Activity>): Activity {
 
 type Mutation = { method: string; url: string; body: unknown };
 
-function tasksBackend(tasks: Activity[], mutations: Mutation[]) {
+function tasksBackend(
+  tasks: Activity[],
+  mutations: Mutation[],
+  // The records a row's links point at, keyed by the path that reads one
+  // (`/leads/l-1`). A named row resolves its record through EntityRef, off that
+  // record's own GET — unanswered, the row falls back to the raw id and an
+  // assertion about the name would be asserting the fallback.
+  records: Record<string, unknown> = {},
+) {
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const request = input instanceof Request ? input : null;
     const url = String(request ? request.url : input);
@@ -76,6 +84,10 @@ function tasksBackend(tasks: Activity[], mutations: Mutation[]) {
         openTask(method === "POST" ? { id: "t-new" } : {}),
         method === "POST" ? 201 : 200,
       );
+    }
+    const record = Object.entries(records).find(([path]) => url.includes(path));
+    if (record) {
+      return jsonResponse(record[1]);
     }
     return jsonResponse({ data: tasks, page: { next_cursor: null } });
   });
@@ -137,11 +149,16 @@ describe("TasksScreen reminders (B-E16.1)", () => {
     );
     render(<TasksScreen />);
     await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
-    // The formatter itself is pinned in format.test.ts; here the row must
-    // show the stored instant rendered for the en locale in Europe/Berlin.
+    // The formatter itself is pinned in format.test.ts; here the row must show
+    // the stored instant in the READER's zone — the same zone the due date
+    // beside it uses, because one row stating two zones is worse than either.
     expect(
       screen.getByText(
-        formatDateTime("2026-07-05T07:30:00Z", "en", "Europe/Berlin"),
+        formatDateTime(
+          "2026-07-05T07:30:00Z",
+          "en",
+          Intl.DateTimeFormat().resolvedOptions().timeZone,
+        ),
       ),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Clear reminder" })).toBeTruthy();
@@ -183,5 +200,43 @@ describe("TasksScreen reminders (B-E16.1)", () => {
     expect(mutations[0].method).toBe("PATCH");
     expect(mutations[0].url).toContain("/activities/t1");
     expect(mutations[0].body).toMatchObject({ remind_at: null });
+  });
+});
+
+// Task subjects are generated ("Follow up with the new lead"), so a queue of
+// them is a column of the same sentence and the only way to tell two apart is
+// to open both. The row names WHICH record it is about — the first link the app
+// can route to. `project` is not one of those: it has no 360 to send anyone to.
+describe("TaskRow — when the task is due, in the reader's own zone", () => {
+  const due = "2026-07-04T22:30:00Z";
+
+  // A due date is a personal deadline: the row renders it in the VIEWER's zone,
+  // not a zone the product picked. Pinned to Europe/Berlin it told a reader in
+  // Ho Chi Minh City the 4th when their task is due on the 5th.
+  //
+  // The test controls the zone rather than reading the machine's, so it asserts
+  // the rule instead of wherever CI happens to run.
+  it("renders the due date in the zone the reader resolves to", async () => {
+    const resolved = Intl.DateTimeFormat.prototype.resolvedOptions;
+    vi.spyOn(
+      Intl.DateTimeFormat.prototype,
+      "resolvedOptions",
+    ).mockImplementation(function mocked(this: Intl.DateTimeFormat) {
+      return { ...resolved.call(this), timeZone: "Asia/Ho_Chi_Minh" };
+    });
+    vi.stubGlobal("fetch", tasksBackend([openTask({ due_at: due })], []));
+    render(<TasksScreen />);
+
+    await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
+    const cell = screen.getByText("Call Anna").parentElement;
+    if (!cell) {
+      throw new Error("the task subject rendered outside a row");
+    }
+    expect(cell.textContent).toContain(
+      formatDateTime(due, "en", "Asia/Ho_Chi_Minh"),
+    );
+    expect(cell.textContent).not.toContain(
+      formatDateTime(due, "en", "Europe/Berlin"),
+    );
   });
 });

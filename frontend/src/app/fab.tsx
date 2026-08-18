@@ -25,6 +25,10 @@ export function AskFab({ route }: Readonly<{ route: Route }>) {
     <div className="askfab-root">
       {open && (
         <div
+          // The card surface by class, not by component: this panel is a
+          // role="dialog", and Card admits only role="status" on purpose — a
+          // card must not be able to claim it is a modal. `.askfab-panel`
+          // supplies the layout, `card` the ground it stands on.
           className="askfab-panel card"
           // NOSONAR: inline anchored panel, not a native modal dialog; styling and conditional mount don't map to <dialog>
           role="dialog"

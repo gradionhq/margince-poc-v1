@@ -215,10 +215,10 @@ func recordBenchSeeds(workspace string) []struct {
 		{"organizations", `INSERT INTO organization (workspace_id, display_name, source, captured_by)
 		   SELECT $1, 'Bench Org ' || i, 'manual', 'human:bench'
 		   FROM generate_series(1, $2) AS i`, []any{workspace, recordBenchOrganizations}},
-		{"activities", `INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, source, captured_by)
-		   SELECT $1, 'email', 'Bench subject ' || i, 'Bench body ' || i,
+		{"activities", `INSERT INTO activity (kind, subject, body, occurred_at, source, captured_by)
+		   SELECT 'email', 'Bench subject ' || i, 'Bench body ' || i,
 		          now() - (i % 720 || ' hours')::interval, 'manual', 'human:bench'
-		   FROM generate_series(1, $2) AS i`, []any{workspace, recordBenchActivities}},
+		   FROM generate_series(1, $1) AS i`, []any{recordBenchActivities}},
 		// The planner chooses differently against stale statistics, and a
 		// benchmark that measures the plan for an empty table is measuring the
 		// fixture rather than the product.

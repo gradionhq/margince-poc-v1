@@ -34,7 +34,7 @@ import { api } from "../api/client";
 import type { components, operations } from "../api/schema";
 import { dotTier } from "../app/autonomy";
 import { useCan, useCanWrite, useHoldsAdminRole } from "../app/capability";
-import { ENTITY_KINDS, type EntityKind } from "../app/entity";
+import { isEntityKind } from "../app/entity";
 import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
@@ -2049,10 +2049,6 @@ function AutonomyCard() {
 }
 
 type AuditLogEntry = components["schemas"]["AuditLogEntry"];
-
-function isEntityKind(kind: string): kind is EntityKind {
-  return (ENTITY_KINDS as readonly string[]).includes(kind);
-}
 
 // The union of before/after keys for one row's diff — a key present on
 // neither side is never shown, so the panel only ever displays fields the

@@ -617,6 +617,20 @@ export function CompanyIdentityLine({
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
+  // WHO wrote this record, by name. The roster is the page's existing one —
+  // CompanyOwnerControl on the line above already reads it, and both share
+  // react-query's `["users"]` entry, so this adds no request.
+  //
+  // Undefined on a roster miss, deliberately: `ProvenanceTag` falls back to
+  // "typed by a person", which is true. The roster reads one page of 200 users,
+  // so an author outside it would otherwise be named with the raw uuid the
+  // generic reference renders — and "typed by 3f2b8c…" is worse than not
+  // claiming to know, not better.
+  const roster = useRoster("user", true);
+  const authorName = (userId: string) => {
+    const entry = roster.data?.find((candidate) => candidate.id === userId);
+    return entry && "display_name" in entry ? entry.display_name : undefined;
+  };
   // Withheld or still in flight, the line says nothing about it: naming no way
   // in on an account that has one is worse than saying nothing.
   const wayIn = loading ? undefined : view?.strength;
@@ -679,7 +693,10 @@ export function CompanyIdentityLine({
             row itself rather than about any field on it, so it belongs with
             the record's own dates and not on the line that says what the
             account is. */}
-        <ProvenanceTag provenance={provenanceOf(org.captured_by, viewerId)} />
+        <ProvenanceTag
+          provenance={provenanceOf(org.captured_by, viewerId)}
+          renderUser={authorName}
+        />
         {/* The contact the relationship actually runs through, on the line of
             the record's own facts. The NAME is a live lookup, so the sentence
             is built from two translated halves around it rather than

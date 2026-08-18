@@ -85,7 +85,7 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 // this is the one statement every writer passes through — the timeline's link
 // vocabulary describes what a message or meeting is ABOUT, and a record set
 // larger than this is about nothing.
-func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput) error {
+func insertActivityLinks(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, links []ActivityLinkInput) error {
 	if len(links) > maxActivityLinks {
 		return &TooManyLinksError{Count: len(links)}
 	}
@@ -103,8 +103,8 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, a
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			sprintf(`INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s) VALUES ($1, $2, $3, $4)`, column),
-			wsID, activityID, link.EntityType, link.EntityID); err != nil {
+			sprintf(`INSERT INTO activity_link (activity_id, entity_type, %s) VALUES ($1, $2, $3)`, column),
+			activityID, link.EntityType, link.EntityID); err != nil {
 			return err
 		}
 	}

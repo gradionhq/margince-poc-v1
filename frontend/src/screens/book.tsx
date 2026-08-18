@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { api } from "../api/client";
 import {
   Button,
+  Card,
   SectionHeader,
   SegmentedControl,
   TextInput,
@@ -19,6 +20,12 @@ import { problemMessageOf, QueryGate, throwProblem } from "./common";
 // B-E04.16 /public/booking surface, where consent is mandatory and the
 // wording the visitor sees is byte-for-byte what is submitted (the
 // consent-passthrough invariant, EP07 capture contract).
+//
+// Both variants report the booking's outcome in a card that MOUNTS when the
+// mutation settles, and a node that appears is announced by nobody — the
+// reader is still down at the slot they pressed. So every such card is a live
+// region (`role="status"`), and only those: the slot grid and the consent line
+// were on screen before the write and have nothing to announce.
 
 const DURATIONS = ["15", "30", "60"] as const;
 
@@ -142,13 +149,13 @@ function SessionBookingScreen() {
         </p>
       )}
       {book.isSuccess ? (
-        <div className="card">
+        <Card as="div" role="status">
           <p className="t-label">{t("book.confirmed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {book.data.occurred_at &&
               formatDateTime(book.data.occurred_at, locale, "Europe/Berlin")}
           </p>
-        </div>
+        </Card>
       ) : (
         <QueryGate
           query={availability}
@@ -171,12 +178,17 @@ function SessionBookingScreen() {
         </QueryGate>
       )}
       {book.isError && (
-        <div className="card card-inset" style={{ marginTop: 12 }}>
+        <Card
+          as="div"
+          inset
+          role="status"
+          style={{ marginTop: "var(--space-3)" }}
+        >
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {problemMessageOf(book.error, t)}
           </p>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -304,12 +316,12 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         <span data-consent-wording>{consentWording}</span>
       </label>
       {book.isSuccess ? (
-        <div className="card">
+        <Card as="div" role="status">
           <p className="t-label">{t("book.confirmed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {formatDateTime(book.data.start, locale, "Europe/Berlin")}
           </p>
-        </div>
+        </Card>
       ) : (
         <QueryGate
           query={availability}
@@ -332,12 +344,17 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         </QueryGate>
       )}
       {book.isError && (
-        <div className="card card-inset" style={{ marginTop: 12 }}>
+        <Card
+          as="div"
+          inset
+          role="status"
+          style={{ marginTop: "var(--space-3)" }}
+        >
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {problemMessageOf(book.error, t)}
           </p>
-        </div>
+        </Card>
       )}
     </div>
   );

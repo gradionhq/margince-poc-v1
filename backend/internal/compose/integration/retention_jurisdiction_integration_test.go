@@ -48,21 +48,20 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 	unlinkedEmail := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO retention_policy (object_type, category, retain_days, action)
 			VALUES ('activity', NULL, 100, 'erase')`); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'email', 'Order confirmation', 'commercial content', now() - interval '400 days', 'capture', 'connector:t')`,
+			INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, 'email', 'Order confirmation', 'commercial content', now() - interval '400 days', 'capture', 'connector:t')`,
 			email); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'note', 'Old scratch note', 'ephemeral', now() - interval '400 days', 'capture', 'connector:t')`,
+			INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, 'note', 'Old scratch note', 'ephemeral', now() - interval '400 days', 'capture', 'connector:t')`,
 			note); err != nil {
 			return err
 		}
@@ -75,8 +74,8 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		// transport carried it. Pinned here so a later narrowing of the
 		// predicate to a NAMED list fails instead of silently unshielding it.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, channel_provider, subject, body, occurred_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'message', 'telegram', NULL, 'commercial content', now() - interval '400 days', 'capture', 'connector:t')`,
+			INSERT INTO activity (id, kind, channel_provider, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, 'message', 'telegram', NULL, 'commercial content', now() - interval '400 days', 'capture', 'connector:t')`,
 			message); err != nil {
 			return err
 		}
@@ -84,16 +83,16 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		// An occurrence-anchored 6y floor would already expose it; the
 		// calendar-year-end anchor keeps it until its year's end + 6y.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'email', 'January Handelsbrief', 'commercial content',
+			INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, 'email', 'January Handelsbrief', 'commercial content',
 			        date_trunc('year', now() - interval '6 years') + interval '14 days', 'capture', 'connector:t')`,
 			janEmail); err != nil {
 			return err
 		}
 		// The control: same age, same kind, no transaction behind it.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'email', 'Lunch next Tuesday?', 'no transaction here', now() - interval '400 days', 'capture', 'connector:t')`,
+			INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			VALUES ($1, 'email', 'Lunch next Tuesday?', 'no transaction here', now() - interval '400 days', 'capture', 'connector:t')`,
 			unlinkedEmail); err != nil {
 			return err
 		}
@@ -120,8 +119,8 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		}
 		for _, a := range []ids.UUID{email, janEmail, message} {
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-				VALUES (`+wsClause+`, $1, 'deal', $2)`, a, deal); err != nil {
+				INSERT INTO activity_link (activity_id, entity_type, deal_id)
+				VALUES ( $1, 'deal', $2)`, a, deal); err != nil {
 				return err
 			}
 		}

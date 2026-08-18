@@ -184,8 +184,8 @@ func (s *Store) RedactCapturedNoiseTx(ctx context.Context, tx pgx.Tx, activityID
 // no-op rather than a duplicate.
 func (s *Store) LinkCapturedMailTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID, email string) error {
 	_, err := tx.Exec(ctx, `
-		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		SELECT a.workspace_id, a.id, 'person', $2
+		INSERT INTO activity_link (activity_id, entity_type, person_id)
+		SELECT a.id, 'person', $2
 		  FROM activity a
 		 WHERE a.counterparty_email = $1
 		   AND a.kind = 'email' AND a.captured_by LIKE 'connector:%'

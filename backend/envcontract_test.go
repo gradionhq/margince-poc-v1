@@ -35,10 +35,13 @@ package backendarch
 //     gate for a noisy one.
 //   - Whole double-quoted literals only. A name assembled at run time
 //     ("MARGINCE_" + provider + "_KEY"), or written as a backquoted raw string,
-//     is invisible to every obligation here. Neither appears in the tree today
-//     — every backquoted occurrence is prose in a comment or an error message —
-//     and the caveat is recorded so that adding one is a deliberate act rather
-//     than a silent gap.
+//     is invisible to every obligation here, so adding one has to be a
+//     deliberate act rather than a silent gap.
+//     internal/platform/config/unknown.go is the one deliberate case: it
+//     assembles the names of variables it deliberately does NOT read, so a
+//     whole literal there would demand a documentation row for a variable no
+//     process consults. Its own comment records the reason. Every backquoted
+//     occurrence remains prose in a comment or an error message.
 //   - Presence, not truth. A var being named in a document does not make the
 //     prose around it accurate, and .env.template now carries denser
 //     behavioural claims than the reference doc does. These gates stop a var
