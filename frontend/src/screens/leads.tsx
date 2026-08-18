@@ -41,12 +41,11 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
-import { RECORD_ZONE } from "./company360";
 import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, OwnerName, useRoster } from "./entityref";
+import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
 import { LeadManualSignals } from "./leadsignals";
 import {
@@ -58,6 +57,7 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { LogActivity } from "./logactivity";
+import { createdColumn, ownerColumn, standardViews } from "./recordlist";
 import { ShareAction } from "./share";
 
 // Leads (B-EP09.10a/b): visually SEGREGATED from the contact graph — the
@@ -505,6 +505,7 @@ export function LeadsScreen() {
   const ownerChips = useOwnerChips();
   const t = useT();
   const { locale } = useLocale();
+  const viewerId = useViewerId();
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
@@ -593,24 +594,8 @@ export function LeadsScreen() {
             header: t("lead.status"),
             cell: (lead: Lead) => <StatusBadge status={lead.status} />,
           },
-          {
-            key: "owner",
-            header: t("list.owner"),
-            cell: (lead: Lead) => (
-              <OwnerName ownerId={lead.owner_id} unowned={t("list.unowned")} />
-            ),
-            sort: "owner_id",
-          },
-          {
-            key: "created",
-            header: t("list.created"),
-            cell: (lead: Lead) => (
-              <span className="t-caption">
-                {formatDateAbbrev(lead.created_at, locale, RECORD_ZONE)}
-              </span>
-            ),
-            sort: "created_at",
-          },
+          ownerColumn<Lead>(t),
+          createdColumn<Lead>(t, locale),
         ]}
         rowKey={(lead) => lead.id}
         rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
@@ -632,7 +617,7 @@ export function LeadsScreen() {
         // mine, my team's, the unowned queue.
         dataChips={ownerChips}
         views={[
-          { label: "list.viewAll", sort: "-created_at" },
+          ...standardViews(viewerId),
           { label: "list.viewHighestScore", sort: "-score" },
           {
             label: "list.viewHot",
