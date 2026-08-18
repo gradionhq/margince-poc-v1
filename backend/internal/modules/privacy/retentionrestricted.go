@@ -35,17 +35,22 @@ const restrictionExpiredCause = "restriction_expired"
 // authored, and this is not a policy the operator may decline — it is the
 // second half of an Art. 17 request the engine already accepted and held.
 //
-// A record under a transitive legal hold is skipped exactly as the erasure
-// itself would have skipped it (notTransitivelyHeld): the hold outranks the
-// subject's request until it is lifted, and the row stays restricted
-// meanwhile, which is the more protective of the two states.
+// A record under a legal hold reached through ANY of its links is skipped:
+// the hold outranks the subject's request until it is lifted, and the row
+// stays restricted meanwhile, which is the more protective of the two states.
+// The person arm is included here where the erasure's own selectors leave it
+// out — the erasure proved its subject unheld before it ran, but a hold can
+// land on that (now anonymised) person row during the years the window is
+// open, and the sweep must see it. The predicate is repeated in the lift
+// statement itself so a hold placed between the selection and the write
+// still wins.
 func (s *RetentionService) evaluateRestrictionExpiry(ctx context.Context) error {
 	var due []ids.UUID
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT a.id FROM activity a
 			WHERE a.restricted_at IS NOT NULL AND a.restricted_until <= now()
-			`+notTransitivelyHeld("a.id")+`
+			`+notHeldThroughAnyLink("a.id")+`
 			ORDER BY a.restricted_until
 			LIMIT $1`, retentionBatch)
 		if err != nil {
@@ -63,6 +68,18 @@ func (s *RetentionService) evaluateRestrictionExpiry(ctx context.Context) error 
 		}
 	}
 	return nil
+}
+
+// notHeldThroughAnyLink is notTransitivelyHeld plus the person arm.
+func notHeldThroughAnyLink(activityID string) string {
+	return `
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link h
+	    LEFT JOIN person hp ON hp.id = h.person_id
+	    LEFT JOIN organization org ON org.id = h.organization_id
+	    LEFT JOIN deal dl ON dl.id = h.deal_id
+	    WHERE h.activity_id = ` + activityID + `
+	      AND (coalesce(hp.legal_hold, false) OR coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
 }
 
 // expireRestriction erases one held record in its own audited transaction.
@@ -84,6 +101,7 @@ func (s *RetentionService) expireRestriction(ctx context.Context, id ids.UUID) e
 			         WHERE c IS NOT NULL),
 			       archived_at = coalesce(a.archived_at, now())
 			 WHERE a.id = $1 AND a.restricted_at IS NOT NULL AND a.restricted_until <= now()
+			 `+notHeldThroughAnyLink("a.id")+`
 			 RETURNING a.retention_class`, id).Scan(&class)
 		if err == pgx.ErrNoRows {
 			return nil
