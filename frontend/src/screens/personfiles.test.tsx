@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -84,6 +84,17 @@ function stubTwoPages() {
 }
 
 let lastRequest: Request | undefined;
+
+// A response the test holds open: the stub awaits `arrival`, so the test owns
+// the moment a page comes back and can wait on the states either side of it
+// instead of on a duration.
+function heldPage(): Readonly<{ arrival: Promise<void>; deliver: () => void }> {
+  let deliver: () => void = () => undefined;
+  const arrival = new Promise<void>((resolve) => {
+    deliver = resolve;
+  });
+  return { arrival, deliver };
+}
 
 function show(ui: ReactNode) {
   const client = new QueryClient({
@@ -252,6 +263,13 @@ describe("the person's files tab", () => {
   });
 
   it("keeps the files already read when a later page fails to load", async () => {
+    // The second page is held open and released by the test, because the DOM a
+    // failed later page leaves behind is the DOM that was already there: rows,
+    // the truncation sentence, and a pressable button. Asserting straight after
+    // the click would therefore pass on "nothing has happened yet". The button
+    // refusing a press is the walk being out; it becoming pressable again is
+    // the failure having landed, and only then is the tab worth asking.
+    const secondPage = heldPage();
     let call = 0;
     vi.stubGlobal(
       "fetch",
@@ -272,6 +290,7 @@ describe("the person's files tab", () => {
             { status: 200, headers: { "content-type": "application/json" } },
           );
         }
+        await secondPage.arrival;
         return new Response(JSON.stringify({ title: "Error" }), {
           status: 500,
           headers: { "content-type": "application/json" },
@@ -284,9 +303,15 @@ describe("the person's files tab", () => {
     await screen.findByRole("link", { name: "newest.pdf" });
     await user.click(screen.getByRole("button", { name: "Load more" }));
 
+    const loadMore = () => screen.getByRole("button", { name: "Load more" });
+    await waitFor(() => expect(loadMore().hasAttribute("disabled")).toBe(true));
+    secondPage.deliver();
+    await waitFor(() =>
+      expect(loadMore().hasAttribute("disabled")).toBe(false),
+    );
+
     // The failure belongs to one page, not to the library: the rows stay, and
     // the button is still there to try the same page again.
-    await screen.findByRole("button", { name: "Load more" });
     expect(screen.getByRole("link", { name: "newest.pdf" })).toBeTruthy();
     expect(screen.queryByText("This section did not load.")).toBeNull();
   });

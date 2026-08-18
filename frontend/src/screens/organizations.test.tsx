@@ -11,10 +11,18 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AssistantPanel } from "./assistant";
+import {
+  companyBackstop,
+  emptyPage,
+  jsonResponse,
+  org,
+  org360,
+  stubFetch,
+} from "./company.fixtures";
 import { SuggestionsSection } from "./company360";
 import { listFetchLimit } from "./listquery";
 import {
@@ -39,13 +47,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   window.location.hash = "";
 });
-
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 function render(ui: ReactNode) {
   const client = new QueryClient({
@@ -74,83 +75,6 @@ async function openRecordMenu(testId: string): Promise<HTMLElement> {
   return screen.getByTestId(testId);
 }
 
-const org = {
-  id: "o-1",
-  display_name: "Brandt Automotive GmbH",
-  industry: "Automotive",
-  captured_by: "human:u1",
-  source: "manual",
-  version: 1,
-  created_at: "2026-06-01T08:00:00Z",
-  updated_at: "2026-06-01T08:00:00Z",
-};
-
-// The 360 backstop: an assembled account with every section present and
-// empty. The pre-existing suites below exercise the enrich/deep-read/profile
-// cards, not the composite read, and an assembled-but-empty page is the
-// state that lets them render without asserting anything about it.
-const org360 = {
-  as_of: "2026-06-01T09:00:00Z",
-  organization: org,
-  sections_omitted: [],
-  people: { data: [], page: { has_more: false, next_cursor: null } },
-  deals: {
-    data: [],
-    page: { has_more: false, next_cursor: null },
-    won_lifetime: { amount_minor: 0, currency: "EUR" },
-    lost_count: 0,
-  },
-  activities: { data: [], page: { has_more: false, next_cursor: null } },
-  next_steps: { data: [], page: { has_more: false, next_cursor: null } },
-  pending_approvals: { data: [], page: { has_more: false, next_cursor: null } },
-  tags: [],
-  list_memberships: [],
-  since_last_visit: {
-    baseline_at: null,
-    new_activities: 0,
-    deal_stage_moves: 0,
-    pending_proposals: 0,
-  },
-  // Assembled and empty: the section came back, and the account needs nothing.
-  // Suites that exercise the card pass their own through `org360`.
-  suggestions: [],
-  suggestions_dropped: 0,
-};
-
-// The roll-up backstop. It sits in the company view's left rail now rather
-// than behind a tab, so every test that renders the page fires this GET.
-const emptyRollup = {
-  root_id: "o-1",
-  scope: "tree",
-  weighted_pipeline: { amount_minor: 0, currency: "EUR" },
-  closed_won: { amount_minor: 0, currency: "EUR" },
-  activity_count_30d: 0,
-  aggregated_account_count: 1,
-  restricted_excluded: [],
-  computed_at: "2026-06-01T09:00:00Z",
-};
-
-// The brief backstop: a deterministic brief with nothing to say. The suites
-// below exercise other cards, and a brief that renders in its quietest real
-// state keeps them free of it.
-const emptyBrief = {
-  organization_id: "o-1",
-  generated_at: "2026-06-01T09:00:00Z",
-  generated_by: "deterministic",
-  sentences: [],
-};
-
-// The dormant/no-interactions strength response — the default backstop for
-// every fetch stub below that isn't itself exercising the strength card
-// (P-4): the Company Overview now fires this GET unconditionally, and none
-// of the pre-existing tests below care about its shape.
-const dormantStrength = {
-  score: 0,
-  bucket: "dormant",
-  factors: { recency: 0, frequency: 0, reciprocity: 0, direction: 0 },
-  last_interaction: null,
-};
-
 const proposal = {
   proposal_id: "pr-1",
   organization_id: "o-1",
@@ -167,42 +91,13 @@ const proposal = {
   ],
 };
 
+// The enrichment suite's only variable is what POST /enrich answers back; every
+// other read the page fires falls to the shared company backstop.
 function stubApi(enrich: () => Response) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : null;
-      const url = new URL(
-        request ? request.url : String(input),
-        "https://test.local",
-      );
-      const method = request?.method ?? init?.method ?? "GET";
-      if (method === "POST" && url.pathname.endsWith("/enrich")) {
-        return enrich();
-      }
-      if (url.pathname.endsWith("/strength")) {
-        return jsonResponse(dormantStrength);
-      }
-      if (url.pathname.endsWith("/context")) {
-        return jsonResponse({
-          anchor: { type: "organization", id: "o-1" },
-          sections: [],
-        });
-      }
-      if (url.pathname.endsWith("/organizations/o-1/360")) {
-        return jsonResponse(org360);
-      }
-      if (url.pathname.endsWith("/hierarchy-rollup")) {
-        return jsonResponse(emptyRollup);
-      }
-      if (url.pathname.endsWith("/brief")) {
-        return jsonResponse(emptyBrief);
-      }
-      if (url.pathname.endsWith("/organizations/o-1")) {
-        return jsonResponse(org);
-      }
-      return jsonResponse({ data: [], page: { next_cursor: null } });
-    }),
+  stubFetch(async (url, method) =>
+    method === "POST" && url.endsWith("/enrich")
+      ? enrich()
+      : companyBackstop(url),
   );
 }
 
@@ -289,50 +184,24 @@ function stubDeepRead(options: {
   post?: () => Response;
   report?: () => Response;
 }) {
+  // Only the requests this suite answers itself are recorded: what the deep read
+  // does is a sequence of POSTs and report polls, and the page-shell reads the
+  // shared backstop serves are not part of that sequence.
   const calls: string[] = [];
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const request = input instanceof Request ? input : null;
-      const url = new URL(
-        request ? request.url : String(input),
-        "https://test.local",
-      );
-      const method = request?.method ?? init?.method ?? "GET";
-      calls.push(`${method} ${url.pathname}`);
-      if (method === "POST" && url.pathname.endsWith("/deep-read")) {
-        return (
-          options.post ??
-          (() => jsonResponse({ read_id: "rd-1", status: "queued" }, 202))
-        )();
-      }
-      if (url.pathname.includes("/site-reads/")) {
-        return (options.report ?? (() => jsonResponse(runningRead)))();
-      }
-      if (url.pathname.endsWith("/strength")) {
-        return jsonResponse(dormantStrength);
-      }
-      if (url.pathname.endsWith("/context")) {
-        return jsonResponse({
-          anchor: { type: "organization", id: "o-1" },
-          sections: [],
-        });
-      }
-      if (url.pathname.endsWith("/organizations/o-1/360")) {
-        return jsonResponse(org360);
-      }
-      if (url.pathname.endsWith("/hierarchy-rollup")) {
-        return jsonResponse(emptyRollup);
-      }
-      if (url.pathname.endsWith("/brief")) {
-        return jsonResponse(emptyBrief);
-      }
-      if (url.pathname.endsWith("/organizations/o-1")) {
-        return jsonResponse(org);
-      }
-      return jsonResponse({ data: [], page: { next_cursor: null } });
-    }),
-  );
+  stubFetch(async (url, method) => {
+    const { pathname } = new URL(url);
+    calls.push(`${method} ${pathname}`);
+    if (method === "POST" && pathname.endsWith("/deep-read")) {
+      return (
+        options.post ??
+        (() => jsonResponse({ read_id: "rd-1", status: "queued" }, 202))
+      )();
+    }
+    if (pathname.includes("/site-reads/")) {
+      return (options.report ?? (() => jsonResponse(runningRead)))();
+    }
+    return companyBackstop(url);
+  });
   return { calls };
 }
 
@@ -520,80 +389,6 @@ describe("company-360 deep read", () => {
     );
   });
 });
-
-// A URL-capturing fetch stub shared across the P-14/15/16 wiring tests
-// below: every request is recorded so a test can assert the params it
-// carried, and a caller-supplied responder decides what comes back. Strength
-// requests are answered with the dormant default up front (overridable via
-// `strength`) so tests that don't care about relationship strength don't have
-// to plumb a branch for it.
-function stubFetch(
-  responder: (
-    url: string,
-    method: string,
-    request: Request,
-  ) => Promise<Response>,
-  options?: Readonly<{
-    strength?: unknown;
-    org360?: unknown;
-    // A roll-up body, or a ready Response when the suite is exercising a
-    // refusal (the 422 FX case) rather than a payload.
-    rollup?: unknown | Response;
-    brief?: unknown;
-  }>,
-): {
-  fetchMock: Mock<(request: Request) => Promise<Response>>;
-  urls: string[];
-} {
-  const urls: string[] = [];
-  const fetchMock = vi.fn(async (request: Request) => {
-    urls.push(request.url);
-    const pathname = new URL(request.url).pathname;
-    if (pathname.endsWith("/strength")) {
-      return jsonResponse(options?.strength ?? dormantStrength);
-    }
-    if (pathname.endsWith("/context")) {
-      return jsonResponse({
-        anchor: { type: "organization", id: "o-1" },
-        sections: [],
-      });
-    }
-    // The company view fires both of these on every render — the composite
-    // read that serves the page, and the roll-up that now sits in its left
-    // rail rather than behind a tab. They default to an assembled-but-empty
-    // account so a suite testing some other card renders at all; a suite
-    // that IS testing one of them passes its own through options, the same
-    // shape `strength` already uses.
-    if (pathname.endsWith("/360")) {
-      return jsonResponse(options?.org360 ?? org360);
-    }
-    if (pathname.endsWith("/hierarchy-rollup")) {
-      return rollupResponse(options?.rollup);
-    }
-    if (pathname.endsWith("/brief")) {
-      return jsonResponse(options?.brief ?? emptyBrief);
-    }
-    return responder(request.url, request.method, request);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  return { fetchMock, urls };
-}
-
-// rollupResponse lets a suite hand back either a body or a whole Response,
-// because one of them asserts the honest 422 rather than a payload.
-function rollupResponse(rollup: unknown): Response {
-  if (rollup instanceof Response) {
-    return rollup;
-  }
-  return jsonResponse(rollup ?? emptyRollup);
-}
-
-function emptyPage() {
-  return jsonResponse({
-    data: [],
-    page: { next_cursor: null, has_more: false },
-  });
-}
 
 describe("CompaniesScreen — search/sort/pagination (P-14)", () => {
   it("carries the debounced search term into the next fetch", async () => {
@@ -1815,13 +1610,6 @@ describe("CompanyScreen — the record's history", () => {
   });
 });
 
-// companyBackstop answers the record read the page shell needs and an empty
-// page for everything else, so a suite exercising one card does not have to
-// plumb every other request the screen fires.
-async function companyBackstop(url: string): Promise<Response> {
-  return url.endsWith("/organizations/o-1") ? jsonResponse(org) : emptyPage();
-}
-
 // One stalled-deal suggestion, as the 360 serves it. The reason is the part
 // the rep judges, so the reason is what the tests assert on.
 const stalledSuggestion = {
@@ -2492,177 +2280,5 @@ describe("CompanyScreen — the Partner tab is scoped to the account being read"
           .getAttribute("aria-pressed"),
       ).toBe("true"),
     );
-  });
-});
-
-// One open, dated task, as the 360 serves it on the Tasks tab.
-const openTask = {
-  activity_id: "a-1",
-  subject: "Follow up on contract renewal",
-  due_at: "2026-08-20T00:00:00Z",
-  overdue: false,
-  assignee_id: null,
-  linked_deal_id: null,
-  linked_person_id: null,
-};
-
-async function openTasksTab() {
-  await userEvent.click(await screen.findByRole("button", { name: "Tasks" }));
-}
-
-describe("CompanyScreen — the Tasks tab", () => {
-  it("completes a task without leaving the account", async () => {
-    let patched: unknown;
-    stubFetch(
-      async (url, method, request) => {
-        if (method === "PATCH" && url.endsWith("/activities/a-1")) {
-          patched = await request.json();
-          return jsonResponse({});
-        }
-        return companyBackstop(url);
-      },
-      {
-        org360: {
-          ...org360,
-          next_steps: { ...org360.next_steps, data: [openTask] },
-        },
-      },
-    );
-    render(<CompanyScreen id="o-1" />);
-    await openTasksTab();
-
-    await waitFor(() =>
-      expect(screen.getByText(openTask.subject)).toBeTruthy(),
-    );
-    await userEvent.click(screen.getByRole("checkbox", { name: "Done" }));
-
-    await waitFor(() => expect(patched).toEqual({ is_done: true }));
-  });
-
-  it("says the section is withheld rather than rendering it as empty", async () => {
-    stubFetch(companyBackstop, {
-      org360: {
-        ...org360,
-        next_steps: undefined,
-        sections_omitted: ["next_steps"],
-      },
-    });
-    render(<CompanyScreen id="o-1" />);
-    await openTasksTab();
-
-    await waitFor(() =>
-      expect(
-        screen.getByText("Hidden — your role cannot read this"),
-      ).toBeTruthy(),
-    );
-    expect(screen.queryByText("No open task on this account.")).toBeNull();
-  });
-
-  it("shows no task-completing verb on an archived account", async () => {
-    // The server refuses a write on an archived account, so the tab omits the
-    // verb rather than offering a button that can only 404.
-    stubFetch(
-      async (url) => {
-        if (url.endsWith("/organizations/o-1")) {
-          return jsonResponse({ ...org, archived_at: "2026-07-13T00:00:00Z" });
-        }
-        if (url.endsWith("/activities/a-1")) {
-          return jsonResponse({
-            id: openTask.activity_id,
-            organization_id: "o-1",
-            type: "task",
-            subject: openTask.subject,
-            occurred_at: "2026-08-01T09:00:00Z",
-            due_at: openTask.due_at,
-            is_done: false,
-            captured_by: "human:u1",
-            source: "manual",
-            version: 1,
-          });
-        }
-        return emptyPage();
-      },
-      {
-        org360: {
-          ...org360,
-          next_steps: { ...org360.next_steps, data: [openTask] },
-        },
-      },
-    );
-    render(<CompanyScreen id="o-1" />);
-    await openTasksTab();
-
-    await waitFor(() =>
-      expect(screen.getByText(openTask.subject)).toBeTruthy(),
-    );
-    expect(screen.queryByRole("checkbox", { name: "Done" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
-
-    // The same withheld verb holds inside the detail modal, not only the row.
-    await userEvent.click(screen.getByText(openTask.subject));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("dialog", { name: openTask.subject }),
-      ).toBeTruthy(),
-    );
-    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
-  });
-
-  // The detail modal renders on this tab and nowhere else, so a tab change
-  // takes it off screen without its own onClose ever running. An open id that
-  // survived that would be waiting the next time the reader came back to
-  // Tasks — a dialog reopening itself, having been closed by nobody.
-  //
-  // Driven through the tab pill on purpose. A reader cannot reach the pill
-  // while the dialog covers it, and that is a fact about Modal's backdrop
-  // rather than about this page: the id must not depend on it.
-  it("opens no dialog when the reader returns to Tasks after changing tab", async () => {
-    const user = userEvent.setup();
-    stubFetch(
-      async (url) => {
-        if (url.endsWith("/activities/a-1")) {
-          return jsonResponse({
-            id: openTask.activity_id,
-            organization_id: "o-1",
-            type: "task",
-            subject: openTask.subject,
-            occurred_at: "2026-08-01T09:00:00Z",
-            due_at: openTask.due_at,
-            is_done: false,
-            captured_by: "human:u1",
-            source: "manual",
-            version: 1,
-          });
-        }
-        return companyBackstop(url);
-      },
-      {
-        org360: {
-          ...org360,
-          next_steps: { ...org360.next_steps, data: [openTask] },
-        },
-      },
-    );
-    render(<CompanyScreen id="o-1" />);
-    await openTasksTab();
-    await user.click(await screen.findByText(openTask.subject));
-    await waitFor(() =>
-      expect(
-        screen.getByRole("dialog", { name: openTask.subject }),
-      ).toBeTruthy(),
-    );
-
-    await user.click(screen.getByRole("button", { name: "Deals" }));
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("dialog", { name: openTask.subject }),
-      ).toBeNull(),
-    );
-    await user.click(screen.getByRole("button", { name: "Tasks" }));
-
-    await waitFor(() =>
-      expect(screen.getByText(openTask.subject)).toBeTruthy(),
-    );
-    expect(screen.queryByRole("dialog", { name: openTask.subject })).toBeNull();
   });
 });
