@@ -225,6 +225,109 @@ describe("the waiter-budget reader", () => {
     expect(probe?.waiterBudgetMs).toBe(2_000);
   });
 
+  it("takes the EXPORTED constant, not a local one that shares its name", () => {
+    // A module-level export and a function-local of the same name are both
+    // "the last declaration of X" to a reader that walks a file flat. Taking
+    // the wrong one folded a 10000ms budget to 2ms, silently.
+    writeFileSync(
+      join(dir, "shadowed.ts"),
+      `export const POLL_MS = 5000;\nfunction helper() { const POLL_MS = 1; return POLL_MS; }\n`,
+      "utf8",
+    );
+    const [probe] = read(
+      `import { POLL_MS } from "./shadowed";
+       it("x", async () => { await waitFor(() => {}, { timeout: POLL_MS * 2 }); });`,
+      "shadowed.test.tsx",
+    );
+    expect(probe?.waiterBudgetMs).toBe(10_000);
+  });
+
+  it("reports every options shape it cannot see into, not just the two it knows", () => {
+    // A whitelist of readable shapes sends everything else down the same path
+    // as "states no timeout", and that path ends at the smallest number.
+    for (const [name, argument] of [
+      ["access", "OPTS.slow"],
+      ["call", "makeOpts()"],
+      ["ternary", "cond ? { timeout: 30000 } : undefined"],
+    ] as const) {
+      const [probe] = read(
+        `it("x", async () => { await waitFor(() => {}, ${argument}); });`,
+        `opaque-${name}.test.tsx`,
+      );
+      expect([name, probe?.unresolved.length]).toEqual([name, 1]);
+    }
+  });
+
+  it("records a conditionally-run test, which really does run", () => {
+    // `it.runIf(cond)` runs when cond holds. Treating it as skipped left a
+    // live test under no guard at all — the more expensive of the two mistakes.
+    const found = read(
+      `it.runIf(cond)("conditional", async () => { await waitFor(() => {}, { timeout: 30000 }); });`,
+      "runif.test.tsx",
+    );
+    expect(found.map((probe) => probe.waiterBudgetMs)).toEqual([30_000]);
+  });
+
+  it("ignores every test inside a skipped suite", () => {
+    // isSkipped inspecting only the `it` chain reddened the guard naming a
+    // test vitest never runs — the same failure it was added to prevent, one
+    // level up.
+    const found = read(
+      `describe.skip("suite", () => {
+         it("x", async () => { await waitFor(() => {}, { timeout: 30000 }); });
+       });`,
+      "describeskip.test.tsx",
+    );
+    expect(found).toEqual([]);
+  });
+
+  it("does not treat a local variable as a helper just because the name matches", () => {
+    // Skipping a "helper declaration" that is not a function at all dropped
+    // the waiter inside it.
+    const [probe] = read(
+      `const renderAs = () => waitFor(() => {}, { timeout: 1000 });
+       it("x", async () => {
+         const renderAs = await screen.findByText("x", undefined, { timeout: 25000 });
+         expect(renderAs).toBeTruthy();
+       });`,
+      "shadow-local.test.tsx",
+    );
+    expect(probe?.waiterBudgetMs).toBe(25_000);
+  });
+
+  it("reports two same-named helpers only when their budgets disagree", () => {
+    // Same cost either way is not an ambiguity that matters; a different cost
+    // is, and picking one silently under-counted a whole suite.
+    const agree = read(
+      `describe("a", () => { const settle = () => waitFor(() => {}, { timeout: 2000 });
+         it("x", async () => { await settle(); }); });
+       describe("b", () => { const settle = () => waitFor(() => {}, { timeout: 2000 });
+         it("y", async () => { await settle(); }); });`,
+      "agree.test.tsx",
+    );
+    const differ = read(
+      `describe("a", () => { const settle = () => waitFor(() => {}, { timeout: 8000 });
+         it("x", async () => { await settle(); }); });
+       describe("b", () => { const settle = () => waitFor(() => {}, { timeout: 2000 });
+         it("y", async () => { await settle(); }); });`,
+      "differ.test.tsx",
+    );
+    expect(agree.map((probe) => probe.waiterBudgetMs)).toEqual([2_000, 2_000]);
+    expect(differ.every((probe) => probe.unresolved.length === 1)).toBe(true);
+  });
+
+  it("folds a ceiling written as an expression, rather than ignoring it", () => {
+    // Missed AND unreported, so the test silently rejoined the population it
+    // had opted out of.
+    const [probe] = read(
+      `const SETTLE_MS = 5000;
+       it("x", async () => { await screen.findByText("a"); }, SETTLE_MS * 4);`,
+      "exprceiling.test.tsx",
+    );
+    expect(probe?.ceilingMs).toBe(20_000);
+    expect(probe?.ceilingIsStated).toBe(true);
+  });
+
   it("reports a timeout it cannot fold instead of assuming the default", () => {
     // The one that matters: an unfoldable budget quietly recorded as 1000 hid a
     // live 11000ms violation from the guard.

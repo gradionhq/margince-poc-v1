@@ -27,18 +27,20 @@ import { budgetsIn } from "./test-budget";
  * ceiling that covers their waiters would turn its fast red into a slow one and
  * bury the defect being investigated.
  *
- * Keyed by file AND line, not by file: exempting the whole file would cover
+ * Keyed by file and test NAME, not by file and not by line. By file would cover
  * forty tests under a reason that describes two, and would silently unguard
- * every test added there later.
+ * every test added there later; by line would shift the moment anything is
+ * inserted above them — in the one file most likely to be edited, since it is
+ * the one still under investigation.
  */
 const EXEMPT = new Set([
-  "src/screens/company-context.test.tsx:416",
-  "src/screens/company-context.test.tsx:433",
+  "src/screens/company-context.test.tsx::quotes the server when the start itself was refused",
+  "src/screens/company-context.test.tsx::keeps a failed status poll to the catalog sentence",
 ]);
 
 const budgets = globSync("src/**/*.test.ts?(x)")
   .flatMap((file) => budgetsIn(file, TEST_TIMEOUT_MS))
-  .filter((budget) => !EXEMPT.has(`${budget.file}:${budget.line}`));
+  .filter((budget) => !EXEMPT.has(`${budget.file}::${budget.name}`));
 
 /**
  * The tests this ceiling is FOR: the ones that state no ceiling of their own.

@@ -34,8 +34,13 @@ const TEST_CALLEE = /^(it|test)$/;
  * nothing, so letting one into the population lets a test that cannot fail set
  * the ceiling for the thousands that do — or redden the guard while naming a
  * test nobody executes.
+ *
+ * `runIf` and `skipIf` are NOT here: they run depending on a condition, so a
+ * test written either way really executes and really owes a budget. Treating
+ * them as skipped left a live test under no guard at all, which is the more
+ * expensive mistake of the two.
  */
-const NOT_RUN = /^(skip|todo|skipIf|runIf)$/;
+const NOT_RUN = /^(skip|todo)$/;
 
 /** Whether any link in the call chain says "do not run this". */
 function isSkipped(node: ts.Node): boolean {
@@ -125,6 +130,32 @@ function parse(file: string): ts.SourceFile {
   );
 }
 
+/**
+ * The numbers a module EXPORTS at its top level. Not `declaredConsts`, which
+ * walks a whole file flat and lets the last declaration of a name win: a
+ * function-local `const POLL_MS = 1` in the imported module then overwrote the
+ * exported `POLL_MS = 5000`, and a 10000ms budget folded to 2ms with nothing
+ * reported.
+ */
+function exportedConsts(source: ts.SourceFile): Map<string, number> {
+  const known = new Map<string, number>();
+  const value = resolver(known);
+  for (const statement of source.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    const exported = statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    );
+    if (!exported) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer)
+        continue;
+      const resolved = value(declaration.initializer);
+      if (resolved !== undefined) known.set(declaration.name.text, resolved);
+    }
+  }
+  return known;
+}
+
 /** `./use-company-read` next to the importer, with the extension it actually has. */
 function resolveModule(
   fromFile: string,
@@ -154,7 +185,7 @@ function takeImport(
   if (!bindings || !ts.isNamedImports(bindings)) return;
   const target = resolveModule(file, statement.moduleSpecifier.text);
   if (!target) return;
-  const theirs = declaredConsts(parse(target), new Map());
+  const theirs = exportedConsts(parse(target));
   for (const element of bindings.elements) {
     const value = theirs.get((element.propertyName ?? element.name).text);
     if (value !== undefined) into.set(element.name.text, value);
@@ -213,7 +244,7 @@ function statedTimeout(
 ): ts.Expression | typeof OPAQUE | undefined {
   let found: ts.Expression | typeof OPAQUE | undefined;
   for (const argument of call.arguments.slice(1)) {
-    if (!looksLikeOptions(argument)) continue;
+    if (cannotCarryOptions(argument)) continue;
     if (!ts.isObjectLiteralExpression(argument)) return OPAQUE;
     const stated = timeoutExpression(argument);
     if (stated === OPAQUE) return OPAQUE;
@@ -231,15 +262,34 @@ function statedTimeout(
 const OPAQUE = Symbol("an options argument this reader cannot read");
 
 /**
- * Whether an argument could be carrying options. A bare `undefined` or `null`
- * is not: it is the placeholder that skips a positional argument, as in
- * `findByText(matcher, undefined, { timeout })`, and reading it as an options
- * object nobody can see turns a perfectly readable waiter into a reported one.
+ * Shapes that definitively CANNOT be an options object carrying a timeout — a
+ * matcher, a placeholder, a callback. Everything else is treated as possibly
+ * carrying one, because the default has to be "unreadable", not "absent".
+ *
+ * That direction is the whole lesson of this file. A whitelist of shapes the
+ * reader understands sends every other shape down the same path as "states no
+ * timeout", and that path ends at the 1000ms default — the smallest number,
+ * which is the one that keeps the gate green. Property access, a call, a
+ * ternary, an `as` cast and a `!` assertion all reached it that way.
  */
-function looksLikeOptions(argument: ts.Expression): boolean {
-  if (ts.isIdentifier(argument)) return argument.text !== "undefined";
-  if (argument.kind === ts.SyntaxKind.NullKeyword) return false;
-  return ts.isObjectLiteralExpression(argument) || ts.isSpreadElement(argument);
+function cannotCarryOptions(argument: ts.Expression): boolean {
+  if (ts.isIdentifier(argument)) return argument.text === "undefined";
+  switch (argument.kind) {
+    case ts.SyntaxKind.NullKeyword:
+    case ts.SyntaxKind.TrueKeyword:
+    case ts.SyntaxKind.FalseKeyword:
+      return true;
+    default:
+      break;
+  }
+  return (
+    ts.isStringLiteralLike(argument) ||
+    ts.isNumericLiteral(argument) ||
+    ts.isRegularExpressionLiteral(argument) ||
+    ts.isArrayLiteralExpression(argument) ||
+    ts.isArrowFunction(argument) ||
+    ts.isFunctionExpression(argument)
+  );
 }
 
 /**
@@ -271,9 +321,33 @@ function directCallee(call: ts.CallExpression): string {
 
 type Reading = { ms: number; unresolved: string[] };
 
-/** Whether this node is the DEFINITION of a helper, rather than a call to one. */
-function declaresHelper(node: ts.Node, helpers: Map<string, ts.Node>): boolean {
-  if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+/**
+ * The helpers one file declares, EVERY declaration of each name. Two suites in
+ * one file commonly declare their own `mount` or `settle`, and this reader has
+ * no scope information to tell a call which one it meant. Keeping only the last
+ * silently reported suite A's 8000ms helper as suite B's 2000ms one.
+ *
+ * Holding all of them lets the disagreement decide: when every declaration of a
+ * name costs the same, which is the ordinary case, the answer is that cost
+ * whichever one was meant. Only when they differ is the call genuinely
+ * unreadable, and only then is it reported.
+ */
+type Helpers = Map<string, ts.Node[]>;
+
+/**
+ * Whether this node is the DEFINITION of a helper, rather than a call to one.
+ * The initializer has to BE a function: a local variable that merely shares a
+ * module-level helper's name — `const renderAs = await screen.findByText(…)` —
+ * is not a definition, and skipping it dropped its waiter entirely.
+ */
+function declaresHelper(node: ts.Node, helpers: Helpers): boolean {
+  if (
+    ts.isVariableDeclaration(node) &&
+    ts.isIdentifier(node.name) &&
+    node.initializer &&
+    (ts.isArrowFunction(node.initializer) ||
+      ts.isFunctionExpression(node.initializer))
+  ) {
     return helpers.has(node.name.text);
   }
   if (ts.isFunctionDeclaration(node) && node.name) {
@@ -294,7 +368,7 @@ function declaresHelper(node: ts.Node, helpers: Map<string, ts.Node>): boolean {
 function budgetOf(
   node: ts.Node,
   consts: Map<string, number>,
-  helpers: Map<string, ts.Node>,
+  helpers: Helpers,
   path: Set<string>,
   memo: Map<string, Reading>,
 ): Reading {
@@ -310,12 +384,27 @@ function budgetOf(
     // cached: memoizing it would hand a later direct call the under-count, so
     // the total would depend on the order the helpers were first reached.
     if (path.has(name)) return { ms: 0, unresolved: [] };
-    const body = helpers.get(name);
-    if (!body) return { ms: 0, unresolved: [] };
+    const bodies = helpers.get(name);
+    if (!bodies || bodies.length === 0) return { ms: 0, unresolved: [] };
     const outermost = path.size === 0;
     path.add(name);
-    const reading = budgetOf(body, consts, helpers, path, memo);
+    const readings = bodies.map((body) =>
+      budgetOf(body, consts, helpers, path, memo),
+    );
     path.delete(name);
+    const costs = new Set(readings.map((reading) => reading.ms));
+    const reading: Reading =
+      costs.size === 1
+        ? {
+            ms: readings[0]?.ms ?? 0,
+            unresolved: readings.flatMap((one) => one.unresolved),
+          }
+        : {
+            ms: 0,
+            unresolved: [
+              `${name}() is declared ${bodies.length} times in this file with different waiter budgets (${[...costs].sort((a, b) => a - b).join("ms, ")}ms)`,
+            ],
+          };
     if (outermost) memo.set(name, reading);
     return reading;
   };
@@ -372,10 +461,16 @@ function statedCeiling(
   call: ts.CallExpression,
   body: ts.Expression,
 ): ts.Expression | typeof OPAQUE | undefined {
+  // Any expression after the callback, not only a literal or a name: a ceiling
+  // written as `SETTLE_MS * 4` was neither folded NOR reported, so the test
+  // silently rejoined the population it had opted out of.
   const positional = call.arguments
     .slice(call.arguments.indexOf(body) + 1)
     .find(
-      (argument) => ts.isNumericLiteral(argument) || ts.isIdentifier(argument),
+      (argument) =>
+        !ts.isObjectLiteralExpression(argument) &&
+        !ts.isArrowFunction(argument) &&
+        !ts.isFunctionExpression(argument),
     );
   if (positional) return positional;
   return call.arguments
@@ -385,11 +480,16 @@ function statedCeiling(
 }
 
 /** Named `function f() {}` and `const f = () => {}` bodies, by name, anywhere. */
-function namedHelpers(source: ts.SourceFile): Map<string, ts.Node> {
-  const helpers = new Map<string, ts.Node>();
+function namedHelpers(source: ts.SourceFile): Helpers {
+  const byName: Helpers = new Map();
+  const remember = (name: string, body: ts.Node): void => {
+    const bodies = byName.get(name);
+    if (bodies) bodies.push(body);
+    else byName.set(name, [body]);
+  };
   const visit = (node: ts.Node): void => {
     if (ts.isFunctionDeclaration(node) && node.name && node.body) {
-      helpers.set(node.name.text, node.body);
+      remember(node.name.text, node.body);
     } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
       const initializer = node.initializer;
       if (
@@ -397,13 +497,13 @@ function namedHelpers(source: ts.SourceFile): Map<string, ts.Node> {
         (ts.isArrowFunction(initializer) ||
           ts.isFunctionExpression(initializer))
       ) {
-        helpers.set(node.name.text, initializer.body);
+        remember(node.name.text, initializer.body);
       }
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return helpers;
+  return byName;
 }
 
 export function budgetsIn(file: string, globalCeilingMs: number): TestBudget[] {
@@ -456,15 +556,20 @@ export function budgetsIn(file: string, globalCeilingMs: number): TestBudget[] {
     });
   };
 
-  const visit = (node: ts.Node): void => {
-    if (
-      ts.isCallExpression(node) &&
-      TEST_CALLEE.test(rootCallee(node)) &&
-      !isSkipped(node)
-    )
-      record(node);
-    ts.forEachChild(node, visit);
+  // `skipped` is carried DOWN the tree: `describe.skip` suppresses every test
+  // inside it, and a reader that only inspected the `it` chain reddened the
+  // guard naming a test vitest never runs — the same failure isSkipped was
+  // added to prevent, one level up.
+  const visit = (node: ts.Node, skipped: boolean): void => {
+    let inherited = skipped;
+    if (ts.isCallExpression(node)) {
+      const root = rootCallee(node);
+      const here = skipped || isSkipped(node);
+      if (root === "describe") inherited = here;
+      else if (TEST_CALLEE.test(root) && !here) record(node);
+    }
+    ts.forEachChild(node, (child) => visit(child, inherited));
   };
-  visit(source);
+  visit(source, false);
   return found;
 }
