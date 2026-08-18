@@ -348,9 +348,16 @@ func newClient(opts zaloOptions) *client {
 // serves an HTML challenge page instead of JSON when the headers look wrong,
 // which surfaces as a JSON parse error far from the cause.
 func (c *client) do(ctx context.Context, method, rawURL string, body io.Reader, headers map[string]string) (*http.Response, error) {
+	// Named once, at the top, so no error path below can reach the raw URL by
+	// accident. This layer's secrets ARE query parameters, and the leak this
+	// prevents has already been introduced twice by adding an error path that
+	// formatted the obvious variable — TestNoErrorInThisFileCanCarryTheRawURL
+	// is what makes the third time fail in CI instead of in a log.
+	safe := safeURL(rawURL)
+
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, body)
 	if err != nil {
-		return nil, fmt.Errorf("build %s %s: %w", method, rawURL, err)
+		return nil, fmt.Errorf("build %s %s: %w", method, safe, err)
 	}
 
 	req.Header.Set("Accept", "application/json, text/plain, */*")
@@ -367,7 +374,7 @@ func (c *client) do(ctx context.Context, method, rawURL string, body io.Reader, 
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, &transportError{Method: method, URL: safeURL(rawURL), Err: err}
+		return nil, &transportError{Method: method, URL: safe, Err: err}
 	}
 	return resp, nil
 }
@@ -377,6 +384,8 @@ func (c *client) do(ctx context.Context, method, rawURL string, body io.Reader, 
 // the same thing to a caller: no answer from this API was read, so the outcome
 // is unknown rather than refused. All of it is a transportError.
 func (c *client) doJSON(ctx context.Context, method, rawURL string, body io.Reader, headers map[string]string) ([]byte, error) {
+	safe := safeURL(rawURL)
+
 	resp, err := c.do(ctx, method, rawURL, body, headers)
 	if err != nil {
 		return nil, err
@@ -386,10 +395,10 @@ func (c *client) doJSON(ctx context.Context, method, rawURL string, body io.Read
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		return nil, &transportError{Method: method, URL: safeURL(rawURL), Err: fmt.Errorf("read body: %w", err)}
+		return nil, &transportError{Method: method, URL: safe, Err: fmt.Errorf("read body: %w", err)}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, &transportError{Method: method, URL: safeURL(rawURL),
+		return nil, &transportError{Method: method, URL: safe,
 			Err: fmt.Errorf("HTTP %d: %s", resp.StatusCode, truncate(string(raw), 200))}
 	}
 	return raw, nil

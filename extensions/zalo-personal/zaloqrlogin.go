@@ -18,6 +18,7 @@ package zalopersonal
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -230,12 +231,33 @@ func zaloPollQR(ctx context.Context, p zaloPending, opts zaloOptions, budget tim
 			return zaloPollResult{State: zaloScanExpired, DisplayName: p.DisplayName, Avatar: p.Avatar}, p, nil
 		}
 
-		result, done, err := pollOnce(ctx, c, &p)
+		// The budget has to bound the REQUEST, not just the decision to make
+		// one. These calls are long-polls Zalo holds for 100 and 120 seconds,
+		// so a loop that only checks the clock between requests runs a whole
+		// long-poll past its budget and keeps a caller's connection with it.
+		reqCtx, cancel := context.WithTimeout(ctx, deadline.Sub(c.now()))
+		result, done, err := pollOnce(reqCtx, c, &p)
+		cancel()
+
+		// EVERY return after this point carries the jar, including the error
+		// ones. A request that failed may still have minted cookies — the
+		// checksession hop inside completeLogin is exactly that — and a live
+		// Zalo session this process forgets is one the member cannot withdraw,
+		// because nothing upstream ever learns it exists.
+		p.Cookies = c.jar.export()
+
 		if err != nil {
+			// Our own budget running out mid-request is not a verdict. The
+			// member has not declined and the code has not expired; the caller
+			// simply has to ask again, which is the same answer as "nothing
+			// yet". A caller who cancelled for their own reasons gets the
+			// error, because that is their answer to have.
+			if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
+				break
+			}
 			return zaloPollResult{}, p, err
 		}
 		if done {
-			p.Cookies = c.jar.export()
 			return result, p, nil
 		}
 	}

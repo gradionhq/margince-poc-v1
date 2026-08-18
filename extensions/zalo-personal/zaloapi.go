@@ -209,16 +209,35 @@ func (s *zaloSession) SendText(ctx context.Context, toUID, body string) (zaloRec
 	if err != nil {
 		var transport *transportError
 		if errors.As(err, &transport) {
-			return zaloReceipt{}, fmt.Errorf("%w: to %s: %w", errUnanswered, toUID, err)
+			// The recipient's Zalo id is deliberately absent: this error reaches
+			// the operator log and the delivery record, and naming the person a
+			// message was for retains their account identifier outside the
+			// message store. The endpoint and the wrapped cause already say
+			// which call failed.
+			return zaloReceipt{}, fmt.Errorf("%w: %w", errUnanswered, err)
 		}
 		return zaloReceipt{}, err
 	}
 
+	// PAST THIS POINT ZALO HAS ACCEPTED THE REQUEST, so every remaining failure
+	// is UNANSWERED rather than an ordinary error, and the distinction decides
+	// what happens to a customer. The message may well have been delivered; an
+	// ordinary error has the core retry and send a person the same reply twice.
+	// Reporting success is no better — MsgID is the only anchor a later inbound
+	// echo could be matched against, so a receipt without one describes a
+	// message this installation can never recognise as its own.
+	//
+	// Both halves are needed and neither implies the other: a msgId that is
+	// absent or null unmarshals CLEANLY into json.Number(""), while one sent as
+	// a JSON string fails to unmarshal at all.
 	var receipt struct {
 		MsgID json.Number `json:"msgId"`
 	}
 	if err := json.Unmarshal(data, &receipt); err != nil {
-		return zaloReceipt{}, fmt.Errorf("parse send receipt: %w", err)
+		return zaloReceipt{}, fmt.Errorf("%w: the send was accepted but its receipt could not be read: %w", errUnanswered, err)
+	}
+	if receipt.MsgID.String() == "" {
+		return zaloReceipt{}, fmt.Errorf("%w: the send was accepted but answered no msgId, so nothing identifies the message it may have created", errUnanswered)
 	}
 	return zaloReceipt{MsgID: receipt.MsgID.String()}, nil
 }

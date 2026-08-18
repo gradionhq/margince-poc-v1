@@ -74,6 +74,11 @@ func connectStartVia(ctx context.Context, rt extension.Runtime, in json.RawMessa
 	if err != nil {
 		return nil, err
 	}
+	// The handshake this returns is the BOOTSTRAP jar, and losing it below (a
+	// failed seal) strands nothing: no session exists until `checksession`
+	// runs, several polls later, so these cookies grant nobody anything and the
+	// member simply starts again. That is the whole difference between this
+	// discard and the ones connectStatusVia is careful about.
 	sealed, err := json.Marshal(pending)
 	if err != nil {
 		return nil, fmt.Errorf("zalo-personal: sealing the in-flight login: %w", err)
@@ -112,15 +117,43 @@ func connectStatusVia(ctx context.Context, rt extension.Runtime, in json.RawMess
 	}
 	result, next, err := hs.poll(ctx, pending, loginOptions(), pollBudget)
 	if err != nil {
-		// The sealed handshake is left alone: a poll that failed to reach the
-		// provider has not spent the code, and deleting it would make a network
-		// blip cost the member a re-scan.
-		return nil, err
+		// THE HANDSHAKE IS KEPT EVEN THOUGH THE POLL FAILED, and the two
+		// failures that reach this line are not the same size at all.
+		//
+		// A poll that never reached Zalo has spent nothing. `next` is what was
+		// sealed a moment ago, resealing writes the same bytes back, and the
+		// member's code stays valid — a network blip costs them nothing.
+		//
+		// A poll that failed AFTER `checksession` is the dangerous one, and it
+		// is the reason this branch cannot simply return the error. Zalo mints
+		// the real chat.zalo.me session cookies in `checksession`, and the
+		// liveness check that decides whether the login SUCCEEDED runs after
+		// it. So a failure past that hop means Zalo is already holding a live
+		// session against a real person's account, and the only cookies that
+		// could ever revoke it are the ones in `next`. Drop them and nothing in
+		// this installation can persist them, so nothing can revoke them, and
+		// no screen can even tell the member the session exists. That is worse
+		// than a stranded credential — a stranded one is withdrawable the
+		// moment a screen shows it; this one is withdrawable by nobody.
+		//
+		// From here the two are INDISTINGUISHABLE: this unit cannot see which
+		// hop failed. So the handshake is kept in both cases, and the harmless
+		// case pays one redundant write for it.
+		//
+		// The reseal's own failure is JOINED rather than dropped: the poll
+		// failure is the cause, and the reseal failure is what decides whether
+		// a session was stranded, so neither may hide the other.
+		return nil, errors.Join(err, sealPending(ctx, rt, member, next))
 	}
 	switch result.State {
 	case zaloScanConfirmed:
 		return confirmLogin(ctx, rt, member, result, resume)
 	case zaloScanDeclined, zaloScanExpired:
+		// `next` is DISCARDED here, deliberately and not by omission: these two
+		// states are the provider saying the login is over, which it answers
+		// before `checksession` ever runs — so there is no minted session in
+		// that handshake, and keeping it would leave bootstrap credential
+		// material behind for a login that cannot be advanced again.
 		return abandonLogin(ctx, rt, member, result.State)
 	case zaloScanWaiting, zaloScanScanned:
 		// The ADVANCED handshake is re-sealed: a scan the member has already
@@ -128,7 +161,14 @@ func connectStatusVia(ctx context.Context, rt extension.Runtime, in json.RawMess
 		// scan again for nothing.
 		return resealLogin(ctx, rt, member, next, result)
 	}
-	return nil, fmt.Errorf("zalo-personal: the provider reported the scan state %q, which this unit does not recognise — the login has not advanced", result.State)
+	// An unrecognised state keeps the handshake for exactly the reason the
+	// failed poll above does. This protocol is undocumented and changes without
+	// notice, so a state this unit has never seen is a real arrival — and one
+	// that arrived after a session was minted would strand it just as
+	// permanently for being unfamiliar rather than for being an error.
+	return nil, errors.Join(
+		fmt.Errorf("zalo-personal: the provider reported the scan state %q, which this unit does not recognise — the login has not advanced", result.State),
+		sealPending(ctx, rt, member, next))
 }
 
 // confirmLogin keeps a scan the member has confirmed.
@@ -190,6 +230,13 @@ func confirmLogin(ctx context.Context, rt extension.Runtime, member extension.Us
 // account it belongs to, drop the spent handshake, and record the connection.
 // It is a separate function so its caller can state, in one place, what happens
 // to the deposit when any of it fails.
+//
+// The resumed session is deliberately NOT persisted, and that is safe rather
+// than an oversight: everything it holds — the payload key, the service map,
+// the socket endpoints — is re-derived from the sealed cookies on every resume,
+// and those cookies are already on deposit before this runs. So whatever the
+// handshake here established is revocable through the credential that produced
+// it, which is the test every discard in this file has to pass.
 func finishLogin(ctx context.Context, rt extension.Runtime, member extension.UserID,
 	result zaloPollResult, resume resumeFunc,
 ) (json.RawMessage, error) {
@@ -222,14 +269,24 @@ func abandonLogin(ctx context.Context, rt extension.Runtime, member extension.Us
 func resealLogin(ctx context.Context, rt extension.Runtime, member extension.UserID,
 	next zaloPending, result zaloPollResult,
 ) (json.RawMessage, error) {
-	sealed, err := json.Marshal(next)
-	if err != nil {
-		return nil, fmt.Errorf("zalo-personal: sealing the advanced login: %w", err)
-	}
-	if err := rt.Secrets().PutUser(ctx, member, pendingKey, sealed); err != nil {
+	if err := sealPending(ctx, rt, member, next); err != nil {
 		return nil, err
 	}
 	return loginProgress(result)
+}
+
+// sealPending is the ONE way an in-flight handshake reaches the member's secret
+// namespace, spelled once because it is called from the success path and from
+// two failure paths — and a second copy is a second place the failure paths can
+// quietly stop keeping what the provider handed back.
+func sealPending(ctx context.Context, rt extension.Runtime, member extension.UserID,
+	pending zaloPending,
+) error {
+	sealed, err := json.Marshal(pending)
+	if err != nil {
+		return fmt.Errorf("zalo-personal: sealing the login handshake: %w", err)
+	}
+	return rt.Secrets().PutUser(ctx, member, pendingKey, sealed)
 }
 
 // loginProgress renders what the screen shows while a member scans. It carries

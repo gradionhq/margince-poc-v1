@@ -9,11 +9,13 @@ package zalopersonal
 // that hangs.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -26,7 +28,14 @@ const (
 
 // loginServer is a fake id.zalo.me. Each poll answer is popped from a script,
 // so a test says "waiting, then scanned" as a list rather than as timing.
+//
+// Its state is mutated by net/http's handler goroutines and read by the test
+// goroutine, so it is guarded. An unguarded fake reports races in the code under
+// test, which is the most expensive kind of false lead: the flake looks like the
+// thing being tested.
 type loginServer struct {
+	mu sync.Mutex
+
 	// qrImage is what the generate call answers with; empty means the ordinary
 	// inline PNG. A provider chooses this string, so a test gets to too.
 	qrImage string
@@ -45,6 +54,21 @@ type loginServer struct {
 	calls          []string
 }
 
+// callPaths is the guarded read of what the fake has been asked, for a test
+// goroutine that is not the one the handlers run on.
+func (s *loginServer) callPaths() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.calls...)
+}
+
+func (s *loginServer) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.calls)
+}
+
+// pop assumes the caller holds the lock.
 func (s *loginServer) pop(answers *[]string, path string) string {
 	if len(*answers) == 0 {
 		return fmt.Sprintf(`{"error_code":%d,"error_message":"still waiting on %s"}`, waitingErrorCodeRetry, path)
@@ -57,8 +81,10 @@ func (s *loginServer) pop(answers *[]string, path string) string {
 func (s *loginServer) start(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.mu.Lock()
 		s.calls = append(s.calls, r.URL.Path)
 		body := s.answer(r.URL.Path, w)
+		s.mu.Unlock()
 		if _, err := w.Write([]byte(body)); err != nil {
 			t.Errorf("write %s response: %v", r.URL.Path, err)
 		}
@@ -67,6 +93,7 @@ func (s *loginServer) start(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// answer assumes the caller holds the lock.
 func (s *loginServer) answer(path string, w http.ResponseWriter) string {
 	switch path {
 	case "/account":
@@ -155,12 +182,13 @@ func TestStartQRMintsAScannableCodeAndCarriesTheBootstrapJar(t *testing.T) {
 	// The device registration is not optional: skipping either post yields a
 	// QR the phone reports as invalid.
 	want := []string{"/account", "/account/logininfo", "/account/verify-client", "/account/authen/qr/generate"}
-	if len(fake.calls) != len(want) {
-		t.Fatalf("calls = %v, want %v", fake.calls, want)
+	got := fake.callPaths()
+	if len(got) != len(want) {
+		t.Fatalf("calls = %v, want %v", got, want)
 	}
 	for i, path := range want {
-		if fake.calls[i] != path {
-			t.Fatalf("call %d = %s, want %s", i, fake.calls[i], path)
+		if got[i] != path {
+			t.Fatalf("call %d = %s, want %s", i, got[i], path)
 		}
 	}
 }
@@ -332,7 +360,7 @@ func TestPollReportsExpiryWithoutAskingTheServer(t *testing.T) {
 	srv := fake.start(t)
 	pending, _ := startPending(t, srv)
 
-	before := len(fake.calls)
+	before := fake.callCount()
 	pending.ExpiresAt = fixedTime.Add(-time.Minute)
 
 	result, _, err := zaloPollQR(t.Context(), pending, testOptions(t, srv, time.Second), 5*time.Second)
@@ -342,8 +370,8 @@ func TestPollReportsExpiryWithoutAskingTheServer(t *testing.T) {
 	if result.State != zaloScanExpired {
 		t.Errorf("state = %s, want %s", result.State, zaloScanExpired)
 	}
-	if len(fake.calls) != before {
-		t.Errorf("an expired code was polled anyway: %v", fake.calls[before:])
+	if after := fake.callCount(); after != before {
+		t.Errorf("an expired code was polled anyway: %v", fake.callPaths()[before:])
 	}
 }
 
@@ -446,10 +474,10 @@ func TestAProviderThatNeverLongPollsCannotTurnOneBudgetIntoAFlood(t *testing.T) 
 	// the request bound can stop the loop.
 	frozen := zaloOptions{Transport: testOptions(t, srv, 0).Transport, Now: func() time.Time { return fixedTime }}
 
-	before := len(fake.calls)
+	before := fake.callCount()
 	result, _, err := zaloPollQR(t.Context(), pending, frozen, time.Hour)
 
-	asked := len(fake.calls) - before
+	asked := fake.callCount() - before
 	if asked > maxPollRequests {
 		t.Fatalf("one poll issued %d requests against id.zalo.me, past the %d-request bound", asked, maxPollRequests)
 	}
@@ -461,5 +489,121 @@ func TestAProviderThatNeverLongPollsCannotTurnOneBudgetIntoAFlood(t *testing.T) 
 	}
 	if result.State != zaloScanWaiting {
 		t.Errorf("state = %s, want %s", result.State, zaloScanWaiting)
+	}
+}
+
+// TestAFailedLoginStillHandsBackTheCookiesItMinted is the guard on the worst
+// outcome this handshake can produce: a LIVE Zalo session nobody can withdraw.
+//
+// checksession is what mints the chat.zalo.me session, and it runs BEFORE the
+// liveness check that decides whether the login succeeded. So a login that
+// fails after that hop has still created a session against a real person's
+// account. If the pending that comes back carries only the bootstrap cookies,
+// nothing upstream can persist what was minted, and therefore nothing can ever
+// revoke it — the member cannot even see it exists.
+func TestAFailedLoginStillHandsBackTheCookiesItMinted(t *testing.T) {
+	fake := &loginServer{
+		scanAnswers:    []string{scannedAnswer("Ngọc Anh")},
+		confirmAnswers: []string{`{"error_code":0,"data":{}}`},
+		// The session is minted and then the liveness check refuses it, which
+		// is the shape of every failure after checksession.
+		logged: false,
+	}
+	srv := fake.start(t)
+	pending, _ := startPending(t, srv)
+
+	opts := testOptions(t, srv, time.Second)
+	_, pending, err := zaloPollQR(t.Context(), pending, opts, 5*time.Second)
+	if err != nil {
+		t.Fatalf("scan poll: %v", err)
+	}
+
+	result, next, err := zaloPollQR(t.Context(), pending, opts, 5*time.Second)
+	if err == nil {
+		t.Fatalf("a login with no live session was reported as %+v", result)
+	}
+	if result.Sealed != nil {
+		t.Error("a failed login sealed a credential")
+	}
+
+	var minted bool
+	for _, c := range next.Cookies {
+		if c.Name == "zpw_sek" && c.Value == "the-session-key" {
+			minted = true
+		}
+	}
+	if !minted {
+		t.Fatalf("the failed login stranded the session it minted; the pending carries only %+v", next.Cookies)
+	}
+}
+
+// TestABudgetThatExpiresMidRequestIsAskAgainRatherThanAVerdict: the poll's two
+// calls are long-polls Zalo holds for 100 and 120 seconds, so a budget that
+// only gates the DECISION to ask lets one stalled request run far past it. When
+// our own deadline is what ended the request, the member has not declined and
+// the code has not expired — the only honest answer is "ask again".
+func TestABudgetThatExpiresMidRequestIsAskAgainRatherThanAVerdict(t *testing.T) {
+	// A handler that never answers, and a context the test cancels for it, is
+	// the whole point: no sleep, and the request outlives the budget.
+	blocked := make(chan struct{})
+	fake := &loginServer{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/account/authen/qr/waiting-scan" {
+			<-blocked
+			return
+		}
+		if _, err := w.Write([]byte(fake.answer(r.URL.Path, w))); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer func() { close(blocked); srv.Close() }()
+
+	pending, _ := startPending(t, srv)
+
+	// A tiny budget, spent inside the request rather than before it.
+	result, next, err := zaloPollQR(t.Context(), pending, testOptions(t, srv, 0), time.Millisecond)
+	if err != nil {
+		t.Fatalf("a poll whose own budget expired reported a failure: %v", err)
+	}
+	if result.State != zaloScanWaiting {
+		t.Errorf("state = %s, want %s", result.State, zaloScanWaiting)
+	}
+	if result.Sealed != nil {
+		t.Error("a timed-out poll sealed a credential")
+	}
+	if next.Scanned {
+		t.Error("a timed-out poll advanced the handshake")
+	}
+}
+
+// TestACallersOwnCancellationIsTheirAnswerToHave: only OUR budget converts to
+// "ask again". A caller who cancelled — a closed request, a shutting-down
+// worker — gets the error, because pretending their poll is still waiting would
+// have them ask again forever.
+func TestACallersOwnCancellationIsTheirAnswerToHave(t *testing.T) {
+	blocked := make(chan struct{})
+	fake := &loginServer{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/account/authen/qr/waiting-scan" {
+			<-blocked
+			return
+		}
+		if _, err := w.Write([]byte(fake.answer(r.URL.Path, w))); err != nil {
+			t.Errorf("write response: %v", err)
+		}
+	}))
+	defer func() { close(blocked); srv.Close() }()
+
+	pending, _ := startPending(t, srv)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	_, _, err := zaloPollQR(ctx, pending, testOptions(t, srv, time.Second), 5*time.Second)
+	if err == nil {
+		t.Fatal("a cancelled poll was reported as waiting")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("error %v does not carry the caller's own cancellation", err)
 	}
 }

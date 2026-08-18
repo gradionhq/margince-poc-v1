@@ -200,6 +200,11 @@ func TestAScanStateThisUnitDoesNotRecogniseAdvancesNothing(t *testing.T) {
 	t.Parallel()
 	rt, login, resumed := confirmedScan()
 	login.result = zaloPollResult{State: zaloScanState("reauthenticate_on_device")}
+	// The handshake it came back with carries a minted session, which is the
+	// case that makes this branch a credential path rather than a typo path: a
+	// state nobody has seen before can arrive AFTER checksession just as easily
+	// as before it, and being unfamiliar is not a reason to strand it.
+	login.next = zaloPending{Code: "qr-1", Cookies: []zaloCookie{{Name: "zpw_sek", Value: "the-session-key"}}}
 
 	_, err := connectStatusVia(context.Background(), rt, json.RawMessage(`{}`), login.handshake(), resumed.resume())
 	if err == nil {
@@ -213,6 +218,13 @@ func TestAScanStateThisUnitDoesNotRecogniseAdvancesNothing(t *testing.T) {
 	}
 	if len(rt.tx.statements) != 0 {
 		t.Fatal("an unrecognised state wrote a connection row")
+	}
+	var kept zaloPending
+	if err := json.Unmarshal(rt.secrets.stored[callerUserID+"/"+pendingKey], &kept); err != nil {
+		t.Fatalf("what is on deposit is not a handshake this unit can read: %v", err)
+	}
+	if sessionCookie(kept) != "the-session-key" {
+		t.Fatal("an unrecognised state threw away the session cookies it came back with, which leaves a live Zalo session nobody can revoke")
 	}
 }
 
@@ -291,17 +303,73 @@ func TestConnectStatusWithNothingInFlightSaysSoWithoutFaulting(t *testing.T) {
 	}
 }
 
-func TestAPollThatCouldNotReachTheProviderKeepsTheHandshake(t *testing.T) {
+// A poll that ends in an error still hands back a handshake, and what is in it
+// decides whether a session can ever be withdrawn.
+//
+// The assertion is on the STORED BYTES rather than on "a Put happened", because
+// keeping the MINTED cookies is the property. `checksession` is the call that
+// mints the real chat.zalo.me session, and it runs before the liveness check
+// that decides whether the login worked — so a failure past it leaves Zalo
+// holding a live session against a real person's account. Re-sealing the
+// handshake this unit already had would look identical to a caller counting
+// writes, and would leave that session revocable by nobody.
+func TestAFailedPollKeepsWhateverCredentialItCameBackWith(t *testing.T) {
 	t.Parallel()
-	rt, login, live := confirmedScan()
-	login.pollErr = errors.New("the provider timed out")
+	bootstrap := zaloPending{Code: "qr-1", Cookies: []zaloCookie{{Name: "zpsid", Value: "bootstrap"}}}
+	minted := zaloPending{Code: "qr-1", Cookies: []zaloCookie{
+		{Name: "zpsid", Value: "bootstrap"},
+		{Name: "zpw_sek", Value: "the-session-key"},
+	}}
+	tests := map[string]struct {
+		next zaloPending
+		want string
+	}{
+		// Nothing was spent, so the handshake on deposit is the one that was
+		// already there and the reseal is a no-op.
+		"the poll never reached Zalo": {next: bootstrap},
+		// Zalo minted a session and then the login failed anyway. These cookies
+		// are the only thing that can ever revoke it.
+		"the poll failed after checksession minted the session": {next: minted, want: "the-session-key"},
+	}
+	for name, want := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rt := newRuntime()
+			sealed, err := json.Marshal(bootstrap)
+			if err != nil {
+				t.Fatalf("building the fixture: %v", err)
+			}
+			rt.secrets.stored[callerUserID+"/"+pendingKey] = sealed
+			login := &fakeLogin{next: want.next, pollErr: errors.New("the provider stopped answering")}
+			resumed := &fakeSession{uid: "u-42"}
 
-	if _, err := connectStatusVia(context.Background(), rt, json.RawMessage(`{}`), login.handshake(), live.resume()); err == nil {
-		t.Fatal("a failed poll was reported as progress")
+			if _, err := connectStatusVia(context.Background(), rt, json.RawMessage(`{}`), login.handshake(), resumed.resume()); err == nil {
+				t.Fatal("a failed poll was reported as progress")
+			}
+			held, ok := rt.secrets.stored[callerUserID+"/"+pendingKey]
+			if !ok {
+				t.Fatal("a failed poll cost the member their in-flight login")
+			}
+			var kept zaloPending
+			if err := json.Unmarshal(held, &kept); err != nil {
+				t.Fatalf("what is on deposit is not a handshake this unit can read: %v", err)
+			}
+			if got := sessionCookie(kept); got != want.want {
+				t.Fatalf("the handshake on deposit carries session cookie %q, want %q — cookies this installation did not keep are a Zalo session nobody can ever revoke", got, want.want)
+			}
+		})
 	}
-	if _, ok := rt.secrets.stored[callerUserID+"/"+pendingKey]; !ok {
-		t.Fatal("a network blip cost the member their in-flight login")
+}
+
+// sessionCookie is the minted session cookie in a handshake, empty when the
+// handshake is still the bootstrap one.
+func sessionCookie(p zaloPending) string {
+	for _, c := range p.Cookies {
+		if c.Name == "zpw_sek" {
+			return c.Value
+		}
 	}
+	return ""
 }
 
 // status renders a connection and answers a yes-or-no about the credential. The

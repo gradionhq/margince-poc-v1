@@ -209,9 +209,10 @@ func TestResumePresentsTheSealedUserAgentRatherThanTheCallers(t *testing.T) {
 	}
 }
 
-// TestResumeReadsBothSpellingsOfTheSettingsKey: Zalo misspells `settings` as
-// `setttings`, and reading only one silently falls back to a default ping
-// interval that is three times too fast.
+// TestStaleCookiesAreReportedAsStaleRatherThanAsAnEmptyKey: an empty zpw_enk is
+// how Zalo says "these cookies are finished, log in again". Carrying it forward
+// as a session key produces something that resumes cleanly and then fails every
+// later call with a decryption error, which names neither the cause nor the fix.
 func TestStaleCookiesAreReportedAsStaleRatherThanAsAnEmptyKey(t *testing.T) {
 	fake := newChatServer()
 	fake.sessionKey = ""
@@ -253,7 +254,3 @@ func TestARefusedHandshakeSurfacesAsARefusal(t *testing.T) {
 		})
 	}
 }
-
-// TestSealedIsReReadFromTheJarSoARotatedCookieIsKept: the login chain and every
-// later call may rotate a cookie, and re-sealing the credential a caller
-// started with would persist one the server has already retired.

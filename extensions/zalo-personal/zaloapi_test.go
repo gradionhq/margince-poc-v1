@@ -236,3 +236,80 @@ func TestAChallengePageInPlaceOfAnAnswerIsReportedAsOne(t *testing.T) {
 		t.Fatal("an HTML challenge page was read as a liveness answer")
 	}
 }
+
+// TestASendWithNoMessageIDIsUnansweredRatherThanSuccessful.
+//
+// An absent or empty `msgId` unmarshals cleanly into json.Number("") with no
+// error, so nothing before this check notices. What it produces is a receipt
+// with no provider id at all — and MsgID is the only anchor a later inbound
+// echo could be matched against, so "success" here is a message this
+// installation can never recognise as its own.
+//
+// It has to be UNANSWERED specifically. Zalo accepted the request, so the
+// message may well have been delivered; an ordinary error has the core retry
+// and send a customer the same reply twice.
+func TestASendWithNoMessageIDIsUnansweredRatherThanSuccessful(t *testing.T) {
+	answers := map[string]string{
+		"an empty msgId":   `{"error_code":0,"data":{"msgId":"","clientId":0,"ts":0}}`,
+		"a missing msgId":  `{"error_code":0,"data":{"clientId":0,"ts":0}}`,
+		"a null msgId":     `{"error_code":0,"data":{"msgId":null}}`,
+		"an empty payload": `{"error_code":0,"data":{}}`,
+	}
+	for name, answer := range answers {
+		t.Run(name, func(t *testing.T) {
+			fake := newChatServer()
+			fake.calls[sendPath] = func(_ *testing.T, _ map[string]any) string { return answer }
+
+			receipt, err := resumeAgainst(t, fake).SendText(t.Context(), "9876543210", "xin chào")
+			if err == nil {
+				t.Fatalf("a send with no message id was reported as the success %+v", receipt)
+			}
+			if !errors.Is(err, errUnanswered) {
+				t.Errorf("error %v is not tellable as an unknown outcome, so the core would retry it and send the message twice", err)
+			}
+			if receipt.MsgID != "" {
+				t.Errorf("receipt = %+v, want nothing", receipt)
+			}
+		})
+	}
+}
+
+// TestNoSendErrorNamesTheRecipient: these errors reach the operator log and the
+// delivery record. Naming who a message was for retains a person's Zalo account
+// identifier outside the message store, which is the one place it belongs.
+func TestNoSendErrorNamesTheRecipient(t *testing.T) {
+	const recipient = "9876543210"
+
+	answers := map[string]func(*testing.T, map[string]any) string{
+		"a refusal":     func(*testing.T, map[string]any) string { return `{"error_code":114,"error_message":"invalid"}` },
+		"no message id": func(*testing.T, map[string]any) string { return `{"error_code":0,"data":{}}` },
+	}
+	for name, handler := range answers {
+		t.Run(name, func(t *testing.T) {
+			fake := newChatServer()
+			fake.calls[sendPath] = handler
+
+			_, err := resumeAgainst(t, fake).SendText(t.Context(), recipient, "xin chào")
+			if err == nil {
+				t.Fatal("the send succeeded, so this test proves nothing")
+			}
+			if strings.Contains(err.Error(), recipient) {
+				t.Errorf("the error names the recipient: %v", err)
+			}
+		})
+	}
+
+	// The unanswered-transport path too, which is the one that carried it.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	session := resumeAgainst(t, newChatServer())
+	session.c = newClient(testOptions(t, srv, time.Second))
+	if _, err := session.SendText(t.Context(), recipient, "xin chào"); err == nil {
+		t.Fatal("the send succeeded, so this test proves nothing")
+	} else if strings.Contains(err.Error(), recipient) {
+		t.Errorf("the unanswered-send error names the recipient: %v", err)
+	}
+}

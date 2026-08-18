@@ -456,6 +456,54 @@ describe("the personal Zalo screen", () => {
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
   });
 
+  // An explicit null where the field is merely absent today. The handler omits
+  // `connection` rather than nulling it, so this shape is a producer detail away
+  // — and an undefined-only guard would let it through and then throw on
+  // `.status` DURING RENDER, which does not degrade the card, it kills it: the
+  // whole surface fails and the member is left with an error where the honest
+  // answer was "not connected".
+  it("reads a null connection as no connection rather than failing to render", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-personal/status": () => ({
+        connected: false,
+        session_deposited: false,
+        connection: null,
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await flush();
+
+    // The card is alive and says the true thing.
+    expect(screen.getByText("Not connected")).toBeTruthy();
+    expect(connectButton()).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
+  });
+
+  // The same null WITH a session on deposit, which is where the crash would
+  // cost a member something they cannot get back another way: `stranded` is
+  // the negation of `held`, so a throw inside that expression takes the withdraw
+  // verb down with the rest of the card and leaves them asking an
+  // administrator to revoke access to their own private life.
+  it("still offers the way out when the stranded deposit comes with a null connection", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      "/ext/zalo-personal/status": () => ({
+        connected: false,
+        session_deposited: true,
+        connection: null,
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    renderScreen();
+    await flush();
+
+    expect(screen.getByText("Not connected")).toBeTruthy();
+    expect(screen.getByText(/A sign-in did not finish/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeTruthy();
+  });
+
   // And the ordinary unconnected state says none of it: a member who never
   // connected has nothing on deposit, and telling them otherwise would be the
   // same false claim in the other direction.

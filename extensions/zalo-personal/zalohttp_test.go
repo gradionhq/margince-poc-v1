@@ -16,6 +16,9 @@ package zalopersonal
 import (
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -509,5 +512,87 @@ func TestAFailedRequestNeverReportsTheQueryString(t *testing.T) {
 	// It still has to be useful: the endpoint that failed must be nameable.
 	if !strings.Contains(reported, "wpa.chat.zalo.me/api/login/getLoginInfo") {
 		t.Errorf("the error no longer says which endpoint failed: %s", reported)
+	}
+}
+
+// TestNoErrorInThisFileCanCarryTheRawURL is a fitness function, not a case.
+//
+// The query-string leak has now been introduced twice, both times the same way:
+// somebody added an error path and formatted the variable that was in scope.
+// A test per path only ever proves the paths that exist today, so this one
+// derives the obligation from the source instead — in zalohttp.go, no error may
+// be built from `rawURL`; the redacted `safe` is the only URL an error sees.
+//
+// Reading the file is the point. A behavioural test cannot see a path nobody
+// has written yet, and this one fails the moment somebody writes it.
+func TestNoErrorInThisFileCanCarryTheRawURL(t *testing.T) {
+	const file = "zalohttp.go"
+
+	fset := token.NewFileSet()
+	parsed, err := parser.ParseFile(fset, file, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", file, err)
+	}
+
+	mentionsRawURL := func(node ast.Node) bool {
+		var found bool
+		ast.Inspect(node, func(n ast.Node) bool {
+			if id, ok := n.(*ast.Ident); ok && id.Name == "rawURL" {
+				found = true
+			}
+			return !found
+		})
+		return found
+	}
+
+	ast.Inspect(parsed, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.CallExpr:
+			// fmt.Errorf(…) — the wrapped-error spelling.
+			sel, ok := node.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Errorf" {
+				return true
+			}
+			for _, arg := range node.Args {
+				if mentionsRawURL(arg) {
+					t.Errorf("%s: this error is built from rawURL, which carries imei/zcid/zcid_ext/params/signkey as query parameters — use the redacted `safe`", fset.Position(arg.Pos()))
+				}
+			}
+		case *ast.CompositeLit:
+			// &transportError{…} — the structured spelling.
+			if id, ok := node.Type.(*ast.Ident); !ok || id.Name != "transportError" {
+				return true
+			}
+			for _, elt := range node.Elts {
+				if mentionsRawURL(elt) {
+					t.Errorf("%s: this transportError is built from rawURL — use the redacted `safe`", fset.Position(elt.Pos()))
+				}
+			}
+		}
+		return true
+	})
+}
+
+// TestTheRequestBuildPathIsRedactedToo is the case the fitness function above
+// was written for: a URL so malformed that no request can be built from it, on
+// the one error path the 502 test never reached.
+func TestTheRequestBuildPathIsRedactedToo(t *testing.T) {
+	const secret = "6f4a9a4c-1a2b-4c3d-8e9f-000000000001"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+
+	c := newClient(testOptions(t, srv, time.Second))
+	// A control character in the method is refused by http.NewRequest, which
+	// is the branch that formats the URL before anything is sent.
+	_, err := c.doJSON(t.Context(), "BAD METHOD", "https://wpa.chat.zalo.me/api/login/getLoginInfo?imei="+secret, nil, nil)
+	if err == nil {
+		t.Fatal("an unbuildable request produced no error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Errorf("the request-build error reports the imei: %v", err)
+	}
+	if !strings.Contains(err.Error(), "wpa.chat.zalo.me") {
+		t.Errorf("the request-build error no longer says which endpoint failed: %v", err)
 	}
 }

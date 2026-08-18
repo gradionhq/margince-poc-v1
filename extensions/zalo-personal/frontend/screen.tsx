@@ -237,7 +237,15 @@ function ConnectionCard() {
   }
 
   const connection = status.data?.connection;
-  const held = connection !== undefined && connection.status !== "disconnected";
+  // `!= null` rather than `!== undefined`, and it is the difference between a
+  // screen that reports and a screen that dies: a body carrying an explicit
+  // `"connection": null` passes an undefined-only guard, and `.status` then
+  // throws mid-render — so the WHOLE card fails, taking the withdraw verb with
+  // it, in a state whose honest reading is simply "not connected". The handler
+  // omits the field today; resting on that is a producer detail, not a
+  // property, and the rest of this read validates the body rather than
+  // trusting it.
+  const held = connection != null && connection.status !== "disconnected";
   // A session on deposit with NO usable connection behind it. The server seals
   // the credential before it writes the row, so a network or database failure
   // in between leaves a fully valid Zalo login held by this installation and
