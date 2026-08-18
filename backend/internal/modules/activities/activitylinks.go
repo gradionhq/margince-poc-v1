@@ -61,8 +61,9 @@ func (e *TooManyLinksError) FieldFault() (field, code, message string) {
 	return fieldLinks, "too_many_links", e.Error()
 }
 
-// insertActivityLinks writes the polymorphic link rows and maintains
-// deal.last_activity_at on deal links. The FK alone is not enough: it is
+// insertActivityLinks writes the polymorphic link rows and maintains the
+// last_activity_at clocks (deal, person, organization — see
+// advanceLastActivity) on every link. The FK alone is not enough: it is
 // checked as the table owner, bypassing RLS, so it would accept a
 // guessed cross-tenant or out-of-scope UUID as a link target — every
 // target passes the row-scope link check first.
@@ -101,15 +102,44 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, a
 			wsID, activityID, link.EntityType, link.EntityID); err != nil {
 			return err
 		}
-		if link.EntityType == "deal" {
-			if _, err := tx.Exec(ctx,
-				`UPDATE deal SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
-				link.EntityID, occurredAt); err != nil {
-				return err
-			}
+		if err := advanceLastActivity(ctx, tx, link, occurredAt); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// advanceLastActivity moves the linked record's last_activity_at clock —
+// deal, person and organization alike — plus every ACCOUNT the link reaches
+// through the deal or a live employment, the same three arms OrgReachSet
+// walks for the account timeline, so the column and the timeline agree.
+//
+// Each statement is a single-statement monotone max: greatest(stored, new)
+// computed inside the UPDATE, never from a pre-read, so concurrent writers
+// and a back-dated capture both converge on the newest occurred_at.
+func advanceLastActivity(ctx context.Context, tx pgx.Tx, link ActivityLinkInput, occurredAt time.Time) error {
+	direct := map[string]string{
+		linkEntityDeal:         `UPDATE deal SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
+		linkEntityPerson:       `UPDATE person SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
+		linkEntityOrganization: `UPDATE organization SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2) WHERE id = $1`,
+	}
+	if stmt, ok := direct[link.EntityType]; ok {
+		if _, err := tx.Exec(ctx, stmt, link.EntityID, occurredAt); err != nil {
+			return err
+		}
+	}
+	reached := map[string]string{
+		linkEntityDeal:   `SELECT organization_id FROM deal WHERE id = $1 AND organization_id IS NOT NULL`,
+		linkEntityPerson: `SELECT organization_id FROM relationship WHERE person_id = $1 AND kind = 'employment' AND ended_at IS NULL AND archived_at IS NULL`,
+	}
+	via, ok := reached[link.EntityType]
+	if !ok {
+		return nil
+	}
+	_, err := tx.Exec(ctx,
+		`UPDATE organization SET last_activity_at = greatest(coalesce(last_activity_at, $2), $2)
+		 WHERE id IN (`+via+`)`, link.EntityID, occurredAt)
+	return err
 }
 
 // InvalidLinkTypeError maps to 422.

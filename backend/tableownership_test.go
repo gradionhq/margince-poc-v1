@@ -367,7 +367,9 @@ var crossStoreWrites = gatekit.Waive(map[string]string{
 	// activities maintains the deal-timeline denormalization where the
 	// activity lands: deal.last_activity_at moves in the same transaction
 	// as the activity insert or the two drift.
-	"internal/modules/activities:deal": "deal.last_activity_at is denormalized from the timeline; it must move in the activity's own transaction",
+	"internal/modules/activities:deal":         "deal.last_activity_at is denormalized from the timeline; it must move in the activity's own transaction",
+	"internal/modules/activities:person":       "person.last_activity_at is denormalized from the timeline exactly as deal's is; same transaction, same reason",
+	"internal/modules/activities:organization": "organization.last_activity_at is denormalized from the timeline (direct link, deal, live employment — the OrgReachSet arms); same transaction, same reason",
 
 	// The outbound-send reconcile folds the provider's own captured echo of a
 	// message this workspace sent into the send's own row. That fold is one

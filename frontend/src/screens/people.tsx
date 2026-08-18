@@ -421,6 +421,25 @@ export function ContactsScreen() {
             sort: "owner_id",
           },
           {
+            // When something last happened with this record — the timeline's
+            // clock, kept by the activity write, so it can be sorted on the
+            // server. Empty when nothing has, which is a fact, not a gap.
+            key: "lastActivity",
+            header: t("list.lastActivity"),
+            cell: (person: Person) => (
+              <span className="t-caption">
+                {person.last_activity_at
+                  ? formatDateAbbrev(
+                      person.last_activity_at,
+                      locale,
+                      RECORD_ZONE,
+                    )
+                  : ""}
+              </span>
+            ),
+            sort: "last_activity_at",
+          },
+          {
             key: "created",
             header: t("list.created"),
             cell: (person: Person) => (
