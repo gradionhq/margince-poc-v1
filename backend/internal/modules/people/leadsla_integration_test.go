@@ -162,3 +162,30 @@ func TestFirstResponseFromHumanStatusChangeAndDisposition(t *testing.T) {
 		t.Error("disqualifying is an explicit disposition and must stamp first_response_at")
 	}
 }
+
+// The bus is unordered: a reply that happened at 09:00 may be processed
+// after one from 10:00. The FIRST response is the earliest, so the later
+// delivery moves the stamp back, and a later reply never moves it forward.
+func TestFirstResponseKeepsTheEarliestReplyWhateverTheDeliveryOrder(t *testing.T) {
+	e := setupPromoteConsent(t)
+	now := time.Now().UTC()
+	lead := e.seedLeadCreatedAt(t, "ordered@example.test", now.Add(-3*time.Hour))
+	late := now.Add(-time.Hour)
+	early := now.Add(-2 * time.Hour)
+	if set, err := e.store.RecordLeadFirstResponse(e.ctx, lead, late); err != nil || !set {
+		t.Fatalf("first delivery: set=%t err=%v", set, err)
+	}
+	if set, err := e.store.RecordLeadFirstResponse(e.ctx, lead, early); err != nil || !set {
+		t.Fatalf("earlier reply delivered second: set=%t err=%v — it must win", set, err)
+	}
+	if set, err := e.store.RecordLeadFirstResponse(e.ctx, lead, now); err != nil || set {
+		t.Fatalf("a later reply: set=%t err=%v — it must not move the stamp", set, err)
+	}
+	got, err := e.store.GetLead(e.ctx, lead, storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FirstResponseAt == nil || !got.FirstResponseAt.Equal(early) {
+		t.Errorf("first_response_at = %v, want the earliest reply %v", got.FirstResponseAt, early)
+	}
+}

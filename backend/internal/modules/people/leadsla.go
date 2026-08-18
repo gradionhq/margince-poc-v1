@@ -67,19 +67,26 @@ func leadSLAFields(routedAt *time.Time, createdAt time.Time, firstResponseAt, ar
 // slaStateClause renders one sla_state filter as SQL over the lead's own
 // columns, with the same arithmetic leadSLAFields applies in Go: the list
 // and the row must agree about which leads are overdue.
+//
+// The instant is the application clock, bound as a parameter, never the
+// database's now(): the row's sla_state is derived against leadSLAClock, and
+// a filter reading a different clock — the container's, seconds adrift, or
+// the other side of a boundary crossed mid-request — would return an at_risk
+// row whose own payload says breached.
 func slaStateClause(state crmcontracts.ListLeadsParamsSlaState, arg func(any) int) string {
 	deadline := "COALESCE(routed_at, created_at) + $%d * interval '1 minute'"
 	open := "archived_at IS NULL AND first_response_at IS NULL AND "
 	minutes := int(FirstResponseTarget / time.Minute)
+	now := leadSLAClock().UTC()
 	switch crmcontracts.LeadSlaState(state) {
 	case crmcontracts.LeadSlaStateBreached:
-		return storekit.SQLf(open+deadline+" < now()", arg(minutes))
+		return storekit.SQLf(open+deadline+" < $%d", arg(minutes), arg(now))
 	case crmcontracts.LeadSlaStateAtRisk:
-		return storekit.SQLf(open+deadline+" >= now() AND "+deadline+" - $%d * interval '1 minute' <= now()",
-			arg(minutes), arg(minutes), arg(int(slaAtRiskWindow/time.Minute)))
+		return storekit.SQLf(open+deadline+" >= $%d AND "+deadline+" - $%d * interval '1 minute' <= $%d",
+			arg(minutes), arg(now), arg(minutes), arg(int(slaAtRiskWindow/time.Minute)), arg(now))
 	default:
-		return storekit.SQLf(open+deadline+" - $%d * interval '1 minute' > now()",
-			arg(minutes), arg(int(slaAtRiskWindow/time.Minute)))
+		return storekit.SQLf(open+deadline+" - $%d * interval '1 minute' > $%d",
+			arg(minutes), arg(int(slaAtRiskWindow/time.Minute)), arg(now))
 	}
 }
 
@@ -198,16 +205,20 @@ func (s *Store) RecordLeadFirstResponse(ctx context.Context, leadID ids.LeadID, 
 		if err := tx.QueryRow(ctx, `SELECT first_response_at FROM lead WHERE id = $1`, leadID).Scan(&current); err != nil {
 			return err
 		}
-		if current != nil {
+		// The FIRST response is the earliest one, not the first one this
+		// subscriber happened to process: the bus is at-least-once and
+		// unordered, so a 09:00 reply may arrive after a 10:00 one. A later
+		// or equal stamp on a lead already answered is a replay and a no-op.
+		if current != nil && !at.Before(*current) {
 			return nil
 		}
 		p := storekit.NewPatch()
-		p.Set(firstResponseColumn, nil, at)
+		p.Set(firstResponseColumn, current, at)
 		if err := p.ApplyLocked(ctx, tx, lock); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "update", "lead", leadID.UUID,
-			map[string]any{firstResponseColumn: nil}, map[string]any{firstResponseColumn: at})
+			map[string]any{firstResponseColumn: current}, map[string]any{firstResponseColumn: at})
 		if err != nil {
 			return err
 		}
