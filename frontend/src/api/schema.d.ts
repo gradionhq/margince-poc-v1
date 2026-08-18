@@ -10037,6 +10037,11 @@ export interface components {
                 [key: string]: unknown;
             } | null;
             version?: components["schemas"]["RowVersion"];
+            /**
+             * Format: date-time
+             * @description When something last happened with this person — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
+             */
+            readonly last_activity_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */
@@ -10225,6 +10230,11 @@ export interface components {
             } | null;
             partner?: components["schemas"]["Partner"];
             version?: components["schemas"]["RowVersion"];
+            /**
+             * Format: date-time
+             * @description When something last happened with this account — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
+             */
+            readonly last_activity_at?: string | null;
             /** Format: date-time */
             created_at: string;
             /** Format: date-time */

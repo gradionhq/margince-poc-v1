@@ -764,6 +764,33 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
     );
   });
 
+  it("sorts by last activity on the server, not over the rows it holds", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, last_activity_at: "2026-08-10T12:00:00Z" }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Sort by Last activity" }),
+    );
+    // The server owns the order: a fresh keyset walk under the new sort.
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            url.includes("sort=last_activity_at") && !url.includes("cursor="),
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("narrows to one lifecycle stage through the server", async () => {
     const user = userEvent.setup();
     const { urls } = stubFetch(async () => emptyPage());

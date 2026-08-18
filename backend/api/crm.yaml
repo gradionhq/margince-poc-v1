@@ -14925,6 +14925,15 @@ components:
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: >-
+            When something last happened with this person — the newest `occurred_at` of an activity
+            linked to it, maintained on the activity write exactly as `deal.last_activity_at` is
+            (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must
+            reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
@@ -15165,6 +15174,15 @@ components:
         raw: { type: [object, 'null'], additionalProperties: true }
         partner: { $ref: '#/components/schemas/Partner' }
         version: { $ref: '#/components/schemas/RowVersion' }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: >-
+            When something last happened with this account — the newest `occurred_at` of an activity
+            linked to it, maintained on the activity write exactly as `deal.last_activity_at` is
+            (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must
+            reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }

@@ -72,10 +72,11 @@ type ListOrganizationsInput struct {
 // vocabulary — exactly the data-model §13.5 DM-VOCAB-2 set; active cf_
 // columns join it per request.
 var organizationListFields = map[string]string{
-	createdAtColumn: storekit.KindTimestamp,
-	updatedAtColumn: storekit.KindTimestamp,
-	orgNameColumn:   fieldcatalog.TypeText,
-	ownerIDColumn:   storekit.KindUUID,
+	createdAtColumn:    storekit.KindTimestamp,
+	updatedAtColumn:    storekit.KindTimestamp,
+	orgNameColumn:      fieldcatalog.TypeText,
+	ownerIDColumn:      storekit.KindUUID,
+	lastActivityColumn: storekit.KindTimestamp,
 }
 
 // organizationDomainClause narrows the page to the account that lists one

@@ -555,6 +555,7 @@ export const vi = {
   "list.unowned": "Chưa phân công",
   "list.created": "Ngày tạo",
   "list.updated": "Cập nhật",
+  "list.lastActivity": "Hoạt động gần nhất",
   "list.filterOwnerMe": "Bản ghi của tôi",
   "list.filterOwnerAll": "Mọi người phụ trách",
   "list.filterOwnerUnassigned": "Chưa phân công",

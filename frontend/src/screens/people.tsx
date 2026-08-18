@@ -50,7 +50,12 @@ import {
 } from "./person360";
 import { EnrichedFields } from "./personcorrections";
 import { PersonGraphPanel } from "./persongraph";
-import { createdColumn, ownerColumn, standardViews } from "./recordlist";
+import {
+  createdColumn,
+  lastActivityColumn,
+  ownerColumn,
+  standardViews,
+} from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import { ShareAction } from "./share";
@@ -409,6 +414,7 @@ export function ContactsScreen() {
             ),
           },
           ownerColumn<Person>(t),
+          lastActivityColumn<Person>(t, locale),
           createdColumn<Person>(t, locale),
         ]}
         tools={<SaveViewAction resource="people" query={state.query} />}

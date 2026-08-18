@@ -562,6 +562,7 @@ export const de = {
   "list.unowned": "Nicht zugewiesen",
   "list.created": "Erstellt",
   "list.updated": "Geändert",
+  "list.lastActivity": "Letzte Aktivität",
   "list.filterOwnerMe": "Meine Datensätze",
   "list.filterOwnerAll": "Alle Zuständigen",
   "list.filterOwnerUnassigned": "Nicht zugewiesen",
