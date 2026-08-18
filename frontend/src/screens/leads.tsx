@@ -1337,6 +1337,9 @@ function LeadLifecycle({
       />
 
       <LeadManualSignals
+        // Keyed by lead: a half-typed input for one lead must not be
+        // submitted against the next one the reader navigates to.
+        key={id}
         id={id}
         readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
       />

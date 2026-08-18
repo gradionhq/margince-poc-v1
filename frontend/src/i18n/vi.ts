@@ -1358,6 +1358,8 @@ export const vi = {
   "lead.factor.meeting_held": "Đã họp",
   "lead.factor.meeting_booked": "Đã đặt lịch họp",
   "lead.signalsTitle": "Bạn biết gì về lead này",
+  "lead.signalsNotStoredYet":
+    "Chưa lưu phân tích — dữ liệu bạn nhập vẫn được tính ở lần tính điểm tiếp theo.",
   "lead.signalUnset": "Chưa nhập",
   "lead.signalClear": "Rút lại",
   "lead.signalFactor": "Yếu tố",

@@ -1358,6 +1358,8 @@ export const de = {
   "lead.factor.meeting_held": "Termin stattgefunden",
   "lead.factor.meeting_booked": "Termin vereinbart",
   "lead.signalsTitle": "Was Sie über diesen Lead wissen",
+  "lead.signalsNotStoredYet":
+    "Noch keine Aufschlüsselung gespeichert – Ihre Angaben zählen bei der nächsten Berechnung.",
   "lead.signalUnset": "Nicht erfasst",
   "lead.signalClear": "Zurückziehen",
   "lead.signalFactor": "Faktor",

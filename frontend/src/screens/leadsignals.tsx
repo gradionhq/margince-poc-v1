@@ -119,51 +119,67 @@ export function LeadManualSignals({
       }}
     >
       <span className="t-caption">{t("lead.signalsTitle")}</span>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-        {SIGNAL_FACTORS.map((name) => {
-          const live = manualFactorOf(factors, name);
-          return (
-            <li
-              key={name}
-              style={{
-                display: "flex",
-                gap: "var(--space-2)",
-                alignItems: "baseline",
-                flexWrap: "wrap",
-              }}
-            >
-              <span>{label(name)}</span>
-              {live ? (
-                <>
-                  <span className="t-mono">{live.points.toFixed(1)}</span>
-                  {live.signal_kind && (
-                    <span className="t-caption">{label(live.signal_kind)}</span>
-                  )}
-                  {live.reason && (
-                    <span className="t-caption">{live.reason}</span>
-                  )}
-                  {live.set_by && (
-                    <span className="t-caption">
-                      <EntityRef kind="user" id={live.set_by} />
-                    </span>
-                  )}
-                  {!readOnlyReason && (
-                    <Button
-                      small
-                      disabled={busy}
-                      onClick={() => clear.mutate(name)}
-                    >
-                      {t("lead.signalClear")}
-                    </Button>
-                  )}
-                </>
-              ) : (
-                <span className="t-caption">{t("lead.signalUnset")}</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      {/* An absent factor list is not an empty one: while the explanation is
+          loading, failed, or not yet retained (ADR-0105 §1), nothing here can
+          say what is set, so nothing here claims "not entered". */}
+      {explain.isPending && (
+        <span className="t-caption">{t("lead.scoreLoading")}</span>
+      )}
+      {explain.isError && (
+        <span className="t-caption">{problemMessageOf(explain.error, t)}</span>
+      )}
+      {explain.isSuccess && factors == null && (
+        <span className="t-caption">{t("lead.signalsNotStoredYet")}</span>
+      )}
+      {factors != null && (
+        <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          {SIGNAL_FACTORS.map((name) => {
+            const live = manualFactorOf(factors, name);
+            return (
+              <li
+                key={name}
+                style={{
+                  display: "flex",
+                  gap: "var(--space-2)",
+                  alignItems: "baseline",
+                  flexWrap: "wrap",
+                }}
+              >
+                <span>{label(name)}</span>
+                {live ? (
+                  <>
+                    <span className="t-mono">{live.points.toFixed(1)}</span>
+                    {live.signal_kind && (
+                      <span className="t-caption">
+                        {label(live.signal_kind)}
+                      </span>
+                    )}
+                    {live.reason && (
+                      <span className="t-caption">{live.reason}</span>
+                    )}
+                    {live.set_by && (
+                      <span className="t-caption">
+                        <EntityRef kind="user" id={live.set_by} />
+                      </span>
+                    )}
+                    {!readOnlyReason && (
+                      <Button
+                        small
+                        disabled={busy}
+                        onClick={() => clear.mutate(name)}
+                      >
+                        {t("lead.signalClear")}
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <span className="t-caption">{t("lead.signalUnset")}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {readOnlyReason ? (
         <span className="t-caption">{readOnlyReason}</span>
       ) : (
@@ -182,8 +198,13 @@ export function LeadManualSignals({
               disabled={!canEdit}
               onChange={(next) => {
                 if (SIGNAL_FACTORS.includes(next as SignalFactor)) {
+                  // Band, kind and reason describe ONE factor together; a
+                  // reason typed for the old factor must not be recorded
+                  // against the new one.
                   setFactor(next as SignalFactor);
                   setBand("");
+                  setKind("fact");
+                  setReason("");
                 }
               }}
               options={SIGNAL_FACTORS.map((name) => ({

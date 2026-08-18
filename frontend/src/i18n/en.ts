@@ -1363,6 +1363,8 @@ export const en = {
   "lead.factor.meeting_held": "Meeting held",
   "lead.factor.meeting_booked": "Meeting booked",
   "lead.signalsTitle": "What you know about this lead",
+  "lead.signalsNotStoredYet":
+    "No breakdown stored yet — your inputs still count once the score is next computed.",
   "lead.signalUnset": "Not entered",
   "lead.signalClear": "Withdraw",
   "lead.signalFactor": "Factor",
