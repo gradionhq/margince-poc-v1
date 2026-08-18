@@ -377,12 +377,14 @@ export function liquidBlob(index: number, time: number): DotTarget {
   // rather than as something moving through liquid.
   const ahead = slow + 0.12;
   const vx =
-    Math.sin(ahead * 1.7 + phase) * 0.42 +
-    Math.cos(ahead * 0.9 + phase) * 0.2 -
+    homeX +
+    Math.sin(ahead * 1.7 + phase) * 0.26 +
+    Math.cos(ahead * 0.9 + phase) * 0.14 -
     x;
   const vy =
-    Math.cos(ahead * 1.3 + phase * 1.4) * 0.4 +
-    Math.sin(ahead * 2.1 + phase) * 0.18 -
+    homeY +
+    Math.cos(ahead * 1.3 + phase * 1.4) * 0.24 +
+    Math.sin(ahead * 2.1 + phase) * 0.12 -
     y;
   const pace = Math.min(1, Math.hypot(vx, vy) * 9);
   return {
