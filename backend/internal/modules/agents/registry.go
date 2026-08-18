@@ -336,7 +336,7 @@ func (r *Registry) stageRefusedCall(ctx context.Context, t mcp.Tool, tool string
 		// that is the real answer, not "needs approval".
 		return err
 	}
-	id, err := r.approvals.Stage(ctx, StageRequest{
+	id, alreadyApproved, err := r.approvals.StageCall(ctx, StageRequest{
 		Tool:           tool,
 		ProposedChange: args,
 		DiffHash:       diffHash,
@@ -348,7 +348,7 @@ func (r *Registry) stageRefusedCall(ctx context.Context, t mcp.Tool, tool string
 	if err != nil {
 		return err
 	}
-	return &workflow.StagedApprovalError{ApprovalID: id}
+	return &workflow.StagedApprovalError{ApprovalID: id, AlreadyApproved: alreadyApproved}
 }
 
 // Stageable reports whether a refused 🟡 call on this verb has somewhere to

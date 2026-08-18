@@ -102,12 +102,6 @@ func (s *Service) RedeemInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, 
 
 func validateRedemption(a row, p principal.Principal, tool, diffHash string, now time.Time) error {
 	switch {
-	case a.Status != approvalStatusApproved:
-		return fmt.Errorf("approval is %s: %w", a.effectiveStatus(now), apperrors.ErrApprovalTokenInvalid)
-	case a.ConsumedAt != nil:
-		return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
-	case a.DecidedAt != nil && now.Sub(*a.DecidedAt) > redemptionTTL:
-		return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
 	case a.Kind != tool:
 		return fmt.Errorf("approval is for %s, not %s: %w", a.Kind, tool, apperrors.ErrApprovalTokenInvalid)
 	case a.DiffHash != diffHash:
@@ -116,6 +110,30 @@ func validateRedemption(a row, p principal.Principal, tool, diffHash string, now
 		return fmt.Errorf("approval is not bound to a passport: %w", apperrors.ErrApprovalTokenInvalid)
 	case !p.PassportID.IsZero() && *a.PassportID != ids.From[ids.PassportKind](p.PassportID):
 		return fmt.Errorf("approval was staged by a different passport: %w", apperrors.ErrApprovalTokenInvalid)
+	// Undecided is not a bad token, and the two must not share a sentinel. An
+	// agent whose retry lands before the human clicks is told the token is
+	// INVALID by any answer that wraps ErrApprovalTokenInvalid, and the only
+	// recovery it can infer from that is to ask the question again — which
+	// stages a second authority object for the same call, then a third. The
+	// honest answer is the one the staging already gave: this call still
+	// requires the approval, and the id to spend is the one it is holding.
+	//
+	// AFTER every check that does not depend on the decision — the tool, the
+	// hash, the passport binding — because "retry this exact call" is only true
+	// advice for a caller whose call IS the staged one AND whose credential could
+	// spend it. Told to wait on any of those, a caller waits, retries, is refused
+	// for a reason that was already true before the human clicked, and stages the
+	// question again: the same wrong-advice loop, one branch over.
+	case a.effectiveStatus(now) == statusPending:
+		return fmt.Errorf(
+			"approval %s has not been decided yet — do not stage another, wait for a human and retry this exact call with the same approval_id: %w",
+			a.ID, apperrors.ErrRequiresApproval)
+	case a.Status != approvalStatusApproved:
+		return fmt.Errorf("approval is %s: %w", a.effectiveStatus(now), apperrors.ErrApprovalTokenInvalid)
+	case a.ConsumedAt != nil:
+		return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
+	case a.DecidedAt != nil && now.Sub(*a.DecidedAt) > redemptionTTL:
+		return fmt.Errorf("approval expired %s after decision: %w", redemptionTTL, apperrors.ErrApprovalTokenInvalid)
 	default:
 		return nil
 	}

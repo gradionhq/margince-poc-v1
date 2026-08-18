@@ -44,8 +44,8 @@ func (stubApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaReleaseR
 	return ids.ApprovalID{}, false, nil
 }
 
-func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
-	return ids.ApprovalID{}, nil
+func (stubApprovals) StageCall(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
 }
 
 func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (int64, bool, error) {

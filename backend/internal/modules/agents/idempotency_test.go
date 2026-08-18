@@ -562,8 +562,8 @@ type consumingApprovals struct {
 	redeemErr error
 }
 
-func (a *consumingApprovals) Stage(context.Context, StageRequest) (ids.ApprovalID, error) {
-	return a.staged, a.stageErr
+func (a *consumingApprovals) StageCall(context.Context, StageRequest) (ids.ApprovalID, bool, error) {
+	return a.staged, false, a.stageErr
 }
 
 // StageQuotaRelease is the §2.4 step-up, which none of these scenarios reaches:

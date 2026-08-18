@@ -480,14 +480,14 @@ type fakeApprovals struct {
 	redeemed    []ids.ApprovalID
 }
 
-func (a *fakeApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalID, error) {
+func (a *fakeApprovals) StageCall(_ context.Context, in StageRequest) (ids.ApprovalID, bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.staged = ids.From[ids.ApprovalKind](ids.NewV7())
 	if a.change == nil {
 		a.change = in.ProposedChange
 	}
-	return a.staged, nil
+	return a.staged, false, nil
 }
 
 func (a *fakeApprovals) StageQuotaRelease(context.Context, QuotaReleaseRequest) (ids.ApprovalID, bool, error) {

@@ -29,9 +29,9 @@ func (c *capturingApprovals) StageQuotaRelease(_ context.Context, _ agents.Quota
 	return ids.ApprovalID{}, false, nil
 }
 
-func (c *capturingApprovals) Stage(_ context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
+func (c *capturingApprovals) StageCall(_ context.Context, in agents.StageRequest) (ids.ApprovalID, bool, error) {
 	c.last = in
-	return ids.ApprovalID{}, nil
+	return ids.ApprovalID{}, false, nil
 }
 
 func (c *capturingApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (int64, bool, error) {
@@ -136,8 +136,8 @@ func (pinningApprovals) StageQuotaRelease(_ context.Context, _ agents.QuotaRelea
 	return ids.ApprovalID{}, false, nil
 }
 
-func (pinningApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
-	return ids.ApprovalID{}, nil
+func (pinningApprovals) StageCall(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, bool, error) {
+	return ids.ApprovalID{}, false, nil
 }
 
 func (p pinningApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (int64, bool, error) {
