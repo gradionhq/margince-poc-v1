@@ -154,19 +154,26 @@ func ValidateFailureClasses(classes []FailureClass) error {
 // type is that classification keeps working while the persisted text is fixed —
 // so a caller wrapping a sentinel does not lose it here.
 //
-// It takes the CLASS VALUE rather than its token, which is what lets the job
-// layer render the operator sentence without holding a registry: the sentence
-// arrives with the class. The unit passes the same package-level value it
-// declared, so the string an operator reads and the string the boot validated
-// are one value and cannot drift into two.
+// It takes the CLASS VALUE rather than its token so that the value a unit hands
+// over is the value the boot validated — the unit passes the same package-level
+// value it declared, and the job layer compares what arrives against what was
+// registered. A token alone would have made the two impossible to compare: the
+// sentence is the field that reaches the operator, and a lookup by token would
+// have accepted any sentence travelling under a declared name.
 //
-// Nothing here checks that the class is one the unit declared. It cannot: this
-// is a plain constructor holding no view of the composed set, and a unit's tick
-// is the last place that should discover a typo by panicking. An undeclared class
-// is refused at boot, where the whole set can still be rejected together — and if
-// one reaches the wire anyway it is reported as the same unvetted substitute a
-// bypassed fault gets, so the mistake degrades to today's behaviour rather than
-// to a sentence nobody reviewed.
+// Nothing here checks that the class is one the unit declared. It cannot: this is
+// a plain constructor holding no view of the composed set, and a unit's tick is
+// the last place that should discover a typo by panicking.
+//
+// SO THE JOB LAYER CHECKS BEFORE IT PUBLISHES, and that check is load-bearing
+// rather than belt-and-braces. This constructor accepts ANY value — including one
+// whose Sentence a unit formatted out of the cause, which is the accident the
+// whole seam exists to prevent — so the sentence is persisted only when the
+// installation registered exactly this value, all three fields, for the kind that
+// is failing. An unregistered one persists the unclassified substitute instead and
+// sends the cause to the log. Declaring a class is what makes it publishable; a
+// class the boot never validated costs the operator this unit's detail and reaches
+// the failure column with nothing.
 //
 // A nil cause answers nil: there is no failure to classify, and a wrapper that
 // invented one would turn a successful tick into a dead row.

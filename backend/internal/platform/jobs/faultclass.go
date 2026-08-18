@@ -123,17 +123,21 @@ func RegisterComposedFailureClasses(byKind map[string][]extension.FailureClass) 
 //     skew, and every alert keyed on the core class would fire on a failure that
 //     is not one. The core table is matched first and cannot be shadowed, so the
 //     collision is refused rather than silently lost.
-//   - A unit whose sentence equals the unclassified substitute would make a real
-//     classified failure present as "this could not be classified", which is the
-//     one sentence on this surface that must keep meaning exactly what it says:
-//     nobody has named this failure yet.
+//   - A unit whose sentence equals one of the SUBSTITUTES would make a real
+//     classified failure present as the sentence the product uses when it has
+//     nothing to say — and worse, present it WITH a class, while a genuine
+//     unclassifiable failure shows the identical text without one. Each substitute
+//     must keep meaning exactly what it says, so all three are refused rather than
+//     only the one this seam happens to sit next to.
 //
 // The class TOKEN is checked too, and against the core tokens only. A composed
 // token equal to a core one would put two different failures behind one string
 // an alert matches on, and an operator filtering for it would get both.
 func refuseCoreCollision(kind string, c extension.FailureClass) error {
-	if c.Sentence == unrecognised {
-		return fmt.Errorf("jobs: kind %q class %q declares the unclassified substitute as its sentence — that sentence must keep meaning that nobody has classified the failure", kind, c.Class)
+	for _, substitute := range substitutes {
+		if c.Sentence == substitute {
+			return fmt.Errorf("jobs: kind %q class %q declares a substitute sentence — the substitutes are what this surface says when it has NOTHING to say about a failure, so a class that classified something may not claim one", kind, c.Class)
+		}
 	}
 	for _, known := range vocabulary {
 		if c.Sentence == known.sentence {
@@ -165,6 +169,30 @@ func ComposedFailureKinds() []string {
 	composedClasses.mu.RLock()
 	defer composedClasses.mu.RUnlock()
 	return slices.Sorted(maps.Keys(composedClasses.byKind))
+}
+
+// registeredFailureClass answers the class this installation registered for a
+// kind that is EXACTLY the value a worker handed over — all three fields equal —
+// and reports absence otherwise.
+//
+// EXACTLY is the whole check. A unit that declared `provider_unavailable` and
+// then returned that same token carrying a sentence it formatted from the cause
+// would match on the token and on nothing else, and the sentence is the field
+// that reaches the fleet-visible column. So the sentence is the lookup key and
+// the full value is compared: a triple that differs anywhere is a triple no boot
+// validated.
+//
+// It is unexported because it answers a question only the write path in this
+// package asks. A reader asks VettedFailure, which starts from a stored string
+// rather than from a value a worker still holds.
+func registeredFailureClass(kind string, class extension.FailureClass) (extension.FailureClass, bool) {
+	composedClasses.mu.RLock()
+	defer composedClasses.mu.RUnlock()
+	registered, ok := composedClasses.byKind[kind][class.Sentence]
+	if !ok || registered != class {
+		return extension.FailureClass{}, false
+	}
+	return registered, true
 }
 
 // VettedFailure resolves a stored failure into the class, sentence and remedy a

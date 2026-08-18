@@ -220,7 +220,12 @@ func sanctionedWorkerReturn(expr ast.Expr) bool {
 	if !ok {
 		return false
 	}
-	if pkg.Name == "jobs" && (sel.Sel.Name == "Fault" || sel.Sel.Name == "FaultContext") {
+	// Every spelling of the substitution seam, and no more. FaultForKind is the
+	// composed-job spelling: it takes the River kind as well, which is what lets
+	// it verify an extension's declared failure class before publishing its
+	// sentence. All three replace the cause's text; a fourth entry here has to
+	// do the same, or this gate stops meaning what it says.
+	if pkg.Name == "jobs" && (sel.Sel.Name == "Fault" || sel.Sel.Name == "FaultContext" || sel.Sel.Name == "FaultForKind") {
 		return true
 	}
 	// River's own control returns are not failures: a snooze reschedules and

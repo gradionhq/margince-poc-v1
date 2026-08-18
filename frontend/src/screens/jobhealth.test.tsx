@@ -213,8 +213,9 @@ describe("JobHealthCard", () => {
       screen.getByText("the job failed for a reason it could not classify"),
     ).toBeInTheDocument();
     // Absent stays absent. An unclassified failure has no class token and no
-    // remedy line, and first_failed_at is null here — a job with one recorded
-    // attempt error, or none, has no span to report.
+    // remedy line, and first_failed_at is null here — which the endpoint sends
+    // only for a job that recorded NO attempt error at all. A single recorded
+    // error does produce a first_failed_at, so null is absence and not "one".
     expect(screen.queryByText("provider_unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText(/What to do/)).not.toBeInTheDocument();
     expect(note.textContent).not.toMatch(/failing since/);

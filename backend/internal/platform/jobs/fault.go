@@ -31,7 +31,40 @@ func Fault(err error) error { return FaultContext(context.Background(), err) }
 
 // FaultContext is Fault with the caller's context on the log line, so an
 // unclassified failure carries the correlation id the rest of the trace uses.
+//
+// It knows no River kind, so it can honour NO composed failure class: a class
+// is verified against the vocabulary registered for the kind that is failing,
+// and a caller who cannot say which kind that is cannot have a class verified
+// on their behalf. A composed worker calls FaultForKind instead. A classified
+// error arriving here is not lost — it falls through to the core sentinel
+// underneath it, exactly as it did before classes existed.
 func FaultContext(ctx context.Context, err error) error {
+	return faultFor(ctx, "", err)
+}
+
+// FaultForKind is FaultContext for a worker that knows the River kind it is
+// failing under, which is the only way a COMPOSED class can be honoured.
+//
+// THE KIND IS WHAT MAKES THE CHECK POSSIBLE, and the check is what makes the
+// write path obey the boot validation. extension.Failure is a plain constructor:
+// it accepts any FailureClass value a unit builds, including one whose Sentence
+// was formatted from the cause — which is the accident this whole seam exists to
+// prevent, since a provider's prose routinely names the address it refused. The
+// declared set is validated and collision-checked at boot; a value handed over at
+// tick time has been through none of that. So the sentence is persisted only when
+// it is, exactly, one this installation registered for this kind.
+//
+// An unregistered class degrades to the same unclassified substitute a bypassed
+// fault gets, and the cause goes to the log. That is a real loss of detail for
+// the operator and it is the right trade: the alternative is a fleet-visible,
+// unscoped column holding text nobody reviewed.
+func FaultForKind(ctx context.Context, kind string, err error) error {
+	return faultFor(ctx, kind, err)
+}
+
+// faultFor is the one body both entry points share, so the two cannot drift into
+// two different orderings of the same decisions.
+func faultFor(ctx context.Context, kind string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -59,12 +92,20 @@ func FaultContext(ctx context.Context, err error) error {
 	// through errors.Is underneath, so nothing that classifies on it downstream is
 	// affected by the order.
 	//
-	// A class this installation never declared still lands here and still gets its
-	// sentence persisted; the READ refuses it (VettedFailure) and substitutes the
-	// unvetted text. That is the designed degradation: an undeclared class costs an
-	// operator the detail, never a sentence nobody reviewed.
+	// Only a class this installation REGISTERED for this kind is honoured — see
+	// FaultForKind for why the write path checks rather than trusts.
+	//
+	// An unregistered one does not return here. It falls through to the core
+	// vocabulary below, because a unit that wrapped a core sentinel in a class it
+	// forgot to declare should still get the sentinel's own sentence rather than
+	// nothing: an undeclared class must cost the failure the unit's detail, not a
+	// classification it would have had anyway.
 	if class, ok := extension.FailureClassOf(err); ok {
-		return &fault{sentence: class.Sentence, cause: err}
+		if registered, found := registeredFailureClass(kind, class); found {
+			return &fault{sentence: registered.Sentence, cause: err}
+		}
+		slog.ErrorContext(ctx, "jobs: a worker returned a failure class this installation did not declare for this kind, so its sentence is not published",
+			"kind", kind, "class", class.Class, "err", err)
 	}
 	for _, known := range vocabulary {
 		if errors.Is(err, known.sentinel) {
@@ -104,10 +145,46 @@ func VettedSentence(s string) bool {
 	return false
 }
 
-// unrecognised is what an unclassified cause becomes on the wire. It says
-// where the diagnosis went, because an operator reading it in a job list
-// otherwise has no next step.
-const unrecognised = "the job failed for a reason it could not classify; the diagnosis is in the process log"
+// The three SUBSTITUTE sentences a reader falls back to when a stored failure
+// does not classify. They live together, in this package, because they are one
+// set with one property to keep: each says something no classified failure may
+// ever claim to say, so a composed class declaring any of them is refused
+// (refuseCoreCollision). Two of them used to live in the HTTP surface that
+// renders them, where the refusal could not see them — and a rule enforced over
+// part of a set is a rule with a hole in the shape of the rest.
+//
+// They are NOT vocabulary entries: no sentinel maps to them, no class token names
+// them, and VettedFailure answers no class for them. That is the point. Each is
+// what the product says when it has nothing to say.
+const (
+	// unrecognised is what an unclassified cause becomes on the wire. It says
+	// where the diagnosis went, because an operator reading it in a job list
+	// otherwise has no next step.
+	unrecognised = "the job failed for a reason it could not classify; the diagnosis is in the process log"
+
+	// UnvettedFailureReason is what an unrecognised STORED error becomes.
+	//
+	// It does NOT promise the diagnosis is in the process log. River writes its
+	// own strings into that column too, and the rescuer's ("Stuck job rescued by
+	// JobRescuer") means the worker's process died mid-job — so for that case,
+	// one of the most common to reach here, a log pointer would be an instruction
+	// to go read something that was never written. It says what is known and
+	// where to look, and no more.
+	UnvettedFailureReason = "the job failed for a reason this surface cannot vet; check the worker logs and the job row directly"
+
+	// NoRecordedCause is what a row with no stored error at all becomes.
+	//
+	// It is NOT the unvetted substitute. A cancelled job that never ran records
+	// no attempt error, and telling its operator the job "failed for a reason
+	// this surface cannot vet" asserts a failure that did not happen and points
+	// at a log line nobody wrote. Nothing recorded is a different fact from
+	// something unreadable, and the two must not render alike.
+	NoRecordedCause = "this job recorded no cause; a job cancelled before it ran records none"
+)
+
+// substitutes is the set no declared class may claim, spelled once so a fourth
+// one added above is covered without anybody remembering to add it here.
+var substitutes = []string{unrecognised, UnvettedFailureReason, NoRecordedCause}
 
 // fault carries the vetted sentence on the wire and the real cause
 // underneath, so errors.Is still classifies while Error() stays fixed.

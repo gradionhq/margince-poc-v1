@@ -82,7 +82,7 @@ func TestADeclaredClassRendersItsSentenceClassAndRemedyForItsOwnKindOnly(t *test
 		t.Errorf("kind %s resolved another kind's vocabulary: class %v, remedy %v",
 			theirs, other.Class, other.Remedy)
 	}
-	if other.Reason != unvettedFailureReason {
+	if other.Reason != jobs.UnvettedFailureReason {
 		t.Errorf("reason = %q, want the fixed substitute for text this kind cannot vet", other.Reason)
 	}
 }

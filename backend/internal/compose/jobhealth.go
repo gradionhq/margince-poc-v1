@@ -50,24 +50,15 @@ func dispatcherKinds() []string {
 	return kinds
 }
 
-// unvettedFailureReason is what an unrecognised stored error becomes.
+// The two substitute sentences this surface renders are jobs.UnvettedFailureReason
+// and jobs.NoRecordedCause, and they live in that package rather than here.
 //
-// It does NOT promise the diagnosis is in the process log. River writes its
-// own strings into this column too, and the rescuer's ("Stuck job rescued
-// by JobRescuer") means the worker's process died mid-job — so for that
-// case, one of the most common to reach here, a log pointer would be an
-// instruction to go read something that was never written. It says what is
-// known and where to look, and no more.
-const unvettedFailureReason = "the job failed for a reason this surface cannot vet; check the worker logs and the job row directly"
-
-// noRecordedCause is what a row with no stored error at all becomes.
-//
-// It is NOT the unvetted substitute. A cancelled job that never ran records
-// no attempt error, and telling its operator the job "failed for a reason
-// this surface cannot vet" asserts a failure that did not happen and points
-// at a log line nobody wrote. Nothing recorded is a different fact from
-// something unreadable, and the two must not render alike.
-const noRecordedCause = "this job recorded no cause; a job cancelled before it ran records none"
+// They were constants of this file, which put them out of reach of the check that
+// refuses a composed failure class for claiming one of them — a class declaring
+// this file's exact text would have rendered as the substitute WITH a class
+// attached, indistinguishable from the real thing except for the class nobody
+// should have been able to attach. The sentences a failure may not claim are one
+// set, and the set belongs where the refusal can see it.
 
 // renderedFailure is everything this surface is willing to SAY about one
 // stored failure: always a sentence, and a class plus a remedy only when the
@@ -100,10 +91,10 @@ type renderedFailure struct {
 // something it is not.
 func renderFailure(f jobs.Failure) renderedFailure {
 	// Nothing recorded is a different fact from something unreadable, and the
-	// two must not render alike — see noRecordedCause. It is checked here
+	// two must not render alike — see jobs.NoRecordedCause. It is checked here
 	// rather than left to the vetting, which cannot tell them apart either.
 	if f.StoredReason == "" {
-		return renderedFailure{Reason: noRecordedCause}
+		return renderedFailure{Reason: jobs.NoRecordedCause}
 	}
 	if detail, ok := jobs.VettedFailure(f.Kind, f.StoredReason); ok {
 		return renderedFailure{Reason: detail.Sentence, Class: &detail.Class, Remedy: &detail.Remedy}
@@ -116,7 +107,7 @@ func renderFailure(f jobs.Failure) renderedFailure {
 	if jobs.VettedSentence(f.StoredReason) {
 		return renderedFailure{Reason: f.StoredReason}
 	}
-	return renderedFailure{Reason: unvettedFailureReason}
+	return renderedFailure{Reason: jobs.UnvettedFailureReason}
 }
 
 // jobHealthReadTimeout bounds the scoped job read. river_job has no index

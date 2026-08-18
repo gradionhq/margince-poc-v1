@@ -57,11 +57,19 @@ func TestNoTwoDeclaredClassesShareATokenOrASentence(t *testing.T) {
 	}
 }
 
-// The declaration and the code that returns classes are one vocabulary. A class
-// the poll can return and the unit never declared reaches the wire as the
+// The declaration and the code that classifies are one vocabulary. A class
+// failureClass can produce and the unit never declared reaches the wire as the
 // unvetted substitute — the vague sentence this whole catalog exists to stop —
-// and a declared class nothing can return is a promise to an operator that no
+// and a declared class nothing can produce is a promise to an operator that no
 // failure keeps.
+//
+// TWO SURFACES, and this test spans both deliberately. Three of these classes
+// (token_rejected, package_too_low, api_not_registered) PARK the connection and
+// return nil to the runner, so they never reach a river row at all: they are read
+// off last_error_class on the connector screen. The rest reach the job surface.
+// Both surfaces render the same declared value, which is the property worth
+// holding — so the set is checked against what failureClass can produce, not
+// against what one of the two surfaces happens to see.
 func TestTheDeclaredSetIsExactlyWhatThePollCanReturn(t *testing.T) {
 	returnable := []extension.FailureClass{
 		failureClass(errUnauthorized),
@@ -79,11 +87,11 @@ func TestTheDeclaredSetIsExactlyWhatThePollCanReturn(t *testing.T) {
 	}
 	for _, class := range returnable {
 		if !declared[class] {
-			t.Fatalf("the poll can return %q, which is not in the declared set", class.Class)
+			t.Fatalf("failureClass can produce %q, which is not in the declared set", class.Class)
 		}
 	}
 	if len(returnable) != len(failureClasses) {
-		t.Fatalf("the poll returns %d classes and the unit declares %d — one of them is a class no operator will ever be shown or a promise nothing keeps", len(returnable), len(failureClasses))
+		t.Fatalf("failureClass produces %d classes and the unit declares %d — one of them is a class no operator will ever be shown, on either surface, or a promise nothing keeps", len(returnable), len(failureClasses))
 	}
 }
 

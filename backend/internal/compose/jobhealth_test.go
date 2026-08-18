@@ -105,7 +105,7 @@ func TestOnlyAVettedSentenceReachesTheWire(t *testing.T) {
 		if got == raw {
 			t.Errorf("a worker's raw cause reached the wire: %q", raw)
 		}
-		if got != unvettedFailureReason {
+		if got != jobs.UnvettedFailureReason {
 			t.Errorf("rendering %q gave %q, want the one fixed substitute", raw, got)
 		}
 		// A class invented for text nobody could vet would key an operator's
@@ -135,13 +135,13 @@ func TestARowThatRecordedNoCauseDoesNotClaimItFailed(t *testing.T) {
 	if got == "" {
 		t.Fatal("an empty stored error must still produce a sentence")
 	}
-	if got == unvettedFailureReason {
+	if got == jobs.UnvettedFailureReason {
 		t.Error("a row with no recorded cause was reported as an unvettable failure")
 	}
 	if strings.Contains(got, "failed") {
 		t.Errorf("the no-cause row rendered as %q: it claims a failure that was never recorded", got)
 	}
-	if got != noRecordedCause {
+	if got != jobs.NoRecordedCause {
 		t.Errorf("the no-cause row rendered as %q, want the one fixed no-cause sentence", got)
 	}
 }
