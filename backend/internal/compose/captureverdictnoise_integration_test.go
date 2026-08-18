@@ -128,12 +128,10 @@ func seedOutboundMail(t *testing.T, e *integration.Env, to, subject string) ids.
 	id := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, direction,
-			                      source_system, source_id, source, captured_by,
-			                      counterparty_email, counterparty_outbound_attested)
-			VALUES ($1, $2, 'email', $3, 'our own words', 'outbound',
-			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5, true)`,
-			id, e.WS, subject, "out-"+id.String(), to)
+			INSERT INTO activity (id, kind, subject, body, direction, source_system, source_id, source, captured_by, counterparty_email, counterparty_outbound_attested)
+			VALUES ($1, 'email', $2, 'our own words', 'outbound',
+			        'gmail', $3, 'gmail:'||$3, 'connector:gmail', $4, true)`,
+			id, subject, "out-"+id.String(), to)
 		return err
 	})
 	if err != nil {

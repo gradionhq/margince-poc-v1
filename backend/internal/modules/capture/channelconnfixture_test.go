@@ -376,9 +376,9 @@ func (f *channelFixture) seedActivity(t *testing.T) ids.UUID {
 	owner, _ := setupCaptureDB(t)
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, body, direction, source_system, source_id, source, captured_by)
-		VALUES ($1, $2, 'note', 'telegram message', 'hello', 'inbound', 'telegram', $3, 'telegram:seed', 'connector:telegram')`,
-		id, f.ws, id.String()); err != nil {
+		INSERT INTO activity (id, kind, subject, body, direction, source_system, source_id, source, captured_by)
+		VALUES ($1, 'note', 'telegram message', 'hello', 'inbound', 'telegram', $2, 'telegram:seed', 'connector:telegram')`,
+		id, id.String()); err != nil {
 		t.Fatalf("seeding activity: %v", err)
 	}
 	return id

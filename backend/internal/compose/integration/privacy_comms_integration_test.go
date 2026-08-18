@@ -116,19 +116,17 @@ func seedAddressedDelivery(t *testing.T, e *Env, age, subject, body, status stri
 	out := delivered{person: linkTo, activity: ids.NewV7(), delivery: ids.NewV7(), subject: subject, status: status}
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, direction, occurred_at,
-			                      source, captured_by, source_system, source_id, counterparty_email)
-			VALUES ($1, `+wsClause+`, 'email', $2, $3, 'outbound', now() - $4::interval,
+			INSERT INTO activity (id, kind, subject, body, direction, occurred_at, source, captured_by, source_system, source_id, counterparty_email)
+			VALUES ($1, 'email', $2, $3, 'outbound', now() - $4::interval,
 			        'manual', 'human:x', 'gmail', $5, $6)`,
 			out.activity, subject, body, age, out.delivery.String()+"@margince.test", addr.counterparty); err != nil {
 			return err
 		}
 		if !linkTo.IsZero() {
 			if _, err := tx.Exec(ctx,
-				`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-				 VALUES (`+wsClause+`, $1, 'person', $2)`, out.activity, linkTo); err != nil {
+				`INSERT INTO activity_link (activity_id, entity_type, person_id)
+				 VALUES ( $1, 'person', $2)`, out.activity, linkTo); err != nil {
 				return err
 			}
 		}
@@ -388,8 +386,8 @@ func linkToHeldDeal(t *testing.T, e *Env, activityID ids.UUID) {
 	dealID := e.SeedDeal(t, "Disputed renewal", pipeline, open, nil)
 	e.WsExec(t, `UPDATE deal SET legal_hold = true WHERE id = $1`, dealID)
 	e.WsExec(t,
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-		 VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'deal', $2)`,
+		`INSERT INTO activity_link (activity_id, entity_type, deal_id)
+		 VALUES ( $1, 'deal', $2)`,
 		activityID, dealID)
 }
 

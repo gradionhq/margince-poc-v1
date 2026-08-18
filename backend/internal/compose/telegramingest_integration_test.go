@@ -118,7 +118,7 @@ func TestIngestWorkerReestablishesWorkspaceContextFromArgs(t *testing.T) {
 	var sourceID string
 	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT source_id FROM activity WHERE workspace_id = $1 AND source_system = 'telegram'`, e.WS,
+			`SELECT source_id FROM activity WHERE source_system = 'telegram'`,
 		).Scan(&sourceID)
 	})
 	if err != nil {
@@ -210,7 +210,7 @@ func TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity(t *testing.T) {
 		t.Fatalf("Work: %v", err)
 	}
 
-	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE workspace_id = $1 AND source_system = 'telegram'`, e.WS); n != 0 {
+	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE source_system = 'telegram'`); n != 0 {
 		t.Errorf("%d activity rows after a my_chat_member update, want 0 — it is a reachability signal, never a message", n)
 	}
 	if n := e.WsCount(t, `
@@ -267,7 +267,7 @@ func TestIngestWorkerCapturesNothingFromAGroupChat(t *testing.T) {
 		t.Fatalf("Work: %v", err)
 	}
 
-	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE workspace_id = $1 AND source_system = 'telegram'`, e.WS); n != 0 {
+	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE source_system = 'telegram'`); n != 0 {
 		t.Errorf("%d activity rows after a group-chat message, want 0", n)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM person_channel_identity WHERE channel_user_id = '557'`); n != 0 {

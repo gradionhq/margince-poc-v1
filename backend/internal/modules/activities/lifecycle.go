@@ -213,8 +213,8 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 		// Idempotent: replaying the same association is a no-op, and a
 		// no-op writes no audit noise.
 		tag, err := tx.Exec(ctx, storekit.SQLf(`
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
+			INSERT INTO activity_link (activity_id, entity_type, %s)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (activity_id, entity_type, `+linkIDCoalesce+`) DO NOTHING`, column),
 			id, in.EntityType, in.EntityID)
 		if err != nil {

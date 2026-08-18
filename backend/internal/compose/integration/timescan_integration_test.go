@@ -128,12 +128,12 @@ func seedGenuineTouch(t *testing.T, owner *pgx.Conn, ws, dealID ids.UUID, kind s
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, $3, 'Genuine engagement', $4, 'manual', 'human:x')`,
-		id, ws, kind, at); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, $2, 'Genuine engagement', $3, 'manual', 'human:x')`,
+		id, kind, at); err != nil {
 		t.Fatalf("seeding a genuine %s touch: %v", kind, err)
 	}
-	LinkActivity(t, owner, ws, id, "deal", dealID)
+	LinkActivity(t, owner, id, "deal", dealID)
 }
 
 // seedNoActivityReminder enrolls one enabled, ownerless no_activity_reminder

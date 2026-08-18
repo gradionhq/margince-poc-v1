@@ -179,7 +179,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'mirror:hubspot:%'`, 2)
 	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
-	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid AND source_system = 'mirror:hubspot'`, 1)
+	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed deal→org FK", `
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id
 		WHERE d.source = 'mirror:hubspot:deal:d-open' AND o.source = 'mirror:hubspot:organization:org-1'`, 1)
@@ -256,7 +256,7 @@ func seedCleanWorkspace(t *testing.T, f flipEstate) context.Context {
 		{"organization", true},
 		{"person", true},
 		{"lead", true},
-		{"activity", true},
+		{"activity", false},
 	} {
 		sql, args := "DELETE FROM "+t2.table, []any(nil)
 		if t2.tenantScoped {

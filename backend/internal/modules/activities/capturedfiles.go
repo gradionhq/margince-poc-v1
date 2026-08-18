@@ -233,14 +233,12 @@ func accountForCapturedActivity(
 		SELECT organization_id FROM (
 			SELECT link.organization_id, 0 AS rank
 			  FROM activity_link link
-			 WHERE link.workspace_id = current_setting('app.workspace_id')::uuid
-			   AND link.activity_id = $1 AND link.entity_type = 'organization'
+			 WHERE link.activity_id = $1 AND link.entity_type = 'organization'
 			UNION ALL
 			SELECT d.organization_id, 1 AS rank
 			  FROM activity_link link
 			  JOIN deal d ON d.id = link.deal_id
-			 WHERE link.workspace_id = current_setting('app.workspace_id')::uuid
-			   AND link.activity_id = $1 AND link.entity_type = 'deal'
+			 WHERE link.activity_id = $1 AND link.entity_type = 'deal'
 			   AND d.organization_id IS NOT NULL
 		) candidates
 		 ORDER BY rank, organization_id

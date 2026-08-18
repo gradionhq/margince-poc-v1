@@ -32,18 +32,16 @@ func legacyInteraction(t *testing.T, e *integration.Env, person ids.UUID, captur
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at,
-			                      source, captured_by, counterparty_email)
-			VALUES (`+ws+`, 'email', 'Alt', 'outbound', now() - interval '3 days',
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by, counterparty_email)
+			VALUES ( 'email', 'Alt', 'outbound', now() - interval '3 days',
 			        'manual', $1, 'pat@counterparty.test')
 			RETURNING id`, capturedBy).Scan(&id); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES (`+ws+`, $1, 'person', $2)`, id, person)
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, id, person)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding a legacy activity: %v", err)
@@ -121,15 +119,14 @@ func TestTheReconcileWorkerRebuildsTheProjection(t *testing.T) {
 	// backfill runs with no consumer, or after a projection is lost.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (`+ws+`, $1, $2, 'from')`, activityID, e.Rep1); err != nil {
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, 'from')`, activityID, e.Rep1); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (`+ws+`, $1, $2, 'to')`, activityID, person)
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'to')`, activityID, person)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding participants: %v", err)

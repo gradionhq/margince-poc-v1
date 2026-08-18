@@ -227,9 +227,9 @@ func seedQuietTouch(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, 'email', 'Last genuine engagement', $3, 'manual', 'human:x')`,
-		id, ws, quietSince); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, 'email', 'Last genuine engagement', $2, 'manual', 'human:x')`,
+		id, quietSince); err != nil {
 		t.Fatalf("seeding the quiet touch: %v", err)
 	}
 	return id
@@ -254,8 +254,7 @@ func linkTouch(t *testing.T, owner *pgx.Conn, ws, activity ids.UUID, entityType 
 		t.Fatalf("no activity_link column for entity type %q", entityType)
 	}
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, `+column+`) VALUES ($1, $2, $3, $4)`,
-		ws, activity, entityType, entity); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, `+column+`) VALUES ( $1, $2, $3)`, activity, entityType, entity); err != nil {
 		t.Fatalf("linking the touch to %s %s: %v", entityType, entity, err)
 	}
 }

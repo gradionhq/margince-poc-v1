@@ -60,19 +60,18 @@ func seedMember(t *testing.T, owner *pgx.Conn, ws ids.UUID, name string) ids.UUI
 func seedTouch(t *testing.T, e *integration.Env, owner *pgx.Conn, kind string, colleague *ids.UUID, person ids.UUID) {
 	t.Helper()
 	ctx := context.Background()
-	ws := e.WS
 	id := ids.NewV7()
 	capturedBy := "connector:gmail"
 	if colleague != nil {
 		capturedBy = "human:" + colleague.String()
 	}
 	if _, err := owner.Exec(ctx, `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, $3, 'terms', '2026-05-30T09:00:00Z', 'outbound', 'manual', $4)`,
-		id, ws, kind, capturedBy); err != nil {
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, 'terms', '2026-05-30T09:00:00Z', 'outbound', 'manual', $3)`,
+		id, kind, capturedBy); err != nil {
 		t.Fatalf("seeding a %s: %v", kind, err)
 	}
-	integration.LinkActivity(t, owner, ws, id, "person", person)
+	integration.LinkActivity(t, owner, id, "person", person)
 
 	// Only a real exchange has participants. A task is intent and a note is a
 	// record of thinking; neither means the two people spoke, which is why
@@ -80,14 +79,14 @@ func seedTouch(t *testing.T, e *integration.Env, owner *pgx.Conn, kind string, c
 	if kind == "email" || kind == "call" || kind == "meeting" {
 		if colleague != nil {
 			if _, err := owner.Exec(ctx, `
-				INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-				VALUES ($1, $2, $3, 'from')`, ws, id, *colleague); err != nil {
+				INSERT INTO activity_participant (activity_id, user_id, role)
+				VALUES ( $1, $2, 'from')`, id, *colleague); err != nil {
 				t.Fatalf("seeding the our-side participant: %v", err)
 			}
 		}
 		if _, err := owner.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES ($1, $2, $3, 'to')`, ws, id, person); err != nil {
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'to')`, id, person); err != nil {
 			t.Fatalf("seeding the counterparty participant: %v", err)
 		}
 	}

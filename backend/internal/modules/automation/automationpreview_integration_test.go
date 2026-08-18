@@ -115,7 +115,7 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	if after := fx.count(t, `SELECT count(*) FROM event_outbox`); after != outboxBefore {
 		t.Fatalf("preview wrote %d outbox rows — a preview is a read", after-outboxBefore)
 	}
-	if n := fx.count(t, `SELECT count(*) FROM activity WHERE workspace_id = $1`, fx.ws); n != 0 {
+	if n := fx.count(t, `SELECT count(*) FROM activity `); n != 0 {
 		t.Fatalf("preview minted %d activities — it must never apply the plan", n)
 	}
 	if n := fx.count(t, `SELECT count(*) FROM workflow_run`); n != 0 {

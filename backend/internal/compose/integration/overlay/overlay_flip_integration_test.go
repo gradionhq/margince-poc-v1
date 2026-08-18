@@ -504,8 +504,8 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		WHERE r.kind = 'employment' AND r.is_current_primary AND p.source = 'mirror:hubspot:person:p-1'`)
 	assertOne("activity link", `
 		SELECT count(*) FROM activity_link al
-		JOIN activity a ON a.id = al.activity_id AND a.workspace_id = al.workspace_id
-		JOIN person p ON p.id = al.person_id AND p.workspace_id = al.workspace_id
+		JOIN activity a ON a.id = al.activity_id
+		JOIN person p ON p.id = al.person_id
 		WHERE a.source_system = 'mirror:hubspot' AND p.source = 'mirror:hubspot:person:p-1'`)
 	assertOne("closed-won deal", `
 		SELECT count(*) FROM deal WHERE source = 'mirror:hubspot:deal:d-won' AND status = 'won'`)

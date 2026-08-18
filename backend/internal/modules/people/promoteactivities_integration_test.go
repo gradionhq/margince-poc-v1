@@ -33,15 +33,15 @@ func (e *promoteConsentEnv) seedLeadActivity(t *testing.T, lead ids.LeadID, subj
 	t.Helper()
 	activity := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, 'note', $3, now(), 'manual', 'human:x')`,
-		activity, e.ws, subject); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, 'note', $2, now(), 'manual', 'human:x')`,
+		activity, subject); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, lead_id)
-		 VALUES ($1, $2, $3, 'lead', $4)`,
-		ids.NewV7(), e.ws, activity, lead.UUID); err != nil {
+		`INSERT INTO activity_link (id, activity_id, entity_type, lead_id)
+		 VALUES ($1, $2, 'lead', $3)`,
+		ids.NewV7(), activity, lead.UUID); err != nil {
 		t.Fatal(err)
 	}
 	return activity
@@ -121,9 +121,9 @@ func TestPromotionDropsALeadLinkThePersonAlreadyHas(t *testing.T) {
 	lead := e.seedLead(t, shared)
 	activity := e.seedLeadActivity(t, lead, "Replied to our outreach")
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id)
-		 VALUES ($1, $2, $3, 'person', $4)`,
-		ids.NewV7(), e.ws, activity, ids.UUID(existing.Id)); err != nil {
+		`INSERT INTO activity_link (id, activity_id, entity_type, person_id)
+		 VALUES ($1, $2, 'person', $3)`,
+		ids.NewV7(), activity, ids.UUID(existing.Id)); err != nil {
 		t.Fatal(err)
 	}
 

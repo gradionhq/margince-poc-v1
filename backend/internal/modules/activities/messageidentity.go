@@ -23,7 +23,7 @@ import (
 )
 
 // uqActivitySource is the natural-key index a captured echo trips the re-key
-// against: (workspace_id, source_system, source_id). It is named because the
+// against: (source_system, source_id). It is named because the
 // absorb below is a legitimate answer to THIS constraint alone — any other
 // uniqueness rule firing on the same statement is a fault, and treating it as
 // the race would take a row off the timeline for a reason nobody established.
@@ -213,13 +213,10 @@ func reKeyActivity(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, pr
 // but not sufficient: the row must also be shaped like this message's echo.
 func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamped string) error {
 	var echoID ids.ActivityID
-	// The violated index keys on (workspace_id, source_system, source_id) and
-	// the re-key changes only the last of the three — that is what makes a row
-	// a CANDIDATE. Each further predicate is what makes it this message's echo:
+	// The violated index keys on (source_system, source_id) and the re-key
+	// changes only the second of the two — that is what makes a row a
+	// CANDIDATE. Each further predicate is what makes it this message's echo:
 	//
-	//   workspace_id — the bound the surrounding statements all state for
-	//     themselves against the GUC; stating it in the join too keeps this
-	//     query as narrow as its siblings.
 	//   kind/direction — a message this mailbox SENT. An inbound mail, a call
 	//     or a meeting sharing the key is a fault, not an echo.
 	//   captured_by — the connector's own provenance, which the sink validates
@@ -267,8 +264,7 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 		SELECT echo.id
 		  FROM activity survivor
 		  JOIN activity echo
-		    ON echo.workspace_id       = survivor.workspace_id
-		   AND echo.id                <> survivor.id
+		    ON echo.id                <> survivor.id
 		   AND echo.source_system      = survivor.source_system
 		   AND echo.source_id          = $2
 		   AND echo.kind               = 'email'
@@ -281,7 +277,7 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 		   AND echo.restricted_at IS NULL
 		 WHERE survivor.id = $1 AND survivor.restricted_at IS NULL`, survivorID, stamped).Scan(&echoID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("activities: the re-key collided on %s, but no row this workspace holds under that identity is a captured outbound echo of this send",
+		return fmt.Errorf("activities: the re-key collided on %s, but no row under that identity is a captured outbound echo of this send",
 			uqActivitySource)
 	}
 	if err != nil {
@@ -323,8 +319,8 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 func copyEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_link
-		  (workspace_id, activity_id, entity_type, person_id, organization_id, deal_id, lead_id, project_id)
-		SELECT echo_link.workspace_id, $1, echo_link.entity_type,
+		  (activity_id, entity_type, person_id, organization_id, deal_id, lead_id, project_id)
+		SELECT $1, echo_link.entity_type,
 		       echo_link.person_id, echo_link.organization_id, echo_link.deal_id,
 		       echo_link.lead_id, echo_link.project_id
 		  FROM activity_link echo_link
@@ -350,7 +346,7 @@ func copyEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.Activi
 // and an ensure-retry cursor, that the survivor does not re-queue: left on the
 // row this absorb archives, the question "who is this stranger?" would be asked
 // about a message the workspace can no longer see, and copied it would be asked
-// twice. Their live-row uniqueness keys on (workspace_id, email), which this
+// twice. Their live-row uniqueness keys on (email), which this
 // write does not touch, so a re-point can collide with nothing.
 func repointEchoReviews(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID) error {
 	if _, err := tx.Exec(ctx,

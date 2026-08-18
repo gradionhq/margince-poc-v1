@@ -49,11 +49,11 @@ func seedStampFixture(t *testing.T, e *Env) stampFixture {
 
 	// Filed against the deal while it is still open, which is the ordinary
 	// order: the correspondence exists before the deal concludes.
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'Order confirmation', 'the agreed price was 4200 EUR', now(), 'manual', 'human:x')`,
-		email, e.WS)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, 'deal', $3)`, e.WS, email, deal)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Order confirmation', 'the agreed price was 4200 EUR', now(), 'manual', 'human:x')`,
+		email)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
+		VALUES ( $1, 'deal', $2)`, email, deal)
 
 	return stampFixture{deal: deal, wonStage: ids.StageID{UUID: wonStage}, email: email}
 }

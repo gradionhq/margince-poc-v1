@@ -67,27 +67,27 @@ func TestErasureRemovesTheSubjectFromTheRelationshipGraph(t *testing.T) {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (`+ws+`, 'email', 'Angebot', 'inbound', $1, 'manual', 'human:test')
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES ( 'email', 'Angebot', 'inbound', $1, 'manual', 'human:test')
 			RETURNING id`, now.AddDate(0, 0, -1)).Scan(&activityID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (`+ws+`, $1, $2, 'to')`, activityID, e.Rep1); err != nil {
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, 'to')`, activityID, e.Rep1); err != nil {
 			return err
 		}
 		// The subject appears twice: as a resolved person, and — on a second
 		// message — as a bare address, the row that exists for a party who
 		// never became a record.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, address, role)
-			VALUES (`+ws+`, $1, $2, $3, 'from')`, activityID, person, subjectEmail); err != nil {
+			INSERT INTO activity_participant (activity_id, person_id, address, role)
+			VALUES ( $1, $2, $3, 'from')`, activityID, person, subjectEmail); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES (`+ws+`, $1, 'person', $2)`, activityID, person); err != nil {
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, activityID, person); err != nil {
 			return err
 		}
 		return nil

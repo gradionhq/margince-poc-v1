@@ -57,7 +57,7 @@ func mailViaEmployee(t *testing.T, e *Env, org ids.UUID, subject, direction stri
 	t.Helper()
 	owner := OwnerConn(t)
 	id := AccountMailDirectedAt(t, owner, e.WS, subject, direction, at)
-	LinkActivity(t, owner, e.WS, id, "person", employeeOf(t, e, org, subject+" contact"))
+	LinkActivity(t, owner, id, "person", employeeOf(t, e, org, subject+" contact"))
 }
 
 func openSignalKinds(t *testing.T, e *Env, org ids.UUID) []string {

@@ -68,9 +68,9 @@ func openTriageQuestion(t *testing.T, e *integration.Env, domain, email, display
 	activityID := ids.New[ids.ActivityKind]()
 	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, direction, source_system, source_id, source, captured_by)
-			VALUES ($1, $2, 'email', 'hi', 'inbound', 'gmail', $3, 'gmail:seed', 'connector:gmail')`,
-			activityID, e.WS, activityID.String())
+			INSERT INTO activity (id, kind, subject, direction, source_system, source_id, source, captured_by)
+			VALUES ($1, 'email', 'hi', 'inbound', 'gmail', $2, 'gmail:seed', 'connector:gmail')`,
+			activityID, activityID.String())
 		return err
 	}); err != nil {
 		t.Fatal(err)

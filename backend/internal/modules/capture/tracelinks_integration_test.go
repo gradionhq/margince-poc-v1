@@ -45,8 +45,8 @@ func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.D
 	activityID, personID := ids.NewV7(), ids.NewV7()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, occurred_at, source_system, source_id, source, captured_by)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (id, kind, occurred_at, source_system, source_id, source, captured_by)
+			VALUES ($1,
 			        'note', now(), 'gmail', $2, 'gmail', 'connector:gmail')`,
 			activityID, sourceID); err != nil {
 			return err
@@ -74,8 +74,8 @@ func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.D
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'person', $2)`,
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`,
 			activityID, personID); err != nil {
 			return err
 		}

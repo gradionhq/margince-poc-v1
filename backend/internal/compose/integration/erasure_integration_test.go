@@ -61,13 +61,13 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 		}
 		activityID := ids.NewV7()
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-			 VALUES ($1, `+wsClause+`, 'note', 'Met Selma', now(), 'manual', 'human:x')`, activityID); err != nil {
+			`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+			 VALUES ($1, 'note', 'Met Selma', now(), 'manual', 'human:x')`, activityID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			 VALUES (`+wsClause+`, $1, 'person', $2)`, activityID, personID); err != nil {
+			`INSERT INTO activity_link (activity_id, entity_type, person_id)
+			 VALUES ( $1, 'person', $2)`, activityID, personID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -289,32 +289,32 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 		// carries no statutory floor, so its survival here is attributable to
 		// the legal_hold alone, not the GoBD floor this binary also arms.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'note', 'Contract terms', 'The signed terms are attached.', now(), 'manual', 'human:x')`,
+			`INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, 'note', 'Contract terms', 'The signed terms are attached.', now(), 'manual', 'human:x')`,
 			heldActivity); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			 VALUES (`+ws+`, $1, 'person', $2)`, heldActivity, personID); err != nil {
+			`INSERT INTO activity_link (activity_id, entity_type, person_id)
+			 VALUES ( $1, 'person', $2)`, heldActivity, personID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-			 VALUES (`+ws+`, $1, 'organization', $2)`, heldActivity, orgID); err != nil {
+			`INSERT INTO activity_link (activity_id, entity_type, organization_id)
+			 VALUES ( $1, 'organization', $2)`, heldActivity, orgID); err != nil {
 			return err
 		}
 		// The sibling note: subject-only, NOT transitively held, and (being a
 		// note) not floor-shielded either — so it IS redacted.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'note', 'Lunch?', 'Free on Friday?', now(), 'manual', 'human:x')`,
+			`INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, 'note', 'Lunch?', 'Free on Friday?', now(), 'manual', 'human:x')`,
 			freeActivity); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			 VALUES (`+ws+`, $1, 'person', $2)`, freeActivity, personID)
+			`INSERT INTO activity_link (activity_id, entity_type, person_id)
+			 VALUES ( $1, 'person', $2)`, freeActivity, personID)
 		return err
 	})
 	if err != nil {
@@ -388,26 +388,26 @@ func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
 		}
 		// A recent external email — commercial correspondence within the floor.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'email', 'Invoice 2026-0042', 'Please find the invoice attached.', now() - interval '400 days', 'manual', 'human:x')`,
+			`INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, 'email', 'Invoice 2026-0042', 'Please find the invoice attached.', now() - interval '400 days', 'manual', 'human:x')`,
 			email); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			 VALUES (`+ws+`, $1, 'person', $2)`, email, personID); err != nil {
+			`INSERT INTO activity_link (activity_id, entity_type, person_id)
+			 VALUES ( $1, 'person', $2)`, email, personID); err != nil {
 			return err
 		}
 		// A same-age internal note — no statutory floor.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'note', 'Internal jotting', 'Chase them next week.', now() - interval '400 days', 'manual', 'human:x')`,
+			`INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, 'note', 'Internal jotting', 'Chase them next week.', now() - interval '400 days', 'manual', 'human:x')`,
 			note); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			 VALUES (`+ws+`, $1, 'person', $2)`, note, personID)
+			`INSERT INTO activity_link (activity_id, entity_type, person_id)
+			 VALUES ( $1, 'person', $2)`, note, personID)
 		return err
 	})
 	if err != nil {

@@ -188,12 +188,12 @@ func TestLastActivity_ConcurrentWritersConvergeOnTheNewest(t *testing.T) {
 	insert := func(tx pgx.Tx, when time.Time) error {
 		id := ids.NewV7()
 		if _, err := tx.Exec(ctx, `INSERT INTO activity
-			(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
-			VALUES ($1, $2, 'note', 'race', $3, $3, 'manual', 'human:x')`, id, e.WS, when); err != nil {
+			(id, kind, subject, occurred_at, created_at, source, captured_by)
+			VALUES ($1, 'note', 'race', $2, $2, 'manual', 'human:x')`, id, when); err != nil {
 			return err
 		}
-		_, err := tx.Exec(ctx, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES ($1, $2, 'person', $3)`, e.WS, id, staff)
+		_, err := tx.Exec(ctx, `INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ($1, 'person', $2)`, id, staff)
 		return err
 	}
 
@@ -315,12 +315,12 @@ func seedTimelineVolume(ctx context.Context, t *testing.T, owner *pgx.Conn, ws i
 		t.Fatalf("seeding the volume lead: %v", err)
 	}
 	if _, err := owner.Exec(ctx, `WITH act AS (
-		INSERT INTO activity (workspace_id, kind, subject, occurred_at, source, captured_by)
-		SELECT $1, 'note', 'volume ' || i, now() - (i || ' minutes')::interval, 'manual', 'human:x'
-		FROM generate_series(1, $3) AS i RETURNING id
+		INSERT INTO activity (kind, subject, occurred_at, source, captured_by)
+		SELECT 'note', 'volume ' || i, now() - (i || ' minutes')::interval, 'manual', 'human:x'
+		FROM generate_series(1, $2) AS i RETURNING id
 	)
-	INSERT INTO activity_link (workspace_id, activity_id, entity_type, lead_id)
-	SELECT $1, id, 'lead', $2 FROM act`, ws, lead, rows); err != nil {
+	INSERT INTO activity_link (activity_id, entity_type, lead_id)
+	SELECT id, 'lead', $1 FROM act`, lead, rows); err != nil {
 		t.Fatalf("seeding %d timeline rows: %v", rows, err)
 	}
 	// Without fresh statistics the planner sizes activity_link from whatever

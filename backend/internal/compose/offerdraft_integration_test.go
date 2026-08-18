@@ -87,12 +87,12 @@ func seedDraftOfferWithDealActivity(ctx context.Context, t *testing.T, e *integr
 	owner := integration.OwnerConn(t)
 	activityID := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		 VALUES ($1, $2, 'note', $3, '2026-07-01T10:00:00Z', 'manual', 'human:x')`,
-		activityID, e.WS, subjectText); err != nil {
+		`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		 VALUES ($1, 'note', $2, '2026-07-01T10:00:00Z', 'manual', 'human:x')`,
+		activityID, subjectText); err != nil {
 		t.Fatalf("seed deal activity: %v", err)
 	}
-	integration.LinkActivity(t, owner, e.WS, activityID, "deal", dealID)
+	integration.LinkActivity(t, owner, activityID, "deal", dealID)
 
 	return ids.From[ids.OfferKind](ids.UUID(created.Id)), "activity:" + activityID.String()
 }

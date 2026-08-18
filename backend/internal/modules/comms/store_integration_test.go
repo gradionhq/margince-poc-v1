@@ -110,8 +110,8 @@ func setupStore(t *testing.T) *storeEnv {
 	}
 	for _, act := range []ids.ActivityID{e.activity, e.activity2} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, source, captured_by) VALUES ($1, $2, 'email', 'test', 'human:x')`,
-			act, e.ws); err != nil {
+			`INSERT INTO activity (id, kind, source, captured_by) VALUES ($1, 'email', 'test', 'human:x')`,
+			act); err != nil {
 			t.Fatal(err)
 		}
 	}

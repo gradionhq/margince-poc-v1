@@ -95,11 +95,10 @@ func (e *sendEnv) seedAnchorWithTransport(t *testing.T, kind, provider string) i
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, channel_provider, body, occurred_at, direction,
-		                      source_system, source_id, source, captured_by, thread_key)
-		VALUES ($1, $2, $3, NULLIF($4, ''), 'Is this still available?', now(), 'inbound',
-		        'telegram', $5, 'telegram', 'connector:telegram', $6)`,
-		id, e.ws, kind, provider, "8100:"+testChannelAccount+":"+id.String(), testChannelThreadKey); err != nil {
+		INSERT INTO activity (id, kind, channel_provider, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key)
+		VALUES ($1, $2, NULLIF($3, ''), 'Is this still available?', now(), 'inbound',
+		        'telegram', $4, 'telegram', 'connector:telegram', $5)`,
+		id, kind, provider, "8100:"+testChannelAccount+":"+id.String(), testChannelThreadKey); err != nil {
 		t.Fatalf("seeding the anchor: %v", err)
 	}
 	return id
@@ -116,8 +115,8 @@ func (e *sendEnv) linkPerson(t *testing.T, anchor ids.ActivityID, name string) i
 		t.Fatalf("seeding the linked person: %v", err)
 	}
 	if _, err := e.owner.Exec(ctx,
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		 VALUES ($1, $2, 'person', $3)`, e.ws, anchor, person); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, person_id)
+		 VALUES ( $1, 'person', $2)`, anchor, person); err != nil {
 		t.Fatalf("linking the person: %v", err)
 	}
 	return person
@@ -169,9 +168,9 @@ func TestTheDatabaseRefusesAKindAndTransportThatDisagree(t *testing.T) {
 	// A message that names no transport: unrepliable by construction, so the
 	// column that would have to answer "what carried this" is never empty.
 	_, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, body, occurred_at, source, captured_by)
-		VALUES ($1, $2, $3, 'orphan', now(), 'manual', 'human:test')`,
-		ids.New[ids.ActivityKind](), e.ws, KindMessage)
+		INSERT INTO activity (id, kind, body, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'orphan', now(), 'manual', 'human:test')`,
+		ids.New[ids.ActivityKind](), KindMessage)
 	if err == nil {
 		t.Fatal("a message with no transport was stored; the send path would then have to guess what carried it, which is the derivation this decision removed")
 	}
@@ -183,9 +182,9 @@ func TestTheDatabaseRefusesAKindAndTransportThatDisagree(t *testing.T) {
 	// transport. Asserted because a one-directional CHECK would let an email
 	// carry a provider and quietly become repliable on a channel.
 	_, err = e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, channel_provider, body, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'telegram', 'orphan', now(), 'manual', 'human:test')`,
-		ids.New[ids.ActivityKind](), e.ws)
+		INSERT INTO activity (id, kind, channel_provider, body, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'telegram', 'orphan', now(), 'manual', 'human:test')`,
+		ids.New[ids.ActivityKind]())
 	if err == nil {
 		t.Fatal("an email acquired a messaging transport; the two axes must disagree in neither direction")
 	}

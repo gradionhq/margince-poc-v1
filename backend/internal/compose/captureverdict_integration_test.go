@@ -254,12 +254,10 @@ func seedMail(t *testing.T, e *integration.Env, from, subject string, bulkAttest
 	id := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, raw, direction,
-			                      source_system, source_id, source, captured_by, counterparty_email,
-			                      bulk_mail_attested)
-			VALUES ($1, $2, 'email', $3, 'the message body', '{"headers":"…"}'::jsonb, 'inbound',
-			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5, $6)`,
-			id, e.WS, subject, "vrd-"+id.String(), from, bulkAttested)
+			INSERT INTO activity (id, kind, subject, body, raw, direction, source_system, source_id, source, captured_by, counterparty_email, bulk_mail_attested)
+			VALUES ($1, 'email', $2, 'the message body', '{"headers":"…"}'::jsonb, 'inbound',
+			        'gmail', $3, 'gmail:'||$3, 'connector:gmail', $4, $5)`,
+			id, subject, "vrd-"+id.String(), from, bulkAttested)
 		if err != nil {
 			return err
 		}

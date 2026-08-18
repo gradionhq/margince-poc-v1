@@ -568,8 +568,8 @@ func TestRetentionAnonymizesAnUnattachedPersonAndArchivesAnAgedNote(t *testing.T
 	// it carries no statutory floor and the 1095-day archive reaches it. An email
 	// of the same age would be shielded, which is the boundary
 	// correspondenceFloorPredicate exists to draw.
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-		VALUES ($1, `+wsClause+`, 'note', 'Old internal note', 'nothing sensitive', now() - interval '1200 days', 'manual', 'human:x')`,
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Old internal note', 'nothing sensitive', now() - interval '1200 days', 'manual', 'human:x')`,
 		noteID)
 
 	svc := privacy.NewRetentionService(e.DB(), nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))

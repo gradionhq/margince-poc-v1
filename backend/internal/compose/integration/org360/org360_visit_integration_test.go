@@ -138,10 +138,10 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 	// accident rather than by design.
 	before := e.SeedDeal(t, "Old deal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, before, org.UUID)
-	old := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'before the visit', '2026-05-01T09:00:00Z', '2026-05-01T09:00:00Z', 'manual', 'human:x')`, e.WS)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, old, org.UUID)
+	old := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, created_at, source, captured_by)
+		VALUES ($1, 'note', 'before the visit', '2026-05-01T09:00:00Z', '2026-05-01T09:00:00Z', 'manual', 'human:x')`)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, old, org.UUID)
 
 	if _, err := svc.Acknowledge(admin, org); err != nil {
 		t.Fatalf("acknowledge: %v", err)
@@ -149,10 +149,10 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 
 	// Now: one new activity, one real stage move, and one NEW deal — whose
 	// creation writes a first-stage history row that must not count as a move.
-	fresh := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'after the visit', '2026-06-15T09:00:00Z', '2026-06-15T09:00:00Z', 'manual', 'human:x')`, e.WS)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, fresh, org.UUID)
+	fresh := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, created_at, source, captured_by)
+		VALUES ($1, 'note', 'after the visit', '2026-06-15T09:00:00Z', '2026-06-15T09:00:00Z', 'manual', 'human:x')`)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, fresh, org.UUID)
 	created := e.SeedDeal(t, "Brand new deal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, created, org.UUID)
 	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](before), deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: integration.WonByImport()}); err != nil {
@@ -190,10 +190,10 @@ func TestOrganization360CountsTheWholeHistoryOnAFirstVisit(t *testing.T) {
 	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	logged := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'first contact', now(), 'manual', 'human:x')`, e.WS)
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, logged, org.UUID)
+	logged := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'first contact', now(), 'manual', 'human:x')`)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, logged, org.UUID)
 
 	view, err := svc.Assemble(e.Admin(), org)
 	if err != nil {

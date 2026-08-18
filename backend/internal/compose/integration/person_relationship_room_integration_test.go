@@ -327,16 +327,14 @@ func TestPerson360AssemblesEverySectionFromRealRows(t *testing.T) {
 
 	// One inbound message and one open task: the timeline, the last-touch
 	// pair and the next-steps section each read a different slice of these.
-	inbound := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Re: pricing', 'body', '2026-08-01T09:00:00Z',
-		        'inbound', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, inbound, "person", mine)
-	task := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, due_at, is_done, source, captured_by)
-		VALUES ($1, $2, 'task', 'Send the quote', '2026-07-28T09:00:00Z', '2026-07-30T09:00:00Z',
-		        false, 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, task, "person", mine)
+	inbound := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', 'Re: pricing', 'body', '2026-08-01T09:00:00Z',
+		        'inbound', 'manual', 'human:x')`)
+	LinkActivity(t, owner, inbound, "person", mine)
+	task := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, is_done, source, captured_by)
+		VALUES ($1, 'task', 'Send the quote', '2026-07-28T09:00:00Z', '2026-07-30T09:00:00Z',
+		        false, 'manual', 'human:x')`)
+	LinkActivity(t, owner, task, "person", mine)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	page, err := personRoomService(e).Assemble(rep, ids.From[ids.PersonKind](mine))
@@ -396,11 +394,10 @@ func TestADismissalHoldsUntilTheEvidenceMoves(t *testing.T) {
 	owner := OwnerConn(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 	// We wrote and they never answered: the gone-quiet rung.
-	outbound := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Following up', 'body', $3,
-		        'outbound', 'manual', 'human:x')`, e.WS, roomAgo(20*24*time.Hour))
-	LinkActivity(t, owner, e.WS, outbound, "person", mine)
+	outbound := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', 'Following up', 'body', $2,
+		        'outbound', 'manual', 'human:x')`, roomAgo(20*24*time.Hour))
+	LinkActivity(t, owner, outbound, "person", mine)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	svc := personRoomService(e)
@@ -432,11 +429,10 @@ func TestADismissalHoldsUntilTheEvidenceMoves(t *testing.T) {
 
 	// Now they reply. The evidence the dismissal was held against has moved,
 	// so the page must speak again rather than stay quiet about the new fact.
-	inbound := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'Re: Following up', 'body', $3,
-		        'inbound', 'manual', 'human:x')`, e.WS, roomAgo(time.Hour))
-	LinkActivity(t, owner, e.WS, inbound, "person", mine)
+	inbound := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', 'Re: Following up', 'body', $2,
+		        'inbound', 'manual', 'human:x')`, roomAgo(time.Hour))
+	LinkActivity(t, owner, inbound, "person", mine)
 
 	reArmed, err := svc.Assemble(rep, personID)
 	if err != nil {
@@ -472,10 +468,9 @@ func TestRelationshipChangesAreDerivedFromTheTimeline(t *testing.T) {
 	// A long silence, then their reply. roomFixedNow is 2026-08-04, so the
 	// silence the reply broke is 48 days and the reply itself is 3 days old.
 	for _, at := range []string{"2026-06-14T09:00:00Z", "2026-08-01T09:00:00Z"} {
-		id := SeedRow(t, owner, `INSERT INTO activity
-			(id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'thread', '`+at+`', 'inbound', 'manual', 'human:x')`, e.WS)
-		LinkActivity(t, owner, e.WS, id, "person", mine)
+		id := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+			VALUES ($1, 'email', 'thread', '`+at+`', 'inbound', 'manual', 'human:x')`)
+		LinkActivity(t, owner, id, "person", mine)
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
@@ -621,11 +616,10 @@ func TestThePerson360TimelineNamesTheTransportThatCarriedAMessage(t *testing.T) 
 	// telegram, because it is registered by the core migration on every
 	// installation — the FK on activity.channel_provider means an unregistered
 	// name could not be seeded at all, and this test is about the read.
-	message := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, channel_provider, body, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'message', 'telegram', 'they wrote', '2026-08-01T09:00:00Z',
-		        'inbound', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, message, "person", mine)
+	message := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, channel_provider, body, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'message', 'telegram', 'they wrote', '2026-08-01T09:00:00Z',
+		        'inbound', 'manual', 'human:x')`)
+	LinkActivity(t, owner, message, "person", mine)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	page, err := personRoomService(e).Assemble(rep, ids.From[ids.PersonKind](mine))
