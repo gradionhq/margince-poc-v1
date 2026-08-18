@@ -170,34 +170,19 @@ export function CompanyContractsCard({ orgId }: Readonly<{ orgId: string }>) {
               </EmptyState>
             </PanelBody>
           ) : (
-            <>
-              {/* The column names, once, above the rows. A row of five facts
-                  each drawn in its own shape is read as five facts; the same
-                  row under headings is read as a table, and a reader comparing
-                  two agreements is comparing columns rather than re-reading
-                  labels. */}
-              <PanelRow className="rec-head rec-row rec-row-contract">
-                <span>{t("contracts.col.contract")}</span>
-                <span>{t("contracts.col.reference")}</span>
-                <span className="rec-num">{t("contracts.col.value")}</span>
-                <span>{t("contracts.col.status")}</span>
-                <span>{t("contracts.col.term")}</span>
-                <span />
-              </PanelRow>
-              {contracts.map((contract) => (
-                <ContractRow
-                  key={contract.id}
-                  contract={contract}
-                  orgId={orgId}
-                  mayWrite={mayWrite}
-                  mayArchive={mayArchive}
-                  onEdit={() => {
-                    setEditing(contract);
-                    setFormOpen(true);
-                  }}
-                />
-              ))}
-            </>
+            contracts.map((contract) => (
+              <ContractRow
+                key={contract.id}
+                contract={contract}
+                orgId={orgId}
+                mayWrite={mayWrite}
+                mayArchive={mayArchive}
+                onEdit={() => {
+                  setEditing(contract);
+                  setFormOpen(true);
+                }}
+              />
+            ))
           )
         ) : (
           <PanelBody>
@@ -250,33 +235,41 @@ function ContractRow({
   });
 
   return (
-    <PanelRow className="rec-row rec-row-contract">
-      {/* The title opens the same form the add button does. A row a reader
-          cannot open is a row they cannot correct, and a mistyped value is the
-          most likely thing they came here to fix. */}
-      <button type="button" className="co-rowlink rec-title" onClick={onEdit}>
-        {contract.title}
-      </button>
-      <span className="t-mono t-caption">{contract.contract_number ?? ""}</span>
-      {/* The figure and the basis it is stated on, stacked: a reader scanning
-          the column compares amounts on one line and reads what they mean on
-          the next, instead of parsing "€120,000.00 / year" as one string. */}
-      <span className="rec-num">
-        <span className="rec-amount">{contractAmount(contract, locale)}</span>
-        {basis !== "" && <span className="t-caption">{t(basis)}</span>}
+    <PanelRow className="rec-row">
+      <span className="rec-main">
+        {/* The title opens the same form the add button does. A row a reader
+            cannot open is a row they cannot correct, and a mistyped value is
+            the most likely thing they came here to fix. */}
+        <button type="button" className="co-rowlink rec-title" onClick={onEdit}>
+          {contract.title}
+        </button>
+        {/* Everything that QUALIFIES the agreement on one quiet line under its
+            name: which paper it is, how long it runs, what is about to happen
+            to it. Read after the name, not beside it. */}
+        <span className="rec-meta">
+          {contract.contract_number && (
+            <span className="t-mono">{contract.contract_number}</span>
+          )}
+          <ContractTerm contract={contract} />
+          <ContractTermState contract={contract} />
+        </span>
+        {/* The paper sits under the agreement's own line: a file is about the
+            agreement, not about any one of the facts beside it. */}
+        <ContractPaper contractId={contract.id} orgId={orgId} />
       </span>
-      <span>
+      <span className="rec-end">
+        {/* The figure and the basis it is stated on, stacked: the amount is
+            read first and what it means directly under it, instead of parsing
+            "€120,000.00 / year" as one string. */}
+        <span className="rec-num">
+          <span className="rec-amount">{contractAmount(contract, locale)}</span>
+          {basis !== "" && <span className="t-caption">{t(basis)}</span>}
+        </span>
         {contract.status && (
           <Badge tone={STATUS_TONE[contract.status]}>
             {t(STATUS_LABELS[contract.status])}
           </Badge>
         )}
-      </span>
-      <span className="rec-term">
-        <ContractTerm contract={contract} />
-        <ContractTermState contract={contract} />
-      </span>
-      <span className="rec-actions">
         {(mayWrite || mayArchive) && (
           <OverflowMenu label={t("contracts.rowMenu")}>
             {mayWrite && (
@@ -292,11 +285,6 @@ function ContractRow({
           </OverflowMenu>
         )}
       </span>
-      {/* The paper spans the whole row under the agreement's facts: a file is
-          about the agreement rather than about any one of its columns, and a
-          chip wedged into the value column would push the figures out of
-          line. */}
-      <ContractPaper contractId={contract.id} orgId={orgId} />
       <ConfirmModal
         open={asking}
         onClose={() => setAsking(false)}

@@ -96,9 +96,9 @@ describe("the account's document library", () => {
       name: "Framework agreement — signed",
     });
     expect(named.getAttribute("download")).toBe("Rahmenvertrag.pdf");
-    expect(screen.getByText("Rahmenvertrag.pdf").className).toContain(
-      "t-caption",
-    );
+    expect(
+      screen.getByText("Rahmenvertrag.pdf").closest(".rec-meta"),
+    ).toBeTruthy();
   });
 
   it("makes every document's name its download", async () => {
@@ -207,6 +207,17 @@ describe("the account's document library", () => {
     // Draft and Current sit beside Final rather than being inferred from
     // upload order: the newest upload is very often a draft.
     expect(screen.getByText("Draft")).toBeTruthy();
-    expect(screen.getByText("Pinned")).toBeTruthy();
+    expect(screen.getByText("Current")).toBeTruthy();
+  });
+
+  it("says nothing about pinning, which nothing in this product can do", async () => {
+    // `pinned` is on the wire and the endpoint sorts on it, but no surface sets
+    // it — so a badge here could only mark a document pinned through the API by
+    // hand, and a state a reader can see and cannot reach reads as broken
+    // rather than absent.
+    stub(DOCS);
+    show(<CompanyDocumentsCard orgId="o-1" />);
+    await screen.findByText("Framework agreement — signed");
+    expect(screen.queryByText("Pinned")).toBeNull();
   });
 });

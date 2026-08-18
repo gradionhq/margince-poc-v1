@@ -248,25 +248,9 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
             </EmptyState>
           </PanelBody>
         ) : (
-          <>
-            {/* The column names, once, above the rows — the same table the
-                agreements above are read as, so a reader crossing from one
-                panel to the other is reading the same shape. */}
-            <PanelRow className="rec-head rec-row rec-row-doc">
-              <span>{t("docs.col.document")}</span>
-              <span>{t("docs.col.type")}</span>
-              <span>{t("docs.col.version")}</span>
-              <span>{t("docs.col.added")}</span>
-              <span />
-            </PanelRow>
-            {documents.map((doc) => (
-              <DocumentRow
-                key={doc.id}
-                doc={doc}
-                canWriteDeals={canWriteDeals}
-              />
-            ))}
-          </>
+          documents.map((doc) => (
+            <DocumentRow key={doc.id} doc={doc} canWriteDeals={canWriteDeals} />
+          ))
         )
       ) : (
         <PanelBody>
@@ -326,9 +310,14 @@ function DocumentRow({
 
   return (
     <Fragment>
-      <PanelRow className="rec-row rec-row-doc">
-        <span className="rec-namecell">
-          {doc.pinned && <Badge tone="accent">{t("docs.pinned")}</Badge>}
+      <PanelRow className="rec-row">
+        <span className="rec-main">
+          {/* No pinned badge. `pinned` is a real field — the endpoint sorts on
+              it and can filter by it — but nothing in this product SETS it, so
+              the badge could only ever appear for a document pinned through the
+              API by hand. A state a reader can see and cannot reach reads as a
+              feature that is broken rather than one that is absent. It comes
+              back with the control that pins. */}
           {/* The NAME is the download. A reader who wants a document clicks its
               title — a separate action word at the far end of the row is a
               second thing to find for the only thing this row does. The title
@@ -342,27 +331,26 @@ function DocumentRow({
           >
             {doc.title || doc.filename}
           </a>
-          {/* The filename under a title the reader gave it: the two are
-              different names for one file, and only one of them is what lands
-              in the downloads folder. Absent when they are the same string,
-              because a row that says one thing twice says it once. */}
-          {doc.title && doc.title !== doc.filename && (
-            <span className="t-caption rec-sub">{doc.filename}</span>
-          )}
+          {/* What qualifies the file, on one quiet line under its name: the
+              filename it will save as when a human gave it a different title,
+              where it came from, and when it arrived. The filename is absent
+              when the two names are the same string, because a row that says
+              one thing twice says it once. */}
+          <span className="rec-meta">
+            {doc.title && doc.title !== doc.filename && (
+              <span>{doc.filename}</span>
+            )}
+            <span>{doc.source}</span>
+            <span>{formatDateTime(doc.created_at, locale, RECORD_ZONE)}</span>
+          </span>
         </span>
-        <span>{doc.category && t(CATEGORY_LABELS[doc.category])}</span>
-        <span>
+        <span className="rec-end">
+          {doc.category && <Badge>{t(CATEGORY_LABELS[doc.category])}</Badge>}
           {doc.doc_state && (
             <Badge tone={STATE_TONE[doc.doc_state]}>
               {t(STATE_LABELS[doc.doc_state])}
             </Badge>
           )}
-        </span>
-        <span className="rec-added">
-          <span>{formatDateTime(doc.created_at, locale, RECORD_ZONE)}</span>
-          <span className="t-caption">{doc.source}</span>
-        </span>
-        <span className="rec-actions">
           {offersReading && (
             <Button
               small
