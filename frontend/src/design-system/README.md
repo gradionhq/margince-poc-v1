@@ -73,7 +73,7 @@ arrive through props, translated by the caller with `t()`.
 | `PassportChip` | An agent passport id, mono so it reads as an identifier | `trust.tsx` | ✅ |
 | `RoleBadge` / `FieldGuard` | A principal's role, and a withheld value that reads as withheld rather than absent | `rbac.tsx` | — |
 | `ExplainNumber` | A converted aggregate opening into its contributing rows (FX lineage) | `explain.tsx` | ✅ |
-| `MarginceCoreScene` | The product's one piece of AI identity, in its closed eight-state vocabulary. `aria-hidden`; callers pass `state` and never restyle. `margince-core-liquid.tsx` / `margince-core-feed.tsx` are its rendering ladder, not a caller's API | `margince-core.tsx` | ✅ |
+| `MarginceCoreScene` | The product's one piece of AI identity: a glass ball of liquid with four dots suspended in it, in the closed eight-state vocabulary of the agent's work lifecycle (dormant · ingesting · reasoning · drafting · applied · flagged · disconnected · error). State is MOTION first — one formation each — and colour second. `aria-hidden`, and it carries no click. Callers pass `state` and never restyle; a different material is the `--coreC1/2/3` triple, never a second component. `margince-core-motion.ts` (pure placements) / `margince-core-engine.ts` (the loop) / `margince-core-feed.tsx` are its internals, not a caller's API | `margince-core.tsx` | ✅ |
 | `MarginceWorkbench` | The in-app agent workbench: steps, runtime chip, the Core in context | `margince-workbench.tsx` | — |
 | `PipelineBoard` / `DealCard` | The pipeline surface and its cards | `composed.tsx` | ✅ (`RecordView → BoardInSurface`) |
 | `RecordView` | The record page shell: identity, readings, timeline | `composed.tsx` | ✅ |

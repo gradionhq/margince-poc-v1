@@ -58,6 +58,11 @@
      a mote crossing a paragraph is not atmosphere, it is a bug that moves. */
   --coreFeedReach: 1;
   /* Derived, so a state sets three properties and the whole ball follows. */
+  /* The ink: the state's darkest tone, deepened, because a dot has to read
+     against a light vessel and there is nothing else in the ball that is dark.
+     The alternate is the same ink lifted toward the state's light end. */
+  --coreDot: color-mix(in oklab, var(--coreC2) 88%, var(--overlayDark));
+  --coreDotAlt: color-mix(in oklab, var(--coreC2) 62%, var(--coreC3));
   --coreWellCore: color-mix(in srgb, var(--coreC2) 5%, transparent);
   --coreWellRim: color-mix(in srgb, var(--coreC2) 14%, transparent);
   --coreTint: color-mix(in srgb, var(--coreC1) 5%, transparent);
@@ -184,6 +189,11 @@
   --coreFalloff: color-mix(in srgb, var(--overlayLight) 4%, transparent);
   --coreBounce: color-mix(in srgb, var(--overlayLight) 3%, transparent);
   --coreCrescent: color-mix(in srgb, var(--overlayLight) 16%, transparent);
+  /* The ink inverts with the room. On a dark page the vessel is dark, so the
+     dots take the state's LIGHT end and are lifted toward white — the same rule
+     as in light mode (ink contrasts with its vessel), applied to a dark one. */
+  --coreDot: color-mix(in oklab, var(--coreC1) 88%, var(--overlayLight));
+  --coreDotAlt: color-mix(in oklab, var(--coreC1) 62%, var(--coreC3));
   /* The interior keeps its depth: on a dark page the well is what the dots are
      read AGAINST, so lifting it is what flattened the ball. */
   --coreWellCore: color-mix(in srgb, var(--coreC2) 8%, transparent);
@@ -436,24 +446,24 @@
   height: 12.667%;
   margin: -6.333% 0 0 -6.333%;
   border-radius: var(--r-full);
-  background: var(--coreC1);
+  background: var(--coreDot);
   will-change: transform;
 }
-.core-dot:nth-child(2) {
-  background: var(--coreC3);
-}
 /*
- * The third dot is the ramp's BODY tone, and it is lifted a third of the way
- * toward the light end rather than used raw. Raw, it is the same colour as the
- * glass tint it sits behind: on a small orb — where the tint covers a bigger
- * share of the disc and the fusion blur eats the edges — that dot disappears, and
- * three of four dots is a rendering fault, not a design.
+ * The dots are the INK in the ball, and the contrast runs the other way from
+ * everything else here. The vessel is light — a clear ball on a pale page — so a
+ * dot in the state's light tone is a light shape on a light field and it
+ * disappears, whatever the glass does. So the ink takes the state's DARKEST tone
+ * and the fluid keeps the light ones. In dark mode the ball is dark and the same
+ * argument inverts, which is what the dark block below does.
+ *
+ * Two tones across the four, alternating, so a reader can see the mass fold over
+ * itself; the second is the same ink lifted toward the state's own light end
+ * rather than a third colour, so it reads as depth instead of decoration.
  */
-.core-dot:nth-child(3) {
-  background: color-mix(in oklab, var(--coreC2) 45%, var(--coreC1));
-}
+.core-dot:nth-child(2),
 .core-dot:nth-child(4) {
-  background: var(--coreC3);
+  background: var(--coreDotAlt);
 }
 /*
  * `applied` draws a check mark, and a fused check mark is a blob with corners —
@@ -492,8 +502,10 @@
   }
   /* Two tones, not three: at this size the body tone reads as a shadow between
      the other dots rather than as a dot of its own. */
-  .core-dot:nth-child(3) {
-    background: var(--coreC3);
+  /* One ink, not two: at this size the lighter of the two tones reads as a
+     shadow between the other dots rather than as a dot of its own. */
+  .core-dot {
+    background: var(--coreDot);
   }
   .core-sheen,
   .core-glass::before,
