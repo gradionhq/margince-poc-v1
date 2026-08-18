@@ -893,6 +893,84 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
     expect(screen.getByText("Due soon")).toBeTruthy();
   });
 
+  it("bulk-assigns selected leads one PATCH each, every row with its own If-Match, and names the row that refused", async () => {
+    // A naive fan-out sends one version to every row and 428s/409s on all but
+    // the row it came from. Each row carries the version the list holds; a
+    // row that moved under the reader is reported by name, not swallowed.
+    const patches: Array<{
+      id: string;
+      ifMatch: string | null;
+      body: unknown;
+    }> = [];
+    stubFetch(async (url, method, request) => {
+      if (url.includes("/users")) {
+        return jsonResponse({
+          data: [{ id: "u-9", email: "lena@x.test", display_name: "Lena F." }],
+          page: { next_cursor: null },
+        });
+      }
+      if (method === "PATCH") {
+        const id = url.split("/leads/")[1] ?? "";
+        patches.push({
+          id,
+          ifMatch: request.headers.get("If-Match"),
+          body: JSON.parse(await request.text()),
+        });
+        if (id === "l-2") {
+          return new Response(
+            JSON.stringify({
+              title: "Conflict",
+              status: 409,
+              code: "version_skew",
+              detail: "moved",
+            }),
+            {
+              status: 409,
+              headers: { "content-type": "application/problem+json" },
+            },
+          );
+        }
+        return jsonResponse({ ...lead, id, owner_id: "u-9", version: 8 });
+      }
+      return jsonResponse({
+        data: [
+          { ...lead, version: 3 },
+          { ...lead, id: "l-2", full_name: "Otto Fischer", version: 7 },
+        ],
+        page: { next_cursor: null, has_more: false },
+      });
+    });
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Otto Fischer")).toBeTruthy());
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select Jonas Petersen" }),
+    );
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "Select Otto Fischer" }),
+    );
+    expect(screen.getByText("2 selected")).toBeTruthy();
+
+    await userEvent.click(screen.getByLabelText("New owner"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Lena F." }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    await waitFor(() => expect(patches).toHaveLength(2));
+    expect(patches.map((p) => [p.id, p.ifMatch])).toEqual([
+      ["l-1", "3"],
+      ["l-2", "7"],
+    ]);
+    expect(
+      patches.every(
+        (p) => JSON.stringify(p.body) === JSON.stringify({ owner_id: "u-9" }),
+      ),
+    ).toBe(true);
+    // The row that refused is named, with the server's reason.
+    expect(await screen.findByText(/1 not applied/)).toBeTruthy();
+    expect(screen.getByText(/Otto Fischer: /)).toBeTruthy();
+  });
+
   it("fetches the next cursor page when the pager steps past the loaded page", async () => {
     const { urls } = stubFetch(async (url) => {
       if (url.includes("cursor=c1")) {

@@ -47,6 +47,7 @@ import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
+import { LeadBulkBar } from "./leadbulk";
 import { LeadManualSignals } from "./leadsignals";
 import {
   type ListPage,
@@ -565,6 +566,9 @@ export function LeadsScreen() {
   const t = useT();
   const { locale } = useLocale();
   const viewerId = useViewerId();
+  // Bulk selection, by lead id; cleared after any bulk run, since the rows
+  // and their versions have moved.
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
@@ -668,6 +672,36 @@ export function LeadsScreen() {
           createdColumn<Lead>(t, locale),
         ]}
         rowKey={(lead) => lead.id}
+        selection={{
+          selected,
+          onToggle: (lead) =>
+            setSelected((prev) => {
+              const next = new Set(prev);
+              if (next.has(lead.id)) {
+                next.delete(lead.id);
+              } else {
+                next.add(lead.id);
+              }
+              return next;
+            }),
+          label: (lead) =>
+            t("lead.bulkSelectRow", {
+              name: lead.full_name ?? lead.email ?? lead.id,
+            }),
+          bar: (
+            <LeadBulkBar
+              leads={state.rows.filter((lead) => selected.has(lead.id))}
+              // The rows that went through leave the selection; the ones that
+              // refused stay in it, named, so the reader can retry them once
+              // the list has refetched their versions.
+              onDone={(outcomes) =>
+                setSelected(
+                  new Set(outcomes.filter((o) => o.error).map((o) => o.id)),
+                )
+              }
+            />
+          ),
+        }}
         rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
         chips={[
           {

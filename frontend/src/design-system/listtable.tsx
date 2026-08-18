@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { useT } from "../i18n";
+import { Checkbox } from "./atoms";
 import {
   CountLine,
   type ListChip,
@@ -66,6 +67,60 @@ export type ListColumn<Row> = {
    */
   fixed?: boolean;
 };
+
+export type ListSelection<Row> = {
+  /** Keys (rowKey) of the selected rows. */
+  selected: ReadonlySet<string>;
+  onToggle: (row: Row) => void;
+  /** The checkbox's accessible name for a row — "Select Anna Weber". */
+  label: (row: Row) => string;
+  /** The bulk bar: the count and the verbs. Rendered while anything is selected. */
+  bar: ReactNode;
+};
+
+/**
+ * The selection checkbox in the identity cell. Its click is its own: it must
+ * not open the row.
+ */
+function RowSelect<Row>({
+  identity,
+  row,
+  rowKey,
+  selection,
+}: Readonly<{
+  /** Only the identity cell carries the checkbox. */
+  identity: boolean;
+  row: Row;
+  rowKey: (row: Row) => string;
+  selection?: ListSelection<Row>;
+}>) {
+  if (!selection || !identity) {
+    return null;
+  }
+  return (
+    <Checkbox
+      className="lt-select"
+      label={<span className="sr-only">{selection.label(row)}</span>}
+      checked={selection.selected.has(rowKey(row))}
+      onChange={() => selection.onToggle(row)}
+      onClick={(event) => event.stopPropagation()}
+    />
+  );
+}
+
+/** The bulk bar over the grid, while anything is selected. */
+function BulkBar<Row>({
+  selection,
+}: Readonly<{ selection?: ListSelection<Row> }>) {
+  if (!selection || selection.selected.size === 0) {
+    return null;
+  }
+  return (
+    <div className="lt-bulkbar" role="region" aria-live="polite">
+      {selection.bar}
+    </div>
+  );
+}
 
 /**
  * Page sizes the footer offers. This is the size of a RENDERED page: the caller
@@ -209,10 +264,20 @@ export function ListTable<Row>({
   widthsKey,
   tools,
   body,
+  selection,
 }: Readonly<{
   rows: readonly Row[];
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /**
+   * Row selection for a bulk action. The checkbox lives INSIDE the identity
+   * cell — the one that stays put while the rest scrolls — so a selected row
+   * is always recognisable, and the frozen edge, the column widths and the
+   * phone cards need no second column. `bar` renders above the grid while
+   * anything is selected; the screen puts its verbs there and owns what they
+   * do (per-row writes, per-row versions, per-row failures).
+   */
+  selection?: ListSelection<Row>;
   /**
    * Renders INSTEAD of the grid, keeping the surface's header, search, chips,
    * views and page-size dial exactly where they are.
@@ -583,6 +648,7 @@ export function ListTable<Row>({
         </>
       }
     >
+      <BulkBar selection={selection} />
       {body ?? (
         <div
           className={`lt-scroll${shifted ? " shifted" : ""}`}
@@ -675,6 +741,12 @@ export function ListTable<Row>({
                         // cell is the card's heading and needs none.
                         data-label={column.fixed ? undefined : column.header}
                       >
+                        <RowSelect
+                          identity={Boolean(column.fixed)}
+                          row={row}
+                          rowKey={rowKey}
+                          selection={selection}
+                        />
                         {column.fixed && rowHref ? (
                           // The identity cell is a real link, so the row can be
                           // opened the ways a link can: a new tab, a new window,
