@@ -5413,4 +5413,14 @@ export const vi = {
   "filters.saveListConfirm": "T\u1ea1o danh s\u00e1ch",
   "filters.exportCsv": "Xu\u1ea5t CSV",
   "filters.exportJson": "Xu\u1ea5t JSON",
+
+  "provider.profile.retrievedAt": "Mua ngày {date}",
+  "provider.profile.source": "Do {provider} cung cấp",
+
+  // Xem en.ts: hai người đọc cùng lúc — người muốn vào, và người phải sửa.
+  "release.skewTitle": "Bản cài đặt này đang được cập nhật",
+  "release.skewBody":
+    "Ứng dụng trong trình duyệt và máy chủ đằng sau nó thuộc hai bản phát hành khác nhau, nên không có gì ở đây hoạt động đáng tin cậy. Hãy tải lại để lấy bản hiện tại. Nếu thông báo này vẫn còn, hãy nói với người vận hành bản cài đặt — cần kéo lại các container image ở cùng một bản phát hành.",
+  "release.skewVersions": "Ứng dụng {app} · Máy chủ {server}",
+  "release.skewReload": "Tải lại",
 } as const satisfies Record<MessageKey, string>;

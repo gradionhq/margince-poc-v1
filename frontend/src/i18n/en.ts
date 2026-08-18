@@ -5462,6 +5462,19 @@ export const en = {
   "filters.saveListConfirm": "Create list",
   "filters.exportCsv": "Export CSV",
   "filters.exportJson": "Export JSON",
+
+  "provider.profile.retrievedAt": "Bought {date}",
+  "provider.profile.source": "Provided by {provider}",
+
+  // The release gate (src/screens/releaseskew.tsx). It renders instead of the
+  // app when this bundle and the api come from different releases, so the copy
+  // has two readers at once: the person who just wants in, and the operator who
+  // has to fix it. The first sentence is for the first, the last for the second.
+  "release.skewTitle": "This installation is part-way through an update",
+  "release.skewBody":
+    "The app in your browser and the server behind it come from different releases, so nothing here would work reliably. Reload to pick up the current version. If this message stays, tell whoever runs this installation — the container images need to be pulled again at one release.",
+  "release.skewVersions": "app {app} · server {server}",
+  "release.skewReload": "Reload",
 } as const;
 
 export type MessageKey = keyof typeof en;

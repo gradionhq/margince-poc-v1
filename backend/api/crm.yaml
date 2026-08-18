@@ -227,6 +227,19 @@ paths:
         system-email channel (A74/ADR-0056) is configured and healthy. An OIDC provider is
         listed only when its end-to-end flow is wired and healthy. Discloses nothing beyond
         what the login UI needs — no secrets, endpoints, allowlists, or bootstrap state.
+
+        It also reports the release this api was built from, because the web tier needs it
+        before anyone is signed in. A customer pulls each role image by tag and two tag
+        pulls are two requests, so a publish landing between them yields a set whose roles
+        come from different releases; the OCI distribution protocol gives the registry no
+        way to refuse that at the pull, so the tiers refuse it at run time. The api and the
+        worker settle it between themselves against the database, but the web tier is a
+        static bundle in a browser and can only ask — and it has to be able to ask on the
+        login screen, which is exactly where a mixed set breaks first.
+
+        The release version is not a secret. The same value is compiled into the anonymously
+        served SPA bundle, so publishing it here discloses nothing the document root does
+        not already.
       responses:
         '200':
           description: The operational authentication methods.
@@ -21432,6 +21445,15 @@ components:
             properties:
               key: { type: string, description: 'Stable provider key, e.g. `google`.' }
               label: { type: string, description: 'Button label, e.g. `Continue with Google`.' }
+        release_version:
+          type: string
+          description: >
+            The release this api was built from (`YYYY.<edition>`). A client compares it
+            against its OWN release and refuses to run against a different one — a
+            mixed-release set must not serve. ABSENT is not a mismatch: it means this api
+            carries no release version (a build that was not published as one), and a
+            client MUST then make no comparison rather than treat the absence as a
+            difference.
 
     LoginRequest:
       type: object

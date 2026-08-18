@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -220,10 +221,25 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 // operational methods — a disabled provider button or a dead
 // "Forgot password?" link is a misleading affordance — and discloses
 // nothing beyond what the login UI needs.
+//
+// The release version is part of what the login UI needs. The web tier is a
+// static bundle in a browser: it can refuse to render against an api from
+// another release, but only if something tells it which release the api is, and
+// it has to be able to ask before anyone is signed in — a mixed set breaks the
+// login request itself. An unstamped build reports NOTHING rather than an empty
+// string, because absence is what the contract gives a client permission to
+// ignore, and an empty value would be a version the client then has to know is
+// not one.
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
 		Password:      true,
 		PasswordReset: h.canSendPasswordLink(),
+	}
+	if buildinfo.Comparable(buildinfo.ReleaseVersion) {
+		// A copy, not the address of the package var: the response must not hand
+		// a pointer into link-time state out to a serializer.
+		release := buildinfo.ReleaseVersion
+		caps.ReleaseVersion = &release
 	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`

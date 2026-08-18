@@ -15,11 +15,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -43,15 +40,15 @@ type observedExtension struct {
 // there is no workspace to record against — the observation is skipped
 // and the first boot after bootstrap records it.
 func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, exts []extension.Extension) error {
-	wsID, err := identity.NewService(pool).InstallationWorkspace(ctx)
-	if errors.Is(err, identity.ErrNotBootstrapped) {
+	ctx, bootstrapped, err := bootLedgerScope(ctx, pool, "system:extension-inventory")
+	if err != nil {
+		return err
+	}
+	if !bootstrapped {
 		if len(exts) > 0 {
 			log.Info("extension inventory not recorded: installation not bootstrapped yet")
 		}
 		return nil
-	}
-	if err != nil {
-		return err
 	}
 
 	current := make([]observedExtension, 0, len(exts))
@@ -61,10 +58,6 @@ func ObserveExtensionInventory(ctx context.Context, pool *pgxpool.Pool, log *slo
 	slices.SortFunc(current, func(a, b observedExtension) int {
 		return strings.Compare(a.Name, b.Name)
 	})
-
-	ctx = principal.WithWorkspaceID(ctx, wsID.UUID)
-	ctx = principal.WithActor(ctx, principal.Principal{Type: principal.PrincipalSystem, ID: "system:extension-inventory"})
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 
 	changed := false
 	err = database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
