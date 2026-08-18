@@ -108,8 +108,8 @@ importers:
         specifier: ^19.1.0
         version: 19.2.18
       vitest:
-        specifier: ^3.2.0
-        version: 3.2.7(@types/node@26.2.0)(jiti@2.7.0)(jsdom@30.0.1)(lightningcss@1.32.0)(supports-color@10.2.2)
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@26.2.0)(@vitest/coverage-v8@4.1.10)(jsdom@30.0.1)(vite@8.2.1(@types/node@26.2.0)(jiti@2.7.0))
 
   frontend:
     dependencies:

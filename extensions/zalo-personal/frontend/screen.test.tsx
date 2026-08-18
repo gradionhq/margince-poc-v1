@@ -610,7 +610,14 @@ describe("the personal Zalo screen", () => {
     expect(screen.getByText("Connected")).toBeTruthy();
     expect(document.body.innerHTML).not.toContain(LEAKED_SESSION);
     // And nothing on this screen ever asks for one: the member's Zalo login is
-    // typed on their phone and nowhere else.
-    expect(document.querySelector("input")).toBeNull();
+    // typed on their phone and nowhere else. The capture card's own radios are
+    // inputs too, so the property is stated as what a FIELD could carry — no box
+    // to type into, and no input holding session material — rather than as the
+    // absence of every input on the page.
+    expect(document.querySelector("input[type='password']")).toBeNull();
+    expect(document.querySelector("input[type='text']")).toBeNull();
+    for (const input of document.querySelectorAll("input")) {
+      expect(input.value).not.toContain(LEAKED_SESSION);
+    }
   });
 });

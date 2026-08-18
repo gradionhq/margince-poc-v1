@@ -26,21 +26,39 @@ actions:
       job: poll_inbox
       role: dispatcher
       queue: default
-      # Five minutes, and this number is a PLACEHOLDER WITH A REASON rather than
-      # a considered setting. What has to settle it is the measurement DESIGN
-      # §9.1 blocks on: how deep Zalo's own undelivered queue goes and how long
-      # it holds a message. Until that is measured, the member-visible backfill
-      # after any gap is bounded by a depth nobody has observed — the one probe
-      # run saw a single message held for about an hour against a claimed three
-      # days — so a tighter cadence would be buying freshness against an unknown
-      # and a looser one would be risking loss against the same unknown. Five
-      # minutes is the interval at which a rep experiences a chat message
-      # reaching the timeline as "it is just there" while spending the fewest
-      # sockets on a protocol with no acknowledgement.
+      # ONE MINUTE, AND THIS IS NOT THE COST CONTROL. It used to be five minutes,
+      # because this number and a member's own polling interval were treated as one
+      # setting — and they are not the same size at all:
       #
-      # Polling harder does not merely cost requests here: with no ack
-      # identified, every tick re-reads the member's whole undelivered backlog.
-      cadence: 300s
+      #   * A DISPATCHER RUN with nobody due is ONE indexed query against
+      #     ext_zalo_personal_connection (plus one indexed DELETE that ages out send
+      #     markers). No credential is unsealed, no socket is opened, no roster is
+      #     read. It is effectively free, and running it every minute costs nothing
+      #     anybody can measure.
+      #   * A MEMBER'S DRAIN is a login call plus a TLS and a WebSocket handshake, per
+      #     member, paid whether or not anything arrived. THAT is the expensive thing,
+      #     and `poll_after` on each connection row is what controls it — the backoff
+      #     ladder in cadence.go, untouched by this number.
+      #
+      # So this cadence decides only HOW SOON a member who has just become due is
+      # actually reached; it does not decide how often anybody is handshaked. A member
+      # inside their backoff is not returned by the fleet read at all, so a run that
+      # finds nobody costs the one query above.
+      #
+      # WHY IT MATTERS THAT IT STAYS SMALL, which is the part somebody will otherwise
+      # "optimise" away: at five minutes a rep who connects, chooses a mode and saves
+      # waited up to five minutes to see anything happen — and the save clears the
+      # backoff precisely so they would not. Observed in live testing: the tick ran at
+      # 19:36, found nothing, backed the member off, and the next run arrived four
+      # seconds before they were due and skipped them. From the outside that is
+      # indistinguishable from a broken feature, and it is a rep's first impression of
+      # this connector.
+      #
+      # RAISING THIS SAVES NOTHING AND COSTS THAT. Handshake volume is bounded by
+      # poll_after in every case; the only thing a longer cadence buys is a slower
+      # first impression. If provider load ever needs cutting, the lever is
+      # maxPollBackoff, not this.
+      cadence: 60s
       # Wide enough for a fleet of one workspace's members, each of which resumes
       # a session, drains a socket until it goes quiet, and ingests what it
       # found. The PER-MEMBER budget in poll.go is a sub-budget of this, which is

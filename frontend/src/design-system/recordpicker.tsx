@@ -104,7 +104,13 @@ export function RecordPicker({
   }, [term, searchTargets]);
 
   return (
-    <div>
+    // A named wrapper, because the search field inside it has to FILL it: the
+    // `.input-icon` shell is an inline-flex, so it sizes to the input's
+    // intrinsic width — about twenty characters — and a placeholder that says
+    // what to search truncated mid-word ("Search your Zalo cor…") while every
+    // sibling on the card ran full width. Fixed here rather than on `.input-icon`
+    // itself, which sits in toolbar rows where shrink-to-fit is what is wanted.
+    <div className="recordpicker">
       <SearchField
         placeholder={label}
         aria-label={label}

@@ -520,8 +520,17 @@ func connectionRow(status, zaloUID string, captureEnabled bool) []any {
 	}
 	return []any{
 		connectionID, callerUserID, status, zaloUID, "Tin Nguyen", captureEnabled,
-		mode, since, nil, "", connectedAt, 0, 1,
+		mode, since, nil, "", connectedAt, 0, nil, 1,
 	}
+}
+
+// backedOffUntil is connectionRow for a member who is currently waiting out a backoff.
+// The column is what the DATABASE answers, not a raw poll_after, so a fixture states the
+// answer rather than a timestamp to be compared.
+func backedOffUntil(row []any, until time.Time) []any {
+	scripted := append([]any(nil), row...)
+	scripted[12] = until
+	return scripted
 }
 
 // withMode is connectionRow under a stated capture mode. It is where a test says

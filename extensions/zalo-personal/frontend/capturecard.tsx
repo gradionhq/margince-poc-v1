@@ -1,23 +1,31 @@
 import { api, QueryStates, throwProblem } from "@margince/frontend/api";
-import { useCan, useCanWrite, useT } from "@margince/frontend/app";
 import {
-  Badge,
+  formatDateTime,
+  useCan,
+  useCanWrite,
+  useLocale,
+  useT,
+} from "@margince/frontend/app";
+import {
   Button,
+  Callout,
   Card,
+  type Choice,
+  ChoiceList,
   EmptyState,
   type Fact,
   FactList,
-  Field,
   RecordPicker,
   type RecordPickerCandidate,
   SectionHeader,
-  Select,
-  type SelectOption,
+  type Token,
+  TokenList,
 } from "@margince/frontend/design-system";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import {
   CONNECTION_OBJECT,
+  type Connection,
   isHeld,
   STATUS_KEY,
   useConnectionStatus,
@@ -234,7 +242,8 @@ export function CaptureCard() {
   // The same query key the connection card reads, so this is the same request
   // and not a second one.
   const status = useConnectionStatus(canRead);
-  if (!canRead || !isHeld(status.data?.connection)) {
+  const connection = status.data?.connection;
+  if (!canRead || !isHeld(connection)) {
     return null;
   }
   return (
@@ -243,12 +252,67 @@ export function CaptureCard() {
         title={t("extZaloPersonal.capture.title")}
         sub={t("extZaloPersonal.capture.sub")}
       />
+      {/* FIRST, because it is what a rep opens this card to find out. "I saved
+          and nothing happened" was a real report about a system working
+          perfectly: the run had drained, found nothing and backed off, and no
+          screen said so. */}
+      <CaptureState connection={connection} />
       <CaptureChoice
         canChoose={canChoose}
-        savedMode={savedShape(status.data?.connection?.capture_mode)}
-        savedCount={status.data?.allowedCount}
+        savedMode={savedShape(connection.capture_mode)}
       />
     </Card>
+  );
+}
+
+/**
+ * Whether capture is actually running, in the words a rep needs.
+ *
+ * `Last checked` is the fact both sibling connectors already render from
+ * `last_polled_at`, and it is deliberately the same convention rather than a
+ * variant: an operator comparing three connector screens should not have to
+ * learn three vocabularies. It is written on every run — including one that found
+ * nothing and one that failed — so a stale value means capture is not running
+ * rather than that nothing arrived.
+ *
+ * `next_check_after` is the state that reads as a broken feature. It is present
+ * only while a quiet-period backoff is still in the future, and the honest thing
+ * to say about it has two halves: nothing is wrong, and saving looks again
+ * sooner. Naming the wait is what stops a rep concluding the connector is dead.
+ */
+function CaptureState({ connection }: Readonly<{ connection: Connection }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  // The READER's own zone: "last checked" is only useful against the clock on the
+  // wall behind them.
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const facts: Fact[] = [];
+  if (connection.last_polled_at) {
+    facts.push({
+      key: "polled",
+      term: t("extZaloPersonal.connection.lastPolled"),
+      value: formatDateTime(connection.last_polled_at, locale, zone),
+    });
+  }
+  return (
+    <>
+      {facts.length > 0 ? <FactList numeric facts={facts} /> : null}
+      {connection.next_check_after ? (
+        <p className="t-caption">
+          {t("extZaloPersonal.capture.waiting", {
+            at: formatDateTime(connection.next_check_after, locale, zone),
+          })}
+        </p>
+      ) : null}
+      {/* The connector's own vocabulary, translated — never Zalo's message. The
+          same `error.<class>` convention the sibling units use, so the four
+          classes the contract enumerates each have a sentence a rep can act on. */}
+      {connection.last_error_class ? (
+        <Callout tone="warn">
+          {t(`extZaloPersonal.error.${connection.last_error_class}`)}
+        </Callout>
+      ) : null}
+    </>
   );
 }
 
@@ -289,11 +353,9 @@ function savedShape(value: unknown): CaptureMode | undefined {
 function CaptureChoice({
   canChoose,
   savedMode,
-  savedCount,
 }: Readonly<{
   canChoose: boolean;
   savedMode?: CaptureMode;
-  savedCount?: number;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -368,11 +430,9 @@ function CaptureChoice({
       <ShapeChoice
         mode={mode}
         canChoose={canChoose && !save.isPending}
-        onChoose={(next) => setPickedMode(asCaptureMode(next))}
+        onChoose={setPickedMode}
       />
-      {mode === undefined ? (
-        <EmptyState>{t("extZaloPersonal.capture.chooseFirst")}</EmptyState>
-      ) : (
+      {mode === undefined ? null : (
         <PeopleSection
           mode={mode}
           roster={roster}
@@ -392,43 +452,55 @@ function CaptureChoice({
         />
       )}
 
-      <FactList facts={[nowFact(t, mode, savedCount)]} />
-      <p>{t("extZaloPersonal.capture.forward")}</p>
-      <p>{t("extZaloPersonal.capture.bothSides")}</p>
-      <p>{t("extZaloPersonal.capture.yours")}</p>
+      {/* THE SAVE SITS WITH WHAT IT SAVES. It used to sit under three paragraphs
+          of prose, which is how a rep ends up scrolling to look for the button
+          that applies the choice they just made.
 
-      {unsaved ? <p>{t("extZaloPersonal.capture.unsaved")}</p> : null}
+          The one fact that survives as prose is here rather than in a block, and
+          it is here because it constrains this button: pressing it changes what
+          happens NEXT and reaches back for nothing. Everything else that block
+          said is now said where it applies — the reach, in the answer's own
+          description; the replies, on the search that names people; whose choice
+          it is, in the card's own subtitle. */}
       {canChoose && mode !== undefined ? (
-        <div className="card-actions">
-          <Button
-            variant="primary"
-            disabled={!unsaved || save.isPending}
-            onClick={() =>
-              save.mutate(
-                // `entries` omitted rather than sent empty when only the shape
-                // changed: a save is one statement about what happens next, and
-                // an empty list is not one of the things being said.
-                entries.length > 0
-                  ? { capture_mode: mode, entries }
-                  : { capture_mode: mode },
-              )
-            }
-          >
-            {t(
-              save.isPending
-                ? "extZaloPersonal.capture.saving"
-                : "extZaloPersonal.capture.save",
-            )}
-          </Button>
-        </div>
+        <>
+          <div className="card-actions">
+            <Button
+              variant="primary"
+              disabled={!unsaved || save.isPending}
+              onClick={() =>
+                save.mutate(
+                  // `entries` omitted rather than sent empty when only the shape
+                  // changed: a save is one statement about what happens next, and
+                  // an empty list is not one of the things being said.
+                  entries.length > 0
+                    ? { capture_mode: mode, entries }
+                    : { capture_mode: mode },
+                )
+              }
+            >
+              {t(
+                save.isPending
+                  ? "extZaloPersonal.capture.saving"
+                  : "extZaloPersonal.capture.save",
+              )}
+            </Button>
+            {unsaved ? (
+              <span className="t-caption">
+                {t("extZaloPersonal.capture.unsaved")}
+              </span>
+            ) : null}
+          </div>
+          <p className="t-caption">{t("extZaloPersonal.capture.saveNote")}</p>
+        </>
       ) : null}
       {/* role="alert": the failure appears after the press that caused it, and a
           member who believes a save landed stops watching for the messages that
           are not arriving. */}
       {save.isError ? (
-        <p role="alert" className="co-error">
+        <Callout tone="danger" live="alert">
           {t("extZaloPersonal.capture.saveFailed")}
-        </p>
+        </Callout>
       ) : null}
     </>
   );
@@ -437,11 +509,17 @@ function CaptureChoice({
 /**
  * The one question, and the warning that belongs to one of its answers.
  *
- * A Select rather than two radio buttons, and the reason is the surface rather
- * than the design: no radio is published to the extension tier, and a unit
- * inventing one would be a second spelling of a control the core already owns.
- * The two options are written as whole sentences, which is what a radio pair
- * would have given for free and what this has to earn in the copy.
+ * BOTH ANSWERS ARE ON SCREEN. They were behind a dropdown, which made a rep open
+ * a menu to find out what the alternative to the chosen shape even was — for a
+ * decision about their own private conversations. Each answer carries what
+ * choosing it does, so the two can be compared without reading anything else.
+ *
+ * The warning is a Callout rather than a paragraph, and `warn` is the tone whose
+ * meaning is exactly this: nothing is wrong yet, and something will go wrong if
+ * you do nothing about it. It is not a modal and not a confirm step — the shape
+ * is a legitimate answer, and a rep who means it should not have to argue with a
+ * dialog. `live="status"` because it appears in response to the choice: a warning
+ * a screen reader never announces is a warning nobody was given.
  */
 function ShapeChoice({
   mode,
@@ -450,35 +528,33 @@ function ShapeChoice({
 }: Readonly<{
   mode?: CaptureMode;
   canChoose: boolean;
-  onChoose: (value: string) => void;
+  onChoose: (value: CaptureMode) => void;
 }>) {
   const t = useT();
   return (
     <>
-      <Field label={t("extZaloPersonal.capture.chooseOne")}>
-        {(control) => (
-          <Select
-            {...control}
-            options={modeOptions(t)}
-            // "" matches no option, so the control's face is the placeholder: a
-            // rep who has not answered is shown that, not one of the answers.
-            value={mode ?? ""}
-            placeholder={t("extZaloPersonal.capture.shapeUnset")}
-            disabled={!canChoose}
-            onChange={onChoose}
-          />
-        )}
-      </Field>
-      {/* DELIBERATELY not a modal and not a confirm step: the shape is allowed,
-          and a rep who means it should not have to argue with a dialog. One
-          sentence, at the moment of choosing, saying what actually happens.
-          role="status" because it appears in response to that choice — a warning
-          a screen reader never announces is a warning nobody was given. */}
+      <ChoiceList
+        // "" for a rep who has not answered: no option carries the dot, so
+        // nothing on screen claims to be the default.
+        value={mode ?? ""}
+        choices={shapeChoices(t)}
+        // The card's own heading asks this question, so asking it again above the
+        // options would be the card naming itself twice. Hidden, not dropped —
+        // the group still needs a name for a reader who cannot see that heading
+        // sitting three lines up.
+        legend={t("extZaloPersonal.capture.title")}
+        hideLegend
+        disabled={!canChoose}
+        onChange={onChoose}
+      />
       {mode === "everyone_except" ? (
-        <p role="status">
-          <Badge tone="warn">{t("extZaloPersonal.capture.warnTag")}</Badge>{" "}
+        <Callout
+          tone="warn"
+          live="status"
+          title={t("extZaloPersonal.capture.warnTag")}
+        >
           {t("extZaloPersonal.capture.warnEveryone")}
-        </p>
+        </Callout>
       ) : null}
     </>
   );
@@ -531,6 +607,9 @@ function PeopleSection({
           canChoose={canChoose && !busy}
           onTakeOff={onTakeOff}
         />
+        {/* Beside the control that names people, because it is about them: a
+            conversation that goes in goes in BOTH ways round. */}
+        <p className="t-caption">{t("extZaloPersonal.capture.bothSides")}</p>
       </QueryStates>
     </>
   );
@@ -558,6 +637,10 @@ function PeopleOnList({
   onTakeOff: (id: string) => void;
 }>) {
   const t = useT();
+  const tokens: Token[] = people.map((person) => ({
+    id: person.id,
+    label: person.name,
+  }));
   if (people.length === 0) {
     // The two empty lists are opposite claims — everything goes in, or nothing
     // does — so they cannot share a sentence.
@@ -572,24 +655,18 @@ function PeopleOnList({
     );
   }
   return (
-    <ul>
-      {people.map((person) => (
-        <li key={person.id}>
-          {person.name}{" "}
-          {canChoose ? (
-            <Button
-              small
-              aria-label={t("extZaloPersonal.capture.removeOne", {
-                name: person.name,
-              })}
-              onClick={() => onTakeOff(person.id)}
-            >
-              {t("extZaloPersonal.capture.remove")}
-            </Button>
-          ) : null}
-        </li>
-      ))}
-    </ul>
+    <TokenList
+      items={tokens}
+      // Each control names its own person: eight buttons all announcing "take
+      // off" tell a reader moving by control nothing about the one they are on.
+      removeLabel={(token) =>
+        t("extZaloPersonal.capture.removeOne", { name: token.label })
+      }
+      // Omitted rather than disabled for a seat that may only read: the tokens
+      // draw with no remove control at all, because a viewer who may not change
+      // a list is not one whose controls are temporarily unavailable.
+      onRemove={canChoose ? onTakeOff : undefined}
+    />
   );
 }
 
@@ -620,33 +697,27 @@ function changedPlacements(
 }
 
 /**
- * The chosen shape, refused rather than coerced.
- *
- * The options come from this file, so a value that is not one of them means the
- * control and the vocabulary have drifted apart — and a silent return would
- * leave the control showing a shape the screen is not in.
- */
-function asCaptureMode(value: string): CaptureMode {
-  if (!isCaptureMode(value)) {
-    throw new Error("the shape picker offered an unknown mode");
-  }
-  return value;
-}
-
-/**
- * The two shapes, each written as a whole thought.
+ * The two shapes, each written as a whole thought, each carrying what choosing it
+ * does.
  *
  * Neither reads as a setting name ("all", "custom"): a rep meets this control
- * once, and a two-word label that needs the heading to make sense is a label
- * they have to decode rather than read.
+ * once, and a two-word label that needs the heading to make sense is a label they
+ * have to decode rather than read. The descriptions are where the REACH of each
+ * answer is stated — which is why the card no longer needs a paragraph saying it
+ * a second time underneath.
  */
-function modeOptions(t: ReturnType<typeof useT>): SelectOption[] {
+function shapeChoices(t: ReturnType<typeof useT>): Choice<CaptureMode>[] {
   return [
     {
       value: "everyone_except",
       label: t("extZaloPersonal.capture.modeEveryone"),
+      description: t("extZaloPersonal.capture.modeEveryoneNote"),
     },
-    { value: "only_chosen", label: t("extZaloPersonal.capture.modeChosen") },
+    {
+      value: "only_chosen",
+      label: t("extZaloPersonal.capture.modeChosen"),
+      description: t("extZaloPersonal.capture.modeChosenNote"),
+    },
   ];
 }
 
@@ -662,47 +733,4 @@ function pickerLabelKey(
   return mode === "everyone_except"
     ? "extZaloPersonal.capture.pickerEveryone"
     : "extZaloPersonal.capture.pickerChosen";
-}
-
-/**
- * What is going into the CRM RIGHT NOW — the saved state, not the draft.
- *
- * The two shapes are not two spellings of one number: `only_chosen` has a count
- * the server keeps, and `everyone_except` has no honest number at all, because
- * "everyone you talk to" is not something either side has counted. Printing a
- * count there would invite a rep to read it as the whole reach of the thing.
- */
-function nowFact(
-  t: ReturnType<typeof useT>,
-  mode: CaptureMode | undefined,
-  savedCount?: number,
-): Fact {
-  const term = t("extZaloPersonal.capture.now");
-  if (mode === undefined) {
-    return {
-      key: "now",
-      term,
-      value: t("extZaloPersonal.capture.nowNothing"),
-    };
-  }
-  if (mode === "everyone_except") {
-    return {
-      key: "now",
-      term,
-      value: t("extZaloPersonal.capture.nowEveryone"),
-      note: t("extZaloPersonal.capture.nowExceptNote"),
-    };
-  }
-  return {
-    key: "now",
-    term,
-    // Absent, the count is a fact the server did not report: read as zero it
-    // would claim "nothing of yours is saved", which is a claim, and a rep who
-    // believes it goes looking for the choices they already made.
-    value:
-      savedCount === undefined
-        ? t("extZaloPersonal.capture.nowUnknown")
-        : String(savedCount),
-    note: savedCount === 0 ? t("extZaloPersonal.capture.nowNone") : undefined,
-  };
 }

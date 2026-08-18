@@ -18,12 +18,6 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// jobWallClock is the `timeout:` api/jobs.yaml declares for this unit's tick. It
-// is restated here because the contract is not readable from Go, and what the
-// assertion below is for is the RELATIONSHIP: a per-member budget that is not a
-// fraction of the job's own clock lets one stalled session spend the whole tick.
-const jobWallClock = 300 * time.Second
-
 // tickRuntime is a job tick's Runtime: unattended, with this member's credential
 // on deposit and their connection scripted.
 func tickRuntime(t *testing.T, rows ...[]any) *fakeRuntime {
@@ -648,8 +642,8 @@ func TestTheDrainIsBoundedByAQuietPeriodAndTheMemberSOwnBudget(t *testing.T) {
 	}
 	// The job's own wall clock is api/jobs.yaml's 300s; one member's turn must be
 	// a fraction of it or the first stalled session spends the whole tick.
-	if perMemberBudget >= jobWallClock {
-		t.Fatalf("one member's budget (%s) is not a sub-budget of the job's own wall clock (%s)", perMemberBudget, jobWallClock)
+	if wallClock := declaredJobTimeout(t); perMemberBudget >= wallClock {
+		t.Fatalf("one member's budget (%s) is not a sub-budget of the job's own wall clock (%s)", perMemberBudget, wallClock)
 	}
 }
 

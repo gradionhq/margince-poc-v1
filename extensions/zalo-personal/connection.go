@@ -45,7 +45,14 @@ const (
 const connectionColumns = `id::text, user_id::text, status, zalo_uid,
 	coalesce(display_name, ''), capture_enabled, coalesce(capture_mode, ''),
 	capture_mode_since, last_polled_at, coalesce(last_error_class, ''), connected_at,
-	idle_streak, version`
+	idle_streak,
+	-- WHETHER THIS MEMBER IS CURRENTLY BACKED OFF, AND UNTIL WHEN, answered by the
+	-- DATABASE rather than handed over as a raw poll_after for a screen to compare
+	-- against its own clock. A poll_after in the past means "due now", and a screen
+	-- doing that arithmetic renders "next check five minutes ago" the first time it
+	-- gets it wrong. Null here means due now; a time means not before then.
+	CASE WHEN poll_after > now() THEN poll_after END,
+	version`
 
 // duePromptly is the ONE spelling of "poll this member on the next tick", and it is
 // one spelling because three different acts mean it: a fresh connect, a save of the
@@ -98,6 +105,16 @@ type connection struct {
 	// installation's to display.
 	LastErrorClass string `json:"last_error_class,omitempty"`
 	ConnectedAt    string `json:"connected_at,omitempty"`
+	// NextCheckAfter is when capture will next look, and it is present ONLY while
+	// this member is actually waiting out a backoff — the database does the
+	// comparison, so absence means "due now" and a time means "not before then".
+	//
+	// IT IS THE STATE THAT LOOKS BROKEN, which is why it is on the wire at all.
+	// Without it a screen cannot tell "checked a moment ago, all quiet" from "not
+	// checking again for fifteen minutes", and the second one is what a rep reads as
+	// a dead feature. A boolean would say which of the two it is and not say
+	// fifteen, which is the part they need.
+	NextCheckAfter string `json:"next_check_after,omitempty"`
 	// IdleStreak is how many consecutive drains produced nothing new, and the only
 	// input to how long this member waits for the next one.
 	//
@@ -122,16 +139,16 @@ type connection struct {
 // type. RFC 3339 is what the contract declares.
 func scanConnection(scan func(...any) error) (connection, error) {
 	var (
-		c                                    connection
-		modeSince, lastPolledAt, connectedAt *time.Time
+		c                                                    connection
+		modeSince, lastPolledAt, connectedAt, nextCheckAfter *time.Time
 	)
 	err := scan(&c.ID, &c.UserID, &c.Status, &c.ZaloUID, &c.DisplayName, &c.CaptureEnabled,
 		&c.CaptureMode, &modeSince, &lastPolledAt, &c.LastErrorClass, &connectedAt,
-		&c.IdleStreak, &c.Version)
+		&c.IdleStreak, &nextCheckAfter, &c.Version)
 	if err != nil {
 		return connection{}, err
 	}
-	c.CaptureModeSince = renderTime(modeSince)
+	c.CaptureModeSince, c.NextCheckAfter = renderTime(modeSince), renderTime(nextCheckAfter)
 	c.LastPolledAt, c.ConnectedAt = renderTime(lastPolledAt), renderTime(connectedAt)
 	// modeFloor keeps the parsed time the filter compares against, so the wire
 	// rendering above and the comparison below cannot disagree about the same column.

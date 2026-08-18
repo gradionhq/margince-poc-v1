@@ -8,7 +8,6 @@ import {
   fireEvent,
   render,
   screen,
-  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ZaloPersonalScreen from "./screen";
@@ -153,22 +152,22 @@ async function openChooser() {
  */
 const PICKER_DEBOUNCE_MS = 1_000;
 
-/** The one control that says what shape the answer takes. */
-function shapeSelect() {
-  return screen.getByRole("combobox", { name: "Choose one of these two" });
+/** One of the two answers, by the sentence a rep reads. */
+function shapeRadio(label: string | RegExp) {
+  return screen.getByRole("radio", { name: label });
 }
 
-/**
- * Pick one of the two shapes, the way a member does.
- *
- * The core's own `pickOption` is not on the published extension surface, so the
- * two steps live here — on the ROLES, so this holds while the control keeps its
- * semantics rather than its markup.
- */
-function chooseShape(label: string) {
-  fireEvent.click(shapeSelect());
-  const listbox = screen.getByRole("listbox");
-  fireEvent.click(within(listbox).getByRole("option", { name: label }));
+/** Which answer currently carries the dot, or "" while nobody has answered. */
+function chosenShape(): string {
+  const chosen = screen
+    .getAllByRole("radio")
+    .find((radio) => radio.matches(":checked"));
+  return chosen?.getAttribute("value") ?? "";
+}
+
+/** Answer the question, the way a rep does: press the sentence. */
+function chooseShape(label: string | RegExp) {
+  fireEvent.click(shapeRadio(label));
 }
 
 /**
@@ -176,7 +175,7 @@ function chooseShape(label: string) {
  *
  * The search is a filter over the roster the screen already holds, so the only
  * wait here is the picker's own debounce — no request is made, which is the
- * property the case at the end of this file asserts.
+ * property one of the cases below asserts.
  */
 async function addPerson(query: string, name: string) {
   fireEvent.change(screen.getByRole("searchbox"), {
@@ -188,7 +187,7 @@ async function addPerson(query: string, name: string) {
   fireEvent.click(screen.getByRole("button", { name }));
 }
 
-/** Take one named person off the list, by the words their button announces. */
+/** Take one named person off the list, by the words their control announces. */
 function takeOff(name: string) {
   fireEvent.click(
     screen.getByRole("button", { name: `Take ${name} off the list` }),
@@ -198,20 +197,6 @@ function takeOff(name: string) {
 /** The save, by the words on it. */
 function saveButton() {
   return screen.getByRole("button", { name: "Save" });
-}
-
-/**
- * What the card says is going into the CRM right now, read from the fact's own
- * row: a bare `getByText("1")` would pass on any stray digit on the screen.
- */
-function nowRow(): string {
-  const row = screen
-    .getByText("Going into the CRM right now")
-    .closest(".factlist-row");
-  if (!row) {
-    throw new Error("the saved-state fact rendered outside a fact row");
-  }
-  return row.textContent ?? "";
 }
 
 /**
@@ -323,14 +308,16 @@ describe("choosing which Zalo conversations go into the CRM", () => {
 
     await openChooser();
 
-    expect(shapeSelect().textContent).toContain("You have not chosen yet");
-    expect(nowRow()).toContain("Nothing — you have not chosen yet");
-    // No list and no search until the shape gives them a meaning.
-    expect(screen.getByText(/Pick one of the two above/)).toBeTruthy();
+    // Both answers are on screen, and NEITHER carries the dot: nothing claims to
+    // be the default, which is the contract's own rule made visible.
+    expect(shapeRadio(/Everyone I talk to/)).toBeTruthy();
+    expect(shapeRadio(/Only the people I choose/)).toBeTruthy();
+    expect(chosenShape()).toBe("");
+    // No list and no search until the answer gives them a meaning.
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
 
-    chooseShape("Only the people I choose");
+    chooseShape(/Only the people I choose/);
     await flush();
 
     expect(screen.getByRole("searchbox")).toBeTruthy();
@@ -358,20 +345,28 @@ describe("choosing which Zalo conversations go into the CRM", () => {
 
     await openChooser();
 
+    // The card's own heading asks the question; the group's legend repeats it
+    // only for assistive tech, which is why this reads the heading by role.
     expect(
-      screen.getByText("Which Zalo conversations go into the CRM?"),
+      screen.getByRole("heading", {
+        name: "Which Zalo conversations go into the CRM?",
+      }),
     ).toBeTruthy();
-    // The shape the server saved, on the control's face rather than guessed.
-    expect(shapeSelect().textContent).toContain("Only the people I choose");
-    fireEvent.click(shapeSelect());
-    const listbox = screen.getByRole("listbox");
+    // BOTH answers readable at rest, each carrying what it does — no menu to
+    // open to discover what the alternative was.
+    expect(chosenShape()).toBe("only_chosen");
     expect(
-      within(listbox).getByRole("option", {
-        name: "Everyone I talk to — except the people I leave out",
+      screen.getByRole("group", {
+        name: "Which Zalo conversations go into the CRM?",
       }),
     ).toBeTruthy();
     expect(
-      within(listbox).getByRole("option", { name: "Only the people I choose" }),
+      shapeRadio(
+        /Everyone I talk to.*Every conversation on this Zalo account goes into the CRM/,
+      ),
+    ).toBeTruthy();
+    expect(
+      shapeRadio(/Only the people I choose.*Nothing goes in until you name/),
     ).toBeTruthy();
     // One search box, not one control per person.
     expect(screen.getAllByRole("searchbox")).toHaveLength(1);
@@ -393,14 +388,18 @@ describe("choosing which Zalo conversations go into the CRM", () => {
       screen.queryByText(/your family, your friends, your doctor/),
     ).toBeNull();
 
-    chooseShape("Everyone I talk to — except the people I leave out");
+    chooseShape(/Everyone I talk to/);
     await flush();
 
-    const warning = screen.getByText(/your family, your friends, your doctor/);
-    expect(warning.textContent).toContain("Careful");
-    expect(warning.textContent).toContain("into the company CRM");
+    // The notice as a whole, so the heading and the sentence are one thing a rep
+    // reads rather than two elements a test happens to find.
+    const warning = screen
+      .getByText(/your family, your friends, your doctor/)
+      .closest(".callout");
+    expect(warning?.textContent).toContain("Careful");
+    expect(warning?.textContent).toContain("into the company CRM");
     // Colleagues reading those chats is the part a rep cannot infer.
-    expect(warning.textContent).toContain("Colleagues who can open the CRM");
+    expect(warning?.textContent).toContain("Colleagues who can open the CRM");
     // The empty list now says the OPPOSITE of what it says in the other shape:
     // nobody left out means everything goes in.
     expect(screen.getByText(/Nobody is left out yet/)).toBeTruthy();
@@ -418,7 +417,7 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     expect(savedDocument(saved?.body)).toEqual({
       capture_mode: "everyone_except",
     });
-    expect(nowRow()).toContain("Everyone you talk to");
+    expect(chosenShape()).toBe("everyone_except");
   });
 
   it("adds somebody through the search, and saves them onto the list", async () => {
@@ -431,7 +430,6 @@ describe("choosing which Zalo conversations go into the CRM", () => {
 
     await openChooser();
     expect(screen.getByText(/Nobody is on the list yet/)).toBeTruthy();
-    expect(nowRow()).toContain("0");
 
     await addPerson("Chi", "Chi Mai");
     await flush();
@@ -440,7 +438,6 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     expect(screen.getByText("People you chose")).toBeTruthy();
     expect(takeOffButton("Chi Mai")).toBeTruthy();
     expect(screen.getByText(/changes that are not saved yet/)).toBeTruthy();
-    expect(nowRow()).toContain("0");
 
     fireEvent.click(saveButton());
     await flush();
@@ -463,21 +460,29 @@ describe("choosing which Zalo conversations go into the CRM", () => {
         },
       ],
     });
-    expect(nowRow()).toContain("1");
+    expect(takeOffButton("Chi Mai")).toBeTruthy();
     expect(screen.queryByText(/changes that are not saved yet/)).toBeNull();
   });
 
-  it("takes somebody off the list, and saves that too", async () => {
-    const modes = new Map([[CONTACT_IDS.mai, "allow"]]);
+  // TWO people on the list, deliberately: with one, a remove control that took
+  // off "whoever is first" would pass every assertion here while being wrong.
+  it("takes off the person its own control names, and saves that too", async () => {
+    const modes = new Map([
+      [CONTACT_IDS.mai, "allow"],
+      [CONTACT_IDS.tuan, "allow"],
+    ]);
     const { calls, fetchStub } = stubTransport(FULL_GRANT, rosterServer(modes));
     vi.stubGlobal("fetch", vi.fn(fetchStub));
 
     await openChooser();
-    expect(nowRow()).toContain("1");
+    expect(takeOffButton("Chi Mai")).toBeTruthy();
+    expect(takeOffButton("Anh Tuan")).toBeTruthy();
 
-    takeOff("Chi Mai");
+    takeOff("Anh Tuan");
     await flush();
-    expect(takeOffQuery("Chi Mai")).toBeNull();
+    expect(takeOffQuery("Anh Tuan")).toBeNull();
+    // The one nobody touched is untouched.
+    expect(takeOffButton("Chi Mai")).toBeTruthy();
 
     fireEvent.click(saveButton());
     await flush();
@@ -490,13 +495,12 @@ describe("choosing which Zalo conversations go into the CRM", () => {
       ).entries,
     ).toEqual([
       {
-        channel_user_id: CONTACT_IDS.mai,
+        channel_user_id: CONTACT_IDS.tuan,
         mode: "none",
-        display_name: "Chi Mai",
+        display_name: "Anh Tuan",
       },
     ]);
-    expect(screen.getByText(/Nobody is on the list yet/)).toBeTruthy();
-    expect(nowRow()).toContain("0");
+    expect(takeOffButton("Chi Mai")).toBeTruthy();
   });
 
   // In everything-except the SAME roster reads the other way round: the list on
@@ -552,9 +556,9 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     await openChooser();
     const before = calls.length;
 
-    chooseShape("Everyone I talk to — except the people I leave out");
+    chooseShape(/Everyone I talk to/);
     await flush();
-    chooseShape("Only the people I choose");
+    chooseShape(/Only the people I choose/);
     await flush();
     await addPerson("Chi", "Chi Mai");
     await flush();
@@ -564,14 +568,14 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     ).toBe(false);
     // No request AT ALL: not a search endpoint, not a re-read of the roster.
     expect(calls).toHaveLength(before);
-    // And the card still reports the saved state rather than the draft.
-    expect(nowRow()).toContain("0");
-    expect(screen.getByText(/Nothing yet/)).toBeTruthy();
+    // And the card still shows the SAVED answer rather than the draft: the
+    // second press put the dot back where the server has it.
+    expect(chosenShape()).toBe("only_chosen");
   });
 
   // The honest limits, in the plain words a rep reads: forward only, both sides,
   // and theirs to take back.
-  it("promises no history, captures both sides, and stays the rep's to undo", async () => {
+  it("keeps every fact the cut had to preserve, beside what it constrains", async () => {
     const { fetchStub } = stubTransport(
       FULL_GRANT,
       rosterServer(new Map([[CONTACT_IDS.mai, "none"]])),
@@ -580,17 +584,18 @@ describe("choosing which Zalo conversations go into the CRM", () => {
 
     await openChooser();
 
+    // Forward-only and no history, beside the button it constrains.
     expect(
-      screen.getByText(/Nothing changes until you press save/),
+      screen.getByText(/Saving changes what happens from then on/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/your earlier conversations are not fetched/),
+      screen.getByText(/Earlier conversations are not fetched/),
     ).toBeTruthy();
-    expect(screen.getByText(/From that same moment/)).toBeTruthy();
-    expect(
-      screen.getByText(/the way it sends it to your other devices/),
-    ).toBeTruthy();
-    expect(screen.getByText(/This stays yours/)).toBeTruthy();
+    // Both sides, beside the control that names people.
+    expect(screen.getByText(/Both sides of a conversation go in/)).toBeTruthy();
+    expect(screen.getByText(/Nothing here reads your phone/)).toBeTruthy();
+    // Theirs to change or take back, in the card's own subtitle.
+    expect(screen.getByText(/Your call, and yours alone/)).toBeTruthy();
   });
 
   // A ROSTER CALL THAT FAILED UPSTREAM. The server degrades to the stored
@@ -665,7 +670,9 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     expect(
       screen.getByRole("button", { name: "Saving…" }).hasAttribute("disabled"),
     ).toBe(true);
-    expect(shapeSelect().hasAttribute("disabled")).toBe(true);
+    expect(
+      shapeRadio(/Only the people I choose/).hasAttribute("disabled"),
+    ).toBe(true);
     // Inert, and still THERE: a rep whose save comes back refused has to be
     // looking at the same search box and the same list they pressed it over.
     expect(screen.getByRole("searchbox").hasAttribute("disabled")).toBe(true);
@@ -699,10 +706,83 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     await openChooser();
 
     expect(screen.getByText("Chi Mai")).toBeTruthy();
-    expect(shapeSelect().hasAttribute("disabled")).toBe(true);
+    expect(
+      shapeRadio(/Only the people I choose/).hasAttribute("disabled"),
+    ).toBe(true);
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(takeOffQuery("Chi Mai")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+  });
+
+  // "I SAVED AND NOTHING HAPPENED" — reported about a system working perfectly:
+  // the run had drained, found nothing and backed off, and no screen said so.
+  // `Last checked` is the fact both sibling connectors already render, and the
+  // wait is the state that reads as a broken feature unless it is named.
+  it("says when it last looked, and names the wait that reads as broken", async () => {
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...rosterServer(new Map([[CONTACT_IDS.mai, "allow"]])),
+      "/ext/zalo-personal/status": () => ({
+        connected: true,
+        session_deposited: true,
+        allowed_count: 1,
+        connection: {
+          ...CONNECTION,
+          capture_enabled: true,
+          capture_mode: "only_chosen",
+          last_polled_at: "2026-08-18T09:14:00Z",
+          next_check_after: "2026-08-18T09:29:00Z",
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+
+    // The sibling connectors' own term, not a variant of it.
+    expect(screen.getByText("Last checked")).toBeTruthy();
+    // Both halves of the honest answer: nothing is wrong, and saving looks again
+    // sooner. Without the second half a rep waits, or reconnects for no reason.
+    const wait = screen.getByText(/All quiet, so the next check/);
+    expect(wait.textContent).toContain("Saving checks again sooner");
+    // Nothing failed, so nothing claims anything did.
+    expect(screen.queryByText(/could not be reached/)).toBeNull();
+  });
+
+  // A failure is reported in the connector's OWN vocabulary — never Zalo's
+  // message — and the two classes below are the two a rep can act on
+  // differently: one needs their phone, the other needs nothing at all.
+  it("says what went wrong last, in words a rep can act on", async () => {
+    const failure = { class: "session_withdrawn" };
+    const { fetchStub } = stubTransport(FULL_GRANT, {
+      ...rosterServer(new Map([[CONTACT_IDS.mai, "allow"]])),
+      "/ext/zalo-personal/status": () => ({
+        connected: true,
+        session_deposited: true,
+        allowed_count: 1,
+        connection: {
+          ...CONNECTION,
+          capture_enabled: true,
+          capture_mode: "only_chosen",
+          last_polled_at: "2026-08-18T09:14:00Z",
+          last_error_class: failure.class,
+        },
+      }),
+    });
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+    expect(
+      screen.getByText(/Scan a new code with your phone to take it up again/),
+    ).toBeTruthy();
+
+    // The other class a rep meets, which asks nothing of them.
+    cleanup();
+    failure.class = "provider_unavailable";
+    await openChooser();
+    expect(
+      screen.getByText(/Zalo could not be reached on the last check/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Scan a new code/)).toBeNull();
   });
 
   // The chooser belongs to an account: beside the invitation to scan, it would
@@ -721,7 +801,9 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     await flush();
 
     expect(
-      screen.queryByText("Which Zalo conversations go into the CRM?"),
+      screen.queryByRole("heading", {
+        name: "Which Zalo conversations go into the CRM?",
+      }),
     ).toBeNull();
     expect(
       calls.some((call) => call.path === "/ext/zalo-personal/contacts"),

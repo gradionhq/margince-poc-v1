@@ -99,10 +99,39 @@ func cadenceAfter(turn pollOutcome, conn connection) (clause string, args []any)
 		[]any{backoffFor(conn.IdleStreak + 1).String()}
 }
 
-// basePollInterval is the cadence api/jobs.yaml declares for this unit's tick,
-// restated because a Go function cannot read the contract. A test parses the
-// fragment and holds the two equal rather than trusting this copy.
-const basePollInterval = 300 * time.Second
+// baseDrainInterval is the SHORTEST GAP BETWEEN TWO DRAINS OF ONE MEMBER: the first
+// rung of the backoff ladder, and the interval a member sits at while their
+// conversations are active.
+//
+// IT IS NOT THE DISPATCHER'S CADENCE, and the rename away from `basePollInterval` is
+// the point rather than tidying. One name for both quantities is what made the
+// dispatcher tick every five minutes: the two costs differ by orders of magnitude — a
+// dispatcher run that finds nobody due is one indexed query, while a drain is a login
+// call plus a TLS and a WebSocket handshake — so a single number could only ever be
+// wrong for one of them. It was wrong for responsiveness, which is what a rep sees.
+//
+// The dispatcher may run as often as it likes; this is what bounds the handshakes. The
+// only relationship the two need is that the dispatcher runs at least as often as this,
+// or a member who is due waits on the schedule instead of on their own backoff — and a
+// test parses api/jobs.yaml and holds exactly that, rather than holding them equal.
+const baseDrainInterval = 300 * time.Second
+
+// saveVisibleWithin is how long a member may wait between saving their choice and
+// capture acting on it. It is a PRODUCT bound, and the only thing the dispatcher's
+// cadence is allowed to be measured against.
+//
+// Saving clears the backoff (duePromptly) precisely so that something happens next.
+// If the dispatcher then ticks less often than this, the member watches nothing happen
+// for minutes and reads a working connector as a broken one — observed in live testing
+// at the old five-minute cadence, where a run arrived four seconds before the member
+// was due and skipped them.
+//
+// IT IS NOT A LOAD SETTING, and that is why it can be this small: handshake volume is
+// bounded by poll_after on each connection row in every case, so a shorter cadence
+// costs one extra indexed query per minute and buys the whole first impression. A test
+// holds the contract's cadence at or under this, because the pressure to "optimise"
+// this number back up will come from somebody reading it as a load setting.
+const saveVisibleWithin = 60 * time.Second
 
 // maxPollBackoff IS A CORRECTNESS BOUND, NOT A TUNING PREFERENCE, and this is the
 // argument for the number.
@@ -119,16 +148,32 @@ const basePollInterval = 300 * time.Second
 // cap sized against three days would lose a quiet member's messages outright if the
 // true window is the hour somebody actually observed.
 //
-// Fifteen minutes, with the invariant that the worst gap between two drains of one
-// member — this cap plus a whole tick's wall clock, for a member polled at the end
-// of one tick and the start of the next — stays at most half of that measured hour.
-// A factor of two under a SINGLE observation is the margin; it is not generous
-// because the observation is not a guarantee.
+// Fifteen minutes, with the invariant that the WORST GAP between two drains of one
+// member stays at most half of that measured hour. That gap is three terms, and the
+// middle one was previously missing:
 //
-// WHOEVER FINALLY MEASURES RETENTION OWNS THIS CONSTANT (issue #1692). If the three
-// days hold up, this can grow by an order of magnitude and the handshake cost this
-// exists to cut mostly disappears. Until then it stays here, and a test holds the
-// invariant above rather than the arithmetic.
+//	maxPollBackoff + dispatcherCadence + jobTimeout
+//
+// — the member's own backoff, then the wait until the next dispatcher run notices they
+// are due, then a whole tick's wall clock for the fairness order to reach them. The old
+// invariant used the wall clock alone and was therefore optimistic by one cadence: at
+// the old 300s dispatcher the real worst gap was 25m, not the 20m it asserted.
+//
+// At a 60s dispatcher it is 15m + 1m + 5m = 21m against a 30m bound, so shortening the
+// dispatcher IMPROVED this margin from 5m of headroom to 9m while changing no handshake
+// volume at all. A factor of two under a SINGLE observation is the margin; it is not
+// generous, because the observation is not a guarantee.
+//
+// THE CEILING STAYS AT FIFTEEN MINUTES ANYWAY, and the new headroom is the reason it
+// can rather than a reason it should. What would have argued for raising it was
+// responsiveness, and responsiveness now comes from the dispatcher instead — so the
+// only thing a bigger cap would buy is fewer handshakes on already-idle members, at the
+// price of spending margin on a number one person measured once. Wrong trade.
+//
+// WHOEVER FINALLY MEASURES RETENTION OWNS THIS CONSTANT. If the three days hold up,
+// this can grow by an order of magnitude and the handshake cost it exists to cut mostly
+// disappears. Until then it stays here, and a test holds the invariant above rather
+// than the arithmetic.
 const maxPollBackoff = 15 * time.Minute
 
 // measuredRetentionFloor is the only retention anybody has observed: one message
@@ -139,7 +184,7 @@ const measuredRetentionFloor = time.Hour
 // backoffFor is how long a member waits after `streak` consecutive drains that
 // produced nothing new.
 //
-// GEOMETRIC FROM THE BASE CADENCE AND CAPPED. Geometric because the question being
+// GEOMETRIC FROM THE BASE DRAIN INTERVAL AND CAPPED. Geometric because the question being
 // answered — "is this person in a conversation right now?" — gets less likely to
 // change the longer the answer has been no, so doubling reaches a useful reduction
 // in a handful of ticks rather than a hundred. Capped because of the paragraph above.
@@ -150,7 +195,7 @@ func backoffFor(streak int) time.Duration {
 	if streak <= 0 {
 		return 0
 	}
-	wait := basePollInterval
+	wait := baseDrainInterval
 	for at := 1; at < streak && wait < maxPollBackoff; at++ {
 		wait *= 2
 	}

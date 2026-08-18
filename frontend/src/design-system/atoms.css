@@ -561,6 +561,15 @@
   gap: 5px;
 }
 
+/* The picker's search field fills the picker: `.input-icon` is an inline-flex, so
+ * left alone it sizes to the input's intrinsic width and clips its own
+ * placeholder. Scoped to this control rather than declared on `.input-icon`,
+ * which also sits in toolbar rows where shrink-to-fit is the point. */
+.recordpicker > .input-icon {
+  display: flex;
+  width: 100%;
+}
+
 /* RecordPicker: a pick is never silent. The current selection shows as an
  * accent-tinted summary that outlives the search results, and the matching
  * option in the live list carries the same pressed treatment as .cf-objchip. */

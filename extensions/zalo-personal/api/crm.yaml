@@ -303,7 +303,29 @@ actions:
                             wherever Zalo's queue still reaches, and one already
                             being captured is unaffected — the floor applies only
                             where nothing has ever been captured yet.
-                        last_polled_at: { type: string, format: date-time }
+                        last_polled_at:
+                          type: string
+                          format: date-time
+                          description: >-
+                            When capture last looked at this account. It is what a
+                            screen renders as "Last checked", and it is written on
+                            every run including one that found nothing and one that
+                            failed — so a stale value here means capture is not
+                            running, not that nothing arrived.
+                        next_check_after:
+                          type: string
+                          format: date-time
+                          description: >-
+                            When capture will next look, and PRESENT ONLY while this
+                            person is waiting out a quiet-period backoff. Absent means
+                            they are due now and will be picked up on the next run.
+                            It is the difference between "checked a moment ago, all
+                            quiet" and "not checking again for a quarter of an hour",
+                            and the second is the state that reads as a broken
+                            feature — so a screen that wants to explain the wait needs
+                            this rather than an inference from `last_polled_at`. The
+                            server decides whether the wait is still in the future;
+                            this is never a time that has already passed.
                         last_error_class:
                           type: string
                           # ENUMERATED rather than described, because a class list a

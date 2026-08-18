@@ -1,0 +1,65 @@
+/* ChoiceList — one question, every answer readable at rest.
+ *
+ * The layout is the whole component: `Radio` already owns the input-and-label
+ * pair (`.checkfield` in atoms.css), so nothing here restates the control's own
+ * surface. What it adds is the stack, the legend's weight, and the two-line
+ * option — the three things ten hand-rolled wrappers each decided differently. */
+
+.choicelist {
+  display: flex;
+  gap: var(--space-2);
+  /* A fieldset carries a browser border and padding of its own, in the
+     platform's idiom rather than ours. */
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* An answer with a help line under it needs a line of its own; a closed set of
+   short labels reads as a range and takes one. */
+.choicelist-stack {
+  flex-direction: column;
+}
+.choicelist-row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  column-gap: var(--space-3);
+}
+/* In a row the legend is its own line above the options rather than the first
+   thing in the row. */
+.choicelist-row > .choicelist-legend {
+  flex-basis: 100%;
+}
+
+/* The question reads as a field label, because that is what it is — the same
+   weight and colour as `.field > label`, so a question and a labelled input in
+   one form do not disagree about which is more important. */
+.choicelist-legend {
+  padding: 0;
+  color: var(--textSecondary);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+/* An option whose label is two lines wants its control at the TOP of them, not
+   floating in the vertical middle of the pair. */
+.choicelist-choice {
+  align-items: start;
+}
+
+.choicelist-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.choicelist-label {
+  color: var(--textPrimary);
+}
+
+/* The consequence of choosing, one step quieter than the answer itself: it is
+   read after the label, never instead of it. */
+.choicelist-note {
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+}
