@@ -99,6 +99,7 @@ func (e *dedupeEnv) as() context.Context {
 			Objects: map[string]principal.ObjectGrant{
 				"person":       {Create: true, Read: true, Update: true},
 				"organization": {Create: true, Read: true, Update: true},
+				"lead":         {Create: true, Read: true, Update: true},
 				"relationship": {Create: true, Read: true},
 			},
 			RowScope: principal.RowScopeAll,
@@ -330,6 +331,7 @@ func (e *dedupeEnv) asOther() context.Context {
 			Objects: map[string]principal.ObjectGrant{
 				"person":       {Create: true, Read: true, Update: true},
 				"organization": {Create: true, Read: true, Update: true},
+				"lead":         {Create: true, Read: true, Update: true},
 				"relationship": {Create: true, Read: true},
 			},
 			RowScope: principal.RowScopeAll,

@@ -49,7 +49,7 @@ func (e *DedupeInputError) FieldFault() (field, code, message string) {
 // DedupeCandidateRow is one queue row as stored.
 type DedupeCandidateRow struct {
 	ID          ids.UUID
-	EntityType  string // person | organization
+	EntityType  string // person | organization | lead
 	LeftID      ids.UUID
 	RightID     ids.UUID
 	Confidence  float64
@@ -120,6 +120,11 @@ func requireDedupeRead(ctx context.Context, entityType string) error {
 			return err
 		}
 	}
+	if entityType == "" || entityType == entityLead {
+		if err := auth.Require(ctx, entityLead, principal.ActionRead); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -143,7 +148,11 @@ func dedupeVisibilityClause(ctx context.Context, arg func(any) int) (string, err
 	if err != nil {
 		return "", err
 	}
-	if personClause == "" && orgClause == "" {
+	leadClause, err := auth.ScopeClauseFor(ctx, entityLead, "vl", arg)
+	if err != nil {
+		return "", err
+	}
+	if personClause == "" && orgClause == "" && leadClause == "" {
 		return "", nil
 	}
 	personOK := sqlAlwaysVisible
@@ -156,8 +165,13 @@ func dedupeVisibilityClause(ctx context.Context, arg func(any) int) (string, err
 		orgOK = fmt.Sprintf(`(EXISTS (SELECT 1 FROM organization vo WHERE vo.id = dedupe_candidate.left_org_id AND %[1]s)
 			AND EXISTS (SELECT 1 FROM organization vo WHERE vo.id = dedupe_candidate.right_org_id AND %[1]s))`, orgClause)
 	}
-	return fmt.Sprintf(`((entity_type = 'person' AND %s) OR (entity_type = 'organization' AND %s))`,
-		personOK, orgOK), nil
+	leadOK := sqlAlwaysVisible
+	if leadClause != "" {
+		leadOK = fmt.Sprintf(`(EXISTS (SELECT 1 FROM lead vl WHERE vl.id = dedupe_candidate.left_lead_id AND %[1]s)
+			AND EXISTS (SELECT 1 FROM lead vl WHERE vl.id = dedupe_candidate.right_lead_id AND %[1]s))`, leadClause)
+	}
+	return fmt.Sprintf(`((entity_type = 'person' AND %s) OR (entity_type = 'organization' AND %s) OR (entity_type = 'lead' AND %s))`,
+		personOK, orgOK, leadOK), nil
 }
 
 // ListDedupeCandidates pages the queue, confidence-sorted (AC-dedupe-1).
@@ -173,7 +187,7 @@ func (s *Store) ListDedupeCandidates(ctx context.Context, in DedupeQueueInput) (
 	}
 
 	query := `
-		SELECT id, entity_type, coalesce(left_person_id, left_org_id), coalesce(right_person_id, right_org_id),
+		SELECT id, entity_type, coalesce(left_person_id, left_org_id, left_lead_id), coalesce(right_person_id, right_org_id, right_lead_id),
 		       confidence, evidence, disposition, disposed_by, disposed_at, created_at
 		FROM dedupe_candidate
 		WHERE disposition = $1 AND archived_at IS NULL`
@@ -258,7 +272,7 @@ func (s *Store) GetDedupeCandidate(ctx context.Context, id ids.UUID) (DedupeCand
 func readDedupeCandidate(ctx context.Context, tx pgx.Tx, id ids.UUID) (DedupeCandidateRow, error) {
 	var r DedupeCandidateRow
 	err := tx.QueryRow(ctx, `
-		SELECT id, entity_type, coalesce(left_person_id, left_org_id), coalesce(right_person_id, right_org_id),
+		SELECT id, entity_type, coalesce(left_person_id, left_org_id, left_lead_id), coalesce(right_person_id, right_org_id, right_lead_id),
 		       confidence, evidence, disposition, disposed_by, disposed_at, created_at
 		FROM dedupe_candidate WHERE id = $1 AND archived_at IS NULL`, id).
 		Scan(&r.ID, &r.EntityType, &r.LeftID, &r.RightID, &r.Confidence,
@@ -339,6 +353,9 @@ func (s *Store) executeDedupeMerge(ctx context.Context, entityType string, loser
 		return err
 	case entityOrganization:
 		_, err := s.MergeOrganization(ctx, ids.From[ids.OrganizationKind](loser), ids.From[ids.OrganizationKind](winner))
+		return err
+	case entityLead:
+		_, err := s.MergeLead(ctx, ids.From[ids.LeadKind](loser), ids.From[ids.LeadKind](winner))
 		return err
 	default:
 		return fmt.Errorf("people: unmergeable entity type %q", entityType)

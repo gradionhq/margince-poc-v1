@@ -2766,6 +2766,7 @@ export const de = {
   "dedupe.right": "Rechts behalten",
   "dedupe.kindPerson": "Person",
   "dedupe.kindOrganization": "Firma",
+  "dedupe.kindLead": "Lead",
   "dedupe.mergeCta": "In Auswahl zusammenführen",
   "dedupe.notDuplicateCta": "Kein Duplikat",
   "dedupe.decided": "Entscheidung gespeichert.",

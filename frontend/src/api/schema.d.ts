@@ -8984,8 +8984,11 @@ export interface components {
         DedupeCandidate: {
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            entity_type: "person" | "organization";
+            /**
+             * @description A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.
+             * @enum {string}
+             */
+            entity_type: "person" | "organization" | "lead";
             /**
              * Format: uuid
              * @description Canonical ordering: left is the lower id — {A,B} and {B,A} are one row.
@@ -25994,7 +25997,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: "open" | "merged" | "not_a_duplicate";
-                entity_type?: "person" | "organization";
+                entity_type?: "person" | "organization" | "lead";
                 /** @description Opaque keyset cursor. */
                 cursor?: string;
                 limit?: number;

@@ -282,6 +282,7 @@ func (e *dedupeEnv) asOwnScoped(other ids.UUID) context.Context {
 			Objects: map[string]principal.ObjectGrant{
 				"person":       {Read: true, Update: true},
 				"organization": {Read: true, Update: true},
+				"lead":         {Read: true, Update: true},
 			},
 			RowScope: principal.RowScopeOwn,
 		},

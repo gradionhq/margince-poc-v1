@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { Button, Radio } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
+import { EntityRef } from "./entityref";
 
 // The dedupe review queue (M4, DH-EXT-1/2): confidence-sorted open pairs
 // with the detection-time evidence the detector actually saw — never
@@ -163,6 +164,14 @@ function CandidateCard({
           {t("dedupe.confidence")} {pct}%
         </span>
       </div>
+      {/* Both records by name, openable — the evidence rows show what the
+          detector saw, and a reviewer often wants to see the whole record
+          before deciding. */}
+      <p className="t-caption dedupe-pair">
+        <EntityRef kind={candidate.entity_type} id={candidate.left_id} />
+        {" · "}
+        <EntityRef kind={candidate.entity_type} id={candidate.right_id} />
+      </p>
       <table className="dedupe-evidence">
         <thead>
           <tr>
@@ -217,8 +226,13 @@ function CandidateCard({
 
 function kindLabel(
   entityType: Candidate["entity_type"],
-): "dedupe.kindPerson" | "dedupe.kindOrganization" {
-  return entityType === "person"
-    ? "dedupe.kindPerson"
-    : "dedupe.kindOrganization";
+): "dedupe.kindPerson" | "dedupe.kindOrganization" | "dedupe.kindLead" {
+  switch (entityType) {
+    case "person":
+      return "dedupe.kindPerson";
+    case "organization":
+      return "dedupe.kindOrganization";
+    case "lead":
+      return "dedupe.kindLead";
+  }
 }
