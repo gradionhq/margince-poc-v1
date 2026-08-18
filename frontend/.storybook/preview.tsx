@@ -11,6 +11,14 @@ import "../src/app.css";
 // them here keeps story renders matching production chrome.
 import "../src/app/shell.css";
 import "../src/design-system/composed.css";
+// atoms.css for the same reason, and it bites hardest: `.card`, `.btn` and the
+// rest are reached BY CLASS from components that import nothing from atoms.tsx
+// — the module whose side-effect import loads this sheet. In the app it is
+// always present; in a story whose module graph stops short of atoms.tsx it was
+// not, and design-system/explain.tsx's popover rendered as unstyled text over
+// the figure it was explaining. Loading it here closes that for the catalog
+// rather than one story at a time.
+import "../src/design-system/atoms.css";
 
 // Theme decorator — sets data-theme on <html>, the same mechanism the shell
 // uses (src/app/shell.tsx), so a story previews in light and dark.
