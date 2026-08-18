@@ -247,15 +247,28 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
 	"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
 	// The dedupe review queue (DH-DDL-1): pair ids are server-derived —
-	// recordDedupeCandidate stamps them from the ensure chokepoint's own
-	// row-scoped fuzzy query, never from a request body; the disposition
-	// endpoints address the candidate row, not the pair ids.
-	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate — the same writer and the same sweep as the person and organization pairs above, choosing the lead columns",
-	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate — the same writer and the same sweep as the person and organization pairs above, choosing the lead columns",
+	// recordDedupeCandidate stamps them from the ensure chokepoint's own fuzzy
+	// query, never from a request body; the disposition endpoints address the
+	// candidate row, not the pair ids.
+	//
+	// The detector is deliberately NOT row-scoped: it filters on the workspace and
+	// archived_at only, so it does pair a caller's record with one they cannot see
+	// — a duplicate you cannot see is still a duplicate, and scoping the detector
+	// would blind it to exactly the pairs worth catching. What keeps such a pair
+	// from being DISCLOSED is the queue read, which requires BOTH sides to pass
+	// the caller's row scope (dedupeVisibilityClause, and EnsureVisible per side
+	// in GetDedupeCandidate). These six entries rest on that read, so nothing here
+	// is licence to relax it, and TestDedupeQueueHides*PairsOutsideTheCallersRowScope
+	// is what holds it for each entity type.
+	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	// The lead pair reaches the same writer, but not from a sweep: fuzzyLead runs
+	// inline in the transaction that writes the lead, so the left id is the row
+	// that transaction just created or updated.
+	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query, inline in the transaction that wrote the lead",
+	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
 	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
 	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
 	// The signature pass's read cursor (PO-F-2a): both ids come from the
