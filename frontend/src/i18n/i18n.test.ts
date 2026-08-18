@@ -43,6 +43,11 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // vocabulary ("email", "mobile"), so there is no literal here to translate
   // and a translation could only rename somebody else's pool.
   "provider.credits.pool",
+  // Employee-count bands: digits and an en dash, the same in every locale.
+  "lead.signal.employees.1-10",
+  "lead.signal.employees.11-50",
+  "lead.signal.employees.51-200",
+  "lead.signal.employees.201+",
   // "Email" is the Vietnamese word for email. de has "E-Mail" and differs;
   // vi does not, and inventing a difference would name the transport
   // something no Vietnamese speaker calls it.

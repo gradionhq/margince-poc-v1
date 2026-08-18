@@ -1546,6 +1546,110 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
     ).toBeTruthy();
   });
 
+  it("shows a manual signal from the breakdown, and lets a rep enter one with a reason", async () => {
+    // S-E13.6 / ADR-0105 §4: the human half of the score. What is set reads
+    // off the decomposition's manual:<factor> row (there is no list endpoint);
+    // a new one is entered with a band, a kind and a written reason.
+    let putBody: unknown = null;
+    stubFetchWithMe(async (url, method, request) => {
+      if (method === "PUT" && url.includes("/manual-signals")) {
+        putBody = JSON.parse(await request.text());
+        return jsonResponse({
+          factor: "employees",
+          band: "51-200",
+          points: 8,
+          signal_kind: "assumption",
+          reason: "Their careers page lists ~80 open roles",
+          set_by: "u-9",
+          set_at: "2026-06-04T00:00:00Z",
+        });
+      }
+      if (url.includes("/users")) {
+        return jsonResponse({
+          data: [{ id: "u-9", email: "lena@x.test", display_name: "Lena F." }],
+          page: { next_cursor: null },
+        });
+      }
+      if (url.includes("/score")) {
+        return jsonResponse({
+          score: 12,
+          explained: true,
+          current: {
+            score: 12,
+            score_computed: 12,
+            raw_sum: 12,
+            rounded_sum: 12,
+            computed_at: "2026-06-04T00:00:00Z",
+            factors: [
+              {
+                factor: "manual:budget_hint",
+                points: 4,
+                signal_kind: "fact",
+                reason: "CFO named a Q4 line item",
+                set_by: "u-9",
+              },
+            ],
+          },
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("CFO named a Q4 line item")).toBeTruthy(),
+    );
+
+    await userEvent.click(screen.getByLabelText("Factor"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Employees" }),
+    );
+    await userEvent.click(screen.getByLabelText("Value"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "51–200" }),
+    );
+    await userEvent.click(screen.getByLabelText("This is a…"));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "assumption" }),
+    );
+    const save = screen.getByRole("button", { name: "Add to the score" });
+    expect((save as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(
+      screen.getByLabelText("Why (recorded with the score)"),
+      "Their careers page lists ~80 open roles",
+    );
+    await userEvent.click(save);
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect(putBody).toEqual({
+      factor: "employees",
+      band: "51-200",
+      signal_kind: "assumption",
+      reason: "Their careers page lists ~80 open roles",
+    });
+  });
+
+  it("a closed lead shows its manual signals read-only, with the reason", async () => {
+    stubFetchWithMe(async (url) => {
+      if (url.includes("/score")) {
+        return jsonResponse({ score: 0, explained: false });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "disqualified",
+        archived_at: "2026-06-20T08:00:00Z",
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+    await waitFor(() =>
+      expect(screen.getByText("What you know about this lead")).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Add to the score" }),
+    ).toBeNull();
+    expect(
+      screen.getAllByText("This lead is closed and takes no changes.").length,
+    ).toBeGreaterThan(0);
+  });
+
   it("never prints an absent source into the sentence about it", async () => {
     // The suite let this ship: a lead with no source interpolated the missing
     // value and rendered "Came in as undefined" at a rep.
