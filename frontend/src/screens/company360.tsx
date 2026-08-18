@@ -2244,6 +2244,9 @@ export function StateStrip({
   // is readable rather than guessable — and guessing is how a grant boundary
   // gets reported as an account nobody has assessed.
   const healthWithheld = view != null && omitted(view, "health");
+  const lifecycle = lifecycleLabel(strip.account.lifecycle);
+  const relationships =
+    types.length > 0 ? relationshipLabels(types) : undefined;
   return (
     // The region's name, and the page rhythm under it, are the SCREEN's to set;
     // the plate inside is the shared primitive's. Keeping them in two elements
@@ -2258,8 +2261,13 @@ export function StateStrip({
             open with them just because it also has money to report. */}
         <StatCard
           label={t("co.strip.account")}
-          value={lifecycleLabel(strip.account.lifecycle)}
-          detail={types.length > 0 ? relationshipLabels(types) : undefined}
+          value={lifecycle}
+          // The relationship types qualify the lifecycle; they do not restate
+          // it. An account whose lifecycle is "customer" and whose types also
+          // say "customer" was drawing the same word twice in one slot, which
+          // reads as a second reading that happens to agree rather than as one
+          // reading with nothing to add.
+          detail={relationships === lifecycle ? undefined : relationships}
         />
         <PipelineCard commercial={strip.commercial} locale={locale} t={t} />
         {/* Expected close is a prospect's question — how soon a deal not yet

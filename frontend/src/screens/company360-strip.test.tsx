@@ -242,3 +242,54 @@ describe("a slot with no reading says which absence it is", () => {
     expect(within(plate).queryByText("0 of 3 rated")).toBeNull();
   });
 });
+
+// The relationship types qualify the lifecycle; they do not restate it. An
+// account that IS a customer and also carries the customer relationship type was
+// drawing the same word twice in one slot, which reads as two readings that
+// happen to agree rather than as one reading with nothing to add.
+//
+// Both label functions come from the caller, so the fixtures below map the wire
+// enum the way production does — a test whose two labels could never collide
+// could not see the defect at all.
+describe("the account slot does not say the same word twice", () => {
+  const titleCase = (value: string) =>
+    value.charAt(0).toUpperCase() + value.slice(1);
+  const renderWithRealLabels = (section: StateStripSection) =>
+    render(
+      <QueryClientProvider
+        client={
+          new QueryClient({ defaultOptions: { queries: { retry: false } } })
+        }
+      >
+        <LocaleProvider initial="en">
+          <StateStrip
+            orgId="o-1"
+            view={view({ state_strip: section })}
+            lifecycleLabel={titleCase}
+            relationshipLabels={(values) => values.map(titleCase).join(" · ")}
+          />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+  it("drops a relationship detail that only repeats the lifecycle", async () => {
+    stubFinance(NO_CONNECTION);
+    renderWithRealLabels({
+      ...prospect,
+      account: { lifecycle: "customer", relationship_types: ["customer"] },
+    });
+    const { plate } = await readings();
+    expect(within(plate).getAllByText("Customer")).toHaveLength(1);
+  });
+
+  it("keeps a relationship detail that adds something", async () => {
+    stubFinance(NO_CONNECTION);
+    renderWithRealLabels({
+      ...prospect,
+      account: { lifecycle: "customer", relationship_types: ["partner"] },
+    });
+    const { plate } = await readings();
+    expect(within(plate).getByText("Customer")).toBeTruthy();
+    expect(within(plate).getByText("Partner")).toBeTruthy();
+  });
+});

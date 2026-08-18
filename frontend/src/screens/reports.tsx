@@ -213,8 +213,18 @@ export function ForecastTile({
       {amounts.length === 0 && (
         <p className="t-mono t-display">{MONEY_ABSENT}</p>
       )}
-      {amounts.map((amount) => (
-        <div key={amount.currency ?? MONEY_ABSENT}>
+      {amounts.map((amount, index) => (
+        // Each currency's raw figure and its weighted line are ONE reading, and
+        // the air between readings is what says so. Stacked flush, a tile
+        // holding two currencies reads as four numbers in a column rather than
+        // as two answers — and the currency symbol alone is a thin thing to
+        // hang that distinction on. Inline rather than a class because this
+        // screen has no stylesheet of its own, and a class with no home is
+        // styled only by whichever sheet a sibling screen happened to load.
+        <div
+          key={amount.currency ?? MONEY_ABSENT}
+          style={index > 0 ? { marginTop: "var(--space-2)" } : undefined}
+        >
           <p className="t-mono t-display">
             {formatMoneyOrAbsent(amount.rawMinor, amount.currency, locale)}
           </p>
