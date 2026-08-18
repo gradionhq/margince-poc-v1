@@ -33,9 +33,9 @@ func (e *storeEnv) telegramActivity(t *testing.T) ids.ActivityID {
 	t.Helper()
 	act := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity (id, workspace_id, kind, channel_provider, source, captured_by)
-		 VALUES ($1, $2, 'message', 'telegram', 'connector:telegram', 'human:x')`,
-		act, e.ws); err != nil {
+		`INSERT INTO activity (id, kind, channel_provider, source, captured_by)
+		 VALUES ($1, 'message', 'telegram', 'connector:telegram', 'human:x')`,
+		act); err != nil {
 		t.Fatal(err)
 	}
 	return act

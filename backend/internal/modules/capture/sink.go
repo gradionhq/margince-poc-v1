@@ -356,9 +356,8 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	occurredAt := fields.OccurredAt
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (workspace_id, kind, channel_provider, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, $10, NULLIF($11, ''), NULLIF($12, ''), $13, $14)
+		INSERT INTO activity (kind, channel_provider, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested)
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, $10, NULLIF($11, ''), NULLIF($12, ''), $13, $14)
 		ON CONFLICT (source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
@@ -437,8 +436,8 @@ func (s *Sink) linkActivity(ctx context.Context, tx pgx.Tx, activityID ids.Activ
 			return fmt.Errorf("capture: link target %s %s: %w", link.Type, link.ID, err)
 		}
 		if _, err := tx.Exec(ctx, fmt.Sprintf(`
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, %s)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`, column),
+			INSERT INTO activity_link (activity_id, entity_type, %s)
+			VALUES ($1, $2, $3)`, column),
 			activityID, string(link.Type), link.ID); err != nil {
 			return fmt.Errorf("capture: linking activity: %w", err)
 		}

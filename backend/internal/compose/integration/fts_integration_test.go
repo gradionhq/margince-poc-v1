@@ -58,9 +58,9 @@ func TestSearchFoldsAccentsAndStemsByLanguage(t *testing.T) {
 	// German stemming: an activity captured as language=de matches the
 	// singular query against its plural body.
 	activityID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, body, language, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Unterlagen', 'Bitte die Verträge prüfen', 'de', now(), 'manual', 'human:x')`,
-		activityID, e.WS)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, body, language, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Unterlagen', 'Bitte die Verträge prüfen', 'de', now(), 'manual', 'human:x')`,
+		activityID)
 	page, err = searchStore.Search(admin, search.Input{Query: "Vertrag", Types: []string{"activity"}})
 	if err != nil {
 		t.Fatalf("search activities: %v", err)

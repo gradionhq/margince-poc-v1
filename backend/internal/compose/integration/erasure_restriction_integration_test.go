@@ -59,21 +59,21 @@ func seedRestrictionFixture(t *testing.T, e *Env) restrictionFixture {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, raw, counterparty_email, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'email', 'Angebot 2026-0042', 'Our offer, as discussed.', '{"provider":"payload"}'::jsonb,
+			`INSERT INTO activity (id, kind, subject, body, raw, counterparty_email, occurred_at, source, captured_by)
+			 VALUES ($1, 'email', 'Angebot 2026-0042', 'Our offer, as discussed.', '{"provider":"payload"}'::jsonb,
 			         'held@example.test', now() - interval '400 days', 'manual', 'human:x')`, f.email); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'note', 'Internal jotting', 'Chase them next week.', now() - interval '400 days', 'manual', 'human:x')`,
+			`INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, 'note', 'Internal jotting', 'Chase them next week.', now() - interval '400 days', 'manual', 'human:x')`,
 			f.note); err != nil {
 			return err
 		}
 		for _, a := range []ids.UUID{f.email, f.note} {
 			if _, err := tx.Exec(ctx,
-				`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-				 VALUES (`+ws+`, $1, 'person', $2)`, a, f.person); err != nil {
+				`INSERT INTO activity_link (activity_id, entity_type, person_id)
+				 VALUES ( $1, 'person', $2)`, a, f.person); err != nil {
 				return err
 			}
 		}
@@ -594,10 +594,9 @@ func TestAControllerPinsCorrespondenceTheDerivationCannotSee(t *testing.T) {
 	e := Setup(t)
 	supplierMail := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		_, err := tx.Exec(context.Background(),
-			`INSERT INTO activity (id, workspace_id, kind, subject, body, counterparty_email, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'email', 'Lieferschein 88-2026', 'Delivery note attached.', 'supplier@parts.test',
+			`INSERT INTO activity (id, kind, subject, body, counterparty_email, occurred_at, source, captured_by)
+			 VALUES ($1, 'email', 'Lieferschein 88-2026', 'Delivery note attached.', 'supplier@parts.test',
 			         now() - interval '30 days', 'manual', 'human:x')`, supplierMail)
 		return err
 	}); err != nil {

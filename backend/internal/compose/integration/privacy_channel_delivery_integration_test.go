@@ -78,18 +78,16 @@ func seedChannelDelivery(t *testing.T, e *Env, age, body, status string, person 
 	out := channelDelivery{person: person, activity: ids.NewV7(), delivery: ids.NewV7()}
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, channel_provider, body, direction, occurred_at,
-			                      source, captured_by, source_system, source_id)
-			VALUES ($1, `+wsClause+`, 'message', 'telegram', $2, 'outbound', now() - $3::interval,
+			INSERT INTO activity (id, kind, channel_provider, body, direction, occurred_at, source, captured_by, source_system, source_id)
+			VALUES ($1, 'message', 'telegram', $2, 'outbound', now() - $3::interval,
 			        'connector:telegram', 'human:x', 'telegram', $4)`,
 			out.activity, body, age, out.activity.String()); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			 VALUES (`+wsClause+`, $1, 'person', $2)`, out.activity, person); err != nil {
+			`INSERT INTO activity_link (activity_id, entity_type, person_id)
+			 VALUES ( $1, 'person', $2)`, out.activity, person); err != nil {
 			return err
 		}
 		// cc and references_chain are named as NULL for the reason

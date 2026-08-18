@@ -24,8 +24,7 @@ var retentionSelectors = map[string]string{
 		  AND full_name IS DISTINCT FROM 'Anonymized Lead'
 		  AND created_at < now() - make_interval(days => $1) LIMIT $2`,
 	"activity/": `SELECT a.id FROM activity a
-		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND a.archived_at IS NULL
+		WHERE a.archived_at IS NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
 		  ` + correspondenceFloorPredicate(3, 4) + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
@@ -36,8 +35,7 @@ var retentionSelectors = map[string]string{
 		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
 		LIMIT $2`,
 	"activity/transcript": `SELECT a.id FROM activity a
-		WHERE a.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND a.source_system = 'transcript' AND a.body IS NOT NULL
+		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
 		  ` + correspondenceFloorPredicate(3, 4) + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l

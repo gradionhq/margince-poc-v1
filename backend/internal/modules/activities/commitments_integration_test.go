@@ -147,14 +147,13 @@ func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenDealID ids.UUID)
 		VALUES ($1, $2, $3, $4, $5, $6, 'seed', 'system')`,
 		hiddenDealID, hiddenDealName, orgID, e.other, pipelineID, stageID)
 
-	e.exec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at,
-			assignee_id, is_done, source, captured_by)
-		VALUES ($1, $2, 'task', 'Renew the Zeta contract', now(), now() - interval '2 days',
-			$3, false, 'seed', 'system')`, taskID, e.ws, e.rep)
-	e.exec(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, $3, 'person', $4)`, ids.NewV7(), e.ws, taskID, personID)
-	e.exec(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, $3, 'deal', $4)`, ids.NewV7(), e.ws, taskID, hiddenDealID)
+	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, assignee_id, is_done, source, captured_by)
+		VALUES ($1, 'task', 'Renew the Zeta contract', now(), now() - interval '2 days',
+			$2, false, 'seed', 'system')`, taskID, e.rep)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id)
+		VALUES ($1, $2, 'person', $3)`, ids.NewV7(), taskID, personID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, deal_id)
+		VALUES ($1, $2, 'deal', $3)`, ids.NewV7(), taskID, hiddenDealID)
 	return taskID, hiddenDealID
 }
 
@@ -216,12 +215,11 @@ func TestNarrowingToAnUnreadableRecordAnswersNotFound(t *testing.T) {
 		hiddenProjectID, hiddenProjectNam, orgID, e.other)
 	// The task is assigned to the CALLER, so nothing about the task itself is
 	// what hides it — only the project the sweep is narrowed to.
-	e.exec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at,
-			assignee_id, is_done, source, captured_by)
-		VALUES ($1, $2, 'task', 'Ship the Zeta rollout', now(), now(), $3, false, 'seed', 'system')`,
-		taskID, e.ws, e.rep)
-	e.exec(t, `INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, project_id)
-		VALUES ($1, $2, $3, 'project', $4)`, ids.NewV7(), e.ws, taskID, hiddenProjectID)
+	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, assignee_id, is_done, source, captured_by)
+		VALUES ($1, 'task', 'Ship the Zeta rollout', now(), now(), $2, false, 'seed', 'system')`,
+		taskID, e.rep)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, project_id)
+		VALUES ($1, $2, 'project', $3)`, ids.NewV7(), taskID, hiddenProjectID)
 
 	projectType := "project"
 	_, _, err := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).ListOpenTasks(e.as(), ListOpenTasksInput{

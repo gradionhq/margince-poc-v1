@@ -82,9 +82,9 @@ func setupBrief(t *testing.T) *briefEnv {
 
 	// Deal A's overnight change: one linked activity before the clock
 	// (no previous run → the overnight window is all-time).
-	b.activityOnA = integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'reply arrived', '2026-06-04T01:00:00Z', 'manual', 'human:x')`, e.WS)
-	integration.LinkActivity(t, owner, e.WS, b.activityOnA, "deal", b.dealA)
+	b.activityOnA = integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'reply arrived', '2026-06-04T01:00:00Z', 'manual', 'human:x')`)
+	integration.LinkActivity(t, owner, b.activityOnA, "deal", b.dealA)
 	return b
 }
 
@@ -359,9 +359,9 @@ func TestBriefActedAndDismissedItemsLeaveTheNextQueue(t *testing.T) {
 	// A dismissed deal reappears only when it materially changed: a new
 	// linked activity after the mark makes Deal B re-eligible; Deal A
 	// (acted, unchanged) stays out.
-	fresh := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'they came back', '2026-06-04T10:00:00Z', 'manual', 'human:x')`, b.WS)
-	integration.LinkActivity(t, owner, b.WS, fresh, "deal", b.dealB)
+	fresh := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'they came back', '2026-06-04T10:00:00Z', 'manual', 'human:x')`)
+	integration.LinkActivity(t, owner, fresh, "deal", b.dealB)
 
 	reranked, err := b.engine.Rank(b.repCtx, nextClock)
 	if err != nil {

@@ -40,10 +40,9 @@ func replayCtx(e *integration.Env) context.Context {
 func seedReplayableMail(t *testing.T, e *integration.Env, sourceID, raw string) ids.UUID {
 	t.Helper()
 	owner := integration.OwnerConn(t)
-	id := integration.SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, direction, source_system, source_id, source, captured_by)
-		VALUES ($1, $2, 'email', 'Q3 terms', '2026-08-01T09:00:00Z', 'inbound',
-		        'gmail', '`+sourceID+`', 'gmail:`+sourceID+`', 'connector:gmail')`, e.WS)
+	id := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source_system, source_id, source, captured_by)
+		VALUES ($1, 'email', 'Q3 terms', '2026-08-01T09:00:00Z', 'inbound',
+		        'gmail', '`+sourceID+`', 'gmail:`+sourceID+`', 'connector:gmail')`)
 	if _, err := owner.Exec(context.Background(), `
 		INSERT INTO raw_capture (source_system, source_id, payload)
 		VALUES ('gmail', $1, to_jsonb($2::text))`, sourceID, raw); err != nil {

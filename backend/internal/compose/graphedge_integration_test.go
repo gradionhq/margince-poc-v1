@@ -47,8 +47,8 @@ func (v edgeEnv) interaction(t *testing.T, user ids.UUID, person ids.PersonID, a
 	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES (
 			        'email', 'Betreff', $1, $2, 'manual', 'human:test')
 			RETURNING id`, direction, at).Scan(&activityID); err != nil {
 			return err
@@ -58,14 +58,14 @@ func (v edgeEnv) interaction(t *testing.T, user ids.UUID, person ids.PersonID, a
 			userRole = "to"
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, $3)`,
 			activityID, user, userRole); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, $3)`,
 			activityID, person, personRole)
 		return err
 	}); err != nil {
@@ -380,8 +380,8 @@ func TestOneMessageCountsOnceHoweverManyRolesItNames(t *testing.T) {
 	activityID := v.interaction(t, v.e.Rep1, contact, now.AddDate(0, 0, -1), "outbound", "to")
 	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'cc')`,
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'cc')`,
 			activityID, contact)
 		return err
 	}); err != nil {

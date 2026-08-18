@@ -123,7 +123,6 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 	if in.OccurredAt != nil {
 		occurredAt = in.OccurredAt.UTC()
 	}
-	wsID := workspaceID(ctx)
 
 	replay, err := replayedActivity(ctx, tx, in)
 	if err != nil {
@@ -135,14 +134,14 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 
 	id := ids.New[ids.ActivityKind]()
 	_, err = tx.Exec(ctx,
-		`INSERT INTO activity (id, workspace_id, kind, channel_provider, subject, body, occurred_at, direction,
+		`INSERT INTO activity (id, kind, channel_provider, subject, body, occurred_at, direction,
 		                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by,
 		                       thread_key, counterparty_email, counterparty_outbound_attested)
-		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NULLIF($17, ''),
-		         NULLIF($18, ''), $19)`,
+		 VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULLIF($16, ''),
+		         NULLIF($17, ''), $18)`,
 		// NULLIF on channel_provider: the column FKs into channel_provider, and
 		// '' names no provider, so anything without a transport stores NULL.
-		id, wsID, in.Kind, in.ChannelProvider, in.Subject, in.Body, occurredAt, in.Direction,
+		id, in.Kind, in.ChannelProvider, in.Subject, in.Body, occurredAt, in.Direction,
 		in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by,
 		in.ThreadKey, in.CounterpartyEmail, in.CounterpartyOutboundAttested)
 	if err != nil {
@@ -152,7 +151,7 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 		return crmcontracts.Activity{}, false, err
 	}
 
-	if err := insertActivityLinks(ctx, tx, wsID, id, in.Links); err != nil {
+	if err := insertActivityLinks(ctx, tx, id, in.Links); err != nil {
 		return crmcontracts.Activity{}, false, err
 	}
 	// Who was in it (ACT-DDL-3). After the links, because the counterparty is
@@ -191,8 +190,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 	var existing ids.ActivityID
 	err := tx.QueryRow(ctx,
 		`SELECT id FROM activity
-		   WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		     AND source_system = $1 AND source_id = $2`,
+		   WHERE source_system = $1 AND source_id = $2`,
 		*in.SourceSystem, *in.SourceID).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
@@ -319,7 +317,7 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	return activities, page, nil
 }
 
-const activityColumns = `a.id, a.workspace_id, a.kind, a.channel_provider, a.subject, a.body, a.occurred_at, a.direction,
+const activityColumns = `a.id, a.kind, a.channel_provider, a.subject, a.body, a.occurred_at, a.direction,
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at,
 	a.thread_key, a.capture_label, a.bulk_mail_attested`
@@ -421,14 +419,14 @@ func attachLinks(ctx context.Context, tx pgx.Tx, activities []crmcontracts.Activ
 
 func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	var a crmcontracts.Activity
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var assigneeID *ids.UUID
 	var kind string
 	var channelProvider, direction, meetingStatus, threadKey, captureLabel *string
 	var bulkMailAttested bool
 	var version int64
 
-	err := row.Scan(&id, &wsID, &kind, &channelProvider, &a.Subject, &a.Body, &a.OccurredAt, &direction,
+	err := row.Scan(&id, &kind, &channelProvider, &a.Subject, &a.Body, &a.OccurredAt, &direction,
 		&a.DueAt, &a.RemindAt, &assigneeID, &a.IsDone, &a.DoneAt, &a.DurationSeconds, &meetingStatus,
 		&a.SourceSystem, &a.SourceId, &a.Source, &a.CapturedBy, &version, &a.CreatedAt, &a.UpdatedAt, &a.ArchivedAt,
 		&threadKey, &captureLabel, &bulkMailAttested)

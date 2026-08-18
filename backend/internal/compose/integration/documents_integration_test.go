@@ -332,12 +332,12 @@ func seedActivityWithDeal(t *testing.T, e *Env, deal ids.UUID) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	e.WsExec(t, `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'Contract', $3::timestamptz, 'manual', 'human:test')`,
-		id, e.WS, activityOccurredAt)
+		INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Contract', $2::timestamptz, 'manual', 'human:test')`,
+		id, activityOccurredAt)
 	e.WsExec(t, `
-		INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, 'deal', $3)`, e.WS, id, deal)
+		INSERT INTO activity_link (activity_id, entity_type, deal_id)
+		VALUES ( $1, 'deal', $2)`, id, deal)
 	return id
 }
 

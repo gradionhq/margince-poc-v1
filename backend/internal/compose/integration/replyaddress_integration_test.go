@@ -36,9 +36,9 @@ type replyParty struct {
 func seedReplyThread(t *testing.T, e *Env, direction string, parties ...replyParty) ids.ActivityID {
 	t.Helper()
 	owner := OwnerConn(t)
-	activity := SeedRow(t, owner, `
-		INSERT INTO activity (id, workspace_id, kind, direction, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', '`+direction+`', 'Kickoff', now(), 'test', 'human:seed')`, e.WS)
+	activity := SeedIDRow(t, owner, `
+		INSERT INTO activity (id, kind, direction, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', '`+direction+`', 'Kickoff', now(), 'test', 'human:seed')`)
 	for _, p := range parties {
 		var userID *ids.UUID
 		if p.ours {
@@ -46,9 +46,9 @@ func seedReplyThread(t *testing.T, e *Env, direction string, parties ...replyPar
 			userID = &id
 		}
 		e.WsExec(t, `
-			INSERT INTO activity_participant (id, workspace_id, activity_id, role, person_id, user_id, address)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			ids.NewV7(), e.WS, activity, p.role, p.person, userID, p.address)
+			INSERT INTO activity_participant (id, activity_id, role, person_id, user_id, address)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			ids.NewV7(), activity, p.role, p.person, userID, p.address)
 	}
 	return ids.From[ids.ActivityKind](activity)
 }

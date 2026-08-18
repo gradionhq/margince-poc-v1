@@ -257,9 +257,9 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 	// Only the warm contact has qualifying interactions inside the §4 window,
 	// so the ranking has one honest answer rather than a tie.
 	for _, direction := range []string{"inbound", "outbound"} {
-		activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`, e.WS)
-		integration.LinkActivity(t, owner, e.WS, activity, "person", warm)
+		activity := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+			VALUES ($1, 'email', 'terms', '2026-05-30T09:00:00Z', '`+direction+`', 'manual', 'human:x')`)
+		integration.LinkActivity(t, owner, activity, "person", warm)
 	}
 	signal := seedOpenSignal(t, owner, org)
 
@@ -321,9 +321,9 @@ func TestOrganizationGraphCitesAnOrganizationSubjectSignal(t *testing.T) {
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
 	employ(t, e, contact, org, "cto")
-	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
-	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
+	activity := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`)
+	integration.LinkActivity(t, owner, activity, "person", contact)
 	signal := seedOrgSubjectSignal(t, owner, org)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
@@ -351,9 +351,9 @@ func TestOrganizationGraphReportsNoIntroPathWithoutAnOpenSignal(t *testing.T) {
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
 	employ(t, e, contact, org, "cto")
-	activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
-	integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
+	activity := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`)
+	integration.LinkActivity(t, owner, activity, "person", contact)
 
 	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {

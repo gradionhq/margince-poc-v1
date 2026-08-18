@@ -55,12 +55,10 @@ func (e *sendEnv) seedSentEmail(t *testing.T, threadKey string) ids.ActivityID {
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction,
-		                      source_system, source_id, source, captured_by, thread_key,
-		                      counterparty_email)
-		VALUES ($1, $2, 'email', 'Re: pricing', now(), 'outbound',
-		        'gmail', $3, 'manual', 'human:x', NULLIF($4, ''), $5)`,
-		id, e.ws, mintedIdentity, threadKey, counterparty); err != nil {
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email)
+		VALUES ($1, 'email', 'Re: pricing', now(), 'outbound',
+		        'gmail', $2, 'manual', 'human:x', NULLIF($3, ''), $4)`,
+		id, mintedIdentity, threadKey, counterparty); err != nil {
 		t.Fatalf("seeding the sent email: %v", err)
 	}
 	return id

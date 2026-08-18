@@ -38,15 +38,14 @@ func (e *dedupeEnv) seedInteraction(t *testing.T, personID ids.PersonID, at time
 	ctx := e.as()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, direction, occurred_at,
-			                      source_system, source_id, source, captured_by)
-			VALUES ($1, $2, 'email', 'Hallo', $3, $4, 'gmail', $5, 'gmail:seed', 'connector:gmail')`,
-			id, e.ws, direction, at, id.String()); err != nil {
+			INSERT INTO activity (id, kind, subject, direction, occurred_at, source_system, source_id, source, captured_by)
+			VALUES ($1, 'email', 'Hallo', $2, $3, 'gmail', $4, 'gmail:seed', 'connector:gmail')`,
+			id, direction, at, id.String()); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES ($1, $2, 'person', $3)`, e.ws, id, personID)
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, id, personID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding an interaction: %v", err)

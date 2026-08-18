@@ -333,11 +333,11 @@ func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, activityID 
 	}
 	personID = canonical
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		SELECT $1, $2, 'person', $3
+		INSERT INTO activity_link (activity_id, entity_type, person_id)
+		SELECT $1, 'person', $2
 		WHERE NOT EXISTS (
-			SELECT 1 FROM activity_link WHERE activity_id = $2 AND entity_type = 'person' AND person_id = $3)`,
-		workspaceID(ctx), activityID, personID); err != nil {
+			SELECT 1 FROM activity_link WHERE activity_id = $1 AND entity_type = 'person' AND person_id = $2)`,
+		activityID, personID); err != nil {
 		return fmt.Errorf("people: linking activity to person: %w", err)
 	}
 	return namePersonAmongParticipants(ctx, tx, activityID, personID)

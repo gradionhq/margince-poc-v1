@@ -188,9 +188,9 @@ func seedAccount(t *testing.T, e *integration.Env, owner *pgx.Conn, name string,
 		contact := e.SeedPerson(t, name+" contact", &e.Rep1)
 		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
 			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, contact, org)
-		activity := integration.SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			VALUES ($1, $2, 'email', 'touch', '2026-05-28T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
-		integration.LinkActivity(t, owner, e.WS, activity, "person", contact)
+		activity := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+			VALUES ($1, 'email', 'touch', '2026-05-28T09:00:00Z', 'inbound', 'manual', 'human:x')`)
+		integration.LinkActivity(t, owner, activity, "person", contact)
 
 		deal := e.SeedDeal(t, name+" deal", pipeline, stage, &e.Rep1)
 		e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org)

@@ -147,8 +147,8 @@ func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t 
 		t.Fatal(err)
 	}
 	if _, err := e.Owner.Exec(context.Background(), `
-		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, 'person', $3)`, e.WS, activityID, foreign); err != nil {
+		INSERT INTO activity_link (activity_id, entity_type, person_id)
+		VALUES ( $1, 'person', $2)`, activityID, foreign); err != nil {
 		t.Fatal(err)
 	}
 
