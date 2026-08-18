@@ -99,8 +99,8 @@ func insertLoggedParticipant(ctx context.Context, tx pgx.Tx, activityID ids.Acti
 	// operation. Guarding here rather than pre-checking also avoids a race
 	// with a member being archived between the check and the insert.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO activity_participant (workspace_id, activity_id, user_id, person_id, role)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4
+		INSERT INTO activity_participant (activity_id, user_id, person_id, role)
+		SELECT $1, $2, $3, $4
 		 WHERE $2::uuid IS NULL
 		    OR EXISTS (SELECT 1 FROM app_user u WHERE u.id = $2)
 		ON CONFLICT DO NOTHING`, activityID, userID, personID, role); err != nil {

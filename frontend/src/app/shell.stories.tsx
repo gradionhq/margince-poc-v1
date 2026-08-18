@@ -14,6 +14,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { Card } from "../design-system/atoms";
 import {
   installFetchStub,
   jsonResponse,
@@ -109,7 +110,7 @@ export const Default: Story = {
         <SeedInstallation>
           <ShellExample>
             <div className="wrap">
-              <div className="card">Content</div>
+              <Card as="div">Content</Card>
             </div>
           </ShellExample>
         </SeedInstallation>
@@ -359,7 +360,7 @@ function PhoneSectionExample() {
         <PageHead route={route} section={SETTINGS_SECTION} />
         <div className="scroll">
           <div className="wrap">
-            <div className="card">Content</div>
+            <Card as="div">Content</Card>
           </div>
         </div>
       </main>

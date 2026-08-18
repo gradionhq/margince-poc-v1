@@ -230,7 +230,7 @@ func carryLeadActivities(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, pers
 func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, mergeFields map[string]any, active []fieldcatalog.Column) (crmcontracts.Person, error) {
 	now := time.Now().UTC()
 	tag, err := tx.Exec(ctx,
-		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3
+		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3, `+firstResponseSet+`
 		 WHERE id = $1 AND archived_at IS NULL`,
 		id, personID, now)
 	if err != nil {

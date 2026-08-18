@@ -215,8 +215,12 @@ icon-lint:
 ## ds-spacing — spacing gate: no NEW raw-px margin/padding/gap, in inline styles
 ## (*.tsx) or in stylesheets (*.css outside the design-system tier, which defines
 ## the scale). Diff-scoped vs origin/main; use the --space-* scale or a layout class.
+## check-ds-spacing.test.sh runs beside it because the gate reports success both
+## when it inspected everything and when its pathspecs reached nothing: the census
+## is the only thing that can tell those two apart.
 ds-spacing:
 	frontend/scripts/check-ds-spacing.sh
+	bash frontend/scripts/check-ds-spacing.test.sh
 
 ## space-tokens — every --space-* token a stylesheet USES is DEFINED. An
 ## undefined custom property resolves to nothing rather than to a smaller
@@ -314,6 +318,7 @@ fe-ds-gates:
 	frontend/scripts/check-font-lock.sh
 	frontend/scripts/check-icon-glyph.sh
 	frontend/scripts/check-ds-spacing.sh
+	bash frontend/scripts/check-ds-spacing.test.sh
 	frontend/scripts/check-space-tokens.sh
 	frontend/scripts/check-native-controls.sh
 	frontend/scripts/check-ext-imports.sh
@@ -491,16 +496,20 @@ check-craft-doc:
 ## secret-scan — no hardcoded credential reaches main: gitleaks over a clean
 ## `git archive HEAD` export, policy in .gitleaks.toml. Scans the COMMITTED
 ## tree, not the working tree, so a sibling worktree or a local .env.local
-## cannot change the verdict (gitleaks does not honour .gitignore). Needs
-## gitleaks on PATH (`brew install gitleaks`); CI's secret-scan job runs this
-## same target against a version- and checksum-pinned binary.
+## cannot change the verdict (gitleaks does not honour .gitignore).
+## Needs nothing installed: scripts/gitleaks-pin.sh fetches and checksum-verifies
+## the one pinned binary, so CI's secret-scan job and a laptop run the same
+## scanner and therefore reach the same verdict.
 secret-scan:
 	@./scripts/secret-scan.sh
 
-## test-secret-scan — prove the secret gate still catches: plant a token in
-## each file .gitleaks.toml exempts and require the scan to fail anyway. An
-## over-broad allowlist reports "no leaks found" exactly like a clean tree, so
-## the policy is only trustworthy with this beside it.
+## test-secret-scan — prove the secret gate still catches. The plants are
+## DERIVED from .gitleaks.toml: every allowlist owes one token of each rule it
+## targets, in a file its own paths cover, plus one of a rule it does not — so
+## it proves the exemption covers the line it names rather than the file, and
+## an allowlist added tomorrow is gated without anyone remembering to add a
+## case. An over-broad allowlist reports "no leaks found" exactly like a clean
+## tree, so the policy is only trustworthy with this beside it.
 test-secret-scan:
 	@./scripts/test-secret-scan.sh
 

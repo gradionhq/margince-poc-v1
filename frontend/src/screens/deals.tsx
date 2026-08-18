@@ -38,15 +38,17 @@ import {
 import { type ListChip, ListSurface } from "../design-system/listsurface";
 import type { ListColumn } from "../design-system/listtable";
 import { Select } from "../design-system/select";
-import { AutonomyDot } from "../design-system/trust";
+import { AutonomyDot, ProvenanceTag } from "../design-system/trust";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { approvalKindLabel } from "./approvalkind";
 import { ArchiveAction } from "./archive";
 import {
   LoadMoreButton,
   OverlayUnavailable,
   problemMessageOf,
+  provenanceOf,
   QueryGate,
   QueryStates,
   throwProblem,
@@ -1548,6 +1550,7 @@ function DealApprovals({
 }>) {
   const t = useT();
   const tierMap = useAgentTierMap();
+  const viewerId = useViewerId();
   if (approvals.length === 0) {
     return null;
   }
@@ -1564,8 +1567,16 @@ function DealApprovals({
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <AutonomyDot tier={approvalDotTier(approval.kind, tierMap)} />
-            <span className="t-label">{approval.kind}</span>
-            <span className="t-small">{approval.proposed_by}</span>
+            {/* The same two facts the approvals inbox states, said the same
+                way. Printed off the wire they read `advance_deal` and
+                `agent:capture` — the vocabulary the API speaks, on a page
+                whose reader never sees the API. */}
+            <span className="t-label">
+              {approvalKindLabel(approval.kind, t)}
+            </span>
+            <ProvenanceTag
+              provenance={provenanceOf(approval.proposed_by, viewerId)}
+            />
           </div>
           <div className="approval-gate">
             <Button

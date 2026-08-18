@@ -43,24 +43,24 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 			direction = "outbound"
 		}
 		occurred := now.AddDate(0, 0, -(5 + i*3))
-		activity := SeedRow(t, owner, fmt.Sprintf(
-			`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
-			 VALUES ($1, $2, 'email', 'touch', '%s', '%s', 'manual', 'human:x')`,
+		activity := SeedIDRow(t, owner, fmt.Sprintf(
+			`INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by)
+			 VALUES ($1, 'email', 'touch', '%s', '%s', 'manual', 'human:x')`,
 			occurred.Format(time.RFC3339), direction,
-		), e.WS)
+		))
 		if _, err := owner.Exec(context.Background(),
-			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, 'person', $3)`,
-			e.WS, activity, person); err != nil {
+			`INSERT INTO activity_link (activity_id, entity_type, person_id) VALUES ( $1, 'person', $2)`,
+			activity, person); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// A lead with its own linked activity: never an input (ADR-0008).
 	lead := SeedRow(t, owner, `INSERT INTO lead (id, workspace_id, full_name, email, source, captured_by) VALUES ($1, $2, 'Cold Lead', 'cold@lead.test', 'import', 'human:x')`, e.WS)
-	leadTouch := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by) VALUES ($1, $2, 'email', 'lead touch', now(), 'inbound', 'manual', 'human:x')`, e.WS)
+	leadTouch := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by) VALUES ($1, 'email', 'lead touch', now(), 'inbound', 'manual', 'human:x')`)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, lead_id) VALUES ($1, $2, 'lead', $3)`,
-		e.WS, leadTouch, lead); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, lead_id) VALUES ( $1, 'lead', $2)`,
+		leadTouch, lead); err != nil {
 		t.Fatal(err)
 	}
 

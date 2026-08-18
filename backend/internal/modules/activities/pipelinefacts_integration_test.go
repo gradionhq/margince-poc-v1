@@ -110,12 +110,11 @@ func (e *factsEnv) seed(t *testing.T, row capturedRow) ids.UUID {
 	}
 	email := "sender-" + id.String() + "@outside.test"
 	e.exec(t, `
-		INSERT INTO activity (id, workspace_id, kind, occurred_at, source, captured_by,
-		                      counterparty_email, archived_at, channel_provider)
-		VALUES ($1, $2, $3, now(), 'test', $4, $5,
-		        CASE WHEN $6 THEN now() ELSE NULL END,
-		        CASE WHEN $3 = 'message' THEN 'telegram' ELSE NULL END)`,
-		id, e.ws, row.kind, capturedBy, email, row.archived)
+		INSERT INTO activity (id, kind, occurred_at, source, captured_by, counterparty_email, archived_at, channel_provider)
+		VALUES ($1, $2, now(), 'test', $3, $4,
+		        CASE WHEN $5 THEN now() ELSE NULL END,
+		        CASE WHEN $2 = 'message' THEN 'telegram' ELSE NULL END)`,
+		id, row.kind, capturedBy, email, row.archived)
 	if row.undecidedSender {
 		e.exec(t, `
 			INSERT INTO capture_pending_counterparty (id, owner_id, email, status, activity_id)
@@ -125,8 +124,8 @@ func (e *factsEnv) seed(t *testing.T, row capturedRow) ids.UUID {
 		person := ids.NewV7()
 		e.exec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
 			VALUES ($1, $2, 'Linked Person', 'test', 'connector:gmail')`, person, e.ws)
-		e.exec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			VALUES ($1, $2, 'person', $3)`, e.ws, id, person)
+		e.exec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
+			VALUES ( $1, 'person', $2)`, id, person)
 	}
 	return id
 }
@@ -209,8 +208,8 @@ func TestReadingPipelineFactsTakesTheRowScopeNotJustTheGrant(t *testing.T) {
 	person := ids.NewV7()
 	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by, owner_id)
 		VALUES ($1, $2, 'Theirs', 'test', 'connector:gmail', $3)`, person, e.ws, other)
-	e.exec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-		VALUES ($1, $2, 'person', $3)`, e.ws, id, person)
+	e.exec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
+		VALUES ( $1, 'person', $2)`, id, person)
 
 	// The allow arm over the same seed: unbounded scope reads it. Without this,
 	// a link that failed to land would make the refusal below meaningless.

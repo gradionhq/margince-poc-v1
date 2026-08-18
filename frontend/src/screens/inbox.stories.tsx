@@ -35,6 +35,11 @@ const base: Approval = {
   created_at: "2026-07-05T05:00:00Z",
 } as Approval;
 
+// Each fixture carries its own drafted subject, because the subject is now the
+// card's headline: derived rows that all inherited `base`'s made the Decided
+// story three copies of one sentence — the sameness the headline change exists
+// to remove, reproduced in the catalog that documents it.
+//
 // A pending row that expires comfortably in the future, so the live countdown
 // chip renders a stable value under the story's real clock.
 const pendingSoon: Approval = {
@@ -49,6 +54,7 @@ const expiredRow: Approval = {
   id: "ap-expired",
   kind: "advance_deal",
   summary: "Lapsed before anyone acted",
+  proposed_change: { ...base.proposed_change, subject: "Move PIM to Proposal" },
   status: "expired",
   expires_at: "2026-07-01T00:00:00Z",
 } as Approval;
@@ -58,6 +64,10 @@ const approvedRow: Approval = {
   id: "ap-approved",
   kind: "promote_lead",
   summary: "Committed last Tuesday",
+  proposed_change: {
+    ...base.proposed_change,
+    subject: "Promote Kilian Wenzel to a contact",
+  },
   status: "approved",
   decided_at: "2026-07-06T09:00:00Z",
 } as Approval;
@@ -67,8 +77,32 @@ const rejectedRow: Approval = {
   id: "ap-rejected",
   kind: "send_email",
   summary: "Declined — off-brand",
+  proposed_change: {
+    ...base.proposed_change,
+    subject: "Q3 price list — the new tiers",
+  },
   status: "rejected",
   decided_at: "2026-07-06T10:00:00Z",
+} as Approval;
+
+// A held draft, whose summary the server composes out of the addressee alone —
+// five staged drafts to the same counterparties read as one sentence. The
+// subject the automation wrote is what tells them apart, so it leads the card
+// and the summary explains it underneath.
+const heldDraft: Approval = {
+  ...base,
+  id: "ap-held",
+  kind: "held_draft",
+  summary:
+    "an automation drafted a reply to Anna Weber — read it before it goes",
+  proposed_change: {
+    anchor_activity_id: "018f3a1b-0000-7000-8000-000000000010",
+    to: "anna@example.com",
+    subject: "Re: kickoff — the two dates that work",
+    body: "Hi Anna — here is what we agreed.",
+    consent_purpose: "business_correspondence",
+    intent: "recap the meeting",
+  },
 } as Approval;
 
 function statusOf(url: string): string | null {
@@ -153,6 +187,12 @@ type Story = StoryObj<typeof InboxScreen>;
 // AC-1 (pending): the live countdown chip + the full decision cluster.
 export const Pending: Story = {
   render: inbox({ byStatus: { pending: [pendingSoon] } }),
+};
+
+// The subject-led card: the drafted subject as the headline, the server's
+// summary demoted to the why line under it.
+export const SubjectLedDraft: Story = {
+  render: inbox({ byStatus: { pending: [heldDraft] } }),
 };
 
 // AC-1 (decided): approved + rejected + the salvaged expired row, read-only.

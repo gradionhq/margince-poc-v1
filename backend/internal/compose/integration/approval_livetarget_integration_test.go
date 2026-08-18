@@ -148,8 +148,8 @@ func TestAStagedApprovalStopsBeingDecidableOnceItsTargetIsArchived(t *testing.T)
 func seedUnlinkedActivity(t *testing.T, e *Env, subject string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
-	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, source, captured_by)
-		VALUES ($1, $2, 'note', $3, 'manual', 'human:fixture')`, id, e.WS, subject)
+	e.WsExec(t, `INSERT INTO activity (id, kind, subject, source, captured_by)
+		VALUES ($1, 'note', $2, 'manual', 'human:fixture')`, id, subject)
 	return id
 }
 

@@ -36,6 +36,9 @@ const (
 	leadSourceColumn  = "source"
 	createdAtColumn   = "created_at"
 	updatedAtColumn   = "updated_at"
+	// lastActivityColumn is the timeline clock person and organization carry
+	// (DM-VOCAB-1/2), maintained in the schema on the activity-link write.
+	lastActivityColumn = "last_activity_at"
 )
 
 // leadListFields is the lead list's core sortable vocabulary. Every column
@@ -83,6 +86,9 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 			}
 			if in.Source != nil {
 				where = append(where, storekit.SQLf(leadSourceColumn+" = $%d", arg(*in.Source)))
+			}
+			if in.SLAState != nil {
+				where = append(where, slaStateClause(*in.SLAState, arg))
 			}
 			return where, nil
 		},

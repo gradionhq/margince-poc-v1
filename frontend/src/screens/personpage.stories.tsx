@@ -18,8 +18,17 @@ import {
 } from "./persondrawers";
 import { PersonMemory } from "./personmemory";
 import { PersonPageV2 } from "./personpage";
+import {
+  completedProviderRun,
+  providerCompletedProfile,
+} from "./personprovider.fixtures";
 import { PersonRail } from "./personrail";
 import { PersonStrip } from "./personstrip";
+import {
+  PersonDealsTab,
+  PersonMeetingsTab,
+  PersonTimelineTab,
+} from "./persontabs";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
 import {
@@ -183,6 +192,21 @@ const populated: View = {
   commercial: {
     role: "champion",
     committee: [],
+  },
+  // The server sends this section whenever the grant admits it, empty rows
+  // and all — so a fixture without it is a payload no permitted reader ever
+  // receives, and the Deals tab would read as "could not be loaded".
+  deal_roles: {
+    data: [
+      {
+        relationship_id: "r-1",
+        deal_id: "d-1",
+        deal_title: "Fleet retrofit, 40 vehicles",
+        deal_stage: "Proposal",
+        role: "champion",
+      },
+    ],
+    page: { has_more: false },
   },
   next_meeting: {
     activity_id: "a-2",
@@ -501,6 +525,7 @@ const nothingNeededMoment: components["schemas"]["PersonMoment"] = {
 // only place it renders.
 const withheld: View = {
   ...populated,
+  deal_roles: undefined,
   last_inbound_at: undefined,
   last_outbound_at: undefined,
   activities: undefined,
@@ -509,6 +534,7 @@ const withheld: View = {
   sections_omitted: [
     "last_touch",
     "activities",
+    "deal_roles",
     "commercial",
     "next_meeting",
     "consent",
@@ -1426,73 +1452,6 @@ export const ResearchDrawer: Story = {
 // empty, so none of emails/mobiles/employment/job history/location/
 // departments/seniorities, nor the EnrichNow button, ever render without
 // this fixture.
-const completedRun: components["schemas"]["ProviderRun"] = {
-  id: "run-1",
-  subject_kind: "person",
-  person_id: "p-1",
-  provider: "surfe",
-  trigger: "manual",
-  state: "completed",
-  skip_reason: null,
-  connection_version: 1,
-  configuration_snapshot: {
-    mode: "on_demand",
-    preset: "professional_only",
-    automatic_individual_create: true,
-    automatic_import: false,
-    categories: { email: true, mobile: true },
-  },
-  requested_categories: ["email", "mobile"],
-  reservations: [{ pool: "email", reserved_credits: 1, actual_credits: 1 }],
-  claims_unwritten: false,
-  submitted_at: "2026-08-12T09:00:00Z",
-  completed_at: "2026-08-12T09:02:00Z",
-  safe_status_code: null,
-  created_at: "2026-08-12T09:00:00Z",
-  updated_at: "2026-08-12T09:02:00Z",
-};
-
-const providerCompleted: components["schemas"]["PersonProviderProfile"] = {
-  state: "completed",
-  provider: "surfe",
-  retrieved_at: "2026-08-12T09:02:00Z",
-  safe_status_code: null,
-  // Both categories were asked for and both came back, so nothing here is
-  // reported as skipped: `mobile_phones` below is populated, and claiming it
-  // as "not requested" beside a value the run actually returned would say
-  // two contradictory things about the same run.
-  categories_not_requested: [],
-  emails: [
-    {
-      value: "dana.buyer@surfe.example",
-      email_type: "professional",
-      email_type_source: "provider",
-      validation_status: "valid",
-    },
-  ],
-  mobile_phones: [{ value: "+491701234567", confidence: 0.82 }],
-  linkedin_url: "https://linkedin.com/in/danabuyer",
-  current_employment: {
-    company_name: "Brandt Automotive GmbH",
-    company_domain: "brandt-automotive.example",
-    job_title: "Head of Fleet",
-  },
-  job_history: [
-    {
-      company_name: "Voss Logistics",
-      job_title: "Fleet Coordinator",
-      started_at: "2018-01-01T00:00:00Z",
-      ended_at: "2022-02-01T00:00:00Z",
-    },
-  ],
-  location: "Munich, Germany",
-  city: "Munich",
-  region: "Bavaria",
-  country: "DE",
-  departments: ["Operations"],
-  seniorities: ["Head"],
-  latest_run: completedRun,
-};
 
 export const ResearchDrawerProviderCompleted: Story = {
   render: () => {
@@ -1510,7 +1469,7 @@ export const ResearchDrawerProviderCompleted: Story = {
         <PersonResearchDrawer
           personId="p-1"
           personName="Dana Buyer"
-          providerProfile={providerCompleted}
+          providerProfile={providerCompletedProfile}
           open
           onClose={() => {}}
         />
@@ -1521,10 +1480,10 @@ export const ResearchDrawerProviderCompleted: Story = {
 
 // A run still moving: RunWatch polls `GET .../enrichment-runs/{run_id}`
 // while `isRunning` holds, and the badge reads "In progress" rather than any
-// terminal word: a state `providerNotConnected` and `providerCompleted`
+// terminal word: a state `providerNotConnected` and `providerCompletedProfile`
 // above never reach.
 const inProgressRun: components["schemas"]["ProviderRun"] = {
-  ...completedRun,
+  ...completedProviderRun,
   id: "run-2",
   state: "in_progress",
   completed_at: null,
@@ -1580,7 +1539,7 @@ export const ResearchDrawerProviderRunning: Story = {
 // (provider-status.ts's PROFILE_TONE) rather than the neutral or success one
 // every other provider fixture here shows.
 const failedRun: components["schemas"]["ProviderRun"] = {
-  ...completedRun,
+  ...completedProviderRun,
   id: "run-3",
   state: "failed",
   completed_at: "2026-08-13T09:05:00Z",
@@ -1685,4 +1644,60 @@ export const ProviderNotConfigured: Story = {
       </StoryProviders>
     );
   },
+};
+
+// --- The tabs beside Overview -----------------------------------------------
+//
+// Each of the three reads the SAME 360 the overview reads, so a tab can never
+// show a record the tab beside it is withholding. Both fixtures are rendered
+// for each: what a permitted reader sees, and what a reader whose grant does
+// not reach the section sees — the withheld half is the one a stubbed empty
+// state would silently misreport as "there is none".
+
+export const TabTimeline: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonTimelineTab personId="p-1" view={populated} />
+    </StoryProviders>
+  ),
+};
+
+export const TabTimelineWithheld: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonTimelineTab personId="p-1" view={withheld} />
+    </StoryProviders>
+  ),
+};
+
+export const TabDeals: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonDealsTab view={populated} />
+    </StoryProviders>
+  ),
+};
+
+export const TabDealsWithheld: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonDealsTab view={withheld} />
+    </StoryProviders>
+  ),
+};
+
+export const TabMeetings: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonMeetingsTab view={populated} />
+    </StoryProviders>
+  ),
+};
+
+export const TabMeetingsWithheld: Story = {
+  render: () => (
+    <StoryProviders>
+      <PersonMeetingsTab view={withheld} />
+    </StoryProviders>
+  ),
 };

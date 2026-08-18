@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
 	"github.com/gradionhq/margince/backend/internal/platform/config"
+	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
@@ -63,6 +64,15 @@ type workerConfig struct {
 	logLevel             string
 	logFormat            string
 	observeAddr          string
+	// posture is what MARGINCE_ENV says this deployment is, read ONCE here
+	// (OPS-CFG-2). It selects the configuration overlay and which license
+	// authorities are honoured; it decides nothing destructive — see
+	// shared/runtimeenv.
+	posture runtimeenv.Environment
+	// unknownVars are the MARGINCE_* variables found in the environment that
+	// this role does not read; reported once the logger exists. See the api's
+	// copy for why the reporting is deferred.
+	unknownVars []string
 }
 
 // workerFlagSet registers this role's flags and their environment bindings,
@@ -134,8 +144,10 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	if err != nil {
 		return workerConfig{}, err
 	}
-	// An undescribable surface fails the boot rather than the generator.
-	if _, err := workerConfigItems(fs, env); err != nil {
+	// An undescribable surface fails the boot rather than the generator, and
+	// the same registry is what names the variables this role does not read.
+	registry, err := workerConfigItems(fs, env)
+	if err != nil {
 		return workerConfig{}, err
 	}
 	if err := fs.Parse(args); err != nil {
@@ -146,6 +158,9 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	// in its usage output, and these values are DSNs, signing keys, OAuth client
 	// secrets and bearer tokens — see internal/platform/cliflags.
 	env.Apply(fs, config.FromOS)
+	// After Apply, so the report describes the environment the role consulted.
+	cfg.unknownVars = registry.Undeclared(config.Environ())
+	cfg.posture = runtimeenv.Parse(config.FromOS(runtimeenv.EnvVar))
 	if cfg.dsn == "" {
 		return workerConfig{}, errors.New("worker: --dsn or MARGINCE_DSN required")
 	}

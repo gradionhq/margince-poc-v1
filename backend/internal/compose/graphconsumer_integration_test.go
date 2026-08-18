@@ -47,21 +47,20 @@ func seedExchange(t *testing.T, e *integration.Env, person ids.UUID) ids.UUID {
 	var id ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (`+ws+`, 'email', 'Alt', 'inbound', now() - interval '1 day', 'manual', 'human:test')
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES ( 'email', 'Alt', 'inbound', now() - interval '1 day', 'manual', 'human:test')
 			RETURNING id`).Scan(&id); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (`+ws+`, $1, $2, 'to')`, id, e.Rep1); err != nil {
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, 'to')`, id, e.Rep1); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (`+ws+`, $1, $2, 'from')`, id, person)
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'from')`, id, person)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding an exchange: %v", err)

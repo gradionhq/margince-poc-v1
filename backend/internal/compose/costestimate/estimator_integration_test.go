@@ -190,8 +190,8 @@ func (e *estEnv) insertCall(t *testing.T, c callRow) {
 func (e *estEnv) insertLabeledActivity(t *testing.T, ws ids.UUID) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO activity (workspace_id, kind, source, captured_by, capture_labeled_at)
-		VALUES ($1, 'email', 'gmail', 'system', $2)`, ws, inWindow); err != nil {
+		INSERT INTO activity (kind, source, captured_by, capture_labeled_at)
+		VALUES ( 'email', 'gmail', 'system', $1)`, inWindow); err != nil {
 		t.Fatal(err)
 	}
 }

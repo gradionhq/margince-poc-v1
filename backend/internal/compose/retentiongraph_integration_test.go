@@ -56,10 +56,9 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 		var id ids.UUID
 		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 			ctx := context.Background()
-			ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 			if err := tx.QueryRow(ctx, `
-				INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-				VALUES (`+ws+`, 'email', 'Alt', $1, $2, 'manual', 'human:test')
+				INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+				VALUES ( 'email', 'Alt', $1, $2, 'manual', 'human:test')
 				RETURNING id`, direction, at).Scan(&id); err != nil {
 				return err
 			}
@@ -68,13 +67,13 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 				userRole = "to"
 			}
 			if _, err := tx.Exec(ctx, `
-				INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-				VALUES (`+ws+`, $1, $2, $3)`, id, e.Rep1, userRole); err != nil {
+				INSERT INTO activity_participant (activity_id, user_id, role)
+				VALUES ( $1, $2, $3)`, id, e.Rep1, userRole); err != nil {
 				return err
 			}
 			_, err := tx.Exec(ctx, `
-				INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-				VALUES (`+ws+`, $1, $2, $3)`, id, contact, personRole)
+				INSERT INTO activity_participant (activity_id, person_id, role)
+				VALUES ( $1, $2, $3)`, id, contact, personRole)
 			return err
 		}); err != nil {
 			t.Fatalf("seeding an interaction: %v", err)

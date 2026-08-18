@@ -12,6 +12,7 @@ import { Button } from "../design-system/atoms";
 import {
   type ListChip,
   type ListColumn,
+  type ListSelection,
   ListTable as ListSurface,
   type ListView,
 } from "../design-system/listtable";
@@ -195,10 +196,13 @@ export function ListTable<Row>({
   showArchivedToggle = true,
   tools,
   body,
+  selection,
 }: Readonly<{
   state: ListState<Row>;
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /** Row selection for a bulk action — see the design-system ListTable. */
+  selection?: ListSelection<Row>;
   /**
    * A second view of the same query, rendered instead of the grid while the
    * surface keeps its search, chips, views and page-size dial — see the
@@ -433,6 +437,7 @@ export function ListTable<Row>({
       // The unit key names the table for the widths it remembers.
       widthsKey={unit}
       body={body}
+      selection={selection}
       pending={isPending}
       problem={problem}
     />

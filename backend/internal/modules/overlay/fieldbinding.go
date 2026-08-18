@@ -131,6 +131,10 @@ func mirrorStructuralBindings() []FieldBinding {
 			Reason: "Derived from captured interactions; the mirror holds no interaction history.",
 		},
 		{
+			WireSlot: "last_activity_at", Disposition: DispositionNativeOnly,
+			Reason: "Derived from this installation's own timeline; the mirror holds no interaction history.",
+		},
+		{
 			WireSlot: "merged_into_id", Disposition: DispositionNativeOnly,
 			Reason: "Merge is a native operation over native rows; a mirrored record is never merged away.",
 		},

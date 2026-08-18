@@ -5,7 +5,6 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
-import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Avatar,
   Badge,
@@ -38,7 +37,6 @@ import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
 import {
   coldFieldLabel,
-  LoadMoreButton,
   problemMessageOf,
   provenanceOf,
   QueryGate,
@@ -102,8 +100,7 @@ import {
   profileFieldClaim,
 } from "./evidenceverdict";
 import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
-import { changeTimeline, RecordHistoryTab, useFieldHistory } from "./history";
-import { mergeChronology } from "./history.logic";
+import { RecordHistoryTab } from "./history";
 import { confidenceLevel } from "./inbox";
 import {
   type ListPage,
@@ -114,7 +111,20 @@ import {
   useOwnerChips,
 } from "./listquery";
 import { PartnerTab } from "./partners";
-import { createdColumn, ownerColumn, standardViews } from "./recordlist";
+import {
+  CHRONOLOGY_EMPTY_KEYS,
+  ChronologyFilter,
+  ChronologyFooter,
+  type TimelineFilter,
+  useChronologyFilter,
+  useRecordChronology,
+} from "./recordchronology";
+import {
+  createdColumn,
+  lastActivityColumn,
+  ownerColumn,
+  standardViews,
+} from "./recordlist";
 import { RelationshipsTab } from "./relationships";
 import { SaveViewAction, useSavedViewTabs } from "./savedviews";
 import {
@@ -667,6 +677,7 @@ export function CompaniesScreen() {
               ) : null,
           },
           ownerColumn<Organization>(t),
+          lastActivityColumn<Organization>(t, locale),
           createdColumn<Organization>(t, locale),
         ]}
         tools={<SaveViewAction resource="organizations" query={state.query} />}
@@ -1591,17 +1602,8 @@ function companyTabsFor(
     : (COMPANY_TABS.filter((id) => id !== "partner") as readonly CompanyTab[]);
 }
 
-// Which slice of the account's chronology is on screen. Activities is what
-// happened WITH them, changes is what happened TO the record; a reader who
-// wants them in one order picks "all".
-const TIMELINE_FILTERS = ["activities", "changes", "all"] as const;
-type TimelineFilter = (typeof TIMELINE_FILTERS)[number];
-
-type Activity = components["schemas"]["Activity"];
-type ChangesQuery = ReturnType<typeof useFieldHistory>;
-
 // useCompanyTab is scoped to the ACCOUNT being read, the same reason the
-// chronology filter is (useResetOnRecord, below): the route swaps one company
+// chronology filter is (useChronologyFilter): the route swaps one company
 // for another without ever unmounting this component, so a reader who opened
 // Partner on one account met it again on the next — and companyTabsFor's own
 // carveout (a reader mid-way through setting up a programme keeps the tab
@@ -1744,129 +1746,10 @@ function CompanyRecord({
   );
 }
 
-function useAccountChronology({
-  orgId,
-  filter,
-  activities,
-  activitiesHaveMore,
-  renderActions,
-}: Readonly<{
-  orgId: string;
-  filter: TimelineFilter;
-  activities: Activity[];
-  activitiesHaveMore: boolean;
-  renderActions: (activity: Activity) => ReactNode;
-}>): {
-  entries: TimelineEntry[];
-  truncated: boolean;
-  changes: ChangesQuery;
-  // What the CURRENT filter is waiting on or failed at. A query that is
-  // switched off never resolves — it reports pending forever — so the caller
-  // must not read the query's own flags. Reading them turned the default
-  // Activities view into a skeleton that never became a timeline.
-  loading: boolean;
-  failed: boolean;
-  // Whether fetching more CHANGES would lengthen the merged view. When the
-  // activity feed is the shorter of the two, it is not: the merge cuts at its
-  // oldest row and every extra change page falls below that line.
-  changesAreTheLimit: boolean;
-} {
-  const t = useT();
-  const viewerId = useViewerId();
-  const wantsChanges = filter !== "activities";
-  const changes = useFieldHistory("organization", orgId, {
-    enabled: wantsChanges,
-  });
-  const changeRows = changes.data?.pages.flatMap((page) => page.data) ?? [];
-  const activityEntries = activityTimeline(activities, viewerId, renderActions);
-  const changeEntries = changeTimeline(
-    changeRows,
-    (field) => coldFieldLabel(field, t),
-    viewerId,
-  );
-  const loading = wantsChanges && changes.isPending;
-  const failed = wantsChanges && changes.isError;
-
-  if (filter === "activities") {
-    return {
-      entries: activityEntries,
-      // The 360 caps this section, and a capped list that says nothing reads
-      // as the whole history: a rep looking at the oldest of 25 rows would
-      // take it for the day the relationship began.
-      truncated: activitiesHaveMore,
-      changes,
-      loading: false,
-      failed: false,
-      changesAreTheLimit: false,
-    };
-  }
-  if (filter === "changes") {
-    return {
-      entries: changeEntries,
-      truncated: false,
-      changes,
-      loading,
-      failed,
-      changesAreTheLimit: changes.hasNextPage,
-    };
-  }
-  const merged = mergeChronology<TimelineEntry>(
-    [
-      { rows: activityEntries, hasMore: activitiesHaveMore },
-      { rows: changeEntries, hasMore: changes.hasNextPage },
-    ],
-    (entry) => entry.atIso,
-  );
-  // The merged view is cut at the newest "oldest loaded" among the feeds that
-  // still have more. Another page of changes only reaches the reader when the
-  // change feed owns that cut — i.e. its oldest loaded row is not older than
-  // the activity feed's.
-  // Seeded with the first row rather than left to throw on an empty one. The
-  // length check above already made that unreachable, but a reduce whose safety
-  // lives in a ternary two lines up is one refactor away from not having it.
-  const oldest = (rows: TimelineEntry[]) =>
-    rows.length > 0
-      ? rows.reduce((a, b) => (a.atIso < b.atIso ? a : b), rows[0]).atIso
-      : undefined;
-  const oldestChange = oldest(changeEntries);
-  const oldestActivity = oldest(activityEntries);
-  const changesAreTheLimit =
-    changes.hasNextPage &&
-    (!activitiesHaveMore ||
-      oldestChange === undefined ||
-      oldestActivity === undefined ||
-      oldestChange >= oldestActivity);
-
-  return {
-    entries: merged.rows,
-    truncated: merged.truncated,
-    changes,
-    loading,
-    failed,
-    changesAreTheLimit,
-  };
-}
-
 // The four RecordView slots the chronology section fills: the list, the
 // filter above it, the load-more and disclosure below it, and the notice that
 // replaces the list when there is nothing honest to draw. Assembled here so
 // the page's render reads as a layout rather than as four nested ternaries.
-// useResetOnRecord is the chronology filter, owned by the ACCOUNT being read
-// rather than by the session. When both records are already cached the route
-// swaps one company for another without ever unmounting this component, so a
-// reader who checked Changes once met Changes on every account afterwards.
-function useResetOnRecord(
-  recordId: string,
-): [TimelineFilter, (next: TimelineFilter) => void] {
-  const [filter, setFilter] = useState<TimelineFilter>("activities");
-  const [filterFor, setFilterFor] = useState(recordId);
-  if (filterFor !== recordId) {
-    setFilterFor(recordId);
-    setFilter("activities");
-  }
-  return [filter, setFilter];
-}
-
 type ChronologySlots = {
   timeline?: TimelineEntry[];
   timelineGroups?: readonly TimelineGroup[];
@@ -1875,34 +1758,6 @@ type ChronologySlots = {
   timelineNotice?: ReactNode;
   onOpenThread?: (threadKey: string) => void;
 };
-
-// ChronologyFilter narrows the account's own history. It sits ABOVE the list
-// rather than in the page's tab strip: it scopes this section, and a control
-// that looks like a tab reads as a different page.
-function ChronologyFilter({
-  filter,
-  onFilter,
-}: Readonly<{
-  filter: TimelineFilter;
-  onFilter: (next: TimelineFilter) => void;
-}>) {
-  const t = useT();
-  return (
-    <div className="co-tabs">
-      <SegmentedControl
-        options={TIMELINE_FILTERS}
-        value={filter}
-        onChange={onFilter}
-        label={t("co.chronology.label")}
-        labels={{
-          activities: t("co.chronology.activities"),
-          changes: t("co.chronology.changes"),
-          all: t("co.chronology.all"),
-        }}
-      />
-    </div>
-  );
-}
 
 function useChronologySlots({
   org,
@@ -1925,10 +1780,11 @@ function useChronologySlots({
   showChanges: () => void;
 } {
   const t = useT();
-  const [filter, setFilter] = useResetOnRecord(org.id);
+  const [filter, setFilter] = useChronologyFilter(org.id);
 
-  const history = useAccountChronology({
-    orgId: org.id,
+  const history = useRecordChronology({
+    kind: "organization",
+    recordId: org.id,
     filter,
     activities: view?.activities?.data ?? [],
     activitiesHaveMore: view?.activities?.page.has_more ?? false,
@@ -1969,29 +1825,7 @@ function useChronologySlots({
         view?.activities?.page.has_more ?? false,
       ),
       timelineHeader: <ChronologyFilter filter={filter} onFilter={setFilter} />,
-      timelineFooter: (
-        <>
-          {/* Where the merged view stops being complete, said out loud.
-              Silence here would read as the end of the account's history. */}
-          {history.truncated && (
-            <p className="t-small">
-              {t(
-                filter === "activities"
-                  ? "co.chronology.truncatedActivities"
-                  : "co.chronology.truncated",
-              )}
-            </p>
-          )}
-          {/* Only where fetching more changes actually lengthens the list.
-              Under "all" the merge is cut at whichever feed is shorter, so if
-              the ACTIVITY feed is the constraint, another page of changes is
-              filtered straight back out and the button does nothing. */}
-          {(filter === "changes" ||
-            (filter === "all" && history.changesAreTheLimit)) && (
-            <LoadMoreButton query={history.changes} />
-          )}
-        </>
-      ),
+      timelineFooter: <ChronologyFooter filter={filter} chronology={history} />,
       timelineNotice: chronologyNotice(
         {
           // Per filter, because the two feeds fail independently. A 360 that
@@ -2773,9 +2607,9 @@ function CompanyTasksTab({
   const t = useT();
   if (!view && !failed) {
     return (
-      <section className="card co-card">
+      <Card className="co-card">
         <Skeleton width="100%" height={96} />
-      </section>
+      </Card>
     );
   }
   if (!view) {
@@ -2942,10 +2776,13 @@ function chronologyNotice(
   if (count > 0) {
     return undefined;
   }
-  const empty: Record<TimelineFilter, MessageKey> = {
-    activities: "co.timeline.empty",
-    changes: "co.chronology.changesEmpty",
-    all: "co.chronology.allEmpty",
-  };
-  return <EmptyState>{t(empty[timeline.filter])}</EmptyState>;
+  return (
+    <EmptyState>
+      {t(
+        timeline.filter === "activities"
+          ? "co.timeline.empty"
+          : CHRONOLOGY_EMPTY_KEYS[timeline.filter],
+      )}
+    </EmptyState>
+  );
 }

@@ -62,7 +62,7 @@ func runDebugSubcommand(ctx context.Context, args []string, stdout io.Writer) (b
 // is a boot error (a typo must not silently drop the blocklist or flip the
 // payload posture).
 func loadDeployment(cfg *workerConfig) (deployconfig.Config, error) {
-	deployCfg, err := deployconfig.Load(cfg.configPath)
+	deployCfg, err := deployconfig.Load(cfg.configPath, cfg.posture)
 	if err != nil {
 		return deployconfig.Config{}, err
 	}

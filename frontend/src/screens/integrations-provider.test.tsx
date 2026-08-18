@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { SLOWEST_MEASURED_TEST_MS } from "../../vitest.budget";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { ProviderCard } from "./integrations-provider";
@@ -123,6 +124,17 @@ afterEach(() => {
 // parallel, so this states one that survives a loaded machine.
 const SETTLE_MS = 10_000;
 
+// `renderAs` runs one waiter at SETTLE_MS, and each case below awaits it. A
+// test may spend the SUM of its waiters' budgets without any one of them
+// failing, so its own ceiling has to cover that — and the suite's is derived
+// for tests that wait at the default. Stated here rather than borrowed, with
+// the SAME measured allowance for the work between the waits that the suite
+// ceiling uses, so the two rest on one measurement rather than on a round
+// number picked here. Without it these fail while the settle is still inside
+// its budget, and the failure names the test rather than the round trip that
+// was slow (issue 1144).
+const RENDER_TEST_MS = SETTLE_MS + SLOWEST_MEASURED_TEST_MS;
+
 // The card sits on the Settings → Integrations entry, whose predicate opens for
 // all five roles, and the reads behind it are granted to all five. The writes
 // are not: connecting spends money and destroying the data is irreversible, and
@@ -161,46 +173,58 @@ describe("ProviderCard write posture", () => {
     );
   }
 
-  it("withholds every write from a seat that holds none, and says so", async () => {
-    await renderAs(ME_READER);
+  it(
+    "withholds every write from a seat that holds none, and says so",
+    async () => {
+      await renderAs(ME_READER);
 
-    // The reading is granted, so it stays: a card that vanished would say this
-    // installation buys no contact data, which is a claim about the DATA.
-    expect(screen.getByRole("meter", { name: "email" })).toBeTruthy();
-    // Stated once, at the surface, rather than annotated onto each absent
-    // control.
-    expect(screen.getByText(READ_ONLY)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: CONNECT })).toBeNull();
-    expect(screen.queryByRole("button", { name: MORE })).toBeNull();
-    // The key box exists only to feed the submit that is gone.
-    expect(screen.queryByLabelText(KEY_FIELD)).toBeNull();
-  });
+      // The reading is granted, so it stays: a card that vanished would say this
+      // installation buys no contact data, which is a claim about the DATA.
+      expect(screen.getByRole("meter", { name: "email" })).toBeTruthy();
+      // Stated once, at the surface, rather than annotated onto each absent
+      // control.
+      expect(screen.getByText(READ_ONLY)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: CONNECT })).toBeNull();
+      expect(screen.queryByRole("button", { name: MORE })).toBeNull();
+      // The key box exists only to feed the submit that is gone.
+      expect(screen.queryByLabelText(KEY_FIELD)).toBeNull();
+    },
+    RENDER_TEST_MS,
+  );
 
-  it("offers every write to the seat that pays the provider", async () => {
-    await renderAs(ME_OPERATOR);
+  it(
+    "offers every write to the seat that pays the provider",
+    async () => {
+      await renderAs(ME_OPERATOR);
 
-    // Without this arm the test above would pass on a card that renders no
-    // controls for anybody.
-    expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
-    expect(screen.getByLabelText(KEY_FIELD)).toBeTruthy();
-    await openDestructiveMenu();
-    expect(screen.getByRole("button", { name: DISCONNECT })).toBeTruthy();
-    expect(screen.getByRole("button", { name: DELETE_DATA })).toBeTruthy();
-    // A reader who may write is told nothing about a posture they do not have.
-    expect(screen.queryByText(READ_ONLY)).toBeNull();
-  });
+      // Without this arm the test above would pass on a card that renders no
+      // controls for anybody.
+      expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
+      expect(screen.getByLabelText(KEY_FIELD)).toBeTruthy();
+      await openDestructiveMenu();
+      expect(screen.getByRole("button", { name: DISCONNECT })).toBeTruthy();
+      expect(screen.getByRole("button", { name: DELETE_DATA })).toBeTruthy();
+      // A reader who may write is told nothing about a posture they do not have.
+      expect(screen.queryByText(READ_ONLY)).toBeNull();
+    },
+    RENDER_TEST_MS,
+  );
 
-  it("keeps the destructive pair behind its own grant", async () => {
-    await renderAs(ME_CONNECT_ONLY);
+  it(
+    "keeps the destructive pair behind its own grant",
+    async () => {
+      await renderAs(ME_CONNECT_ONLY);
 
-    expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
-    // `delete` is what the server demands for both of these, and this seat does
-    // not hold it — so neither may ride in on the grant that binds a key, and
-    // the overflow that would hold them is not offered at all.
-    expect(screen.queryByRole("button", { name: MORE })).toBeNull();
-    expect(screen.queryByRole("button", { name: DISCONNECT })).toBeNull();
-    expect(screen.queryByRole("button", { name: DELETE_DATA })).toBeNull();
-    // Not a read-only view: something here is still writable.
-    expect(screen.queryByText(READ_ONLY)).toBeNull();
-  });
+      expect(screen.getByRole("button", { name: CONNECT })).toBeTruthy();
+      // `delete` is what the server demands for both of these, and this seat does
+      // not hold it — so neither may ride in on the grant that binds a key, and
+      // the overflow that would hold them is not offered at all.
+      expect(screen.queryByRole("button", { name: MORE })).toBeNull();
+      expect(screen.queryByRole("button", { name: DISCONNECT })).toBeNull();
+      expect(screen.queryByRole("button", { name: DELETE_DATA })).toBeNull();
+      // Not a read-only view: something here is still writable.
+      expect(screen.queryByText(READ_ONLY)).toBeNull();
+    },
+    RENDER_TEST_MS,
+  );
 });

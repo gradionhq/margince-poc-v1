@@ -60,7 +60,7 @@ func (b *scriptedBrain) Complete(_ context.Context, _ model.Request) (model.Resp
 func seedMessage(t *testing.T, e *Env, contact ids.UUID, key, subject, body, direction string, at time.Time) ids.UUID {
 	t.Helper()
 	id := seedUnlinkedMessage(t, e, key, subject, body, direction, at)
-	LinkActivity(t, OwnerConn(t), e.WS, id, "person", contact)
+	LinkActivity(t, OwnerConn(t), id, "person", contact)
 	return id
 }
 
@@ -70,11 +70,9 @@ func seedMessage(t *testing.T, e *Env, contact ids.UUID, key, subject, body, dir
 func seedUnlinkedMessage(t *testing.T, e *Env, key, subject, body, direction string, at time.Time) ids.UUID {
 	t.Helper()
 	stamp := at.UTC().Format(time.RFC3339Nano)
-	return SeedRow(t, OwnerConn(t), `INSERT INTO activity
-		(id, workspace_id, kind, direction, subject, body, thread_key, occurred_at, created_at,
-		 source, captured_by)
-		VALUES ($1, $2, 'email', '`+direction+`', '`+subject+`', '`+body+`', '`+key+`',
-		        '`+stamp+`', '`+stamp+`', 'gmail', 'connector:gmail')`, e.WS)
+	return SeedIDRow(t, OwnerConn(t), `INSERT INTO activity (id, kind, direction, subject, body, thread_key, occurred_at, created_at, source, captured_by)
+		VALUES ($1, 'email', '`+direction+`', '`+subject+`', '`+body+`', '`+key+`',
+		        '`+stamp+`', '`+stamp+`', 'gmail', 'connector:gmail')`)
 }
 
 // employeeOf is a contact who works at the account, which is the only way
@@ -293,7 +291,7 @@ func TestAThreadReachesTheAccountThroughItsDealAlone(t *testing.T) {
 	unattached := e.SeedPerson(t, "Unaffiliated Ursula", &e.Rep1)
 	notice := seedMessage(t, e, unattached, "thread-deal", "Renewal for 2027",
 		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
-	LinkActivity(t, OwnerConn(t), e.WS, notice, "deal", deal)
+	LinkActivity(t, OwnerConn(t), notice, "deal", deal)
 
 	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
 		"They wrote that they will not renew.", 0.95)}
@@ -438,8 +436,8 @@ func TestAThreadLinkedStraightToTheAccountIsStillRead(t *testing.T) {
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	notice := seedUnlinkedMessage(t, e, "thread-direct", "Renewal for 2027",
 		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, notice, org)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, notice, org)
 
 	brain := &scriptedBrain{reply: reply(t, "contract_ended", notice,
 		"They wrote that they will not renew.", 0.95)}

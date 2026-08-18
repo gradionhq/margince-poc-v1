@@ -28,13 +28,13 @@ func TestListActivitiesCarriesItsLinks(t *testing.T) {
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	person := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
-	activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'Renewal terms', now(), 'manual', 'human:x')`, e.WS)
+	activity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Renewal terms', now(), 'manual', 'human:x')`)
 	// The organization arm is inserted here rather than through
 	// LinkActivity, whose column map covers person and deal only.
-	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
-		VALUES ($1, $2, 'organization', $3)`, e.WS, activity, org)
-	LinkActivity(t, owner, e.WS, activity, "person", person)
+	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
+		VALUES ( $1, 'organization', $2)`, activity, org)
+	LinkActivity(t, owner, activity, "person", person)
 
 	got, _, err := e.Activities.ListActivities(admin, activities.ListActivitiesInput{})
 	if err != nil {
@@ -79,10 +79,10 @@ func TestListActivitiesDropsLinksToRecordsOutOfRowScope(t *testing.T) {
 
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
-	activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Joint call', now(), 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, activity, "person", mine)
-	LinkActivity(t, owner, e.WS, activity, "deal", theirDeal)
+	activity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Joint call', now(), 'manual', 'human:x')`)
+	LinkActivity(t, owner, activity, "person", mine)
+	LinkActivity(t, owner, activity, "deal", theirDeal)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLinkRepPerms)
 	got, _, err := e.Activities.ListActivities(rep, activities.ListActivitiesInput{})
@@ -125,10 +125,10 @@ func TestListActivitiesAppliesTheDeclaredQueryFilter(t *testing.T) {
 	owner := OwnerConn(t)
 	admin := e.Admin()
 
-	wanted := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Renewal terms', 'they asked about multi-year pricing', now(), 'manual', 'human:x')`, e.WS)
-	SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'note', 'Onboarding kickoff', 'introductions only', now(), 'manual', 'human:x')`, e.WS)
+	wanted := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Renewal terms', 'they asked about multi-year pricing', now(), 'manual', 'human:x')`)
+	SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'note', 'Onboarding kickoff', 'introductions only', now(), 'manual', 'human:x')`)
 
 	bySubject := "Renewal"
 	got, _, err := e.Activities.ListActivities(admin, activities.ListActivitiesInput{Query: &bySubject})

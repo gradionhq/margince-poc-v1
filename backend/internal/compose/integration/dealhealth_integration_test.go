@@ -57,9 +57,9 @@ func seedHealthyDeal(t *testing.T, e *Env, owner *pgx.Conn) (deal ids.UUID, enga
 	}
 
 	// The recency evidence record: the freshest live activity on the deal.
-	freshest = SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'call', 'checkpoint', '2026-05-30T12:00:00Z', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, freshest, "deal", deal)
+	freshest = SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'call', 'checkpoint', '2026-05-30T12:00:00Z', 'manual', 'human:x')`)
+	LinkActivity(t, owner, freshest, "deal", deal)
 
 	// Two stakeholders with BOTH directions inside the 90-day window →
 	// engaged; a third who only ever received our outbound → not.
@@ -71,9 +71,9 @@ func seedHealthyDeal(t *testing.T, e *Env, owner *pgx.Conn) (deal ids.UUID, enga
 	// An open task due AFTER the clock: a commitment, but not overdue.
 	// Logged BEFORE the checkpoint call so the call stays the deal's
 	// freshest activity — the recency evidence the test pins.
-	pending := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at, source, captured_by)
-		VALUES ($1, $2, 'task', 'send proposal', '2026-05-25T12:00:00Z', '2026-06-08T12:00:00Z', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, pending, "deal", deal)
+	pending := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, source, captured_by)
+		VALUES ($1, 'task', 'send proposal', '2026-05-25T12:00:00Z', '2026-06-08T12:00:00Z', 'manual', 'human:x')`)
+	LinkActivity(t, owner, pending, "deal", deal)
 	return deal, engaged, freshest
 }
 
@@ -183,9 +183,9 @@ func TestStalledDealReadsAtRisk(t *testing.T) {
 		`UPDATE deal_stage_history SET changed_at = $2 WHERE deal_id = $1`, deal, idleSince); err != nil {
 		t.Fatal(err)
 	}
-	overdue := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at, source, captured_by)
-		VALUES ($1, $2, 'task', 'never followed up', '2026-03-06T12:00:00Z', '2026-03-20T12:00:00Z', 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, overdue, "deal", deal)
+	overdue := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, source, captured_by)
+		VALUES ($1, 'task', 'never followed up', '2026-03-06T12:00:00Z', '2026-03-20T12:00:00Z', 'manual', 'human:x')`)
+	LinkActivity(t, owner, overdue, "deal", deal)
 
 	got, err := e.Deals.DealHealth(ctx, ids.From[ids.DealKind](deal), healthClock)
 	if err != nil {

@@ -141,6 +141,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&classification, &lifecycle, &relevance, &parentID, &mergedInto, &logoObjectKey, &linkedinURL, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt, &o.IsAnchor,
+		&o.LastActivityAt,
 	}
 	cf := storekit.ScanDests(active)
 	if err := row.Scan(append(append(dests, cf...), extra...)...); err != nil {

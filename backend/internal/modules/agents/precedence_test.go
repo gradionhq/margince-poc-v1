@@ -107,11 +107,15 @@ type recordingApprovals struct {
 	// stand on its own rather than becoming an error about staging.
 	stepUpDeclined bool
 	stepUpErr      error
+	// alreadyApproved replays the engine recognizing a decision this caller
+	// already holds: the call is not staged again, and the refusal has to tell
+	// the agent to SPEND the approval rather than wait for one.
+	alreadyApproved bool
 }
 
-func (r *recordingApprovals) Stage(_ context.Context, in StageRequest) (ids.ApprovalID, error) {
+func (r *recordingApprovals) StageCall(_ context.Context, in StageRequest) (ids.ApprovalID, bool, error) {
 	r.staged = append(r.staged, in)
-	return ids.New[ids.ApprovalKind](), nil
+	return ids.New[ids.ApprovalKind](), r.alreadyApproved, nil
 }
 
 func (r *recordingApprovals) StageQuotaRelease(_ context.Context, in QuotaReleaseRequest) (ids.ApprovalID, bool, error) {

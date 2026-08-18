@@ -65,11 +65,9 @@ func seedTracedMessage(t *testing.T, e *Env, owner ids.UUID, in seed) seededMess
 	// key on this address.
 	counterparty := "dana-" + in.trace.SourceID + "@client.io"
 	e.WsExec(t, `
-		INSERT INTO activity (id, workspace_id, kind, occurred_at, source, captured_by,
-		                      counterparty_email, subject, channel_provider,
-		                      source_system, source_id)
-		VALUES ($1, $2, $3, now(), $4, $5, $6, 'Q3 pricing', nullif($7, ''), $4, $8)`,
-		activityID, e.WS, in.kind, in.trace.SourceSystem,
+		INSERT INTO activity (id, kind, occurred_at, source, captured_by, counterparty_email, subject, channel_provider, source_system, source_id)
+		VALUES ($1, $2, now(), $3, $4, $5, 'Q3 pricing', nullif($6, ''), $3, $7)`,
+		activityID, in.kind, in.trace.SourceSystem,
 		// The provenance the sink stamps when a granting human exists
 		// (connectorProvenance): connector:<CONNECTOR NAME>:<user>. The connector
 		// name, not the source system — they coincide for gmail and diverge for a
@@ -232,7 +230,7 @@ func TestTheTraceDoorWithholdsAnActivityOutsideTheReadersRowScope(t *testing.T) 
 	owner := OwnerConn(t)
 	msg := seedTracedMessage(t, e, e.Rep1, capturedMail("hidden-activity"))
 	theirPerson := e.SeedPerson(t, "Out Of Reach", &e.Rep3)
-	LinkActivity(t, owner, e.WS, msg.activityID, "person", theirPerson)
+	LinkActivity(t, owner, msg.activityID, "person", theirPerson)
 
 	narrow := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
 	got, err := ladderAssembler(e, false).ByTraceID(narrow, msg.traceID)
@@ -268,7 +266,7 @@ func TestTheActivityDoorRefusesAMessageOutsideTheReadersRowScope(t *testing.T) {
 	owner := OwnerConn(t)
 	msg := seedTracedMessage(t, e, e.Rep1, capturedMail("out-of-scope"))
 	theirPerson := e.SeedPerson(t, "Out Of Reach", &e.Rep3)
-	LinkActivity(t, owner, e.WS, msg.activityID, "person", theirPerson)
+	LinkActivity(t, owner, msg.activityID, "person", theirPerson)
 	narrow := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
 
 	_, err := ladderAssembler(e, false).ByActivityID(narrow, msg.activityID)

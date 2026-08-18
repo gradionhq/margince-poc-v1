@@ -127,9 +127,9 @@ func seedUnlabeledEmail(t *testing.T, e *integration.Env, subject string) ids.UU
 	id := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, body, source_system, source_id, source, captured_by)
-			VALUES ($1, $2, 'email', $3, 'body text', 'gmail', $4, 'gmail:'||$4, 'connector:gmail')`,
-			id, e.WS, subject, fmt.Sprintf("cls-%s", id))
+			INSERT INTO activity (id, kind, subject, body, source_system, source_id, source, captured_by)
+			VALUES ($1, 'email', $2, 'body text', 'gmail', $3, 'gmail:'||$3, 'connector:gmail')`,
+			id, subject, fmt.Sprintf("cls-%s", id))
 		return err
 	})
 	if err != nil {

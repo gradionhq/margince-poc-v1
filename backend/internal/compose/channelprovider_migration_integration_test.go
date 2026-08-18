@@ -86,12 +86,11 @@ func TestActivityKindAndChannelProviderAreSeededByMigration(t *testing.T) {
 // The FK is what does the real work: an unregistered kind is refused by the
 // database, not by an application-side list somebody has to remember.
 func TestActivityKindFKRefusesAnUnregisteredKind(t *testing.T) {
-	e := integration.Setup(t)
 	ctx := context.Background()
 
 	_, err := integration.OwnerConn(t).Exec(ctx, `
-		INSERT INTO activity (workspace_id, kind, source, captured_by)
-		VALUES ($1, 'dispact', 'manual', 'test')`, e.WS)
+		INSERT INTO activity (kind, source, captured_by)
+		VALUES ( 'dispact', 'manual', 'test')`)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "activity_kind_fkey" {
 		t.Fatalf("insert failed with %v, want a foreign_key_violation on activity_kind_fkey specifically — "+

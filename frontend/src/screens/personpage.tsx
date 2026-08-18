@@ -16,7 +16,6 @@ import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import { Button, SegmentedControl } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
-import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { throwProblem } from "./common";
@@ -34,9 +33,17 @@ import {
   PersonMeetingBrief,
   PersonResearchDrawer,
 } from "./persondrawers";
+import { PersonFilesTab } from "./personfiles";
 import { PersonMemory } from "./personmemory";
 import { PersonRail } from "./personrail";
+import { PersonResearchTab } from "./personresearch";
 import { PersonStrip } from "./personstrip";
+import { PERSON_TABS, type PersonTab, personTabRoute } from "./persontab";
+import {
+  PersonDealsTab,
+  PersonMeetingsTab,
+  PersonTimelineTab,
+} from "./persontabs";
 import { PersonToday } from "./persontoday";
 import "./person360.css";
 
@@ -49,45 +56,16 @@ import "./person360.css";
 type Person360 = components["schemas"]["Person360"];
 type PersonMomentAction = components["schemas"]["PersonMomentAction"];
 
-// The seven tabs, in the concept's order (§5.4). URL-addressable, so a tab
-// survives a reload and can be linked to.
-export const PERSON_TABS = [
-  "overview",
-  "activity",
-  "deals",
-  "meetings",
-  "research",
-  "files",
-  "history",
-] as const;
-export type PersonTab = (typeof PERSON_TABS)[number];
-
+// The tab words every record page shares. A private set for this page is how
+// the same tab came to read "Timeline" here and "History" on the account.
 const TAB_LABEL_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
-  overview: "person.tab.overview",
-  activity: "person.tab.activity",
-  deals: "person.tab.deals",
-  meetings: "person.tab.meetings",
-  research: "person.tab.research",
-  files: "person.tab.files",
-  history: "person.tab.history",
+  overview: "tab.overview",
+  timeline: "tab.timeline",
+  deals: "tab.deals",
+  meetings: "tab.meetings",
+  research: "tab.research",
+  documents: "tab.documents",
 };
-
-// The placeholder sentence names the tab mid-sentence, where English wants the
-// label lowercased and German does not. Lowercasing at the call site would
-// mangle every German noun, so each locale carries its own mid-sentence form.
-const TAB_TOPIC_KEYS: Readonly<Record<PersonTab, MessageKey>> = {
-  overview: "person.topic.overview",
-  activity: "person.topic.activity",
-  deals: "person.topic.deals",
-  meetings: "person.topic.meetings",
-  research: "person.topic.research",
-  files: "person.topic.files",
-  history: "person.topic.history",
-};
-
-export function isPersonTab(value: string | undefined): value is PersonTab {
-  return PERSON_TABS.includes((value ?? "") as PersonTab);
-}
 
 // The intent phrases a moment action can ask the composer to open with. The
 // server names the reason in its own vocabulary ("agenda", "follow_up"); the
@@ -112,6 +90,39 @@ function composerIntentOf(
 ): string {
   const key = COMPOSER_INTENT_KEYS[prefill?.intent ?? ""];
   return key ? t(key) : "";
+}
+
+/**
+ * PersonTabPanel is what the tab bar chose, and nothing else: the page above
+ * it decides which record it is on, and this decides which face of that record
+ * the reader asked for.
+ *
+ * Four of them read the 360 the page already holds. Documents owns its read
+ * because the 360 carries no attachments, and the Timeline's CHANGES half
+ * owns one for the same reason — its ACTIVITIES half is the 360's own section.
+ */
+function PersonTabPanel({
+  tab,
+  personId,
+  view,
+}: Readonly<{ tab: PersonTab; personId: string; view: Person360 }>) {
+  switch (tab) {
+    case "timeline":
+      return <PersonTimelineTab personId={personId} view={view} />;
+    case "deals":
+      return <PersonDealsTab view={view} />;
+    case "meetings":
+      return <PersonMeetingsTab view={view} />;
+    case "research":
+      return <PersonResearchTab view={view} />;
+    case "documents":
+      return <PersonFilesTab personId={personId} />;
+    // Overview is drawn by the page itself, above this component: its stack
+    // reads the page's other queries (the brief) and its moment drives the
+    // page's own action loop.
+    default:
+      return null;
+  }
 }
 
 export function PersonPageV2({
@@ -279,15 +290,14 @@ export function PersonPageV2({
           <SegmentedControl
             options={PERSON_TABS}
             value={tab}
-            onChange={(next) => navigate({ screen: "contacts", id, id2: next })}
+            onChange={(next) => navigate(personTabRoute(id, next))}
             labels={{
               overview: t(TAB_LABEL_KEYS.overview),
-              activity: t(TAB_LABEL_KEYS.activity),
+              timeline: t(TAB_LABEL_KEYS.timeline),
               deals: t(TAB_LABEL_KEYS.deals),
               meetings: t(TAB_LABEL_KEYS.meetings),
               research: t(TAB_LABEL_KEYS.research),
-              files: t(TAB_LABEL_KEYS.files),
-              history: t(TAB_LABEL_KEYS.history),
+              documents: t(TAB_LABEL_KEYS.documents),
             }}
           />
         </div>
@@ -322,20 +332,7 @@ export function PersonPageV2({
           </div>
         )}
 
-        {tab !== "overview" && (
-          // The other six tabs are addressable and named, and each says what
-          // it will hold. An empty panel that looked like a rendering failure
-          // would be worse than one that says what is coming.
-          <Panel title={t(TAB_LABEL_KEYS[tab])}>
-            <PanelBody>
-              <p className="pe-prose">
-                {t("person.page.tabPlaceholder", {
-                  topic: t(TAB_TOPIC_KEYS[tab]),
-                })}
-              </p>
-            </PanelBody>
-          </Panel>
-        )}
+        <PersonTabPanel tab={tab} personId={id} view={view.data} />
         <PersonComposer
           personId={id}
           view={view.data}
@@ -479,11 +476,7 @@ function PersonActions({
       <Button variant="primary" disabled={!guardAllows} onClick={onEmail}>
         <Mail size={15} aria-hidden="true" /> {t("person.action.email")}
       </Button>
-      <Button
-        onClick={() =>
-          navigate({ screen: "contacts", id: personId, id2: "activity" })
-        }
-      >
+      <Button onClick={() => navigate(personTabRoute(personId, "timeline"))}>
         <Phone size={15} aria-hidden="true" /> {t("person.action.call")}
       </Button>
       <Button
@@ -502,9 +495,7 @@ function PersonActions({
       </Button>
       <Button
         aria-label={t("person.action.more")}
-        onClick={() =>
-          navigate({ screen: "contacts", id: personId, id2: "history" })
-        }
+        onClick={() => navigate(personTabRoute(personId, "timeline"))}
       >
         <MoreHorizontal size={15} aria-hidden="true" />
       </Button>

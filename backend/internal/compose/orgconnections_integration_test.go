@@ -72,23 +72,22 @@ func TestConnectorCapturedMailPutsAColleagueOnTheAccount(t *testing.T) {
 	var activityID ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (`+wsClause+`, 'email', 'Angebot', 'inbound', $1, 'gmail:m-1', 'connector:gmail')
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES ( 'email', 'Angebot', 'inbound', $1, 'gmail:m-1', 'connector:gmail')
 			RETURNING id`, now.AddDate(0, 0, -1)).Scan(&activityID); err != nil {
 			return err
 		}
 		// The participant rows capture stamps: the mailbox owner and the
 		// counterparty. This is the fact the old derivation had no access to.
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (`+wsClause+`, $1, $2, 'to')`, activityID, owner); err != nil {
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, 'to')`, activityID, owner); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (`+wsClause+`, $1, $2, 'from')`, activityID, contact)
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'from')`, activityID, contact)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding connector-captured mail: %v", err)
@@ -126,21 +125,20 @@ func TestADepartedColleagueIsNotOfferedAsAWayIn(t *testing.T) {
 	var activityID ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO activity (workspace_id, kind, subject, direction, occurred_at, source, captured_by)
-			VALUES (`+wsClause+`, 'email', 'Alt', 'outbound', $1, 'manual', 'human:test')
+			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
+			VALUES ( 'email', 'Alt', 'outbound', $1, 'manual', 'human:test')
 			RETURNING id`, now.AddDate(0, 0, -2)).Scan(&activityID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, user_id, role)
-			VALUES (`+wsClause+`, $1, $2, 'from')`, activityID, e.Rep2); err != nil {
+			INSERT INTO activity_participant (activity_id, user_id, role)
+			VALUES ( $1, $2, 'from')`, activityID, e.Rep2); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
-			VALUES (`+wsClause+`, $1, $2, 'to')`, activityID, contact)
+			INSERT INTO activity_participant (activity_id, person_id, role)
+			VALUES ( $1, $2, 'to')`, activityID, contact)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the interaction: %v", err)

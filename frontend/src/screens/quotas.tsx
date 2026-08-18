@@ -11,6 +11,7 @@ import {
   EmptyState,
   Skeleton,
 } from "../design-system/atoms";
+import { Panel, PanelRow } from "../design-system/panel";
 import { formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import {
@@ -157,7 +158,11 @@ export function AttainmentNumbers({
 // The "Explain this number" decomposition, rendered from the server figures
 // verbatim: the counted total is closed_won_minor (never the client sum of
 // contributing_deals, though the contract guarantees they're equal).
-function ExplainBox({
+//
+// The SAME feature the reports screen opens for a report figure, so it is the
+// same titled Card — `inset` because this one opens inside the attainment card
+// rather than on the page's own ground.
+function ExplainCard({
   id,
   attainment,
   locale,
@@ -169,13 +174,15 @@ function ExplainBox({
   const pct = Math.round(attainment.attainment_pct);
   const count = attainment.contributing_deals.length;
   return (
-    <div className="explain-box" id={id}>
-      <span>{t("quotas.explain.formula")}</span>
-      <span>{t("quotas.explain.closedWon", { sum, count })}</span>
-      <span>{t("quotas.explain.target", { target })}</span>
-      <span>{t("quotas.explain.result", { sum, target, pct })}</span>
-      <span className="t-caption">{t("quotas.explain.exclusions")}</span>
-    </div>
+    <Card inset id={id} title={t("explain.title")}>
+      <div className="explain-lines">
+        <span>{t("quotas.explain.formula")}</span>
+        <span>{t("quotas.explain.closedWon", { sum, count })}</span>
+        <span>{t("quotas.explain.target", { target })}</span>
+        <span>{t("quotas.explain.result", { sum, target, pct })}</span>
+        <span className="t-caption">{t("quotas.explain.exclusions")}</span>
+      </div>
+    </Card>
   );
 }
 
@@ -212,7 +219,7 @@ function AttainmentCard({
           </span>
         </div>
         {showExplain && (
-          <ExplainBox id={explainId} attainment={attainment} locale={locale} />
+          <ExplainCard id={explainId} attainment={attainment} locale={locale} />
         )}
         <p className="t-caption">
           {t("quotas.baseCurrencyNote", { currency: attainment.currency })}
@@ -233,11 +240,10 @@ export function ContributingDeals({
   const t = useT();
   const currency = attainment.currency;
   return (
-    <Card>
-      <div className="section-header">
-        <h2>{t("quotas.contributing.title")}</h2>
-        <span className="sub">{t("quotas.contributing.subtitle")}</span>
-      </div>
+    <Card
+      title={t("quotas.contributing.title")}
+      sub={t("quotas.contributing.subtitle")}
+    >
       <div className="quota-contrib">
         <DataTable
           columns={[
@@ -285,16 +291,15 @@ function AttainmentRefusal({
 }: Readonly<{ title: string; detail: string; onRetry?: () => void }>) {
   const t = useT();
   return (
-    <Card>
-      <div className="attain-refusal">
-        <b>{title}</b>
-        <p className="t-caption">{detail}</p>
-        {onRetry && (
-          <Button small onClick={onRetry} style={{ alignSelf: "flex-start" }}>
+    <Card title={title}>
+      <p className="t-caption">{detail}</p>
+      {onRetry && (
+        <div className="card-actions">
+          <Button small onClick={onRetry}>
             {t("common.retry")}
           </Button>
-        )}
-      </div>
+        </div>
+      )}
     </Card>
   );
 }
@@ -404,36 +409,39 @@ function QuotaSelector({
   const t = useT();
   const { locale } = useLocale();
   return (
-    <Card>
-      <div className="section-header">
-        <h2>{t("quotas.tab")}</h2>
+    // A header band, a list of rows and a verb beside the title is Panel's own
+    // anatomy, so the rows are PanelRows on the panel's ground rather than
+    // bordered boxes inset inside a card. The press target fills the row: the
+    // row is what a reader aims at, and PanelRow keeps the hairline and hover.
+    <Panel
+      title={t("quotas.selector.title")}
+      titleAction={
         <SetTargetAction label={t("quotas.target.new")} onCreated={onCreated} />
-      </div>
-      <div className="quota-list">
-        {list.map((quota) => (
+      }
+    >
+      {list.map((quota) => (
+        <PanelRow
+          key={quota.id}
+          className={quota.id === activeId ? "quota-row-on" : undefined}
+        >
           <button
-            key={quota.id}
             type="button"
-            className={quota.id === activeId ? "quota-row active" : "quota-row"}
+            className="quota-row-press"
             aria-pressed={quota.id === activeId}
             onClick={() => onSelect(quota.id)}
           >
             <QuotaRowLabel quota={quota} locale={locale} />
           </button>
-        ))}
-      </div>
-    </Card>
+        </PanelRow>
+      ))}
+    </Panel>
   );
 }
 
 export function ScopeNote() {
   const t = useT();
   return (
-    <Card>
-      <div className="section-header">
-        <h2>{t("quotas.scopeNote.title")}</h2>
-        <span className="sub">{t("quotas.scopeNote.flag")}</span>
-      </div>
+    <Card title={t("quotas.scopeNote.title")} sub={t("quotas.scopeNote.flag")}>
       <p className="t-caption">{t("quotas.scopeNote.body")}</p>
     </Card>
   );
@@ -445,10 +453,7 @@ function TargetRail({
 }: Readonly<{ quota: Quota; onArchived: () => void }>) {
   const t = useT();
   return (
-    <Card>
-      <div className="section-header">
-        <h2>{t("quotas.target.title")}</h2>
-      </div>
+    <Card title={t("quotas.target.title")}>
       <div className="rail-actions">
         <EditTargetAction label={t("quotas.target.edit")} quota={quota} />
         <p className="t-caption">{t("quotas.target.note")}</p>

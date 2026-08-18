@@ -319,17 +319,28 @@ function InvoiceRow({
             line: on time is what the status already said. */}
         {invoice.days_late != null && invoice.days_late > 0 && (
           <span className="t-caption">
-            {t(
-              invoice.status === "paid"
-                ? "finance.paidDaysLate"
-                : "finance.overdueDays",
-              { days: invoice.days_late },
-            )}
+            {t(daysLateKey(invoice.status, invoice.days_late), {
+              days: invoice.days_late,
+            })}
           </span>
         )}
       </td>
     </tr>
   );
+}
+
+// One day late is one day late, not "1 days late". The three shipped locales
+// (A100 pins de-DE and en-GB; vi ships alongside) all split at exactly one, so
+// the count picks the key and no plural engine is needed — a locale whose rules
+// differ would need one, and would announce itself by adding a fourth catalog.
+function daysLateKey(
+  status: FinanceInvoice["status"],
+  days: number,
+): MessageKey {
+  if (status === "paid") {
+    return days === 1 ? "finance.paidDayLate" : "finance.paidDaysLate";
+  }
+  return days === 1 ? "finance.overdueDay" : "finance.overdueDays";
 }
 
 const STATUS_LABEL: Record<FinanceInvoice["status"], MessageKey> = {

@@ -133,7 +133,6 @@ export const de = {
     "Auf dieser Installation ist keine Erweiterung namens „{name}“ aktiviert.",
   "ext.operations": "Veröffentlichte Operationen",
 
-  "search.title": "Suche",
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
   "search.empty": "Keine Treffer für „{q}“.",
@@ -142,9 +141,6 @@ export const de = {
   "search.group.deal": "Deals",
   "search.group.activity": "Aktivitäten",
   "search.group.lead": "Leads",
-  "search.why": "Warum dieses Ergebnis",
-  "search.relevance": "Relevanz {pct}%",
-  "search.tier.authoritative": "verifiziert",
   "search.tier.mirrored": "aus HubSpot",
 
   "context.title": "Verwandte Belege",
@@ -382,6 +378,8 @@ export const de = {
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
 
   "table.range": "{first}–{last} von {count} {unit}",
+  "table.pagination": "Seiten",
+  "table.page": "Seite {number}",
   "table.prev": "‹ Zurück",
   "table.next": "Weiter ›",
   "table.rowsPerPage": "Zeilen pro Seite",
@@ -562,6 +560,7 @@ export const de = {
   "list.unowned": "Nicht zugewiesen",
   "list.created": "Erstellt",
   "list.updated": "Geändert",
+  "list.lastActivity": "Letzte Aktivität",
   "list.filterOwnerMe": "Meine Datensätze",
   "list.filterOwnerAll": "Alle Zuständigen",
   "list.filterOwnerUnassigned": "Nicht zugewiesen",
@@ -706,6 +705,8 @@ export const de = {
   "tab.timeline": "Verlauf",
   "tab.documents": "Dokumente",
   "tab.profile": "Profil",
+  "tab.meetings": "Termine",
+  "tab.research": "Recherche",
   // Das Briefing nach den Fragen, die es beantwortet, und die Art jeder
   // Aussage — eine Einschätzung darf nicht wie ein Fakt wirken.
   "co.brief.section.snapshot": "Was sie sind",
@@ -811,7 +812,9 @@ export const de = {
   "finance.col.issued": "Ausgestellt",
   "finance.col.due": "Fällig",
   "finance.col.paid": "Bezahlt",
+  "finance.paidDayLate": "{days} Tag zu spät",
   "finance.paidDaysLate": "{days} Tage zu spät",
+  "finance.overdueDay": "{days} Tag überfällig",
   "finance.overdueDays": "{days} Tage überfällig",
   "finance.col.amount": "Betrag",
   "finance.col.status": "Status",
@@ -943,6 +946,8 @@ export const de = {
   "co.growthFit.title": "Was sie dir wert sind",
   "co.growthFit.unavailable":
     "Diese Einschätzung ließ sich nicht lesen. An der Firma hat sich nichts geändert.",
+  "co.growthFit.assembling":
+    "Der Wert dieses Accounts wird ermittelt — die erste Einschätzung liest den Datensatz und dauert einen Moment.",
   "co.growthFit.reassess": "Neu einschätzen",
   "co.growthFit.reassessing": "Wird eingeschätzt…",
   "co.growthFit.band.strong": "Passt gut",
@@ -1132,17 +1137,17 @@ export const de = {
   "co.connections.group.intro_path": "der warme Einstieg",
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
-  "co.chronology.label": "Was im Verlauf angezeigt wird",
-  "co.chronology.activities": "Aktivitäten",
-  "co.chronology.changes": "Änderungen",
-  "co.chronology.all": "Alles",
-  "co.chronology.changesEmpty":
+  "chronology.label": "Was im Verlauf angezeigt wird",
+  "chronology.activities": "Aktivitäten",
+  "chronology.changes": "Änderungen",
+  "chronology.all": "Alles",
+  "chronology.changesEmpty":
     "Seit dem Anlegen wurde kein Feld dieses Datensatzes geändert.",
-  "co.chronology.allEmpty": "Zu diesem Account ist noch nichts passiert.",
-  "co.chronology.truncated":
+  "chronology.allEmpty": "Zu diesem Datensatz ist noch nichts passiert.",
+  "chronology.truncated":
     "Ältere Einträge fehlen hier — es gibt mehr von beidem, als diese Ansicht in eine Reihenfolge bringen kann. Wähle Aktivitäten oder Änderungen, um weiter zurückzulesen.",
-  "co.chronology.truncatedActivities":
-    "Dieser Account hat mehr Aktivitäten, als hier hineinpassen. Gezeigt werden nur die neuesten.",
+  "chronology.truncatedActivities":
+    "Es gibt hier mehr Aktivitäten, als hineinpassen. Gezeigt werden nur die neuesten.",
   "timeline.sent": "Gesendet",
   "timeline.received": "Erhalten",
   "timeline.textMore": "Lesen",
@@ -1286,6 +1291,23 @@ export const de = {
   "lead.filterStatusAll": "Alle Status",
   "lead.filterScore": "Score",
   "lead.filterScoreAll": "Beliebiger Score",
+  "lead.bulkSelected": "{count} ausgewählt",
+  "lead.bulkOwner": "Neuer Verantwortlicher",
+  "lead.bulkOwnerPick": "Verantwortlichen wählen",
+  "lead.bulkAssign": "Zuweisen",
+  "lead.bulkDisqualify": "Disqualifizieren",
+  "lead.bulkFailed": "{count} nicht übernommen –",
+  "lead.bulkFailedRow": "konnte nicht gespeichert werden",
+  "lead.bulkSelectRow": "{name} auswählen",
+  "lead.sla.breached": "Überfällig",
+  "lead.sla.atRisk": "Bald fällig",
+  "lead.sla.withinTarget": "Im Rahmen",
+  "lead.sla.answeredAt": "Erste Antwort am {at}",
+  "lead.sla.dueBy": "Erste Antwort fällig bis {at}",
+  "lead.sla.overdueSince": "Erste Antwort war fällig am {at}",
+  "lead.filterSla": "Antwort",
+  "lead.filterSlaAll": "Alle",
+  "list.viewOverdue": "Überfällig",
   "lead.filterScoreHot": "Ab 80",
   "lead.filterScoreWarm": "Ab 60",
   "lead.filterScoreCool": "Ab 40",
@@ -1693,6 +1715,8 @@ export const de = {
   "create.legalName": "Rechtlicher Name",
   "create.industry": "Branche",
   "create.sizeBand": "Unternehmensgröße",
+  "co.address.summary": "Adresse",
+  "co.address.add": "Adresse hinzufügen",
   "create.addressLine1": "Straße und Hausnummer",
   "create.addressLine2": "Adresszusatz",
   "create.city": "Stadt",
@@ -2755,7 +2779,6 @@ export const de = {
   "ob.s4.googleOkBody":
     "Die Erfassung läuft im Hintergrund — neue Mails erscheinen innerhalb von etwa einer Minute auf deiner Timeline und bleiben ab jetzt von selbst synchron.",
   "ob.s4.googleLive": "Verbindung bestätigt — Hintergrund-Erfassung läuft",
-  "dedupe.title": "Mögliche Duplikate",
   "dedupe.intro":
     "Paare, die die Erfassung als vermutlich dieselbe Person oder Firma erkannt hat. Zusammenführen erhält die Historie beider Datensätze; Verwerfen bedeutet: nie wieder nach diesem Paar fragen.",
   "dedupe.loading": "Prüf-Warteschlange wird geladen…",
@@ -4636,12 +4659,18 @@ export const de = {
   "aiexport.previewLabel": "Szenariovorschau",
   "aiexport.responseLabel": "Modellantwort",
 
+  "countdown.daysHours": "{days}d {hours}h",
+  "countdown.hoursMinutes": "{hours}h {minutes}m",
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Abgelaufen",
 
   // Quotas & Zielerreichung (RD-T06): menschlich gesetzte Umsatzziele mit
   // serverseitig berechneter Zielerreichung, im Reports-Segment „Quotas“.
   "quotas.tab": "Quotas",
+  // Der Titel des Auswahl-Panels. Die Segmentleiste direkt darüber sagt schon
+  // „Quotas“, deshalb benennt dieser Titel, was die LISTE enthält — eine Zeile
+  // je Inhaber oder Team mit einem Ziel — statt die Seite zu wiederholen.
+  "quotas.selector.title": "Wer eine Quota hat",
   "quotas.sub": "Umsatzziele — menschlich gesetzt, Zielerreichung berechnet",
   "quotas.role.owner": "Individuelle Quota",
   "quotas.role.team": "Team-Quota",
@@ -5003,22 +5032,22 @@ export const de = {
     "Diese Unternehmensverbindung entfernen?",
   "person.rail.removeEmploymentBody":
     "Die Verbindung zu {org} und die daran hängende Historie verschwinden, und das lässt sich nicht rückgängig machen. {org} selbst bleibt. Wenn die Person einfach gegangen ist, markiere die Beschäftigung stattdessen als beendet.",
-  "person.page.tabPlaceholder":
-    "Dieser Reiter ist noch nicht gebaut. Die Übersicht trägt die Beziehung; hier kommt {topic} hin.",
-  "person.tab.overview": "Übersicht",
-  "person.tab.activity": "Aktivität",
-  "person.tab.deals": "Deals",
-  "person.tab.meetings": "Termine",
-  "person.tab.research": "Recherche",
-  "person.tab.files": "Dateien",
-  "person.tab.history": "Verlauf",
-  "person.topic.overview": "die Übersicht",
-  "person.topic.activity": "die Aktivität",
-  "person.topic.deals": "die Deals",
-  "person.topic.meetings": "die Termine",
-  "person.topic.research": "die Recherche",
-  "person.topic.files": "die Dateien",
-  "person.topic.history": "den Verlauf",
+  "person.timeline.empty": "Mit ihnen wurde noch nichts erfasst.",
+  "person.deals.empty": "Sie sind auf keinem Deal erfasst.",
+  "person.deals.untitled": "Deal ohne Titel",
+  "person.deals.noStage": "Noch keine Phase",
+  "person.meetings.next": "Nächster Termin",
+  "person.meetings.past": "Bisherige Termine",
+  "person.meetings.noneBooked": "Mit ihnen ist nichts gebucht.",
+  "person.meetings.noneLogged": "Es ist kein Termin mit ihnen erfasst.",
+  "person.meetings.untitled": "Termin ohne Betreff",
+  "person.meetings.participants": "Im Raum",
+  "person.documents.empty": "Zu diesem Kontakt liegt keine Datei.",
+  "person.research.empty": "Zu ihnen wurde noch nichts recherchiert.",
+  "person.research.fields": "Belege der Anreicherung",
+  "person.research.fieldsEmpty":
+    "Noch trägt kein angereichertes Feld einen Beleg.",
+  "person.research.capturedBy": "Erfasst von",
   "person.action.email": "E-Mail",
   "person.action.call": "Anrufen",
   "person.action.book": "Termin",

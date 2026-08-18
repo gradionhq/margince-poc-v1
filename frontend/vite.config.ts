@@ -5,6 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { serveMcpApps } from "./scripts/vite-inline-views";
+import { TEST_TIMEOUT_MS } from "./vitest.budget";
 
 // The composition alias — the runtime half of the two-lane type story whose
 // compile-time half is tsconfig.app.json / tsconfig.composed.json.
@@ -149,6 +150,11 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Derived in vitest.budget.ts, which carries the measurement and the
+    // arithmetic. The short version: a test of N sequential waits may spend N
+    // seconds without a single wait failing, and the longest chain here is six —
+    // so a five-second ceiling failed tests whose every assertion passed.
+    testTimeout: TEST_TIMEOUT_MS,
     // Rebinds jsdom's Web Storage over the Node ≥23 global stub — see the file.
     setupFiles: ["./vitest.setup.ts"],
     // Playwright owns e2e/ — vitest must not collect its specs

@@ -159,8 +159,17 @@ export function GrowthFitPanel({
       }
     >
       {fit.isPending ? (
+        // A first assessment is assembled on the request, model call included,
+        // and cold that is upwards of twenty seconds — long enough that a mute
+        // grey block reads as a panel that is broken rather than one that is
+        // working. So the wait says what it is waiting for, and says it to a
+        // screen reader too: `aria-busy` with a live region, the same way
+        // QueryStates announces every other pending read in this app.
         <PanelBody>
-          <Skeleton width="100%" height={64} />
+          <div role="status" aria-busy="true">
+            <p className="t-small">{t("co.growthFit.assembling")}</p>
+            <Skeleton width="100%" height={44} />
+          </div>
         </PanelBody>
       ) : !readable ? (
         <PanelBody>

@@ -83,8 +83,8 @@ func hideIncumbent(ctx context.Context, t *testing.T, db *database.DB, sourceID 
 			return err
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
-			SELECT workspace_id, id, 'person', $2 FROM activity WHERE source_id = $1`,
+			INSERT INTO activity_link (activity_id, entity_type, person_id)
+			SELECT id, 'person', $2 FROM activity WHERE source_id = $1`,
 			sourceID, personID)
 		return err
 	}); err != nil {

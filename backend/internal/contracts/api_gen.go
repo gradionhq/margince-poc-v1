@@ -3936,6 +3936,159 @@ func (e FieldHistoryEntryEntityType) Valid() bool {
 	}
 }
 
+// Defines values for FilterPreviewResource.
+const (
+	FilterPreviewResourceDeal         FilterPreviewResource = "deal"
+	FilterPreviewResourceLead         FilterPreviewResource = "lead"
+	FilterPreviewResourceOrganization FilterPreviewResource = "organization"
+	FilterPreviewResourcePerson       FilterPreviewResource = "person"
+	FilterPreviewResourceProject      FilterPreviewResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the FilterPreviewResource enum.
+func (e FilterPreviewResource) Valid() bool {
+	switch e {
+	case FilterPreviewResourceDeal:
+		return true
+	case FilterPreviewResourceLead:
+		return true
+	case FilterPreviewResourceOrganization:
+		return true
+	case FilterPreviewResourcePerson:
+		return true
+	case FilterPreviewResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterPreviewRequestResource.
+const (
+	FilterPreviewRequestResourceDeal         FilterPreviewRequestResource = "deal"
+	FilterPreviewRequestResourceLead         FilterPreviewRequestResource = "lead"
+	FilterPreviewRequestResourceOrganization FilterPreviewRequestResource = "organization"
+	FilterPreviewRequestResourcePerson       FilterPreviewRequestResource = "person"
+	FilterPreviewRequestResourceProject      FilterPreviewRequestResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the FilterPreviewRequestResource enum.
+func (e FilterPreviewRequestResource) Valid() bool {
+	switch e {
+	case FilterPreviewRequestResourceDeal:
+		return true
+	case FilterPreviewRequestResourceLead:
+		return true
+	case FilterPreviewRequestResourceOrganization:
+		return true
+	case FilterPreviewRequestResourcePerson:
+		return true
+	case FilterPreviewRequestResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterVocabularyResource.
+const (
+	FilterVocabularyResourceDeal         FilterVocabularyResource = "deal"
+	FilterVocabularyResourceLead         FilterVocabularyResource = "lead"
+	FilterVocabularyResourceOrganization FilterVocabularyResource = "organization"
+	FilterVocabularyResourcePerson       FilterVocabularyResource = "person"
+	FilterVocabularyResourceProject      FilterVocabularyResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyResource enum.
+func (e FilterVocabularyResource) Valid() bool {
+	switch e {
+	case FilterVocabularyResourceDeal:
+		return true
+	case FilterVocabularyResourceLead:
+		return true
+	case FilterVocabularyResourceOrganization:
+		return true
+	case FilterVocabularyResourcePerson:
+		return true
+	case FilterVocabularyResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterVocabularyFieldOperators.
+const (
+	Contains FilterVocabularyFieldOperators = "contains"
+	Eq       FilterVocabularyFieldOperators = "eq"
+	Exists   FilterVocabularyFieldOperators = "exists"
+	Gt       FilterVocabularyFieldOperators = "gt"
+	Gte      FilterVocabularyFieldOperators = "gte"
+	In       FilterVocabularyFieldOperators = "in"
+	Lt       FilterVocabularyFieldOperators = "lt"
+	Lte      FilterVocabularyFieldOperators = "lte"
+	Neq      FilterVocabularyFieldOperators = "neq"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyFieldOperators enum.
+func (e FilterVocabularyFieldOperators) Valid() bool {
+	switch e {
+	case Contains:
+		return true
+	case Eq:
+		return true
+	case Exists:
+		return true
+	case Gt:
+		return true
+	case Gte:
+		return true
+	case In:
+		return true
+	case Lt:
+		return true
+	case Lte:
+		return true
+	case Neq:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for FilterVocabularyFieldType.
+const (
+	FilterVocabularyFieldTypeBoolean  FilterVocabularyFieldType = "boolean"
+	FilterVocabularyFieldTypeCurrency FilterVocabularyFieldType = "currency"
+	FilterVocabularyFieldTypeDate     FilterVocabularyFieldType = "date"
+	FilterVocabularyFieldTypeId       FilterVocabularyFieldType = "id"
+	FilterVocabularyFieldTypeNumber   FilterVocabularyFieldType = "number"
+	FilterVocabularyFieldTypePicklist FilterVocabularyFieldType = "picklist"
+	FilterVocabularyFieldTypeText     FilterVocabularyFieldType = "text"
+)
+
+// Valid indicates whether the value is a known member of the FilterVocabularyFieldType enum.
+func (e FilterVocabularyFieldType) Valid() bool {
+	switch e {
+	case FilterVocabularyFieldTypeBoolean:
+		return true
+	case FilterVocabularyFieldTypeCurrency:
+		return true
+	case FilterVocabularyFieldTypeDate:
+		return true
+	case FilterVocabularyFieldTypeId:
+		return true
+	case FilterVocabularyFieldTypeNumber:
+		return true
+	case FilterVocabularyFieldTypePicklist:
+		return true
+	case FilterVocabularyFieldTypeText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for FilteredExportRequestFormat.
 const (
 	FilteredExportRequestFormatCsv  FilteredExportRequestFormat = "csv"
@@ -4344,6 +4497,27 @@ func (e JobFailureState) Valid() bool {
 	case JobFailureStateDiscarded:
 		return true
 	case JobFailureStateRetryable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadSlaState.
+const (
+	LeadSlaStateAtRisk       LeadSlaState = "at_risk"
+	LeadSlaStateBreached     LeadSlaState = "breached"
+	LeadSlaStateWithinTarget LeadSlaState = "within_target"
+)
+
+// Valid indicates whether the value is a known member of the LeadSlaState enum.
+func (e LeadSlaState) Valid() bool {
+	switch e {
+	case LeadSlaStateAtRisk:
+		return true
+	case LeadSlaStateBreached:
+		return true
+	case LeadSlaStateWithinTarget:
 		return true
 	default:
 		return false
@@ -9383,22 +9557,22 @@ func (e VoiceProfileVersionStatus) Valid() bool {
 
 // Defines values for WebhookDeliveryStatus.
 const (
-	DeadLettered WebhookDeliveryStatus = "dead_lettered"
-	Delivered    WebhookDeliveryStatus = "delivered"
-	Pending      WebhookDeliveryStatus = "pending"
-	Retrying     WebhookDeliveryStatus = "retrying"
+	WebhookDeliveryStatusDeadLettered WebhookDeliveryStatus = "dead_lettered"
+	WebhookDeliveryStatusDelivered    WebhookDeliveryStatus = "delivered"
+	WebhookDeliveryStatusPending      WebhookDeliveryStatus = "pending"
+	WebhookDeliveryStatusRetrying     WebhookDeliveryStatus = "retrying"
 )
 
 // Valid indicates whether the value is a known member of the WebhookDeliveryStatus enum.
 func (e WebhookDeliveryStatus) Valid() bool {
 	switch e {
-	case DeadLettered:
+	case WebhookDeliveryStatusDeadLettered:
 		return true
-	case Delivered:
+	case WebhookDeliveryStatusDelivered:
 		return true
-	case Pending:
+	case WebhookDeliveryStatusPending:
 		return true
-	case Retrying:
+	case WebhookDeliveryStatusRetrying:
 		return true
 	default:
 		return false
@@ -9999,6 +10173,33 @@ func (e GetFieldHistoryParamsActorType) Valid() bool {
 	}
 }
 
+// Defines values for GetFilterVocabularyParamsResource.
+const (
+	GetFilterVocabularyParamsResourceDeal         GetFilterVocabularyParamsResource = "deal"
+	GetFilterVocabularyParamsResourceLead         GetFilterVocabularyParamsResource = "lead"
+	GetFilterVocabularyParamsResourceOrganization GetFilterVocabularyParamsResource = "organization"
+	GetFilterVocabularyParamsResourcePerson       GetFilterVocabularyParamsResource = "person"
+	GetFilterVocabularyParamsResourceProject      GetFilterVocabularyParamsResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the GetFilterVocabularyParamsResource enum.
+func (e GetFilterVocabularyParamsResource) Valid() bool {
+	switch e {
+	case GetFilterVocabularyParamsResourceDeal:
+		return true
+	case GetFilterVocabularyParamsResourceLead:
+		return true
+	case GetFilterVocabularyParamsResourceOrganization:
+		return true
+	case GetFilterVocabularyParamsResourcePerson:
+		return true
+	case GetFilterVocabularyParamsResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListLeadsParamsCapturedByKind.
 const (
 	ListLeadsParamsCapturedByKindAgent     ListLeadsParamsCapturedByKind = "agent"
@@ -10041,6 +10242,27 @@ func (e ListLeadsParamsStatus) Valid() bool {
 	case ListLeadsParamsStatusPromoted:
 		return true
 	case ListLeadsParamsStatusWorking:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListLeadsParamsSlaState.
+const (
+	AtRisk       ListLeadsParamsSlaState = "at_risk"
+	Breached     ListLeadsParamsSlaState = "breached"
+	WithinTarget ListLeadsParamsSlaState = "within_target"
+)
+
+// Valid indicates whether the value is a known member of the ListLeadsParamsSlaState enum.
+func (e ListLeadsParamsSlaState) Valid() bool {
+	switch e {
+	case AtRisk:
+		return true
+	case Breached:
+		return true
+	case WithinTarget:
 		return true
 	default:
 		return false
@@ -14037,6 +14259,105 @@ type FieldHistoryListResponse struct {
 	Page PageInfo            `json:"page"`
 }
 
+// FilterPreview What a candidate filter would select for this caller (LVS-EXT-9).
+type FilterPreview struct {
+	// Columns The column order the rows below are keyed by, schema-derived and
+	// identical to the JSON filtered export's for the same resource.
+	Columns []string `json:"columns"`
+
+	// MatchCount Every row the filter selects that this caller may see — not the
+	// length of `rows`. This is the number a builder shows a human while
+	// they decide whether the filter is right, so it is a full count rather
+	// than a page size dressed up as one.
+	MatchCount int                   `json:"match_count"`
+	Resource   FilterPreviewResource `json:"resource"`
+
+	// Rows Up to `limit` matching rows as column→value maps, ordered by id.
+	// Deliberately the export's projection rather than a shape invented for
+	// this screen: a preview that showed different columns than the export
+	// of the same filter would be a preview of something else.
+	Rows []map[string]interface{} `json:"rows"`
+
+	// Truncated Whether `match_count` exceeds the rows returned — so a caller can say
+	// "showing 25 of 812" without comparing lengths and guessing.
+	Truncated bool `json:"truncated"`
+}
+
+// FilterPreviewResource defines model for FilterPreview.Resource.
+type FilterPreviewResource string
+
+// FilterPreviewRequest A candidate filter to evaluate without saving it.
+type FilterPreviewRequest struct {
+	// Filter The canonical filter tree — the same representation a dynamic list's
+	// `definition` and a saved view's `query` carry, and untyped here for
+	// the same reason they are. The grammar's authority is the predicate
+	// engine, which validates the tree and answers a precise 422 naming the
+	// offending field and reason; a recursive schema here would be a second
+	// statement of that grammar, free to drift from the one that decides.
+	// One engine evaluates all three, so a tree this operation accepts is
+	// one a list or view accepts.
+	Filter map[string]interface{} `json:"filter"`
+
+	// Limit How many rows to sample. The COUNT is unaffected by this — it is the
+	// full match count for the caller, not the size of the page.
+	Limit    *int                         `json:"limit,omitempty"`
+	Resource FilterPreviewRequestResource `json:"resource"`
+}
+
+// FilterPreviewRequestResource defines model for FilterPreviewRequest.Resource.
+type FilterPreviewRequestResource string
+
+// FilterVocabulary What a filter may say about one record type (LVS-EXT-8). Read from the
+// engine that evaluates filters, so the set here and the set the engine
+// accepts are the same set.
+type FilterVocabulary struct {
+	// Fields Every offerable field, core and custom together — a filter names them
+	// the same way, so splitting them here would invite a caller to treat
+	// one kind as second class. A retired field of either kind is absent
+	// (see `custom`); a core field retired by an ADR is absent for the same
+	// reason and has no catalog row a client could learn that from.
+	Fields   []FilterVocabularyField  `json:"fields"`
+	Resource FilterVocabularyResource `json:"resource"`
+}
+
+// FilterVocabularyResource defines model for FilterVocabulary.Resource.
+type FilterVocabularyResource string
+
+// FilterVocabularyField One field a filter clause may name, with what it accepts.
+type FilterVocabularyField struct {
+	// Custom Whether this is a workspace-defined custom-field column. Where true,
+	// `name` is the catalog's `column_name` — join on it to show an admin's
+	// `label`, which the catalog owns and this vocabulary does not.
+	//
+	// Only ACTIVE custom fields appear, which is the same set a record write
+	// may set. A retired one is absent here and still accepted by the
+	// engine, so no `status` lookup is needed to know whether to offer a
+	// field: if this operation listed it, it is offerable.
+	Custom bool `json:"custom"`
+
+	// Name The name a filter clause uses. For a custom field this is the
+	// physical `cf_`-prefixed column, which is the same `column_name` the
+	// custom-field catalog reports — join on it to show an admin's label,
+	// since the catalog owns labels and this vocabulary does not.
+	Name string `json:"name"`
+
+	// Operators The operator subset this field's type admits (LVS-PARAM-1), in one
+	// stable order. An operator absent here is one the engine refuses for
+	// this field, so a builder can disable it rather than discover it.
+	Operators []FilterVocabularyFieldOperators `json:"operators"`
+
+	// Type The six custom-field types plus `id` for a reference to another
+	// record. The type decides the operators, which is why it is here.
+	Type FilterVocabularyFieldType `json:"type"`
+}
+
+// FilterVocabularyFieldOperators defines model for FilterVocabularyField.Operators.
+type FilterVocabularyFieldOperators string
+
+// FilterVocabularyFieldType The six custom-field types plus `id` for a reference to another
+// record. The type decides the operators, which is why it is here.
+type FilterVocabularyFieldType string
+
 // FilteredExportRequest A filtered export request. Supply exactly ONE source: an inline `object` (with a required `filter`), a `view_id` (a saved view whose filter state is exported), or a `list_id` (a dynamic list whose definition is exported). The slice is always row-scoped to the caller through the one filter engine.
 type FilteredExportRequest struct {
 	// Filter The canonical §13.5 predicate tree (nested and/or groups over typed leaves). Required with `object`.
@@ -14531,13 +14852,22 @@ type Lead struct {
 	CreatedAt   time.Time `json:"created_at"`
 
 	// Email Lowercased; lead-internal dedupe key.
-	Email    *openapi_types.Email `json:"email,omitempty"`
-	FullName *string              `json:"full_name,omitempty"`
-	Id       openapi_types.UUID   `json:"id"`
+	Email *openapi_types.Email `json:"email,omitempty"`
+
+	// FirstResponseAt First genuine response to this lead (formulas §18): an outbound activity, a human status change off `new`, or an explicit disposition. A cold-outbound auto-touch does NOT satisfy it.
+	FirstResponseAt *time.Time         `json:"first_response_at,omitempty"`
+	FullName        *string            `json:"full_name,omitempty"`
+	Id              openapi_types.UUID `json:"id"`
+
+	// LastActivityAt Most recent activity linked to this lead — the "last touch" a work queue row shows (ADR-0118/A169). Derived from activity_link, not stored on the lead.
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
 
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.
-	LinkedinUrl *string             `json:"linkedin_url,omitempty"`
-	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
+	LinkedinUrl *string `json:"linkedin_url,omitempty"`
+
+	// OpenTaskCount Open `kind=task` activities linked to this lead; the derived next step is the earliest of them (ADR-0118/A169).
+	OpenTaskCount *int                `json:"open_task_count,omitempty"`
+	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// ProjectId The body of work this lead belongs to; a lead has at most one. NO same-company guard exists on this arm and none can: a lead has no organization_id, only candidate_org_key, so the deal_project_same_org trigger has no lead twin. Promotion is where a mismatch becomes visible.
 	ProjectId  *openapi_types.UUID `json:"project_id,omitempty"`
@@ -14547,6 +14877,9 @@ type Lead struct {
 	PromotedPersonId *openapi_types.UUID     `json:"promoted_person_id,omitempty"`
 	Raw              *map[string]interface{} `json:"raw,omitempty"`
 
+	// RoutedAt When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.
+	RoutedAt *time.Time `json:"routed_at,omitempty"`
+
 	// Score Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).
 	Score int `json:"score"`
 
@@ -14554,13 +14887,19 @@ type Lead struct {
 	ScoreComputed *int `json:"score_computed,omitempty"`
 
 	// ScoreOverrideReason Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.
-	ScoreOverrideReason *string    `json:"score_override_reason,omitempty"`
-	Source              string     `json:"source"`
-	SourceId            *string    `json:"source_id,omitempty"`
-	SourceSystem        *string    `json:"source_system,omitempty"`
-	Status              LeadStatus `json:"status"`
-	Title               *string    `json:"title,omitempty"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	ScoreOverrideReason *string `json:"score_override_reason,omitempty"`
+
+	// SlaDeadlineAt Derived, not stored: COALESCE(routed_at, created_at) + first_response_target_minutes (formulas §18.1). Null on a terminal lead, which owes no first response.
+	SlaDeadlineAt *time.Time `json:"sla_deadline_at,omitempty"`
+
+	// SlaState Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
+	SlaState     *LeadSlaState `json:"sla_state,omitempty"`
+	Source       string        `json:"source"`
+	SourceId     *string       `json:"source_id,omitempty"`
+	SourceSystem *string       `json:"source_system,omitempty"`
+	Status       LeadStatus    `json:"status"`
+	Title        *string       `json:"title,omitempty"`
+	UpdatedAt    time.Time     `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -14570,6 +14909,9 @@ type Lead struct {
 	Version              *RowVersion            `json:"version,omitempty"`
 	AdditionalProperties map[string]interface{} `json:"-"`
 }
+
+// LeadSlaState Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
+type LeadSlaState string
 
 // LeadStatus defines model for Lead.Status.
 type LeadStatus string
@@ -15525,8 +15867,11 @@ type Organization struct {
 	// It is one ordinary organization, reachable by id everywhere, but the surfaces that answer
 	// *which companies are we selling to* exclude it unless `include_anchor` is set, and it
 	// cannot be archived or merged. A caller that offers company actions should tell it apart.
-	IsAnchor  *bool   `json:"is_anchor,omitempty"`
-	LegalName *string `json:"legal_name,omitempty"`
+	IsAnchor *bool `json:"is_anchor,omitempty"`
+
+	// LastActivityAt When something last happened with this account — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-2).
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
+	LegalName      *string    `json:"legal_name,omitempty"`
 
 	// Lifecycle WHERE THE ACCOUNT STANDS with us (PO-DDL-4, ADR-0079/A124). Single-valued: an account is at one point in a sales motion at a time. `unknown` is the default and means it — the retired `classification` defaulted to `prospect` and, having no writer, rendered that default on every unassessed account as though someone had judged it.
 	Lifecycle *OrganizationLifecycle `json:"lifecycle,omitempty"`
@@ -17126,7 +17471,10 @@ type Person struct {
 	// FullName Always present (display name).
 	FullName string             `json:"full_name"`
 	Id       openapi_types.UUID `json:"id"`
-	LastName *string            `json:"last_name,omitempty"`
+
+	// LastActivityAt When something last happened with this person — the newest `occurred_at` of an activity linked to it, maintained on the activity write exactly as `deal.last_activity_at` is (formulas-and-rules §8; a read accelerator, never a second truth — a rebuild must reproduce it). NULL until the first linked activity. Sortable (DM-VOCAB-1).
+	LastActivityAt *time.Time `json:"last_activity_at,omitempty"`
+	LastName       *string    `json:"last_name,omitempty"`
 
 	// MergedIntoId Set when this row was merged away.
 	MergedIntoId *openapi_types.UUID     `json:"merged_into_id,omitempty"`
@@ -21714,6 +22062,15 @@ type GetFieldHistoryParamsEntityType string
 // GetFieldHistoryParamsActorType defines parameters for GetFieldHistory.
 type GetFieldHistoryParamsActorType string
 
+// GetFilterVocabularyParams defines parameters for GetFilterVocabulary.
+type GetFilterVocabularyParams struct {
+	// Resource The record type whose vocabulary to read.
+	Resource GetFilterVocabularyParamsResource `form:"resource" json:"resource"`
+}
+
+// GetFilterVocabularyParamsResource defines parameters for GetFilterVocabulary.
+type GetFilterVocabularyParamsResource string
+
 // ListFxRatesParams defines parameters for ListFxRates.
 type ListFxRatesParams struct {
 	// From 3-letter ISO currency; when set, returns that pair's history.
@@ -21833,6 +22190,9 @@ type ListLeadsParams struct {
 	// Source Filter by capture source (inbound, webform, referral, import, crawl, manual, ...).
 	Source *string `form:"source,omitempty" json:"source,omitempty"`
 
+	// SlaState Triage by first-response SLA state (formulas §18.1). `breached` is the overdue queue.
+	SlaState *ListLeadsParamsSlaState `form:"sla_state,omitempty" json:"sla_state,omitempty"`
+
 	// MinScore Triage by score.
 	MinScore *int    `form:"min_score,omitempty" json:"min_score,omitempty"`
 	Q        *string `form:"q,omitempty" json:"q,omitempty"`
@@ -21843,6 +22203,9 @@ type ListLeadsParamsCapturedByKind string
 
 // ListLeadsParamsStatus defines parameters for ListLeads.
 type ListLeadsParamsStatus string
+
+// ListLeadsParamsSlaState defines parameters for ListLeads.
+type ListLeadsParamsSlaState string
 
 // CreateLeadParams defines parameters for CreateLead.
 type CreateLeadParams struct {
@@ -24365,6 +24728,9 @@ type EmbedReindexStartJSONRequestBody = EmbedReindexStartRequest
 // CreateFilteredExportJSONRequestBody defines body for CreateFilteredExport for application/json ContentType.
 type CreateFilteredExportJSONRequestBody = FilteredExportRequest
 
+// PreviewFilterJSONRequestBody defines body for PreviewFilter for application/json ContentType.
+type PreviewFilterJSONRequestBody = FilterPreviewRequest
+
 // SetFxRateJSONRequestBody defines body for SetFxRate for application/json ContentType.
 type SetFxRateJSONRequestBody = SetFxRateRequest
 
@@ -26682,6 +27048,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "email")
 	}
 
+	if raw, found := object["first_response_at"]; found {
+		err = json.Unmarshal(raw, &a.FirstResponseAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'first_response_at': %w", err)
+		}
+		delete(object, "first_response_at")
+	}
+
 	if raw, found := object["full_name"]; found {
 		err = json.Unmarshal(raw, &a.FullName)
 		if err != nil {
@@ -26698,12 +27072,28 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "id")
 	}
 
+	if raw, found := object["last_activity_at"]; found {
+		err = json.Unmarshal(raw, &a.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_activity_at': %w", err)
+		}
+		delete(object, "last_activity_at")
+	}
+
 	if raw, found := object["linkedin_url"]; found {
 		err = json.Unmarshal(raw, &a.LinkedinUrl)
 		if err != nil {
 			return fmt.Errorf("error reading 'linkedin_url': %w", err)
 		}
 		delete(object, "linkedin_url")
+	}
+
+	if raw, found := object["open_task_count"]; found {
+		err = json.Unmarshal(raw, &a.OpenTaskCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'open_task_count': %w", err)
+		}
+		delete(object, "open_task_count")
 	}
 
 	if raw, found := object["owner_id"]; found {
@@ -26746,6 +27136,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "raw")
 	}
 
+	if raw, found := object["routed_at"]; found {
+		err = json.Unmarshal(raw, &a.RoutedAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'routed_at': %w", err)
+		}
+		delete(object, "routed_at")
+	}
+
 	if raw, found := object["score"]; found {
 		err = json.Unmarshal(raw, &a.Score)
 		if err != nil {
@@ -26768,6 +27166,22 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'score_override_reason': %w", err)
 		}
 		delete(object, "score_override_reason")
+	}
+
+	if raw, found := object["sla_deadline_at"]; found {
+		err = json.Unmarshal(raw, &a.SlaDeadlineAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'sla_deadline_at': %w", err)
+		}
+		delete(object, "sla_deadline_at")
+	}
+
+	if raw, found := object["sla_state"]; found {
+		err = json.Unmarshal(raw, &a.SlaState)
+		if err != nil {
+			return fmt.Errorf("error reading 'sla_state': %w", err)
+		}
+		delete(object, "sla_state")
 	}
 
 	if raw, found := object["source"]; found {
@@ -26883,6 +27297,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.FirstResponseAt != nil {
+		object["first_response_at"], err = json.Marshal(a.FirstResponseAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'first_response_at': %w", err)
+		}
+	}
+
 	if a.FullName != nil {
 		object["full_name"], err = json.Marshal(a.FullName)
 		if err != nil {
@@ -26895,10 +27316,24 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'id': %w", err)
 	}
 
+	if a.LastActivityAt != nil {
+		object["last_activity_at"], err = json.Marshal(a.LastActivityAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_activity_at': %w", err)
+		}
+	}
+
 	if a.LinkedinUrl != nil {
 		object["linkedin_url"], err = json.Marshal(a.LinkedinUrl)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'linkedin_url': %w", err)
+		}
+	}
+
+	if a.OpenTaskCount != nil {
+		object["open_task_count"], err = json.Marshal(a.OpenTaskCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'open_task_count': %w", err)
 		}
 	}
 
@@ -26937,6 +27372,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.RoutedAt != nil {
+		object["routed_at"], err = json.Marshal(a.RoutedAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'routed_at': %w", err)
+		}
+	}
+
 	object["score"], err = json.Marshal(a.Score)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'score': %w", err)
@@ -26953,6 +27395,20 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		object["score_override_reason"], err = json.Marshal(a.ScoreOverrideReason)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'score_override_reason': %w", err)
+		}
+	}
+
+	if a.SlaDeadlineAt != nil {
+		object["sla_deadline_at"], err = json.Marshal(a.SlaDeadlineAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'sla_deadline_at': %w", err)
+		}
+	}
+
+	if a.SlaState != nil {
+		object["sla_state"], err = json.Marshal(a.SlaState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'sla_state': %w", err)
 		}
 	}
 
@@ -27614,6 +28070,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "is_anchor")
 	}
 
+	if raw, found := object["last_activity_at"]; found {
+		err = json.Unmarshal(raw, &a.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_activity_at': %w", err)
+		}
+		delete(object, "last_activity_at")
+	}
+
 	if raw, found := object["legal_name"]; found {
 		err = json.Unmarshal(raw, &a.LegalName)
 		if err != nil {
@@ -27852,6 +28316,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.LastActivityAt != nil {
+		object["last_activity_at"], err = json.Marshal(a.LastActivityAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_activity_at': %w", err)
+		}
+	}
+
 	if a.LegalName != nil {
 		object["legal_name"], err = json.Marshal(a.LegalName)
 		if err != nil {
@@ -28081,6 +28552,14 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "id")
 	}
 
+	if raw, found := object["last_activity_at"]; found {
+		err = json.Unmarshal(raw, &a.LastActivityAt)
+		if err != nil {
+			return fmt.Errorf("error reading 'last_activity_at': %w", err)
+		}
+		delete(object, "last_activity_at")
+	}
+
 	if raw, found := object["last_name"]; found {
 		err = json.Unmarshal(raw, &a.LastName)
 		if err != nil {
@@ -28256,6 +28735,13 @@ func (a Person) MarshalJSON() ([]byte, error) {
 	object["id"], err = json.Marshal(a.Id)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'id': %w", err)
+	}
+
+	if a.LastActivityAt != nil {
+		object["last_activity_at"], err = json.Marshal(a.LastActivityAt)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'last_activity_at': %w", err)
+		}
 	}
 
 	if a.LastName != nil {
@@ -30825,6 +31311,12 @@ type ServerInterface interface {
 	// Per-field change history for one record, projected from audit_log before/after diffs.
 	// (GET /field-history)
 	GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams)
+	// Count and sample what a filter would select, before it is saved (LVS-EXT-9).
+	// (POST /filters/preview)
+	PreviewFilter(w http.ResponseWriter, r *http.Request)
+	// Read what a new filter clause may name on one record type (LVS-EXT-8).
+	// (GET /filters/vocabulary)
+	GetFilterVocabulary(w http.ResponseWriter, r *http.Request, params GetFilterVocabularyParams)
 	// List current FX rates (latest per currency), or one pair's history.
 	// (GET /fx-rates)
 	ListFxRates(w http.ResponseWriter, r *http.Request, params ListFxRatesParams)
@@ -32427,6 +32919,18 @@ func (_ Unimplemented) ListExtensions(w http.ResponseWriter, r *http.Request) {
 // Per-field change history for one record, projected from audit_log before/after diffs.
 // (GET /field-history)
 func (_ Unimplemented) GetFieldHistory(w http.ResponseWriter, r *http.Request, params GetFieldHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Count and sample what a filter would select, before it is saved (LVS-EXT-9).
+// (POST /filters/preview)
+func (_ Unimplemented) PreviewFilter(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read what a new filter clause may name on one record type (LVS-EXT-8).
+// (GET /filters/vocabulary)
+func (_ Unimplemented) GetFilterVocabulary(w http.ResponseWriter, r *http.Request, params GetFilterVocabularyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -39817,6 +40321,67 @@ func (siw *ServerInterfaceWrapper) GetFieldHistory(w http.ResponseWriter, r *htt
 	handler.ServeHTTP(w, r)
 }
 
+// PreviewFilter operation middleware
+func (siw *ServerInterfaceWrapper) PreviewFilter(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewFilter(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetFilterVocabulary operation middleware
+func (siw *ServerInterfaceWrapper) GetFilterVocabulary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetFilterVocabularyParams
+
+	// ------------- Required query parameter "resource" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "resource", r.URL.Query(), &params.Resource, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "resource"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resource", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetFilterVocabulary(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListFxRates operation middleware
 func (siw *ServerInterfaceWrapper) ListFxRates(w http.ResponseWriter, r *http.Request) {
 
@@ -40282,6 +40847,19 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "source"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "source", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "sla_state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sla_state", r.URL.Query(), &params.SlaState, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "sla_state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sla_state", Err: err})
 		}
 		return
 	}
@@ -52458,6 +53036,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/field-history", wrapper.GetFieldHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/filters/preview", wrapper.PreviewFilter)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/filters/vocabulary", wrapper.GetFilterVocabulary)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/fx-rates", wrapper.ListFxRates)

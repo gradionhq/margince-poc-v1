@@ -46,7 +46,7 @@ var pendingSources = map[string]pendingSource{
 	entityOrganization: {table: entityOrganization, text: "concat_ws(' ', t.display_name, t.legal_name, t.industry)", tenantScoped: true},
 	entityDeal:         {table: entityDeal, text: "t.name"},
 	entityLead:         {table: entityLead, text: "concat_ws(' ', t.full_name, t.company_name, t.title)", tenantScoped: true},
-	entityActivity:     {table: entityActivity, text: "concat_ws(' ', t.subject, t.body)", tenantScoped: true},
+	entityActivity:     {table: entityActivity, text: "concat_ws(' ', t.subject, t.body)"},
 	entityProject:      {table: entityProject, text: "concat_ws(' ', t.name, t.key, t.description)"},
 }
 

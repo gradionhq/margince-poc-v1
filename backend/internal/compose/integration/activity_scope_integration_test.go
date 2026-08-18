@@ -45,9 +45,9 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	// Team2's activity: linked to a person Rep3 owns, so Rep1's team scope
 	// hides it.
 	theirPerson := e.SeedPerson(t, "Their Contact", &e.Rep3)
-	theirActivity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'Q3 renewal terms', 'confidential body', now(), 'manual', 'human:x')`, e.WS)
-	LinkActivity(t, owner, e.WS, theirActivity, "person", theirPerson)
+	theirActivity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Q3 renewal terms', 'confidential body', now(), 'manual', 'human:x')`)
+	LinkActivity(t, owner, theirActivity, "person", theirPerson)
 	theirID := ids.From[ids.ActivityKind](theirActivity)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)

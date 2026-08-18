@@ -342,7 +342,7 @@ export function PersonCommercialCard({ view }: Readonly<{ view: Person360 }>) {
 
 // The stored role key rendered as words. An unrecognized key is shown as it
 // was stored — inventing a label for a role nobody defined would be a claim.
-function readableRole(role: string): string {
+export function readableRole(role: string): string {
   const words = role.replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }

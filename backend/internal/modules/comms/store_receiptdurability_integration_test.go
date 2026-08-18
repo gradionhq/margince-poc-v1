@@ -189,8 +189,8 @@ func TestRecordSentKeepsTheReceiptWhenTheReconcileHitsAUniqueViolation(t *testin
 	// re-key would have succeeded and this case would test nothing.
 	var echoes int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM activity WHERE workspace_id = $1 AND source_system = 'gmail' AND source_id = $2`,
-		e.ws, stampedIdentity).Scan(&echoes); err != nil {
+		`SELECT count(*) FROM activity WHERE source_system = 'gmail' AND source_id = $1`,
+		stampedIdentity).Scan(&echoes); err != nil {
 		t.Fatalf("counting rows on the stamped key: %v", err)
 	}
 	if echoes != 1 {

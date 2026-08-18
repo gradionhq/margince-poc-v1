@@ -50,8 +50,8 @@ func seedOverAgeRecords(t *testing.T, e *Env) (staleLead, heldLead, staleDeal, t
 				[]any{heldLead},
 			},
 			{
-				`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, source_system, source_id, captured_by)
-			  VALUES ($1, ` + wsClause + `, 'note', 'Transcript', 'sensitive words', now() - interval '400 days', 'capture', 'transcript', 't-1', 'connector:t')`,
+				`INSERT INTO activity (id, kind, subject, body, occurred_at, source, source_system, source_id, captured_by)
+			  VALUES ($1, 'note', 'Transcript', 'sensitive words', now() - interval '400 days', 'capture', 'transcript', 't-1', 'connector:t')`,
 				[]any{transcript},
 			},
 		} {

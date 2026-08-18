@@ -129,6 +129,37 @@ var operatorsByType = map[FieldType]map[string]bool{
 	FieldBoolean:  {OpEq: true, OpNeq: true, OpExists: true},
 }
 
+// operatorOrder is the one reading order for an operator list: equality,
+// then ordering, then membership, then presence. The matrix above is a map,
+// so iterating it directly would answer a different order on every call and
+// make a vocabulary response unstable between two identical requests.
+var operatorOrder = []string{
+	OpEq, OpNeq, OpGt, OpGte, OpLt, OpLte, OpIn, OpContains, OpExists,
+}
+
+// OperatorsFor answers the operators this field type admits, in operatorOrder.
+//
+// It exists so a surface that has to TELL a caller what a field accepts —
+// the filter-vocabulary read — derives the answer from the same matrix
+// compileLeaf refuses against, rather than carrying a second copy of it. The
+// two cannot then disagree, which is the failure this arc has already paid for
+// once: a vocabulary restated beside the engine offers a field the engine
+// rejects, and the caller learns the difference as a 422 it could not predict.
+//
+// An unknown type answers an empty slice, not every operator: a field the
+// matrix does not describe is one compileLeaf refuses outright, so promising
+// operators for it would be the exact drift this function prevents.
+func OperatorsFor(t FieldType) []string {
+	admitted := operatorsByType[t]
+	ops := make([]string, 0, len(admitted))
+	for _, op := range operatorOrder {
+		if admitted[op] {
+			ops = append(ops, op)
+		}
+	}
+	return ops
+}
+
 // PredicateError is the typed validation failure: the transport maps it
 // onto the httperr.Validation 422 shape (data-model §13.5's
 // "anything else → 422"). Field carries the offending filter field (or
@@ -359,19 +390,20 @@ type Query struct {
 	ActivityWalk bool
 }
 
-// SelectIDs runs the predicate inside the caller's workspace-bound
-// transaction and returns matching row ids, deterministically ordered
-// by id (the keyset tie-breaker) and hard-capped at PredicateRowLimit.
-// The row-scope clause is composed HERE, unconditionally — a predicate
-// can only ever narrow what the caller is already allowed to see.
-func (q Query) SelectIDs(ctx context.Context, tx pgx.Tx, p Predicate, limit int) ([]ids.UUID, error) {
+// predicateWhere is the admission point AND the clause composer for every
+// execution of a predicate: it takes the object read gate, then joins the
+// resource's base clause, the compiled predicate, and the caller's row scope.
+//
+// Both live here so a second executor cannot take two of the three, or the
+// clauses without the gate. The row scope is the one that matters most: it is
+// what makes a predicate able only to NARROW what the caller may already see,
+// and an executor that forgot it would still return plausible rows, just other
+// people's. One point of composition means "is this scoped?" has one answer for
+// every caller.
+func (q Query) predicateWhere(ctx context.Context, p Predicate) (string, []any, error) {
 	if err := auth.Require(ctx, q.Table, principal.ActionRead); err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	if limit <= 0 || limit > PredicateRowLimit {
-		limit = PredicateRowLimit
-	}
-
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
@@ -381,7 +413,7 @@ func (q Query) SelectIDs(ctx context.Context, tx pgx.Tx, p Predicate, limit int)
 	}
 	compiled, err := CompilePredicate(p, q.Fields, arg)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	where = append(where, compiled)
 
@@ -392,14 +424,59 @@ func (q Query) SelectIDs(ctx context.Context, tx pgx.Tx, p Predicate, limit int)
 		scope, err = auth.ScopeClauseFor(ctx, q.Table, "t", arg)
 	}
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if scope != "" {
 		where = append(where, scope)
 	}
+	return strings.Join(where, " AND "), args, nil
+}
 
+// CountMatching answers how many rows the predicate selects for this caller.
+//
+// It is a COUNT rather than len(SelectIDs): SelectIDs is capped at
+// PredicateRowLimit, so counting its result would silently report 1000 for every
+// larger set — a number that looks exact and is not. The filter builder shows
+// this figure to a human deciding whether their filter is right, which is
+// precisely the situation where a plausible wrong number is worse than a slow
+// one.
+//
+// Unbounded on purpose, and it is the same WHERE SelectIDs runs: same base
+// clause, same predicate, same row scope, so the count and the page it labels
+// cannot disagree about what MATCHING MEANS. Whether they saw the same rows is a
+// question about the snapshot, not the clause, and the caller decides that by
+// choosing which transaction to run both in.
+func (q Query) CountMatching(ctx context.Context, tx pgx.Tx, p Predicate) (int, error) {
+	where, args, err := q.predicateWhere(ctx, p)
+	if err != nil {
+		return 0, err
+	}
+	var n int
+	sql := fmt.Sprintf("SELECT count(*) FROM %s t WHERE %s", q.Table, where)
+	if err := tx.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("predicate count on %s: %w", q.Table, err)
+	}
+	return n, nil
+}
+
+// SelectIDs runs the predicate inside the caller's workspace-bound
+// transaction and returns matching row ids, deterministically ordered
+// by id (the keyset tie-breaker) and hard-capped at PredicateRowLimit.
+//
+// The read gate and the row-scope clause both come from predicateWhere — see
+// there for why they live together — so a predicate can only ever narrow what
+// the caller is already allowed to see. The cap stays here rather than in the
+// helper: it bounds a PAGE, and a count must not inherit it.
+func (q Query) SelectIDs(ctx context.Context, tx pgx.Tx, p Predicate, limit int) ([]ids.UUID, error) {
+	if limit <= 0 || limit > PredicateRowLimit {
+		limit = PredicateRowLimit
+	}
+	where, args, err := q.predicateWhere(ctx, p)
+	if err != nil {
+		return nil, err
+	}
 	sql := fmt.Sprintf("SELECT t.id FROM %s t WHERE %s ORDER BY t.id LIMIT %d",
-		q.Table, strings.Join(where, " AND "), limit)
+		q.Table, where, limit)
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf("predicate query on %s: %w", q.Table, err)

@@ -220,10 +220,9 @@ func (e *dedupeEnv) attestOutbound(ctx context.Context, t *testing.T, email stri
 	t.Helper()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO activity (id, workspace_id, kind, subject, counterparty_email,
-			                      counterparty_outbound_attested, source, captured_by)
-			VALUES ($1, $2, 'email', 'hi', $3, true, 'test', 'human:test')`,
-			ids.NewV7(), e.ws, email)
+			INSERT INTO activity (id, kind, subject, counterparty_email, counterparty_outbound_attested, source, captured_by)
+			VALUES ($1, 'email', 'hi', $2, true, 'test', 'human:test')`,
+			ids.NewV7(), email)
 		return err
 	}); err != nil {
 		t.Fatalf("attesting outbound to %s: %v", email, err)

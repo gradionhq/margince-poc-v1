@@ -91,8 +91,8 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	// mail, so the row has to be one.
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, direction, subject, occurred_at, source, captured_by)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			INSERT INTO activity (id, kind, direction, subject, occurred_at, source, captured_by)
+			VALUES ($1,
 			        'email', 'inbound', 'Pricing question', now(), 'manual', 'human:x')`, anchorID)
 		return err
 	})

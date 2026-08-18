@@ -10,6 +10,10 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  ASYNC_UTIL_TIMEOUT_MS,
+  SLOWEST_MEASURED_TEST_MS,
+} from "../../vitest.budget";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { OnboardingScreen } from "./onboarding";
@@ -366,6 +370,18 @@ beforeEach(() => {
 // clobber what the administrator typed.
 const EXPECTED_READS = 2;
 
+// The dossier case below waits out the whole poll cadence — five rounds of
+// EXPECTED_READS at READ_POLL_MS — and three default waiters beside it. A test
+// may spend the SUM of its waiters' budgets without any one of them failing, so
+// its own ceiling has to cover that; the suite's is derived for tests that wait
+// at the default. Stated here rather than borrowed, with the same measured
+// allowance for the work between the waits that the suite ceiling uses, so both
+// rest on one measurement instead of two guesses (issue 1144).
+const DOSSIER_TEST_MS =
+  READ_POLL_MS * EXPECTED_READS * 5 +
+  ASYNC_UTIL_TIMEOUT_MS * 3 +
+  SLOWEST_MEASURED_TEST_MS;
+
 describe("the conversational company act", () => {
   it("loads the detailed AI profile after the public login profile was cached", async () => {
     const calls = stubApi();
@@ -397,56 +413,60 @@ describe("the conversational company act", () => {
     expect(screen.queryByLabelText(/Company name/)).toBeNull();
   });
 
-  it("preserves administrator typing when a newer streamed dossier arrives", async () => {
-    const completedRead = {
-      ...readyRead,
-      profile_fields: readyRead.profile_fields.map((field) =>
-        field.field === "icp"
-          ? { ...field, value: "Enterprise manufacturers" }
-          : field,
-      ),
-    } as const satisfies CompanySiteRead;
-    const calls = stubApi({ readSequence: [readingRead, completedRead] });
-    render(<OnboardingScreen />);
+  it(
+    "preserves administrator typing when a newer streamed dossier arrives",
+    async () => {
+      const completedRead = {
+        ...readyRead,
+        profile_fields: readyRead.profile_fields.map((field) =>
+          field.field === "icp"
+            ? { ...field, value: "Enterprise manufacturers" }
+            : field,
+        ),
+      } as const satisfies CompanySiteRead;
+      const calls = stubApi({ readSequence: [readingRead, completedRead] });
+      render(<OnboardingScreen />);
 
-    await submitWebsite();
-    // Every field is inline-editable on the review board — there is no
-    // separate edit mode to switch into first, only the collapsed row's own
-    // summary to open, exactly as a human would.
-    await screen.findByRole("heading", {
-      name: /Here is everything I found/,
-    });
-    const icpRow = document.getElementById("ob-triage-row-icp");
-    if (icpRow === null) {
-      throw new Error("expected the icp row to exist");
-    }
-    await userEvent.click(within(icpRow).getByRole("button"));
-    const icp = (await screen.findByLabelText(
-      /Ideal customer/,
-    )) as HTMLTextAreaElement;
-    await userEvent.clear(icp);
-    await userEvent.type(icp, "Owner-led manufacturers");
+      await submitWebsite();
+      // Every field is inline-editable on the review board — there is no
+      // separate edit mode to switch into first, only the collapsed row's own
+      // summary to open, exactly as a human would.
+      await screen.findByRole("heading", {
+        name: /Here is everything I found/,
+      });
+      const icpRow = document.getElementById("ob-triage-row-icp");
+      if (icpRow === null) {
+        throw new Error("expected the icp row to exist");
+      }
+      await userEvent.click(within(icpRow).getByRole("button"));
+      const icp = (await screen.findByLabelText(
+        /Ideal customer/,
+      )) as HTMLTextAreaElement;
+      await userEvent.clear(icp);
+      await userEvent.type(icp, "Owner-led manufacturers");
 
-    // This waits for a COUNT of polls, not for a condition the render reaches,
-    // so it cannot succeed before the cadence has run EXPECTED_READS times
-    // however fast the machine is. The budget is therefore a multiple of that
-    // floor rather than a number of its own: four cadence periods of headroom
-    // over the two it must outlast, which is what a loaded runner spends on
-    // scheduling. A budget written independently of the cadence cannot be seen
-    // to disagree with it.
-    await waitFor(
-      () => {
-        const reads = calls.filter(
-          (request) =>
-            request.method === "GET" &&
-            request.url.includes("/company/site-reads/"),
-        );
-        expect(reads.length).toBeGreaterThanOrEqual(EXPECTED_READS);
-      },
-      { timeout: READ_POLL_MS * EXPECTED_READS * 5 },
-    );
-    expect(icp.value).toBe("Owner-led manufacturers");
-  });
+      // This waits for a COUNT of polls, not for a condition the render reaches,
+      // so it cannot succeed before the cadence has run EXPECTED_READS times
+      // however fast the machine is. The budget is therefore a multiple of that
+      // floor rather than a number of its own: four cadence periods of headroom
+      // over the two it must outlast, which is what a loaded runner spends on
+      // scheduling. A budget written independently of the cadence cannot be seen
+      // to disagree with it.
+      await waitFor(
+        () => {
+          const reads = calls.filter(
+            (request) =>
+              request.method === "GET" &&
+              request.url.includes("/company/site-reads/"),
+          );
+          expect(reads.length).toBeGreaterThanOrEqual(EXPECTED_READS);
+        },
+        { timeout: READ_POLL_MS * EXPECTED_READS * 5 },
+      );
+      expect(icp.value).toBe("Owner-led manufacturers");
+    },
+    DOSSIER_TEST_MS,
+  );
 
   it("caps the fact selection the confirmation sends at the server limit", async () => {
     const calls = stubApi({

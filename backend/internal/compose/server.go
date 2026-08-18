@@ -91,6 +91,7 @@ type Server struct {
 	traceHandlers
 	pipelineTraceHandlers
 	filteredExportHandlers
+	filterPreviewHandlers
 	overlayExportHandlers
 	orgRollupHandlers
 	strengthHandlers

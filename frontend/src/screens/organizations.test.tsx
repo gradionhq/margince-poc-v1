@@ -11,7 +11,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, type Mock, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { LocaleProvider } from "../i18n";
 import { AssistantPanel } from "./assistant";
@@ -541,7 +541,10 @@ function stubFetch(
     rollup?: unknown | Response;
     brief?: unknown;
   }>,
-): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
+): {
+  fetchMock: Mock<(request: Request) => Promise<Response>>;
+  urls: string[];
+} {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
     urls.push(request.url);
@@ -759,6 +762,33 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
         urls.some(
           (url) =>
             url.includes("sort=display_name") && !url.includes("cursor="),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("sorts by last activity on the server, not over the rows it holds", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, last_activity_at: "2026-08-10T12:00:00Z" }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Sort by Last activity" }),
+    );
+    // The server owns the order: a fresh keyset walk under the new sort.
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            url.includes("sort=last_activity_at") && !url.includes("cursor="),
         ),
       ).toBe(true),
     );
@@ -2230,7 +2260,7 @@ describe("CompanyScreen — the timeline says where it stops", () => {
     );
     expect(
       screen.getByText(
-        "This account has more activities than fit here. Only the most recent ones are listed.",
+        "There are more activities here than fit. Only the most recent ones are listed.",
       ),
     ).toBeTruthy();
   });

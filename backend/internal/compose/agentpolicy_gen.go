@@ -337,6 +337,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/emails":                                                    {Op: "sendAccountEmail", Access: "tool", Tool: "send_account_email", RecordType: "activity", Tier: "confirmation_required", Scope: "send"},
 	"POST /v1/embeddings/reindex":                                        {Op: "EmbedReindexStart", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/exports":                                                   {Op: "createFilteredExport", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"POST /v1/filters/preview":                                           {Op: "previewFilter", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/fx-rates":                                                  {Op: "setFxRate", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/fx-rates/propose-refresh":                                  {Op: "proposeFxRateRefresh", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"POST /v1/imports":                                                   {Op: "createImportRun", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

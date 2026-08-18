@@ -18,7 +18,6 @@ import {
   Card,
   Field,
   Modal,
-  SectionHeader,
   SegmentedControl,
   Textarea,
   TextInput,
@@ -467,6 +466,36 @@ export function useApprovalTokenSink(): {
   return { onApproved, onAlreadyDecided, tokenModal, decidedNote };
 }
 
+// Narrowed, never asserted: proposed_change is an open map in the contract, so
+// a kind that puts something other than a string under `subject` reads as no
+// subject at all rather than rendering whatever it found there.
+function draftSubjectOf(change: Record<string, unknown>): string | null {
+  const subject = change.subject;
+  return typeof subject === "string" && subject.trim() !== "" ? subject : null;
+}
+
+// What tells this row apart from the one under it. The server's summary names
+// only the addressee ("an automation drafted a reply to <them>"), so a queue of
+// drafts to the same handful of counterparties reads as the same sentence over
+// and over. The drafted SUBJECT is the line that differs, and it is already on
+// the wire in the staged payload — so it leads, and the summary explains it
+// underneath. A kind that stages no subject is unchanged: the summary leads.
+function ApprovalHeadline({
+  subject,
+  summary,
+}: Readonly<{ subject: string | null; summary?: string | null }>) {
+  const headline = subject ?? summary;
+  if (!headline) {
+    return null;
+  }
+  return (
+    <>
+      <p className="t-h2 approval-headline">{headline}</p>
+      {subject && summary && <p className="t-small approval-why">{summary}</p>}
+    </>
+  );
+}
+
 export function ApprovalRow({
   approval,
   decided,
@@ -549,6 +578,7 @@ export function ApprovalRow({
   const change = (approval.proposed_change ?? {}) as Record<string, unknown>;
   const strings = editableStrings(approval.kind, change);
   const level = confidenceLevel(approval.confidence);
+  const draftSubject = draftSubjectOf(change);
 
   const problem =
     decide.error instanceof ProblemError ? decide.error.problem : null;
@@ -637,11 +667,7 @@ export function ApprovalRow({
           {t("inbox.detail")}
         </button>
       </div>
-      {approval.summary && (
-        <p className="t-h2" style={{ marginTop: 8 }}>
-          {approval.summary}
-        </p>
-      )}
+      <ApprovalHeadline subject={draftSubject} summary={approval.summary} />
       <EvidenceList evidence={approval.evidence} />
       {!decided &&
         !isExpired &&
@@ -817,7 +843,6 @@ export function InboxScreen() {
   const query = tab === "pending" ? pendingQuery : decidedQuery;
   return (
     <div className="wrap">
-      <SectionHeader title={t("nav.inbox")} sub={t("inbox.sub")} />
       {/* .filter-tabs: the gap below the tabs holds for every query state —
           empty and loading bodies clear the tabs like a populated list does. */}
       <div className="filter-tabs">

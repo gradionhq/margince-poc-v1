@@ -87,13 +87,13 @@ func TestDedupeLeadMergeArm(t *testing.T) {
 	activity := ids.NewV7()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-			 VALUES ($1, $2, 'note', 'Called', now(), 'manual', 'human:x')`, activity, e.ws); err != nil {
+			`INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+			 VALUES ($1, 'note', 'Called', now(), 'manual', 'human:x')`, activity); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO activity_link (id, workspace_id, activity_id, entity_type, lead_id)
-			 VALUES ($1, $2, $3, 'lead', $4)`, ids.NewV7(), e.ws, activity, second.UUID)
+			`INSERT INTO activity_link (id, activity_id, entity_type, lead_id)
+			 VALUES ($1, $2, 'lead', $3)`, ids.NewV7(), activity, second.UUID)
 		return err
 	}); err != nil {
 		t.Fatalf("seed loser activity: %v", err)

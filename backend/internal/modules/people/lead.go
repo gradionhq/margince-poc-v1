@@ -351,6 +351,9 @@ type ListLeadsInput struct {
 	// Source narrows to one capture source (inbound, webform, referral,
 	// import, crawl, manual, ...): the exact stored value, no prefix match.
 	Source *string
+	// SLAState narrows to leads in one first-response state (formulas
+	// §18.1); breached is the overdue queue.
+	SLAState *crmcontracts.ListLeadsParamsSlaState
 	// Sort is the contract's sort spec, validated against the lead
 	// vocabulary plus the workspace's active cf_ columns.
 	Sort *string
@@ -396,7 +399,7 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'disqualified', archived_at = now() WHERE id = $1 AND archived_at IS NULL`,
+			`UPDATE lead SET status = 'disqualified', archived_at = now(), `+firstResponseSet+` WHERE id = $1 AND archived_at IS NULL`,
 			id); err != nil {
 			return err
 		}

@@ -304,6 +304,36 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(window.location.hash).toBe("#/dedupe");
   });
 
+  // The state a real installation is in: /digest is a specified operation with
+  // no implementation behind it, so the server answers 501, not 404. Read as an
+  // error that is a 5xx, the query client retried it — and React Query pauses
+  // between retries while the tab is not the focused one, so the query never
+  // settled and Home carried three grey skeleton bars that would still be there
+  // the next day. A refusal is not a delay.
+  it("a 501 not_implemented renders no digest card, and no loading block either", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),
+      "GET /digest": () =>
+        jsonResponse(
+          {
+            title: "Not Implemented",
+            code: "not_implemented",
+            detail:
+              "operation GetMorningDigest is specified but not yet implemented",
+          },
+          501,
+        ),
+    });
+    render(<HomeScreen />);
+    await waitFor(() => expect(screen.getByText("No brief yet")).toBeTruthy());
+    expect(screen.queryByTestId("digest-card")).toBeNull();
+    // Neither the skeletons that stood in for the refusal, nor the generic
+    // "Couldn't load this view" with a Try again that could never succeed.
+    expect(document.querySelector("[aria-busy='true']")).toBeNull();
+    expect(screen.queryByText(/couldn't load/i)).toBeNull();
+    expect(document.body.textContent).not.toContain("not yet implemented");
+  });
+
   it("a 404 no_digest_yet renders no digest card at all — never fabricated zeros", async () => {
     stubApi({
       "GET /brief": () => jsonResponse({ title: "Not Found" }, 404),

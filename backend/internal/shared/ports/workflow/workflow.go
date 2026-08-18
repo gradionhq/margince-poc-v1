@@ -156,9 +156,24 @@ type RunResult struct {
 // StagedApprovalError is the typed form of the "staged as approval"
 // answer: a chat client shows the message, while a programmatic caller
 // (the Surface-B runner) suspends on the id instead of parsing prose.
-type StagedApprovalError struct{ ApprovalID ids.ApprovalID }
+//
+// AlreadyApproved says the id names a decision a human has ALREADY made and
+// nobody has spent — the call was not staged, it was recognized. The two need
+// different prose because they ask the caller for different things, and the one
+// piece of advice that fits both ("wait for a human") is wrong for this half:
+// waiting for a decision it already holds is what makes an agent stage the same
+// question again.
+type StagedApprovalError struct {
+	ApprovalID      ids.ApprovalID
+	AlreadyApproved bool
+}
 
 func (e *StagedApprovalError) Error() string {
+	if e.AlreadyApproved {
+		return fmt.Sprintf(
+			"a human has already approved this exact call as approval %s — repeat it with \"approval_id\": %q and do not stage another: %s",
+			e.ApprovalID, e.ApprovalID.String(), apperrors.ErrRequiresApproval)
+	}
 	return fmt.Sprintf(
 		"staged as approval %s — once a human approves it, repeat this exact call with \"approval_id\": %q: %s",
 		e.ApprovalID, e.ApprovalID.String(), apperrors.ErrRequiresApproval)

@@ -43,11 +43,10 @@ func TestMeetingBriefRefusesACallerWithNoActivityGrant(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
-	meeting := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Expansion review', $3,
-		        'manual', 'human:x')`, e.WS, roomTomorrow)
-	LinkActivity(t, owner, e.WS, meeting, "person", mine)
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Expansion review', $2,
+		        'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", mine)
 
 	perms := roomPerms
 	perms.Objects = map[string]principal.ObjectGrant{
@@ -70,11 +69,10 @@ func TestMeetingBriefRefusesACallerWithNoPersonGrant(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
-	meeting := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Expansion review', $3,
-		        'manual', 'human:x')`, e.WS, roomTomorrow)
-	LinkActivity(t, owner, e.WS, meeting, "person", mine)
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Expansion review', $2,
+		        'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", mine)
 
 	perms := roomPerms
 	perms.Objects = map[string]principal.ObjectGrant{"activity": {Read: true}}
@@ -98,11 +96,10 @@ func TestMeetingBriefRefusesAMeetingItCannotReach(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
-	meeting := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Their review', $3,
-		        'manual', 'human:x')`, e.WS, roomTomorrow)
-	LinkActivity(t, owner, e.WS, meeting, "person", theirs)
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Their review', $2,
+		        'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", theirs)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
@@ -126,20 +123,18 @@ func TestMeetingBriefDoesNotReportALastTouchTheCallerCannotRead(t *testing.T) {
 	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
 
-	meeting := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'meeting', 'Expansion review', $3,
-		        'manual', 'human:x')`, e.WS, roomTomorrow)
-	LinkActivity(t, owner, e.WS, meeting, "person", attendee)
+	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'meeting', 'Expansion review', $2,
+		        'manual', 'human:x')`, roomTomorrow)
+	LinkActivity(t, owner, meeting, "person", attendee)
 	seatInRoom(t, owner, e.WS, meeting, attendee)
 
 	// A conversation this caller may not read, which nonetheless names their
 	// attendee as a participant.
-	hidden := SeedRow(t, owner, `INSERT INTO activity
-		(id, workspace_id, kind, subject, occurred_at, source, captured_by)
-		VALUES ($1, $2, 'email', 'Cc: budget', $3,
-		        'manual', 'human:x')`, e.WS, roomAgo(3*24*time.Hour))
-	LinkActivity(t, owner, e.WS, hidden, "person", theirs)
+	hidden := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Cc: budget', $2,
+		        'manual', 'human:x')`, roomAgo(3*24*time.Hour))
+	LinkActivity(t, owner, hidden, "person", theirs)
 	seatInRoom(t, owner, e.WS, hidden, attendee)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
@@ -177,8 +172,8 @@ func TestMeetingBriefDoesNotReportALastTouchTheCallerCannotRead(t *testing.T) {
 func seatInRoom(t *testing.T, owner *pgx.Conn, ws, activity, person ids.UUID) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_participant (workspace_id, activity_id, role, person_id)
-		 VALUES ($1, $2, 'attendee', $3)`, ws, activity, person); err != nil {
+		`INSERT INTO activity_participant (activity_id, role, person_id)
+		 VALUES ( $1, 'attendee', $2)`, activity, person); err != nil {
 		t.Fatalf("seating a participant: %v", err)
 	}
 }

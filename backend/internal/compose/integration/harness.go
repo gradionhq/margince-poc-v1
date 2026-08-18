@@ -426,8 +426,8 @@ func (e *Env) SeedWonDealLinkedTo(t *testing.T, activities ...ids.UUID) ids.UUID
 			return err
 		}
 		for _, a := range activities {
-			if _, err := tx.Exec(ctx, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
-				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'deal', $2)`, a, deal); err != nil {
+			if _, err := tx.Exec(ctx, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
+				VALUES ($1, 'deal', $2)`, a, deal); err != nil {
 				return err
 			}
 		}

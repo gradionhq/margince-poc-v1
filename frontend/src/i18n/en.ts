@@ -144,7 +144,6 @@ export const en = {
   // extensions/<unit>/frontend/i18n/, namespaced `ext<Unit>.` and merged into
   // the catalogue by gen-composition (see i18n/index.tsx).
 
-  "search.title": "Search",
   "search.placeholder": "Search people, companies, deals, activities, leads…",
   "search.empty": "No matches for “{q}”.",
   "search.group.person": "People",
@@ -152,9 +151,6 @@ export const en = {
   "search.group.deal": "Deals",
   "search.group.activity": "Activities",
   "search.group.lead": "Leads",
-  "search.why": "Why this result",
-  "search.relevance": "relevance {pct}%",
-  "search.tier.authoritative": "verified",
   "search.tier.mirrored": "from HubSpot",
 
   "context.title": "Related evidence",
@@ -399,6 +395,8 @@ export const en = {
   // rather than a total on purpose: paging is a keyset cursor, so the number
   // of rows in hand is the only figure the client can state honestly.
   "table.range": "{first}–{last} of {count} {unit}",
+  "table.pagination": "Pages",
+  "table.page": "Page {number}",
   "table.prev": "‹ Prev",
   "table.next": "Next ›",
   "table.rowsPerPage": "Rows per page",
@@ -574,6 +572,7 @@ export const en = {
   "list.unowned": "Unassigned",
   "list.created": "Created",
   "list.updated": "Updated",
+  "list.lastActivity": "Last activity",
   "list.filterOwnerMe": "My records",
   "list.filterOwnerAll": "Any owner",
   "list.filterOwnerUnassigned": "Unassigned",
@@ -719,6 +718,8 @@ export const en = {
   "tab.timeline": "History",
   "tab.documents": "Documents",
   "tab.profile": "Profile",
+  "tab.meetings": "Meetings",
+  "tab.research": "Research",
   // The brief under the questions it answers, and what kind of claim each
   // sentence makes — a judgment must not read as a stored fact.
   "co.brief.section.snapshot": "What they are",
@@ -829,7 +830,9 @@ export const en = {
   "finance.col.issued": "Issued",
   "finance.col.due": "Due",
   "finance.col.paid": "Paid",
+  "finance.paidDayLate": "{days} day late",
   "finance.paidDaysLate": "{days} days late",
+  "finance.overdueDay": "{days} day overdue",
   "finance.overdueDays": "{days} days overdue",
   "finance.col.amount": "Amount",
   "finance.col.status": "Status",
@@ -956,6 +959,8 @@ export const en = {
   "co.growthFit.title": "What they are worth to you",
   "co.growthFit.unavailable":
     "This assessment could not be read. Nothing about the company has changed.",
+  "co.growthFit.assembling":
+    "Working out what this account is worth — the first assessment reads the record and takes a moment.",
   "co.growthFit.reassess": "Assess it again",
   "co.growthFit.reassessing": "Assessing…",
   "co.growthFit.band.strong": "Strong fit",
@@ -1145,17 +1150,17 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
-  "co.chronology.label": "What to show in the timeline",
-  "co.chronology.activities": "Activities",
-  "co.chronology.changes": "Changes",
-  "co.chronology.all": "All",
-  "co.chronology.changesEmpty":
+  "chronology.label": "What to show in the timeline",
+  "chronology.activities": "Activities",
+  "chronology.changes": "Changes",
+  "chronology.all": "All",
+  "chronology.changesEmpty":
     "No field on this record has been changed since it was created.",
-  "co.chronology.allEmpty": "Nothing has happened on this account yet.",
-  "co.chronology.truncated":
+  "chronology.allEmpty": "Nothing has happened on this record yet.",
+  "chronology.truncated":
     "Older entries are not shown here — there are more of both kinds than this view can put in order. Pick Activities or Changes to read further back.",
-  "co.chronology.truncatedActivities":
-    "This account has more activities than fit here. Only the most recent ones are listed.",
+  "chronology.truncatedActivities":
+    "There are more activities here than fit. Only the most recent ones are listed.",
   "timeline.sent": "Sent",
   "timeline.received": "Received",
   "timeline.textMore": "Read it",
@@ -1295,6 +1300,23 @@ export const en = {
   "lead.filterStatusAll": "All statuses",
   "lead.filterScore": "Score",
   "lead.filterScoreAll": "Any score",
+  "lead.bulkSelected": "{count} selected",
+  "lead.bulkOwner": "New owner",
+  "lead.bulkOwnerPick": "Pick an owner",
+  "lead.bulkAssign": "Assign",
+  "lead.bulkDisqualify": "Disqualify",
+  "lead.bulkFailed": "{count} not applied —",
+  "lead.bulkFailedRow": "could not be saved",
+  "lead.bulkSelectRow": "Select {name}",
+  "lead.sla.breached": "Overdue",
+  "lead.sla.atRisk": "Due soon",
+  "lead.sla.withinTarget": "On time",
+  "lead.sla.answeredAt": "First response on {at}",
+  "lead.sla.dueBy": "First response due by {at}",
+  "lead.sla.overdueSince": "First response was due {at}",
+  "lead.filterSla": "Response",
+  "lead.filterSlaAll": "Any",
+  "list.viewOverdue": "Overdue",
   "lead.filterScoreHot": "80 and up",
   "lead.filterScoreWarm": "60 and up",
   "lead.filterScoreCool": "40 and up",
@@ -1689,6 +1711,8 @@ export const en = {
   "create.legalName": "Legal name",
   "create.industry": "Industry",
   "create.sizeBand": "Company size",
+  "co.address.summary": "Address",
+  "co.address.add": "Add an address",
   "create.addressLine1": "Street and number",
   "create.addressLine2": "Address line 2",
   "create.city": "City",
@@ -2733,7 +2757,6 @@ export const en = {
   "ob.s4.googleOkBody":
     "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
   "ob.s4.googleLive": "Connection verified — background capture is on",
-  "dedupe.title": "Possible duplicates",
   "dedupe.intro":
     "Pairs the capture pipeline flagged as likely the same person or company. Merging keeps both records' history; dismissing tells the system to never ask about this pair again.",
   "dedupe.loading": "Loading the review queue…",
@@ -4620,12 +4643,18 @@ export const en = {
   "aiexport.previewLabel": "Scenario preview",
   "aiexport.responseLabel": "Model response",
 
+  "countdown.daysHours": "{days}d {hours}h",
+  "countdown.hoursMinutes": "{hours}h {minutes}m",
   "countdown.minutesSeconds": "{minutes}m {seconds}s",
   "countdown.expired": "Expired",
 
   // Quotas & attainment (RD-T06): human-set revenue targets with
   // server-computed attainment, surfaced under the Reports "Quotas" segment.
   "quotas.tab": "Quotas",
+  // The selector panel's own title. The Reports segment picker directly above
+  // it already reads "Quotas", so this names what the LIST holds — one row per
+  // owner or team carrying a target — rather than repeating the page.
+  "quotas.selector.title": "Who has a quota",
   "quotas.sub": "revenue targets — human-set, attainment computed",
   "quotas.role.owner": "Individual quota",
   "quotas.role.team": "Team quota",
@@ -4994,22 +5023,21 @@ export const en = {
   "person.rail.removeEmploymentTitle": "Remove this company connection?",
   "person.rail.removeEmploymentBody":
     "The link to {org} and the history hanging off it disappear, and this cannot be undone. {org} itself stays. If they simply left, mark it ended instead.",
-  "person.page.tabPlaceholder":
-    "This tab is not built yet. The overview carries the relationship; this will carry {topic}.",
-  "person.tab.overview": "Overview",
-  "person.tab.activity": "Activity",
-  "person.tab.deals": "Deals",
-  "person.tab.meetings": "Meetings",
-  "person.tab.research": "Research",
-  "person.tab.files": "Files",
-  "person.tab.history": "History",
-  "person.topic.overview": "overview",
-  "person.topic.activity": "activity",
-  "person.topic.deals": "deals",
-  "person.topic.meetings": "meetings",
-  "person.topic.research": "research",
-  "person.topic.files": "files",
-  "person.topic.history": "history",
+  "person.timeline.empty": "Nothing has been logged with them yet.",
+  "person.deals.empty": "They are not recorded on any deal.",
+  "person.deals.untitled": "Untitled deal",
+  "person.deals.noStage": "No stage yet",
+  "person.meetings.next": "Next meeting",
+  "person.meetings.past": "Meetings so far",
+  "person.meetings.noneBooked": "Nothing is booked with them.",
+  "person.meetings.noneLogged": "No meeting with them has been logged.",
+  "person.meetings.untitled": "Untitled meeting",
+  "person.meetings.participants": "In the room",
+  "person.documents.empty": "No file has been filed against this contact.",
+  "person.research.empty": "Nothing has been researched about them yet.",
+  "person.research.fields": "Enrichment evidence",
+  "person.research.fieldsEmpty": "No enriched field carries evidence yet.",
+  "person.research.capturedBy": "Captured by",
   "person.action.email": "Email",
   "person.action.call": "Call",
   "person.action.book": "Book",

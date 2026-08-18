@@ -1,0 +1,41 @@
+/* The dedupe review queue (M4): the queue's own rhythm and the ONE tone the
+ * design system's table cannot know about.
+ *
+ * These rules lived in onboarding.css, which this screen never imports — so the
+ * queue was styled only because App.tsx happens to pull an onboarding screen
+ * into the same bundle, and in an isolated story or test render it had no box at
+ * all. The sheet lives beside the screen that draws it, and the screen imports
+ * it itself (same reasoning as backfill.css).
+ *
+ * Everything else the screen used to spell here — the card surface, the
+ * evidence table's hairlines and padding, the action row, the text buttons, the
+ * red error line — is now Card, `.table`, `.card-actions`, `.link-button` and
+ * Callout. What is left is layout and one signal.
+ */
+
+/* The queue owns the air between its pairs AND above the first one: the shell's
+   `.wrap > .card + .card` rule spaces siblings, which leaves the first card
+   against the intro line, and the gap has to hold for the loading and empty
+   bodies too — neither of which is a card. */
+.dedupe-queue {
+  display: grid;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* A notice about the queue — a failed read, a refused decision, a decision that
+   landed — sits directly in `.wrap`, which carries no row gap of its own, so it
+   brings its own step of air (the spelling `.dsr-refusal` and
+   `.connector-add-note` already use for a Callout in the same position). */
+.dedupe-notice {
+  margin-top: var(--space-3);
+}
+
+/* An evidence row whose two sides CONTRADICT each other, in the detector's own
+   vocabulary (`signal: "collide"`): a matching field is why the pair is here, a
+   colliding one is the reason to look before merging. The tone rides on the
+   row's data attribute rather than a class the TSX assembles, so the sheet
+   carries exactly the signals the contract names. */
+.dedupe-evidence tr[data-signal="collide"] td {
+  color: var(--danger);
+}
