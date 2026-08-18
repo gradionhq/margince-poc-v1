@@ -15501,7 +15501,10 @@ type Organization struct {
 	// `getOrganization` only; the key is absent entirely (not an empty array) when the
 	// viewer's role lacks computed_field:read visibility (STATE-4).
 	ComputedFields *[]ComputedField `json:"computed_fields,omitempty"`
-	CreatedAt      time.Time        `json:"created_at"`
+
+	// ContactCount How many live people THE CALLER MAY SEE list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted under the caller's person row scope, exactly as the person list is: a count is a read, and a number that moved when a colleague captured a private contact would disclose that contact. Present, zero included, on `listOrganizations` and `getOrganization` — the reads that render the column; write responses (create, update, archive, merge) omit it. Never client-supplied.
+	ContactCount *int      `json:"contact_count,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
 
 	// Description One human-written line saying what the company does, shown under the title on the company page. A column rather than a governed custom field for the same reason `linkedin_url` is one: it is part of what a company IS and every installation wants it. Distinct from `industry` (a category) and from the dossier (agent-written prose).
 	Description *string               `json:"description,omitempty"`
@@ -15532,7 +15535,10 @@ type Organization struct {
 	// client's business is the endpoint that streams the bytes.
 	LogoUrl      *string             `json:"logo_url,omitempty"`
 	MergedIntoId *openapi_types.UUID `json:"merged_into_id,omitempty"`
-	OwnerId      *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// OpenDealCount How many open, live deals THE CALLER MAY SEE belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column), counted under the caller's deal row scope. It also follows the `computed_fields` visibility gate (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. Present on `listOrganizations` and `getOrganization`; write responses omit it.
+	OpenDealCount *int                `json:"open_deal_count,omitempty"`
+	OwnerId       *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// ParentOrgId Single-level hierarchy FK; no cycles.
 	ParentOrgId *openapi_types.UUID `json:"parent_org_id,omitempty"`
@@ -27524,6 +27530,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "computed_fields")
 	}
 
+	if raw, found := object["contact_count"]; found {
+		err = json.Unmarshal(raw, &a.ContactCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'contact_count': %w", err)
+		}
+		delete(object, "contact_count")
+	}
+
 	if raw, found := object["created_at"]; found {
 		err = json.Unmarshal(raw, &a.CreatedAt)
 		if err != nil {
@@ -27618,6 +27632,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'merged_into_id': %w", err)
 		}
 		delete(object, "merged_into_id")
+	}
+
+	if raw, found := object["open_deal_count"]; found {
+		err = json.Unmarshal(raw, &a.OpenDealCount)
+		if err != nil {
+			return fmt.Errorf("error reading 'open_deal_count': %w", err)
+		}
+		delete(object, "open_deal_count")
 	}
 
 	if raw, found := object["owner_id"]; found {
@@ -27760,6 +27782,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.ContactCount != nil {
+		object["contact_count"], err = json.Marshal(a.ContactCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'contact_count': %w", err)
+		}
+	}
+
 	object["created_at"], err = json.Marshal(a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
@@ -27835,6 +27864,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["merged_into_id"], err = json.Marshal(a.MergedIntoId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'merged_into_id': %w", err)
+		}
+	}
+
+	if a.OpenDealCount != nil {
+		object["open_deal_count"], err = json.Marshal(a.OpenDealCount)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'open_deal_count': %w", err)
 		}
 	}
 

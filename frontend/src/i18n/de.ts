@@ -610,6 +610,8 @@ export const de = {
   "org.name": "Firma",
   "org.description": "Was sie tun",
   "org.website": "Website",
+  "org.contactCount": "Kontakte",
+  "org.openDealCount": "Offene Deals",
   "org.industry": "Branche",
   "org.size": "Größe",
   "org.classification": "Typ",

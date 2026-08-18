@@ -219,7 +219,10 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 			if err := attachOrgDomains(ctx, tx, orgs); err != nil {
 				return err
 			}
-			return attachOrgRelationshipTypes(ctx, tx, orgs)
+			if err := attachOrgRelationshipTypes(ctx, tx, orgs); err != nil {
+				return err
+			}
+			return attachOrgCounts(ctx, tx, orgs)
 		},
 		cursorKey: func(last crmcontracts.Organization) (time.Time, ids.UUID) {
 			return last.CreatedAt, ids.UUID(last.Id)

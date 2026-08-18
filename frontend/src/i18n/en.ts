@@ -621,6 +621,8 @@ export const en = {
   "org.name": "Company",
   "org.description": "What they do",
   "org.website": "Website",
+  "org.contactCount": "Contacts",
+  "org.openDealCount": "Open deals",
   "org.industry": "Industry",
   "org.size": "Size",
   "org.classification": "Type",
