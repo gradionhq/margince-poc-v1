@@ -12,9 +12,11 @@ package collections
 // workspace defined the field).
 //
 // The two contract ENUMS this operation reports through are gated a level up, in
-// segmentvocabularyenums_test.go, which reads them out of api/crm.yaml rather
-// than naming them: a list of enum members written here would be a third copy of
-// the vocabulary, which is the defect this endpoint exists to remove.
+// compose/segmentvocabularyenums_test.go, which reads them out of the contract
+// rather than naming them — and lives there because compose is the one package
+// allowed to hold both the contract and the engine. A list of enum members
+// written here would be a third copy of the vocabulary, which is the defect this
+// endpoint exists to remove.
 
 import (
 	"context"

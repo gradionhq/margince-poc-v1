@@ -96,9 +96,10 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 // The operator and type strings pass through as the contract's enums without
 // being re-checked against them, and that is safe for one reason worth stating:
 // both sides are the same closed set (LVS-PARAM-1), and the enum gates in
-// segmentvocabularyenums_test.go fail if they ever stop being. Re-validating here
-// instead would silently drop a value the engine admits, turning a contract that
-// has fallen behind into a vocabulary that has quietly shrunk.
+// compose/segmentvocabularyenums_test.go fail if they ever stop being.
+// Re-validating here instead would silently drop a value the engine admits,
+// turning a contract that has fallen behind into a vocabulary that has quietly
+// shrunk.
 func wireVocabularyField(f VocabularyField) crmcontracts.SegmentVocabularyField {
 	operators := make([]crmcontracts.SegmentVocabularyFieldOperators, 0, len(f.Operators))
 	for _, op := range f.Operators {
