@@ -2279,7 +2279,7 @@ export const en = {
   "restricted.kind.call": "Call",
   "restricted.kind.meeting": "Meeting",
   "restricted.kind.message": "Message",
-  "restricted.decide": "",
+  "restricted.decide": "Decision",
   "restricted.reasonLabel": "Why",
   "restricted.reasonHint":
     "Recorded in the audit trail with your name. This is what makes the decision accountable, so say what you decided and on what basis.",

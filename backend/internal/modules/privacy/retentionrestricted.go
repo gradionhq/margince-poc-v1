@@ -113,7 +113,7 @@ func (s *RetentionService) expireRestriction(ctx context.Context, id ids.UUID) e
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionExpire, "activity", id, nil, nil, map[string]any{
-			evidenceKeyCause: restrictionExpiredCause, "class": class, "basis": statutoryBasisCorrespondence,
+			evidenceKeyCause: restrictionExpiredCause, evidenceKeyClass: class, evidenceKeyBasis: statutoryBasisCorrespondence,
 		})
 		if err != nil {
 			return err

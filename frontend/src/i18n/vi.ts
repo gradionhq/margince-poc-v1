@@ -2275,7 +2275,7 @@ export const vi = {
   "restricted.kind.call": "Cuộc gọi",
   "restricted.kind.meeting": "Cuộc họp",
   "restricted.kind.message": "Tin nhắn",
-  "restricted.decide": "",
+  "restricted.decide": "Quyết định",
   "restricted.reasonLabel": "Lý do",
   "restricted.reasonHint":
     "Được ghi vào nhật ký kiểm toán kèm tên bạn. Đây là điều làm cho quyết định có thể quy trách nhiệm — hãy nêu bạn quyết định gì và trên cơ sở nào.",

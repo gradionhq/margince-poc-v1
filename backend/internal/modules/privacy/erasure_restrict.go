@@ -219,7 +219,7 @@ func tombstoneRestrictions(ctx context.Context, tx pgx.Tx, held []restrictedReco
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionRestrict, "activity", r.ID, nil, nil, map[string]any{
-			evidenceKeyCause: "person_erasure", "class": r.Class, "basis": statutoryBasisCorrespondence,
+			evidenceKeyCause: "person_erasure", evidenceKeyClass: r.Class, evidenceKeyBasis: statutoryBasisCorrespondence,
 			"restricted_until": r.RestrictedUntil, "deal_ids": dealIDs,
 		})
 		if err != nil {

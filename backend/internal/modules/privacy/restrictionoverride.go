@@ -82,8 +82,8 @@ func (e *Eraser) ReleaseRestriction(ctx context.Context, activityID ids.UUID, re
 			return err
 		}
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionRelease, "activity", activityID, nil, nil, map[string]any{
-			evidenceKeyCause: "controller_release", "class": class,
-			"reason": decision.reason, "decided_by_name": decision.name,
+			evidenceKeyCause: "controller_release", evidenceKeyClass: class,
+			evidenceKeyReason: decision.reason, "decided_by_name": decision.name,
 		})
 		if err != nil {
 			return err
@@ -154,7 +154,7 @@ func (e *Eraser) PinToFloor(ctx context.Context, activityID ids.UUID, reason Sta
 		if err != nil {
 			return err
 		}
-		if err := auth.EnsureActivityVisible(ctx, tx, activityID); err != nil {
+		if err := pinnableActivity(ctx, tx, activityID); err != nil {
 			return err
 		}
 		if err := recordPinEvidence(ctx, tx, activityID, decision); err != nil {
@@ -186,8 +186,8 @@ func (e *Eraser) PinToFloor(ctx context.Context, activityID ids.UUID, reason Sta
 		}
 		class := retentionClassCorrespondence
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionPin, "activity", activityID, nil, nil, map[string]any{
-			evidenceKeyCause: "controller_pin", "class": class, "basis": statutoryBasisCorrespondence,
-			"restricted_until": until, "reason": decision.reason, "decided_by_name": decision.name,
+			evidenceKeyCause: "controller_pin", evidenceKeyClass: class, evidenceKeyBasis: statutoryBasisCorrespondence,
+			"restricted_until": until, evidenceKeyReason: decision.reason, "decided_by_name": decision.name,
 		})
 		if err != nil {
 			return err
@@ -199,6 +199,30 @@ func (e *Eraser) PinToFloor(ctx context.Context, activityID ids.UUID, reason Sta
 			RetentionClass:  &class,
 		})
 	})
+}
+
+// pinnableActivity resolves the record a pin names, and tells "not there" from
+// "already held" — which the ordinary visibility probe cannot, because a held
+// record reads as gone to every reader by design (A165 §2). Answering
+// not-found for a record another administrator pinned a moment earlier would
+// tell the second one their target does not exist, when it exists and is
+// already doing what they asked for.
+func pinnableActivity(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error {
+	var held bool
+	err := tx.QueryRow(ctx,
+		`SELECT restricted_at IS NOT NULL FROM activity WHERE id = $1`, activityID).Scan(&held)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if held {
+		return fmt.Errorf("the record is already under a retention obligation: %w", apperrors.ErrConflict)
+	}
+	// Not held, so the ordinary row scope decides — an administrator pins a
+	// record they can see, like every other decision about one.
+	return auth.EnsureActivityVisible(ctx, tx, activityID)
 }
 
 // pinnedRecordLeavesDerivedCopies drops what a similarity probe or a proposal

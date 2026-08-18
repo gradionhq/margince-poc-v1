@@ -2291,7 +2291,7 @@ export const de = {
   "restricted.kind.call": "Anruf",
   "restricted.kind.meeting": "Meeting",
   "restricted.kind.message": "Nachricht",
-  "restricted.decide": "",
+  "restricted.decide": "Entscheidung",
   "restricted.reasonLabel": "Begründung",
   "restricted.reasonHint":
     "Wird mit Ihrem Namen im Audit-Protokoll festgehalten. Das macht die Entscheidung nachvollziehbar — schreiben Sie, was Sie entschieden haben und auf welcher Grundlage.",
