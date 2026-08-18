@@ -42,19 +42,31 @@ func TestRefuseMixedReleaseOnlyRefusesAKnownDifference(t *testing.T) {
 }
 
 // TestMixedReleaseRefusalNamesBothReleasesAndTheFix: the refusal is read off a
-// crash-looping container's log by somebody who has to decide what to re-pull,
-// so it owes them both versions and the action. A message that only said
-// "release mismatch" would leave them reading the source to find out which
-// image is wrong.
+// stopped role's log by somebody who has to decide what to change, so it owes
+// them both versions and the action. A message that only said "release mismatch"
+// would leave them reading the source to find out which role is wrong.
 func TestMixedReleaseRefusalNamesBothReleasesAndTheFix(t *testing.T) {
 	err := refuseMixedRelease("1970.41", "1970.42")
 	if err == nil {
 		t.Fatal("a mixed set started")
 	}
 	msg := err.Error()
-	for _, want := range []string{"1970.41", "1970.42", "re-pull", "api, web, worker"} {
+	for _, want := range []string{"1970.41", "1970.42", "deploy", "api, web, worker"} {
 		if !strings.Contains(strings.ToLower(msg), strings.ToLower(want)) {
 			t.Errorf("the refusal does not mention %q: %s", want, msg)
+		}
+	}
+}
+
+// TestMixedReleaseRefusalNamesNoDeploymentMechanism: this software runs on any
+// container platform AND on a plain host, so the refusal must not tell an
+// operator to re-pull an image. Somebody who deployed no image cannot act on
+// that, and the words below are the ones that made the message wrong for them.
+func TestMixedReleaseRefusalNamesNoDeploymentMechanism(t *testing.T) {
+	msg := strings.ToLower(refuseMixedRelease("1970.41", "1970.42").Error())
+	for _, forbidden := range []string{"image", "registry", "pull", "container", "tag"} {
+		if strings.Contains(msg, forbidden) {
+			t.Errorf("the refusal names %q, which is one deployment mechanism among several: %s", forbidden, msg)
 		}
 	}
 }

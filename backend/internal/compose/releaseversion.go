@@ -37,7 +37,7 @@ package compose
 // restarting it. That is the intended outcome: a crash-looping role with the two
 // versions in its log is visible, where a worker quietly running the wrong
 // release is not. It does not resolve itself, because nothing about a torn pull
-// resolves itself — an operator has to re-pull the set.
+// resolves itself — an operator has to deploy the set again, at one release.
 //
 // TWO PROPERTIES ARE BOUNDED RATHER THAN ABSOLUTE, and a reader has to know which:
 //
@@ -207,18 +207,25 @@ func AssertInstallationRelease(ctx context.Context, pool *pgxpool.Pool, log *slo
 // a different release than the role was built from, or nil when there is nothing
 // to refuse.
 //
-// The message names both versions and the one action that fixes it. It names no
-// internals — an operator holding a crash-looping container gets everything they
-// need from `kubectl logs`, and needs nothing about the ledger the answer came
-// from.
+// The message gives both release versions and the one action that corrects it. It
+// names no internals: an operator reading a role's log needs the two versions and
+// what to do, and needs nothing about the ledger the answer came from.
+//
+// IT NAMES NO DEPLOYMENT MECHANISM EITHER. Container images and a registry are
+// how the release reaches most installations, but they are not the only way — this
+// software also runs from a plain host — and an error that tells an operator to
+// re-pull an image is wrong for anyone who did not pull one. What is true of every
+// installation is the fact and the correction: the roles disagree, and every role
+// has to be at one release. How the release arrives is the deployment's business,
+// and docs/deployment.md is where that belongs.
 func refuseMixedRelease(mine, installation string) error {
 	if !buildinfo.SkewBetween(mine, installation) {
 		return nil
 	}
 	return fmt.Errorf(
-		"this role was built from release %q but this installation runs release %q: "+
-			"a tag pull served images from two different releases, which the registry cannot refuse at the pull. "+
-			"Re-pull every role image (api, web, worker) at one release and restart; "+
+		"this role is release %q but this installation runs release %q: "+
+			"the deployment supplied two different releases. "+
+			"Deploy every role (api, web, worker) at one release and restart; "+
 			"this role will not run half of one release beside half of another",
 		mine, installation)
 }

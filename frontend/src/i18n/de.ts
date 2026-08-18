@@ -5463,7 +5463,7 @@ export const de = {
   // reparieren muss.
   "release.skewTitle": "Diese Installation wird gerade aktualisiert",
   "release.skewBody":
-    "Die App in Ihrem Browser und der Server dahinter stammen aus unterschiedlichen Releases, deshalb würde hier nichts verlässlich funktionieren. Laden Sie neu, um die aktuelle Version zu holen. Bleibt diese Meldung, sagen Sie es der Person, die diese Installation betreibt — die Container-Images müssen erneut auf einem Release gezogen werden.",
+    "Die App in Ihrem Browser und der Server dahinter stammen aus unterschiedlichen Releases, deshalb funktioniert hier nichts verlässlich. Laden Sie neu, um die aktuelle Version zu holen. Bleibt diese Meldung, sagen Sie es der Person, die diese Installation betreibt: Jeder Teil davon muss dasselbe Release ausführen.",
   "release.skewVersions": "App {app} · Server {server}",
   "release.skewReload": "Neu laden",
 } as const satisfies Record<MessageKey, string>;

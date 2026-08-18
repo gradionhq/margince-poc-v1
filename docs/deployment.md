@@ -205,10 +205,13 @@ way to refuse it at the pull. So the roles refuse it at the run:
   it records its own release as the installation's, and logs
   `installation release recorded from=… to=…` when that changes.
 - **worker** — compares its release against that record and **exits** on a
-  mismatch, naming both versions and telling you to re-pull. Your orchestrator
-  will restart it, and it will exit again: a crash-looping worker with the two
-  versions in its log is the intended, visible outcome. It does not resolve
-  itself, because nothing about a torn pull does.
+  mismatch, naming both versions and telling you to deploy every role at one
+  release. (The message names no images or registry on purpose: this software also
+  runs from a plain host, and "re-pull" is not an action available to everyone who
+  can hit this. On a container platform, re-pulling the set is what it means for
+  you.) Your orchestrator will restart it, and it will exit again: a crash-looping
+  worker with the two versions in its log is the intended, visible outcome. It
+  does not resolve itself, because nothing about a torn pull does.
 - **web** — the SPA compares its own release against the one
   `GET /v1/auth/capabilities` reports and refuses to render the app, offering a
   reload. The probe is anonymous, so the check happens before anyone signs in —

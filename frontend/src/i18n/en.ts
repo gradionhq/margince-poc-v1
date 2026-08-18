@@ -5472,7 +5472,7 @@ export const en = {
   // has to fix it. The first sentence is for the first, the last for the second.
   "release.skewTitle": "This installation is part-way through an update",
   "release.skewBody":
-    "The app in your browser and the server behind it come from different releases, so nothing here would work reliably. Reload to pick up the current version. If this message stays, tell whoever runs this installation — the container images need to be pulled again at one release.",
+    "The app in your browser and the server behind it come from different releases, so nothing here works reliably. Reload to get the current version. If this message stays, tell whoever operates this installation: every part of it has to run the same release.",
   "release.skewVersions": "app {app} · server {server}",
   "release.skewReload": "Reload",
 } as const;
