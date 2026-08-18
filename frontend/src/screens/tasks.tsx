@@ -31,7 +31,21 @@ type Activity = components["schemas"]["Activity"];
 
 export type TaskGroup = "overdue" | "today" | "upcoming" | "undated";
 
-export function groupTask(task: Activity, now: Date): TaskGroup {
+// The calendar day an instant falls on, in a named zone. `en-CA` is the one
+// locale whose short date is already ISO-ordered, so two of these compare as
+// strings without a second parse.
+function calendarDay(at: Date, zone: string): string {
+  return at.toLocaleDateString("en-CA", { timeZone: zone });
+}
+
+// Which bucket a task belongs in, decided in the READER's zone.
+//
+// It used to compare UTC calendar days while `dueInstant` below mints the wire
+// instant from LOCAL wall time — the two disagreed for any reader west of UTC.
+// Pick "today" in UTC-5 and the instant is today 23:59:59 local, which is
+// tomorrow in UTC, so the task a reader had just filed for today appeared under
+// Upcoming. The zone has to be the same one on both sides of that comparison.
+export function groupTask(task: Activity, now: Date, zone: string): TaskGroup {
   if (!task.due_at) {
     return "undated";
   }
@@ -39,9 +53,9 @@ export function groupTask(task: Activity, now: Date): TaskGroup {
   if (due.getTime() < now.getTime()) {
     return "overdue";
   }
-  const sameDay =
-    due.toISOString().slice(0, 10) === now.toISOString().slice(0, 10);
-  return sameDay ? "today" : "upcoming";
+  return calendarDay(due, zone) === calendarDay(now, zone)
+    ? "today"
+    : "upcoming";
 }
 
 const GROUP_ORDER: TaskGroup[] = ["overdue", "today", "upcoming", "undated"];
@@ -309,12 +323,15 @@ export function TasksScreen() {
       >
         {(page) => {
           const now = new Date();
+          // The same zone the rows print their dates in, so a task filed for
+          // today cannot appear under Upcoming.
+          const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
           const open = page.data.filter((task) => !task.is_done);
           return (
             <div>
               {GROUP_ORDER.map((group) => {
                 const tasks = open.filter(
-                  (task) => groupTask(task, now) === group,
+                  (task) => groupTask(task, now, zone) === group,
                 );
                 if (tasks.length === 0) {
                   return null;

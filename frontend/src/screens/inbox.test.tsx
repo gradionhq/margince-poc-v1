@@ -937,16 +937,30 @@ describe("TasksScreen (B-EP09.12d)", () => {
       created_at: "2026-07-01T00:00:00Z",
       updated_at: "2026-07-01T00:00:00Z",
     };
-    expect(groupTask({ ...base, due_at: "2026-07-04T10:00:00Z" }, now)).toBe(
-      "overdue",
-    );
-    expect(groupTask({ ...base, due_at: "2026-07-05T18:00:00Z" }, now)).toBe(
-      "today",
-    );
-    expect(groupTask({ ...base, due_at: "2026-07-09T10:00:00Z" }, now)).toBe(
+    // The bucket is decided in a named zone, so the assertions name one. UTC
+    // here keeps these four about the boundaries themselves.
+    const utc = "UTC";
+    expect(
+      groupTask({ ...base, due_at: "2026-07-04T10:00:00Z" }, now, utc),
+    ).toBe("overdue");
+    expect(
+      groupTask({ ...base, due_at: "2026-07-05T18:00:00Z" }, now, utc),
+    ).toBe("today");
+    expect(
+      groupTask({ ...base, due_at: "2026-07-09T10:00:00Z" }, now, utc),
+    ).toBe("upcoming");
+    expect(groupTask({ ...base, due_at: null }, now, utc)).toBe("undated");
+
+    // And the defect this zone argument exists for: a reader west of UTC files a
+    // task for their today, which is already tomorrow in UTC. Grouped by the UTC
+    // day it read as Upcoming on the day it was due.
+    const tonightInNewYork = "2026-07-06T03:59:00Z";
+    expect(
+      groupTask({ ...base, due_at: tonightInNewYork }, now, "America/New_York"),
+    ).toBe("today");
+    expect(groupTask({ ...base, due_at: tonightInNewYork }, now, utc)).toBe(
       "upcoming",
     );
-    expect(groupTask({ ...base, due_at: null }, now)).toBe("undated");
   });
 
   it("completing a task PATCHes is_done", async () => {

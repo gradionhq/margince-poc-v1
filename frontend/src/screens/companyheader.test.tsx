@@ -19,7 +19,10 @@ import { CompanyIdentityLine } from "./companyheader";
 
 type Organization = components["schemas"]["Organization"];
 
-const ORG = {
+// Typed, not asserted. A fixture cast into the contract type can drop a required
+// field and still compile, so the test would go on passing after the wire shape
+// moved under it — which is the one thing a fixture must not do.
+const ORG: Organization = {
   id: "o-1",
   display_name: "Brandt Automotive GmbH",
   lifecycle: "customer",
@@ -29,7 +32,7 @@ const ORG = {
   version: 1,
   created_at: "2026-06-01T08:00:00Z",
   updated_at: "2026-06-01T08:00:00Z",
-} as unknown as Organization;
+};
 
 afterEach(() => {
   cleanup();
