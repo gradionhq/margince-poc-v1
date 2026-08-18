@@ -95,3 +95,104 @@ func TestADynamicListOverHTTPAcceptsAndEvaluatesACustomFieldFilter(t *testing.T)
 		t.Fatalf("members = %v, want exactly [%s]", members.Data, matchID)
 	}
 }
+
+// The vocabulary READ (LVS-EXT-8), over the composed server, against the
+// endpoint that consumes the same vocabulary.
+//
+// Two things only an HTTP test can prove here. First, that the operation is
+// actually served: every contract operation gets a generated 501 stub in
+// compose, and a module handler wins only by being embedded one level
+// shallower — a mechanism the build cannot fail on, because an unimplemented
+// operation compiles perfectly and answers 501 at runtime.
+//
+// Second, the equivalence the extension is defined by: a field this operation
+// lists must be one a filter may name. Asserting that against POST /v1/lists
+// rather than against the engine's map closes the loop the store-level suite
+// cannot — the two surfaces resolving the same vocabulary is exactly what the
+// regression above proved is not automatic.
+func TestTheFilterVocabularyOverHTTPListsWhatADynamicListAccepts(t *testing.T) {
+	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(integration.SchemaPool(t)))
+	e.BootstrapWorkspace(t)
+
+	var field apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
+		"object": "person", "label": "Vocabulary Probe", "type": "picklist", "source": "ui",
+		"options": []string{"gold", "silver"},
+	}, nil, &field); status != http.StatusCreated {
+		t.Fatalf("create custom field: status=%d body=%v", status, field)
+	}
+	column, ok := field["column_name"].(string)
+	if !ok || column == "" {
+		t.Fatalf("created field carries no column_name: %v", field)
+	}
+
+	var vocab struct {
+		Resource string `json:"resource"`
+		Fields   []struct {
+			Name      string   `json:"name"`
+			Type      string   `json:"type"`
+			Operators []string `json:"operators"`
+			Custom    bool     `json:"custom"`
+		} `json:"fields"`
+	}
+	status := e.Call(t, "GET", "/v1/segments/vocabulary?resource=person", nil, nil, &vocab)
+	if status == http.StatusNotImplemented {
+		t.Fatal("the operation answered 501: the generated stub is being served, so the module handler is not shadowing it")
+	}
+	if status != http.StatusOK {
+		t.Fatalf("read the filter vocabulary: status=%d body=%v", status, vocab)
+	}
+	if vocab.Resource != "person" {
+		t.Errorf("resource = %q, want the one asked for", vocab.Resource)
+	}
+
+	reported := map[string]bool{}
+	for _, f := range vocab.Fields {
+		reported[f.Name] = true
+		switch f.Name {
+		case column:
+			if !f.Custom {
+				t.Errorf("%s is a workspace-defined column and is not reported custom", column)
+			}
+			if f.Type != "picklist" {
+				t.Errorf("%s type = %q, want the picklist the admin created", column, f.Type)
+			}
+		case "owner_id":
+			if f.Custom {
+				t.Error("owner_id is a core field and is reported custom")
+			}
+		}
+		if len(f.Operators) == 0 {
+			t.Errorf("%s reports no operators, so a builder could offer no clause on it", f.Name)
+		}
+	}
+	if !reported[column] {
+		t.Fatalf("the vocabulary omits %s, a column a filter may name", column)
+	}
+	if !reported["owner_id"] {
+		t.Error("the vocabulary omits owner_id, a core field every person filter may name")
+	}
+
+	// The equivalence, forwards: a listed field is one a dynamic list accepts.
+	var accepted apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/lists", apptest.AnyMap{
+		"name": "Reported field is accepted", "entity_type": "person", "list_type": "dynamic",
+		"definition": apptest.AnyMap{"field": column, "op": "eq", "value": "gold"},
+	}, nil, &accepted); status != http.StatusCreated {
+		t.Fatalf("the vocabulary listed %s but a dynamic list on it was refused: status=%d body=%v", column, status, accepted)
+	}
+
+	// And backwards: a field it does not list is one the same endpoint refuses,
+	// so the omission is a real answer rather than an incomplete one.
+	var refused apptest.AnyMap
+	unlisted := column + "_not_in_the_catalog"
+	if reported[unlisted] {
+		t.Fatalf("%s was meant to be absent from the vocabulary", unlisted)
+	}
+	if status := e.Call(t, "POST", "/v1/lists", apptest.AnyMap{
+		"name": "Unreported field is refused", "entity_type": "person", "list_type": "dynamic",
+		"definition": apptest.AnyMap{"field": unlisted, "op": "eq", "value": "gold"},
+	}, nil, &refused); status != http.StatusUnprocessableEntity {
+		t.Fatalf("the vocabulary omits %s but a dynamic list on it was not refused 422: status=%d body=%v", unlisted, status, refused)
+	}
+}

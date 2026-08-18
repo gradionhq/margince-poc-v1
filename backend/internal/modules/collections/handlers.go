@@ -12,6 +12,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -207,6 +208,32 @@ func (h Handlers) ApplyTag(w http.ResponseWriter, r *http.Request, id crmcontrac
 		return
 	}
 	httperr.WriteJSON(w, http.StatusCreated, wireTaggable(applied))
+}
+
+// GetSegmentVocabulary answers what a filter may say about one record type.
+//
+// A resource the contract's enum admits but no engine serves is a 404 rather
+// than an empty vocabulary: an empty field list reads as "this type has nothing
+// to filter on", which is a different and false statement.
+func (h Handlers) GetSegmentVocabulary(w http.ResponseWriter, r *http.Request, params crmcontracts.GetSegmentVocabularyParams) {
+	resource := string(params.Resource)
+	fields, ok, err := h.store.FilterVocabulary(r.Context(), resource)
+	if err != nil {
+		writeErr(w, r, err)
+		return
+	}
+	if !ok {
+		writeErr(w, r, apperrors.ErrNotFound)
+		return
+	}
+	data := make([]crmcontracts.SegmentVocabularyField, 0, len(fields))
+	for _, f := range fields {
+		data = append(data, wireVocabularyField(f))
+	}
+	httperr.WriteJSON(w, http.StatusOK, crmcontracts.SegmentVocabulary{
+		Resource: crmcontracts.SegmentVocabularyResource(resource),
+		Fields:   data,
+	})
 }
 
 func (h Handlers) ListSavedViews(w http.ResponseWriter, r *http.Request, params crmcontracts.ListSavedViewsParams) {

@@ -1371,6 +1371,10 @@ func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcont
 	httperr.NotImplemented(w, r, "Search")
 }
 
+func (stubs) GetSegmentVocabulary(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetSegmentVocabularyParams) {
+	httperr.NotImplemented(w, r, "GetSegmentVocabulary")
+}
+
 func (stubs) ListSignals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListSignalsParams) {
 	httperr.NotImplemented(w, r, "ListSignals")
 }

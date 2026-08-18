@@ -7743,6 +7743,105 @@ func (e SearchResultType) Valid() bool {
 	}
 }
 
+// Defines values for SegmentVocabularyResource.
+const (
+	SegmentVocabularyResourceDeal         SegmentVocabularyResource = "deal"
+	SegmentVocabularyResourceLead         SegmentVocabularyResource = "lead"
+	SegmentVocabularyResourceOrganization SegmentVocabularyResource = "organization"
+	SegmentVocabularyResourcePerson       SegmentVocabularyResource = "person"
+	SegmentVocabularyResourceProject      SegmentVocabularyResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the SegmentVocabularyResource enum.
+func (e SegmentVocabularyResource) Valid() bool {
+	switch e {
+	case SegmentVocabularyResourceDeal:
+		return true
+	case SegmentVocabularyResourceLead:
+		return true
+	case SegmentVocabularyResourceOrganization:
+		return true
+	case SegmentVocabularyResourcePerson:
+		return true
+	case SegmentVocabularyResourceProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SegmentVocabularyFieldOperators.
+const (
+	Contains SegmentVocabularyFieldOperators = "contains"
+	Eq       SegmentVocabularyFieldOperators = "eq"
+	Exists   SegmentVocabularyFieldOperators = "exists"
+	Gt       SegmentVocabularyFieldOperators = "gt"
+	Gte      SegmentVocabularyFieldOperators = "gte"
+	In       SegmentVocabularyFieldOperators = "in"
+	Lt       SegmentVocabularyFieldOperators = "lt"
+	Lte      SegmentVocabularyFieldOperators = "lte"
+	Neq      SegmentVocabularyFieldOperators = "neq"
+)
+
+// Valid indicates whether the value is a known member of the SegmentVocabularyFieldOperators enum.
+func (e SegmentVocabularyFieldOperators) Valid() bool {
+	switch e {
+	case Contains:
+		return true
+	case Eq:
+		return true
+	case Exists:
+		return true
+	case Gt:
+		return true
+	case Gte:
+		return true
+	case In:
+		return true
+	case Lt:
+		return true
+	case Lte:
+		return true
+	case Neq:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SegmentVocabularyFieldType.
+const (
+	SegmentVocabularyFieldTypeBoolean  SegmentVocabularyFieldType = "boolean"
+	SegmentVocabularyFieldTypeCurrency SegmentVocabularyFieldType = "currency"
+	SegmentVocabularyFieldTypeDate     SegmentVocabularyFieldType = "date"
+	SegmentVocabularyFieldTypeId       SegmentVocabularyFieldType = "id"
+	SegmentVocabularyFieldTypeNumber   SegmentVocabularyFieldType = "number"
+	SegmentVocabularyFieldTypePicklist SegmentVocabularyFieldType = "picklist"
+	SegmentVocabularyFieldTypeText     SegmentVocabularyFieldType = "text"
+)
+
+// Valid indicates whether the value is a known member of the SegmentVocabularyFieldType enum.
+func (e SegmentVocabularyFieldType) Valid() bool {
+	switch e {
+	case SegmentVocabularyFieldTypeBoolean:
+		return true
+	case SegmentVocabularyFieldTypeCurrency:
+		return true
+	case SegmentVocabularyFieldTypeDate:
+		return true
+	case SegmentVocabularyFieldTypeId:
+		return true
+	case SegmentVocabularyFieldTypeNumber:
+		return true
+	case SegmentVocabularyFieldTypePicklist:
+		return true
+	case SegmentVocabularyFieldTypeText:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SetBlockedDomainRequestAdmission.
 const (
 	Admitted   SetBlockedDomainRequestAdmission = "admitted"
@@ -8984,31 +9083,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -10584,6 +10683,33 @@ func (e SearchParamsTypes) Valid() bool {
 	case SearchParamsTypesPerson:
 		return true
 	case SearchParamsTypesProject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetSegmentVocabularyParamsResource.
+const (
+	GetSegmentVocabularyParamsResourceDeal         GetSegmentVocabularyParamsResource = "deal"
+	GetSegmentVocabularyParamsResourceLead         GetSegmentVocabularyParamsResource = "lead"
+	GetSegmentVocabularyParamsResourceOrganization GetSegmentVocabularyParamsResource = "organization"
+	GetSegmentVocabularyParamsResourcePerson       GetSegmentVocabularyParamsResource = "person"
+	GetSegmentVocabularyParamsResourceProject      GetSegmentVocabularyParamsResource = "project"
+)
+
+// Valid indicates whether the value is a known member of the GetSegmentVocabularyParamsResource enum.
+func (e GetSegmentVocabularyParamsResource) Valid() bool {
+	switch e {
+	case GetSegmentVocabularyParamsResourceDeal:
+		return true
+	case GetSegmentVocabularyParamsResourceLead:
+		return true
+	case GetSegmentVocabularyParamsResourceOrganization:
+		return true
+	case GetSegmentVocabularyParamsResourcePerson:
+		return true
+	case GetSegmentVocabularyParamsResourceProject:
 		return true
 	default:
 		return false
@@ -19190,6 +19316,58 @@ type SearchResultTrustTier string
 // SearchResultType defines model for SearchResult.Type.
 type SearchResultType string
 
+// SegmentVocabulary What a filter may say about one record type (LVS-EXT-8). Read from the
+// engine that evaluates filters, so the set here and the set the engine
+// accepts are the same set.
+type SegmentVocabulary struct {
+	// Fields Every nameable field, core and custom together — a filter names them
+	// the same way, so splitting them here would invite a caller to treat
+	// one kind as second class.
+	Fields   []SegmentVocabularyField  `json:"fields"`
+	Resource SegmentVocabularyResource `json:"resource"`
+}
+
+// SegmentVocabularyResource defines model for SegmentVocabulary.Resource.
+type SegmentVocabularyResource string
+
+// SegmentVocabularyField One field a filter clause may name, with what it accepts.
+type SegmentVocabularyField struct {
+	// Custom Whether this is a workspace-defined custom-field column. Where true,
+	// `name` is the catalog's `column_name`, and the catalog carries the
+	// rest: an admin's `label`, and the `status` that tells a builder a
+	// column is retired.
+	//
+	// Retired columns ARE listed here. They stay filterable so a saved
+	// segment built on one keeps evaluating, and omitting them would break
+	// this operation's equivalence with the engine, which still accepts
+	// them. Distinguishing them is the catalog's `status`, read through the
+	// same join as `label` — this vocabulary answers what a filter MAY
+	// name, not what a picker SHOULD offer for a new clause.
+	Custom bool `json:"custom"`
+
+	// Name The name a filter clause uses. For a custom field this is the
+	// physical `cf_`-prefixed column, which is the same `column_name` the
+	// custom-field catalog reports — join on it to show an admin's label,
+	// since the catalog owns labels and this vocabulary does not.
+	Name string `json:"name"`
+
+	// Operators The operator subset this field's type admits (LVS-PARAM-1), in one
+	// stable order. An operator absent here is one the engine refuses for
+	// this field, so a builder can disable it rather than discover it.
+	Operators []SegmentVocabularyFieldOperators `json:"operators"`
+
+	// Type The six custom-field types plus `id` for a reference to another
+	// record. The type decides the operators, which is why it is here.
+	Type SegmentVocabularyFieldType `json:"type"`
+}
+
+// SegmentVocabularyFieldOperators defines model for SegmentVocabularyField.Operators.
+type SegmentVocabularyFieldOperators string
+
+// SegmentVocabularyFieldType The six custom-field types plus `id` for a reference to another
+// record. The type decides the operators, which is why it is here.
+type SegmentVocabularyFieldType string
+
 // SendAccountEmailRequest One account-started send. It is SendEmailRequest plus the `links` an anchor would
 // otherwise have supplied — the records this new conversation belongs to.
 type SendAccountEmailRequest struct {
@@ -23730,6 +23908,15 @@ type SearchParams struct {
 
 // SearchParamsTypes defines parameters for Search.
 type SearchParamsTypes string
+
+// GetSegmentVocabularyParams defines parameters for GetSegmentVocabulary.
+type GetSegmentVocabularyParams struct {
+	// Resource The record type whose vocabulary to read.
+	Resource GetSegmentVocabularyParamsResource `form:"resource" json:"resource"`
+}
+
+// GetSegmentVocabularyParamsResource defines parameters for GetSegmentVocabulary.
+type GetSegmentVocabularyParamsResource string
 
 // ListSignalsParams defines parameters for ListSignals.
 type ListSignalsParams struct {
@@ -31614,6 +31801,9 @@ type ServerInterface interface {
 	// Cross-object search (people, orgs, deals, activities, leads).
 	// (GET /search)
 	Search(w http.ResponseWriter, r *http.Request, params SearchParams)
+	// Read what a filter may say about one record type (LVS-EXT-8).
+	// (GET /segments/vocabulary)
+	GetSegmentVocabulary(w http.ResponseWriter, r *http.Request, params GetSegmentVocabularyParams)
 	// List signals (cursor-paginated), newest first.
 	// (GET /signals)
 	ListSignals(w http.ResponseWriter, r *http.Request, params ListSignalsParams)
@@ -33810,6 +34000,12 @@ func (_ Unimplemented) CancelScheduledSend(w http.ResponseWriter, r *http.Reques
 // Cross-object search (people, orgs, deals, activities, leads).
 // (GET /search)
 func (_ Unimplemented) Search(w http.ResponseWriter, r *http.Request, params SearchParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Read what a filter may say about one record type (LVS-EXT-8).
+// (GET /segments/vocabulary)
+func (_ Unimplemented) GetSegmentVocabulary(w http.ResponseWriter, r *http.Request, params GetSegmentVocabularyParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -49358,6 +49554,47 @@ func (siw *ServerInterfaceWrapper) Search(w http.ResponseWriter, r *http.Request
 	handler.ServeHTTP(w, r)
 }
 
+// GetSegmentVocabulary operation middleware
+func (siw *ServerInterfaceWrapper) GetSegmentVocabulary(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSegmentVocabularyParams
+
+	// ------------- Required query parameter "resource" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "resource", r.URL.Query(), &params.Resource, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "resource"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "resource", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSegmentVocabulary(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSignals operation middleware
 func (siw *ServerInterfaceWrapper) ListSignals(w http.ResponseWriter, r *http.Request) {
 
@@ -53260,6 +53497,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/search", wrapper.Search)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/segments/vocabulary", wrapper.GetSegmentVocabulary)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/signals", wrapper.ListSignals)
