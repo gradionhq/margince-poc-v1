@@ -134,6 +134,21 @@ fi
 # two allowlists can merge into one record set.
 read_policy() {
 	awk -v sep="$SEP" '
+		# The text of a line with its quoted entries removed. The `]` that ends
+		# an array is the one OUTSIDE a quoted entry: a path like
+		# \x27\x27\x27\\.(test|spec)\\.[jt]sx?$\x27\x27\x27 carries one inside a character class, and
+		# treating it as the terminator ended the array early — the entries
+		# after it were dropped, owed no plant, and the ledger still reported
+		# full coverage, which is the fail-open this suite exists to prevent.
+		function unquoted(text,   out, parts, n, i, q) {
+			for (q = 1; q <= 2; q++) {
+				out = ""
+				n = split(text, parts, (q == 1) ? "\x27\x27\x27" : "\"")
+				for (i = 1; i <= n; i += 2) out = out parts[i]
+				text = out
+			}
+			return text
+		}
 		function flush(   n, i, parts, q, kind) {
 			if (key == "") return
 			q = (key == "paths" || key == "regexes") ? "\x27\x27\x27" : "\""
@@ -155,7 +170,7 @@ read_policy() {
 			} else {
 				buf = buf "\n" $0
 			}
-			if (buf !~ /^\[/ || buf ~ /\]/) flush()
+			if (buf !~ /^\[/ || unquoted(buf) ~ /\]/) flush()
 		}
 		END { flush() }
 	' "$root/.gitleaks.toml"
@@ -164,6 +179,21 @@ read_policy() {
 POLICY="$(read_policy)"
 if [[ -z "$POLICY" ]]; then
 	echo "test-secret-scan: .gitleaks.toml declares no allowlists this suite can read — it is gating nothing" >&2
+	exit 1
+fi
+
+# The parser read every entry the file declares. `paths` and `regexes` are the
+# triple-quoted keys, so the number of \x27\x27\x27 delimiters in the policy fixes how many
+# entries there are, independently of how the parser walked them. An entry the
+# parser drops owes no plant and the ledger still reports full coverage — the
+# exact fail-open the shape gate exists to prevent, and the one a `]` inside a
+# character class caused by ending its array early.
+QUOTED="$(grep -o "'''" "$root/.gitleaks.toml" | grep -c . || true)"
+READ_ENTRIES="$(printf '%s\n' "$POLICY" | awk -F"$SEP" '$2 == "path" || $2 == "regex"' | grep -c . || true)"
+if [[ $((QUOTED / 2)) -ne "$READ_ENTRIES" ]]; then
+	echo "test-secret-scan: .gitleaks.toml declares $((QUOTED / 2)) quoted path/regex entries" >&2
+	echo "  and this suite read $READ_ENTRIES of them. An entry it cannot see owes no plant," >&2
+	echo "  and the coverage ledger cannot tell that apart from full coverage." >&2
 	exit 1
 fi
 
@@ -216,14 +246,22 @@ candidate_line() {
 # assertion that a plant is "still caught" is worthless if the plant never
 # tripped anything. Bounded retries, then a hard failure — never a skip.
 plant_line() {
-	local rule="$1" line attempt
+	local rule="$1" line
 	printf '[extend]\nuseDefault = true\n' >"$probe/config.toml"
-	for attempt in 1 2 3 4 5 6 7 8; do
+	for _ in 1 2 3 4 5 6 7 8; do
 		line="$(candidate_line "$rule")" || return 1
 		rm -rf "${probe:?}/tree"
 		mkdir -p "$probe/tree"
 		printf '%s' "$line" >"$probe/tree/candidate.go"
-		if ! "$gitleaks" dir "$probe/tree" --config "$probe/config.toml" --redact --no-banner >/dev/null 2>&1; then
+		rm -f "$probe/report.json"
+		"$gitleaks" dir "$probe/tree" --config "$probe/config.toml" --redact --no-banner \
+			--report-format json --report-path "$probe/report.json" >/dev/null 2>&1 || true
+		# The REQUESTED rule, not merely some rule. A candidate shaped for one
+		# detector can trip a different one — the linkedin plant carries a
+		# high-entropy value beside the word `client_id`, so generic-api-key
+		# fires on it too. Accepting that would let a "still caught" assertion
+		# pass on a finding the allowlist under test never governed.
+		if grep -q "\"RuleID\": *\"$rule\"" "$probe/report.json" 2>/dev/null; then
 			printf '%s' "$line"
 			return 0
 		fi
