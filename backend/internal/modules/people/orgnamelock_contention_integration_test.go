@@ -206,16 +206,35 @@ func assertParkedBeforeTheOrganizationRow(ctx context.Context, t *testing.T, hol
 	// The waiter, found through the lock manager rather than through
 	// pg_blocking_pids: every backend queued on an advisory lock this holder
 	// has been granted. The holder's own row is excluded by `granted`.
+	// The database predicate is not decoration: pg_locks is CLUSTER-wide, an
+	// advisory lock's identity includes the database it was taken in, and the
+	// parallel lane runs a clone per package on one server. Without it a backend
+	// queued on the same key in a neighbouring clone can be selected — and the
+	// organization lookup below resolves an OID local to THIS database, so it
+	// would find nothing and the assertion would pass having examined the wrong
+	// backend. A false green on the exact ordering this exists to catch.
 	var waiter int
 	err := holder.QueryRow(ctx, `
 		SELECT w.pid
 		  FROM pg_locks w
 		  JOIN pg_locks h
-		    ON h.locktype = 'advisory' AND h.granted
+		    ON h.locktype = 'advisory' AND h.granted AND h.database = w.database
 		   AND h.classid = w.classid AND h.objid = w.objid AND h.objsubid = w.objsubid
-		 WHERE w.locktype = 'advisory' AND NOT w.granted AND h.pid = $1
+		 WHERE w.locktype = 'advisory' AND NOT w.granted
+		   AND w.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		   AND h.pid = $1
 		 LIMIT 1`, holderPID).Scan(&waiter)
-	if err != nil {
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Distinguished from a read failure on purpose. The caller has already
+		// established that SOMETHING is waiting on this holder; if nothing is
+		// queued on the ADVISORY lock, the apply is blocked somewhere else —
+		// which is the ordering defect showing up one statement earlier, not an
+		// infrastructure fault. Reporting both as "reading the lock manager
+		// failed" is the misattribution this whole change is removing.
+		t.Fatalf("the apply is waiting, but on no advisory lock this holder holds — " +
+			"it reached a different lock first, so it is not parked on the name lock at all")
+	case err != nil:
 		t.Fatalf("reading the lock manager for a backend queued on the name lock: %v", err)
 	}
 
