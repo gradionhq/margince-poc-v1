@@ -1474,6 +1474,7 @@ export const de = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Ausgeschlossen",
   "deal.fcSlipped": "Verschoben",
+  "deal.fcUncategorised": "Noch keine Kategorie",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Nur ins Stocken geraten",

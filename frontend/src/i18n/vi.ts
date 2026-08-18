@@ -1472,6 +1472,7 @@ export const vi = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Loại trừ",
   "deal.fcSlipped": "Trượt tiến độ",
+  "deal.fcUncategorised": "Chưa phân loại",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Chỉ deal đình trệ",

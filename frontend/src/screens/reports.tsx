@@ -181,6 +181,14 @@ const FORECAST_CATEGORIES = [
   { key: "slipped", labelKey: "deal.fcSlipped" },
 ] as const;
 
+// The group key a deal with NO forecast category arrives under. The wire allows
+// the field to be null — nobody has said which way the deal is going — and the
+// five named categories match none of it, so a tile set built from the enum alone
+// drops those deals entirely: the money is not moved to another tile, it leaves
+// the screen. The report is a forecast, so pipeline it silently omits is the one
+// error it must not make.
+const UNCATEGORISED = "";
+
 // One currency's readings for one forecast category.
 export type CategoryAmount = {
   currency: string | null;
@@ -412,14 +420,30 @@ export function ReportsScreen() {
                 >
                   {(() => {
                     const byCategory = groupForecastAmounts(report_.rows);
-                    return FORECAST_CATEGORIES.map((category) => (
-                      <ForecastTile
-                        key={category.key}
-                        label={t(category.labelKey)}
-                        amounts={byCategory.get(category.key) ?? []}
-                        locale={locale}
-                      />
-                    ));
+                    const uncategorised = byCategory.get(UNCATEGORISED) ?? [];
+                    return [
+                      ...FORECAST_CATEGORIES.map((category) => (
+                        <ForecastTile
+                          key={category.key}
+                          label={t(category.labelKey)}
+                          amounts={byCategory.get(category.key) ?? []}
+                          locale={locale}
+                        />
+                      )),
+                      // Only when such deals exist: an installation whose deals
+                      // are all categorised should not be shown an empty sixth
+                      // tile asking about a state it never reaches.
+                      ...(uncategorised.length > 0
+                        ? [
+                            <ForecastTile
+                              key={UNCATEGORISED}
+                              label={t("deal.fcUncategorised")}
+                              amounts={uncategorised}
+                              locale={locale}
+                            />,
+                          ]
+                        : []),
+                    ];
                   })()}
                 </div>
               </div>

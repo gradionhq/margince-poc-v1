@@ -443,6 +443,80 @@ describe("reports never sum money across currencies", () => {
     expect(row.count).toBe(3);
   });
 
+  // The wire allows a deal to carry no forecast category — nobody has said which
+  // way it is going — and the five named categories match none of it. A tile set
+  // built from the enum alone drops those deals off the screen entirely: the
+  // money is not moved to another tile, it leaves. On the demo dataset that was
+  // 22 of 27 open deals.
+  it("shows the deals that carry no forecast category at all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        forecastRows: [
+          {
+            forecast_category: "omitted",
+            currency: "EUR",
+            raw_minor: 58_860_000,
+            weighted_minor: 31_502_500,
+            deal_count: 5,
+          },
+          {
+            forecast_category: null,
+            currency: "EUR",
+            raw_minor: 202_720_000,
+            weighted_minor: 76_460_000,
+            deal_count: 17,
+          },
+          {
+            forecast_category: null,
+            currency: "VND",
+            raw_minor: 262_000_000_000,
+            weighted_minor: 185_500_000_000,
+            deal_count: 2,
+          },
+        ],
+      }),
+    );
+    render(<ReportsScreen />);
+    await userEvent.setup().click(await screen.findByText("Forecast"));
+    // Both currencies of the uncategorised pipeline, each in its own unit.
+    expect(
+      await screen.findByText(formatMoney(202_720_000, "EUR", "en")),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(formatMoney(262_000_000_000, "VND", "en")),
+    ).toBeTruthy();
+    // And never folded into one of the named categories.
+    expect(
+      screen.queryByText(formatMoney(261_580_000, "EUR", "en")),
+    ).toBeNull();
+  });
+
+  // An installation whose deals are all categorised should not be shown an empty
+  // sixth tile asking about a state it never reaches.
+  it("draws no uncategorised tile when every deal has a category", async () => {
+    vi.stubGlobal(
+      "fetch",
+      reportsStub({
+        forecastRows: [
+          {
+            forecast_category: "commit",
+            currency: "EUR",
+            raw_minor: 1000,
+            weighted_minor: 900,
+            deal_count: 1,
+          },
+        ],
+      }),
+    );
+    render(<ReportsScreen />);
+    await userEvent.setup().click(await screen.findByText("Forecast"));
+    await waitFor(() =>
+      expect(screen.getByText(formatMoney(1000, "EUR", "en"))).toBeTruthy(),
+    );
+    expect(screen.queryByText("No category yet")).toBeNull();
+  });
+
   it("gathers a forecast category's currencies in code order", () => {
     const grouped = groupForecastAmounts([
       { forecast_category: "commit", currency: "VND", raw_minor: 2 },

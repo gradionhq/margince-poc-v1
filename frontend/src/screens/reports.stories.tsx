@@ -65,3 +65,23 @@ export const Unpriced: Story = {
     />
   ),
 };
+
+// A deal nobody has categorised. The wire allows the field to be null, and the
+// five named categories match none of it — so without a tile of its own this
+// money leaves the screen rather than moving to another tile.
+export const NoCategoryYet: Story = {
+  render: () => (
+    <ForecastTile
+      label="No category yet"
+      amounts={[
+        { currency: "EUR", rawMinor: 202720000, weightedMinor: 76460000 },
+        {
+          currency: "VND",
+          rawMinor: 262000000000,
+          weightedMinor: 185500000000,
+        },
+      ]}
+      locale="en"
+    />
+  ),
+};
