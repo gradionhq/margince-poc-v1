@@ -126,9 +126,9 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 		// rationale). Won/lost stages carry their semantic 100/0 in the same
 		// column, so terminal moves snapshot too.
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO deal_stage_history (workspace_id, deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change, win_probability_at_change)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			storekit.MustWorkspace(ctx), id, ids.UUID(*current.StageId), in.ToStageID, by,
+			`INSERT INTO deal_stage_history (deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change, win_probability_at_change)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			id, ids.UUID(*current.StageId), in.ToStageID, by,
 			current.AmountMinor, current.Currency, winProbability); err != nil {
 			return fmt.Errorf("record stage history: %w", err)
 		}

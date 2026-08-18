@@ -141,6 +141,19 @@ func SeedRow(t *testing.T, owner *pgx.Conn, sql string, ws ids.UUID, args ...any
 	return id
 }
 
+// SeedIDRow is SeedRow for a table that no longer has a workspace to bind: it
+// mints the id and nothing else. ADR-0091 §8 phase D removes the column table
+// by table, so the set of fixtures needing this form only grows — and when the
+// last table loses it, this becomes the only form and SeedRow goes.
+func SeedIDRow(t *testing.T, owner *pgx.Conn, sql string, args ...any) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), sql, append([]any{id}, args...)...); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	return id
+}
+
 // LinkToOrg attaches an activity directly to an account (LinkActivity above
 // covers only the person and deal columns).
 func LinkToOrg(t *testing.T, e *Env, activity, org ids.UUID) {

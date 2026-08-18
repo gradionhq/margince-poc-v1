@@ -104,7 +104,7 @@ func (g *graphAssembly) readOpenDeals() error {
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
 		SELECT d.id, d.name, s.name, d.amount_minor, count(*) OVER () AS open_total
 		FROM deal d
-		LEFT JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
+		LEFT JOIN stage s ON s.id = d.stage_id
 		%s
 		ORDER BY d.amount_minor DESC NULLS LAST, d.id
 		LIMIT %d`, openDealsWhere(orgPos, dealScope), graphDealCap), args...)

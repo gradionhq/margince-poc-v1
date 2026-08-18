@@ -337,7 +337,7 @@ func weightedPipelineMinor(ctx context.Context, tx pgx.Tx, included []ids.UUID, 
 	rows, err := tx.Query(ctx, `
 		SELECT d.amount_minor, d.currency, s.win_probability
 		FROM deal d
-		JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
+		JOIN stage s ON s.id = d.stage_id
 		WHERE d.organization_id = ANY($1) AND d.status = 'open' AND d.archived_at IS NULL`,
 		included)
 	if err != nil {

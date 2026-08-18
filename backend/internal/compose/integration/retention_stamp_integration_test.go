@@ -37,12 +37,12 @@ type stampFixture struct {
 func seedStampFixture(t *testing.T, e *Env) stampFixture {
 	t.Helper()
 	pipeline, openStage, wonStage, email := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
-	e.WsExec(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position)
-		VALUES ($1, $2, 'Stamp fixture', false, 91)`, pipeline, e.WS)
-	e.WsExec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, openStage, e.WS, pipeline)
-	e.WsExec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Closed Won', 1, 'won', 100)`, wonStage, e.WS, pipeline)
+	e.WsExec(t, `INSERT INTO pipeline (id, name, is_default, position)
+		VALUES ($1, 'Stamp fixture', false, 91)`, pipeline)
+	e.WsExec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, openStage, pipeline)
+	e.WsExec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Closed Won', 1, 'won', 100)`, wonStage, pipeline)
 
 	deal := e.SeedDeal(t, "Acme rollout",
 		ids.PipelineID{UUID: pipeline}, ids.StageID{UUID: openStage}, nil)
@@ -134,9 +134,9 @@ func TestReopeningAWonDealLeavesTheStampStanding(t *testing.T) {
 	f := seedStampFixture(t, e)
 
 	openAgain := ids.NewV7()
-	e.WsExec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, (SELECT pipeline_id FROM stage WHERE id = $3), 'Reopened', 2, 'open', 40)`,
-		openAgain, e.WS, f.wonStage.UUID)
+	e.WsExec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, (SELECT pipeline_id FROM stage WHERE id = $2), 'Reopened', 2, 'open', 40)`,
+		openAgain, f.wonStage.UUID)
 
 	if _, err := e.Deals.AdvanceDeal(e.Admin(), ids.DealID{UUID: f.deal}, wonInput(f.wonStage)); err != nil {
 		t.Fatalf("advancing to won: %v", err)

@@ -77,6 +77,22 @@ func (w *flipWriters) ReconcileIdentities(ctx context.Context) error {
 // identity map does not yet know about. The prefix is scoped to
 // incumbent and class, not to a run: another attempt's orphan is
 // exactly what this is meant to adopt.
+// flipTenantScope is the workspace predicate for the ONE query this file
+// templates over five native tables, and it is per-object because ADR-0091 §8
+// phase D removes the column from them at different times — deal already, the
+// rest still to come. A predicate spelled for all five fails the statement
+// outright for whichever has lost it; spelled for none, a reconstruction adopts
+// the EXPORTING installation's records as its own. Each entry drops out as its
+// slice lands, and the function goes with the last one.
+func flipTenantScope(object string) string {
+	switch object {
+	case flipObjectPerson, flipObjectOrganization, flipObjectLead, flipObjectActivity:
+		return "\n\t\t\t  AND n.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid"
+	default:
+		return ""
+	}
+}
+
 func (w *flipWriters) orphanedIdentities(ctx context.Context, object string) ([]migration.IdentityPair, error) {
 	if !flipImportable(object) {
 		// The allowlist is what keeps the class out of the format string
@@ -99,13 +115,8 @@ func (w *flipWriters) orphanedIdentities(ctx context.Context, object string) ([]
 			  ON m.source_system = $2
 			 AND m.object = $3
 			 AND m.external_id = right(n.source, -length($1::text))
-			-- Scoped to the workspace this run imports into. Tenant isolation
-			-- used to bound the scan, so a previous attempt's rows meant rows
-			-- THIS installation wrote; without it a reconstruction adopts the
-			-- exporting installation's records as its own (ADR-0091 §8 phase A).
-			WHERE n.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			  AND starts_with(n.source, $1) AND m.native_id IS NULL
-			  AND %s`, object, liveClause(object)),
+			WHERE starts_with(n.source, $1) AND m.native_id IS NULL%s
+			  AND %s`, object, flipTenantScope(object), liveClause(object)),
 			prefix, w.incumbent, object)
 		if err != nil {
 			return err

@@ -35,14 +35,14 @@ const rollupOpenWinProbability = 40
 func seedRollupStages(t *testing.T, e *Env) rollupStages {
 	t.Helper()
 	st := rollupStages{pipeline: ids.NewV7(), open: ids.NewV7(), won: ids.NewV7()}
-	e.WsExec(t, `INSERT INTO pipeline (id, workspace_id, name) VALUES ($1, $2, 'Rollup Pipeline')`,
-		st.pipeline, e.WS)
-	e.WsExec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualified', 1, 'open', $4)`,
-		st.open, e.WS, st.pipeline, rollupOpenWinProbability)
-	e.WsExec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Won', 2, 'won', 100)`,
-		st.won, e.WS, st.pipeline)
+	e.WsExec(t, `INSERT INTO pipeline (id, name) VALUES ($1, 'Rollup Pipeline')`,
+		st.pipeline)
+	e.WsExec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualified', 1, 'open', $3)`,
+		st.open, st.pipeline, rollupOpenWinProbability)
+	e.WsExec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Won', 2, 'won', 100)`,
+		st.won, st.pipeline)
 	return st
 }
 
@@ -62,9 +62,9 @@ func seedRollupOrg(t *testing.T, e *Env, name string, owner, parent *ids.UUID) i
 // seeds the honest half-empty deal the weighted sum must count as 0.
 func seedRollupOpenDeal(t *testing.T, e *Env, st rollupStages, org ids.UUID, amountMinor *int64, currency *string) {
 	t.Helper()
-	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id, organization_id, status, source, captured_by)
-		VALUES ($1, $2, 'Open Deal', $3, $4, $5, $6, $7, 'open', 'manual', 'human:test')`,
-		ids.NewV7(), e.WS, amountMinor, currency, st.pipeline, st.open, org)
+	e.WsExec(t, `INSERT INTO deal (id, name, amount_minor, currency, pipeline_id, stage_id, organization_id, status, source, captured_by)
+		VALUES ($1, 'Open Deal', $2, $3, $4, $5, $6, 'open', 'manual', 'human:test')`,
+		ids.NewV7(), amountMinor, currency, st.pipeline, st.open, org)
 }
 
 // seedRollupWonDeal closes a deal with the frozen FX rate the
@@ -73,9 +73,9 @@ func seedRollupWonDeal(t *testing.T, e *Env, st rollupStages, org ids.UUID,
 	amountMinor int64, currency, fxRateToBase string, closedAt time.Time,
 ) {
 	t.Helper()
-	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, amount_minor, currency, fx_rate_to_base, pipeline_id, stage_id, organization_id, status, closed_at, source, captured_by)
-		VALUES ($1, $2, 'Won Deal', $3, $4, $5, $6, $7, $8, 'won', $9, 'manual', 'human:test')`,
-		ids.NewV7(), e.WS, amountMinor, currency, fxRateToBase, st.pipeline, st.won, org, closedAt)
+	e.WsExec(t, `INSERT INTO deal (id, name, amount_minor, currency, fx_rate_to_base, pipeline_id, stage_id, organization_id, status, closed_at, source, captured_by)
+		VALUES ($1, 'Won Deal', $2, $3, $4, $5, $6, $7, 'won', $8, 'manual', 'human:test')`,
+		ids.NewV7(), amountMinor, currency, fxRateToBase, st.pipeline, st.won, org, closedAt)
 }
 
 func seedRollupFxRate(t *testing.T, e *Env, fromCurrency, rate string, day time.Time) {
@@ -102,9 +102,9 @@ func seedRollupOrgActivity(t *testing.T, e *Env, org ids.UUID, occurredAt time.T
 func seedRollupDealLinkedActivity(t *testing.T, e *Env, st rollupStages, org ids.UUID, occurredAt time.Time) {
 	t.Helper()
 	dealID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, status, source, captured_by)
-		VALUES ($1, $2, 'Deal With Mail', $3, $4, $5, 'open', 'manual', 'human:test')`,
-		dealID, e.WS, st.pipeline, st.open, org)
+	e.WsExec(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, organization_id, status, source, captured_by)
+		VALUES ($1, 'Deal With Mail', $2, $3, $4, 'open', 'manual', 'human:test')`,
+		dealID, st.pipeline, st.open, org)
 	activityID := ids.NewV7()
 	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'email', 'deal thread', $3, 'manual', 'human:test')`,
@@ -506,9 +506,9 @@ func TestOrgRollupCountsAnActivityReachingTheTreeTwiceOnlyOnce(t *testing.T) {
 	now := time.Now().UTC()
 
 	dealID := ids.NewV7()
-	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, organization_id, status, source, captured_by)
-		VALUES ($1, $2, 'Both Links', $3, $4, $5, 'open', 'manual', 'human:test')`,
-		dealID, e.WS, st.pipeline, st.open, org)
+	e.WsExec(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, organization_id, status, source, captured_by)
+		VALUES ($1, 'Both Links', $2, $3, $4, 'open', 'manual', 'human:test')`,
+		dealID, st.pipeline, st.open, org)
 	activityID := ids.NewV7()
 	e.WsExec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, $2, 'email', 'filed twice', $3, 'manual', 'human:test')`,

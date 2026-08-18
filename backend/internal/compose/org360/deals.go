@@ -9,7 +9,6 @@ package org360
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -57,7 +56,7 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 		       to_char(d.expected_close_date, 'YYYY-MM-DD'),
 		       d.created_at, d.last_activity_at, d.wait_until
 		FROM deal d
-		LEFT JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
+		LEFT JOIN stage s ON s.id = d.stage_id
 		%s
 		ORDER BY d.created_at DESC, d.id DESC
 		LIMIT %d`, openDealsWhere(orgPos, dealScope), sectionLimit+1), args...)
@@ -135,20 +134,14 @@ func closedTotals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
 		       count(*) FILTER (WHERE d.status = 'lost')
 		FROM deal d
 		WHERE d.organization_id = $%d AND d.archived_at IS NULL
-		  AND d.status IN ('won','lost') AND (%s)
-		GROUP BY d.workspace_id`, orgPos, dealScope), args...).Scan(&wonMinor, &lost)
-	if errors.Is(err, pgx.ErrNoRows) {
-		// No closed deal on this account yet: an honest zero in the
-		// installation's own currency, not a missing figure.
-		return installationZero(baseCurrency)
-	}
+		  AND d.status IN ('won','lost') AND (%s)`, orgPos, dealScope), args...).Scan(&wonMinor, &lost)
+	// No GROUP BY, so no empty result to handle: an ungrouped aggregate returns
+	// exactly one row whatever it counted, and the coalesce above makes that row
+	// an honest zero in the installation's own currency for an account with no
+	// closed deal. The clause used to group by the tenant, which produced no row
+	// at all in that case.
 	if err != nil {
 		return crmcontracts.Money{}, 0, err
 	}
 	return crmcontracts.Money{AmountMinor: &wonMinor, Currency: &baseCurrency}, lost, nil
-}
-
-func installationZero(baseCurrency string) (crmcontracts.Money, int, error) {
-	zero := int64(0)
-	return crmcontracts.Money{AmountMinor: &zero, Currency: &baseCurrency}, 0, nil
 }

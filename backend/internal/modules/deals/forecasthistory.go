@@ -83,9 +83,9 @@ func recordForecastMovement(ctx context.Context, tx pgx.Tx, id ids.DealID,
 	}
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO deal_forecast_history
-		   (workspace_id, deal_id, changed_by, amount_minor_at_change, currency_at_change, close_date_at_change)
-		 VALUES ($1, $2, $3, $4, $5, $6)`,
-		storekit.MustWorkspace(ctx), id, by, amount, currency, closeDate); err != nil {
+		   (deal_id, changed_by, amount_minor_at_change, currency_at_change, close_date_at_change)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		id, by, amount, currency, closeDate); err != nil {
 		return fmt.Errorf("record forecast history: %w", err)
 	}
 	return nil

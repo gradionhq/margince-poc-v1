@@ -50,8 +50,8 @@ type closeDateEnv struct {
 func setupCloseDate(t *testing.T) *closeDateEnv {
 	t.Helper()
 	e := &closeDateEnv{Env: integration.Setup(t), owner: integration.OwnerConn(t)}
-	e.pipeline = integration.SeedRow(t, e.owner,
-		`INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Hygiene', true, 0)`, e.WS)
+	e.pipeline = integration.SeedIDRow(t, e.owner,
+		`INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Hygiene', true, 0)`)
 	ctx := context.Background()
 	for _, stage := range []struct {
 		id          *ids.UUID
@@ -60,9 +60,9 @@ func setupCloseDate(t *testing.T) *closeDateEnv {
 	}{{&e.early, 0, 20}, {&e.late, 1, 60}} {
 		*stage.id = ids.NewV7()
 		if _, err := e.owner.Exec(ctx,
-			`INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-			 VALUES ($1, $2, $3, $4, $5, 'open', $6)`,
-			*stage.id, e.WS, e.pipeline, fmt.Sprintf("Stage %d", stage.position), stage.position, stage.probability); err != nil {
+			`INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+			 VALUES ($1, $2, $3, $4, 'open', $5)`,
+			*stage.id, e.pipeline, fmt.Sprintf("Stage %d", stage.position), stage.position, stage.probability); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,11 +96,10 @@ func (e *closeDateEnv) seedSweepDeal(t *testing.T, name string, stage ids.UUID, 
 	}
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency,
-		                   forecast_category, expected_close_date, last_activity_at, created_at, source, captured_by)
-		 VALUES ($1, $2, $3, $4, $5, 10000, 'EUR', $6, $7,
-		         now() - make_interval(days => $8), now() - interval '120 days', 'manual', 'human:x')`,
-		id, e.WS, name, e.pipeline, stage, category, expectedClose, lastActivityDaysAgo); err != nil {
+		`INSERT INTO deal (id, name, pipeline_id, stage_id, amount_minor, currency, forecast_category, expected_close_date, last_activity_at, created_at, source, captured_by)
+		 VALUES ($1, $2, $3, $4, 10000, 'EUR', $5, $6,
+		         now() - make_interval(days => $7), now() - interval '120 days', 'manual', 'human:x')`,
+		id, name, e.pipeline, stage, category, expectedClose, lastActivityDaysAgo); err != nil {
 		t.Fatalf("seeding deal %q: %v", name, err)
 	}
 	return id
@@ -411,8 +410,8 @@ func TestCloseDateSweepLeavesNoOpenDealWithPastCloseDate(t *testing.T) {
 
 	var openPast int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM deal WHERE workspace_id = $1 AND status = 'open' AND archived_at IS NULL
-		   AND expected_close_date < current_date`, e.WS).Scan(&openPast); err != nil {
+		`SELECT count(*) FROM deal WHERE status = 'open' AND archived_at IS NULL
+		   AND expected_close_date < current_date`).Scan(&openPast); err != nil {
 		t.Fatal(err)
 	}
 	if openPast != 0 {
@@ -420,8 +419,8 @@ func TestCloseDateSweepLeavesNoOpenDealWithPastCloseDate(t *testing.T) {
 	}
 	var openMissing int
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT count(*) FROM deal WHERE workspace_id = $1 AND status = 'open' AND archived_at IS NULL
-		   AND expected_close_date IS NULL`, e.WS).Scan(&openMissing); err != nil {
+		`SELECT count(*) FROM deal WHERE status = 'open' AND archived_at IS NULL
+		   AND expected_close_date IS NULL`).Scan(&openMissing); err != nil {
 		t.Fatal(err)
 	}
 	if openMissing != 0 {
