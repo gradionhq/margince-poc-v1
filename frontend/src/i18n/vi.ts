@@ -1283,6 +1283,8 @@ export const vi = {
   "lead.filterScoreHot": "Từ 80",
   "lead.filterScoreWarm": "Từ 60",
   "lead.filterScoreCool": "Từ 40",
+  "lead.boardTerminalOnly":
+    "Bảng chỉ hiện khách hàng tiềm năng đang mở. Những mục này đã chuyển hoặc bị loại.",
   "person.fromLead": "Từ khách hàng tiềm năng",
   "lead.promotedTitle": "Đã chuyển thành liên hệ",
   "lead.promotedMerged":

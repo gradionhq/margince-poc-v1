@@ -214,3 +214,41 @@ export const LeadPromotedAfterMerge: Story = {
     );
   },
 };
+
+// The board: the live leads in the two columns they can actually move between.
+// The story opens on the table, as the screen does, and the reader presses
+// "Board" — the toggle is part of what this story documents.
+// Terminal statuses get no column — a lead is promoted or disqualified through
+// its own audited verb, never by dragging a card.
+export const LeadsBoard: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /leads": () =>
+        jsonResponse({
+          data: [
+            { ...lead, id: "l-1", status: "new", score: 82 },
+            {
+              ...lead,
+              id: "l-2",
+              full_name: "Petra Vogel",
+              company_name: "Südwind AG",
+              status: "working",
+              score: 54,
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      "GET /me": () =>
+        jsonResponse({
+          user: { id: "u-9", display_name: "Me" },
+          roles: ["rep"],
+          teams: [],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <LeadsScreen />
+      </StoryProviders>
+    );
+  },
+};

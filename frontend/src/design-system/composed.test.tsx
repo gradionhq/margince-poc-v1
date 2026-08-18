@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
-  type BoardColumn,
+  type BoardMoneyColumn,
   DealCard,
   MorningBriefItem,
   PipelineBoard,
@@ -90,7 +90,7 @@ describe("DealCard + PipelineBoard", () => {
   });
 
   it("board columns render probability, count, raw and weighted sub-lines", () => {
-    const column: BoardColumn = {
+    const column: BoardMoneyColumn = {
       stage: "proposal",
       label: "Proposal",
       probabilityPct: 40,
@@ -110,7 +110,7 @@ describe("DealCard + PipelineBoard", () => {
   // the stage's TRUE count from a server aggregate — it must render that,
   // not deals.length, whenever the two disagree.
   it("renders the column's own count over deals.length when the two disagree", () => {
-    const column: BoardColumn = {
+    const column: BoardMoneyColumn = {
       stage: "proposal",
       label: "Proposal",
       probabilityPct: 40,

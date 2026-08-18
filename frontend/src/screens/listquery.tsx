@@ -169,10 +169,17 @@ export function ListTable<Row>({
   searchable = true,
   showArchivedToggle = true,
   tools,
+  body,
 }: Readonly<{
   state: ListState<Row>;
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /**
+   * A second view of the same query, rendered instead of the grid while the
+   * surface keeps its search, chips, views and page-size dial — see the
+   * design-system ListTable's own `body`.
+   */
+  body?: ReactNode;
   /**
    * Where a row's record lives. One declaration drives both ways in: clicking
    * the row navigates, and the identity cell becomes a real link that opens in
@@ -364,6 +371,7 @@ export function ListTable<Row>({
       onPerPage={(next) => setQuery((prev) => ({ ...prev, perPage: next }))}
       // The unit key names the table for the widths it remembers.
       widthsKey={unit}
+      body={body}
       pending={isPending}
       problem={problem}
     />

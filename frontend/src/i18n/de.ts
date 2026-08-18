@@ -1282,6 +1282,8 @@ export const de = {
   "lead.filterScoreHot": "Ab 80",
   "lead.filterScoreWarm": "Ab 60",
   "lead.filterScoreCool": "Ab 40",
+  "lead.boardTerminalOnly":
+    "Das Board zeigt nur offene Leads. Diese Leads sind übernommen oder disqualifiziert.",
   "person.fromLead": "Aus Lead übernommen",
   "lead.promotedTitle": "Als Kontakt übernommen",
   "lead.promotedMerged":

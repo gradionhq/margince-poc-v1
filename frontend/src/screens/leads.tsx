@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
@@ -15,7 +15,12 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
-import { RecordView } from "../design-system/composed";
+import {
+  type BoardColumn,
+  type BoardDeal,
+  PipelineBoard,
+  RecordView,
+} from "../design-system/composed";
 import type { ListChip } from "../design-system/listtable";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
@@ -296,6 +301,227 @@ async function createLead(
   return data;
 }
 
+/**
+ * The two columns a lead can be dragged between.
+ *
+ * Only the LIVE statuses. `promoted` and `disqualified` are terminal and
+ * reachable only through their own audited verbs — a board column for either
+ * would offer a drag that ends in a 422, and worse, would imply a lead can be
+ * promoted by moving a card, which is the one thing ADR-0008's trigger set
+ * exists to prevent.
+ */
+const LEAD_BOARD_STAGES = [
+  { stage: "new", label: "lead.statusNew" },
+  { stage: "working", label: "lead.statusWorking" },
+] as const;
+
+/** A lead as the board's card reads it. */
+function LeadCard({
+  lead,
+  onOpen,
+  dragHandlers,
+}: Readonly<{
+  lead: Lead;
+  onOpen: (lead: Lead) => void;
+  dragHandlers?: {
+    draggable: true;
+    onDragStart: (event: React.DragEvent) => void;
+    onDragEnd: () => void;
+  };
+}>) {
+  const t = useT();
+  return (
+    <button
+      type="button"
+      className="deal-card"
+      data-lead={lead.id}
+      onClick={() => onOpen(lead)}
+      {...dragHandlers}
+    >
+      <span className="deal-name">
+        {lead.full_name ?? lead.email ?? t("nav.leads")}
+      </span>
+      {lead.company_name && (
+        <span className="deal-org">
+          <span className="deal-org-name">{lead.company_name}</span>
+        </span>
+      )}
+      <span className="deal-meta">
+        <Badge tone={scoreTone(lead.score)}>
+          {t("lead.score")}: {lead.score}
+        </Badge>
+        {lead.title && <span>{lead.title}</span>}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * LeadBoard is the triage surface: the live leads, in the two columns they can
+ * actually move between, dragged from one to the other.
+ *
+ * It renders the rows the LIST already fetched rather than asking again, so a
+ * reader's filters and search narrow the board exactly as they narrow the
+ * table — a board that ignored the filter bar above it would be a second,
+ * silently different answer to the same question.
+ */
+function LeadBoard({
+  rows,
+  onMoved,
+  hasMore,
+  loadMore,
+}: Readonly<{
+  rows: Lead[];
+  onMoved: () => void;
+  hasMore: boolean;
+  loadMore: () => void;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const dragging = useRef<string | null>(null);
+  const lastDragEnd = useRef(0);
+
+  const move = useMutation({
+    // The lead's version rides the variables, not a closure: the card that
+    // carried it belongs to the committed render, so it cannot be stale.
+    mutationFn: async (moved: {
+      id: string;
+      // Optional exactly as the contract has it. ifMatch omits the header when
+      // it is absent, which is the honest behaviour: a row the server did not
+      // version is one this client cannot make a concurrency claim about.
+      version?: number;
+      // The two the contract accepts. `promoted` and `disqualified` are
+      // reachable only through their own verbs, and typing the board's write
+      // this way is what stops a third column being added without noticing.
+      status: "new" | "working";
+    }) => {
+      const { data, error } = await api.PATCH("/leads/{id}", {
+        params: { path: { id: moved.id }, ...ifMatch(moved.version) },
+        body: { status: moved.status },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      onMoved();
+    },
+    onError: () => {
+      // A 409 means the card's version is stale. Without a refetch the reader
+      // retries with the same doomed If-Match and the drag never takes.
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+    },
+  });
+
+  const live = rows.filter(
+    (lead) => lead.status === "new" || lead.status === "working",
+  );
+  const columns: BoardColumn[] = LEAD_BOARD_STAGES.map((stage) => {
+    const held = live.filter((lead) => lead.status === stage.stage);
+    return {
+      stage: stage.stage,
+      label: t(stage.label),
+      count: held.length,
+      // The board's card type is the deal's, so each lead rides as one and the
+      // renderCard hook reads it back out of `leadsById` below. Only `id` is
+      // ever read off this object.
+      deals: held.map((lead) => ({ id: lead.id, name: "" }) as BoardDeal),
+    };
+  });
+  const leadsById = new Map(live.map((lead) => [lead.id, lead]));
+
+  return (
+    <>
+      {move.isError && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {problemMessageOf(move.error, t)}
+        </p>
+      )}
+      {/* The board holds the live statuses only, so a filter narrowed to a
+          terminal one leaves it empty — and an empty board with no reason
+          reads as a broken render rather than a filter doing its job. */}
+      {rows.length > 0 && live.length === 0 && (
+        <p className="t-caption">{t("lead.boardTerminalOnly")}</p>
+      )}
+      <PipelineBoard
+        variant="plain"
+        columns={columns}
+        renderCard={(card) => {
+          const lead = leadsById.get(card.id);
+          if (!lead) {
+            return null;
+          }
+          return (
+            <LeadCard
+              lead={lead}
+              onOpen={(opened) => {
+                // A drag ends in a click the browser also reports; opening the
+                // record on it would navigate away from the board every time a
+                // card was moved.
+                if (Date.now() - lastDragEnd.current > 250) {
+                  navigate({ screen: "leads", id: opened.id });
+                }
+              }}
+              dragHandlers={{
+                draggable: true,
+                onDragStart: (event) => {
+                  dragging.current = lead.id;
+                  event.dataTransfer.setData("text/plain", lead.id);
+                },
+                // Recorded on END, not on drop: a drag cancelled off the board
+                // never reaches a drop handler, and the click the browser then
+                // reports would navigate away from the board.
+                onDragEnd: () => {
+                  dragging.current = null;
+                  lastDragEnd.current = Date.now();
+                },
+              }}
+            />
+          );
+        }}
+        columnDropHandlers={(column) => ({
+          onDragOver: (event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement).classList.add("droptarget");
+          },
+          onDragLeave: (event) => {
+            (event.currentTarget as HTMLElement).classList.remove("droptarget");
+          },
+          onDrop: (event) => {
+            event.preventDefault();
+            (event.currentTarget as HTMLElement).classList.remove("droptarget");
+            const id =
+              event.dataTransfer.getData("text/plain") || dragging.current;
+            dragging.current = null;
+            lastDragEnd.current = Date.now();
+            const lead = id ? leadsById.get(id) : undefined;
+            // A card dropped on the column it already sits in is not a move.
+            const target = LEAD_BOARD_STAGES.find(
+              (stage) => stage.stage === column.stage,
+            );
+            if (lead && target && lead.status !== target.stage) {
+              move.mutate({
+                id: lead.id,
+                version: lead.version,
+                status: target.stage,
+              });
+            }
+          },
+        })}
+      />
+      {/* A board that showed page one while looking like the whole pipeline
+          would be a confident wrong answer about how much work is waiting. */}
+      {hasMore && (
+        <Button small onClick={loadMore}>
+          {t("list.loadMore")}
+        </Button>
+      )}
+    </>
+  );
+}
+
 export function LeadsScreen() {
   const ownerChips = useLeadOwnerChips();
   const t = useT();
@@ -306,10 +532,41 @@ export function LeadsScreen() {
     initialSort: "-created_at",
     fetchPage: fetchLeadsPage,
   });
+  // The board writes status, which the mirror refuses (a lead's lifecycle is
+  // not a field write-back), so overlay gets the table and no toggle.
+  const overlay = useSorMode() === "overlay";
+  const [view, setView] = useState<"table" | "board">("table");
 
   return (
     <div className="wrap lead-surface">
+      {!overlay && (
+        <div style={{ marginBottom: "var(--space-3)" }}>
+          <SegmentedControl
+            options={["table", "board"] as const}
+            value={view}
+            onChange={setView}
+            labels={{
+              table: t("deals.viewTable"),
+              board: t("deals.viewBoard"),
+            }}
+          />
+        </div>
+      )}
       <ListTable
+        // The board renders INSIDE the surface, so the search, the chips and
+        // the saved views stay above it. A board that replaced the surface
+        // took the filter bar with it, leaving the reader looking at a
+        // narrowed answer with no way to see or change what narrowed it.
+        body={
+          view === "board" && !overlay ? (
+            <LeadBoard
+              rows={state.rows}
+              onMoved={() => state.refetch()}
+              hasMore={state.hasMore}
+              loadMore={state.loadMore}
+            />
+          ) : undefined
+        }
         state={state}
         unit="unit.leads"
         caption="lead.segregated"

@@ -207,10 +207,21 @@ export function ListTable<Row>({
   problem,
   widthsKey,
   tools,
+  body,
 }: Readonly<{
   rows: readonly Row[];
   columns: readonly ListColumn<Row>[];
   rowKey: (row: Row) => string;
+  /**
+   * Renders INSTEAD of the grid, keeping the surface's header, search, chips,
+   * views and page-size dial exactly where they are.
+   *
+   * For a second view of the same query — a board over the rows a list already
+   * fetched. Swapping the whole surface out for it would take the filter bar
+   * with it, leaving the reader looking at a narrowed answer with no way to
+   * see or change what narrowed it, which is worse than showing no board.
+   */
+  body?: ReactNode;
   onRowClick?: (row: Row) => void;
   /**
    * Where this row lives, as a URL. Turns the identity cell into a link, so a
@@ -574,159 +585,161 @@ export function ListTable<Row>({
         </>
       }
     >
-      <div
-        className={`lt-scroll${shifted ? " shifted" : ""}`}
-        ref={scroller}
-        onScroll={(event) => {
-          const next = event.currentTarget.scrollLeft > 0;
-          if (next !== shifted) {
-            setShifted(next);
-          }
-        }}
-      >
-        {/* One element for the frozen edge's shadow. It cannot hang off the
+      {body ?? (
+        <div
+          className={`lt-scroll${shifted ? " shifted" : ""}`}
+          ref={scroller}
+          onScroll={(event) => {
+            const next = event.currentTarget.scrollLeft > 0;
+            if (next !== shifted) {
+              setShifted(next);
+            }
+          }}
+        >
+          {/* One element for the frozen edge's shadow. It cannot hang off the
             cells: a shadow per cell starts and stops at each cell's own box, so
             the column ends up wearing a shadow per row with a seam at every
             divider. This sticks to the left of the scrolling body and spans its
             visible height, which is all that is ever seen of it. */}
-        <div className="lt-freeze" aria-hidden="true" />
-        <table
-          ref={head}
-          className={`lt-table${dense ? " dense" : ""}`}
-          role="table"
-          // Handed over as a custom property rather than as `min-width`
-          // itself: an inline width cannot be overridden by a stylesheet, and
-          // the phone layout has to drop this floor to lay the rows out as
-          // cards that fit the screen.
-          style={{ "--lt-floor": `${floor}px` } as CSSProperties}
-        >
-          {/* The widths live here rather than on the header cells: under fixed
+          <div className="lt-freeze" aria-hidden="true" />
+          <table
+            ref={head}
+            className={`lt-table${dense ? " dense" : ""}`}
+            role="table"
+            // Handed over as a custom property rather than as `min-width`
+            // itself: an inline width cannot be overridden by a stylesheet, and
+            // the phone layout has to drop this floor to lay the rows out as
+            // cards that fit the screen.
+            style={{ "--lt-floor": `${floor}px` } as CSSProperties}
+          >
+            {/* The widths live here rather than on the header cells: under fixed
               layout a col wins over the cell below it, so one place decides
               and a resized column cannot be quietly overruled. */}
-          <colgroup>
-            {shown.map((column) => (
-              <col key={column.key} style={{ width: widthOf(column) }} />
-            ))}
-            <col style={{ width: slack }} />
-          </colgroup>
-          <thead role="rowgroup">
-            <tr role="row">
+            <colgroup>
               {shown.map((column) => (
-                <HeaderCell
-                  key={column.key}
-                  column={column}
-                  sort={sort}
-                  state={sort ? sortState(column, sort.value) : null}
-                  className={cellClass(column)}
-                  // Dragging an edge moves that edge. The other columns are
-                  // pinned at what they currently measure first, so they stay
-                  // where they are and the table itself grows or shrinks —
-                  // rather than every column re-dividing the row because one
-                  // of them changed.
-                  onResizeStart={() =>
-                    applyWidths({ ...measured(), ...live.current })
-                  }
-                  onResize={(key, width) =>
-                    applyWidths({ ...live.current, [key]: width })
-                  }
-                  onResizeEnd={() => writeWidths(widthsKey, live.current)}
-                />
+                <col key={column.key} style={{ width: widthOf(column) }} />
               ))}
-              <td className="lt-slack" aria-hidden="true" />
-            </tr>
-          </thead>
-          <tbody role="rowgroup">
-            {pending &&
-              PLACEHOLDER_ROWS.map((placeholder) => (
-                <tr key={placeholder} className="lt-loading" role="row">
-                  {shown.map((column) => (
-                    <td key={column.key} role="cell">
-                      <span className="lt-bone" />
-                    </td>
-                  ))}
-                  <td className="lt-slack" aria-hidden="true" />
-                </tr>
-              ))}
-            {!pending &&
-              pageRows.map((row) => (
-                <tr
-                  key={rowKey(row)}
-                  role="row"
-                  className={onRowClick ? "lt-rowlink" : undefined}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                >
-                  {shown.map((column) => (
-                    <td
-                      key={column.key}
-                      role="cell"
-                      className={cellClass(column)}
-                      // On a phone the rows become cards and the header row is
-                      // gone, so each value carries its own label. The identity
-                      // cell is the card's heading and needs none.
-                      data-label={column.fixed ? undefined : column.header}
-                    >
-                      {column.fixed && rowHref ? (
-                        // The identity cell is a real link, so the row can be
-                        // opened the ways a link can: a new tab, a new window,
-                        // a bookmark, or the keyboard. Only the default click
-                        // is stopped from reaching the row's own handler —
-                        // preventing the anchor instead would navigate the
-                        // current page while the new tab opens too.
-                        <a
-                          className="lt-cellink"
-                          href={rowHref(row)}
-                          onClick={(event) => event.stopPropagation()}
-                        >
-                          {column.cell(row)}
-                        </a>
-                      ) : (
-                        column.cell(row)
-                      )}
-                    </td>
-                  ))}
-                  <td className="lt-slack" aria-hidden="true" />
-                </tr>
-              ))}
-            {!pending && problem && (
-              <tr className="lt-empty" role="row">
-                <td colSpan={shown.length + 1} role="cell">
-                  {problem}
-                </td>
+              <col style={{ width: slack }} />
+            </colgroup>
+            <thead role="rowgroup">
+              <tr role="row">
+                {shown.map((column) => (
+                  <HeaderCell
+                    key={column.key}
+                    column={column}
+                    sort={sort}
+                    state={sort ? sortState(column, sort.value) : null}
+                    className={cellClass(column)}
+                    // Dragging an edge moves that edge. The other columns are
+                    // pinned at what they currently measure first, so they stay
+                    // where they are and the table itself grows or shrinks —
+                    // rather than every column re-dividing the row because one
+                    // of them changed.
+                    onResizeStart={() =>
+                      applyWidths({ ...measured(), ...live.current })
+                    }
+                    onResize={(key, width) =>
+                      applyWidths({ ...live.current, [key]: width })
+                    }
+                    onResizeEnd={() => writeWidths(widthsKey, live.current)}
+                  />
+                ))}
+                <td className="lt-slack" aria-hidden="true" />
               </tr>
-            )}
-            {!pending && !problem && rows.length === 0 && (
-              <tr className="lt-empty" role="row">
-                <td colSpan={shown.length + 1} role="cell">
-                  {filtered ? (
-                    <>
-                      {t("table.noMatches", { unit })}{" "}
-                      <button
-                        type="button"
-                        className="lt-linkish"
-                        onClick={clearAll}
+            </thead>
+            <tbody role="rowgroup">
+              {pending &&
+                PLACEHOLDER_ROWS.map((placeholder) => (
+                  <tr key={placeholder} className="lt-loading" role="row">
+                    {shown.map((column) => (
+                      <td key={column.key} role="cell">
+                        <span className="lt-bone" />
+                      </td>
+                    ))}
+                    <td className="lt-slack" aria-hidden="true" />
+                  </tr>
+                ))}
+              {!pending &&
+                pageRows.map((row) => (
+                  <tr
+                    key={rowKey(row)}
+                    role="row"
+                    className={onRowClick ? "lt-rowlink" : undefined}
+                    onClick={onRowClick ? () => onRowClick(row) : undefined}
+                  >
+                    {shown.map((column) => (
+                      <td
+                        key={column.key}
+                        role="cell"
+                        className={cellClass(column)}
+                        // On a phone the rows become cards and the header row is
+                        // gone, so each value carries its own label. The identity
+                        // cell is the card's heading and needs none.
+                        data-label={column.fixed ? undefined : column.header}
                       >
-                        {t("table.clearFilters")}
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      {t("table.none", { unit })}
-                      {emptyNote && (
-                        <p
-                          className="t-caption"
-                          style={{ marginTop: "var(--space-2)" }}
+                        {column.fixed && rowHref ? (
+                          // The identity cell is a real link, so the row can be
+                          // opened the ways a link can: a new tab, a new window,
+                          // a bookmark, or the keyboard. Only the default click
+                          // is stopped from reaching the row's own handler —
+                          // preventing the anchor instead would navigate the
+                          // current page while the new tab opens too.
+                          <a
+                            className="lt-cellink"
+                            href={rowHref(row)}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {column.cell(row)}
+                          </a>
+                        ) : (
+                          column.cell(row)
+                        )}
+                      </td>
+                    ))}
+                    <td className="lt-slack" aria-hidden="true" />
+                  </tr>
+                ))}
+              {!pending && problem && (
+                <tr className="lt-empty" role="row">
+                  <td colSpan={shown.length + 1} role="cell">
+                    {problem}
+                  </td>
+                </tr>
+              )}
+              {!pending && !problem && rows.length === 0 && (
+                <tr className="lt-empty" role="row">
+                  <td colSpan={shown.length + 1} role="cell">
+                    {filtered ? (
+                      <>
+                        {t("table.noMatches", { unit })}{" "}
+                        <button
+                          type="button"
+                          className="lt-linkish"
+                          onClick={clearAll}
                         >
-                          {emptyNote}
-                        </p>
-                      )}
-                    </>
-                  )}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                          {t("table.clearFilters")}
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        {t("table.none", { unit })}
+                        {emptyNote && (
+                          <p
+                            className="t-caption"
+                            style={{ marginTop: "var(--space-2)" }}
+                          >
+                            {emptyNote}
+                          </p>
+                        )}
+                      </>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </ListSurface>
   );
 }
