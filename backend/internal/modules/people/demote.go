@@ -172,19 +172,15 @@ func ensureNoLiveDeal(ctx context.Context, tx pgx.Tx, personID ids.PersonID) err
 // Both unwinds write the person (the lineage pointer at least), so the
 // person's grant and row scope are checked and the row locked BEFORE anything
 // is read about it: the deal probe must not tell a caller who cannot see the
-// person whether it sits on a live deal. Archiving the created person needs
-// no separate archive grant: the promotion that minted it ran under
-// lead.update + person.create, and its reversal is that same authority
-// exercised backwards — a rep who may promote must be able to undo the
-// promotion (ADR-0008 §4), and the default rep role holds no person.delete.
+// person whether it sits on a live deal. The created-person branch
+// additionally needs the archive grant.
 //
-// The archive branch has two more guards than the audit outcome: the person
-// must still be ONLY what the promotion minted, and nothing else may depend
-// on it. A person merge repoints lead.promoted_person_id to its survivor, and
-// a survivor holds other people's history; a later lead promoted INTO this
-// person points its own contact surface at it. Archiving in either case would
-// destroy or strand records the promotion never created, so both unwind
-// lineage-only, whatever the promotion originally did.
+// The archive branch has one more guard than the audit outcome: the person
+// must still be ONLY what the promotion minted. A person merge repoints
+// lead.promoted_person_id to its survivor, and a survivor holds other
+// people's history — archiving it would destroy records the promotion never
+// created. A person that has absorbed a merge therefore unwinds lineage-only,
+// whatever the promotion originally did.
 func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID ids.PersonID, outcome promotionOutcome) (crmcontracts.DemoteLeadResponseUnwind, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return "", err
@@ -199,11 +195,11 @@ func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID id
 		return "", err
 	}
 	if outcome == outcomeCreated {
-		shared, err := isSharedByOthers(ctx, tx, leadID, personID)
+		survivor, err := isMergeSurvivor(ctx, tx, personID)
 		if err != nil {
 			return "", err
 		}
-		if shared {
+		if survivor {
 			outcome = outcomeMerged
 		}
 	}
@@ -215,6 +211,9 @@ func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID id
 		}
 		return crmcontracts.DemoteUnwindMergeLineageOnly, nil
 	}
+	if err := auth.Require(ctx, "person", principal.ActionDelete); err != nil {
+		return "", err
+	}
 	if err := archivePersonRows(ctx, tx, personID, time.Now().UTC()); err != nil {
 		return "", fmt.Errorf("archive promoted person: %w", err)
 	}
@@ -225,16 +224,13 @@ func unwindPerson(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID id
 	return crmcontracts.DemoteUnwindReversed, nil
 }
 
-// isSharedByOthers answers whether records beyond this promotion depend on
-// the person: another person row merged into it, or another lead promoted
-// into it.
-func isSharedByOthers(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, personID ids.PersonID) (bool, error) {
-	var shared bool
-	if err := tx.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM person WHERE merged_into_id = $1)
-		    OR EXISTS (SELECT 1 FROM lead WHERE promoted_person_id = $1 AND id <> $2)`,
-		personID, leadID).Scan(&shared); err != nil {
-		return false, fmt.Errorf("check dependants of the promoted person: %w", err)
+// isMergeSurvivor answers whether any person row was merged into this one.
+func isMergeSurvivor(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (bool, error) {
+	var survivor bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM person WHERE merged_into_id = $1)`, personID,
+	).Scan(&survivor); err != nil {
+		return false, fmt.Errorf("check merge lineage: %w", err)
 	}
-	return shared, nil
+	return survivor, nil
 }

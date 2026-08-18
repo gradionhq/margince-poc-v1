@@ -137,9 +137,10 @@ func TestOrganizationCounts_UngatedRoleSeesContactsButNoDealCount(t *testing.T) 
 	}
 }
 
-// A count is a read. An own-scope rep looking at a shared account sees the
-// contacts and deals THEY may see, not the workspace's: a number that moved
-// when a colleague captured a private contact would disclose that contact.
+// The contact count is a read under the caller's person row scope: a number
+// that moved when a colleague captured a private contact would disclose that
+// contact. The deal count is the account's whole open pipeline, as the
+// company page's tile sums it (PO-EXT-10, founder decision 2026-08-18).
 func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 	e := Setup(t)
 	// The account is unowned, so it is visible at every scope tier.
@@ -186,14 +187,14 @@ func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCounts(t, "own-scope rep sees only their own", own, 1, 1)
+	assertCounts(t, "own-scope rep: own contacts, whole pipeline", own, 1, 2)
 	page, _, err := e.People.ListOrganizations(rep, people.ListOrganizationsInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, o := range page {
 		if ids.UUID(o.Id) == acme {
-			assertCounts(t, "own-scope rep on the list", o, 1, 1)
+			assertCounts(t, "own-scope rep on the list", o, 1, 2)
 			return
 		}
 	}

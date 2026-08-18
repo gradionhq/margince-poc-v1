@@ -322,10 +322,15 @@ func (s *Store) GetLead(ctx context.Context, id ids.LeadID, archived storekit.Ar
 }
 
 type ListLeadsInput struct {
-	Cursor          *string
-	Limit           *int
-	Status          *string
+	Cursor *string
+	Limit  *int
+	Status *string
+	// OwnerID, OwnerTeamID and Unassigned are the ONE ownership dial every
+	// owner-scoped list carries (DM-VOCAB-OWN-1), bound through the shared
+	// listFilters.ownershipClause exactly as person and organization bind it.
 	OwnerID         *ids.UserID
+	OwnerTeamID     *ids.TeamID
+	Unassigned      *bool
 	Query           *string
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).

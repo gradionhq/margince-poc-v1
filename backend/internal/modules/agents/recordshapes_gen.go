@@ -73,8 +73,10 @@ var listRecordFilters = map[string][]listFilter{
 	"lead": {
 		{Name: "min_score", Type: "integer"},
 		{Name: "owner_id", Type: "string"},
+		{Name: "owner_team_id", Type: "string"},
 		{Name: "source", Type: "string"},
 		{Name: "status", Type: "string", Enum: []string{"new", "working", "promoted", "disqualified"}},
+		{Name: "unassigned", Type: "boolean"},
 	},
 	"project": {
 		{Name: "key", Type: "string"},
