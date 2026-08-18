@@ -1,37 +1,73 @@
 import { describe, expect, it } from "vitest";
 import { comparableRelease, releaseSkew } from "./release";
 
-// The whole decision the release gate makes, and it has to hold two things at
-// once that pull in opposite directions: a genuinely mixed set must be caught,
-// and an installation whose release simply is not known must never be blanked
-// out by a guard that mistook absence for disagreement.
+// A typed table rather than it.each's positional tuples. The tuple form needed a
+// cast at the call site to pass `undefined` for a `string | undefined` parameter,
+// and a cast in a test is the same defect it is anywhere else: it silences the one
+// check that would notice the table and the function disagreeing about a type.
+const SKEW_CASES: ReadonlyArray<{
+  name: string;
+  mine: string | undefined;
+  theirs: string | undefined;
+  skew: boolean;
+}> = [
+  {
+    name: "a matched set renders",
+    mine: "1970.42",
+    theirs: "1970.42",
+    skew: false,
+  },
+  {
+    name: "a torn set does not",
+    mine: "1970.41",
+    theirs: "1970.42",
+    skew: true,
+  },
+  {
+    name: "a torn set does not, whichever side is newer",
+    mine: "1970.43",
+    theirs: "1970.42",
+    skew: true,
+  },
+  {
+    name: "an unstamped bundle never blocks",
+    mine: "dev",
+    theirs: "1970.42",
+    skew: false,
+  },
+  { name: "nor does a local build", mine: "", theirs: "1970.42", skew: false },
+  {
+    name: "an api reporting no release is not a mismatch",
+    mine: "1970.42",
+    theirs: undefined,
+    skew: false,
+  },
+  {
+    name: "nor is one that reports the dev sentinel",
+    mine: "1970.42",
+    theirs: "dev",
+    skew: false,
+  },
+  {
+    name: "two unknowns are not a mismatch either",
+    mine: "dev",
+    theirs: "dev",
+    skew: false,
+  },
+];
+
+// The whole decision the release gate makes. Two things have to hold at once and
+// they pull in opposite directions: a genuinely mixed set must be caught, and an
+// installation whose release simply is not known must never be blanked out by a
+// guard that mistook absence for disagreement.
 //
 // This table mirrors the Go one in internal/compose/releaseversion_test.go on
 // purpose. The two tiers decide the same question in two languages, and the day
 // they answer it differently is the day the api refuses to run beside a worker
 // while the SPA happily renders against both.
 describe("releaseSkew", () => {
-  it.each([
-    ["a matched set renders", "1970.42", "1970.42", false],
-    ["a torn set does not", "1970.41", "1970.42", true],
-    [
-      "a torn set does not, whichever side is newer",
-      "1970.43",
-      "1970.42",
-      true,
-    ],
-    ["an unstamped bundle never blocks", "dev", "1970.42", false],
-    ["nor does a local build", "", "1970.42", false],
-    [
-      "an api reporting no release is not a mismatch",
-      "1970.42",
-      undefined,
-      false,
-    ],
-    ["nor is one that reports the dev sentinel", "1970.42", "dev", false],
-    ["two unknowns are not a mismatch either", "dev", "dev", false],
-  ])("%s", (_name, mine, theirs, want) => {
-    expect(releaseSkew(mine, theirs as string | undefined)).toBe(want);
+  it.each(SKEW_CASES)("$name", ({ mine, theirs, skew }) => {
+    expect(releaseSkew(mine, theirs)).toBe(skew);
   });
 });
 

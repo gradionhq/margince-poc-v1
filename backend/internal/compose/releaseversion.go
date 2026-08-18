@@ -80,6 +80,20 @@ const releaseLedgerFact = "release-version"
 
 // lastObservedReleaseQuery reads the release the api recorded most recently.
 //
+// THE WORKSPACE PREDICATE IS THE SCOPE, not a formality. Row-level security used
+// to supply it: every workspace_id table carried the same tenant-isolation policy
+// and an unscoped statement returned zero rows. Migration 0217 retired that, and
+// says plainly what it cost — a statement that forgets its scope now returns
+// another tenant's rows and no test fails by construction. So the predicate the
+// policy used to apply is written here, in the spelling storekit already uses,
+// and it is deny-on-unset for the same reason: an unbound GUC makes it NULL,
+// which matches nothing.
+//
+// The reachable case is not two live organizations, which the installation
+// resolver refuses outright. It is an ARCHIVED workspace: the resolver skips it,
+// its rows stay, and a newer release row of its own would otherwise decide what
+// release this installation is running.
+//
 // occurred_at leads the ordering, with id as the deterministic tiebreak, for the
 // reason extensioninventory spells out: uuidv7 ids are monotonic only within one
 // process, and concurrently booting replicas mint theirs independently. COALESCE
@@ -87,7 +101,9 @@ const releaseLedgerFact = "release-version"
 // record at all" produces, since both mean there is nothing to compare.
 const lastObservedReleaseQuery = `
 	SELECT COALESCE(detail->>'release_version', '')
-	  FROM system_log WHERE action = $1
+	  FROM system_log
+	 WHERE action = $1
+	   AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	 ORDER BY occurred_at DESC, id DESC LIMIT 1`
 
 // RecordInstallationRelease records the release this api was built from as the

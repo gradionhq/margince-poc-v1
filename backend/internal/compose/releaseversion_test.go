@@ -6,6 +6,8 @@ package compose
 import (
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/buildinfo"
 )
 
 // TestRefuseMixedReleaseOnlyRefusesAKnownDifference pins the whole decision the
@@ -23,11 +25,11 @@ func TestRefuseMixedReleaseOnlyRefusesAKnownDifference(t *testing.T) {
 		{"a matched set starts", "1970.42", "1970.42", false},
 		{"a torn set does not", "1970.41", "1970.42", true},
 		{"a torn set does not, whichever side is newer", "1970.43", "1970.42", true},
-		{"an unstamped role never refuses", "dev", "1970.42", false},
+		{"an unstamped role never refuses", buildinfo.Unknown, "1970.42", false},
 		{"nor does a role built by a bare go build", "", "1970.42", false},
 		{"an installation with no recorded release is not a mismatch", "1970.42", "", false},
-		{"nor is one recorded by an unstamped api", "1970.42", "dev", false},
-		{"two unknowns are not a mismatch either", "dev", "dev", false},
+		{"nor is one recorded by an unstamped api", "1970.42", buildinfo.Unknown, false},
+		{"two unknowns are not a mismatch either", buildinfo.Unknown, buildinfo.Unknown, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := refuseMixedRelease(tc.mine, tc.installation)

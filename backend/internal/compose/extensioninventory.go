@@ -110,8 +110,15 @@ func lastObservedExtensions(ctx context.Context, tx pgx.Tx) ([]observedExtension
 	// within one process, and api + worker mint theirs independently —
 	// same-millisecond rows could sort against observation order on id
 	// alone. id stays as the deterministic tiebreak.
+	// Scoped to this installation's workspace, in the spelling storekit uses.
+	// Row-level security used to supply this predicate; 0217 retired it, and an
+	// archived workspace's rows outlive the resolver that skips it — so a newer
+	// observation of its own would otherwise read as this installation's.
 	err := tx.QueryRow(ctx,
-		`SELECT detail->'extensions' FROM system_log WHERE action = $1 ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+		`SELECT detail->'extensions' FROM system_log
+		  WHERE action = $1
+		    AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		  ORDER BY occurred_at DESC, id DESC LIMIT 1`,
 		extensionCompositionObserved).Scan(&detail)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
