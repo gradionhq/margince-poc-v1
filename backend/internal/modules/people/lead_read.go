@@ -28,7 +28,7 @@ const liveOnlyClause = ` AND archived_at IS NULL`
 // from activity_link rather than storing them on the lead: the last touch,
 // and how many tasks are still open against it. Every lead read is FROM the
 // unaliased table, which is what lets them name lead.id.
-const leadColumns = `id, workspace_id, full_name, email, title, company_name, candidate_org_key,
+const leadColumns = `id, full_name, email, title, company_name, candidate_org_key,
 	linkedin_url, status, score, score_override_reason, score_computed, owner_id, project_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at,
 	routed_at, first_response_at,
@@ -78,7 +78,7 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.A
 // __cursor_key there, exactly as scanPerson does.
 func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Lead, error) {
 	var l crmcontracts.Lead
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var ownerID, projectID, promotedPerson *ids.UUID
 	var email *string
 	var status string
@@ -86,7 +86,7 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	var openTasks int
 
 	dests := []any{
-		&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
+		&id, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &projectID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
 		&l.RoutedAt, &l.FirstResponseAt, &l.LastActivityAt, &openTasks,

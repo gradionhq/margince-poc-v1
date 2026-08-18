@@ -101,7 +101,7 @@ func seedOfflineDemoAccount(t *testing.T, e *integration.Env, owner ids.UUID, sl
 	var orgID ids.UUID
 	err := e.Pool.QueryRow(ctx, `
 		INSERT INTO organization (display_name, lifecycle, owner_id, source, captured_by)
-		VALUES ( $2, 'customer', $1, 'test', 'human:test')
+		VALUES ($2, 'customer', $1, 'test', 'human:test')
 		RETURNING id`, owner, slug+" GmbH").Scan(&orgID)
 	if err != nil {
 		t.Fatalf("seeding an organization: %v", err)
@@ -109,19 +109,18 @@ func seedOfflineDemoAccount(t *testing.T, e *integration.Env, owner ids.UUID, sl
 	var personID ids.UUID
 	err = e.Pool.QueryRow(ctx, `
 		INSERT INTO person (full_name, source, captured_by)
-		VALUES ( $1, 'test', 'human:test') RETURNING id`, "Petra "+slug).Scan(&personID)
+		VALUES ($1, 'test', 'human:test') RETURNING id`, "Petra "+slug).Scan(&personID)
 	if err != nil {
 		t.Fatalf("seeding a person: %v", err)
 	}
 	if _, err := e.Pool.Exec(ctx, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, $2, true, 'test', 'human:test')`, personID, "petra@"+slug+".example"); err != nil {
+		VALUES ($1, $2, true, 'test', 'human:test')`, personID, "petra@"+slug+".example"); err != nil {
 		t.Fatalf("seeding an address: %v", err)
 	}
 	if _, err := e.Pool.Exec(ctx, `
-		INSERT INTO relationship (workspace_id, kind, person_id, organization_id, role, source, captured_by)
-		VALUES ($1, 'employment', $2, $3, 'Head of IT', 'test', 'human:test')`,
-		e.WS, personID, orgID); err != nil {
+		INSERT INTO relationship (kind, person_id, organization_id, role, source, captured_by)
+		VALUES ('employment', $1, $2, 'Head of IT', 'test', 'human:test')`, personID, orgID); err != nil {
 		t.Fatalf("seeding an employment: %v", err)
 	}
 	return orgID

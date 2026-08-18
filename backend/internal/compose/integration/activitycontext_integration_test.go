@@ -214,8 +214,8 @@ func TestAMeetingWithOnlyAttendeesPrepsAgainstTheOrganizer(t *testing.T) {
 func TestAMeetingLinkedOnlyToALeadPrepsAgainstTheLead(t *testing.T) {
 	e := SetupSearch(t)
 	seedMeetingFixture(t, e)
-	lead := e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Clara Vogt', 'manual', 'human:x')`, e.Rep1)
+	lead := e.SeedID(t, `INSERT INTO lead (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Clara Vogt', 'manual', 'human:x')`, e.Rep1)
 	meeting := seedMeeting(t, e, "Discovery call")
 	linkMeeting(t, e, meeting, "lead", "lead_id", lead)
 

@@ -280,7 +280,7 @@ func TestLastActivity_TheAccountClockSeeksInsteadOfScanningTheTimeline(t *testin
 	}); err != nil {
 		t.Fatal(err)
 	}
-	seedTimelineVolume(ctx, t, owner, e.WS, 5000)
+	seedTimelineVolume(ctx, t, owner, 5000)
 
 	const calls = 20
 	before := sequentialScansOf(ctx, t, owner, "activity_link")
@@ -307,11 +307,11 @@ func TestLastActivity_TheAccountClockSeeksInsteadOfScanningTheTimeline(t *testin
 // organization, so the maintenance trigger still fires on every row and finds
 // nothing to move — real rows through the real write path, with none of the
 // recompute cost that would make seeding the volume the slow part of the test.
-func seedTimelineVolume(ctx context.Context, t *testing.T, owner *pgx.Conn, ws ids.UUID, rows int) {
+func seedTimelineVolume(ctx context.Context, t *testing.T, owner *pgx.Conn, rows int) {
 	t.Helper()
 	var lead ids.UUID
-	if err := owner.QueryRow(ctx, `INSERT INTO lead (workspace_id, full_name, source, captured_by)
-		VALUES ($1, 'Timeline Volume', 'manual', 'human:x') RETURNING id`, ws).Scan(&lead); err != nil {
+	if err := owner.QueryRow(ctx, `INSERT INTO lead (full_name, source, captured_by)
+		VALUES ('Timeline Volume', 'manual', 'human:x') RETURNING id`).Scan(&lead); err != nil {
 		t.Fatalf("seeding the volume lead: %v", err)
 	}
 	if _, err := owner.Exec(ctx, `WITH act AS (

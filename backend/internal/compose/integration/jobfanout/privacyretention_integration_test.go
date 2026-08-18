@@ -49,9 +49,9 @@ func seedRetentionPolicy(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 // seedOverageLead gives one tenant a lead old enough for the policy to reach.
 func seedOverageLead(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
 	t.Helper()
-	return integration.SeedRow(t, owner, `
-		INSERT INTO lead (id, workspace_id, full_name, status, source, captured_by, created_at)
-		VALUES ($1, $2, 'Over-age Lead', 'new', 'manual', 'human:x', now() - interval '400 days')`, ws)
+	return integration.SeedIDRow(t, owner, `
+		INSERT INTO lead (id, full_name, status, source, captured_by, created_at)
+		VALUES ($1, 'Over-age Lead', 'new', 'manual', 'human:x', now() - interval '400 days')`)
 }
 
 // failLeadWrites makes every lead write raise.

@@ -325,7 +325,7 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, '`+nameOrg+`', 'manual', 'human:x')`)
 	// A lead with every text-bearing column NULL: concat_ws collapses to
 	// '', so it must NOT count as pending — the non-empty qualifier.
-	e.Seed(t, `INSERT INTO lead (id, workspace_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO lead (id, source, captured_by) VALUES ($1, 'manual', 'human:x')`)
 	// Already covered at the current identity: must not count as pending.
 	coveredID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Already Covered', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
@@ -369,17 +369,21 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 		t.Fatalf("counts[ws2] = %d, want %d (the same installation-wide rows)", counts[ws2Key], wantPerWorkspace)
 	}
 
+	// EntitiesPending is the installation's backlog, NOT the sum of the rollup.
+	// Every pending row is installation-wide, so each workspace's entry is the
+	// same set of rows; summing would report an installation with two of them as
+	// having twice the work, and that figure prices the re-embed. Asserting the
+	// sum here rather than only the total is the point — it is the arithmetic
+	// that must NOT hold.
 	sum := 0
 	for _, c := range counts {
 		sum += c
 	}
-	if sum != total {
-		t.Fatalf("sum of PendingByWorkspace = %d, EntitiesPending = %d — must agree", sum, total)
+	if total != wantPerWorkspace {
+		t.Fatalf("EntitiesPending = %d, want %d (the installation's backlog, counted once)", total, wantPerWorkspace)
 	}
-	// Every pending row is installation-wide, so each is counted once per
-	// enumerated workspace and EntitiesPending is the sum of that rollup.
-	if total != 2*wantPerWorkspace {
-		t.Fatalf("EntitiesPending = %d, want %d", total, 2*wantPerWorkspace)
+	if sum == total {
+		t.Fatalf("sum of PendingByWorkspace = EntitiesPending = %d across %d workspaces — the total is summing a rollup whose entries are the same rows", total, len(counts))
 	}
 
 	// The same text is in both sums, for the same reason the same rows are in

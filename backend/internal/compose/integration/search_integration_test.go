@@ -56,7 +56,7 @@ func TestSearchRanksAcrossObjectTypes(t *testing.T) {
 	e := SetupSearch(t)
 	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Heike Hamburg', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Hamburg Logistics GmbH', 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO lead (id, workspace_id, company_name, email, source, captured_by) VALUES ($1, $2, 'Hamburg Freight', 'lead@hamburg.test', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO lead (id, company_name, email, source, captured_by) VALUES ($1, 'Hamburg Freight', 'lead@hamburg.test', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO activity (id, kind, subject, body, source, captured_by) VALUES ($1, 'note', 'Hamburg visit', 'Met the Hamburg team at the Hamburg office in Hamburg', 'manual', 'human:x')`)
 	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Unrelated Munich', 'manual', 'human:x')`)
 

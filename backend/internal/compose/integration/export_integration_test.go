@@ -86,17 +86,17 @@ func (e *SearchEnv) seedExportFixture(t *testing.T) exportFixture {
 		VALUES ($1, $2, 'Rep1 Deal', $3, $4, $5, 100000, 'EUR', 'manual', 'human:x')`, e.Rep1, pipelineID, stageID, f.rep1Org)
 	f.rep3Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
 		VALUES ($1, $2, 'Rep3 Deal', $3, $4, $5, 200000, 'EUR', 'manual', 'human:x')`, e.Rep3, pipelineID, stageID, f.rep3Org)
-	f.rep1Lead = e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep1 Lead', 'manual', 'human:x')`, e.Rep1)
-	f.rep3Lead = e.Seed(t, `INSERT INTO lead (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Rep3 Lead', 'manual', 'human:x')`, e.Rep3)
+	f.rep1Lead = e.SeedID(t, `INSERT INTO lead (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Rep1 Lead', 'manual', 'human:x')`, e.Rep1)
+	f.rep3Lead = e.SeedID(t, `INSERT INTO lead (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Rep3 Lead', 'manual', 'human:x')`, e.Rep3)
 
 	// Employment edges: each connects a rep's person to that rep's org, so
 	// the whole edge is visible only to that rep (both endpoints owned).
-	e.Seed(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`, f.rep1Person, f.rep1Org)
-	e.Seed(t, `INSERT INTO relationship (id, workspace_id, kind, person_id, organization_id, source, captured_by)
-		VALUES ($1, $2, 'employment', $3, $4, 'manual', 'human:x')`, f.rep3Person, f.rep3Org)
+	e.SeedID(t, `INSERT INTO relationship (id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, f.rep1Person, f.rep1Org)
+	e.SeedID(t, `INSERT INTO relationship (id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, f.rep3Person, f.rep3Org)
 
 	// Activities scope through their links.
 	f.rep1Activity = e.SeedID(t, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)

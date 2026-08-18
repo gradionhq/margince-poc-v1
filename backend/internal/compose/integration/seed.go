@@ -61,8 +61,8 @@ func SeedStakeholder(t *testing.T, e *Env, owner *pgx.Conn, deal ids.UUID, direc
 	person := SeedIDRow(t, owner, `INSERT INTO person (id, full_name, source, captured_by)
 		VALUES ($1, 'Stakeholder', 'manual', 'human:x')`)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO relationship (workspace_id, kind, person_id, deal_id, source, captured_by)
-		 VALUES ($1, 'deal_stakeholder', $2, $3, 'manual', 'human:x')`, e.WS, person, deal); err != nil {
+		`INSERT INTO relationship (kind, person_id, deal_id, source, captured_by)
+		 VALUES ('deal_stakeholder', $1, $2, 'manual', 'human:x')`, person, deal); err != nil {
 		t.Fatal(err)
 	}
 	for _, direction := range directions {

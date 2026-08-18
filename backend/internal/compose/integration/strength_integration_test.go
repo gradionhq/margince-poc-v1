@@ -30,8 +30,7 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 	person := SeedIDRow(t, owner, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Warm Contact', 'manual', 'human:x')`)
 	org := SeedIDRow(t, owner, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Warm GmbH', 'manual', 'human:x')`)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by) VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`,
-		e.WS, person, org); err != nil {
+		`INSERT INTO relationship (kind, person_id, organization_id, source, captured_by) VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org); err != nil {
 		t.Fatal(err)
 	}
 
@@ -49,17 +48,17 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 			occurred.Format(time.RFC3339), direction,
 		))
 		if _, err := owner.Exec(context.Background(),
-			`INSERT INTO activity_link (activity_id, entity_type, person_id) VALUES ( $1, 'person', $2)`,
+			`INSERT INTO activity_link (activity_id, entity_type, person_id) VALUES ($1, 'person', $2)`,
 			activity, person); err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	// A lead with its own linked activity: never an input (ADR-0008).
-	lead := SeedRow(t, owner, `INSERT INTO lead (id, workspace_id, full_name, email, source, captured_by) VALUES ($1, $2, 'Cold Lead', 'cold@lead.test', 'import', 'human:x')`, e.WS)
+	lead := SeedIDRow(t, owner, `INSERT INTO lead (id, full_name, email, source, captured_by) VALUES ($1, 'Cold Lead', 'cold@lead.test', 'import', 'human:x')`)
 	leadTouch := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, direction, source, captured_by) VALUES ($1, 'email', 'lead touch', now(), 'inbound', 'manual', 'human:x')`)
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO activity_link (activity_id, entity_type, lead_id) VALUES ( $1, 'lead', $2)`,
+		`INSERT INTO activity_link (activity_id, entity_type, lead_id) VALUES ($1, 'lead', $2)`,
 		leadTouch, lead); err != nil {
 		t.Fatal(err)
 	}

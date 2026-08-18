@@ -125,21 +125,10 @@ func setupForecast(t *testing.T) *forecastEnv {
 	return e
 }
 
-// seed writes rows through the owner connection: these suites test READ
-// semantics; the write shape has its own suites.
-func (e *forecastEnv) seed(t *testing.T, sql string, args ...any) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := e.owner.Exec(context.Background(), sql, append([]any{id, e.WS}, args...)...); err != nil {
-		t.Fatalf("seeding: %v", err)
-	}
-	return id
-}
-
-// seedID is seed for a table that no longer has a workspace to bind — it mints
-// the id and nothing else. ADR-0091 §8 phase D removes the column table by
-// table, so this env seeds some of its fixtures one way and some the other
-// until the last one goes.
+// seedID writes rows through the owner connection, minting the id and nothing
+// else: these suites test READ semantics, and the write shape has its own
+// suites. No workspace is bound because none of the tables these fixtures reach
+// still carries one (ADR-0091 §8 phase D).
 func (e *forecastEnv) seedID(t *testing.T, sql string, args ...any) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
@@ -351,8 +340,8 @@ func TestForecastByOwnerCountsAMultiStakeholderDealOnce(t *testing.T) {
 	dealID := e.seedOpenDeal(t, "Two champions", 60, &e.Rep1, int64p(50000), stringp("commit"))
 	for _, role := range []string{"champion", "economic_buyer"} {
 		personID := e.seedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`, "Stakeholder "+role)
-		e.seed(t, `INSERT INTO relationship (id, workspace_id, kind, deal_id, person_id, role, source, captured_by)
-			VALUES ($1, $2, 'deal_stakeholder', $3, $4, $5, 'manual', 'human:x')`, dealID, personID, role)
+		e.seedID(t, `INSERT INTO relationship (id, kind, deal_id, person_id, role, source, captured_by)
+			VALUES ($1, 'deal_stakeholder', $2, $3, $4, 'manual', 'human:x')`, dealID, personID, role)
 	}
 
 	result := e.runReport(e.Admin(), t, "forecast", `{"group_by":["owner_id"]}`)

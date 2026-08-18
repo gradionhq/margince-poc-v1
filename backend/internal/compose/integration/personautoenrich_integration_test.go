@@ -67,10 +67,10 @@ func seedEmployedPerson(t *testing.T, e *Env, name string) (ids.PersonID, ids.Or
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO relationship (id, workspace_id, person_id, organization_id, kind,
+			INSERT INTO relationship (id, person_id, organization_id, kind,
 			                          is_current_primary, source, captured_by)
-			VALUES ($1, $2, $3, $4, 'employment', true, 'manual', 'user:seed')`,
-			ids.NewV7(), e.WS, personID, orgID)
+			VALUES ($1, $2, $3, 'employment', true, 'manual', 'user:seed')`,
+			ids.NewV7(), personID, orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the employed contact: %v", err)

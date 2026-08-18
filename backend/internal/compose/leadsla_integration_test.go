@@ -32,8 +32,8 @@ func TestLeadSLAEscalationLogsOneTaskOnTheLead(t *testing.T) {
 	owner := integration.OwnerConn(t)
 	lead := ids.NewV7()
 	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO lead (id, workspace_id, full_name, status, source, captured_by, owner_id)
-		 VALUES ($1, $2, 'Overdue Lead', 'new', 'inbound', 'human:x', $3)`, lead, e.WS, e.Rep1); err != nil {
+		`INSERT INTO lead (id, full_name, status, source, captured_by, owner_id)
+		 VALUES ($1, 'Overdue Lead', 'new', 'inbound', 'human:x', $2)`, lead, e.Rep1); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Date(2026, 8, 18, 9, 0, 0, 0, time.UTC)

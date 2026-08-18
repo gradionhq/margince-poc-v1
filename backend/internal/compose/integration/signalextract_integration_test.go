@@ -80,7 +80,7 @@ func seedUnlinkedMessage(t *testing.T, e *Env, key, subject, body, direction str
 func employeeOf(t *testing.T, e *Env, org ids.UUID, name string) ids.UUID {
 	t.Helper()
 	person := e.SeedPerson(t, name, &e.Rep1)
-	seedEmployment(t, OwnerConn(t), e.WS, person, org)
+	seedEmployment(t, OwnerConn(t), person, org)
 	return person
 }
 
@@ -264,8 +264,8 @@ func TestAThreadWithATwoEmployerContactIsNotFiledAgainstEither(t *testing.T) {
 	contoso := e.SeedOrg(t, "Contoso", &e.Rep1)
 	moonlighter := e.SeedPerson(t, "Mo Moonlighter", &e.Rep1)
 	owner := OwnerConn(t)
-	seedEmployment(t, owner, e.WS, moonlighter, acme)
-	seedEmployment(t, owner, e.WS, moonlighter, contoso)
+	seedEmployment(t, owner, moonlighter, acme)
+	seedEmployment(t, owner, moonlighter, contoso)
 	seedMessage(t, e, moonlighter, "thread-two-hats", "Renewal",
 		"We have decided not to renew.", "inbound", extractClock.Add(-48*time.Hour))
 
@@ -366,7 +366,7 @@ func TestAConversationIsOwedAFreshReadingWhenItsAccountChanges(t *testing.T) {
 	e.WsExec(t, `UPDATE relationship SET ended_at = $1
 		 WHERE person_id = $2 AND organization_id = $3 AND kind = 'employment'`,
 		extractClock.Add(-time.Hour), mover, acme)
-	seedEmployment(t, owner, e.WS, mover, contoso)
+	seedEmployment(t, owner, mover, contoso)
 
 	// Same thread, same messages, same count — a watermark that knew only the
 	// thread would call this read and never look at it again.

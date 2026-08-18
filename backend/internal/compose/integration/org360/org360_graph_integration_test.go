@@ -134,16 +134,16 @@ func seedOneHop(t *testing.T, e *integration.Env) oneHopFixture {
 		reseller: e.SeedOrg(t, "Reseller", &e.Rep1),
 	}
 	e.WsExec(t, `UPDATE organization SET parent_org_id = $2 WHERE id = $1`, f.org, f.parent)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
-		VALUES ($1, 'partner_of', $2, $3, 'manual', 'human:x')`, e.WS, f.org, f.reseller)
+	e.WsExec(t, `INSERT INTO relationship (kind, organization_id, counterparty_org_id, source, captured_by)
+		VALUES ('partner_of', $1, $2, 'manual', 'human:x')`, f.org, f.reseller)
 
 	f.employee = e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employ(t, e, f.employee, f.org, "cto")
 	f.deal = e.SeedDeal(t, "Renewal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, f.deal, f.org)
 	f.stakeholder = e.SeedPerson(t, "Outside Counsel", &e.Rep1)
-	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, deal_id, role, source, captured_by)
-		VALUES ($1, 'deal_stakeholder', $2, $3, 'champion', 'manual', 'human:x')`, e.WS, f.stakeholder, f.deal)
+	e.WsExec(t, `INSERT INTO relationship (kind, person_id, deal_id, role, source, captured_by)
+		VALUES ('deal_stakeholder', $1, $2, 'champion', 'manual', 'human:x')`, f.stakeholder, f.deal)
 
 	// Two hops out: the parent's OWN parent, and a company that employs our
 	// contact elsewhere.
@@ -258,16 +258,16 @@ func TestOrganizationGraphRelatedCapCountsCompaniesNotEdges(t *testing.T) {
 	greedy := e.SeedOrg(t, "AAA Greedy Partner", &e.Rep1)
 	for range 30 {
 		for _, kind := range []string{"partner_of", "referred_by", "co_sell_with"} {
-			e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
-				VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, e.WS, kind, org, greedy)
+			e.WsExec(t, `INSERT INTO relationship (kind, organization_id, counterparty_org_id, source, captured_by)
+				VALUES ($1, $2, $3, 'manual', 'human:x')`, kind, org, greedy)
 		}
 	}
 	// Plus twelve companies attached one plain way each — more than the display
 	// cap, so the drop count has something to report.
 	for i := range 12 {
 		partner := e.SeedOrg(t, fmt.Sprintf("Partner %02d", i), &e.Rep1)
-		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
-			VALUES ($1, 'partner_of', $2, $3, 'manual', 'human:x')`, e.WS, org, partner)
+		e.WsExec(t, `INSERT INTO relationship (kind, organization_id, counterparty_org_id, source, captured_by)
+			VALUES ('partner_of', $1, $2, 'manual', 'human:x')`, org, partner)
 	}
 
 	graph, err := svc.Graph(e.As(e.Rep1, nil, graphAdminPerms), ids.From[ids.OrganizationKind](org))
