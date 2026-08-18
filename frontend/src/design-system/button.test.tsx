@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Button } from "./atoms";
 
 // jsdom resolves no custom properties and computes no layout, so the geometry
@@ -130,6 +132,194 @@ describe("Button", () => {
       const button = screen.getByRole("button", { name: "Send" });
       expect(button.getAttribute("aria-describedby")).toBe("hint");
       expect(button.hasAttribute("disabled")).toBe(false);
+    });
+  });
+
+  // A write in flight and a write you are not allowed to make are opposite
+  // facts, and before `pending` existed the product spelled both as `disabled`:
+  // the same dimmed, barred control, and the same detached focus. What is held
+  // here is the difference — the reader keeps their place, the state is
+  // announced from where they are standing, and the second press does not land.
+  describe("the pending contract", () => {
+    it("refuses the press without taking the button out of the tab order", () => {
+      render(<Button pending>Save</Button>);
+      const button = screen.getByRole("button", { name: "Save" });
+      // Not `disabled`: that is what drops focus to <body> on the very click
+      // that started the write, leaving the announcement with nobody on it.
+      expect(button.hasAttribute("disabled")).toBe(false);
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(button).toHaveAttribute("aria-busy", "true");
+      button.focus();
+      expect(button).toHaveFocus();
+    });
+
+    it("keeps the label it had, so the accessible name does not move", () => {
+      const { rerender } = render(<Button>Save</Button>);
+      rerender(<Button pending>Save</Button>);
+      // Found by the SAME name while busy. A caller that swapped in "Saving…"
+      // would rename a control the reader is focused on, and a screen reader
+      // re-reads a name that changes under it.
+      expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    });
+
+    it("swallows a second press while the first write is out", async () => {
+      const user = userEvent.setup();
+      const onClick = vi.fn();
+      render(
+        <Button pending onClick={onClick}>
+          Save
+        </Button>,
+      );
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onClick).not.toHaveBeenCalled();
+    });
+
+    it("does not submit the form it sits in while a write is out", async () => {
+      const user = userEvent.setup();
+      const onSubmit = vi.fn((event: { preventDefault(): void }) =>
+        event.preventDefault(),
+      );
+      render(
+        // A `type="submit"` is the case an early return in the handler does not
+        // cover: the browser posts on the click itself, so only
+        // `preventDefault` stops a form going out twice.
+        <form onSubmit={onSubmit}>
+          <Button type="submit" pending>
+            Save
+          </Button>
+        </form>,
+      );
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onSubmit).not.toHaveBeenCalled();
+    });
+
+    it("carries no busy attributes at all when nothing is in flight", () => {
+      render(<Button>Save</Button>);
+      const button = screen.getByRole("button", { name: "Save" });
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("still calls the caller's handler once the write has landed", async () => {
+      const user = userEvent.setup();
+      const onClick = vi.fn();
+      const { rerender } = render(
+        <Button pending onClick={onClick}>
+          Save
+        </Button>,
+      );
+      rerender(<Button onClick={onClick}>Save</Button>);
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      expect(onClick).toHaveBeenCalledTimes(1);
+    });
+
+    // A refused button was never pressed, so it cannot also be waiting for an
+    // answer. If a caller says both, the refusal is the true one — drawing the
+    // mark would claim a write nobody started.
+    it("lets a reason outrank it, and refuses properly rather than busily", () => {
+      render(
+        <Button pending reason="Connect an inbox first.">
+          Send
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Send" });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+    });
+
+    // `iconOnly` documents TWO ways to name the control — an `aria-label` or a
+    // visually-hidden child — and an earlier cut of this feature dropped the
+    // children while busy, which took the second one with it and left a
+    // focusable control with no accessible name (WCAG 4.1.2). The glyph gives
+    // way in CSS now; the children stay.
+    it("keeps an icon-only button's name when that name is a hidden child", () => {
+      render(
+        <Button iconOnly pending>
+          <svg aria-hidden />
+          <span className="sr-only">Reconnect</span>
+        </Button>,
+      );
+      expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy();
+    });
+
+    // A control nobody may press cannot also be mid-press. Getting this wrong
+    // produced the exact failure the prop exists to prevent: a natively
+    // disabled button — focus already gone — announcing itself busy.
+    it("lets disabled outrank it, and never sets both", () => {
+      render(
+        <Button disabled pending>
+          Save
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Save" });
+      expect(button.hasAttribute("disabled")).toBe(true);
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+    });
+
+    it("owns the busy attributes, so a caller cannot set them by hand", () => {
+      render(
+        <Button aria-busy="true" aria-disabled="true">
+          Save
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Save" });
+      // Nothing is in flight, so nothing may claim it is. A caller's own
+      // spelling of this state can only disagree with the component's.
+      expect(button.hasAttribute("aria-busy")).toBe(false);
+      expect(button.hasAttribute("aria-disabled")).toBe(false);
+    });
+  });
+
+  // `aria-busy` is a legal global state on a button, but ARIA defines it as
+  // permission for assistive tech to DEFER exposing a change — not as an
+  // instruction to announce one. So a screen with something worth saying says
+  // it through a description, which a reader focused on this control does hear,
+  // rather than through a renamed button, which makes them re-hear the control.
+  describe("busyLabel", () => {
+    it("describes the wait without touching the accessible name", () => {
+      render(
+        <Button pending busyLabel="Signing in…">
+          Sign in
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Sign in" });
+      const describedBy = button.getAttribute("aria-describedby");
+      expect(describedBy).toBeTruthy();
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+        "Signing in…",
+      );
+    });
+
+    it("keeps the sentence OUTSIDE the button, or it would rename it", () => {
+      render(
+        <Button pending busyLabel="Signing in…">
+          Sign in
+        </Button>,
+      );
+      const button = screen.getByRole("button", { name: "Sign in" });
+      // Anything rendered inside a button joins its accessible name, which is
+      // the one thing holding the label steady was for.
+      expect(button.textContent).toBe("Sign in");
+    });
+
+    it("holds the description element from the first render, and empties it", () => {
+      const { rerender } = render(
+        <Button busyLabel="Signing in…">Sign in</Button>,
+      );
+      const idle = screen.getByRole("button", { name: "Sign in" });
+      // Present before the write, so the sentence is a CHANGE a screen reader
+      // reads rather than a node arriving with its text already in it — which
+      // is frequently missed.
+      expect(idle.hasAttribute("aria-describedby")).toBe(false);
+      const holder = document.querySelector(".btn-shell .sr-only");
+      expect(holder?.textContent).toBe("");
+      rerender(
+        <Button pending busyLabel="Signing in…">
+          Sign in
+        </Button>,
+      );
+      expect(holder?.textContent).toBe("Signing in…");
     });
   });
 

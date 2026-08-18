@@ -8,8 +8,9 @@ import { AutonomyDot } from "./trust";
 // near-identically, inline in the deals.tsx terminal-stage
 // advance confirm and archive.tsx's ArchiveAction. Both wire a Modal, a
 // title (deals.tsx's carries an autonomy dot, archive.tsx's doesn't), an
-// inline mutation error, and a Cancel/Confirm pair that disables while a
-// mutation is in flight. The caller owns the body copy and any extra
+// inline mutation error, and a Cancel/Confirm pair that both refuse the press
+// while a mutation is in flight — Cancel by going unavailable, Confirm by
+// going busy, since only one of them started anything. The caller owns the body copy and any extra
 // fields (e.g. the lost-reason input) via children — this atom only owns
 // the modal chrome and the actions.
 
@@ -49,7 +50,10 @@ export function ConfirmModal({
   confirmVariant?: "primary" | "danger";
   // Lets the caller gate its own precondition (e.g. a typed-confirmation
   // input in children) without teaching this atom what the action means.
-  // Defaults false: an ungated confirm is disabled only while pending.
+  // Defaults false. It is NOT where a caller puts its in-flight state: that is
+  // `pending`, and folding the two together here gives the confirm both a
+  // native `disabled` and a busy announcement — a control that has lost focus
+  // telling a reader who is no longer on it that their write is going.
   confirmDisabled?: boolean;
   onConfirm: () => void;
   pending?: boolean;
@@ -93,13 +97,24 @@ export function ConfirmModal({
         </p>
       )}
       <div className="actions">
+        {/* Cancel is `disabled`, not `pending`, and the difference is real: it
+            is not the control that started the write, so it is genuinely
+            unavailable rather than busy. Backing out of an act that is already
+            on its way to the server would leave the reader believing they
+            stopped something they did not. */}
         <Button onClick={onClose} disabled={pending}>
           {t("create.cancel")}
         </Button>
+        {/* The compound this dialog used to carry — `pending || confirmDisabled`
+            — folded two unrelated facts into one attribute: a write in flight
+            and a precondition the caller has not met. Split, each is drawn as
+            what it is, and the twenty-eight surfaces built on this dialog get
+            it without changing a line. */}
         <Button
           variant={confirmVariant}
           onClick={onConfirm}
-          disabled={pending || confirmDisabled}
+          pending={pending}
+          disabled={confirmDisabled}
         >
           {confirmLabel}
         </Button>

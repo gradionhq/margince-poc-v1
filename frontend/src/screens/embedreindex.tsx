@@ -69,14 +69,14 @@ function dialogTitle(
     : t("embedreindex.confirmTitle");
 }
 
+// The label does not change while the reindex is starting. `ConfirmModal`
+// draws the busy mark and sets `aria-busy`, and a renamed confirm on top of
+// that says the same thing twice while moving the accessible name of the
+// control the reader is focused on.
 function dialogConfirmLabel(
   mode: "reindex" | "rebuild",
-  pending: boolean,
   t: ReturnType<typeof useT>,
 ): string {
-  if (pending) {
-    return t("embedreindex.starting");
-  }
   return mode === "rebuild"
     ? t("embedreindex.rebuildConfirmCta")
     : t("embedreindex.confirmCta");
@@ -399,20 +399,23 @@ export function EmbedReindexCard() {
                     open={mode !== null}
                     onClose={closeDialog}
                     title={dialogTitle(mode ?? "reindex", t)}
-                    confirmLabel={dialogConfirmLabel(
-                      mode ?? "reindex",
-                      confirm.isPending,
-                      t,
-                    )}
+                    confirmLabel={dialogConfirmLabel(mode ?? "reindex", t)}
                     // Gate on a fully-loaded, non-errored, non-refetching
                     // estimate — a cached preview that is refetching
                     // (isFetching) or has errored must not leave Confirm live
                     // over stale scope/cost.
+                    //
+                    // Dropped once the reindex is out, because by then the
+                    // estimate has stopped being a precondition: the act is
+                    // already gone, and the confirm invalidates this very
+                    // preview — so leaving the gate armed flips the button from
+                    // "working" to "refused" in the middle of its own write.
                     confirmDisabled={
-                      preview.isPending ||
-                      preview.isFetching ||
-                      preview.isError ||
-                      !preview.data
+                      !confirm.isPending &&
+                      (preview.isPending ||
+                        preview.isFetching ||
+                        preview.isError ||
+                        !preview.data)
                     }
                     pending={confirm.isPending}
                     error={

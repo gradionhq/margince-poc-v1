@@ -718,11 +718,23 @@ function LoginForm({
         </div>
       )}
       <div className="auth-actions">
-        {/* Disabled ONLY while a request is in flight (§8.4). An empty field is
-            answered by native validation on the inputs, not by a pale control
-            with nothing to say. */}
-        <Button type="submit" variant="primary" disabled={login.isPending}>
-          {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
+        {/* Refuses the press ONLY while a request is in flight (§8.4). An empty
+            field is answered by native validation on the inputs, not by a pale
+            control with nothing to say.
+
+            `pending`, not `disabled`: the label stays "Sign in" the whole way
+            through, because renaming a control mid-press makes a screen reader
+            re-read the control itself. What used to be that renamed label is
+            now `busyLabel`, which lands in `aria-describedby` instead — the
+            sentence is still spoken, and the button is still called what it was
+            called when the reader pressed it. */}
+        <Button
+          type="submit"
+          variant="primary"
+          pending={login.isPending}
+          busyLabel={t("auth.signingIn")}
+        >
+          {t("auth.signIn")}
         </Button>
       </div>
     </form>

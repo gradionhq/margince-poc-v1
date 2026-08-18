@@ -3617,8 +3617,8 @@ export const en = {
   "auth.legalProtected": "Access to this organization is restricted.",
   "auth.legalTerms": "Terms",
   "auth.legalPrivacy": "Privacy",
-  "auth.signIn": "Sign in",
   "auth.signingIn": "Signing in…",
+  "auth.signIn": "Sign in",
   "auth.failed": "That didn't work",
   "auth.errCredentials":
     "We couldn't sign you in. Check your email and password and try again.",
@@ -3657,8 +3657,8 @@ export const en = {
   "password.mismatch": "These two don't match.",
   "password.signsYouOut":
     "Changing it signs you out everywhere, including here. Sign in again with the new password.",
+  "password.changing": "Changing your password…",
   "password.submit": "Change password",
-  "password.changing": "Changing…",
   "password.done": "Password changed. Sign in again with the new one.",
   // Deliberately says nothing about WHICH field: this is the fallback for a
   // refusal the server did not explain, and naming the current password would
@@ -4763,7 +4763,6 @@ export const en = {
   "embedreindex.rebuildTitle": "Rebuild the search index",
   "embedreindex.confirmCta": "Start reindex",
   "embedreindex.rebuildConfirmCta": "Rebuild now",
-  "embedreindex.starting": "Starting…",
   "embedreindex.previewLoading": "Estimating scope…",
   "embedreindex.estimateEntities": "Entities to (re)embed:",
   "embedreindex.estimateTokens": "Estimated AI tokens:",

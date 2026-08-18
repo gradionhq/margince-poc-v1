@@ -1538,7 +1538,10 @@ function ResetDataCard() {
         title={t("settings.resetDataConfirmTitle")}
         confirmLabel={t("settings.resetDataButton")}
         confirmVariant="danger"
-        confirmDisabled={typed.trim() === "" || reset.isPending}
+        // The typed confirmation gates whether the reset may START; the input
+        // is still editable while it runs, and a reader who clears it mid-write
+        // would otherwise re-arm the gate on a control that is already going.
+        confirmDisabled={!reset.isPending && typed.trim() === ""}
         onConfirm={() => reset.mutate()}
         pending={reset.isPending}
         error={reset.error ? problemMessageOf(reset.error, t) : null}

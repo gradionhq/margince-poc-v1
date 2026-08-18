@@ -3601,8 +3601,8 @@ export const vi = {
   "auth.legalProtected": "Quyền truy cập tổ chức này bị giới hạn.",
   "auth.legalTerms": "Điều khoản",
   "auth.legalPrivacy": "Quyền riêng tư",
-  "auth.signIn": "Đăng nhập",
   "auth.signingIn": "Đang đăng nhập…",
+  "auth.signIn": "Đăng nhập",
   "auth.failed": "Không thành công",
   "auth.errCredentials":
     "Không thể đăng nhập. Hãy kiểm tra email và mật khẩu rồi thử lại.",
@@ -3634,8 +3634,8 @@ export const vi = {
   "password.mismatch": "Hai ô này không khớp.",
   "password.signsYouOut":
     "Việc đổi mật khẩu sẽ đăng xuất bạn ở mọi nơi, kể cả ở đây. Hãy đăng nhập lại bằng mật khẩu mới.",
+  "password.changing": "Đang đổi mật khẩu…",
   "password.submit": "Đổi mật khẩu",
-  "password.changing": "Đang đổi…",
   "password.done": "Đã đổi mật khẩu. Hãy đăng nhập lại bằng mật khẩu mới.",
   "password.errorGeneric": "Không đổi được mật khẩu. Hãy thử lại.",
   "setup.pageTitle": "Thiết lập Margince",
@@ -4752,7 +4752,6 @@ export const vi = {
   "embedreindex.rebuildTitle": "Dựng lại chỉ mục tìm kiếm",
   "embedreindex.confirmCta": "Bắt đầu dựng lại",
   "embedreindex.rebuildConfirmCta": "Dựng lại ngay",
-  "embedreindex.starting": "Đang bắt đầu…",
   "embedreindex.previewLoading": "Đang ước tính phạm vi…",
   "embedreindex.estimateEntities": "Số thực thể cần embed lại:",
   "embedreindex.estimateTokens": "Số token AI ước tính:",

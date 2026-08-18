@@ -592,7 +592,19 @@ function ObjectMatrix({
                           object,
                         })}
                         checked={grant[action]}
-                        disabled={!canManage || setGrant.isPending}
+                        disabled={!canManage}
+                        // Scoped to the role whose grant is actually being
+                        // written. `setGrant` is one mutation for the whole
+                        // matrix, so a bare `isPending` set every cell for
+                        // every role turning and announcing itself — a claim
+                        // about writes nobody made. Role granularity rather
+                        // than cell, because the write carries the role's WHOLE
+                        // grant record: every action in that row really is in
+                        // flight.
+                        pending={
+                          setGrant.isPending &&
+                          setGrant.variables?.roleKey === role.key
+                        }
                         // Only the PERMISSION denial gets a reason. A write in
                         // flight is the other way this is disabled, and it
                         // wants no words at all — a sentence that appeared for

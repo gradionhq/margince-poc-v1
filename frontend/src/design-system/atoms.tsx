@@ -1,10 +1,16 @@
-import { ChevronRight, MoreHorizontal, Search } from "lucide-react";
+import {
+  ChevronRight,
+  LoaderCircle,
+  MoreHorizontal,
+  Search,
+} from "lucide-react";
 import {
   type ComponentPropsWithRef,
   type CSSProperties,
   type ElementType,
   type FormEventHandler,
   type InputHTMLAttributes,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
   type TextareaHTMLAttributes,
   useEffect,
@@ -22,6 +28,37 @@ import "./atoms.css";
 
 type ButtonVariant = "primary" | "ghost" | "danger";
 
+/**
+ * The turning mark a control shows while a write it started is in flight.
+ *
+ * Exported because `Switch` carries the same state and must draw it the same
+ * way; sized by whatever control hosts it (`.btn svg` is 16px, 14px small), so
+ * it takes no size prop. Decorative — `aria-busy` on the control is the fact,
+ * and a glyph that announced itself would say it twice.
+ */
+export function BusyMark({ className }: Readonly<{ className?: string }>) {
+  return (
+    <LoaderCircle
+      className={["busy-mark", className ?? ""].filter(Boolean).join(" ")}
+      aria-hidden="true"
+    />
+  );
+}
+
+// A press that lands on a control already waiting for its own answer. Both
+// halves are load bearing: `preventDefault` is what stops a `type="submit"`
+// button posting the form a second time (a plain early return does not — the
+// browser submits on the click, not on the handler), and `stopPropagation`
+// stops a clickable row underneath treating the press as a click on itself.
+//
+// Aliased on import because this file also uses the DOM's own `MouseEvent`,
+// for the document-level listener `OverflowMenu` attaches; the unaliased React
+// type shadows it and that listener stops compiling.
+function swallowWhileBusy(event: ReactMouseEvent<HTMLButtonElement>) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
 export function Button({
   variant = "ghost",
   small,
@@ -29,6 +66,8 @@ export function Button({
   className,
   reason,
   reasonId,
+  pending,
+  busyLabel,
   disabled,
   ...rest
   // `ComponentPropsWithRef`, not the bare attribute set — the same reason
@@ -66,8 +105,56 @@ export function Button({
    * and still reaches a screen reader from each of them.
    */
   reasonId?: string;
+  /**
+   * Whether a write this button started is still in flight.
+   *
+   * It deliberately does NOT set `disabled`, and that is the whole contract.
+   * Disabling the control the reader has just pressed detaches focus — Chrome
+   * and Safari drop it to `<body>` — so the reader loses their place at the
+   * exact moment the app has something to tell them, and an `aria-busy`
+   * announcing the wait lands on a control nobody is on. `aria-disabled`
+   * refuses the second press while keeping the button focusable, so focus
+   * stays where the reader put it and the state is announced from there. The
+   * press itself is swallowed in the handler, since `aria-disabled` is a
+   * promise to assistive technology and not something the browser enforces.
+   *
+   * The LABEL does not change while this is set. The mark and `aria-busy`
+   * already say "working"; swapping "Save" for "Saving…" says it a second time
+   * and renames a focused control mid-press, which a screen reader re-reads —
+   * so a caller passes one label and lets the state carry the rest.
+   *
+   * `reason` and `disabled` both outrank it: a control nobody may press cannot
+   * also be mid-press, and drawing the mark there would claim a write nobody
+   * started. That precedence is not cosmetic — a button carrying `disabled`
+   * AND `pending` would be natively disabled, which drops the focus this whole
+   * prop exists to keep, while announcing itself busy to a reader who is no
+   * longer on it.
+   */
+  pending?: boolean;
+  /**
+   * What is happening, for a reader who cannot see the mark.
+   *
+   * `aria-busy` is the honest machine-readable state and this is deliberately
+   * not a claim that it is spoken: ARIA defines it as "the element is being
+   * modified, and assistive technology may want to wait before exposing the
+   * change" — permission to DEFER, not an instruction to announce. Nothing
+   * obliges a screen reader to say anything about it.
+   *
+   * So a screen that had something worth saying passes the sentence here and it
+   * is added to `aria-describedby` while the write is out. Focus is on this
+   * control — that is the premise of the whole prop — and a description arriving
+   * on the focused element is announced, where a changed NAME would make the
+   * reader re-hear the button itself. Copy arrives translated, like everything
+   * else here.
+   *
+   * Optional because most buttons have nothing to add beyond "working". Not on
+   * `Switch` yet: no surface has needed it there, and a prop with no caller is
+   * an API nobody has tested.
+   */
+  busyLabel?: string;
 }) {
   const ownReasonId = useId();
+  const busyLabelId = useId();
   const classes = [
     "btn",
     `btn-${variant}`,
@@ -78,33 +165,142 @@ export function Button({
     .filter(Boolean)
     .join(" ");
   const refused = reason !== undefined || reasonId !== undefined;
-  // `disabled` and `aria-describedby` are computed here and must survive the
-  // caller's props, so both are destructured out of `rest` (disabled above,
-  // aria-describedby below) rather than sitting where a later spread could
-  // overwrite them: a `disabled={false}` passed alongside `reason` would
-  // otherwise re-enable a control the reason contract promises is refused, and
-  // silently drop the description pointing at the sentence that says why.
-  const { "aria-describedby": callerDescribedBy, ...attrs } = rest;
-  const describedBy =
-    reasonId ?? (reason === undefined ? callerDescribedBy : ownReasonId);
+  // Refusal beats busy in BOTH its spellings. `disabled` used to be missing
+  // from this test, and the result was the exact failure `pending` exists to
+  // prevent: a caller passing both got a natively disabled button — focus gone
+  // — that announced itself busy and drew the dimmed refused chrome with a
+  // spinner turning inside it. `Switch` reads the same way.
+  const busy = pending === true && !refused && disabled !== true;
+  // Everything this component computes for itself is destructured out of
+  // `rest`, so a caller's props cannot land on top of it. That is not tidiness:
+  // a `disabled={false}` passed alongside `reason` re-enabled a control the
+  // reason contract promises is refused; a caller's `aria-describedby` dropped
+  // the pointer to the sentence saying why; an `onClick` surviving `pending`
+  // let a second press through a button that is already writing. `aria-busy`
+  // and `aria-disabled` join them because this component owns that state now —
+  // a caller setting either by hand is describing something Button is already
+  // describing, and the two can only disagree.
+  const {
+    "aria-describedby": callerDescribedBy,
+    "aria-busy": _callerBusy,
+    "aria-disabled": _callerAriaDisabled,
+    onClick,
+    children,
+    ...attrs
+  } = rest;
+  const describedBy = describedByFor({
+    callerDescribedBy,
+    reason,
+    reasonId,
+    ownReasonId,
+    busyLabelId: busy && busyLabel !== undefined ? busyLabelId : undefined,
+  });
   const button = (
     <button
       type="button"
       {...attrs}
       className={classes}
       disabled={disabled || refused}
+      aria-disabled={busy || undefined}
+      aria-busy={busy || undefined}
       aria-describedby={describedBy}
-    />
+      onClick={busy ? swallowWhileBusy : onClick}
+    >
+      {busy && <BusyMark />}
+      {/* The children stay, ALWAYS. An icon-only control has no room for two
+          16px marks side by side, so the glyph is hidden — but in CSS, by
+          `.btn-icon[aria-busy="true"]`, because dropping the children here also
+          dropped the visually-hidden text that `iconOnly` documents as one of
+          the two ways to name such a button, leaving a focusable control with
+          no accessible name at all. */}
+      {children}
+    </button>
   );
-  if (reason === undefined) {
-    return button;
+  return (
+    <ButtonSentences
+      reason={reason}
+      reasonId={ownReasonId}
+      busyLabel={busyLabel}
+      busyLabelId={busyLabelId}
+      busy={busy}
+    >
+      {button}
+    </ButtonSentences>
+  );
+}
+
+/**
+ * What a Button's `aria-describedby` points at, in one place because three
+ * sources compete for it and the precedence between them is the contract:
+ * `reasonId` names an element the page already owns, `reason` renders its own
+ * and outranks whatever the caller passed, and a caller's own description
+ * survives only when nothing is refused. `busyLabel` is additive — a refused
+ * control is never busy, so in practice it joins a caller's description or
+ * stands alone.
+ */
+function describedByFor({
+  callerDescribedBy,
+  reason,
+  reasonId,
+  ownReasonId,
+  busyLabelId,
+}: Readonly<{
+  callerDescribedBy?: string;
+  reason?: string;
+  reasonId?: string;
+  ownReasonId: string;
+  busyLabelId?: string;
+}>): string | undefined {
+  const refusal =
+    reasonId ?? (reason === undefined ? callerDescribedBy : ownReasonId);
+  return [refusal, busyLabelId].filter(Boolean).join(" ") || undefined;
+}
+
+/**
+ * The sentences that belong to a button but may not live inside it.
+ *
+ * Anything rendered within a `<button>` joins its accessible NAME, so a
+ * description of the wait placed there would rename the control mid-press —
+ * the exact thing holding the label steady was for. Both sentences are
+ * siblings instead, and the wrapper is `display: contents` when there is
+ * nothing visible to stack, so a button that opts into `busyLabel` lays out
+ * exactly as it did before.
+ */
+function ButtonSentences({
+  reason,
+  reasonId,
+  busyLabel,
+  busyLabelId,
+  busy,
+  children,
+}: Readonly<{
+  reason?: string;
+  reasonId: string;
+  busyLabel?: string;
+  busyLabelId: string;
+  busy: boolean;
+  children: ReactNode;
+}>) {
+  if (reason === undefined && busyLabel === undefined) {
+    return children;
   }
   return (
-    <span className="btn-with-reason">
-      {button}
-      <span id={ownReasonId} className="t-caption">
-        {reason}
-      </span>
+    <span className={reason === undefined ? "btn-shell" : "btn-with-reason"}>
+      {children}
+      {reason !== undefined && (
+        <span id={reasonId} className="t-caption">
+          {reason}
+        </span>
+      )}
+      {/* Rendered whether or not the write is out, and emptied rather than
+          removed. A description that arrives together with the element holding
+          it is frequently missed; one that is already there and CHANGES is what
+          a screen reader on the focused control actually reads. */}
+      {busyLabel !== undefined && (
+        <span id={busyLabelId} className="sr-only">
+          {busy ? busyLabel : ""}
+        </span>
+      )}
     </span>
   );
 }

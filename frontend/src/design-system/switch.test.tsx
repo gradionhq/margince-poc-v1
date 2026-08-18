@@ -98,6 +98,93 @@ describe("Switch", () => {
     expect(screen.getByRole("switch")).not.toHaveAttribute("aria-describedby");
   });
 
+  // The state the docblock and the design-system catalog have both claimed
+  // this control carries since it was written, while the implementation had
+  // only `disabled` and `reason`. A switch IS the write, so the gap was
+  // exactly where it mattered least noticeably and most: the reader flips it,
+  // nothing says the write is out, and a second flip sends a value derived
+  // from a state the server never confirmed.
+  describe("a flip that is still being written", () => {
+    it("refuses the next flip without dropping the reader off the control", () => {
+      const onChange = vi.fn();
+      render(
+        <Switch label="Auto-enrich" checked pending onChange={onChange} />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      expect(control.hasAttribute("disabled")).toBe(false);
+      expect(control).toHaveAttribute("aria-disabled", "true");
+      expect(control).toHaveAttribute("aria-busy", "true");
+      control.focus();
+      expect(control).toHaveFocus();
+    });
+
+    it("does not write again while the first write is out", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <Switch label="Auto-enrich" checked pending onChange={onChange} />,
+      );
+      await user.click(screen.getByRole("switch", { name: "Auto-enrich" }));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("draws the mark beside the label, leaving the knob showing the state", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          pending
+          onChange={() => undefined}
+        />,
+      );
+      const control = screen.getByRole("switch");
+      // The knob is the only thing carrying the state the reader is changing
+      // FROM, so covering it during the write would hide what they are moving
+      // away from. The mark goes beside the label instead — and it is inside
+      // the control, so both are on screen at once.
+      expect(control).toHaveAttribute("aria-checked", "true");
+      expect(control.querySelector(".busy-mark")).toBeTruthy();
+      expect(control.querySelector(".switchknob")).toBeTruthy();
+    });
+
+    // Two spellings of refusal, and BOTH outrank a write in flight — tested
+    // apart, because passing them together proves only that one of them works
+    // and hides whichever is broken.
+    it("lets a bare denial outrank it", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          pending
+          disabled
+          onChange={() => undefined}
+        />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      expect(control.hasAttribute("disabled")).toBe(true);
+      expect(control.hasAttribute("aria-busy")).toBe(false);
+      expect(control.querySelector(".busy-mark")).toBeNull();
+    });
+
+    it("lets a stated reason outrank it, so no row says both things at once", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          pending
+          reason="Your seat cannot change this."
+          onChange={() => undefined}
+        />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      // "Your seat cannot change this" and a turning mark in one row tells the
+      // reader their write is going through AND that they were never allowed
+      // to make it.
+      expect(control.hasAttribute("aria-busy")).toBe(false);
+      expect(control.querySelector(".busy-mark")).toBeNull();
+    });
+  });
+
   it("keeps a hidden label reachable by name", () => {
     render(
       <Switch

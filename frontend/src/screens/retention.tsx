@@ -225,12 +225,19 @@ function PolicyRow({
             {/* A Switch and not a Checkbox, because flipping it IS the pause:
                 there is no Save to press afterwards, and the panel only renders
                 for an operator who holds the update grant, so the one thing
-                that can make it unavailable is a write already in flight —
-                which explains itself by finishing and needs no `reason`. */}
+                that can make it refuse a press is a write already in flight —
+                which explains itself by finishing and needs no `reason`. It is
+                `pending` rather than `disabled` precisely because of that: an
+                unavailable control and one that is mid-write are different
+                facts, and only the second one ends on its own. */}
             <Switch
               label={t("retention.enabled")}
               checked={policy.enabled}
-              disabled={patch.isPending}
+              // `intent` is already on the write for exactly this reason: one
+              // `patch` serves this switch and the row's save form, so without
+              // it a saved edit made the pause switch announce a flip nobody
+              // made.
+              pending={patch.isPending && patch.variables?.intent === "switch"}
               onChange={(next) =>
                 patch.mutate({ intent: "switch", body: { enabled: next } })
               }
@@ -369,10 +376,10 @@ function PostureToggle({
         // the explanation to a reader who never sees the paragraph.
         reason={canManage ? undefined : t("retention.adminOnly")}
         checked={retainOnly}
-        disabled={!canManage || update.isPending}
+        disabled={!canManage}
+        pending={update.isPending}
         onChange={(next) => update.mutate(next)}
       />
-      {update.isPending && <p className="t-caption">{t("common.saving")}</p>}
       {update.isError && (
         <p className="t-caption retention-error" role="alert">
           {problemMessageOf(update.error, t)}

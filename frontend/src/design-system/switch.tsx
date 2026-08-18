@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { type ReactNode, useId } from "react";
+import { BusyMark } from "./atoms";
 import "./switch.css";
 
 // Switch: a setting that takes effect when you flip it.
@@ -28,12 +29,14 @@ import "./switch.css";
  * `labelHidden` and keeps its layout; a plain setting lets the switch draw the
  * label and gets the whole thing as one click target.
  *
- * `disabled` and `reason` are separate on purpose. A control can be
- * unavailable because the caller may not change it, or because a write is in
- * flight, and those want different words — or, for the in-flight case, no
- * words at all. Passing `reason` renders it and points the control at it with
- * `aria-describedby`, so the explanation reaches a screen reader rather than
- * sitting beside the control as decoration.
+ * `disabled`, `reason` and `pending` are three separate props on purpose,
+ * because a control can be unavailable for three different reasons and only
+ * one of them is worth words. The caller may not change it (`disabled`); the
+ * caller may not change it *and* there is a sentence saying why (`reason`,
+ * announced through `aria-describedby` so it reaches a screen reader rather
+ * than sitting beside the control as decoration); or the flip they just made
+ * is still being written (`pending`, which needs no words and must not look
+ * like either of the other two).
  */
 export function Switch({
   label,
@@ -43,6 +46,7 @@ export function Switch({
   onChange,
   disabled,
   reason,
+  pending,
   testId,
 }: Readonly<{
   label: ReactNode;
@@ -63,6 +67,17 @@ export function Switch({
   disabled?: boolean;
   /** Why it cannot be changed. Rendered, and announced with the control. */
   reason?: ReactNode;
+  /**
+   * Whether the flip the reader just made is still being written.
+   *
+   * Same contract as `Button`'s, and for the same reason: it sets
+   * `aria-disabled` rather than `disabled`, so the control the reader is
+   * standing on keeps focus while it waits instead of dropping them to
+   * `<body>`, and the press is refused in the handler because `aria-disabled`
+   * binds assistive technology and not the browser. `disabled` outranks it — a
+   * switch nobody may flip cannot be mid-flip.
+   */
+  pending?: boolean;
   testId?: string;
 }>) {
   const hintId = useId();
@@ -79,12 +94,20 @@ export function Switch({
   // back on click, so what a reader hears and what the next write carries can
   // never disagree.
   const on = checked === true;
+  // Refusal beats busy in both its spellings, exactly as `Button` reads it. A
+  // switch carrying `reason` is one this reader may not change, so drawing the
+  // mark beside a sentence that says "your seat cannot change this" would tell
+  // them their write is going through and that they were never allowed to make
+  // it, in the same row.
+  const busy = pending === true && disabled !== true && reason === undefined;
 
   return (
     <div className="switchrow">
       <button
         type="button"
         role="switch"
+        aria-disabled={busy || undefined}
+        aria-busy={busy || undefined}
         // `on`, never the raw prop: React omits an attribute whose value is
         // undefined, and a `role="switch"` with no `aria-checked` is a control
         // that announces no state at all — WCAG 4.1.2, which axe reports as
@@ -96,12 +119,28 @@ export function Switch({
         disabled={disabled}
         className="switchcontrol"
         data-testid={testId}
-        onClick={() => onChange(!on)}
+        // A second flip while the first is still being written would send a
+        // value derived from a state the server has not confirmed, and the two
+        // writes could land in either order. `aria-disabled` says so; this is
+        // what makes it true. The press is stopped rather than merely ignored,
+        // so a row this switch sits inside does not treat it as a click on
+        // itself.
+        onClick={
+          busy
+            ? (event) => event.stopPropagation()
+            : () => {
+                onChange(!on);
+              }
+        }
       >
         {/* The track's knob. Decorative: the state is already on aria-checked,
             and announcing it twice is how a reader hears "on on". */}
         <span className="switchknob" aria-hidden="true" />
         <span className={labelHidden ? "sr-only" : "switchlabel"}>{label}</span>
+        {/* After the label rather than over the knob: the knob is the only
+            thing showing which way the setting is currently set, and covering
+            it during the write hides the state the reader is changing FROM. */}
+        {busy && <BusyMark />}
       </button>
       {hint !== undefined && (
         <p className="switchhint" id={hintId}>

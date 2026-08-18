@@ -22,7 +22,9 @@ export default meta;
 type Story = StoryObj<typeof Switch>;
 
 /** Live, so the knob's travel and the focus ring can be judged. */
-function Live(props: Readonly<{ initial: boolean; disabled?: boolean }>) {
+function Live(
+  props: Readonly<{ initial: boolean; disabled?: boolean; pending?: boolean }>,
+) {
   const [on, setOn] = useState(props.initial);
   return (
     <Switch
@@ -30,6 +32,7 @@ function Live(props: Readonly<{ initial: boolean; disabled?: boolean }>) {
       hint="Looks up a company the first time it is captured."
       checked={on}
       disabled={props.disabled}
+      pending={props.pending}
       onChange={setOn}
     />
   );
@@ -56,10 +59,16 @@ export const WithReason: Story = {
 };
 
 /**
- * Unavailable because a write is in flight — no reason, because the wait
- * explains itself by ending.
+ * The flip is being written. No reason, because the wait explains itself by
+ * ending — and no dimming, because dimming is what this product uses to say
+ * "not yours to change". This story used to render `disabled`, which is the
+ * conflation itself: it showed a refusal and called it a wait, and there was
+ * no `pending` prop for it to render instead.
+ *
+ * Beside `WithReason` in the sidebar on purpose. The two have to look
+ * different, and one story cannot show that.
  */
-export const Pending: Story = { render: () => <Live initial disabled /> };
+export const Pending: Story = { render: () => <Live initial pending /> };
 
 /**
  * The label reaches assistive tech and nothing else, for a row that draws its

@@ -171,6 +171,72 @@
   transform: none;
   filter: none;
 }
+/* A control that is WORKING must not be drawn as one that was REFUSED, and
+   until this rule existed every button in the product drew both the same way:
+   a write in flight set `disabled`, so it dimmed to 0.5 with a barred cursor —
+   the exact treatment that elsewhere means "your seat may not do this" or
+   "fill the form in first". Two opposite facts, one appearance. So a busy
+   button keeps its full ink and takes the cursor that means wait; the mark
+   beside the label is what says something is happening.
+
+   Keyed on `aria-busy` rather than on a class of its own, because that
+   attribute IS the state: a class can be set without it, and then what the
+   button looks like and what it announces disagree. */
+.btn[aria-busy="true"] {
+  cursor: progress;
+}
+/* Every hover response belongs to a control inviting a press. This one has
+   already been pressed and is not accepting another, so nothing about it moves
+   under the pointer — not the lift the filled variants take, and not the
+   ground and ink the ghost variant swaps, which is the DEFAULT and was still
+   lighting up when only transform and filter were reset here. */
+.btn[aria-busy="true"]:hover {
+  transform: none;
+  filter: none;
+}
+/* The ghost variant is the one whose hover is a colour change rather than a
+   lift, and it is also the default, so it needs saying separately — back to its
+   resting ground and ink. It comes after `[aria-pressed="true"]:hover` at equal
+   specificity on purpose: a busy toggle should look busy, not hovered. */
+.btn-ghost[aria-busy="true"]:hover {
+  background: transparent;
+  color: var(--textMeta);
+}
+/* An icon-only button is one control's width, and two 16px marks do not fit in
+   it. The GLYPH gives way, in CSS rather than by dropping the button's children
+   — a caller may have named this control with visually-hidden text instead of
+   an `aria-label`, and removing the children takes the accessible name with it.
+   `.busy-mark` is spared by name so the turning mark is the one thing left. */
+.btn-icon[aria-busy="true"] > svg:not(.busy-mark) {
+  display: none;
+}
+/* A wrapper that is not a box: `busyLabel` renders a visually-hidden sentence
+   as a SIBLING of the button (anything inside a button joins its accessible
+   name), and this keeps that sibling from changing how the button lays out in
+   the row it sits in. */
+.btn-shell {
+  display: contents;
+}
+.busy-mark {
+  /* `transform: rotate()` rather than the standalone `rotate` property, which
+     would be the only one in this tree — the three screen-local spinners this
+     replaces during the sweep all animate transform. */
+  animation: busy-mark-turn 0.8s linear infinite;
+}
+@keyframes busy-mark-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Reduced motion has no END state to land on here, unlike every other
+   animation in this system: a spinner turns until an answer arrives and there
+   is no final frame meaning "finished". So the mark stops and STAYS — removing
+   it would leave a reader who asked for less motion with no signal at all. */
+@media (prefers-reduced-motion: reduce) {
+  .busy-mark {
+    animation: none;
+  }
+}
 /* The refused button and the sentence explaining it, stacked. Button has
    rendered this wrapper since `reason` existed, but no rule ever declared it,
    so the explanation sat inline beside the control it belongs under. */

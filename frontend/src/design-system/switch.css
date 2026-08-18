@@ -30,6 +30,26 @@
   opacity: 0.6;
 }
 
+/* A switch mid-write is not a switch you may not flip. `:disabled` dims to 0.6
+ * and means "not yours to change"; this keeps full ink and takes the cursor
+ * that means wait, with the turning mark beside the label carrying the rest.
+ * Keyed on `aria-busy` because that attribute IS the state — a class beside it
+ * can be set without it, and then the row looks one way and announces
+ * another. */
+.switchcontrol[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* The mark is sized here rather than by itself: `.btn svg` gives it the
+ * button's 16px, and a switch has no equivalent rule of its own. Matched to
+ * the thumb, so the two round shapes on the row read as one size. */
+.switchcontrol .busy-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--textMeta);
+}
+
 .switchcontrol:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;

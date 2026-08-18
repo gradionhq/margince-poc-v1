@@ -8,6 +8,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -485,11 +486,23 @@ describe("the mirror user-map card", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /^Change/ })).toBeDisabled(),
     );
-    // Including the confirm the admin already accepted: a re-armed button
-    // reads as "that didn't take" and invites the retry that races the first.
-    for (const confirm of screen.getAllByRole("button", { name: /^Unmap$/ })) {
-      expect(confirm).toBeDisabled();
+    // The row's own verbs did not start this write, so they are simply not
+    // available while it is out.
+    for (const verb of [/^Change/, /^Unmap$/]) {
+      expect(
+        within(screen.getByRole("list")).getByRole("button", { name: verb }),
+      ).toBeDisabled();
     }
+    // The confirm the admin already accepted refuses the second press too — a
+    // re-armed button reads as "that didn't take" and invites the retry that
+    // races the first — but it refuses it as BUSY rather than as unavailable,
+    // so the admin keeps focus on the control they just pressed.
+    const confirm = within(screen.getByRole("dialog")).getByRole("button", {
+      name: /^Unmap$/,
+    });
+    expect(confirm).not.toBeDisabled();
+    expect(confirm).toHaveAttribute("aria-disabled", "true");
+    expect(confirm).toHaveAttribute("aria-busy", "true");
   });
 
   // The refusal is one the server genuinely produces: a disconnect that

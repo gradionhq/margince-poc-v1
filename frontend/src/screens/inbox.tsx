@@ -710,29 +710,53 @@ export function ApprovalRow({
               </Field>
             ))}
             <div className="approval-gate">
-              <Button variant="primary" small onClick={approveEdited}>
+              {/* The edited approve is the same write as the plain one and was
+                  the one path with no gate at all, so a second press sent a
+                  second verdict. */}
+              <Button
+                variant="primary"
+                small
+                pending={decide.isPending}
+                onClick={approveEdited}
+              >
                 {t("inbox.approveEdited")}
               </Button>
-              <Button small onClick={() => setEditing(false)}>
+              <Button
+                small
+                disabled={decide.isPending}
+                onClick={() => setEditing(false)}
+              >
                 {t("deals.cancel")}
               </Button>
             </div>
           </div>
         ) : (
           <div className="approval-gate">
+            {/* Accept is the control that STARTED the write, so it is the one
+                that goes busy: it keeps the reader's focus and says a verdict
+                is on its way. */}
             <Button
               variant="primary"
               small
-              disabled={decide.isPending}
+              pending={decide.isPending}
               onClick={() => decide.mutate({ verdict: "approve" })}
             >
               {t("trust.accept")}
             </Button>
             {strings.length > 0 && (
-              <Button small onClick={startEdit}>
+              // Disabled with Reject, and for a sharper reason than symmetry:
+              // this opens an editor whose own Cancel is disabled while the
+              // verdict is out, so a press here during the write left the
+              // reader inside a form they could not leave until the request
+              // came back.
+              <Button small disabled={decide.isPending} onClick={startEdit}>
                 {t("trust.edit")}
               </Button>
             )}
+            {/* Reject stays `disabled`, and the difference is the whole point of
+                having two props: it did not start anything, it is simply not
+                available while a verdict is in flight. Drawing it busy would
+                claim a rejection nobody sent. */}
             <Button
               small
               disabled={decide.isPending}
