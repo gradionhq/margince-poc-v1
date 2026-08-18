@@ -3018,6 +3018,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/{id}/promote-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * What promoting this lead would do — merge into an existing person, or create one.
+         * @description Runs the same dedupe ladder POST /leads/{id}/promote would run, WITHOUT writing
+         *     anything, so the confirm step can name the outcome instead of surprising the rep
+         *     with it (ADR-0119/A170: which happened is the difference between "my prospect is
+         *     now a contact" and "my prospect was already someone we knew").
+         *
+         *     **This returns a record, so it is a read and carries the row-scope gate.** When the
+         *     matched person is outside the caller's row scope the response still says `merge` —
+         *     the outcome is a fact about the lead — but omits `person` and sets
+         *     `person_withheld: true`. An absent `person` therefore means "not visible to you",
+         *     never "no match": a caller must not read the omission as `create`.
+         */
+        get: operations["previewLeadPromotion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/leads/{id}/demote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reverse a promotion (formulas §26) — the audited undo ADR-0008 §4 promises.
+         * @description The documented reverse of POST /leads/{id}/promote, deterministic and conservative:
+         *     it **blocks rather than orphans**.
+         *
+         *     - The person owns any deal ⇒ **422 `person_has_deal`**; the person stays a person.
+         *       A deal attaches to a person by ADR-0008 §5, and un-personing it would strand the
+         *       deal's counterparty.
+         *     - Original outcome `created` ⇒ `unwind='reversed'`: the lead un-archives to
+         *       `status=working` and the created person is archived. **Activities captured after
+         *       promotion stay on the person's timeline** — they are real history, not something
+         *       to rewrite backwards.
+         *     - Original outcome `merged` ⇒ `unwind='merge_lineage_only'`: the pre-existing person
+         *       is **untouched** and only the lineage pointers are nulled. A field-level un-merge
+         *       is never attempted, because it is lossy and ambiguous.
+         *
+         *     The original outcome is read from the promotion's audit row (which records
+         *     `dedupe_outcome`), not re-derived — re-running the ladder would answer about today's
+         *     data rather than what actually happened. Emits `lead.demoted`. Demoting an
+         *     already-demoted lead is a no-op **409**.
+         */
+        post: operations["demoteLead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/leads/{id}/score": {
         parameters: {
             query?: never;
@@ -13711,6 +13783,43 @@ export interface components {
             /** Format: uuid */
             lead_id?: string;
         };
+        /** @description What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170). */
+        PromoteLeadPreview: {
+            /**
+             * @description merge = an existing live person matches this lead's email and promotion would fold into it; create = promotion would make a new person.
+             * @enum {string}
+             */
+            outcome: "create" | "merge";
+            person?: components["schemas"]["Person"];
+            /**
+             * @description True when `outcome` is `merge` but the matched person lies outside the caller's
+             *     row scope, so `person` is omitted. **An absent `person` never means "no match"**
+             *     — a caller that reads the omission as `create` would tell the rep a duplicate is
+             *     about to be created when the opposite is true.
+             * @default false
+             */
+            person_withheld: boolean;
+        };
+        DemoteLeadRequest: {
+            /** @description Why the promotion is being reversed. Required and recorded in audit — an undo nobody explained is indistinguishable later from a mistake. */
+            reason: string;
+        };
+        DemoteLeadResponse: {
+            lead: components["schemas"]["Lead"];
+            /**
+             * @description `reversed` — the promotion had created a person, which is now archived and the
+             *     lead restored to `working`. `merge_lineage_only` — the promotion had merged into
+             *     a pre-existing person, which is left untouched; only the lineage pointers are
+             *     nulled (formulas §26).
+             * @enum {string}
+             */
+            unwind: "reversed" | "merge_lineage_only";
+            /**
+             * Format: uuid
+             * @description The person the promotion had produced or merged into.
+             */
+            person_id?: string | null;
+        };
         LeadListResponse: {
             data: components["schemas"]["Lead"][];
             page: components["schemas"]["PageInfo"];
@@ -22809,6 +22918,8 @@ export interface operations {
                 ai_written?: components["parameters"]["AiWritten"];
                 status?: "new" | "working" | "promoted" | "disqualified";
                 owner_id?: string;
+                /** @description Filter by capture source (inbound, webform, referral, import, crawl, manual, ...). */
+                source?: string;
                 /** @description Triage by score. */
                 min_score?: number;
                 q?: string;
@@ -23064,6 +23175,105 @@ export interface operations {
                 };
             };
             /** @description Trigger not allowed (e.g. cold-outbound-no-reply does not promote). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    previewLeadPromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The outcome promotion would take, and the person it would merge into when visible. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromoteLeadPreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Lead already promoted or disqualified — nothing to preview. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    demoteLead: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DemoteLeadRequest"];
+            };
+        };
+        responses: {
+            /** @description The restored lead and what the reversal did. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoteLeadResponse"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Lead was never promoted, or has already been demoted. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description The promoted person owns a deal — the reversal is refused rather than orphaning it. */
             422: {
                 headers: {
                     [name: string]: unknown;

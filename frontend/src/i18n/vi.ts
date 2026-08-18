@@ -1298,6 +1298,17 @@ export const vi = {
   "lead.promotedAt": "Đã chuyển",
   "lead.promotedTrigger": "Tác nhân:",
   "lead.promotedEvidence": "Bằng chứng:",
+  "lead.previewPending": "Đang kiểm tra xem chúng ta đã biết người này chưa…",
+  "lead.previewCreate": "Việc chuyển sẽ tạo một liên hệ mới.",
+  "lead.previewMerge": "Việc chuyển sẽ gộp vào liên hệ hiện có",
+  "lead.previewMergeWithheld":
+    "Việc chuyển sẽ gộp vào một liên hệ hiện có mà bạn không xem được.",
+  "lead.demote": "Hoàn tác chuyển đổi",
+  "lead.demoteDialog": "Hoàn tác việc chuyển đổi này?",
+  "lead.demoteExplain":
+    "Lead quay lại hàng đợi ở trạng thái “Đang xử lý”. Liên hệ do việc chuyển tạo ra sẽ được lưu trữ; liên hệ đã được gộp vào giữ nguyên. Không thể hoàn tác với liên hệ đang gắn với một deal.",
+  "lead.demoteReason": "Lý do (được ghi vào nhật ký)",
+  "lead.demoteConfirm": "Hoàn tác",
   "lead.promotedOutcomePending": "Đang đọc kết quả của lần chuyển này…",
   "lead.promotedOutcomeUnavailable":
     "Không thể hiển thị việc này đã gộp hay tạo liên hệ mới.",
