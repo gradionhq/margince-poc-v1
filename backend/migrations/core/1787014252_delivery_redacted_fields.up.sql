@@ -1,4 +1,4 @@
--- 0293: the delivery row can say which of its fields an erasure emptied
+-- The delivery row can say which of its fields an erasure emptied
 -- (A167/ADR-0116 §4-5).
 --
 -- comms_outbound stores an outbound message's recipients, subject and body a

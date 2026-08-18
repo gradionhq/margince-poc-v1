@@ -98,6 +98,7 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // Field labels where the English word is also the Vietnamese usage.
   "people.email",
   "create.email",
+  "restricted.kind.email",
   "auth.email",
   "person.identity.email",
   "person.action.email",
