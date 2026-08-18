@@ -308,6 +308,18 @@ export function PipelineBoard({
                   })}
                 </span>
               )}
+              {/* A refused sum SAYS it was refused. Omitting the figure and
+                  leaving the count alone is a blank where a total belongs, and a
+                  blank cannot distinguish "these are in two currencies, so no
+                  one total means anything" from "nobody has priced these" — a
+                  column that has both a real reason and no words for it reads as
+                  a column that failed to load. On a board whose stages hold
+                  euros, dollars and dong, five of six columns are this state. */}
+              {money && column.sumHidden && (
+                <span className="board-col-weighted">
+                  {t("board.mixedCurrencies")}
+                </span>
+              )}
             </div>
             {column.deals.map((deal) =>
               renderCard ? (

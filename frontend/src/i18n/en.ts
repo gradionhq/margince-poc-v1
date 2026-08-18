@@ -189,6 +189,7 @@ export const en = {
   "brief.nothingSent": "Nothing sent yet",
   "board.count": "{count} deals",
   "board.weighted": "weighted {value}",
+  "board.mixedCurrencies": "several currencies — no single total",
   "deal.stalled": "stalled",
   "deal.singleThreaded": "single-threaded",
   "deal.staged": "staged",

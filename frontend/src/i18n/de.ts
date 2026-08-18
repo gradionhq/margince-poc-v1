@@ -179,6 +179,7 @@ export const de = {
   "brief.nothingSent": "Noch nichts versendet",
   "board.count": "{count} Deals",
   "board.weighted": "gewichtet {value}",
+  "board.mixedCurrencies": "mehrere Währungen — keine Gesamtsumme",
   "deal.stalled": "stockt",
   "deal.archived": "archiviert",
   "deal.singleThreaded": "nur ein Kontakt",

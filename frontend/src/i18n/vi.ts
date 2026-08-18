@@ -187,6 +187,7 @@ export const vi = {
   "brief.nothingSent": "Chưa gửi gì",
   "board.count": "{count} deal",
   "board.weighted": "trọng số {value}",
+  "board.mixedCurrencies": "nhiều loại tiền tệ — không có tổng chung",
   "deal.stalled": "đình trệ",
   "deal.singleThreaded": "chỉ một đầu mối",
   "deal.staged": "chờ duyệt",

@@ -126,6 +126,32 @@ describe("DealCard + PipelineBoard", () => {
     expect(screen.queryByText("1 deals")).toBeNull();
   });
 
+  // A refused sum says it was refused. Dropping the figure and leaving the count
+  // alone is a blank where a total belongs, and a blank cannot tell "these are in
+  // several currencies, so no one total means anything" apart from "nobody has
+  // priced these" — which reads as a column that failed to load. On a board whose
+  // stages hold euros, dollars and dong, most columns are in this state.
+  it("says why a mixed-currency column shows no total", () => {
+    const column: BoardMoneyColumn = {
+      stage: "won",
+      label: "Won",
+      probabilityPct: 100,
+      rawMinor: null,
+      weightedMinor: null,
+      currency: null,
+      deals: [deal],
+      count: 29,
+      sumHidden: true,
+    };
+    render(<PipelineBoard columns={[column]} />);
+    expect(
+      screen.getByText("several currencies — no single total"),
+    ).toBeTruthy();
+    // The count is a fact and stays; no money figure is invented beside it.
+    expect(screen.getByText("29 deals")).toBeTruthy();
+    expect(screen.queryByText(/weighted/)).toBeNull();
+  });
+
   // A money figure is an amount AND its currency. Either half absent leaves no
   // figure to draw, and both substitutes state something false: a zero is an
   // amount the server never sent, and a currency sign the card chose cannot be
