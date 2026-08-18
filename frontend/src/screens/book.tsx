@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { api } from "../api/client";
 import {
   Button,
+  Card,
   SectionHeader,
   SegmentedControl,
   TextInput,
@@ -142,13 +143,13 @@ function SessionBookingScreen() {
         </p>
       )}
       {book.isSuccess ? (
-        <div className="card">
+        <Card as="div">
           <p className="t-label">{t("book.confirmed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {book.data.occurred_at &&
               formatDateTime(book.data.occurred_at, locale, "Europe/Berlin")}
           </p>
-        </div>
+        </Card>
       ) : (
         <QueryGate
           query={availability}
@@ -171,12 +172,12 @@ function SessionBookingScreen() {
         </QueryGate>
       )}
       {book.isError && (
-        <div className="card card-inset" style={{ marginTop: 12 }}>
+        <Card as="div" inset style={{ marginTop: 12 }}>
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {problemMessageOf(book.error, t)}
           </p>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -304,12 +305,12 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         <span data-consent-wording>{consentWording}</span>
       </label>
       {book.isSuccess ? (
-        <div className="card">
+        <Card as="div">
           <p className="t-label">{t("book.confirmed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {formatDateTime(book.data.start, locale, "Europe/Berlin")}
           </p>
-        </div>
+        </Card>
       ) : (
         <QueryGate
           query={availability}
@@ -332,12 +333,12 @@ function PublicBookingScreen({ hostSlug }: Readonly<{ hostSlug: string }>) {
         </QueryGate>
       )}
       {book.isError && (
-        <div className="card card-inset" style={{ marginTop: 12 }}>
+        <Card as="div" inset style={{ marginTop: 12 }}>
           <p className="t-label">{t("book.failed")}</p>
           <p className="t-caption" style={{ marginTop: 4 }}>
             {problemMessageOf(book.error, t)}
           </p>
-        </div>
+        </Card>
       )}
     </div>
   );

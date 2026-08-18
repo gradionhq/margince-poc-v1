@@ -215,12 +215,12 @@ function ConsentSelector({
       <p>{t("consent.asks", { client: data.client_name })}</p>
       <RedirectDisclosure redirectURI={params.get("redirect_uri") ?? ""} />
       {errorCode === "unlendable_passport" && (
-        <div className="card card-inset">
+        <Card as="div" inset>
           <strong>{t("consent.unlendableTitle")}</strong>
           <p className="t-small">
             {t("consent.unlendableBody", { client: data.client_name })}
           </p>
-        </div>
+        </Card>
       )}
       <p>{t("consent.lend")}</p>
       <PassportSelect

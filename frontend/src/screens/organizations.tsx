@@ -2797,9 +2797,9 @@ function CompanyTasksTab({
   const t = useT();
   if (!view && !failed) {
     return (
-      <section className="card co-card">
+      <Card className="co-card">
         <Skeleton width="100%" height={96} />
-      </section>
+      </Card>
     );
   }
   if (!view) {

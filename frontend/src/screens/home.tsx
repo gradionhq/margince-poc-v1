@@ -289,9 +289,13 @@ function BriefItemCard({ item }: Readonly<{ item: MorningBriefItem }>) {
     item.state === "acted" ? "home.actedState" : "home.dismissedState";
 
   return (
-    <article
-      className={`card brief-deal ${settled ? "settled" : ""}`}
-      data-brief-item={item.id}
+    // `data-brief-item` was on this row and nothing read it — no test, no story,
+    // no spec, no stylesheet. It survives as the card's testId, which is the one
+    // per-row hook this primitive forwards.
+    <Card
+      as="article"
+      className={`brief-deal ${settled ? "settled" : ""}`}
+      testId={`brief-item-${item.id}`}
     >
       <div className="brief-deal-head">
         <span className="brief-rank">#{item.rank}</span>
@@ -347,7 +351,7 @@ function BriefItemCard({ item }: Readonly<{ item: MorningBriefItem }>) {
           {problemMessageOf(mark.error, t)}
         </p>
       )}
-    </article>
+    </Card>
   );
 }
 

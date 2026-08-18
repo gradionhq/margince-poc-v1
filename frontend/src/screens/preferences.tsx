@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import { Button, EmptyState, Skeleton } from "../design-system/atoms";
+import { Button, Card, EmptyState, Skeleton } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -314,7 +314,7 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
           ))}
         </ul>
 
-        <div className="card card-inset pref-unsub">
+        <Card as="div" inset className="pref-unsub">
           <p className="t-caption">{t("prefs.unsubscribeAllHint")}</p>
           <Button
             disabled={writePending}
@@ -327,10 +327,10 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
               {explainPublicError(unsubscribeAll.error, t)}
             </p>
           )}
-        </div>
+        </Card>
 
         {lastUnsubscribed !== null && (
-          <div className="card card-inset pref-unsub-banner">
+          <Card as="div" inset className="pref-unsub-banner">
             <p>
               {lastUnsubscribed.length > 0
                 ? t("prefs.oneClickDone")
@@ -344,13 +344,13 @@ function PreferenceCenterBody({ token }: Readonly<{ token: string }>) {
                   {t("prefs.undo")}
                 </Button>
               ))}
-          </div>
+          </Card>
         )}
 
         {partialSave && (
-          <div className="card card-inset pref-partial-banner">
+          <Card as="div" inset className="pref-partial-banner">
             <p>{t("prefs.partialSave")}</p>
-          </div>
+          </Card>
         )}
 
         {dirty.length > 0 && (

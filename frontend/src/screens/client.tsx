@@ -5,6 +5,7 @@ import { api } from "../api/client";
 import {
   Badge,
   Button,
+  Card,
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
@@ -65,7 +66,7 @@ export function ClientSurfaceScreen() {
         </div>
 
         {lookup.isSuccess && lookup.data.length > 0 && (
-          <section className="card" style={{ marginTop: 14 }}>
+          <Card style={{ marginTop: 14 }}>
             {lookup.data.map((hit) => (
               <div
                 key={hit.id}
@@ -80,11 +81,11 @@ export function ClientSurfaceScreen() {
                 </a>
               </div>
             ))}
-          </section>
+          </Card>
         )}
 
         {lookup.isSuccess && lookup.data.length === 0 && (
-          <section className="card card-inset" style={{ marginTop: 14 }}>
+          <Card inset style={{ marginTop: 14 }}>
             <p className="t-label">{t("client.unknown")}</p>
             <p className="t-caption" style={{ marginTop: 4 }}>
               {t("client.unknownDetail")}
@@ -96,7 +97,7 @@ export function ClientSurfaceScreen() {
             >
               {t("client.createLead")}
             </a>
-          </section>
+          </Card>
         )}
 
         {lookup.isError && (

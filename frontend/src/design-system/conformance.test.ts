@@ -315,6 +315,84 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
     expect(violations, violations.join("\n")).toEqual([]);
   });
 
+  // The card equivalent of the button rule above, and it exists for the same
+  // reason: `Card` owns five chrome values — elevated ground, a subtile border,
+  // the 12px radius, one padding, and the inset variant — and a surface that
+  // spells `card` by hand keeps whichever of the five were true the day it was
+  // written. Thirteen sites had drifted that way across the public booking page,
+  // the extension client, the preference centre, the OAuth consent screen, Home
+  // and one of two adjacent skeletons on the company record — where the OTHER
+  // skeleton, forty lines up, was a real Card.
+  //
+  // Narrow, so it states its own exception. It matches the `card` and
+  // `card-inset` BASE tokens only: a component class that merely contains the
+  // word (`auth-card`, `staging-card`, `digest-card`, `co-card`, `dedupe-card`)
+  // is a different surface, exactly as `iconbtn` is a different control. And it
+  // spares an element that declares a role `Card` cannot express: the component
+  // admits `role="status"` and nothing else, on purpose — a card must not be
+  // able to claim it is a modal — so a surface that has to announce itself as a
+  // `dialog` (app/fab.tsx's anchored panel) or a `note`
+  // (design-system/explain.tsx's popover) has no component to reach for. Both
+  // say so in-source where they do it.
+  it("renders every card through Card — no hand-rolled card classes", () => {
+    const violations: string[] = [];
+    for (const file of files) {
+      // atoms.tsx is Card's own file: it is where `card` is minted.
+      if (!file.endsWith(".tsx") || file.endsWith("design-system/atoms.tsx")) {
+        continue;
+      }
+      const source = ts.createSourceFile(
+        file,
+        readFileSync(file, "utf8"),
+        ts.ScriptTarget.ES2022,
+        true,
+        ts.ScriptKind.TSX,
+      );
+      const visit = (node: ts.Node) => {
+        if (ts.isJsxAttribute(node) && node.name.getText() === "className") {
+          const element = node.parent.parent;
+          const tag = element.tagName.getText();
+          const fragments: string[] = [];
+          const collect = (child: ts.Node) => {
+            if (
+              ts.isStringLiteral(child) ||
+              ts.isTemplateLiteralToken(child) ||
+              ts.isJsxText(child)
+            ) {
+              fragments.push(child.text);
+            }
+            ts.forEachChild(child, collect);
+          };
+          if (node.initializer) {
+            collect(node.initializer);
+          }
+          const handRolled = fragments.some((fragment) => {
+            const tokens = fragment.split(/\s+/);
+            return tokens.includes("card") || tokens.includes("card-inset");
+          });
+          const declaresOtherRole = node.parent.properties.some(
+            (property) =>
+              ts.isJsxAttribute(property) &&
+              property.name.getText() === "role" &&
+              property.initializer !== undefined &&
+              !property.initializer.getText().includes("status"),
+          );
+          if (handRolled && !declaresOtherRole) {
+            const { line } = source.getLineAndCharacterOfPosition(
+              node.getStart(),
+            );
+            violations.push(
+              `${relative(frontendRoot, file)}:${line + 1} <${tag}> spells the card class by hand — import Card from design-system/atoms`,
+            );
+          }
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+
   it("keeps literal colours in tokens.css only — everything else reads a token", () => {
     const literalColour = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch)\(/;
     for (const file of files) {
