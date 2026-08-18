@@ -1320,7 +1320,11 @@ export async function mockApi(
     if (path.startsWith("/reports/")) {
       return json({
         report: "deals-by-stage",
-        plan: { group_by: ["stage_id"] },
+        // The plan echoes what the CLIENT asked for, and the client groups money
+        // by currency. A plan naming one dimension while the rows carry two
+        // describes a request nobody made, and it would let a reader of this
+        // fixture believe a single-dimension total is what the screen receives.
+        plan: { group_by: ["stage_id", "currency"] },
         // The aliases are the REQUEST's, not this file's taste: the board asks
         // for `count as deals` and reads `row.deals`, so a row keyed
         // `deal_count` is a row it counts as nothing — every board column here
@@ -1348,6 +1352,17 @@ export async function mockApi(
             weighted_minor: 1_920_000,
             deals: 1,
             currency: "EUR",
+          },
+          // A SECOND currency in a stage that already has one, because that is
+          // the case the grouping exists for: the board must show this column's
+          // count and refuse its total, and a fixture with one currency per
+          // stage can never tell whether it does.
+          {
+            stage_id: "s2",
+            raw_minor: 22_000_000_000,
+            weighted_minor: 8_800_000_000,
+            deals: 1,
+            currency: "VND",
           },
         ],
       });

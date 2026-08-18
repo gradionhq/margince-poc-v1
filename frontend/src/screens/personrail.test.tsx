@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { meFixture } from "../app/mefixture";
 import { LocaleProvider } from "../i18n";
@@ -28,8 +28,15 @@ const page = { has_more: false, next_cursor: null };
 // Timestamps are stated as an age rather than as a date: the readings are
 // derived from the distance to now, so a fixed date would assert a different
 // number of days on every day the suite runs.
+//
+// "Now" is PINNED rather than read from the host clock. Ages derived from a
+// moving now make the expected reading depend on the moment the suite runs —
+// including on the midnight boundary, where the same fixture is 3 days old
+// before and 4 days old after.
+const NOW = new Date("2026-08-18T09:00:00Z");
+
 function daysAgo(days: number): string {
-  return new Date(Date.now() - days * 86_400_000).toISOString();
+  return new Date(NOW.getTime() - days * 86_400_000).toISOString();
 }
 
 const person: components["schemas"]["Person"] = {
@@ -180,7 +187,13 @@ function mount(view: Person360) {
   );
 }
 
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  vi.setSystemTime(NOW);
+});
+
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
 });

@@ -90,7 +90,12 @@ const REPORT_GROUP_BY: Record<ReportKey, string[]> = {
 // These keep the narrowing in one place, and keep the distinction the cells
 // depend on: an absent measure is not a zero, and an absent currency is not EUR.
 function rowCurrency(row: ReportRow): string | null {
-  return typeof row.currency === "string" ? row.currency : null;
+  // An empty code is not a currency. Left as "" it renders a blank cell where a
+  // code belongs, and it groups apart from null while meaning the same thing —
+  // which would give the forecast two bands with the same key.
+  return typeof row.currency === "string" && row.currency !== ""
+    ? row.currency
+    : null;
 }
 
 function rowMoney(row: ReportRow, key: string): number | null {

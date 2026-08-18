@@ -159,7 +159,7 @@ function sourceFiles(dir: string): string[] {
  * `METHOD /path` when this node is an `api.<METHOD>("<literal>", …)` call that
  * spreads no `ifMatch(…)` into its parameters, and null otherwise.
  */
-function calledEndpoint(node: ts.Node, source: ts.SourceFile): string | null {
+function calledEndpoint(node: ts.Node): string | null {
   if (!ts.isCallExpression(node) || node.arguments.length === 0) {
     return null;
   }
@@ -179,9 +179,56 @@ function calledEndpoint(node: ts.Node, source: ts.SourceFile): string | null {
   ) {
     return null;
   }
-  return /\bifMatch\(/.test(node.getText(source))
+  return spreadsPrecondition(node.arguments[1])
     ? null
     : `${method.toUpperCase()} ${path.text}`;
+}
+
+/**
+ * Whether a call's options object spreads a precondition into `params`.
+ *
+ * Read off the AST rather than the call's TEXT. The text of a whole call
+ * includes its comments, its string literals and its whole `body` expression,
+ * so any of those mentioning `ifMatch(` would satisfy a regex and hide a write
+ * that sends no header at all — a gate that can be silenced by a comment is not
+ * a gate.
+ *
+ * The spread's expression is SEARCHED rather than required to be the call
+ * itself, because one legitimate caller decides between a precondition and none
+ * at the spread (the partner upsert, whose create arm has no prior row to pin).
+ * Requiring a bare `ifMatch(...)` would report that deliberate branch as a
+ * defect and push the next author to flatten it.
+ */
+function spreadsPrecondition(options: ts.Expression | undefined): boolean {
+  if (options === undefined || !ts.isObjectLiteralExpression(options)) {
+    return false;
+  }
+  const params = options.properties.find(
+    (property): property is ts.PropertyAssignment =>
+      ts.isPropertyAssignment(property) && property.name.getText() === "params",
+  );
+  if (
+    params === undefined ||
+    !ts.isObjectLiteralExpression(params.initializer)
+  ) {
+    return false;
+  }
+  return params.initializer.properties.some(
+    (property) =>
+      ts.isSpreadAssignment(property) && callsIfMatch(property.expression),
+  );
+}
+
+/** Whether an expression contains a call to `ifMatch`. */
+function callsIfMatch(node: ts.Node): boolean {
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "ifMatch"
+  ) {
+    return true;
+  }
+  return node.getChildren().some(callsIfMatch);
 }
 
 /** `<file> METHOD /path` for every call in one file that sends no precondition. */
@@ -195,7 +242,7 @@ function unpinnedIn(file: string, conditional: ReadonlySet<string>): string[] {
   );
   const found: string[] = [];
   const visit = (node: ts.Node) => {
-    const endpoint = calledEndpoint(node, source);
+    const endpoint = calledEndpoint(node);
     if (endpoint && conditional.has(endpoint)) {
       found.push(`${relative(srcRoot, file)} ${endpoint}`);
     }

@@ -47,7 +47,7 @@ function deal(overrides: Partial<Deal>): Deal {
     created_at: "2026-06-01T00:00:00Z",
     updated_at: "2026-06-01T00:00:00Z",
     ...overrides,
-  } as Deal;
+  };
 }
 
 describe("buildStageTotals with money the report did not state", () => {
@@ -226,7 +226,9 @@ describe("an offer cannot be created in a currency nobody chose", () => {
     const button = screen.getByRole("button", { name: "New offer" });
     // Button's own refusal contract: `reason` disables the control and adds the
     // explanation to aria-describedby.
-    expect((button as HTMLButtonElement).disabled).toBe(true);
+    // The native attribute rather than a jest-dom matcher: this suite registers
+    // none, and the attribute IS Button's refusal contract.
+    expect(button.hasAttribute("disabled")).toBe(true);
     const describedBy = button.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
     expect(

@@ -1561,7 +1561,10 @@ function DealBadges({
             orgs,
             me: meId,
             currentOwner: deal.owner_id ?? null,
-            currency: deal.currency ?? "EUR",
+            // EMPTY, not a default. `dealEditFields` only uses this to put the
+            // record's own currency at the head of the option list, and a deal
+            // nobody has priced has none to put there.
+            currency: deal.currency ?? "",
           }),
           ...cf.formFields,
         ]}
@@ -1571,7 +1574,13 @@ function DealBadges({
           name: deal.name,
           amount:
             deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
-          currency: deal.currency ?? "EUR",
+          // A currency the FORM chose is a currency the SAVE writes: mapDealUpdate
+          // sends whatever this holds, so seeding it with a default made an
+          // unpriced deal acquire one the moment a reader edited its name. The
+          // amount is already sent as null in that case, and the two columns are
+          // paired by CHECK, so the invented currency did not merely mislabel the
+          // record — it made an innocent rename fail.
+          currency: deal.currency ?? "",
           owner_id: deal.owner_id ?? "",
           organization_id: deal.organization_id ?? "",
           partner_org_id: deal.partner_org_id ?? "",
@@ -1734,12 +1743,12 @@ export function OffersPanel({
           // `reason` disables the control AND points at the explanation. Passing
           // `disabled` beside it would cancel the refusal it sets, so the
           // in-flight case stays on `disabled` and the state case on `reason`.
-          disabled={dealCurrency !== null && creating}
-          reason={
-            dealCurrency === null ? t("deal.offerNeedsCurrency") : undefined
-          }
+          // An empty code is as absent as a null one — `formatMoneyOrAbsent`
+          // already treats it that way, and Intl throws on it.
+          disabled={Boolean(dealCurrency) && creating}
+          reason={dealCurrency ? undefined : t("deal.offerNeedsCurrency")}
           onClick={() => {
-            if (dealCurrency !== null) {
+            if (dealCurrency) {
               onCreate(dealCurrency);
             }
           }}

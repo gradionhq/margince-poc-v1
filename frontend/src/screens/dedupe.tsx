@@ -29,9 +29,14 @@ const SIGNAL_KEYS = {
 } as const satisfies Record<string, MessageKey>;
 
 function signalWord(signal: string, t: ReturnType<typeof useT>): string {
-  return signal in SIGNAL_KEYS
-    ? t(SIGNAL_KEYS[signal as keyof typeof SIGNAL_KEYS])
-    : signal;
+  // OWN keys only. `in` walks the prototype chain, so a wire value of
+  // "toString" or "constructor" would answer true and hand `t()` an inherited
+  // function instead of a message key. The signal is a plain string on the
+  // wire, not a closed enum, so that is a value the server can actually send.
+  const key = Object.hasOwn(SIGNAL_KEYS, signal)
+    ? SIGNAL_KEYS[signal as keyof typeof SIGNAL_KEYS]
+    : undefined;
+  return typeof key === "string" ? t(key) : signal;
 }
 
 const queueKey = ["dedupe-candidates"];
