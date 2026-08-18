@@ -36,20 +36,21 @@ func (h Handlers) ListRestrictedActivities(w http.ResponseWriter, r *http.Reques
 	httperr.WriteJSON(w, http.StatusOK, resp)
 }
 
+// qualifyingDealWire is the generated RestrictedRecord.Deals item shape,
+// named once so the mapping below reads as a mapping.
+type qualifyingDealWire = struct {
+	Id   openapi_types.UUID `json:"id"` //nolint:staticcheck // matches the generated RestrictedRecord.Deals item shape
+	Name string             `json:"name"`
+}
+
 // restrictedRecordToWire states the obligation as class plus statute — never
 // free text from a user — and names the deals the evidence froze. The
 // redacted-field list is always present, empty meaning "nothing was removed",
 // which is a real state and not an unknown.
 func restrictedRecordToWire(record RestrictedRecord) crmcontracts.RestrictedRecord {
-	deals := make([]struct {
-		Id   openapi_types.UUID `json:"id"`
-		Name string             `json:"name"`
-	}, 0, len(record.Deals))
+	deals := make([]qualifyingDealWire, 0, len(record.Deals))
 	for _, deal := range record.Deals {
-		deals = append(deals, struct {
-			Id   openapi_types.UUID `json:"id"`
-			Name string             `json:"name"`
-		}{Id: openapi_types.UUID(deal.ID), Name: deal.Name})
+		deals = append(deals, qualifyingDealWire{Id: openapi_types.UUID(deal.ID), Name: deal.Name})
 	}
 	redacted := record.RedactedFields
 	if redacted == nil {

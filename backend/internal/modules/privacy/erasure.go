@@ -42,6 +42,10 @@ const actionErase = "erase"
 // retention action ran; one spelling across every sweep.
 const evidenceKeyRetentionAction = "retention_action"
 
+// evidenceKeyCause is the audit-evidence key naming what set a scrub, a
+// restriction or an expiry in motion (person_erasure, restriction_expired).
+const evidenceKeyCause = "cause"
+
 // Eraser executes the shared erase path both the DSR surface and the
 // retention engine's 'erase' action ride.
 type Eraser struct {
@@ -421,7 +425,7 @@ func deletePreferenceToken(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string, records []ids.UUID, reason string) error {
 	for _, id := range records {
 		if _, err := storekit.AuditWithEvidence(ctx, tx, actionErase, entityType, id, nil, nil, map[string]any{
-			"reason": reason, "cause": "person_erasure",
+			"reason": reason, evidenceKeyCause: "person_erasure",
 		}); err != nil {
 			return fmt.Errorf("tombstoning scrubbed %s: %w", entityType, err)
 		}
