@@ -39,12 +39,16 @@ type jobHealthDTO struct {
 		OldestWaitingAgeSeconds *int   `json:"oldest_waiting_age_seconds"`
 	} `json:"kinds"`
 	RecentFailures []struct {
-		Kind        string `json:"kind"`
-		State       string `json:"state"`
-		Attempt     int    `json:"attempt"`
-		MaxAttempts int    `json:"max_attempts"`
-		FailedAt    string `json:"failed_at"`
-		Reason      string `json:"reason"`
+		Kind          string  `json:"kind"`
+		State         string  `json:"state"`
+		Attempt       int     `json:"attempt"`
+		MaxAttempts   int     `json:"max_attempts"`
+		FailedAt      string  `json:"failed_at"`
+		Reason        string  `json:"reason"`
+		JobID         *int64  `json:"job_id"`
+		FirstFailedAt *string `json:"first_failed_at"`
+		FailureClass  *string `json:"failure_class"`
+		Remedy        *string `json:"remedy"`
 	} `json:"recent_failures"`
 }
 
@@ -58,6 +62,11 @@ type riverRow struct {
 	attempt   int
 	errorText string // the newest attempt's stored message; empty writes no errors
 	trace     string // a panic stack, so a test can prove it never travels
+	// firstErrorAt, when set, prepends an EARLIER attempt error stamped at
+	// that moment. It exists because errors is append-ordered and the read
+	// takes its "failing since" from element 1 — a fixture with a single
+	// element cannot tell a correct read from one that took the newest.
+	firstErrorAt time.Time
 }
 
 // seedRiverRow writes one row through the OWNER connection: river_job has
@@ -81,15 +90,13 @@ func seedRiverRow(t *testing.T, e *apptest.AppEnv, r riverRow) {
 	}
 
 	encodedErrors := [][]byte{}
+	if !r.firstErrorAt.IsZero() {
+		encodedErrors = append(encodedErrors,
+			encodeAttemptError(t, r.firstErrorAt, 1, r.errorText, r.trace))
+	}
 	if r.errorText != "" {
-		element, err := json.Marshal(map[string]any{
-			"at": time.Now().UTC().Format(time.RFC3339Nano), "attempt": r.attempt,
-			"error": r.errorText, "trace": r.trace,
-		})
-		if err != nil {
-			t.Fatalf("encoding fixture attempt error: %v", err)
-		}
-		encodedErrors = append(encodedErrors, element)
+		encodedErrors = append(encodedErrors,
+			encodeAttemptError(t, time.Now().UTC(), r.attempt, r.errorText, r.trace))
 	}
 
 	// river_job's finalized_or_finalized_at_null CHECK refuses a finalized
@@ -110,6 +117,21 @@ func seedRiverRow(t *testing.T, e *apptest.AppEnv, r riverRow) {
 		r.state, r.kind, queue, encodedArgs, encodedErrors, r.attempt, finalizedAt); err != nil {
 		t.Fatalf("seeding a %s %s row: %v", r.state, r.kind, err)
 	}
+}
+
+// encodeAttemptError writes one element of river_job.errors in River's own
+// AttemptError shape, so the read under test parses what production parses
+// rather than what a fixture found convenient.
+func encodeAttemptError(t *testing.T, at time.Time, attempt int, text, trace string) []byte {
+	t.Helper()
+	element, err := json.Marshal(map[string]any{
+		"at": at.UTC().Format(time.RFC3339Nano), "attempt": attempt,
+		"error": text, "trace": trace,
+	})
+	if err != nil {
+		t.Fatalf("encoding fixture attempt error: %v", err)
+	}
+	return element
 }
 
 // callerWorkspace answers the id of the workspace the bootstrapped admin
@@ -526,5 +548,168 @@ func TestJobHealthRefusesAnUnauthenticatedCallOverHTTP(t *testing.T) {
 	status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &problem)
 	if status != http.StatusUnauthorized {
 		t.Errorf("unauthenticated GET /admin/job-health → %d, want 401", status)
+	}
+}
+
+// failureOf finds one reported failure by kind, and says so when it is absent —
+// an assertion loop that never enters its arm reports green on a dropped row.
+func failureOf(t *testing.T, report jobHealthDTO, kind string) int {
+	t.Helper()
+	for i, f := range report.RecentFailures {
+		if f.Kind == kind {
+			return i
+		}
+	}
+	t.Fatalf("no failure of kind %s in %+v", kind, report.RecentFailures)
+	return 0
+}
+
+// TestJobHealthNamesTheRowItIsTalkingAboutAndWhenItFirstFailed — the surface
+// told an operator to read the process log while naming no line to find. River
+// logs job_id, and every psql follow-up is keyed by it, so the id is what makes
+// the rest of the row actionable. "Failing since 21:08" is the other half: the
+// attempt counter says which rung of the ladder the job is on, never how long it
+// has been on it.
+func TestJobHealthNamesTheRowItIsTalkingAboutAndWhenItFirstFailed(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	mine := callerWorkspace(t, e)
+	firstFailure := time.Now().UTC().Add(-40 * time.Minute)
+
+	seedRiverRow(t, e, riverRow{
+		kind: "twice_failed_pass", state: "retryable", workspace: mine, attempt: 2,
+		errorText: "the record this job names no longer exists", firstErrorAt: firstFailure,
+	})
+
+	var report jobHealthDTO
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("GET /admin/job-health → %d, want 200", status)
+	}
+	failure := report.RecentFailures[failureOf(t, report, "twice_failed_pass")]
+
+	// The id is compared against the row's OWN id, not merely asserted
+	// non-zero: a mapping that carried the attempt count or an array index
+	// would satisfy "present" while naming a line that does not exist.
+	var stored int64
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT id FROM river_job WHERE kind = 'twice_failed_pass'`).Scan(&stored); err != nil {
+		t.Fatalf("reading the fixture row's id: %v", err)
+	}
+	if failure.JobID == nil {
+		t.Fatal("job_id is absent; the failure names no row, so the process log it points at names no line")
+	}
+	if *failure.JobID != stored {
+		t.Errorf("job_id = %d, want river_job.id %d", *failure.JobID, stored)
+	}
+
+	if failure.FirstFailedAt == nil {
+		t.Fatal("first_failed_at is absent for a row that recorded two attempt errors")
+	}
+	firstAt := parseFailedAt(t, *failure.FirstFailedAt)
+	// Within a minute of the seeded moment, and materially BEFORE the latest
+	// failure: a read that took the newest element instead of the first would
+	// report the two as the same instant.
+	if firstAt.Sub(firstFailure).Abs() > time.Minute {
+		t.Errorf("first_failed_at = %s, want the FIRST attempt error's own moment %s — errors is "+
+			"append-ordered, so element 1 is the oldest", firstAt, firstFailure)
+	}
+	if !firstAt.Before(parseFailedAt(t, failure.FailedAt).Add(-time.Minute)) {
+		t.Errorf("first_failed_at %s is not meaningfully before failed_at %s; the surface cannot "+
+			"tell failing-since from failed-once", firstAt, failure.FailedAt)
+	}
+}
+
+// TestJobHealthCarriesTheClassAndRemedyForAClassifiedFailure — a sentence alone
+// leaves an operator to decide whether to retry, wait, or go fix something. The
+// class is what an alert matches; the remedy is the half a failure list is
+// useless without.
+func TestJobHealthCarriesTheClassAndRemedyForAClassifiedFailure(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	mine := callerWorkspace(t, e)
+
+	seedRiverRow(t, e, riverRow{
+		kind: "classified_pass", state: "discarded", workspace: mine, attempt: 3,
+		errorText: "the record this job names no longer exists",
+	})
+	// A raw cause the surface cannot vet, and a cancelled row that recorded no
+	// cause at all: neither may be given a class, and inventing one would key
+	// an operator's alert on a guess.
+	seedRiverRow(t, e, riverRow{
+		kind: "unvetted_pass", state: "discarded", workspace: mine, attempt: 3,
+		errorText: `smtp: 550 5.1.1 <someone@example.com>: recipient rejected`,
+	})
+	seedRiverRow(t, e, riverRow{kind: "no_cause_pass", state: "cancelled", workspace: mine})
+
+	var report jobHealthDTO
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("GET /admin/job-health → %d, want 200", status)
+	}
+
+	classified := report.RecentFailures[failureOf(t, report, "classified_pass")]
+	if classified.FailureClass == nil || *classified.FailureClass != "record_gone" {
+		t.Errorf("failure_class = %v, want record_gone", classified.FailureClass)
+	}
+	if classified.Remedy == nil || *classified.Remedy == "" {
+		t.Error("a classified failure reached the wire with no remedy")
+	}
+
+	for _, kind := range []string{"unvetted_pass", "no_cause_pass"} {
+		unclassified := report.RecentFailures[failureOf(t, report, kind)]
+		if unclassified.FailureClass != nil || unclassified.Remedy != nil {
+			t.Errorf("%s was given class %v / remedy %v for text this surface could not vet",
+				kind, unclassified.FailureClass, unclassified.Remedy)
+		}
+		if unclassified.Reason == "" {
+			t.Errorf("%s carries no sentence at all", kind)
+		}
+	}
+
+	// A row with no attempt error has no first failure, and a zero time would
+	// render in a failure list as 1970.
+	if at := report.RecentFailures[failureOf(t, report, "no_cause_pass")].FirstFailedAt; at != nil {
+		t.Errorf("first_failed_at = %q for a row that recorded no attempt error at all", *at)
+	}
+}
+
+// TestJobHealthStillReportsARowWhoseFirstAttemptTimestampIsUnreadable — the
+// "at" key is app-written text in a column with no constraint on it, so it is
+// parsed rather than cast in SQL: a value River did not write must cost this row
+// its "failing since", never cost the whole read its answer. An operator whose
+// page 500s learns nothing about what died.
+func TestJobHealthStillReportsARowWhoseFirstAttemptTimestampIsUnreadable(t *testing.T) {
+	e := apptest.SetupApp(t)
+	e.BootstrapWorkspace(t)
+	mine := callerWorkspace(t, e)
+
+	seedRiverRow(t, e, riverRow{
+		kind: "unreadable_at_pass", state: "discarded", workspace: mine, attempt: 3,
+		errorText: "the record this job names no longer exists",
+	})
+	if _, err := e.Owner.Exec(context.Background(), `
+		UPDATE river_job
+		   SET errors = ARRAY['{"at": "the day before yesterday", "attempt": 1,
+		                       "error": "the record this job names no longer exists"}']::jsonb[]
+		 WHERE kind = 'unreadable_at_pass'`); err != nil {
+		t.Fatalf("rewriting the fixture row's attempt error: %v", err)
+	}
+
+	var report jobHealthDTO
+	if status := e.Call(t, "GET", "/v1/admin/job-health", nil, nil, &report); status != http.StatusOK {
+		t.Fatalf("GET /admin/job-health → %d, want 200: one unparseable timestamp must not "+
+			"fail the whole read", status)
+	}
+	failure := report.RecentFailures[failureOf(t, report, "unreadable_at_pass")]
+
+	if failure.FirstFailedAt != nil {
+		t.Errorf("first_failed_at = %q, want absent: the stored moment could not be read, and "+
+			"guessing one would date the failure wrongly", *failure.FirstFailedAt)
+	}
+	// The rest of the row is unaffected: what died, and which row to go look at.
+	if failure.FailureClass == nil || *failure.FailureClass != "record_gone" {
+		t.Errorf("failure_class = %v, want the row still classified", failure.FailureClass)
+	}
+	if failure.JobID == nil {
+		t.Error("job_id went absent with the timestamp; the two are independent facts")
 	}
 }

@@ -69,21 +69,54 @@ const unvettedFailureReason = "the job failed for a reason this surface cannot v
 // something unreadable, and the two must not render alike.
 const noRecordedCause = "this job recorded no cause; a job cancelled before it ran records none"
 
-// reasonFor renders a stored failure for a human.
+// renderedFailure is everything this surface is willing to SAY about one
+// stored failure: always a sentence, and a class plus a remedy only when the
+// stored text vetted.
+//
+// Class and Remedy are pointers and move together, because a class with no
+// remedy is a label an operator cannot act on and a remedy with no class is
+// advice about nothing. They are nil for the same failures — the ones this
+// surface could not recognise — and the contract says so.
+type renderedFailure struct {
+	Reason string
+	Class  *string
+	Remedy *string
+}
+
+// renderFailure renders a stored failure for a human.
 //
 // river_job.errors holds whatever the worker returned. jobs.Fault exists so
 // that is a vetted sentence — but a worker that bypassed it stored its raw
 // cause, which routinely names the address or record a provider refused. So
 // the column is checked, never trusted, and anything unrecognised becomes
-// the same fixed substitute.
-func reasonFor(stored string) string {
-	if stored == "" {
-		return noRecordedCause
+// the same fixed substitute with NO class: a class invented for text nobody
+// could vet would key an operator's alert on a guess, which is worse than
+// telling them plainly that the failure is unclassified.
+//
+// The KIND is what makes the class resolvable at all. A composed vocabulary
+// belongs to one unit's kinds, and two units may name a failure with the same
+// token — so the sentence alone is ambiguous and the kind is what disambiguates
+// it. Reading one kind's vocabulary for another's row would report a failure as
+// something it is not.
+func renderFailure(f jobs.Failure) renderedFailure {
+	// Nothing recorded is a different fact from something unreadable, and the
+	// two must not render alike — see noRecordedCause. It is checked here
+	// rather than left to the vetting, which cannot tell them apart either.
+	if f.StoredReason == "" {
+		return renderedFailure{Reason: noRecordedCause}
 	}
-	if jobs.VettedSentence(stored) {
-		return stored
+	if detail, ok := jobs.VettedFailure(f.Kind, f.StoredReason); ok {
+		return renderedFailure{Reason: detail.Sentence, Class: &detail.Class, Remedy: &detail.Remedy}
 	}
-	return unvettedFailureReason
+	// The fault seam's OWN unclassified sentence is vetted text that carries no
+	// class, and it survives on its own terms. Fault wrote it, and it wrote the
+	// log line it points at — so substituting it for the text below would trade
+	// a true pointer for a vaguer one. There is still no class to assert: an
+	// unclassified failure is precisely the one nobody has named yet.
+	if jobs.VettedSentence(f.StoredReason) {
+		return renderedFailure{Reason: f.StoredReason}
+	}
+	return renderedFailure{Reason: unvettedFailureReason}
 }
 
 // jobHealthReadTimeout bounds the scoped job read. river_job has no index
@@ -183,14 +216,23 @@ func jobHealthResponse(health jobs.Health) crmcontracts.JobHealth {
 
 	failures := make([]crmcontracts.JobFailure, 0, len(health.Failures))
 	for _, f := range health.Failures {
+		rendered := renderFailure(f)
 		failures = append(failures, crmcontracts.JobFailure{
 			Kind:        f.Kind,
 			State:       crmcontracts.JobFailureState(f.State),
 			Attempt:     f.Attempt,
 			MaxAttempts: f.MaxAttempts,
 			FailedAt:    f.FailedAt,
+			// The row's own id, so the process log this surface points at has a
+			// line an operator can actually find: River logs job_id.
+			JobId: &f.ID,
+			// Absent stays absent. A row with no recorded attempt error has no
+			// first failure, and a zero time would read as 1970.
+			FirstFailedAt: f.FirstFailedAt,
 			// The stored text is vetted, never forwarded.
-			Reason: reasonFor(f.StoredReason),
+			Reason:       rendered.Reason,
+			FailureClass: rendered.Class,
+			Remedy:       rendered.Remedy,
 		})
 	}
 

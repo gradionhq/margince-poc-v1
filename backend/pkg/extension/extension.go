@@ -294,6 +294,21 @@ type Extension struct {
 	// a shape check and a proof — not a hole a hostile unit is being trusted
 	// not to walk through, because such a unit has better roads.
 	Migrations fs.FS
+
+	// FailureClasses are the ways this unit's background jobs fail, named in
+	// the unit's own vocabulary, each with what an operator does about it.
+	//
+	// It exists because a job failure reaches a human through river_job.errors,
+	// which has no workspace and so no RLS — so the job layer persists only
+	// sentences from a closed vocabulary and substitutes everything else. A unit
+	// that declares its classes here gets its own classification into that
+	// vocabulary, and its jobs return extension.Failure to speak it.
+	//
+	// A unit that declares none is not degraded: its failures report exactly
+	// what they reported before this field existed. A class its jobs return but
+	// never declared is refused at boot, where the whole set can still be
+	// rejected together, rather than mid-tick.
+	FailureClasses []FailureClass
 }
 
 // MigrationsDir is the one spelling of the subdirectory a unit's

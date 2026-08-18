@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // Fault renders a worker's failure as a fixed operator sentence and keeps
@@ -49,6 +50,21 @@ func FaultContext(ctx context.Context, err error) error {
 	var cancel *river.JobCancelError
 	if errors.As(err, &snooze) || errors.As(err, &cancel) {
 		return err
+	}
+	// The UNIT'S OWN classification wins over the core vocabulary, and is checked
+	// before it. A tick that wrapped a core sentinel in one of its declared classes
+	// looked at the whole operation and said what it means for THIS unit — that a
+	// provider is unreachable, say, rather than that some read found nothing — and
+	// that is the more useful of two true statements. The sentinel stays reachable
+	// through errors.Is underneath, so nothing that classifies on it downstream is
+	// affected by the order.
+	//
+	// A class this installation never declared still lands here and still gets its
+	// sentence persisted; the READ refuses it (VettedFailure) and substitutes the
+	// unvetted text. That is the designed degradation: an undeclared class costs an
+	// operator the detail, never a sentence nobody reviewed.
+	if class, ok := extension.FailureClassOf(err); ok {
+		return &fault{sentence: class.Sentence, cause: err}
 	}
 	for _, known := range vocabulary {
 		if errors.Is(err, known.sentinel) {
@@ -106,24 +122,39 @@ func (f *fault) Unwrap() error { return f.cause }
 // vocabulary maps the shared sentinel registry to operator sentences. Each
 // says what went wrong AND what it means for the job — an operator reading
 // a failure list needs to know whether to retry, wait, or fix something.
+//
+// Every entry carries the same TRIPLE an extension unit declares (faultclass.go):
+// a class token, the sentence, and the remedy. The two halves are one vocabulary
+// rendered by one surface, so they hold the same shape — an operator should not be
+// able to tell from a failure list which tier classified the failure, and a
+// reader should not need two code paths to render it.
+//
+// TestEverySentinelIsClassifiedForTheJobSurface derives the coverage obligation
+// from apperrors itself: a sentinel added there without an entry here fails the
+// gate rather than silently reporting as unclassifiable the first time a job
+// returns it.
 var vocabulary = []struct {
 	sentinel error
+	class    string
 	sentence string
+	remedy   string
 }{
-	{apperrors.ErrNotFound, "the record this job names no longer exists"},
-	{apperrors.ErrConflict, "another writer changed the record while this job ran"},
-	{apperrors.ErrVersionSkew, "the record changed under this job; it will re-read on retry"},
-	{apperrors.ErrPermissionDenied, "this job's principal is not permitted the action it attempted"},
-	{apperrors.ErrConsentNotGranted, "consent for this purpose is not granted, so the job stopped before acting"},
-	{apperrors.ErrBudgetExceeded, "the budget for this work is spent; the job will run once it refreshes"},
-	{apperrors.ErrIncumbentBudgetExhausted, "the incumbent CRM's API budget is spent; the poller will catch up"},
-	{apperrors.ErrRequiresApproval, "this action needs human approval and was staged rather than executed"},
-	{apperrors.ErrSeatTierInsufficient, "the granting seat's tier does not admit this action"},
-	{apperrors.ErrSeatLimitReached, "the installation's licensed full seats are all in use, so no seat was created"},
-	{apperrors.ErrScopeExceeded, "the passport's scope does not cover this action"},
-	{apperrors.ErrApprovalTokenInvalid, "the approval token was invalid or already spent"},
-	{apperrors.ErrModeNotOverlay, "this workspace is no longer in overlay mode"},
-	{apperrors.ErrUnsupportedBySoR, "the system of record does not support this operation"},
-	{apperrors.ErrIncumbentAlreadyConnected, "an incumbent connection already exists for this workspace"},
-	{apperrors.ErrOverlayFlipBlocked, "the overlay flip preflight is unsatisfied"},
+	{apperrors.ErrNotFound, "record_gone", "the record this job names no longer exists", "Nothing to do: the work is moot. Re-queue only if the record was deleted in error and has been restored."},
+	{apperrors.ErrConflict, "write_conflict", "another writer changed the record while this job ran", "Re-queue it. The job re-reads the record and the second attempt normally settles."},
+	{apperrors.ErrVersionSkew, "version_skew", "the record changed under this job; it will re-read on retry", "Nothing to do: the retry re-reads. A job stuck here across many attempts means a writer is changing the record faster than the job can finish."},
+	{apperrors.ErrPermissionDenied, "principal_not_permitted", "this job's principal is not permitted the action it attempted", "Check the seat this job runs as still holds the role the action needs; a demoted or archived seat produces exactly this."},
+	{apperrors.ErrConsentNotGranted, "consent_missing", "consent for this purpose is not granted, so the job stopped before acting", "Nothing to fix in the job. The record's owner grants consent, or the work is not meant to happen."},
+	{apperrors.ErrBudgetExceeded, "budget_spent", "the budget for this work is spent; the job will run once it refreshes", "Wait for the window to refresh, or raise the budget if the work matters more than the cap."},
+	{apperrors.ErrIncumbentBudgetExhausted, "incumbent_budget_spent", "the incumbent CRM's API budget is spent; the poller will catch up", "Nothing to do: the poller resumes on the next window. Persistent exhaustion means the sync cadence is above what the incumbent's plan allows."},
+	{apperrors.ErrRequiresApproval, "staged_for_approval", "this action needs human approval and was staged rather than executed", "Somebody approves or rejects the staged action; the job itself needs no re-queue."},
+	{apperrors.ErrSeatTierInsufficient, "seat_tier_insufficient", "the granting seat's tier does not admit this action", "Raise the granting seat's tier, or stop asking this job for an action that tier is not meant to take."},
+	{apperrors.ErrSeatLimitReached, "seat_limit_reached", "the installation's licensed full seats are all in use, so no seat was created", "Free a seat or license another, then re-queue."},
+	{apperrors.ErrScopeExceeded, "scope_exceeded", "the passport's scope does not cover this action", "Re-issue the passport with the scope the action needs, or narrow what the job attempts."},
+	{apperrors.ErrApprovalTokenInvalid, "approval_token_spent", "the approval token was invalid or already spent", "Ask for the approval again. A token is single-use, so a replayed one lands here."},
+	{apperrors.ErrModeNotOverlay, "not_overlay_mode", "this workspace is no longer in overlay mode", "Nothing to do: the work belonged to overlay mode and the workspace has left it."},
+	{apperrors.ErrUnsupportedBySoR, "unsupported_by_sor", "the system of record does not support this operation", "Nothing to fix here; the operation has to happen in the system of record itself."},
+	{apperrors.ErrIncumbentAlreadyConnected, "incumbent_already_connected", "an incumbent connection already exists for this workspace", "Disconnect the existing incumbent first if this job was meant to replace it."},
+	{apperrors.ErrOverlayFlipBlocked, "overlay_flip_blocked", "the overlay flip preflight is unsatisfied", "Read the flip preflight for what is outstanding, satisfy it, then re-queue."},
+	{apperrors.ErrBaseCurrencyLocked, "base_currency_locked", "the base currency is locked by frozen conversion rates", "Nothing to do in the job: a base currency stops being changeable once rates are frozen against it."},
+	{apperrors.ErrRetentionHold, "retention_hold", "the record is held under a statutory retention obligation", "Nothing to do, and nothing to force: the hold outranks this job. The record becomes workable when the obligation lapses."},
 }

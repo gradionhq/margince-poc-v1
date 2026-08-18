@@ -76,6 +76,20 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb, jobD
 	if err := jobs.RegisterComposed(composedJobSpecs(composedSet)); err != nil {
 		return err
 	}
+	// The failure VOCABULARY follows the kinds, and for the same reason: the
+	// read that turns a stored sentence back into a class and a remedy asks
+	// jobs.VettedFailure by kind, and a kind with no vocabulary registered
+	// answers "unvettable" for a failure the unit classified perfectly well.
+	// Registering it after the specs keeps one boot order for both halves of
+	// what a composed kind is, rather than two that could drift.
+	//
+	// It can still refuse the set — a unit's class may collide with a core
+	// one — so the error is handled here. A boot that could not settle the
+	// vocabulary must abort rather than serve a surface that silently
+	// declines to classify.
+	if err := jobs.RegisterComposedFailureClasses(composedFailureClasses(exts, composedSet)); err != nil {
+		return err
+	}
 	setComposedJobs(composedSet)
 	setComposedSubscriptions(buildExtensionSubscriptions(exts))
 	setComposedTools(tools)
@@ -181,6 +195,9 @@ func validateExtensionSet(exts []extension.Extension) error {
 			return err
 		}
 		if err := preflightJobs(e); err != nil {
+			return err
+		}
+		if err := preflightFailureClasses(e); err != nil {
 			return err
 		}
 		if err := preflightSubscriptions(e); err != nil {
@@ -363,6 +380,21 @@ func preflightSecrets(e extension.Extension) error {
 			return fmt.Errorf("compose: extension %q declares secret %q at %s scope twice", e.Name, req.Key, req.Scope)
 		}
 		seen[req] = true
+	}
+	return nil
+}
+
+// preflightFailureClasses validates one unit's declared failure vocabulary
+// through the same published ValidateFailureClasses the job layer runs at
+// registration, so a bad class is refused with the unit's name attached.
+//
+// It is preflighted HERE as well as at registration because the registration
+// is keyed by River kind, and a kind names a unit only to somebody who can
+// decode the namespace. The unit is what an operator has to go fix, and the
+// validate phase is the only place that still knows it.
+func preflightFailureClasses(e extension.Extension) error {
+	if err := extension.ValidateFailureClasses(e.FailureClasses); err != nil {
+		return fmt.Errorf("compose: extension %q: %w", e.Name, err)
 	}
 	return nil
 }

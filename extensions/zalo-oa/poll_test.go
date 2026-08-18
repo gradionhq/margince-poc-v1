@@ -366,19 +366,19 @@ func TestATickWhoseConnectionMovedUnderItDoesNotWriteOverIt(t *testing.T) {
 func TestEveryFailureClassIsThisUnitsOwnVocabulary(t *testing.T) {
 	for _, arm := range []struct {
 		cause error
-		want  string
+		want  extension.FailureClass
 	}{
-		{errUnauthorized, "token_rejected"},
-		{errTierTooLow, "package_too_low"},
-		{errAPINotRegistered, "api_not_registered"},
-		{errTransient, "provider_unavailable"},
-		{errProvider, "provider_answer_unusable"},
-		{extension.ErrForbidden, "member_not_permitted"},
-		{extension.ErrInvalid, "connection_unusable"},
-		{errors.New("something else entirely"), "poll_failed"},
+		{errUnauthorized, classTokenRejected},
+		{errTierTooLow, classPackageTooLow},
+		{errAPINotRegistered, classAPINotRegistered},
+		{errTransient, classProviderUnavailable},
+		{errProvider, classProviderAnswerUnusable},
+		{extension.ErrForbidden, classMemberNotPermitted},
+		{extension.ErrInvalid, classConnectionUnusable},
+		{errors.New("something else entirely"), classPollFailed},
 	} {
 		if got := failureClass(arm.cause); got != arm.want {
-			t.Fatalf("failureClass(%v) = %q, want %q", arm.cause, got, arm.want)
+			t.Fatalf("failureClass(%v) = %q, want %q", arm.cause, got.Class, arm.want.Class)
 		}
 	}
 }
