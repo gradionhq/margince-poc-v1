@@ -63,7 +63,10 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, created, err = createLeadInTx(ctx, tx, in, by, active)
-		return err
+		if err != nil || !created {
+			return err
+		}
+		return s.recordLeadNearMatch(ctx, tx, out, by)
 	})
 	return out, created, err
 }
@@ -88,7 +91,11 @@ func (s *Store) CreateLeadTx(ctx context.Context, tx pgx.Tx, in CreateLeadInput)
 	if err != nil {
 		return crmcontracts.Lead{}, false, err
 	}
-	return createLeadInTx(ctx, tx, in, by, nil)
+	out, created, err := createLeadInTx(ctx, tx, in, by, nil)
+	if err != nil || !created {
+		return out, created, err
+	}
+	return out, created, s.recordLeadNearMatch(ctx, tx, out, by)
 }
 
 // readyLeadCreate runs what a create settles BEFORE any transaction opens —

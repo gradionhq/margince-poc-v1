@@ -227,6 +227,7 @@ var catalog = map[string]struct {
 	"lead.updated":      {leadStreamEntity, 1},
 	"lead.promoted":     {leadStreamEntity, 1},
 	"lead.demoted":      {leadStreamEntity, 1},
+	"lead.merged":       {leadStreamEntity, 1},
 	"lead.disqualified": {leadStreamEntity, 1},
 
 	"activity.captured": {activityStreamEntity, 1},

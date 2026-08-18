@@ -82,6 +82,7 @@ const (
 	LeadCreated               SubscribableEventType = "lead.created"
 	LeadDemoted               SubscribableEventType = "lead.demoted"
 	LeadDisqualified          SubscribableEventType = "lead.disqualified"
+	LeadMerged                SubscribableEventType = "lead.merged"
 	LeadPromoted              SubscribableEventType = "lead.promoted"
 	LeadUpdated               SubscribableEventType = "lead.updated"
 	LinkedinAccountChanged    SubscribableEventType = "linkedin_account.changed"
@@ -195,6 +196,8 @@ func (e SubscribableEventType) Valid() bool {
 	case LeadDemoted:
 		return true
 	case LeadDisqualified:
+		return true
+	case LeadMerged:
 		return true
 	case LeadPromoted:
 		return true
@@ -664,6 +667,15 @@ type PublicEventLeadDemoted struct {
 
 // PublicEventLeadDisqualified Payload for lead.disqualified — a lead was disqualified. Carries no data.
 type PublicEventLeadDisqualified struct{}
+
+// PublicEventLeadMerged Payload for lead.merged — two leads the review queue judged one prospect (ADR-0118/A169 §2) collapsed into the survivor. The merged-away lead is archived and carries merged_into_id; its activities and consent now sit on the survivor. Its own verb, because neither lead.updated nor a disqualification says two prospects became one.
+type PublicEventLeadMerged struct {
+	// MergedFromId The lead that was folded in and archived.
+	MergedFromId openapi_types.UUID `json:"merged_from_id"`
+
+	// MergedIntoId The surviving lead.
+	MergedIntoId openapi_types.UUID `json:"merged_into_id"`
+}
 
 // PublicEventLeadPromoted Payload for lead.promoted — the lead's genuine-engagement promotion into the context graph (events.md §5.5); its own verb, never a lead.updated, since neither person.created nor person.updated on its own says a lead crossed this line.
 type PublicEventLeadPromoted struct {
@@ -1469,6 +1481,10 @@ func (PublicEventLeadDisqualified) EventType() string { return "lead.disqualifie
 
 func (PublicEventLeadDisqualified) EntityType() string { return "lead" }
 
+func (PublicEventLeadMerged) EventType() string { return "lead.merged" }
+
+func (PublicEventLeadMerged) EntityType() string { return "lead" }
+
 func (PublicEventLeadPromoted) EventType() string { return "lead.promoted" }
 
 func (PublicEventLeadPromoted) EntityType() string { return "lead" }
@@ -1708,6 +1724,7 @@ var PublicEventVersions = map[string]int{
 	"lead.created":                 1,
 	"lead.demoted":                 1,
 	"lead.disqualified":            1,
+	"lead.merged":                  1,
 	"lead.promoted":                1,
 	"lead.updated":                 1,
 	"linkedin_account.changed":     1,

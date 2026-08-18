@@ -3722,6 +3722,7 @@ func (e DealCoverageRiskKind) Valid() bool {
 
 // Defines values for DedupeCandidateEntityType.
 const (
+	DedupeCandidateEntityTypeLead         DedupeCandidateEntityType = "lead"
 	DedupeCandidateEntityTypeOrganization DedupeCandidateEntityType = "organization"
 	DedupeCandidateEntityTypePerson       DedupeCandidateEntityType = "person"
 )
@@ -3729,6 +3730,8 @@ const (
 // Valid indicates whether the value is a known member of the DedupeCandidateEntityType enum.
 func (e DedupeCandidateEntityType) Valid() bool {
 	switch e {
+	case DedupeCandidateEntityTypeLead:
+		return true
 	case DedupeCandidateEntityTypeOrganization:
 		return true
 	case DedupeCandidateEntityTypePerson:
@@ -9926,6 +9929,7 @@ func (e ListDedupeCandidatesParamsStatus) Valid() bool {
 
 // Defines values for ListDedupeCandidatesParamsEntityType.
 const (
+	ListDedupeCandidatesParamsEntityTypeLead         ListDedupeCandidatesParamsEntityType = "lead"
 	ListDedupeCandidatesParamsEntityTypeOrganization ListDedupeCandidatesParamsEntityType = "organization"
 	ListDedupeCandidatesParamsEntityTypePerson       ListDedupeCandidatesParamsEntityType = "person"
 )
@@ -9933,6 +9937,8 @@ const (
 // Valid indicates whether the value is a known member of the ListDedupeCandidatesParamsEntityType enum.
 func (e ListDedupeCandidatesParamsEntityType) Valid() bool {
 	switch e {
+	case ListDedupeCandidatesParamsEntityTypeLead:
+		return true
 	case ListDedupeCandidatesParamsEntityTypeOrganization:
 		return true
 	case ListDedupeCandidatesParamsEntityTypePerson:
@@ -13778,10 +13784,12 @@ type DealListResponse struct {
 // DedupeCandidate One DH-DDL-1 review-queue row: the canonical unordered pair, its confidence, and the detection-time evidence snapshot (DH-N-8).
 type DedupeCandidate struct {
 	// Confidence The PO-F-1/PO-F-2 fuzzy score at detection.
-	Confidence float32                   `json:"confidence"`
-	CreatedAt  time.Time                 `json:"created_at"`
-	DisposedAt *time.Time                `json:"disposed_at,omitempty"`
-	DisposedBy *openapi_types.UUID       `json:"disposed_by,omitempty"`
+	Confidence float32             `json:"confidence"`
+	CreatedAt  time.Time           `json:"created_at"`
+	DisposedAt *time.Time          `json:"disposed_at,omitempty"`
+	DisposedBy *openapi_types.UUID `json:"disposed_by,omitempty"`
+
+	// EntityType A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.
 	EntityType DedupeCandidateEntityType `json:"entity_type"`
 
 	// Evidence Per-field agree/collide snapshot captured at detection — what the queue renders (AC-dedupe-2/3); never re-derived against since-edited rows.
@@ -13805,7 +13813,7 @@ type DedupeCandidate struct {
 	Status  DedupeCandidateStatus `json:"status"`
 }
 
-// DedupeCandidateEntityType defines model for DedupeCandidate.EntityType.
+// DedupeCandidateEntityType A pair is always same-type (ADR-0118/A169 §2): a lead is proposed as a duplicate of a lead or of nothing.
 type DedupeCandidateEntityType string
 
 // DedupeCandidateStatus defines model for DedupeCandidate.Status.

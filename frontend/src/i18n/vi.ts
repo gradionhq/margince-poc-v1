@@ -2745,6 +2745,7 @@ export const vi = {
   "dedupe.right": "Giữ bên phải",
   "dedupe.kindPerson": "Người",
   "dedupe.kindOrganization": "Công ty",
+  "dedupe.kindLead": "Lead",
   "dedupe.mergeCta": "Gộp vào bản đã chọn",
   "dedupe.notDuplicateCta": "Không phải trùng lặp",
   "dedupe.decided": "Đã lưu quyết định.",

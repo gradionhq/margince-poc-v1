@@ -356,8 +356,11 @@ func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a,
 		return false, err
 	}
 	leftCol, rightCol := "left_person_id", "right_person_id"
-	if entityType == entityOrganization {
+	switch entityType {
+	case entityOrganization:
 		leftCol, rightCol = "left_org_id", "right_org_id"
+	case entityLead:
+		leftCol, rightCol = "left_lead_id", "right_lead_id"
 	}
 	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO dedupe_candidate (workspace_id, entity_type, %s, %s, confidence, evidence, source, captured_by)

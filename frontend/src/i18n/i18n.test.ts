@@ -43,6 +43,8 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // vocabulary ("email", "mobile"), so there is no literal here to translate
   // and a translation could only rename somebody else's pool.
   "provider.credits.pool",
+  // "Lead" is the loanword vi uses for the record (see nav.leads).
+  "dedupe.kindLead",
   // Employee-count bands: digits and an en dash, the same in every locale.
   "lead.signal.employees.1-10",
   "lead.signal.employees.11-50",

@@ -174,6 +174,21 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	// Clearing an override immediately recomputes from current signals
 	// (formulas §3.1): score no longer lags behind the machine value, and
 	// the recompute appends its own history entry.
+	// A rename or a new company/address can make this lead read like another
+	// one; the review trail follows the identity, not just the create.
+	if identityTouched(p, leadNameColumn, leadCompanyColumn, leadEmailColumn) {
+		by, err := storekit.CapturedBy(ctx)
+		if err != nil {
+			return crmcontracts.Lead{}, err
+		}
+		updated, err := readLead(ctx, tx, id, storekit.LiveOnly, nil)
+		if err != nil {
+			return crmcontracts.Lead{}, err
+		}
+		if err := s.recordLeadNearMatch(ctx, tx, updated, by); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	}
 	if resumeRecompute {
 		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC(), true); err != nil {
 			return crmcontracts.Lead{}, err

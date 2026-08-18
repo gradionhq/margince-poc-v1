@@ -2744,6 +2744,7 @@ export const en = {
   "dedupe.right": "Keep right",
   "dedupe.kindPerson": "Person",
   "dedupe.kindOrganization": "Company",
+  "dedupe.kindLead": "Lead",
   "dedupe.mergeCta": "Merge into selected",
   "dedupe.notDuplicateCta": "Not a duplicate",
   "dedupe.decided": "Decision saved.",
