@@ -496,16 +496,20 @@ check-craft-doc:
 ## secret-scan — no hardcoded credential reaches main: gitleaks over a clean
 ## `git archive HEAD` export, policy in .gitleaks.toml. Scans the COMMITTED
 ## tree, not the working tree, so a sibling worktree or a local .env.local
-## cannot change the verdict (gitleaks does not honour .gitignore). Needs
-## gitleaks on PATH (`brew install gitleaks`); CI's secret-scan job runs this
-## same target against a version- and checksum-pinned binary.
+## cannot change the verdict (gitleaks does not honour .gitignore).
+## Needs nothing installed: scripts/gitleaks-pin.sh fetches and checksum-verifies
+## the one pinned binary, so CI's secret-scan job and a laptop run the same
+## scanner and therefore reach the same verdict.
 secret-scan:
 	@./scripts/secret-scan.sh
 
-## test-secret-scan — prove the secret gate still catches: plant a token in
-## each file .gitleaks.toml exempts and require the scan to fail anyway. An
-## over-broad allowlist reports "no leaks found" exactly like a clean tree, so
-## the policy is only trustworthy with this beside it.
+## test-secret-scan — prove the secret gate still catches. The plants are
+## DERIVED from .gitleaks.toml: every allowlist owes one token of each rule it
+## targets, in a file its own paths cover, plus one of a rule it does not — so
+## it proves the exemption covers the line it names rather than the file, and
+## an allowlist added tomorrow is gated without anyone remembering to add a
+## case. An over-broad allowlist reports "no leaks found" exactly like a clean
+## tree, so the policy is only trustworthy with this beside it.
 test-secret-scan:
 	@./scripts/test-secret-scan.sh
 
