@@ -214,6 +214,7 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// never accepted from the request body.
 	"lead.promoted_person_id":          "server-derived: stamped by PromoteLead",
 	"person.merged_into_id":            "server-derived: stamped by MergePerson",
+	"lead.merged_into_id":              "server-derived: stamped by MergeLead, the lead-side twin of MergePerson — a caller names the two leads, both of which the merge gates, and the surviving id is written from what that gate resolved",
 	"organization.merged_into_id":      "server-derived: stamped by MergeOrganization",
 	"person.converted_from_lead_id":    "server-derived: stamped by PromoteLead",
 	"deal_stage_history.deal_id":       "server-derived: appended by CreateDeal/AdvanceDeal",
@@ -248,6 +249,8 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
 	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
 	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query, exactly as its person and organization siblings above",
+	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query, exactly as its person and organization siblings above",
 	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
 	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
 	// The signature pass's read cursor (PO-F-2a): both ids come from the
