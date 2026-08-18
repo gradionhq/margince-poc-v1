@@ -76,6 +76,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	logger := slog.New(httpserver.WithCorrelation(handler))
+	config.WarnUndeclared(logger, cfg.unknownVars)
 
 	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {

@@ -14,6 +14,7 @@ package main
 
 import (
 	"flag"
+	"slices"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/cliflags"
@@ -28,11 +29,11 @@ func apiSurface(t *testing.T) (*flag.FlagSet, *cliflags.Env, []config.Item) {
 	if err != nil {
 		t.Fatalf("building the api flag set: %v", err)
 	}
-	items, err := apiConfigItems(fs, env)
+	registry, err := apiConfigItems(fs, env)
 	if err != nil {
 		t.Fatalf("assembling the api registry: %v", err)
 	}
-	return fs, env, items
+	return fs, env, registry.Items()
 }
 
 func TestEveryFlagBoundVariableIsDeclared(t *testing.T) {
@@ -107,5 +108,25 @@ func TestTheCredentialsThisRoleReadsAreMarkedSecret(t *testing.T) {
 		if secret[name] {
 			t.Errorf("%s is marked Secret but authenticates nothing; hiding it only makes a boot harder to debug", name)
 		}
+	}
+}
+
+// The api's half of the wiring check; see the worker's copy for why the rule
+// itself is proven in platform/config rather than here.
+func TestAMisspelledVariableReachesTheBootReport(t *testing.T) {
+	// Assembled rather than written whole: it is a MISSPELLING, and the
+	// tree-wide documentation gate reads a quoted MARGINCE_* literal as a real
+	// variable somebody must document.
+	const misspelled = "MARGINCE_" + "REDDIS"
+	t.Setenv(misspelled, "localhost:6379")
+	cfg, err := parseAPIFlags([]string{"--dsn", "postgres://user@localhost:5432/db"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !slices.Contains(cfg.unknownVars, misspelled) {
+		t.Errorf("unknownVars = %v; the misspelling never reached the boot report", cfg.unknownVars)
+	}
+	if slices.Contains(cfg.unknownVars, "MARGINCE_DSN") {
+		t.Error("a variable this role reads was reported as unread")
 	}
 }

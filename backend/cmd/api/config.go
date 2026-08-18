@@ -43,6 +43,12 @@ type apiConfig struct {
 	webhookKey          string
 	metricsToken        string
 	oauthAccessTokenTTL time.Duration
+	// unknownVars are the MARGINCE_* variables found in the environment that
+	// this role does not read. Computed during parsing, where the surface is
+	// assembled, and REPORTED once the logger exists — an operator has to see
+	// it, and stderr before the log handler is built is a different stream in a
+	// different format from everything else they are reading.
+	unknownVars []string
 }
 
 // apiFlagSet registers this role's flags and their environment bindings, and
@@ -101,10 +107,13 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	if err != nil {
 		return apiConfig{}, err
 	}
-	// A surface that cannot be described honestly is a boot error, not a
-	// runtime surprise: a duplicate name or a required item carrying a default
-	// would make a generated reference lie about this installation.
-	if _, err := apiConfigItems(fs, env); err != nil {
+	// Assembled here for two reasons. A surface that cannot be described
+	// honestly is a boot error rather than a runtime surprise — a duplicate name
+	// or a secret carrying a default would make a generated reference lie about
+	// this installation — and the registry is also what tells this role which
+	// namespaced variables it does NOT read, for the report below.
+	registry, err := apiConfigItems(fs, env)
+	if err != nil {
 		return apiConfig{}, err
 	}
 	if err := fs.Parse(args); err != nil {
@@ -115,6 +124,9 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	// in its usage output, and these values are DSNs, signing keys, OAuth client
 	// secrets and bearer tokens — see internal/platform/cliflags.
 	env.Apply(fs, config.FromOS)
+	// After Apply, so the report describes the environment the role actually
+	// consulted.
+	cfg.unknownVars = registry.Undeclared(config.Environ())
 	if cfg.dsn == "" {
 		return apiConfig{}, errors.New("api: --dsn or MARGINCE_DSN required")
 	}

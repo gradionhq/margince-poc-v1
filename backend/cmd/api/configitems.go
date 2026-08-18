@@ -54,7 +54,7 @@ var apiPublic = map[string]bool{
 
 // apiConfigItems is this role's whole configurable surface: its own flags, plus
 // the packages it wires that read the environment on their own account.
-func apiConfigItems(fs *flag.FlagSet, env *cliflags.Env) ([]config.Item, error) {
+func apiConfigItems(fs *flag.FlagSet, env *cliflags.Env) (*config.Registry, error) {
 	registry, err := config.NewRegistry(
 		env.Items(fs, config.RoleAPI, apiPublic),
 		blobstore.ConfigItems(),
@@ -66,7 +66,7 @@ func apiConfigItems(fs *flag.FlagSet, env *cliflags.Env) ([]config.Item, error) 
 	if err != nil {
 		return nil, err
 	}
-	return registry.Items(), nil
+	return registry, nil
 }
 
 // apiUnflaggedItems are the variables this role reads with no flag behind them.
