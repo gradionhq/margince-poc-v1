@@ -579,6 +579,10 @@ func (stubs) GetFieldHistory(w nethttp.ResponseWriter, r *nethttp.Request, param
 	httperr.NotImplemented(w, r, "GetFieldHistory")
 }
 
+func (stubs) GetFilterVocabulary(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetFilterVocabularyParams) {
+	httperr.NotImplemented(w, r, "GetFilterVocabulary")
+}
+
 func (stubs) ListFxRates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListFxRatesParams) {
 	httperr.NotImplemented(w, r, "ListFxRates")
 }
@@ -1369,10 +1373,6 @@ func (stubs) CancelScheduledSend(w nethttp.ResponseWriter, r *nethttp.Request, i
 
 func (stubs) Search(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.SearchParams) {
 	httperr.NotImplemented(w, r, "Search")
-}
-
-func (stubs) GetSegmentVocabulary(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.GetSegmentVocabularyParams) {
-	httperr.NotImplemented(w, r, "GetSegmentVocabulary")
 }
 
 func (stubs) ListSignals(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListSignalsParams) {

@@ -110,7 +110,7 @@ func TestADynamicListOverHTTPAcceptsAndEvaluatesACustomFieldFilter(t *testing.T)
 // rather than against the engine's map closes the loop the store-level suite
 // cannot — the two surfaces resolving the same vocabulary is exactly what the
 // regression above proved is not automatic.
-func TestTheFilterVocabularyOverHTTPListsWhatADynamicListAccepts(t *testing.T) {
+func TestTheFilterVocabularyOverHTTPOffersWhatADynamicListAccepts(t *testing.T) {
 	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(integration.SchemaPool(t)))
 	e.BootstrapWorkspace(t)
 
@@ -135,7 +135,7 @@ func TestTheFilterVocabularyOverHTTPListsWhatADynamicListAccepts(t *testing.T) {
 			Custom    bool     `json:"custom"`
 		} `json:"fields"`
 	}
-	status := e.Call(t, "GET", "/v1/segments/vocabulary?resource=person", nil, nil, &vocab)
+	status := e.Call(t, "GET", "/v1/filters/vocabulary?resource=person", nil, nil, &vocab)
 	if status == http.StatusNotImplemented {
 		t.Fatal("the operation answered 501: the generated stub is being served, so the module handler is not shadowing it")
 	}
@@ -195,4 +195,90 @@ func TestTheFilterVocabularyOverHTTPListsWhatADynamicListAccepts(t *testing.T) {
 	}, nil, &refused); status != http.StatusUnprocessableEntity {
 		t.Fatalf("the vocabulary omits %s but a dynamic list on it was not refused 422: status=%d body=%v", unlisted, status, refused)
 	}
+
+	// A resource the enum does not admit is a 422 naming the parameter, not a
+	// bare 404: the generated wrapper binds this as a plain string and never
+	// calls the Valid() it also generates, so the handler is the only thing that
+	// can tell a typo from a real absence.
+	var badResource apptest.AnyMap
+	if status := e.Call(t, "GET", "/v1/filters/vocabulary?resource=peron", nil, nil, &badResource); status != http.StatusUnprocessableEntity {
+		t.Fatalf("a misspelled resource: status=%d body=%v, want 422", status, badResource)
+	}
+}
+
+// The gap between what a filter may SAY and what a builder may OFFER, end to end
+// through the real retire operation.
+//
+// This is the half I had backwards before review. CUSTOM-FIELDS-AC-13 makes
+// retire "hidden from API + filtering", and AC-14 names the admin catalog read as
+// the one surface that still shows retired fields — so a vocabulary read that
+// listed them would put a field in a picker that an admin retired precisely to get
+// it out of there. Dropping it from the ENGINE would be the opposite mistake: every
+// saved segment naming it becomes a read-time error. Both are asserted here,
+// against a field retired through the operation that really retires it.
+func TestARetiredCustomFieldLeavesTheVocabularyAndKeepsEvaluating(t *testing.T) {
+	e := apptest.SetupAppWithOptions(t, compose.WithSchemaPool(integration.SchemaPool(t)))
+	e.BootstrapWorkspace(t)
+
+	var field apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/custom-fields", apptest.AnyMap{
+		"object": "person", "label": "Retiring Tier", "type": "text", "source": "ui",
+	}, nil, &field); status != http.StatusCreated {
+		t.Fatalf("create custom field: status=%d body=%v", status, field)
+	}
+	column, _ := field["column_name"].(string)
+	fieldID, _ := field["id"].(string)
+	if column == "" || fieldID == "" {
+		t.Fatalf("created field carries no column_name/id: %v", field)
+	}
+
+	// A segment built while the field is live — the one that has to keep working.
+	var list apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/lists", apptest.AnyMap{
+		"name": "Built before retirement", "entity_type": "person", "list_type": "dynamic",
+		"definition": apptest.AnyMap{"field": column, "op": "eq", "value": "gold"},
+	}, nil, &list); status != http.StatusCreated {
+		t.Fatalf("create the list while the field is live: status=%d body=%v", status, list)
+	}
+	listID, _ := list["id"].(string)
+
+	if offered := vocabularyOffers(t, e, column); !offered {
+		t.Fatalf("%s is active and the vocabulary does not offer it", column)
+	}
+
+	var retired apptest.AnyMap
+	if status := e.Call(t, "POST", "/v1/custom-fields/"+fieldID+"/retire", apptest.AnyMap{}, nil, &retired); status != http.StatusOK {
+		t.Fatalf("retire the field: status=%d body=%v", status, retired)
+	}
+
+	if offered := vocabularyOffers(t, e, column); offered {
+		t.Errorf("%s was retired and the vocabulary still offers it for a new clause", column)
+	}
+
+	// And the segment written against it still evaluates rather than erroring.
+	var members struct {
+		Data []apptest.AnyMap `json:"data"`
+	}
+	if status := e.Call(t, "GET", "/v1/lists/"+listID+"/members", nil, nil, &members); status != http.StatusOK {
+		t.Errorf("the segment naming the retired %s no longer evaluates: status=%d", column, status)
+	}
+}
+
+// vocabularyOffers answers whether the filter vocabulary currently lists a field.
+func vocabularyOffers(t *testing.T, e *apptest.AppEnv, name string) bool {
+	t.Helper()
+	var vocab struct {
+		Fields []struct {
+			Name string `json:"name"`
+		} `json:"fields"`
+	}
+	if status := e.Call(t, "GET", "/v1/filters/vocabulary?resource=person", nil, nil, &vocab); status != http.StatusOK {
+		t.Fatalf("read the filter vocabulary: status=%d", status)
+	}
+	for _, f := range vocab.Fields {
+		if f.Name == name {
+			return true
+		}
+	}
+	return false
 }

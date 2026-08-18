@@ -3,20 +3,27 @@
 
 package collections
 
-// LVS-EXT-8 states its own test: a field this operation omits must be one the
-// engine refuses, and a field it lists must be one the engine accepts. The
-// operation is built so that equivalence holds by construction — it enumerates
-// the engine's own map — which makes the tests below the ones that can actually
-// fail: they check the parts NOT shared with the engine. The operator subset, the
-// gate, the ordering, and the one thing the engine does not know (whether a
-// workspace defined the field).
+// What this operation guarantees is a subset relation, and the tests below are
+// organised around it: everything advertised is accepted by the engine, and the
+// gap between advertised and accepted is exactly the retired set.
+//
+// The advertised ⊆ accepted half is structural — the operation starts from the
+// engine's own map — so the tests that can actually FAIL are the ones about what
+// it removes from that map and what it says about what remains: the retirement
+// exclusions (both kinds), the operator subset, the gate, the ordering, and the
+// one thing the engine does not know (whether a workspace defined the field).
 //
 // The two contract ENUMS this operation reports through are gated a level up, in
-// compose/segmentvocabularyenums_test.go, which reads them out of the contract
+// compose/filtervocabularyenums_test.go, which reads them out of the contract
 // rather than naming them — and lives there because compose is the one package
 // allowed to hold both the contract and the engine. A list of enum members
 // written here would be a third copy of the vocabulary, which is the defect this
 // endpoint exists to remove.
+//
+// And operatorOrder — the projection storekit.OperatorsFor answers through, which
+// every gate here derives its expectation from — is pinned in storekit's own
+// suite, since that is the only package where it and the operator matrix are
+// visible together.
 
 import (
 	"context"
@@ -44,12 +51,35 @@ func readerCtx() context.Context {
 	return grantCtx("list", principal.ObjectGrant{Read: true})
 }
 
-// The equivalence LVS-EXT-8 names, in the direction a restated list would break:
-// for every field the vocabulary reports, every operator it reports must compile,
-// and every operator it does NOT report must be refused. A builder that disabled
-// the wrong operators would show a human a control the engine rejects.
+// everyTypeCatalog seeds one custom column per filterable custom-field type, so
+// the operator loop below sees all seven types rather than the three the core
+// vocabularies happen to use.
+//
+// Without this the ordering operators (gt/gte/lt/lte) are only ever probed
+// against id/text/picklist fields, which correctly omit them — so the "every
+// reported operator compiles" direction would never be exercised for a single one
+// of them, and a test named for the whole matrix would prove less than half of it.
+//
+// Derived from fieldcatalog.Types(), so a seventh type joins by existing.
+func everyTypeCatalog() stubFilterable {
+	columns := make([]fieldcatalog.Column, 0, len(fieldcatalog.Types()))
+	for _, declared := range fieldcatalog.Types() {
+		columns = append(columns, fieldcatalog.Column{Name: "cf_" + declared, Type: declared})
+	}
+	cols := map[string][]fieldcatalog.Column{}
+	for resource := range segmentEngines {
+		cols[resource] = columns
+	}
+	return stubFilterable{cols: cols}
+}
+
+// The subset relation's operator half: for every field the vocabulary reports,
+// every operator it reports must compile, and every operator it does NOT report
+// must be refused. A builder that disabled the wrong operators would show a human
+// a control the engine rejects.
 func TestEveryReportedOperatorCompilesAndEveryOmittedOneIsRefused(t *testing.T) {
-	store := &Store{}
+	store := (&Store{}).WithFieldCatalog(everyTypeCatalog())
+	seenTypes := map[string]bool{}
 	for resource := range segmentEngines {
 		fields, ok, err := store.FilterVocabulary(readerCtx(), resource)
 		if err != nil || !ok {
@@ -60,6 +90,7 @@ func TestEveryReportedOperatorCompilesAndEveryOmittedOneIsRefused(t *testing.T) 
 			t.Fatalf("%s: segmentEngine: %v", resource, err)
 		}
 		for _, field := range fields {
+			seenTypes[field.Type] = true
 			reported := make(map[string]bool, len(field.Operators))
 			for _, op := range field.Operators {
 				reported[op] = true
@@ -72,7 +103,12 @@ func TestEveryReportedOperatorCompilesAndEveryOmittedOneIsRefused(t *testing.T) 
 				)
 				// The operand is only well-typed for some field types, so a
 				// refusal can be about the VALUE rather than the operator. Only
-				// an operator-shaped refusal answers this question.
+				// an operator-shaped refusal answers this question — and it is
+				// distinguishable because compileLeaf checks the operator matrix
+				// BEFORE validating the operand, so an unadmitted operator can
+				// only ever come back as CodeFilterOpNotAllowed. If that ordering
+				// ever inverted, this test would start failing rather than start
+				// concluding the wrong thing.
 				refusedTheOperator := isOperatorRefusal(compileErr)
 				if reported[op] && refusedTheOperator {
 					t.Errorf("%s.%s reports %q but the engine refuses that operator", resource, field.Name, op)
@@ -81,6 +117,14 @@ func TestEveryReportedOperatorCompilesAndEveryOmittedOneIsRefused(t *testing.T) 
 					t.Errorf("%s.%s omits %q but the engine admits it", resource, field.Name, op)
 				}
 			}
+		}
+	}
+	// The loop above is only as good as the types it reached, so it says which.
+	// Silence here would let the catalogue stub stop working and leave a test
+	// named for the whole matrix quietly proving three sevenths of it.
+	for _, declared := range append(fieldcatalog.Types(), string(storekit.FieldID)) {
+		if !seenTypes[declared] {
+			t.Errorf("no field of type %q was reported by any resource, so the operator check never covered that type", declared)
 		}
 	}
 }
@@ -134,6 +178,11 @@ func TestTheVocabularyIsOrderedTheSameWayTwice(t *testing.T) {
 		if err != nil {
 			t.Fatalf("filterVocabulary: %v", err)
 		}
+		// Lengths first: indexing one by the other's range panics on a length
+		// regression instead of reporting it.
+		if len(again) != len(first) {
+			t.Fatalf("the vocabulary answered %d fields then %d for the same request", len(first), len(again))
+		}
 		for i := range first {
 			if first[i].Name != again[i].Name {
 				t.Fatalf("field %d = %q then %q — the order is not stable", i, first[i].Name, again[i].Name)
@@ -143,6 +192,100 @@ func TestTheVocabularyIsOrderedTheSameWayTwice(t *testing.T) {
 	for i := 1; i < len(first); i++ {
 		if first[i-1].Name >= first[i].Name {
 			t.Errorf("fields %q and %q are not in name order", first[i-1].Name, first[i].Name)
+		}
+	}
+}
+
+// The gap between advertised and accepted, in the custom half: a retired column
+// is still compilable and no longer offered.
+//
+// Both halves matter and they are different failures. Advertising it puts a field
+// in a picker that an admin retired precisely to get it out of there
+// (CUSTOM-FIELDS-AC-13). Dropping it from the engine turns every saved segment
+// naming it into a read-time error.
+func TestARetiredCustomColumnIsStillCompilableAndNoLongerOffered(t *testing.T) {
+	const retired, live = "cf_old_tier", "cf_tier"
+	store := (&Store{}).WithFieldCatalog(stubFilterable{
+		cols: map[string][]fieldcatalog.Column{"person": {
+			{Name: retired, Type: fieldcatalog.TypeText},
+			{Name: live, Type: fieldcatalog.TypeText},
+		}},
+		retired: map[string]bool{retired: true},
+	})
+
+	fields, _, err := store.FilterVocabulary(readerCtx(), "person")
+	if err != nil {
+		t.Fatalf("filterVocabulary: %v", err)
+	}
+	advertised := map[string]bool{}
+	for _, f := range fields {
+		advertised[f.Name] = true
+	}
+	if advertised[retired] {
+		t.Errorf("%s is retired and was offered for a new clause", retired)
+	}
+	if !advertised[live] {
+		t.Errorf("%s is active and was not offered", live)
+	}
+
+	// The other half, through the engine the saved segment would be evaluated by.
+	engine, _, err := store.SegmentEngine(context.Background(), "person")
+	if err != nil {
+		t.Fatalf("segmentEngine: %v", err)
+	}
+	if _, compileErr := storekit.CompilePredicate(
+		storekit.Predicate{Field: retired, Op: storekit.OpEq, Value: "gold"},
+		engine.Fields,
+		func(any) int { return 1 },
+	); compileErr != nil {
+		t.Errorf("a segment naming the retired %s no longer evaluates: %v", retired, compileErr)
+	}
+}
+
+// The same gap in the core half, which has no catalogue row behind it at all.
+//
+// organization.classification was retired by ADR-0079/A124 and has no
+// `custom_field` row, so no client-side join could ever discover that it is
+// retired — the exclusion has to happen here or not at all.
+func TestARetiredCoreFieldIsStillCompilableAndNoLongerOffered(t *testing.T) {
+	const retired = "classification"
+	store := &Store{}
+	fields, _, err := store.FilterVocabulary(readerCtx(), "organization")
+	if err != nil {
+		t.Fatalf("filterVocabulary: %v", err)
+	}
+	for _, f := range fields {
+		if f.Name == retired {
+			t.Errorf("%s was retired by ADR-0079 and is still offered for a new clause", retired)
+		}
+	}
+	engine, _, err := store.SegmentEngine(context.Background(), "organization")
+	if err != nil {
+		t.Fatalf("segmentEngine: %v", err)
+	}
+	if _, compileErr := storekit.CompilePredicate(
+		storekit.Predicate{Field: retired, Op: storekit.OpEq, Value: "strategic"},
+		engine.Fields,
+		func(any) int { return 1 },
+	); compileErr != nil {
+		t.Errorf("a segment naming the retired %s no longer evaluates: %v", retired, compileErr)
+	}
+}
+
+// Every name in retiredCoreFields has to BE a core field of that resource, or the
+// entry silently excludes nothing and the field it was meant to retire stays on
+// offer. A typo is otherwise invisible.
+func TestEveryRetiredCoreFieldNamesARealCoreField(t *testing.T) {
+	for resource, retired := range retiredCoreFields {
+		engine, present := segmentEngines[resource]
+		if !present {
+			t.Errorf("retiredCoreFields names resource %q, which has no engine", resource)
+			continue
+		}
+		for name := range retired {
+			if _, isCore := engine.Fields[name]; !isCore {
+				t.Errorf("retiredCoreFields[%q] names %q, which is not a core field of that resource — the exclusion does nothing", resource, name)
+			}
 		}
 	}
 }
@@ -180,12 +323,12 @@ func TestAResourceWithNoEngineIsNotAnEmptyVocabulary(t *testing.T) {
 // admits has an engine. This is what keeps it that way — and what makes the
 // branch honest rather than dead: it fires the moment the two disagree.
 func TestEveryResourceTheContractAdmitsHasAnEngine(t *testing.T) {
-	for _, admitted := range []crmcontracts.GetSegmentVocabularyParamsResource{
-		crmcontracts.GetSegmentVocabularyParamsResourcePerson,
-		crmcontracts.GetSegmentVocabularyParamsResourceOrganization,
-		crmcontracts.GetSegmentVocabularyParamsResourceDeal,
-		crmcontracts.GetSegmentVocabularyParamsResourceLead,
-		crmcontracts.GetSegmentVocabularyParamsResourceProject,
+	for _, admitted := range []crmcontracts.GetFilterVocabularyParamsResource{
+		crmcontracts.GetFilterVocabularyParamsResourcePerson,
+		crmcontracts.GetFilterVocabularyParamsResourceOrganization,
+		crmcontracts.GetFilterVocabularyParamsResourceDeal,
+		crmcontracts.GetFilterVocabularyParamsResourceLead,
+		crmcontracts.GetFilterVocabularyParamsResourceProject,
 	} {
 		if _, present := segmentEngines[string(admitted)]; !present {
 			t.Errorf("the contract admits resource %q but no engine serves it, so the operation 404s on a value it advertises", admitted)

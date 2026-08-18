@@ -31,7 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// vocabularyFieldEnum reads one inline enum off the SegmentVocabularyField
+// vocabularyFieldEnum reads one inline enum off the FilterVocabularyField
 // schema. property names the property; itemsLevel says whether the enum sits on
 // the property itself (`type`) or on its array items (`operators`).
 func vocabularyFieldEnum(t *testing.T, property string, itemsLevel bool) map[string]bool {
@@ -40,29 +40,29 @@ func vocabularyFieldEnum(t *testing.T, property string, itemsLevel bool) map[str
 	if err != nil {
 		t.Fatalf("load contract: %v", err)
 	}
-	schema := doc.Components.Schemas["SegmentVocabularyField"]
+	schema := doc.Components.Schemas["FilterVocabularyField"]
 	if schema == nil || schema.Value == nil {
-		t.Fatal("SegmentVocabularyField is absent from the contract — the vocabulary read has no response shape")
+		t.Fatal("FilterVocabularyField is absent from the contract — the vocabulary read has no response shape")
 	}
 	prop := schema.Value.Properties[property]
 	if prop == nil || prop.Value == nil {
-		t.Fatalf("SegmentVocabularyField has no %q property", property)
+		t.Fatalf("FilterVocabularyField has no %q property", property)
 	}
 	carrier := prop.Value
 	if itemsLevel {
 		if carrier.Items == nil || carrier.Items.Value == nil {
-			t.Fatalf("SegmentVocabularyField.%s declares no items, so it carries no enum", property)
+			t.Fatalf("FilterVocabularyField.%s declares no items, so it carries no enum", property)
 		}
 		carrier = carrier.Items.Value
 	}
 	if len(carrier.Enum) == 0 {
-		t.Fatalf("SegmentVocabularyField.%s is not a closed enum, so a client cannot know what to expect", property)
+		t.Fatalf("FilterVocabularyField.%s is not a closed enum, so a client cannot know what to expect", property)
 	}
 	values := make(map[string]bool, len(carrier.Enum))
 	for _, raw := range carrier.Enum {
 		value, ok := raw.(string)
 		if !ok {
-			t.Fatalf("SegmentVocabularyField.%s has a non-string enum member %#v", property, raw)
+			t.Fatalf("FilterVocabularyField.%s has a non-string enum member %#v", property, raw)
 		}
 		values[value] = true
 	}

@@ -59,7 +59,13 @@ func TestProjectIsFilterableByTag(t *testing.T) {
 // catalog read itself is proven against Postgres in the customfields suite.
 type stubFilterable struct {
 	cols map[string][]fieldcatalog.Column
-	err  error
+	// retired names columns present in cols that an admin has retired: still
+	// filterable, no longer active. Spelled as the difference rather than as a
+	// second column list, because that IS the difference the real catalogue's two
+	// readers express — and a stub that let the two sets disagree arbitrarily
+	// could describe a state the catalogue cannot produce.
+	retired map[string]bool
+	err     error
 }
 
 func (s stubFilterable) FilterableColumns(_ context.Context, object string) ([]fieldcatalog.Column, error) {
@@ -67,6 +73,19 @@ func (s stubFilterable) FilterableColumns(_ context.Context, object string) ([]f
 		return nil, s.err
 	}
 	return s.cols[object], nil
+}
+
+func (s stubFilterable) ActiveColumns(_ context.Context, object string) ([]fieldcatalog.Column, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	active := make([]fieldcatalog.Column, 0, len(s.cols[object]))
+	for _, column := range s.cols[object] {
+		if !s.retired[column.Name] {
+			active = append(active, column)
+		}
+	}
+	return active, nil
 }
 
 func TestSegmentEngineMergesCustomColumnsWithCoreFields(t *testing.T) {

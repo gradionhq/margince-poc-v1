@@ -381,3 +381,38 @@ func discardArg() func(any) int {
 }
 
 func nan() float64 { return math.NaN() }
+
+// operatorOrder is the projection OperatorsFor answers through, and every gate
+// that consumes the operator vocabulary — the filter-vocabulary read, the
+// contract-enum check in compose — derives its expectation from OperatorsFor
+// itself. So the one thing none of them can see is an operator that reached the
+// matrix without reaching the order: compileLeaf would admit it, OperatorsFor
+// would omit it, and every downstream gate would agree with OperatorsFor and
+// stay green while the engine accepted an operator the vocabulary swears it
+// refuses.
+//
+// This is the only place the two are visible together, so it is the only place
+// the check can live.
+func TestEveryOperatorInTheMatrixIsAlsoInTheReadingOrder(t *testing.T) {
+	inOrder := make(map[string]bool, len(operatorOrder))
+	for _, op := range operatorOrder {
+		inOrder[op] = true
+	}
+	admittedSomewhere := map[string]bool{}
+	for fieldType, admitted := range operatorsByType {
+		for op := range admitted {
+			admittedSomewhere[op] = true
+			if !inOrder[op] {
+				t.Errorf("%s admits operator %q and operatorOrder omits it, so OperatorsFor never reports it and no vocabulary can offer it", fieldType, op)
+			}
+		}
+		if got, want := len(OperatorsFor(fieldType)), len(admitted); got != want {
+			t.Errorf("OperatorsFor(%s) answers %d operators, the matrix admits %d", fieldType, got, want)
+		}
+	}
+	for _, op := range operatorOrder {
+		if !admittedSomewhere[op] {
+			t.Errorf("operatorOrder carries %q that no field type admits, so it is dead vocabulary", op)
+		}
+	}
+}
