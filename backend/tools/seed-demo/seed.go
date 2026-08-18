@@ -250,7 +250,7 @@ func seedCompany(c *client, comp company, dryRun bool) (counts, error) {
 			got.skipped++
 			continue
 		}
-		personID, existed, err := ensurePerson(c, person, email, dryRun)
+		personID, existed, err := ensurePerson(c, person, email, seedSource, dryRun)
 		if err != nil {
 			return got, fmt.Errorf("person %q: %w", person.Name, err)
 		}
@@ -372,7 +372,13 @@ func findOrganization(c *client, comp company) (id string, found bool, err error
 
 // ensurePerson finds someone by their address and creates them if absent.
 // The address is the natural key the product itself dedupes on.
-func ensurePerson(c *client, person datasetPers, email string, dryRun bool) (id string, existed bool, err error) {
+//
+// source says where this person came from, and is a parameter rather than a
+// constant because the answer is load-bearing: almost everyone here was read
+// off their employer's own website, while the twelve invented for companies
+// that publish no staff carry inventedPersonSource. A query must always be
+// able to tell the two apart.
+func ensurePerson(c *client, person datasetPers, email, source string, dryRun bool) (id string, existed bool, err error) {
 	if id, found, err := findPerson(c, email); err != nil {
 		return "", false, err
 	} else if found {
@@ -385,7 +391,7 @@ func ensurePerson(c *client, person datasetPers, email string, dryRun bool) (id 
 	first, last := splitName(person.Name)
 	body := jsonBody{
 		"full_name": person.Name,
-		"source":    seedSource,
+		"source":    source,
 		"emails":    []jsonBody{{"email": email, "email_type": "work", "is_primary": true}},
 	}
 	addIfSet(body, "first_name", first)

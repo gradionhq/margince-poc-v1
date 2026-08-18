@@ -207,7 +207,8 @@ func seedInventedStaff(c *client, cfg demoConfig, refs pipelineRefs, mode runMod
 			if email == "" {
 				return people, links, fmt.Errorf("invented staff at %s: %q yields no address", entry.Company, person.Name)
 			}
-			personID, existed, err := ensureInventedPerson(c, person, email)
+			personID, existed, err := ensurePerson(c,
+				datasetPers{Name: person.Name, Role: person.Role}, email, inventedPersonSource, false)
 			if err != nil {
 				return people, links, fmt.Errorf("person %q: %w", person.Name, err)
 			}
@@ -236,36 +237,6 @@ func seedInventedStaff(c *client, cfg demoConfig, refs pipelineRefs, mode runMod
 func inventedDomain(companyDomain string) string {
 	slug := strings.NewReplacer(".", "-").Replace(strings.ToLower(companyDomain))
 	return slug + ".example"
-}
-
-// ensureInventedPerson is ensurePerson with the invented source, so the
-// twelve people nobody published stay separable from the 780 who were.
-func ensureInventedPerson(c *client, person demoPartnerPers, email string) (id string, existed bool, err error) {
-	if id, found, err := findPerson(c, email); err != nil {
-		return "", false, err
-	} else if found {
-		return id, true, nil
-	}
-	first, last := splitName(person.Name)
-	body := jsonBody{
-		"full_name": person.Name,
-		"source":    inventedPersonSource,
-		"emails":    []jsonBody{{"email": email, "email_type": "work", "is_primary": true}},
-	}
-	addIfSet(body, "first_name", first)
-	addIfSet(body, "last_name", last)
-	addIfSet(body, "title", person.Role)
-
-	var out struct {
-		ID string `json:"id"`
-	}
-	if err := c.post("/v1/people", body, &out); err != nil {
-		if existing, ok := conflictingID(err); ok {
-			return existing, true, nil
-		}
-		return "", false, err
-	}
-	return out.ID, false, nil
 }
 
 // standingCounts is what the what-each-company-IS phases wrote.
