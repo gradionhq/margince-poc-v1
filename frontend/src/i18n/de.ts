@@ -936,6 +936,8 @@ export const de = {
   "co.growthFit.title": "Was sie dir wert sind",
   "co.growthFit.unavailable":
     "Diese Einschätzung ließ sich nicht lesen. An der Firma hat sich nichts geändert.",
+  "co.growthFit.assembling":
+    "Der Wert dieses Accounts wird ermittelt — die erste Einschätzung liest den Datensatz und dauert einen Moment.",
   "co.growthFit.reassess": "Neu einschätzen",
   "co.growthFit.reassessing": "Wird eingeschätzt…",
   "co.growthFit.band.strong": "Passt gut",
@@ -1655,6 +1657,8 @@ export const de = {
   "create.legalName": "Rechtlicher Name",
   "create.industry": "Branche",
   "create.sizeBand": "Unternehmensgröße",
+  "co.address.summary": "Adresse",
+  "co.address.add": "Adresse hinzufügen",
   "create.addressLine1": "Straße und Hausnummer",
   "create.addressLine2": "Adresszusatz",
   "create.city": "Stadt",

@@ -70,7 +70,19 @@ function useMorningDigest(): UseQueryResult<MorningDigest | null> {
     queryKey: ["digest"],
     queryFn: async (): Promise<MorningDigest | null> => {
       const { data, error, response } = await api.GET("/digest");
-      if (response.status === 404) {
+      // 404 — this installation has no digest YET. 501 — it does not serve one
+      // at all: the operation is specified and unimplemented, so the answer is
+      // a refusal rather than a delay, and it will not become a digest by being
+      // asked again. Both are the same fact to a reader (there is no brief to
+      // show), and returning null says so.
+      //
+      // Reading 501 as an error is what put a permanent loading block on the
+      // home page. A 501 is a 5xx, so the query client retried it (queryclient
+      // .ts), and React Query PAUSES between retry attempts while the document
+      // is hidden — so the query sat at fetchStatus "paused" and never settled,
+      // and the pending skeleton stood in for the refusal indefinitely. The
+      // reader saw three grey bars that would still be there tomorrow.
+      if (response.status === 404 || response.status === 501) {
         return null;
       }
       if (error) {

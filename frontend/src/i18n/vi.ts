@@ -933,6 +933,8 @@ export const vi = {
   "co.growthFit.title": "Họ có giá trị gì với bạn",
   "co.growthFit.unavailable":
     "Không đọc được đánh giá này. Thông tin công ty không thay đổi.",
+  "co.growthFit.assembling":
+    "Đang xác định giá trị của khách hàng này — lần đánh giá đầu tiên phải đọc toàn bộ hồ sơ nên mất một lát.",
   "co.growthFit.reassess": "Đánh giá lại",
   "co.growthFit.reassessing": "Đang đánh giá…",
   "co.growthFit.band.strong": "Rất phù hợp",
@@ -1647,6 +1649,8 @@ export const vi = {
   "create.legalName": "Tên pháp lý",
   "create.industry": "Ngành",
   "create.sizeBand": "Quy mô công ty",
+  "co.address.summary": "Địa chỉ",
+  "co.address.add": "Thêm địa chỉ",
   "create.addressLine1": "Số nhà và tên đường",
   "create.addressLine2": "Địa chỉ bổ sung",
   "create.city": "Thành phố",

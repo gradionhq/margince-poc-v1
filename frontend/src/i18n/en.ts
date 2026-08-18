@@ -949,6 +949,8 @@ export const en = {
   "co.growthFit.title": "What they are worth to you",
   "co.growthFit.unavailable":
     "This assessment could not be read. Nothing about the company has changed.",
+  "co.growthFit.assembling":
+    "Working out what this account is worth — the first assessment reads the record and takes a moment.",
   "co.growthFit.reassess": "Assess it again",
   "co.growthFit.reassessing": "Assessing…",
   "co.growthFit.band.strong": "Strong fit",
@@ -1651,6 +1653,8 @@ export const en = {
   "create.legalName": "Legal name",
   "create.industry": "Industry",
   "create.sizeBand": "Company size",
+  "co.address.summary": "Address",
+  "co.address.add": "Add an address",
   "create.addressLine1": "Street and number",
   "create.addressLine2": "Address line 2",
   "create.city": "City",
