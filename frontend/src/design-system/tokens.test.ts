@@ -11,6 +11,14 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const tokensCss = readFileSync(join(here, "tokens.css"), "utf8");
 
+// The same sheet with its comments removed, for every test that reads
+// DECLARATIONS. A declaration and a sentence about a declaration are not the
+// same thing, and this file explains most of its values in prose that names
+// them; left in, that prose parses as declarations of its own. The shape tests
+// below keep reading the raw text, so the line number they report in a failure
+// is the line a reader can open.
+const tokenDecls = tokensCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
 // Values verbatim from the mockups; comparison normalizes case, whitespace and
 // a leading zero before a decimal point so formatting is free but values are not.
 const canonical: Record<string, string> = {
@@ -65,8 +73,12 @@ function normalize(value: string): string {
 }
 
 function parseBlock(css: string, selector: string): Record<string, string> {
+  // Parentheses and the colon are escaped too, so a selector carrying a
+  // functional pseudo-class (`:root:not([data-theme="light"])`) is matched as
+  // the literal text it is rather than compiled into a capture group — which
+  // matches nothing, and would report the block as missing.
   const match = css.match(
-    new RegExp(`${selector.replace(/[[\]"=]/g, "\\$&")}\\s*\\{([^}]*)\\}`),
+    new RegExp(`${selector.replace(/[[\]"=():]/g, "\\$&")}\\s*\\{([^}]*)\\}`),
   );
   if (!match) {
     throw new Error(`tokens.css has no ${selector} block`);
@@ -118,7 +130,7 @@ describe("the token block's shape", () => {
   // The scale the whole product measures itself in has to be in the block every
   // document gets, not in one a device may not match.
   it("declares the layout and type scales unconditionally", () => {
-    const light = parseBlock(tokensCss, ":root");
+    const light = parseBlock(tokenDecls, ":root");
     for (const name of [
       "--space-1",
       "--space-6",
@@ -135,7 +147,7 @@ describe("the token block's shape", () => {
 });
 
 describe("Ledger-Green token layer (B-EP09.1)", () => {
-  const light = parseBlock(tokensCss, ":root");
+  const light = parseBlock(tokenDecls, ":root");
 
   it("exports every canonical §2 token with the exact mockup value", () => {
     for (const [name, want] of Object.entries(canonical)) {
@@ -164,7 +176,7 @@ describe("Ledger-Green token layer (B-EP09.1)", () => {
   });
 
   describe("dark palette (data-theme toggle)", () => {
-    const dark = parseBlock(tokensCss, '[data-theme="dark"]');
+    const dark = parseBlock(tokenDecls, '[data-theme="dark"]');
 
     it("lightens the accent toward #16A34A (ADR-0040)", () => {
       expect(normalize(dark["--accent"])).toBe("#16a34a");
@@ -178,6 +190,29 @@ describe("Ledger-Green token layer (B-EP09.1)", () => {
 
     it("keeps the rail on the shared ink-green field (§2b: the rail is not themed)", () => {
       expect(dark["--bgRail"]).toBeUndefined();
+    });
+
+    // A document nobody stamped — an MCP App view whose host stated no theme —
+    // gets its dark palette from the platform-preference arm instead, and two
+    // copies of one palette are only one palette for as long as somebody
+    // checks. Drift here is invisible in both themes of the SPA, which never
+    // reads that arm, and shows up only on the surface nobody has open.
+    it("answers a dark platform preference with the same palette as the toggle", () => {
+      const preferred = parseBlock(
+        tokenDecls,
+        ':root:not([data-theme="light"])',
+      );
+      expect(preferred).toEqual(dark);
+    });
+
+    // The guard is the half that has to keep the SPA exactly as it renders
+    // today: a reader who chose light must stay light on a dark operating
+    // system, and only this exclusion makes the media arm lose to that choice.
+    it("excludes an explicit light choice from the platform arm", () => {
+      const arm = tokenDecls.slice(
+        tokenDecls.indexOf("@media (prefers-color-scheme: dark)"),
+      );
+      expect(arm).toContain(':root:not([data-theme="light"])');
     });
   });
 });
