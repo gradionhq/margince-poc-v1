@@ -77,6 +77,14 @@ func getOrganizationInTx(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	// The two list-row counts, on the single read too, so the page a row
+	// opens into agrees with the row. Attached here rather than in
+	// readOrganization: a write's before-image has no use for them.
+	single := []crmcontracts.Organization{out}
+	if err := attachOrgCounts(ctx, tx, single); err != nil {
+		return crmcontracts.Organization{}, fmt.Errorf("read organization counts: %w", err)
+	}
+	out = single[0]
 	// STATE-4: the gate is a pure permission check (no query), so a
 	// caller whose role lacks computed_field:read never pays for the
 	// rollup read below, and out.ComputedFields stays its nil zero

@@ -221,6 +221,14 @@ var organizationBindings = EntityBinding{
 			Reason: "Evaluated from this installation's own formula definitions over native rows.",
 		},
 		{
+			WireSlot: "contact_count", Disposition: DispositionNativeOnly,
+			Reason: "Counted from this installation's own employment edges; the mirror's roster is not the native one.",
+		},
+		{
+			WireSlot: "open_deal_count", Disposition: DispositionNativeOnly,
+			Reason: "Counted from native deal rows, the same rows computed_fields' open pipeline sums.",
+		},
+		{
 			WireSlot: "classification", Disposition: DispositionNativeOnly,
 			Reason: "Retired by ADR-0079/A124 and written by nothing; it survives only so a native row's pre-migration value can be compared, and a mirrored record has no such value.",
 		},

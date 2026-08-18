@@ -10172,6 +10172,10 @@ export interface components {
             readonly logo_url?: string | null;
             /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
             readonly strength?: components["schemas"]["RelationshipStrength"];
+            /** @description How many live people list this account as their current primary employer (PO-EXT-10; AC-companies-2/3's Contacts column). Counted from the employment edges, so a contact whose record the caller cannot open still counts — the edge is a fact about the account, exactly as an employer name the caller cannot read leaves the edge visible. Populated on the list and the single read in the same transaction as the row; never client-supplied. */
+            readonly contact_count?: number;
+            /** @description How many open, live deals belong to this account (PO-EXT-10; AC-companies-2/3's Open deals column) — the same figure the `computed_fields` open-pipeline row already derives on the single read. It follows that row's visibility (STATE-4): the key is ABSENT entirely, not 0, when the viewer's role lacks `computed_field:read`, so a reader who may not see pipeline sees no count of it. */
+            readonly open_deal_count?: number;
             source: string;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;

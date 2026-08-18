@@ -618,6 +618,23 @@ export function CompaniesScreen() {
               ) : null,
           },
           {
+            // AC-companies-2/3: how many people work here. Zero is a number
+            // — a reader must tell "no contacts" from "not shown".
+            key: "contacts",
+            header: t("org.contactCount"),
+            numeric: true,
+            cell: (org: Organization) => org.contact_count ?? "",
+          },
+          {
+            // Withheld (absent key), not zero, for a role without
+            // computed_field:read — the same STATE-4 rule the company page's
+            // pipeline tile follows, so the two never disagree.
+            key: "openDeals",
+            header: t("org.openDealCount"),
+            numeric: true,
+            cell: (org: Organization) => org.open_deal_count ?? "",
+          },
+          {
             key: "class",
             header: t("org.lifecycle"),
             // classification is retired and no longer written by anything,

@@ -689,6 +689,59 @@ describe("CompaniesScreen — what an account is to us", () => {
   });
 });
 
+describe("CompaniesScreen — how many work here, how many deals are open", () => {
+  it("shows both counts, zero included", async () => {
+    stubFetch(async () =>
+      jsonResponse({
+        data: [
+          { ...org, contact_count: 4, open_deal_count: 2 },
+          {
+            ...org,
+            id: "o-2",
+            display_name: "Quiet Ltd",
+            contact_count: 0,
+            open_deal_count: 0,
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    const first = (await screen.findByText("Brandt Automotive GmbH")).closest(
+      "tr",
+    );
+    const quiet = screen.getByText("Quiet Ltd").closest("tr");
+    if (!first || !quiet) {
+      throw new Error("rows must render inside table rows");
+    }
+    expect(within(first).getByText("4")).toBeTruthy();
+    expect(within(first).getByText("2")).toBeTruthy();
+    // Zero is a number: "no contacts" and "no open deals" are facts, and a
+    // blank cell would read as "not shown".
+    expect(within(quiet).getAllByText("0").length).toBe(2);
+  });
+
+  it("leaves the deal count blank when the server withheld it", async () => {
+    // A role without computed_field:read gets no key at all (STATE-4), and
+    // the column must not turn that absence into a confident 0.
+    stubFetch(async () =>
+      jsonResponse({
+        data: [{ ...org, contact_count: 3 }],
+        page: { next_cursor: null, has_more: false },
+      }),
+    );
+    render(<CompaniesScreen />);
+    const row = (await screen.findByText("Brandt Automotive GmbH")).closest(
+      "tr",
+    );
+    if (!row) {
+      throw new Error("row must render inside a table row");
+    }
+    expect(within(row).getByText("3")).toBeTruthy();
+    expect(within(row).queryByText("0")).toBeNull();
+  });
+});
+
 describe("CompaniesScreen — list dials reach the server (P-14)", () => {
   it("asks the server to re-sort instead of reordering the rows it holds", async () => {
     const user = userEvent.setup();

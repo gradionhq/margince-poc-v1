@@ -602,6 +602,8 @@ export const vi = {
   "org.name": "Công ty",
   "org.description": "Họ làm gì",
   "org.website": "Trang web",
+  "org.contactCount": "Liên hệ",
+  "org.openDealCount": "Deal đang mở",
   "org.industry": "Ngành",
   "org.size": "Quy mô",
   "org.classification": "Loại",
