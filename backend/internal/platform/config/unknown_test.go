@@ -4,6 +4,8 @@
 package config_test
 
 import (
+	"bytes"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -97,5 +99,45 @@ func TestTheReportIsOrdered(t *testing.T) {
 	got := probeRegistry(t).Undeclared([]string{ns + "ZEBRA=1", ns + "ALPHA=1"})
 	if len(got) != 2 || got[0] != ns+"ALPHA" || got[1] != ns+"ZEBRA" {
 		t.Fatalf("Undeclared = %v, want alphabetical", got)
+	}
+}
+
+// The warning itself, because the SENTENCE is the load-bearing part: it must
+// name the variables without their values, and it must not claim more than a
+// single role's registry can know.
+func TestTheWarningNamesVariablesWithoutValues(t *testing.T) {
+	const credential = "a-real-bearer-token"
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	config.WarnUndeclared(logger, probeRegistry(t).Undeclared([]string{
+		ns + "TOKKEN=" + credential,
+		ns + "REDDIS=localhost:6379",
+	}))
+	line := buf.String()
+
+	if strings.Contains(line, credential) {
+		t.Errorf("the warning carried a credential: %s", line)
+	}
+	for _, name := range []string{ns + "TOKKEN", ns + "REDDIS"} {
+		if !strings.Contains(line, name) {
+			t.Errorf("the warning does not name %s: %s", name, line)
+		}
+	}
+	// The claim a per-role registry cannot support. An operator who reads "no
+	// such variable" about a name the SIBLING role reads will delete working
+	// configuration — which is how this wording was got wrong the first time.
+	if strings.Contains(line, "no such configuration variable") {
+		t.Errorf("the warning claims a variable does not exist, which one role cannot know: %s", line)
+	}
+}
+
+func TestNothingIsLoggedWhenThereIsNothingToSay(t *testing.T) {
+	// A line on every boot of every correctly-configured installation is a line
+	// operators learn to scroll past, and it would take the real one with it.
+	var buf bytes.Buffer
+	config.WarnUndeclared(slog.New(slog.NewTextHandler(&buf, nil)), nil)
+	if buf.Len() != 0 {
+		t.Errorf("logged %q with nothing to report", buf.String())
 	}
 }
