@@ -228,6 +228,8 @@ func operatorsByTypeForTest() [][]string {
 
 // operandFor supplies an operand of the shape each operator requires, so a
 // compile that fails does so about the OPERATOR rather than the value.
+//
+//craft:ignore naked-any the return IS a Predicate.Value, which storekit declares as any because a filter operand is a decoded JSON scalar or array — a concrete type here could not be assigned to the field under test
 func operandFor(op string) any {
 	switch op {
 	case storekit.OpExists:
