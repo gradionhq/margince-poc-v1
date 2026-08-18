@@ -104,21 +104,40 @@ function declaredConsts(
   source: ts.SourceFile,
   seeded: Map<string, number>,
 ): Map<string, number> {
-  const known = new Map(seeded);
-  const value = resolver(known);
+  // Every value each name is ever given, not the last one. This reader has no
+  // scope information, so two `describe` blocks that each declare their own
+  // `SETTLE_MS`, or a module-level one shadowed by a function-local, were
+  // collapsed to whichever came last in source order — the same last-wins
+  // defect `exportedConsts` fixes across a module boundary, one hop closer.
+  // A name given two different values resolves to nothing, and a waiter that
+  // needed it is reported rather than folded to the wrong number.
+  const seen = new Map<string, Set<number>>();
+  for (const [name, resolved] of seeded) seen.set(name, new Set([resolved]));
+  const single = (): Map<string, number> => {
+    const settled = new Map<string, number>();
+    for (const [name, values] of seen) {
+      const only = values.size === 1 ? [...values][0] : undefined;
+      if (only !== undefined) settled.set(name, only);
+    }
+    return settled;
+  };
   const visit = (node: ts.Node): void => {
     if (
       ts.isVariableDeclaration(node) &&
       ts.isIdentifier(node.name) &&
       node.initializer
     ) {
-      const resolved = value(node.initializer);
-      if (resolved !== undefined) known.set(node.name.text, resolved);
+      const resolved = resolver(single())(node.initializer);
+      if (resolved !== undefined) {
+        const values = seen.get(node.name.text);
+        if (values) values.add(resolved);
+        else seen.set(node.name.text, new Set([resolved]));
+      }
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return known;
+  return single();
 }
 
 function parse(file: string): ts.SourceFile {
@@ -212,6 +231,25 @@ function numericConsts(
 }
 
 /**
+ * Whether a property key names the timeout, however it is written. Comparing
+ * source text read `{ "timeout": 5000 }` and `{ ["timeout"]: 5000 }` as "states
+ * no timeout", which is the silent-default path this file exists to close — and
+ * it would have rested on a lint rule the reader knows nothing about.
+ */
+function isTimeoutKey(name: ts.PropertyName): boolean {
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) {
+    return name.text === "timeout";
+  }
+  if (
+    ts.isComputedPropertyName(name) &&
+    ts.isStringLiteralLike(name.expression)
+  ) {
+    return name.expression.text === "timeout";
+  }
+  return false;
+}
+
+/**
  * The `timeout:` of one options object — `{ timeout: 4000 }` and the shorthand
  * `{ timeout }` alike, since the shorthand is the idiomatic spelling once the
  * value has a name. A spread carries properties this reader cannot see, so the
@@ -227,7 +265,7 @@ function timeoutExpression(
       continue;
     }
     if (!ts.isPropertyAssignment(property)) continue;
-    if (property.name.getText() !== "timeout") continue;
+    if (!isTimeoutKey(property.name)) continue;
     return property.initializer;
   }
   return undefined;
@@ -311,7 +349,14 @@ function rootCallee(node: ts.Node): string {
   return ts.isIdentifier(current) ? current.text : "";
 }
 
-/** The immediate name a call uses, for spotting a waiter or a helper. */
+/**
+ * The immediate name a call uses. Good enough to spot a waiter, which is always
+ * reached through an object (`screen.findByText`) or bare (`waitFor`) — but a
+ * HELPER is only ever called by its bare name, so the caller checks that too.
+ * Without it `userEvent.clear(input)` was charged the whole budget of a
+ * file-declared `clear` helper, and phantom budget inflates the very
+ * measurement that sets the suite's ceiling.
+ */
 function directCallee(call: ts.CallExpression): string {
   const expression = call.expression;
   if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
@@ -381,8 +426,16 @@ function budgetOf(
     if (cached) return cached;
     // Recursion guard. A helper reached while it is already being computed
     // contributes nothing to THIS reading, and that truncated answer is not
-    // cached: memoizing it would hand a later direct call the under-count, so
-    // the total would depend on the order the helpers were first reached.
+    // cached, which keeps a later DIRECT call from inheriting the under-count.
+    //
+    // It does not make mutual recursion order-independent, and saying so would
+    // be claiming more than the code does: with `a()` calling `b()` and `b()`
+    // calling `a()`, the outermost reading memoized still embeds a truncated
+    // inner one, so `await b(); await a()` and `await a(); await b()` differ.
+    // Both under-count, which is the direction that lets a violation through
+    // rather than inventing one. Mutually recursive helpers do not occur in
+    // this tree; if they arrive, the honest fix is to key the memo on the
+    // path rather than on the name.
     if (path.has(name)) return { ms: 0, unresolved: [] };
     const bodies = helpers.get(name);
     if (!bodies || bodies.length === 0) return { ms: 0, unresolved: [] };
@@ -440,7 +493,8 @@ function budgetOf(
     if (ts.isCallExpression(current)) {
       const name = directCallee(current);
       if (WAITER.test(name)) takeWaiter(current);
-      else if (helpers.has(name)) takeHelper(name);
+      else if (ts.isIdentifier(current.expression) && helpers.has(name))
+        takeHelper(name);
     }
     ts.forEachChild(current, visit);
   };

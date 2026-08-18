@@ -5,7 +5,7 @@ import {
   MAX_DEFAULT_WAITER_BUDGET_MS,
   TEST_TIMEOUT_MS,
 } from "../vitest.budget";
-import { budgetsIn } from "./test-budget";
+import { budgetsIn, type TestBudget } from "./test-budget";
 
 // The budget that governs every other suite here, gated the only way a budget
 // can be: against the thing it has to outlast. Issue 1144 was not a slow test —
@@ -38,9 +38,11 @@ const EXEMPT = new Set([
   "src/screens/company-context.test.tsx::keeps a failed status poll to the catalog sentence",
 ]);
 
-const budgets = globSync("src/**/*.test.ts?(x)")
-  .flatMap((file) => budgetsIn(file, TEST_TIMEOUT_MS))
-  .filter((budget) => !EXEMPT.has(`${budget.file}::${budget.name}`));
+const all = globSync("src/**/*.test.ts?(x)").flatMap((file) =>
+  budgetsIn(file, TEST_TIMEOUT_MS),
+);
+const key = (budget: TestBudget) => `${budget.file}::${budget.name}`;
+const budgets = all.filter((budget) => !EXEMPT.has(key(budget)));
 
 /**
  * The tests this ceiling is FOR: the ones that state no ceiling of their own.
@@ -97,6 +99,18 @@ describe("the frontend suite's time budget", () => {
           `${budget.file}:${budget.line} states a timeout this reader cannot fold: ${budget.unresolved.join(", ")}`,
       );
     expect(unreadable).toEqual([]);
+  });
+
+  it("exempts exactly the two tests it names, and nothing else", () => {
+    // `file::name` is not a unique key in this tree — three pairs already
+    // collide elsewhere — so an exemption could come to cover a second test
+    // added under one of these names, silently. Asserting one budget each is
+    // what keeps the exemption as narrow as its reason.
+    const covered = [...EXEMPT].map(
+      (entry) =>
+        [entry, all.filter((budget) => key(budget) === entry).length] as const,
+    );
+    expect(covered).toEqual([...EXEMPT].map((entry) => [entry, 1]));
   });
 
   it("reads a tree it can actually parse", () => {

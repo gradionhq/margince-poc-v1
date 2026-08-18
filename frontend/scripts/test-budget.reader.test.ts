@@ -328,6 +328,46 @@ describe("the waiter-budget reader", () => {
     expect(probe?.ceilingIsStated).toBe(true);
   });
 
+  it("reports a constant this file gives two different values", () => {
+    // No scope information, so two suites each declaring their own SETTLE_MS
+    // collapsed to whichever came last in source order — the same last-wins
+    // defect that crossed the import boundary, one hop closer.
+    const [probe] = read(
+      `const SETTLE_MS = 9000;
+       function helper() { const SETTLE_MS = 1; return SETTLE_MS; }
+       it("x", async () => { await waitFor(() => {}, { timeout: SETTLE_MS }); });`,
+      "shadowed-const.test.tsx",
+    );
+    expect(probe?.unresolved).toEqual(["SETTLE_MS"]);
+  });
+
+  it("does not charge a method call the budget of a same-named helper", () => {
+    // `userEvent.clear(input)` is not the file's `clear` helper. Phantom
+    // budget inflates the very measurement that sets the suite ceiling.
+    const [probe] = read(
+      `const clear = () => waitFor(() => {}, { timeout: 7000 });
+       it("x", async () => { await userEvent.clear(input); });`,
+      "method.test.tsx",
+    );
+    expect(probe?.waiterBudgetMs).toBe(0);
+  });
+
+  it("reads a quoted or computed timeout key", () => {
+    // Comparing source text read these as "states no timeout", which lands on
+    // the default — the silent-smallest-number path again.
+    const quoted = read(
+      `it("x", async () => { await waitFor(() => {}, { "timeout": 5000 }); });`,
+      "quoted.test.tsx",
+    )[0];
+    const computed = read(
+      `it("x", async () => { await waitFor(() => {}, { ["timeout"]: 5000 }); });`,
+      "computed.test.tsx",
+    )[0];
+    expect([quoted?.waiterBudgetMs, computed?.waiterBudgetMs]).toEqual([
+      5_000, 5_000,
+    ]);
+  });
+
   it("reports a timeout it cannot fold instead of assuming the default", () => {
     // The one that matters: an unfoldable budget quietly recorded as 1000 hid a
     // live 11000ms violation from the guard.
