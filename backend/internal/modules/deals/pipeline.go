@@ -54,11 +54,10 @@ func (s *Store) CreatePipeline(ctx context.Context, in CreatePipelineInput) (crm
 // atomic bootstrap seeds defaults in the same transaction that mints the
 // workspace (C5), so a seed failure rolls the whole tenant back.
 func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (crmcontracts.Pipeline, error) {
-	wsID := storekit.MustWorkspace(ctx)
 	id := ids.New[ids.PipelineKind]()
 	_, err := tx.Exec(ctx,
-		`INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, $3, $4, $5)`,
-		id, wsID, in.Name, in.IsDefault, in.Position)
+		`INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, $2, $3, $4)`,
+		id, in.Name, in.IsDefault, in.Position)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.Pipeline{}, apperrors.ErrConflict
@@ -68,9 +67,9 @@ func createPipelineTx(ctx context.Context, tx pgx.Tx, in CreatePipelineInput) (c
 
 	for _, st := range in.Stages {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO stage (workspace_id, pipeline_id, name, position, semantic, win_probability)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			wsID, id, st.Name, st.Position, st.Semantic, st.WinProbability); err != nil {
+			`INSERT INTO stage (pipeline_id, name, position, semantic, win_probability)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			id, st.Name, st.Position, st.Semantic, st.WinProbability); err != nil {
 			return crmcontracts.Pipeline{}, fmt.Errorf("insert stage: %w", err)
 		}
 	}
@@ -207,15 +206,15 @@ func readPipelineWith(
 	ctx context.Context, tx pgx.Tx, id ids.PipelineID, archived storekit.ArchivedFilter,
 ) (crmcontracts.Pipeline, error) {
 	var p crmcontracts.Pipeline
-	var pid, wsID ids.UUID
+	var pid ids.UUID
 	live := ""
 	if archived == storekit.LiveOnly {
 		live = liveRowsClause
 	}
 	err := tx.QueryRow(ctx,
-		`SELECT id, workspace_id, name, is_default, position, created_at, updated_at, archived_at
+		`SELECT id, name, is_default, position, created_at, updated_at, archived_at
 		 FROM pipeline WHERE id = $1`+live, id).
-		Scan(&pid, &wsID, &p.Name, &p.IsDefault, &p.Position, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
+		Scan(&pid, &p.Name, &p.IsDefault, &p.Position, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return p, apperrors.ErrNotFound
 	}
@@ -225,7 +224,7 @@ func readPipelineWith(
 	p.Id = openapi_types.UUID(pid)
 
 	rows, err := tx.Query(ctx,
-		`SELECT id, workspace_id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at
+		`SELECT id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at
 		 FROM stage WHERE pipeline_id = $1 AND archived_at IS NULL ORDER BY position`, id)
 	if err != nil {
 		return p, err
@@ -235,9 +234,9 @@ func readPipelineWith(
 	stages := []crmcontracts.Stage{}
 	for rows.Next() {
 		var st crmcontracts.Stage
-		var stID, stWs, stPipeline ids.UUID
+		var stID, stPipeline ids.UUID
 		var semantic string
-		if err := rows.Scan(&stID, &stWs, &stPipeline, &st.Name, &st.Position, &semantic, &st.WinProbability, &st.CreatedAt, &st.UpdatedAt); err != nil {
+		if err := rows.Scan(&stID, &stPipeline, &st.Name, &st.Position, &semantic, &st.WinProbability, &st.CreatedAt, &st.UpdatedAt); err != nil {
 			return p, err
 		}
 		st.Id = openapi_types.UUID(stID)

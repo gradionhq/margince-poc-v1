@@ -123,7 +123,6 @@ func (s *Store) readyDealCreate(ctx context.Context, in CreateDealInput) (string
 // visible organization), inserts the deal with its first stage-history
 // row, and runs the write shape — all inside the caller's transaction.
 func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string, active []fieldcatalog.Column) (crmcontracts.Deal, error) {
-	wsID := storekit.MustWorkspace(ctx)
 
 	if err := ensureOpenBirthStage(ctx, tx, in.StageID, in.PipelineID); err != nil {
 		return crmcontracts.Deal{}, err
@@ -156,13 +155,13 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 
 	id := ids.New[ids.DealKind]()
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
-		id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
+		id, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
 		in.OrganizationID, in.ProjectID, in.OwnerID, in.ExpectedClose, in.Source, by,
 	})
 	_, err := tx.Exec(ctx,
-		`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
+		`INSERT INTO deal (id, name, amount_minor, currency, pipeline_id, stage_id,
 		                   organization_id, project_id, owner_id, expected_close_date, source, captured_by`+cfCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13`+cfHolders+`)`,
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12`+cfHolders+`)`,
 		args...)
 	if err != nil {
 		// Covers the remaining FKs (pipeline, owner); the stage/pipeline
@@ -177,9 +176,9 @@ func (s *Store) createDealInTx(ctx context.Context, tx pgx.Tx, in CreateDealInpu
 	}
 
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO deal_stage_history (workspace_id, deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change)
-		 VALUES ($1, $2, NULL, $3, $4, $5, $6)`,
-		wsID, id, in.StageID, by, in.AmountMinor, in.Currency); err != nil {
+		`INSERT INTO deal_stage_history (deal_id, from_stage_id, to_stage_id, changed_by, amount_minor_at_change, currency_at_change)
+		 VALUES ($1, NULL, $2, $3, $4, $5)`,
+		id, in.StageID, by, in.AmountMinor, in.Currency); err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("record stage history: %w", err)
 	}
 

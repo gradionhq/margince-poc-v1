@@ -173,7 +173,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	return where
 }
 
-const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
+const dealColumns = `id, name, amount_minor, currency, pipeline_id, stage_id,
 	organization_id, project_id, owner_id, partner_org_id, status, lost_reason,
 	won_without_contract_reason, won_without_contract_detail,
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
@@ -199,7 +199,7 @@ func readDeal(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.A
 // cursor key).
 func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Deal, error) {
 	var d crmcontracts.Deal
-	var id, wsID, pipelineID, stageID ids.UUID
+	var id, pipelineID, stageID ids.UUID
 	var orgID, projectID, ownerID, partnerID *ids.UUID
 	var status string
 	var forecastCat *string
@@ -209,7 +209,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 
 	var wonReason *string
 	dests := []any{
-		&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
+		&id, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
 		&orgID, &projectID, &ownerID, &partnerID, &status, &d.LostReason,
 		&wonReason, &d.WonWithoutContractDetail,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,

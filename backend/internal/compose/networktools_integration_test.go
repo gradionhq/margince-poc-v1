@@ -187,18 +187,18 @@ func seedOpenDeal(t *testing.T, e *integration.Env) ids.UUID {
 	seedAsAdmin(t, e, func(ctx context.Context, tx pgx.Tx) error {
 		var pipelineID, stageID ids.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO pipeline (workspace_id, name) VALUES (`+wsGUC+`, 'At-risk test')
+			INSERT INTO pipeline (name) VALUES ( 'At-risk test')
 			RETURNING id`).Scan(&pipelineID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO stage (workspace_id, pipeline_id, name, position)
-			VALUES (`+wsGUC+`, $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
+			INSERT INTO stage (pipeline_id, name, position)
+			VALUES ( $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
 			return err
 		}
 		return tx.QueryRow(ctx, `
-			INSERT INTO deal (workspace_id, name, stage_id, pipeline_id, owner_id, source, captured_by)
-			VALUES (`+wsGUC+`, 'Threadless', $1, $2, $3, 'manual', 'human:test')
+			INSERT INTO deal (name, stage_id, pipeline_id, owner_id, source, captured_by)
+			VALUES ( 'Threadless', $1, $2, $3, 'manual', 'human:test')
 			RETURNING id`, stageID, pipelineID, e.Rep1).Scan(&dealID)
 	}, "seeding the deal")
 	return dealID

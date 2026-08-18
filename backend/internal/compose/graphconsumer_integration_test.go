@@ -201,18 +201,18 @@ func TestCoverageNamesItsColleaguesForTheAgent(t *testing.T) {
 		// The harness seeds no pipeline, so this test brings its own.
 		var pipelineID, stageID ids.UUID
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO pipeline (workspace_id, name) VALUES (`+ws+`, 'Coverage Test')
+			INSERT INTO pipeline (name) VALUES ( 'Coverage Test')
 			RETURNING id`).Scan(&pipelineID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO stage (workspace_id, pipeline_id, name, position)
-			VALUES (`+ws+`, $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
+			INSERT INTO stage (pipeline_id, name, position)
+			VALUES ( $1, 'Qualified', 0) RETURNING id`, pipelineID).Scan(&stageID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO deal (workspace_id, name, stage_id, pipeline_id, owner_id, source, captured_by)
-			VALUES (`+ws+`, 'Covered', $1, $2, $3, 'manual', 'human:test')
+			INSERT INTO deal (name, stage_id, pipeline_id, owner_id, source, captured_by)
+			VALUES ( 'Covered', $1, $2, $3, 'manual', 'human:test')
 			RETURNING id`, stageID, pipelineID, e.Rep1).Scan(&dealID); err != nil {
 			return err
 		}

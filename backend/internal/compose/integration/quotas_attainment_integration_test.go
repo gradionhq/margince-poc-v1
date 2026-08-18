@@ -59,10 +59,9 @@ func seedAttainmentDeal(t *testing.T, e *Env, st rollupStages, d attainmentDealS
 		stage = st.open
 	}
 	id := ids.NewV7()
-	e.WsExec(t, `INSERT INTO deal (id, workspace_id, name, owner_id, amount_minor, currency, fx_rate_to_base,
-			pipeline_id, stage_id, status, closed_at, lost_reason, archived_at, source, captured_by)
-		VALUES ($1, $2, 'Attainment Deal', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'manual', 'human:test')`,
-		id, e.WS, d.owner, d.amount, d.currency, d.fx, st.pipeline, stage, d.status,
+	e.WsExec(t, `INSERT INTO deal (id, name, owner_id, amount_minor, currency, fx_rate_to_base, pipeline_id, stage_id, status, closed_at, lost_reason, archived_at, source, captured_by)
+		VALUES ($1, 'Attainment Deal', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', 'human:test')`,
+		id, d.owner, d.amount, d.currency, d.fx, st.pipeline, stage, d.status,
 		d.closedAt, d.lostReason, d.archivedAt)
 	return id
 }

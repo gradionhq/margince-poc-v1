@@ -33,11 +33,11 @@ type dealFixture struct {
 func seedDealBoard(t *testing.T, fx *autoFixture) dealFixture {
 	t.Helper()
 	pipeline, openStage, wonStage := ids.NewV7(), ids.NewV7(), ids.NewV7()
-	fx.exec(t, `INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Sales', true)`, pipeline, fx.ws)
-	fx.exec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualify', 1, 'open', 20)`, openStage, fx.ws, pipeline)
-	fx.exec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Won', 2, 'won', 100)`, wonStage, fx.ws, pipeline)
+	fx.exec(t, `INSERT INTO pipeline (id, name, is_default) VALUES ($1, 'Sales', true)`, pipeline)
+	fx.exec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualify', 1, 'open', 20)`, openStage, pipeline)
+	fx.exec(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Won', 2, 'won', 100)`, wonStage, pipeline)
 
 	seedDeal := func(owner ids.UUID, status string, archived bool) ids.UUID {
 		id := ids.NewV7()
@@ -51,9 +51,9 @@ func seedDealBoard(t *testing.T, fx *autoFixture) dealFixture {
 			archivedAt = &ts
 		}
 		fx.exec(t, `
-			INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, status, closed_at, archived_at, source, captured_by)
-			VALUES ($1, $2, 'Deal', $3, $4, $5, $6, $7, $8, 'manual', 'human:test')`,
-			id, fx.ws, pipeline, openStage, owner, status, closedAt, archivedAt)
+			INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, status, closed_at, archived_at, source, captured_by)
+			VALUES ($1, 'Deal', $2, $3, $4, $5, $6, $7, 'manual', 'human:test')`,
+			id, pipeline, openStage, owner, status, closedAt, archivedAt)
 		return id
 	}
 	own := seedDeal(fx.rep1, "open", false)
@@ -75,8 +75,8 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	now := time.Now().UTC()
 	moveAt := func(stage ids.UUID, at time.Time) {
 		fx.exec(t, `
-			INSERT INTO deal_stage_history (workspace_id, deal_id, to_stage_id, changed_by, changed_at)
-			VALUES ($1, $2, $3, 'human:test', $4)`, fx.ws, board.ownDeal, stage, at)
+			INSERT INTO deal_stage_history (deal_id, to_stage_id, changed_by, changed_at)
+			VALUES ( $1, $2, 'human:test', $3)`, board.ownDeal, stage, at)
 	}
 	moveAt(board.openStage, now.AddDate(0, 0, -1))
 	moveAt(board.openStage, now.AddDate(0, 0, -5))

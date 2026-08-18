@@ -108,10 +108,10 @@ func setupForecast(t *testing.T) *forecastEnv {
 		}
 	}
 
-	e.pipeline = e.seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
+	e.pipeline = e.seedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
 	for position, probability := range map[int]int{0: 20, 1: 55, 2: 60} {
-		e.stages[probability] = e.seed(t,
-			`INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, $4, $5, 'open', $6)`,
+		e.stages[probability] = e.seedID(t,
+			`INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, $4, 'open', $5)`,
 			e.pipeline, fmt.Sprintf("Stage %d", position), position, probability)
 	}
 
@@ -136,14 +136,27 @@ func (e *forecastEnv) seed(t *testing.T, sql string, args ...any) ids.UUID {
 	return id
 }
 
+// seedID is seed for a table that no longer has a workspace to bind — it mints
+// the id and nothing else. ADR-0091 §8 phase D removes the column table by
+// table, so this env seeds some of its fixtures one way and some the other
+// until the last one goes.
+func (e *forecastEnv) seedID(t *testing.T, sql string, args ...any) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := e.owner.Exec(context.Background(), sql, append([]any{id}, args...)...); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	return id
+}
+
 // seedOpenDeal plants one live open deal; amountMinor/category/owner may
 // be nil (the honest NULL cases every roll-up must survive). The close
 // date is comfortably future so the §11 hygiene exclusion stays out of
 // these roll-up suites — the exclusion has its own suite.
 func (e *forecastEnv) seedOpenDeal(t *testing.T, name string, probability int, owner *ids.UUID, amountMinor *int64, category *string) ids.UUID {
 	t.Helper()
-	return e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id, amount_minor, currency, forecast_category, expected_close_date, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, CASE WHEN $7::bigint IS NULL THEN NULL ELSE 'EUR' END, $8, (now() + interval '30 days')::date, 'manual', 'human:x')`,
+	return e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, amount_minor, currency, forecast_category, expected_close_date, source, captured_by)
+		VALUES ($1, $2, $3, $4, $5, $6, CASE WHEN $6::bigint IS NULL THEN NULL ELSE 'EUR' END, $7, (now() + interval '30 days')::date, 'manual', 'human:x')`,
 		name, e.pipeline, e.stages[probability], owner, amountMinor, category)
 }
 
@@ -269,10 +282,10 @@ func TestForecastRollupReconcilesToConstituentDeals(t *testing.T) {
 		e.seedOpenDeal(t, fmt.Sprintf("Deal %d", i), int(c.probability), nil, c.amount, c.category)
 	}
 	// Closed and archived deals are not forecast.
-	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, status, closed_at, source, captured_by)
-		VALUES ($1, $2, 'Won already', $3, $4, 'won', now(), 'manual', 'human:x')`, e.pipeline, e.stages[60])
-	e.seed(t, `INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency, archived_at, source, captured_by)
-		VALUES ($1, $2, 'Archived', $3, $4, 77777, 'EUR', now(), 'manual', 'human:x')`, e.pipeline, e.stages[60])
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, status, closed_at, source, captured_by)
+		VALUES ($1, 'Won already', $2, $3, 'won', now(), 'manual', 'human:x')`, e.pipeline, e.stages[60])
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, amount_minor, currency, archived_at, source, captured_by)
+		VALUES ($1, 'Archived', $2, $3, 77777, 'EUR', now(), 'manual', 'human:x')`, e.pipeline, e.stages[60])
 
 	result := e.runReport(e.Admin(), t, "forecast", `{"group_by":["forecast_category"]}`)
 	if len(result.Rows) != 3 {

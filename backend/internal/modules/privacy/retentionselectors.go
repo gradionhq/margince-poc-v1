@@ -57,8 +57,7 @@ var retentionSelectors = map[string]string{
 		        WHERE r.kind = 'deal_stakeholder' AND r.person_id = p.id AND r.archived_at IS NULL)
 		LIMIT $2`,
 	"deal/lost": `SELECT id FROM deal
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status = 'lost' AND archived_at IS NULL AND NOT legal_hold
+		WHERE status = 'lost' AND archived_at IS NULL AND NOT legal_hold
 		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
 	// deal/won is authorable but NOT seeded: no DM-SEED row plants it, because
 	// a won deal is the commercial record of the relationship and the product
@@ -67,8 +66,7 @@ var retentionSelectors = map[string]string{
 	// deal/won after a shorter period than the default") — without a selector
 	// the use case's own worked example could not be performed.
 	"deal/won": `SELECT id FROM deal
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status = 'won' AND archived_at IS NULL AND NOT legal_hold
+		WHERE status = 'won' AND archived_at IS NULL AND NOT legal_hold
 		  AND closed_at < now() - make_interval(days => $1) LIMIT $2`,
 	"ai_call_payload/content": `SELECT id FROM ai_call_payload
 		WHERE occurred_at < now() - make_interval(days => $1) LIMIT $2`,

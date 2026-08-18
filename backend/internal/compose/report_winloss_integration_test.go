@@ -47,10 +47,8 @@ func (e *forecastEnv) seedClosedDealWith(t *testing.T, name, status, source, clo
 	if lostReason != "" {
 		reason = &lostReason
 	}
-	e.seed(t, `INSERT INTO deal
-		(id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency,
-		 status, closed_at, lost_reason, fx_rate_to_base, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'EUR', $7, $8::timestamptz, $9, 1.0, $10, 'human:x')`,
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, amount_minor, currency, status, closed_at, lost_reason, fx_rate_to_base, source, captured_by)
+		VALUES ($1, $2, $3, $4, $5, 'EUR', $6, $7::timestamptz, $8, 1.0, $9, 'human:x')`,
 		name, e.pipeline, e.stages[60], amountMinor, status, closedAt, reason, source)
 }
 
@@ -280,10 +278,8 @@ func TestAnEmptyTextGroupKeyIsNotTheSameAsAnAbsentOne(t *testing.T) {
 func TestTheWinLossDefaultNeverSumsAcrossCurrencies(t *testing.T) {
 	e := setupForecast(t)
 	e.seedClosedDeal(t, "In euros", "won", "2025-03-04T10:00:00Z", 10000)
-	e.seed(t, `INSERT INTO deal
-		(id, workspace_id, name, pipeline_id, stage_id, amount_minor, currency,
-		 status, closed_at, fx_rate_to_base, source, captured_by)
-		VALUES ($1, $2, 'In dollars', $3, $4, 10000, 'USD', 'won', now(), 1.0, 'manual', 'human:x')`,
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, amount_minor, currency, status, closed_at, fx_rate_to_base, source, captured_by)
+		VALUES ($1, 'In dollars', $2, $3, 10000, 'USD', 'won', now(), 1.0, 'manual', 'human:x')`,
 		e.pipeline, e.stages[60])
 
 	result := e.runReport(e.Admin(), t, "win-loss", `{}`)

@@ -144,8 +144,8 @@ func (s *Store) CreateStage(ctx context.Context, in CreateStageInput) (crmcontra
 		}
 		var stageID ids.StageID
 		err := tx.QueryRow(ctx, `
-			INSERT INTO stage (workspace_id, pipeline_id, name, position, semantic, win_probability)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+			INSERT INTO stage (pipeline_id, name, position, semantic, win_probability)
+			VALUES ($1, $2, $3, $4, $5)
 			RETURNING id`,
 			in.PipelineID, in.Name, in.Position, in.Semantic, probability).Scan(&stageID)
 		if err != nil {
@@ -366,14 +366,14 @@ func stageUpdatedPayload(pipelineID ids.PipelineID, in UpdateStageInput) crmcont
 }
 
 func readStage(ctx context.Context, tx pgx.Tx, id ids.StageID, archived storekit.ArchivedFilter) (crmcontracts.Stage, error) {
-	q := `SELECT id, workspace_id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at, archived_at
+	q := `SELECT id, pipeline_id, name, position, semantic, win_probability, created_at, updated_at, archived_at
 	      FROM stage WHERE id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND archived_at IS NULL`
 	}
 	var out crmcontracts.Stage
-	var stageID, wsID, pipelineID ids.UUID
-	err := tx.QueryRow(ctx, q, id).Scan(&stageID, &wsID, &pipelineID, &out.Name, &out.Position,
+	var stageID, pipelineID ids.UUID
+	err := tx.QueryRow(ctx, q, id).Scan(&stageID, &pipelineID, &out.Name, &out.Position,
 		&out.Semantic, &out.WinProbability, &out.CreatedAt, &out.UpdatedAt, &out.ArchivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Stage{}, apperrors.ErrNotFound

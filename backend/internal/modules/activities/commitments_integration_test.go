@@ -136,17 +136,16 @@ func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenDealID ids.UUID)
 
 	e.exec(t, `INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by)
 		VALUES ($1, $2, 'Zeta GmbH', $3, 'seed', 'system')`, orgID, e.ws, e.rep)
-	e.exec(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position)
-		VALUES ($1, $2, 'Default', true, 1)`, pipelineID, e.ws)
-	e.exec(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, win_probability)
-		VALUES ($1, $2, $3, 'Qualified', 1, 20)`, stageID, e.ws, pipelineID)
+	e.exec(t, `INSERT INTO pipeline (id, name, is_default, position)
+		VALUES ($1, 'Default', true, 1)`, pipelineID)
+	e.exec(t, `INSERT INTO stage (id, pipeline_id, name, position, win_probability)
+		VALUES ($1, $2, 'Qualified', 1, 20)`, stageID, pipelineID)
 	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, $3, $4, 'seed', 'system')`, personID, e.ws, visiblePersonNam, e.rep)
 	// Owned by the OTHER rep, so an own-scoped caller cannot read it.
-	e.exec(t, `INSERT INTO deal (id, workspace_id, name, organization_id, owner_id,
-			pipeline_id, stage_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, 'seed', 'system')`,
-		hiddenDealID, e.ws, hiddenDealName, orgID, e.other, pipelineID, stageID)
+	e.exec(t, `INSERT INTO deal (id, name, organization_id, owner_id, pipeline_id, stage_id, source, captured_by)
+		VALUES ($1, $2, $3, $4, $5, $6, 'seed', 'system')`,
+		hiddenDealID, hiddenDealName, orgID, e.other, pipelineID, stageID)
 
 	e.exec(t, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, due_at,
 			assignee_id, is_done, source, captured_by)

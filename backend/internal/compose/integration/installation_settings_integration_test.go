@@ -189,11 +189,11 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	// INSERT..SELECT that matches nothing SUCCEEDS, so a missing fixture would
 	// leave this test asserting a freeze that never had a deal to fire on —
 	// passing or failing for the wrong reason either way.
-	pipeline := e.Seed(t, `
-		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Freeze fixture', false)`)
-	stage := e.Seed(t, `
-		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Won', 1, 'won', 100)`, pipeline)
+	pipeline := e.SeedID(t, `
+		INSERT INTO pipeline (id, name, is_default) VALUES ($1, 'Freeze fixture', false)`)
+	stage := e.SeedID(t, `
+		INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Won', 1, 'won', 100)`, pipeline)
 	// Every CHECK on `deal` has to be satisfied for the row to land, and the
 	// row landing is the whole point of this fixture:
 	//   deal_amount_currency_pair — amount and currency are set together
@@ -202,10 +202,9 @@ func TestBaseCurrencyFreezesOnceADealHasConvertedAgainstIt(t *testing.T) {
 	//   deal_lost_reason          — not reached; 'won', not 'lost'
 	// The frozen rate is the one this test actually needs; the rest are the
 	// price of a valid closed deal.
-	e.Seed(t, `
-		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
-		                  amount_minor, currency, fx_rate_to_base, status, closed_at)
-		VALUES ($1, $2, 'Converted deal', $3, $4, 'seed', 'system:test',
+	e.SeedID(t, `
+		INSERT INTO deal (id, name, pipeline_id, stage_id, source, captured_by, amount_minor, currency, fx_rate_to_base, status, closed_at)
+		VALUES ($1, 'Converted deal', $2, $3, 'seed', 'system:test',
 		        100000, 'EUR', 1.0850000000, 'won', now())`,
 		pipeline, stage)
 
@@ -268,15 +267,14 @@ func TestBaseCurrencyFreezesOnASentOfferWithNoClosedDeal(t *testing.T) {
 
 	// An OPEN deal — it carries no frozen rate itself, so anything the probe
 	// reports here comes from the offer and not from the deal it hangs off.
-	pipeline := e.Seed(t, `
-		INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, $2, 'Offer fixture', false)`)
-	stage := e.Seed(t, `
-		INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability)
-		VALUES ($1, $2, $3, 'Qualified', 1, 'open', 40)`, pipeline)
-	deal := e.Seed(t, `
-		INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, source, captured_by,
-		                  amount_minor, currency, status)
-		VALUES ($1, $2, 'Open deal', $3, $4, 'seed', 'system:test', 100000, 'EUR', 'open')`,
+	pipeline := e.SeedID(t, `
+		INSERT INTO pipeline (id, name, is_default) VALUES ($1, 'Offer fixture', false)`)
+	stage := e.SeedID(t, `
+		INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability)
+		VALUES ($1, $2, 'Qualified', 1, 'open', 40)`, pipeline)
+	deal := e.SeedID(t, `
+		INSERT INTO deal (id, name, pipeline_id, stage_id, source, captured_by, amount_minor, currency, status)
+		VALUES ($1, 'Open deal', $2, $3, 'seed', 'system:test', 100000, 'EUR', 'open')`,
 		pipeline, stage)
 	e.SeedID(t, `
 		INSERT INTO offer (id, deal_id, offer_number, currency, status,

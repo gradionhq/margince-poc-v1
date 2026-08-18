@@ -67,20 +67,19 @@ func seedOverAgeRecords(t *testing.T, e *Env) (staleLead, heldLead, staleDeal, t
 	// A pipeline+stage pair carries the aged-out lost deal.
 	pipelineID, stageID := ids.NewV7(), ids.NewV7()
 	err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(context.Background(),
-			`INSERT INTO pipeline (id, workspace_id, name, is_default) VALUES ($1, `+wsClause+`, 'Retention P', true)`,
+			`INSERT INTO pipeline (id, name, is_default) VALUES ($1, 'Retention P', true)`,
 			pipelineID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(context.Background(),
-			`INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic) VALUES ($1, `+wsClause+`, $2, 'Lost', 1, 'lost')`,
+			`INSERT INTO stage (id, pipeline_id, name, position, semantic) VALUES ($1, $2, 'Lost', 1, 'lost')`,
 			stageID, pipelineID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, status, lost_reason, closed_at, source, captured_by)
-			VALUES ($1, `+wsClause+`, 'Retention Deal', $2, $3, 'lost', 'stale', now() - interval '2000 days', 'manual', 'human:x')`,
+			INSERT INTO deal (id, name, pipeline_id, stage_id, status, lost_reason, closed_at, source, captured_by)
+			VALUES ($1, 'Retention Deal', $2, $3, 'lost', 'stale', now() - interval '2000 days', 'manual', 'human:x')`,
 			staleDeal, pipelineID, stageID)
 		return err
 	})

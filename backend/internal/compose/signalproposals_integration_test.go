@@ -341,10 +341,9 @@ func seedDealOwnedBy(t *testing.T, e *integration.Env, owner ids.UUID) ids.UUID 
 	deal := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO deal (id, workspace_id, name, pipeline_id, stage_id, owner_id,
-			                  source, captured_by)
-			VALUES ($1, $2, 'Their renewal', $3, $4, $5, 'manual', 'human:seed')`,
-			deal, e.WS, pipeline, stage, owner)
+			INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
+			VALUES ($1, 'Their renewal', $2, $3, $4, 'manual', 'human:seed')`,
+			deal, pipeline, stage, owner)
 		return err
 	}); err != nil {
 		t.Fatal(err)

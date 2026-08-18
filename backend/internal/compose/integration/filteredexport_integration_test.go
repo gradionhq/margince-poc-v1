@@ -61,12 +61,12 @@ type filteredDealFixture struct {
 
 func (e *SearchEnv) seedFilteredDeals(t *testing.T) filteredDealFixture {
 	t.Helper()
-	pipelineID := e.Seed(t, `INSERT INTO pipeline (id, workspace_id, name, is_default, position) VALUES ($1, $2, 'Sales', true, 0)`)
-	stageID := e.Seed(t, `INSERT INTO stage (id, workspace_id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, $3, 'Qualify', 0, 'open', 10)`, pipelineID)
+	pipelineID := e.SeedID(t, `INSERT INTO pipeline (id, name, is_default, position) VALUES ($1, 'Sales', true, 0)`)
+	stageID := e.SeedID(t, `INSERT INTO stage (id, pipeline_id, name, position, semantic, win_probability) VALUES ($1, $2, 'Qualify', 0, 'open', 10)`, pipelineID)
 
 	deal := func(owner ids.UUID, name, forecast string) ids.UUID {
-		return e.Seed(t, `INSERT INTO deal (id, workspace_id, owner_id, name, pipeline_id, stage_id, forecast_category, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, 'manual', 'human:x')`, owner, name, pipelineID, stageID, forecast)
+		return e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, forecast_category, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, $6, 'manual', 'human:x')`, owner, name, pipelineID, stageID, forecast)
 	}
 	return filteredDealFixture{
 		matchOwn:   deal(e.Rep1, "Match Own", "commit"),
