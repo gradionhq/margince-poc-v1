@@ -21,6 +21,7 @@ import {
   PipelineBoard,
   RecordView,
 } from "../design-system/composed";
+import { InlineText } from "../design-system/inlinechoice";
 import type { ListChip } from "../design-system/listtable";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
@@ -1143,6 +1144,67 @@ function LeadScorePanel({
   );
 }
 
+/**
+ * The lead's own words, editable where they stand.
+ *
+ * Everything here was previously reachable only through the Edit modal, which
+ * is four clicks and a context switch to fix a misspelled company name. The
+ * modal stays — it is how a lead is edited wholesale, and how the fields this
+ * grid does NOT carry are reached — but the four a rep corrects while reading
+ * are corrected while reading.
+ *
+ * Every row saves through the SAME patch the lifecycle card uses, so one
+ * inline edit and another cannot invalidate different caches or send a
+ * different If-Match.
+ */
+function LeadIdentityFields({
+  lead,
+  save,
+  readOnlyReason,
+}: Readonly<{
+  lead: Lead;
+  save: (body: UpdateLeadRequest) => Promise<void>;
+  readOnlyReason?: string;
+}>) {
+  const t = useT();
+  const canEdit = !readOnlyReason;
+  return (
+    <Panel title={t("lead.details")}>
+      <PanelBody>
+        <InlineText
+          label={t("create.fullName")}
+          value={lead.full_name ?? ""}
+          placeholder={t("lead.detailsUnset")}
+          canEdit={canEdit}
+          readOnlyReason={readOnlyReason}
+          onSave={(next) => save({ full_name: next.trim() || null })}
+        />
+        <InlineText
+          label={t("create.personTitle")}
+          value={lead.title ?? ""}
+          placeholder={t("lead.detailsUnset")}
+          canEdit={canEdit}
+          readOnlyReason={readOnlyReason}
+          onSave={(next) => save({ title: next.trim() || null })}
+        />
+        <InlineText
+          label={t("create.companyName")}
+          value={lead.company_name ?? ""}
+          placeholder={t("lead.detailsUnset")}
+          canEdit={canEdit}
+          readOnlyReason={readOnlyReason}
+          onSave={(next) => save({ company_name: next.trim() || null })}
+        />
+        {/* Email is NOT here. It is the lead's dedupe key: changing it can
+            collide with a live lead and answer 409 with an incumbent id, which
+            is a conversation (view the existing record) rather than a field
+            edit. The Edit modal owns it, where that answer has somewhere to
+            render. */}
+      </PanelBody>
+    </Panel>
+  );
+}
+
 function LeadLifecycle({
   lead,
   id,
@@ -1196,6 +1258,13 @@ function LeadLifecycle({
 
   const meId = me.data?.user?.id;
 
+  // The inline rows await their save and render what it throws, so they need a
+  // promise rather than the mutation's fire-and-forget. mutateAsync is that
+  // same mutation — one PATCH shape, one If-Match, one invalidation.
+  const saveField = async (body: UpdateLeadRequest) => {
+    await patch.mutateAsync(body);
+  };
+
   return (
     <Card
       as="div"
@@ -1207,6 +1276,12 @@ function LeadLifecycle({
         gap: "var(--space-3)",
       }}
     >
+      <LeadIdentityFields
+        lead={lead}
+        save={saveField}
+        readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
+      />
+
       {isOpenStatus(lead.status) && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <span className="t-caption">{t("lead.setStatus")}</span>

@@ -293,6 +293,58 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     expect(screen.getByRole("button", { name: "Load more" })).toBeTruthy();
   });
 
+  it("edits a lead field in place, sending If-Match", async () => {
+    // The Edit modal is four clicks and a context switch to fix a misspelled
+    // company name. It stays for wholesale edits; the fields a rep corrects
+    // while reading are corrected while reading.
+    type Patched = { body: unknown; ifMatch: string | null };
+    const patched: Patched[] = [];
+    stubFetch(async (_url: string, method: string, request) => {
+      if (method === "PATCH") {
+        patched.push({
+          body: await request.json(),
+          ifMatch: request.headers.get("If-Match"),
+        });
+        return jsonResponse({ ...lead, company_name: "Nordwind GmbH" });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+
+    // The row reads as its value; pressing it opens the field.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Change Company" }),
+    );
+    const field = await screen.findByDisplayValue("Nordwind Logistik");
+    await userEvent.clear(field);
+    await userEvent.type(field, "Nordwind GmbH");
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(patched.length).toBe(1));
+    expect(patched[0].body).toMatchObject({ company_name: "Nordwind GmbH" });
+    expect(patched[0].ifMatch).toBe("1");
+  });
+
+  it("a terminal lead's fields are read-only with the reason, not missing", async () => {
+    // STATE-4a: the reason is the information. A field that simply vanished on
+    // a closed lead would hide the fact the reader came for.
+    stubFetch(async () =>
+      jsonResponse({
+        ...lead,
+        status: "disqualified",
+        archived_at: "2026-07-13T00:00:00Z",
+      }),
+    );
+    render(<LeadScreen id="l-1" />);
+
+    // The value is still shown — as text, with no control to press.
+    expect(
+      (await screen.findAllByText("Nordwind Logistik")).length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: "Change Company" })).toBeNull();
+    expect(screen.queryByDisplayValue("Nordwind Logistik")).toBeNull();
+  });
+
   it("a promoted lead keeps its page and says what the promotion did", async () => {
     // AC-leaddetail-5 (ADR-0119/A170). The page used to redirect here, which
     // told the reader the lead had ceased to exist — untrue of a record this
@@ -780,7 +832,11 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
         .getAllByText("Working")
         .some((el) => el.classList.contains("badge")),
     ).toBe(true);
-    expect(screen.getByText("Nordwind Logistik")).toBeTruthy();
+    expect(
+      screen
+        .getAllByText("Nordwind Logistik")
+        .some((el) => el.classList.contains("badge")),
+    ).toBe(true);
   });
 });
 
@@ -873,7 +929,11 @@ describe("LeadScreen — overlay mode write affordances", () => {
     await userEvent.type(fullName, "Jonas Petersen-Berg");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findByText("Jonas Petersen-Berg")).toBeTruthy();
+    // The saved name now reads in two places — the record header and the
+    // inline Details row — which is the point of the grid, not a duplicate.
+    expect(
+      (await screen.findAllByText("Jonas Petersen-Berg")).length,
+    ).toBeGreaterThan(0);
   });
 
   it("names the partial write-back in the edit form", async () => {
