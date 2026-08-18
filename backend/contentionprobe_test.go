@@ -133,7 +133,7 @@ func scanTree(root string, fset *token.FileSet) ([]string, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if name := entry.Name(); name == "vendor" || name == "node_modules" || name == "build" {
+			if skipDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -160,6 +160,24 @@ func scanTree(root string, fset *token.FileSet) ([]string, error) {
 		return nil
 	})
 	return offenders, err
+}
+
+// skipDir reports whether a directory holds no compiled call site.
+//
+// `testdata` and the `_`/`.` prefixes are the GO TOOLCHAIN's own exclusions: it
+// never builds them, so nothing in one can be a probe this gate is responsible
+// for — and a deliberately unparsable fixture in there would otherwise take the
+// whole gate red for a file that is not code. That is a scoping rule, not the
+// "skip what you cannot read" hole this file refuses elsewhere: a parse failure
+// inside a COMPILED tree still fails, because that is a member of the census.
+//
+// vendor and node_modules are dependency trees; build is generated.
+func skipDir(name string) bool {
+	switch name {
+	case "vendor", "node_modules", "build", "testdata":
+		return true
+	}
+	return strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".")
 }
 
 // unprotectedProbes reports, for each probe in fn, why it is not protected —

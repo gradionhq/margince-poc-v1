@@ -213,6 +213,23 @@ func assertParkedBeforeTheOrganizationRow(ctx context.Context, t *testing.T, hol
 	// organization lookup below resolves an OID local to THIS database, so it
 	// would find nothing and the assertion would pass having examined the wrong
 	// backend. A false green on the exact ordering this exists to catch.
+	// The join below matches a waiter through any advisory lock this holder has
+	// been granted, so it is unambiguous only while the holder holds exactly one.
+	// It does today — holdOrgNameLock takes the name lock and nothing else — and
+	// asserting it is what keeps that true: a second advisory lock added to that
+	// transaction would silently let a waiter on the OTHER key answer here.
+	var advisoryHeld int
+	if err := holder.QueryRow(ctx, `
+		SELECT count(*) FROM pg_locks
+		 WHERE pid = $1 AND locktype = 'advisory' AND granted`, holderPID).Scan(&advisoryHeld); err != nil {
+		t.Fatalf("counting the holder's advisory locks: %v", err)
+	}
+	if advisoryHeld != 1 {
+		t.Fatalf("the lock holder holds %d advisory locks, want exactly 1 — with more than one, "+
+			"the waiter lookup below cannot tell which key a backend is queued on, and could report "+
+			"a waiter on the wrong lock as parked on the name lock", advisoryHeld)
+	}
+
 	var waiter int
 	err := holder.QueryRow(ctx, `
 		SELECT w.pid
