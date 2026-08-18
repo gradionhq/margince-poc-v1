@@ -105,6 +105,32 @@ describe("promote eligibility gate", () => {
 });
 
 describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
+  it("names the owner on each row, the way the people and company lists do", async () => {
+    // The column this replaced rendered "typed by a person" for every
+    // human-captured row — the bug #1577 fixed on People and Companies while
+    // this list kept its own copy of the column. Same column, same test.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [
+              { id: "u-9", email: "lena@x.test", display_name: "Lena F." },
+            ],
+            page: { next_cursor: null },
+          });
+        }
+        return jsonResponse({
+          data: [{ ...lead, owner_id: "u-9" }],
+          page: { next_cursor: null },
+        });
+      }),
+    );
+    render(<LeadsScreen />);
+    await waitFor(() => expect(screen.getByText("Lena F.")).toBeTruthy());
+    expect(screen.queryByText(/typed by a person/i)).toBeNull();
+  });
+
   it("a lead row navigates to the LEAD detail, not the person screen", async () => {
     vi.stubGlobal(
       "fetch",

@@ -42,11 +42,12 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
+import { RECORD_ZONE } from "./company360";
 import { CreateAction, type CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
-import { EntityRef, useRoster } from "./entityref";
+import { EntityRef, OwnerName, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
 import {
   type ListPage,
@@ -526,7 +527,7 @@ function LeadBoard({
 export function LeadsScreen() {
   const ownerChips = useLeadOwnerChips();
   const t = useT();
-  const viewerId = useViewerId();
+  const { locale } = useLocale();
   const cf = useObjectCustomFields("lead");
   const state = useListQuery<Lead>({
     key: "leads",
@@ -616,13 +617,22 @@ export function LeadsScreen() {
             cell: (lead: Lead) => <StatusBadge status={lead.status} />,
           },
           {
-            key: "provenance",
-            header: t("people.capturedBy"),
+            key: "owner",
+            header: t("list.owner"),
             cell: (lead: Lead) => (
-              <ProvenanceTag
-                provenance={provenanceOf(lead.captured_by, viewerId)}
-              />
+              <OwnerName ownerId={lead.owner_id} unowned={t("list.unowned")} />
             ),
+            sort: "owner_id",
+          },
+          {
+            key: "created",
+            header: t("list.created"),
+            cell: (lead: Lead) => (
+              <span className="t-caption">
+                {formatDateAbbrev(lead.created_at, locale, RECORD_ZONE)}
+              </span>
+            ),
+            sort: "created_at",
           },
         ]}
         rowKey={(lead) => lead.id}
