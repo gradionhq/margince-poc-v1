@@ -316,3 +316,58 @@ func TestDedupeQueueHidesPairsOutsideTheCallersRowScope(t *testing.T) {
 		t.Fatalf("owner sees %d candidates, want 1", len(rows))
 	}
 }
+
+// The same gate, for leads, and it carries more weight here than the person case
+// above.
+//
+// The schema fitness suite classifies dedupe_candidate's lead pair ids as
+// server-derived rather than requiring auth.EnsureLinkTarget on them
+// (migrations/schema_fitness_integration_test.go). That classification is only
+// safe because THIS gate holds: the detector is deliberately not row-scoped, so a
+// lead pair can legitimately name a lead the reader cannot see, and the read is
+// the only thing standing between that pair and disclosure. An untested security
+// gate looks exactly like a passing one, and until now this one was tested for
+// entity_type='person' only.
+func TestDedupeQueueHidesLeadPairsOutsideTheCallersRowScope(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	first := e.createLead(ctx, t, "Jonas Petersen", "jonas@nordwind.test", "Nordwind Logistik")
+	e.createLead(ctx, t, "Jonas Peterson", "", "Nordwind Logistik")
+	rows := openCandidates(ctx, t, e, entityLead)
+	if len(rows) != 1 {
+		t.Fatalf("open lead queue holds %d candidates, want 1", len(rows))
+	}
+	c := rows[0]
+
+	// Bind both leads to one rep so the rows are private rather than
+	// workspace-shared, which is the state a row-scope clause can act on.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE lead SET owner_id = $1`, e.rep)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	other := e.asOwnScoped(ids.NewV7())
+	if hidden := openCandidates(other, t, e, entityLead); len(hidden) != 0 {
+		t.Fatalf("own-scoped stranger sees %d lead candidates, want 0", len(hidden))
+	}
+	if _, err := e.store.GetDedupeCandidate(other, c.ID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("out-of-scope get = %v, want ErrNotFound (existence-hiding)", err)
+	}
+	// Both sides must be required, not either: a stranger who can see exactly one
+	// side of the pair still learns the other exists if the clause is an OR.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE lead SET owner_id = NULL WHERE id = $1`, first)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if halfVisible := openCandidates(other, t, e, entityLead); len(halfVisible) != 0 {
+		t.Errorf("a stranger who can see one side sees %d lead candidates, want 0 — the clause must require BOTH", len(halfVisible))
+	}
+	// And the owner still sees it throughout.
+	if owned := openCandidates(ctx, t, e, entityLead); len(owned) != 1 {
+		t.Fatalf("owner sees %d lead candidates, want 1", len(owned))
+	}
+}

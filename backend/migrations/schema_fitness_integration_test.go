@@ -215,10 +215,13 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"lead.promoted_person_id":     "server-derived: stamped by PromoteLead",
 	"person.merged_into_id":       "server-derived: stamped by MergePerson",
 	"organization.merged_into_id": "server-derived: stamped by MergeOrganization",
-	// All three go through archiveMergedAway, which takes the table as a
-	// parameter — so lead's redirect pointer is written by the same statement as
-	// the two above, not by a lead-specific path a caller could reach.
-	"lead.merged_into_id":              "server-derived: stamped by MergeLead through archiveMergedAway",
+	// Sharing archiveMergedAway with the two above proves nothing about
+	// reachability — MergePerson runs the same statement and IS reached from a
+	// handler whose body names the target. What carries this entry is that
+	// MergeLead has no HTTP surface at all: its only caller is the dedupe queue's
+	// merge disposition, which constrains the winner to one of the pair ids it
+	// already read off the candidate row.
+	"lead.merged_into_id":              "server-derived: stamped by MergeLead, reachable only from the queue's merge disposition, which constrains the winner to a pair id it already read",
 	"person.converted_from_lead_id":    "server-derived: stamped by PromoteLead",
 	"deal_stage_history.deal_id":       "server-derived: appended by CreateDeal/AdvanceDeal",
 	"deal_forecast_history.deal_id":    "server-derived: appended by UpdateDeal for the deal it has just written, and only after auth.EnsureVisible admitted that deal at the top of the same transaction — the id never comes from a request body",
@@ -246,17 +249,27 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
 	// The dedupe review queue (DH-DDL-1): pair ids are server-derived —
 	// recordDedupeCandidate stamps them from the ensure chokepoint's own
-	// row-scoped fuzzy query, never from a request body; the disposition
-	// endpoints address the candidate row, not the pair ids.
-	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	// The lead pair (#1662) is the same INSERT in the same function: entityLead
-	// only selects a different column pair, so the reasoning above carries over
-	// verbatim rather than by analogy.
-	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	// fuzzy query, never from a request body; the disposition endpoints address
+	// the candidate row, not the pair ids.
+	//
+	// The detector is NOT row-scoped, and saying so would be the dangerous
+	// mistake here: it filters on the workspace and archived_at only, so it does
+	// pair a caller's record with one they cannot see — deliberately, since a
+	// duplicate you cannot see is still a duplicate. What keeps that pair from
+	// being disclosed is the QUEUE READ, which requires BOTH sides to pass the
+	// caller's row scope (dedupequeue.go's both-sides EXISTS clause, and
+	// EnsureVisible on each side in GetDedupeCandidate). These entries rest on
+	// that gate, so nothing here may be read as licence to relax it.
+	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own match query",
+	// A lead pair reaches the same INSERT — entityLead only swaps the column pair
+	// — but not from a sweep: it is detected inline by fuzzyLead in the same
+	// transaction that writes the lead, so the left id is the row that
+	// transaction just created or updated.
+	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query, the left id being the lead that transaction just wrote",
+	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
 	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
 	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
 	// The signature pass's read cursor (PO-F-2a): both ids come from the
