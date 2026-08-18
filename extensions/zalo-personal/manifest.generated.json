@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "name": "zalo-personal",
+  "version": "1.0.0",
+  "risk_tiers": [
+    {
+      "id": "tool/zalo_personal_connect_start",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalConnectStart",
+      "route": "/ext/zalo-personal/connect/start",
+      "method": "PUT",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:fb835ca48aad9a46999d9e2f541b8697e7ce65ef87dccfec0a64cf0f0e7bee25",
+      "digest": "sha256:20fa65e13578c81faac7900ea1f5a415ea32fa1d2cc6bc4a33af71edeb6ce5e6"
+    },
+    {
+      "id": "tool/zalo_personal_connect_status",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalConnectStatus",
+      "route": "/ext/zalo-personal/connect/status",
+      "method": "POST",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:28b88c4f2d0049783b1027ede67b06064292942aa9a17ab0f9cbdb92a20e551d",
+      "digest": "sha256:9b9a09b933eed5fded99b35b499b779f57dca3a2a61910d347d1a211e037b5cd"
+    },
+    {
+      "id": "tool/zalo_personal_disconnect",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalDisconnect",
+      "route": "/ext/zalo-personal/disconnect",
+      "method": "DELETE",
+      "scopes": [
+        "write"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:91648a8404cde1295626b796c03c6fc5fd8060637176dbfb6fe891c717c49c23",
+      "digest": "sha256:cb1a0fe4d85c2a71a791d43a2d2fde056ccf59ee9dcc7fe56f8fa14782575879"
+    },
+    {
+      "id": "tool/zalo_personal_status",
+      "unit": "zalo-personal",
+      "kind": "agent_tool",
+      "contract": "crm.yaml",
+      "operation": "agent.tool.invoke",
+      "operation_id": "zaloPersonalStatus",
+      "route": "/ext/zalo-personal/status",
+      "method": "GET",
+      "scopes": [
+        "read"
+      ],
+      "tier": "auto_execute",
+      "fragment_hash": "sha256:4a569240917d95070a1eb24ae39442c50f10d29cec755bcc062607e5cde760ac",
+      "digest": "sha256:3933bd50892ac2ef3434f3b88e831b7002d40f619f6e6dfd56cd866240e2be5d"
+    }
+  ],
+  "secrets": [
+    {
+      "key": "pending-login",
+      "scope": "user"
+    },
+    {
+      "key": "session",
+      "scope": "user"
+    }
+  ],
+  "channels": [
+    {
+      "provider": "zalo_personal",
+      "supplies_transport": true
+    }
+  ]
+}

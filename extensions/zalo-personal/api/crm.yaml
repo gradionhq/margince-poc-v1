@@ -1,0 +1,359 @@
+# SPDX-License-Identifier: BUSL-1.1
+# SPDX-FileCopyrightText: 2026 Gradion
+#
+# zalo-personal's contract fragment. The FILENAME names the core contract it
+# extends (crm.yaml); gen-composition merges it into
+# build/composition/api/crm.yaml, and that merged file is what the operator
+# manifest, the client types, the mounted routes and the docs read. So this
+# document — not the Go — is where every operation's risk tier, Passport scope,
+# RBAC object, prose and I/O schemas are declared.
+#
+# FOUR OPERATIONS, all about the CALLER's own account. NONE of them takes a user
+# id, and that absence is the load-bearing part of this document. This unit's
+# credential is a personal Zalo login: it reads the member's family, their
+# doctor, their other employer. An operation that let one holder of this RBAC
+# object start a login, confirm one, inspect one or withdraw one for ANOTHER
+# member would be a supported route into a colleague's private life. The member
+# is taken from the invocation, exactly as captured_by is.
+#
+# One RBAC object, ext_zalo_personal_connection, held by no seeded role: for the
+# same reason, granting it is a decision an operator makes deliberately rather
+# than one an install makes for them.
+#
+# CONNECTING IS TWO OPERATIONS because the provider's own handshake waits are a
+# 100s scan poll and a 120s confirm poll. The screen starts a login, then asks
+# how it is going on a timer; each ask spends a few seconds inside one ordinary
+# request.
+overlay: 1.0.0
+info:
+  title: zalo-personal
+  version: "1.0.0"
+actions:
+  - target: $.paths['/ext/zalo-personal/connect/start']
+    update:
+      # PUT, because starting a login twice is the same login: the in-flight
+      # handshake is sealed under one key per member and replaced. A POST would
+      # publish "create another one" for an operation that cannot.
+      put:
+        operationId: zaloPersonalConnectStart
+        summary: Start a QR login for the calling member's own Zalo account.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        # update rather than create: the operation replaces whatever handshake
+        # was in flight, and a grant admitting only creation would refuse a
+        # member whose first QR expired.
+        x-rbac-action: update
+        x-mcp-tool:
+          verb: zalo_personal_connect_start
+          version: 1.0.0
+          title: Start a Zalo QR login
+          # 🟢 write: it seals an in-flight handshake in the unit's own secret
+          # namespace and writes nothing else. Nothing leaves the workspace and
+          # no credential is ever returned.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Begin connecting the calling person's own personal Zalo account by
+            QR. It returns the code for them to scan with the Zalo app on their
+            phone, and the moment that code stops being valid. It always starts
+            a login for whoever is calling: there is no way to start one for
+            somebody else. Scanning alone captures nothing — no conversation is
+            read until that person chooses which ones to allow.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                # The empty object, and it is the whole declaration: the
+                # operation acts for the caller and there is nothing left to
+                # name. `additionalProperties: false` is what makes a document
+                # carrying a member id a refusal rather than an ignored field.
+                type: object
+                additionalProperties: false
+                properties: {}
+        responses:
+          '200':
+            description: The code to scan, and when it expires.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [qr_image, expires_at]
+                  properties:
+                    qr_image:
+                      type: string
+                      maxLength: 262144
+                      description: >-
+                        The QR code as a `data:image/png;base64,…` URL, passed
+                        through from Zalo untouched, for the screen to render as
+                        an image. It is a login code and nothing else: it
+                        carries no session and grants nothing until the member
+                        scans and confirms it on their phone.
+                    expires_at:
+                      type: string
+                      format: date-time
+                      description: >-
+                        When this code stops being scannable. After it the
+                        member starts a new login.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+          '422': { $ref: '#/components/responses/ValidationError' }
+
+  - target: $.paths['/ext/zalo-personal/connect/status']
+    update:
+      # POST, and deliberately NOT the GET this reads like. The call ADVANCES
+      # the handshake: it spends a bounded poll, re-seals the result and, on a
+      # confirmed scan, deposits a credential and writes a row. The seam refuses
+      # a GET that carries a mutating scope, and it is right to — the human seat
+      # ceiling classifies a mutation by method, so a mutating GET would be a
+      # read seat's route to a write.
+      post:
+        operationId: zaloPersonalConnectStatus
+        summary: Advance the calling member's QR login and report where it got to.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        x-rbac-action: update
+        x-mcp-tool:
+          verb: zalo_personal_connect_status
+          version: 1.0.0
+          title: Check a Zalo QR login
+          # 🟢 write: on a confirmed scan it seals the member's session and
+          # writes their connection row. The session is never returned.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Ask how the calling person's own QR login is going, and let it
+            advance one step. It answers `waiting` before the code is scanned,
+            `scanned` once they have scanned it and are confirming on the phone,
+            `confirmed` when the account is connected, and `declined` or
+            `expired` when the login is over and must be started again. On
+            `confirmed` the account is connected and their session is sealed;
+            no conversation is captured until they choose which ones to allow.
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                # The empty object; see the note on connect/start.
+                type: object
+                additionalProperties: false
+                properties: {}
+        responses:
+          '200':
+            description: Where the login has got to.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [state]
+                  properties:
+                    state:
+                      type: string
+                      enum: [waiting, scanned, confirmed, declined, expired]
+                      description: >-
+                        `waiting` and `scanned` mean the login is still in
+                        flight, so ask again. `confirmed` means the account is
+                        connected. `declined` and `expired` end the login — the
+                        in-flight handshake has been deleted and a new one must
+                        be started.
+                    display_name:
+                      type: string
+                      description: >-
+                        What Zalo calls the account being connected, once the
+                        scan reveals it, so the member can see WHICH of their
+                        accounts they are about to connect.
+                    avatar:
+                      type: string
+                      description: >-
+                        The picture Zalo reports for that account, for the same
+                        reason. It is never used to identify anybody.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+          # Declared because this operation genuinely answers both: 404 when no
+          # login is in flight for the caller, and 422 when the sealed handshake
+          # cannot be read and the login has to be started again.
+          '404': { $ref: '#/components/responses/NotFound' }
+          '422': { $ref: '#/components/responses/ValidationError' }
+
+  - target: $.paths['/ext/zalo-personal/status']
+    update:
+      # GET, and it takes no arguments at all: the connection it reports is the
+      # caller's own, so there is nothing to name.
+      get:
+        operationId: zaloPersonalStatus
+        summary: Report the calling member's own Zalo connection.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        x-rbac-action: read
+        x-mcp-tool:
+          verb: zalo_personal_status
+          version: 1.0.0
+          title: Zalo connection status
+          # 🟢 read: it reads one row of the unit's own table and changes
+          # nothing.
+          tier: auto_execute
+          scope: read
+          description: >-
+            Report whether the calling person has connected their own personal
+            Zalo account, which account it is, whether capture is switched on
+            for it, and whether it still works. It reports that person's own
+            connection only, and it never returns their Zalo session — not
+            masked, not partially: only whether one is on deposit.
+        responses:
+          '200':
+            description: The caller's connection, or the absence of one.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [connected, session_deposited]
+                  properties:
+                    connected:
+                      type: boolean
+                      description: >-
+                        Whether this person has a working connection. False is
+                        the ordinary state before anyone connects, not an error.
+                    session_deposited:
+                      type: boolean
+                      description: >-
+                        Whether a sealed Zalo session is held for this person.
+                        It is a yes-or-no about a credential nothing returns.
+                    connection:
+                      # Restated rather than $ref'd, and the same rule the
+                      # sibling units' fragments record: a fragment is merged
+                      # into the core document, and this generator resolves no
+                      # references — an unresolved one would be advertised to a
+                      # model as the shape. Two copies to reconcile by hand is
+                      # the cost; a unit writing into the core's component space
+                      # is what it buys out of.
+                      type: object
+                      additionalProperties: false
+                      required: [id, user_id, status, zalo_uid, capture_enabled, version]
+                      description: >-
+                        One member's personal Zalo connection: which account it is,
+                        whether capture is armed, and whether it still works. It carries
+                        no session — the credential is sealed in the unit's secret
+                        namespace and no operation returns it.
+                      properties:
+                        id: { type: string, format: uuid }
+                        user_id:
+                          type: string
+                          format: uuid
+                          description: >-
+                            The member whose account this is, and whose live authority
+                            every record captured from it runs under.
+                        status:
+                          type: string
+                          enum: [connected, needs_reconnect, disconnected]
+                          description: >-
+                            `connected` is working. `needs_reconnect` means the session
+                            stopped being accepted and only a fresh QR scan on the
+                            member's phone restores it. `disconnected` means they
+                            withdrew the account.
+                        zalo_uid:
+                          type: string
+                          description: >-
+                            Zalo's own id for the connected account, taken from the
+                            session rather than from anything a client sent.
+                        display_name:
+                          type: string
+                          description: What Zalo calls that account.
+                        capture_enabled:
+                          type: boolean
+                          description: >-
+                            Whether this connection captures anything. False until the
+                            member chooses which conversations to allow, and false again
+                            whenever they connect a different account.
+                        last_polled_at: { type: string, format: date-time }
+                        last_error_class:
+                          type: string
+                          description: >-
+                            What went wrong last, in this unit's own vocabulary
+                            (`session_evicted`, `provider_unavailable`, …). Zalo's own
+                            message is deliberately not carried.
+                        connected_at: { type: string, format: date-time }
+                        version: { type: integer }
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
+
+  - target: $.paths['/ext/zalo-personal/disconnect']
+    update:
+      # DELETE: it withdraws the sealed session and the in-flight handshake, and
+      # marks the connection disconnected. The credential goes FIRST — deleting
+      # the row first would leave a window in which this installation still held
+      # a live session behind a screen saying "disconnected".
+      delete:
+        operationId: zaloPersonalDisconnect
+        summary: Disconnect the calling member's own Zalo account.
+        tags: [Extensions]
+        x-rbac-object: ext_zalo_personal_connection
+        x-rbac-action: delete
+        x-mcp-tool:
+          verb: zalo_personal_disconnect
+          version: 1.0.0
+          title: Disconnect a Zalo account
+          # 🟢 auto_execute, and it is the tier this operation can have rather
+          # than the tier it wants. Read the next paragraph before changing it
+          # in either direction.
+          #
+          # WHAT IT DESTROYS is a PERSONAL credential. Recovery is not an
+          # operator re-pasting a key — it is that specific human finding their
+          # phone and scanning a QR, and until they do, their conversations stop
+          # being captured and their replies stop leaving. An agent reaches this
+          # on the granting human's authority, so an instruction embedded in
+          # content that agent reads is enough to invoke it. On those facts this
+          # should stage for confirmation, and it does not.
+          #
+          # WHY IT DOES NOT: the extension seam cannot stage an approval for a
+          # served tool. compose/extensiontools.go refuses a served 🟡 outright,
+          # because the admission gate stages a confirm-first approval only for
+          # tools implementing the registry's staging seam, which the data-only
+          # extension adapter does not — so a 🟡 declared here is not a staged
+          # disconnect, it is a disconnect refused on every call. Dropping the
+          # Tools entry to get a handler-less 🟡 does not help either: a declared
+          # verb with no handler mounts a route that answers 501. The capability
+          # gap is issue #1651; when it closes, this becomes
+          # confirmation_required and this comment goes with it.
+          #
+          # WHAT BOUNDS THE RISK MEANWHILE, stated without overselling it. The
+          # RBAC object ext_zalo_personal_connection is held by no seeded role,
+          # so an agent reaches this only where an operator deliberately granted
+          # that object to a passport — it is not "any agent with write scope".
+          # And every disconnect commits a ledger row and an event, so it is
+          # attributable afterwards. Both are mitigation, not prevention: an
+          # agent that HAS been granted the object can still be talked into
+          # calling this by text, and the honest reading of that is that the
+          # grant is the control until #1651 lands.
+          tier: auto_execute
+          scope: write
+          description: >-
+            Withdraw the calling person's own personal Zalo account: delete the
+            session they deposited, stop capturing, and stop being able to send
+            as them. It disconnects that person's own account only. Messages
+            already captured stay on the timeline — they are the record of
+            business conversations that happened, not a copy of an inbox, and
+            removing a person's records is the CRM's own erasure path.
+            Reconnecting afterwards is not something this CRM can do for them:
+            that person has to scan a QR code with their phone again, so do not
+            call this on their behalf without being asked to.
+        responses:
+          '200':
+            description: Whether a connection was withdrawn.
+            content:
+              application/json:
+                schema:
+                  type: object
+                  additionalProperties: false
+                  required: [disconnected]
+                  properties:
+                    disconnected:
+                      type: boolean
+                      description: >-
+                        True when a connection was withdrawn. False means there
+                        was none, which is not an error — any sealed credential
+                        found is deleted either way.
+          '401': { $ref: '#/components/responses/Unauthorized' }
+          '403': { $ref: '#/components/responses/Forbidden' }
