@@ -2,8 +2,8 @@ import { useAuthCapabilities } from "../app/capabilities";
 import { releaseSkew } from "../app/release";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { AuthExperience } from "./auth-core";
 import { usePageTitle, Wordmark } from "./auth";
+import { AuthExperience } from "./auth-core";
 
 /**
  * The gate that stops this bundle rendering against an api from another release.

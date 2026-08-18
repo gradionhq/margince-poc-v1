@@ -14,10 +14,20 @@ describe("releaseSkew", () => {
   it.each([
     ["a matched set renders", "1970.42", "1970.42", false],
     ["a torn set does not", "1970.41", "1970.42", true],
-    ["a torn set does not, whichever side is newer", "1970.43", "1970.42", true],
+    [
+      "a torn set does not, whichever side is newer",
+      "1970.43",
+      "1970.42",
+      true,
+    ],
     ["an unstamped bundle never blocks", "dev", "1970.42", false],
     ["nor does a local build", "", "1970.42", false],
-    ["an api reporting no release is not a mismatch", "1970.42", undefined, false],
+    [
+      "an api reporting no release is not a mismatch",
+      "1970.42",
+      undefined,
+      false,
+    ],
     ["nor is one that reports the dev sentinel", "1970.42", "dev", false],
     ["two unknowns are not a mismatch either", "dev", "dev", false],
   ])("%s", (_name, mine, theirs, want) => {

@@ -47,10 +47,7 @@ import { ForcedPasswordChangeScreen } from "./screens/forcedpassword";
 import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { OnboardingScreen, useCompany } from "./screens/onboarding";
 import { isPersonTab } from "./screens/persontab";
-import {
-  ReleaseSkewScreen,
-  useSkewedApiRelease,
-} from "./screens/releaseskew";
+import { ReleaseSkewScreen, useSkewedApiRelease } from "./screens/releaseskew";
 import { fetchSetupStatus, SetupClaimScreen } from "./screens/setupclaim";
 
 // Route → screen. The table below is TOTAL over `Screen` (app/router.tsx), so
