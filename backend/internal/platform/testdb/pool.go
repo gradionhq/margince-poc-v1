@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -59,10 +61,15 @@ var (
 //
 //	pool_min_conns=0          nothing is dialled until a test asks. The old
 //	                          per-test pools dialled MinConns eagerly at every
-//	                          Setup, which is the cost this change removes;
-//	                          MaxConns stays at database.NewPool's 16, the same
-//	                          ceiling each per-test pool already had, so the
-//	                          lane's peak connection count cannot grow.
+//	                          Setup, which is the cost this change removes.
+//	pool_max_conns            the ceiling, and the ONE parameter here the lane
+//	                          rather than this file decides — see PoolMaxConnsEnv.
+//	                          It used to be left at database.NewPool's 16 on the
+//	                          argument that a shared pool cannot exceed what each
+//	                          per-test pool already had. True per package, and
+//	                          the wrong quantity: the lane's peak is that ceiling
+//	                          times INTEGRATION_JOBS, and nothing related the two
+//	                          until #1109.
 //	pool_max_conn_idle_time   a package that spiked hands its connections back
 //	                          promptly instead of holding its high-water mark
 //	                          for the rest of the run.
@@ -78,6 +85,44 @@ var testPoolParams = map[string]string{
 	"pool_min_conns":          "0",
 	"pool_max_conn_idle_time": "30s",
 	"default_query_exec_mode": "describe_exec",
+}
+
+// PoolMaxConnsEnv is how the parallel lane hands this process the per-pool
+// ceiling it budgeted for.
+//
+// The lane runs INTEGRATION_JOBS packages against ONE server, so the demand is a
+// product and the ceiling is the lane's to choose — a package cannot know how
+// many of its siblings are live. Left unset (the one-package lane, a suite run
+// by hand) the pool keeps database.NewPool's own 16, because one package
+// oversubscribes nothing.
+//
+// It arrives as an environment variable rather than in the DSN, and that is not
+// a style choice: cmd/migrate and every fixture that dials a bare pgx.Conn parse
+// these same DSNs with pgx.ParseConfig, which does NOT strip pool_* keys — it
+// forwards an unrecognised one to the server as a startup parameter, and the
+// connection dies with `FATAL: unrecognized configuration parameter
+// "pool_max_conns"`. Only pgxpool.ParseConfig knows those keys.
+const PoolMaxConnsEnv = "MARGINCE_TEST_POOL_MAX_CONNS"
+
+// poolParams is testPoolParams plus the lane's ceiling when the lane declared
+// one. A malformed or non-positive value is an error rather than a silent
+// fallback: a ceiling that fails to apply leaves the lane's budget describing a
+// limit nothing enforces, which reads exactly like a bounded lane.
+func poolParams() (map[string]string, error) {
+	params := make(map[string]string, len(testPoolParams)+1)
+	for k, v := range testPoolParams {
+		params[k] = v
+	}
+	raw, ok := os.LookupEnv(PoolMaxConnsEnv)
+	if !ok || raw == "" {
+		return params, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return nil, fmt.Errorf("testdb: %s=%q is not a positive connection count — the lane sets it to the per-pool ceiling its connection budget was sized for, and a pool that ignores it makes that budget fiction", PoolMaxConnsEnv, raw)
+	}
+	params["pool_max_conns"] = strconv.Itoa(n)
+	return params, nil
 }
 
 // Pool returns the process-wide pool for dsn, opening it on first use. Keyed by
@@ -170,8 +215,12 @@ func withTestPoolParams(dsn string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("parsing the test DSN: %w", err)
 	}
+	params, err := poolParams()
+	if err != nil {
+		return "", err
+	}
 	q := u.Query()
-	for k, v := range testPoolParams {
+	for k, v := range params {
 		if !q.Has(k) {
 			q.Set(k, v)
 		}

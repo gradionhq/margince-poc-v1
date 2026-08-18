@@ -70,10 +70,60 @@ services:
     # could never coexist — and reset.go now takes it apart into bounded steps.
     # Raise this ceiling to paper over a new whole-schema transaction and the
     # next twenty tables will re-cross it.
+    # max_connections is the SAME lane and the same shape of demand, and until
+    # #1109 it was the one number here nobody had ever set: the stock 100.
+    #
+    # The demand is a product, exactly as the lock demand above is, and
+    # scripts/test-integration-parallel.sh is where its terms are declared —
+    # this number is their sum, not a round figure chosen to be comfortable:
+    #
+    #   INTEGRATION_JOBS                   16   (.github/workflows/ci.yml)
+    #   x LANE_CONNS_PER_PACKAGE           24   two pools at LANE_POOL_MAX_CONNS=8,
+    #                                           plus 8 for the ad-hoc pgx.Conn a
+    #                                           fixture dials, which no pool bounds
+    #   + one admin connection per slot     1   CREATE/DROP DATABASE at a handover
+    #   ------------------------------------
+    #     16 x (24 + 1)                  = 400
+    #   + LANE_FIXED_CONNS                  8   template migrate 2, superuser
+    #                                           reserve 3, an operator's psql 3
+    #   ------------------------------------
+    #                                    = 408
+    #
+    # Measured, so the terms are not guesses: at INTEGRATION_JOBS=16 the whole
+    # cluster peaks at 85 backends and one package at 24, sampled every 100ms
+    # from OUTSIDE the lane's transactions — a sample taken inside one is frozen
+    # for that transaction's lifetime and under-reports. The gap between 85 and
+    # 408 is the point: the ceiling is what has to fit, because whether a run
+    # stays near its average is decided by how the bursts overlap, which is the
+    # entire content of #1109.
+    #
+    # TestTheLaneFitsInsideTheClusterItRunsAgainst (backend/laneconnbudget_test.go)
+    # reads INTEGRATION_JOBS from the workflow, the three LANE_ terms from the
+    # lane script and this number from this file, and fails `make check` when the
+    # sum stops fitting. Raising INTEGRATION_JOBS without raising this is
+    # therefore a red gate rather than a lane that fails somewhere else.
+    #
+    # The other half of #1109 is that the per-package ceiling is now PINNED
+    # (pool_max_conns in the clone DSNs) instead of being whatever
+    # database.NewPool falls back to. Capacity alone would have left the two
+    # numbers free to drift apart again, which is how they got here.
+    #
+    # ⚠ This raises the LOCK budget too, because the product above is
+    # max_locks_per_transaction x (max_connections + max_prepared_transactions):
+    # 512 x 408 = 208,896 slots against the 51,200 this file used to reserve.
+    # Checked rather than assumed, because a change that fixes connects and
+    # reintroduces SQLSTATE 53200 has moved the failure rather than fixed it:
+    # the server reports shared_memory_size = 230MB at 408, against 204MB at 280
+    # — so the whole widening costs ~26MB of shared memory taken at boot. It is
+    # also the direction that HELPS: a whole-schema reset needs more lock slots,
+    # not fewer. Lower max_connections and that product falls with it, and the
+    # 53200 the comment above is about comes back.
     command:
       - postgres
       - -c
       - max_locks_per_transaction=512
+      - -c
+      - max_connections=408
     environment:
       POSTGRES_USER: margince_owner
       POSTGRES_PASSWORD: dev

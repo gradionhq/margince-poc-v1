@@ -104,6 +104,78 @@ if [[ -n "${COVERDIR:-}" && -z "${INTEGRATION_TIMEOUT:-}" ]] && (( SHARD_TOTAL =
 fi
 export IT_TIMEOUT
 
+ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
+JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
+
+# ---------------------------------------------------------------------------
+# The lane's CONNECTION budget, and it is a product the way the lock budget is.
+#
+# JOBS packages run at once against ONE server, and each opens pools sized by
+# database.NewPool's fallback — 16 per pool whenever the DSN does not say
+# otherwise. Nothing related the two numbers, so the lane's demand was
+# JOBS x (however many pools a package happens to open) x 16, against a server
+# whose max_connections nobody had ever set: the stock 100. At CI's JOBS=16 that
+# is a ceiling of 256 for the shared pools alone. It passed anyway, because
+# MaxConns is a ceiling and not a reservation — pgxpool dials lazily, so whether
+# a run fits under 100 was decided by how the bursts happened to overlap, which
+# is precisely the reported symptom: connect-time failures in a DIFFERENT
+# package set every run, green in isolation, green at INTEGRATION_JOBS=3 (#1109).
+#
+# The three terms below make the demand a number this lane can state. They are
+# read back by TestTheLaneFitsInsideTheClusterItRunsAgainst
+# (backend/laneconnbudget_test.go), which fails `make check` when the committed
+# max_connections in infra/docker-compose.dev.yml stops covering them — so the
+# arithmetic cannot drift the way it drifted to get here.
+#
+#   LANE_POOL_MAX_CONNS   ceiling for EACH pool a package opens, handed to the
+#                         harness as MARGINCE_TEST_POOL_MAX_CONNS (testdb's
+#                         PoolMaxConnsEnv). 8 rather than database.NewPool's 16
+#                         because the measured high-water mark for a WHOLE
+#                         package at JOBS=16 is 13 connections — both pools and
+#                         every ad-hoc fixture connection together.
+#                         It travels as an ENV VAR and not in the DSN: cmd/migrate
+#                         and every bare pgx.Conn a fixture dials parse the same
+#                         DSNs with pgx.ParseConfig, which forwards an unknown
+#                         pool_* key to the server as a startup parameter and dies
+#                         with `FATAL: unrecognized configuration parameter`.
+#   LANE_CONNS_PER_PACKAGE  what one package may hold at once, and it is a SUM
+#                         rather than a product because the two halves are
+#                         bounded by different things:
+#                           2 x LANE_POOL_MAX_CONNS = 16, the two pools testdb
+#                             keys by DSN (owner + app), each at the ceiling
+#                             above — this half is enforced;
+#                           + 8, for the ad-hoc pgx.Conn a fixture dials, which
+#                             is NOT pool-bound and can only be measured. The
+#                             high-water mark for one (database, role) at JOBS=16
+#                             is 12 with the ceiling applied — 8 pooled and 4
+#                             ad-hoc — so 4 per role, doubled.
+#                         The first version of this term was 16, which measured
+#                         EXACTLY the observed peak. A budget equal to the
+#                         measurement is not a budget; it is the measurement
+#                         wearing a budget'"'"'s clothes.
+#   LANE_FIXED_CONNS      what the lane costs beyond the packages: one admin
+#                         connection per slot for CREATE/DROP DATABASE
+#                         (cmd/migrate's db verbs are a single pgx.Connect, and
+#                         at a slot handover JOBS of them can overlap) is counted
+#                         per job below; this covers the template migrate (2),
+#                         superuser_reserved_connections (3), and an operator's
+#                         own psql or a metrics scrape while the lane runs (3).
+#
+# Raise JOBS and every term moves with it. That is the point: the guard reads
+# these, not a number somebody wrote down once.
+LANE_POOL_MAX_CONNS=8
+LANE_CONNS_PER_PACKAGE=24
+LANE_FIXED_CONNS=8
+# Per job: its packages' connections plus the one admin connection its slot can
+# be holding for a clone create/drop at the same moment.
+LANE_CONN_BUDGET=$(( JOBS * (LANE_CONNS_PER_PACKAGE + 1) + LANE_FIXED_CONNS ))
+# Exported, not merely set: the workers run in re-exec'd shells (see the note on
+# REDIS_DBS below), and a ceiling that expands to empty leaves every pool back at
+# database.NewPool's fallback with the budget above describing nothing.
+export MARGINCE_TEST_POOL_MAX_CONNS="$LANE_POOL_MAX_CONNS"
+export LANE_CONN_BUDGET
+# ---------------------------------------------------------------------------
+
 # Build the migrated template once, fresh, before fanning out. Every package
 # clones from it (CREATE DATABASE ... TEMPLATE) instead of re-migrating.
 echo "test-integration-parallel: building migrated template ${TEMPLATE_NAME}…"
@@ -111,9 +183,6 @@ build_template
 
 # Every integration test in this repo lives in the backend module.
 GO_DIRS=(backend)
-
-ncpu() { sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4; }
-JOBS="${INTEGRATION_JOBS:-$(( $(ncpu) < 8 ? $(ncpu) : 8 ))}"
 
 # Redis logical dbs available to the lane: every db the server serves except 0,
 # which `make dev` owns. Must match --databases in infra/docker-compose.dev.yml.
