@@ -22,21 +22,21 @@ type Candidate = components["schemas"]["DedupeCandidate"];
 
 // The three signals the detector records (agree | collide | one_sided), in the
 // reader's own language.
-const SIGNAL_KEYS = {
-  agree: "dedupe.signalAgree",
-  collide: "dedupe.signalCollide",
-  one_sided: "dedupe.signalOneSided",
-} as const satisfies Record<string, MessageKey>;
+//
+// A MAP rather than an object literal, for two reasons that are the same reason:
+// `get` answers `MessageKey | undefined` with no cast, and a Map has no
+// prototype keys to confuse a lookup — an object would answer `true` to
+// "toString" or "constructor", and the wire types this field as a plain string
+// rather than a closed enum, so those are values a server can actually send.
+const SIGNAL_KEYS = new Map<string, MessageKey>([
+  ["agree", "dedupe.signalAgree"],
+  ["collide", "dedupe.signalCollide"],
+  ["one_sided", "dedupe.signalOneSided"],
+]);
 
 function signalWord(signal: string, t: ReturnType<typeof useT>): string {
-  // OWN keys only. `in` walks the prototype chain, so a wire value of
-  // "toString" or "constructor" would answer true and hand `t()` an inherited
-  // function instead of a message key. The signal is a plain string on the
-  // wire, not a closed enum, so that is a value the server can actually send.
-  const key = Object.hasOwn(SIGNAL_KEYS, signal)
-    ? SIGNAL_KEYS[signal as keyof typeof SIGNAL_KEYS]
-    : undefined;
-  return typeof key === "string" ? t(key) : signal;
+  const key = SIGNAL_KEYS.get(signal);
+  return key === undefined ? signal : t(key);
 }
 
 const queueKey = ["dedupe-candidates"];
