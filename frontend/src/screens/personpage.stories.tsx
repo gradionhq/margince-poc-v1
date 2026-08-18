@@ -18,6 +18,10 @@ import {
 } from "./persondrawers";
 import { PersonMemory } from "./personmemory";
 import { PersonPageV2 } from "./personpage";
+import {
+  completedProviderRun,
+  providerCompletedProfile,
+} from "./personprovider.fixtures";
 import { PersonRail } from "./personrail";
 import { PersonStrip } from "./personstrip";
 import {
@@ -1448,73 +1452,6 @@ export const ResearchDrawer: Story = {
 // empty, so none of emails/mobiles/employment/job history/location/
 // departments/seniorities, nor the EnrichNow button, ever render without
 // this fixture.
-const completedRun: components["schemas"]["ProviderRun"] = {
-  id: "run-1",
-  subject_kind: "person",
-  person_id: "p-1",
-  provider: "surfe",
-  trigger: "manual",
-  state: "completed",
-  skip_reason: null,
-  connection_version: 1,
-  configuration_snapshot: {
-    mode: "on_demand",
-    preset: "professional_only",
-    automatic_individual_create: true,
-    automatic_import: false,
-    categories: { email: true, mobile: true },
-  },
-  requested_categories: ["email", "mobile"],
-  reservations: [{ pool: "email", reserved_credits: 1, actual_credits: 1 }],
-  claims_unwritten: false,
-  submitted_at: "2026-08-12T09:00:00Z",
-  completed_at: "2026-08-12T09:02:00Z",
-  safe_status_code: null,
-  created_at: "2026-08-12T09:00:00Z",
-  updated_at: "2026-08-12T09:02:00Z",
-};
-
-const providerCompleted: components["schemas"]["PersonProviderProfile"] = {
-  state: "completed",
-  provider: "surfe",
-  retrieved_at: "2026-08-12T09:02:00Z",
-  safe_status_code: null,
-  // Both categories were asked for and both came back, so nothing here is
-  // reported as skipped: `mobile_phones` below is populated, and claiming it
-  // as "not requested" beside a value the run actually returned would say
-  // two contradictory things about the same run.
-  categories_not_requested: [],
-  emails: [
-    {
-      value: "dana.buyer@surfe.example",
-      email_type: "professional",
-      email_type_source: "provider",
-      validation_status: "valid",
-    },
-  ],
-  mobile_phones: [{ value: "+491701234567", confidence: 0.82 }],
-  linkedin_url: "https://linkedin.com/in/danabuyer",
-  current_employment: {
-    company_name: "Brandt Automotive GmbH",
-    company_domain: "brandt-automotive.example",
-    job_title: "Head of Fleet",
-  },
-  job_history: [
-    {
-      company_name: "Voss Logistics",
-      job_title: "Fleet Coordinator",
-      started_at: "2018-01-01T00:00:00Z",
-      ended_at: "2022-02-01T00:00:00Z",
-    },
-  ],
-  location: "Munich, Germany",
-  city: "Munich",
-  region: "Bavaria",
-  country: "DE",
-  departments: ["Operations"],
-  seniorities: ["Head"],
-  latest_run: completedRun,
-};
 
 export const ResearchDrawerProviderCompleted: Story = {
   render: () => {
@@ -1532,7 +1469,7 @@ export const ResearchDrawerProviderCompleted: Story = {
         <PersonResearchDrawer
           personId="p-1"
           personName="Dana Buyer"
-          providerProfile={providerCompleted}
+          providerProfile={providerCompletedProfile}
           open
           onClose={() => {}}
         />
@@ -1543,10 +1480,10 @@ export const ResearchDrawerProviderCompleted: Story = {
 
 // A run still moving: RunWatch polls `GET .../enrichment-runs/{run_id}`
 // while `isRunning` holds, and the badge reads "In progress" rather than any
-// terminal word: a state `providerNotConnected` and `providerCompleted`
+// terminal word: a state `providerNotConnected` and `providerCompletedProfile`
 // above never reach.
 const inProgressRun: components["schemas"]["ProviderRun"] = {
-  ...completedRun,
+  ...completedProviderRun,
   id: "run-2",
   state: "in_progress",
   completed_at: null,
@@ -1602,7 +1539,7 @@ export const ResearchDrawerProviderRunning: Story = {
 // (provider-status.ts's PROFILE_TONE) rather than the neutral or success one
 // every other provider fixture here shows.
 const failedRun: components["schemas"]["ProviderRun"] = {
-  ...completedRun,
+  ...completedProviderRun,
   id: "run-3",
   state: "failed",
   completed_at: "2026-08-13T09:05:00Z",

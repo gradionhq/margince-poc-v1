@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
+import { providerCompletedProfile } from "./personprovider.fixtures";
 import { PersonResearchTab } from "./personresearch";
 import { StoryProviders } from "./story-utils";
 
@@ -28,63 +29,6 @@ const person: View["person"] = {
   captured_by: "human:u-1",
   created_at: "2026-08-01T09:00:00Z",
   updated_at: "2026-08-12T09:00:00Z",
-};
-
-const completedRun: components["schemas"]["ProviderRun"] = {
-  id: "run-1",
-  subject_kind: "person",
-  person_id: "p-1",
-  provider: "surfe",
-  trigger: "manual",
-  state: "completed",
-  skip_reason: null,
-  connection_version: 1,
-  configuration_snapshot: {
-    mode: "on_demand",
-    preset: "professional_only",
-    automatic_individual_create: true,
-    automatic_import: false,
-    categories: { email: true, mobile: true },
-  },
-  requested_categories: ["email", "mobile"],
-  reservations: [{ pool: "email", reserved_credits: 1, actual_credits: 1 }],
-  claims_unwritten: false,
-  submitted_at: "2026-08-12T09:00:00Z",
-  completed_at: "2026-08-12T09:02:00Z",
-  safe_status_code: null,
-  created_at: "2026-08-12T09:00:00Z",
-  updated_at: "2026-08-12T09:02:00Z",
-};
-
-const providerCompleted: components["schemas"]["PersonProviderProfile"] = {
-  state: "completed",
-  provider: "surfe",
-  retrieved_at: "2026-08-12T09:02:00Z",
-  safe_status_code: null,
-  categories_not_requested: [],
-  emails: [
-    {
-      value: "dana.buyer@surfe.example",
-      email_type: "professional",
-      email_type_source: "provider",
-      validation_status: "valid",
-    },
-  ],
-  mobile_phones: [{ value: "+491701234567", confidence: 0.82 }],
-  linkedin_url: "https://linkedin.com/in/danabuyer",
-  current_employment: {
-    company_name: "Brandt Automotive GmbH",
-    company_domain: "brandt-automotive.example",
-    job_title: "Head of Fleet",
-  },
-  job_history: [],
-  location: "Munich, Germany",
-  city: "Munich",
-  region: "Bavaria",
-  country: "DE",
-  departments: ["Operations"],
-  seniorities: ["Head"],
-  latest_run: completedRun,
 };
 
 const profileFields: components["schemas"]["PersonProfileField"][] = [
@@ -116,7 +60,7 @@ const populated: View = {
   as_of: "2026-08-13T09:00:00Z",
   person,
   sections_omitted: [],
-  provider_profile: providerCompleted,
+  provider_profile: providerCompletedProfile,
   profile_fields: profileFields,
 };
 
