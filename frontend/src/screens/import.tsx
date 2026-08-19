@@ -7,7 +7,8 @@ import { useCan, useCanWrite } from "../app/capability";
 import { Button, EmptyState, SegmentedControl } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
-import { useT } from "../i18n";
+import { formatDateTime } from "../format/format";
+import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, useMe } from "./common";
 import { useImportFlow } from "./importflow";
@@ -52,8 +53,17 @@ export function ImportCard() {
   const me = useMe();
   const fileInput = useRef<HTMLInputElement>(null);
   const flow = useImportFlow();
-  const { profile, mapping, run, report, upload, validate, commit, undo } =
-    flow;
+  const {
+    profile,
+    mapping,
+    run,
+    report,
+    resumed,
+    upload,
+    validate,
+    commit,
+    undo,
+  } = flow;
 
   // Gated on the grant the STORE demands, not on the admin role: `import_run`
   // is seeded to admin AND ops, so asking for the role would hide the card
@@ -184,6 +194,7 @@ export function ImportCard() {
               report={report}
               run={run}
               committed={committed}
+              resumed={resumed}
               busy={busy}
               onCommit={() => commit.mutate(run)}
               onUndo={() => undo.mutate(run)}
@@ -206,6 +217,7 @@ function ImportOutcome({
   report,
   run,
   committed,
+  resumed,
   busy,
   onCommit,
   onUndo,
@@ -217,6 +229,10 @@ function ImportOutcome({
   report: ImportReport;
   run: ImportRun;
   committed: boolean;
+  // True when this run was read back on mount rather than produced by the
+  // reader's last press. It changes nothing about what the card offers — only
+  // whether the card says where the run came from.
+  resumed: boolean;
   busy: boolean;
   onCommit: () => void;
   onUndo: () => void;
@@ -226,6 +242,9 @@ function ImportOutcome({
   undoBusy: boolean;
 }>) {
   const t = useT();
+  // The run's own timestamp is rendered in the reader's locale, not the
+  // browser's default: everything else on this card already follows the catalog.
+  const { locale } = useLocale();
   const d = report.disposition;
   const resumable = run.status === "failed";
   // undoing doubles as "reversing" and "a reversal that stopped part-way" —
@@ -242,6 +261,19 @@ function ImportOutcome({
       <h3 className="import__outcomeTitle">
         {committed ? t("import.outcomeTitle") : t("import.previewTitle")}
       </h3>
+      {/* A run the reader did not just cause, shown as though they had, reads as
+          an import that ran by itself — so the card says when it happened. */}
+      {resumed ? (
+        <Callout tone="info">
+          {t("import.resumedRun", {
+            when: formatDateTime(
+              run.created_at,
+              locale,
+              Intl.DateTimeFormat().resolvedOptions().timeZone,
+            ),
+          })}
+        </Callout>
+      ) : null}
       <dl className="import__counts">
         <Count label={t("import.count.created")} value={d.created} />
         <Count label={t("import.count.updated")} value={d.updated} />

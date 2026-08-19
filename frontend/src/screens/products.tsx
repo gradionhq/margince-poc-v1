@@ -243,7 +243,11 @@ export function ProductsAdmin() {
             <CreateAction
               label={t("product.new")}
               invalidate="products"
-              screen="products"
+              // `stay` because a fresh product has no page of its own to
+              // open: the list the row joins is already on screen, and this
+              // panel is one of the settings surfaces the screen names.
+              screen="settings"
+              stay
               create={createProduct}
               fields={PRODUCT_FIELDS}
             />

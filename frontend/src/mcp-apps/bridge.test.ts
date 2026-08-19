@@ -60,31 +60,6 @@ function stubParent(): { win: Window; sent: Sent[] } {
   return { win, sent };
 }
 
-// jsdom has no matchMedia at all, so the platform arm needs one supplied. It
-// answers a live list rather than a frozen boolean: the bridge subscribes to the
-// change event, and a stub that could not fire it would leave that arm untested.
-function stubDarkPreference(matches: boolean): { flip: (to: boolean) => void } {
-  const listeners = new Set<() => void>();
-  const query = {
-    matches,
-    addEventListener: (_type: string, listener: () => void) => {
-      listeners.add(listener);
-    },
-    removeEventListener: (_type: string, listener: () => void) => {
-      listeners.delete(listener);
-    },
-  };
-  vi.stubGlobal("matchMedia", (media: string) =>
-    media.includes("dark") ? query : { ...query, matches: false },
-  );
-  return {
-    flip: (to: boolean) => {
-      query.matches = to;
-      for (const listener of listeners) listener();
-    },
-  };
-}
-
 function deliver(source: Window, origin: string, data: unknown) {
   window.dispatchEvent(
     new MessageEvent("message", {
@@ -209,24 +184,11 @@ describe("the bridge announces itself", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  it("falls back to the platform preference when the host states no theme", async () => {
-    // The failure this is here for: the design tokens answer only
-    // [data-theme="dark"], so a view left unstamped renders permanently light
-    // inside a dark host.
-    stubDarkPreference(true);
-    const parent = stubParent();
-    await loadBridge(parent.win);
-    const id = parent.sent[0].msg.id;
-    deliver(parent.win, "https://host.example", {
-      jsonrpc: "2.0",
-      id,
-      result: {},
-    });
-    expect(document.documentElement.dataset.theme).toBe("dark");
-  });
-
-  it("follows a platform appearance change, but only where the host delegated one", async () => {
-    const platform = stubDarkPreference(false);
+  it("leaves a host that states no theme to the stylesheet, unstamped", async () => {
+    // What must NOT happen here is a resolved value: tokens.css answers a dark
+    // platform preference on any document not stamped light, and a stamp from
+    // this module would pre-empt that arm — freezing the view at the preference
+    // current when the panel opened, and moving the answer out of the canon.
     const parent = stubParent();
     await loadBridge(parent.win);
     deliver(parent.win, "https://host.example", {
@@ -234,13 +196,13 @@ describe("the bridge announces itself", () => {
       id: parent.sent[0].msg.id,
       result: {},
     });
-    expect(document.documentElement.dataset.theme).toBe("light");
-    platform.flip(true);
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
   });
 
-  it("does not second-guess a host that stated a theme when the platform changes", async () => {
-    const platform = stubDarkPreference(false);
+  it("stamps light as explicitly as dark, so a light host beats a dark platform", async () => {
+    // The stamp is not decoration: `[data-theme="light"]` is what the canon's
+    // media arm excludes itself on. A host stating light while the reader's
+    // system is dark is only honoured because the attribute is there.
     const parent = stubParent();
     await loadBridge(parent.win);
     deliver(parent.win, "https://host.example", {
@@ -248,7 +210,6 @@ describe("the bridge announces itself", () => {
       id: parent.sent[0].msg.id,
       result: { hostContext: { theme: "light" } },
     });
-    platform.flip(true);
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 });
@@ -387,11 +348,10 @@ describe("the bridge follows the host it is drawn inside", () => {
   // the notification altogether. The host sends a context change whenever
   // anything about the frame changes — a resize carrying only
   // containerDimensions arrives right after EVERY open — so an update that does
-  // not mention the theme must leave it alone. Treated as "stated nothing" it
-  // falls back to the platform and overwrites the theme the handshake had just
-  // resolved correctly, moments after it resolved it.
+  // not mention the theme must leave it alone. Read as "stated nothing" it would
+  // undo the theme the handshake had just resolved correctly, moments after it
+  // resolved it.
   it("leaves the theme alone when a context change does not mention one", async () => {
-    stubDarkPreference(false); // platform light, so a wrong fallback is visible
     const parent = stubParent();
     await loadBridge(parent.win);
     deliver(parent.win, "https://host.example", {
@@ -409,11 +369,11 @@ describe("the bridge follows the host it is drawn inside", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
-  // A host that stated nothing at handshake delegated to the platform. Once it
-  // DOES state a theme, its decision stands — an OS appearance change afterwards
-  // must not repaint over it.
-  it("stops following the platform once the host states a theme", async () => {
-    const platform = stubDarkPreference(false);
+  // A host that stated nothing at handshake left the decision to the stylesheet.
+  // Once it DOES state a theme, that statement takes over — which for a view the
+  // canon was drawing dark means the attribute has to appear where there was
+  // none.
+  it("takes over from the stylesheet when the host states a theme later", async () => {
     const parent = stubParent();
     await loadBridge(parent.win);
     deliver(parent.win, "https://host.example", {
@@ -421,16 +381,13 @@ describe("the bridge follows the host it is drawn inside", () => {
       id: parent.sent[0].msg.id,
       result: { hostContext: {} },
     });
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.hasAttribute("data-theme")).toBe(false);
 
     deliver(parent.win, "https://host.example", {
       jsonrpc: "2.0",
       method: "ui/notifications/host-context-changed",
       params: { theme: "dark" },
     });
-    expect(document.documentElement.dataset.theme).toBe("dark");
-
-    platform.flip(true);
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 

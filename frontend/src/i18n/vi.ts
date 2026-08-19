@@ -2207,6 +2207,8 @@ export const vi = {
   "import.validating": "Đang kiểm tra…",
   "import.previewTitle": "Lần nhập này sẽ làm gì",
   "import.outcomeTitle": "Lần nhập này đã làm gì",
+  "import.resumedRun":
+    "Tiếp tục từ trước: lần nhập này đã chạy vào {when}. Mọi thao tác bên dưới vẫn còn dùng được.",
   "import.count.created": "Tạo mới",
   "import.count.updated": "Cập nhật",
   "import.count.unchanged": "Không đổi",
@@ -5218,8 +5220,11 @@ export const vi = {
   "person.research.title": "Nghiên cứu sâu · {name}",
   "person.research.publicOnly": "Chỉ nguồn công khai",
   "person.research.running": "Đang đọc các nguồn công khai…",
+  // "nhà cung cấp dịch vụ nghiên cứu", không phải "nhà cung cấp dữ liệu": cách
+  // nói thứ hai dành cho dữ liệu liên hệ đã mua (provider.profile.*), vốn hiển
+  // thị ngay phía trên câu này.
   "person.research.notConnected":
-    "Chưa kết nối nhà cung cấp dữ liệu. Margince không bao giờ tự ý nghiên cứu về một cá nhân — việc này cần một nhà cung cấp được cấp phép.",
+    "Chưa kết nối nhà cung cấp dịch vụ nghiên cứu, nên chưa có nguồn công khai nào được đọc về người này. Điều đó không liên quan đến dữ liệu liên hệ đã mua ở trên — Margince không bao giờ tự ý nghiên cứu về một cá nhân, và nghiên cứu sâu cần một nhà cung cấp được cấp phép, có cơ sở pháp lý riêng.",
   "person.research.staged":
     "Kết quả đang ở trạng thái chờ. Hồ sơ của {name} không thay đổi cho đến khi bạn xem lại và lưu.",
   "person.research.stats":

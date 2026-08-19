@@ -14,6 +14,13 @@
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
+    // The vite configs name their siblings WITH the .ts extension, because
+    // vite's native config loader is Node's type stripping, which resolves a
+    // specifier only at its real path. TypeScript rejects that spelling unless
+    // told to allow it, and only allows the option where nothing is emitted —
+    // which is this project (noEmit above), so the runtime requirement and the
+    // compiler both get the same specifier.
+    "allowImportingTsExtensions": true,
     "types": ["node", "vite/client"],
     "resolveJsonModule": true,
     "baseUrl": ".",

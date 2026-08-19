@@ -4,7 +4,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Ban, Check, Clock, Minus, X } from "lucide-react";
 import { type ReactElement, type ReactNode, useState } from "react";
-import { api } from "../api/client";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import {
   Badge,
@@ -179,7 +179,7 @@ export function AutomationRuns({
     // outcome is part of the key: changing the filter starts a fresh first
     // page rather than reusing a cursor minted under a different filter.
     queryKey: ["automation-runs", automationId, outcome ?? ""],
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/automations/{id}/runs", {
         params: {

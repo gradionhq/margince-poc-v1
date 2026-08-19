@@ -35,6 +35,60 @@ function source(file: string): string {
   return readFileSync(resolve(dir, file), "utf8");
 }
 
+// What the distance below is allowed to count. An explanation between a call
+// and its refusal is not distance: it shortens what a reader must hold at
+// once, which is the same reason the length ceilings ignore comments. Measured
+// on the raw text, a well-commented field mapping reads as a drifted anchor.
+//
+// It walks the span rather than replacing on a pattern, because `//` and `/*`
+// also occur inside string and template literals — every `https://` in a URL,
+// for one. Deleting those would delete real code and shrink the measured
+// distance, which makes this check quietly weaker exactly where a call site
+// carries a URL, and a weaker gate reads the same as a passing one.
+function codeLengthOf(span: string): number {
+  let length = 0;
+  let index = 0;
+  let quote: string | undefined;
+  while (index < span.length) {
+    const here = span[index];
+    const next = span[index + 1];
+    if (quote) {
+      // Inside a literal nothing is a comment, and a backslash consumes what
+      // follows it so an escaped quote does not end the literal early.
+      if (here === "\\") {
+        length += 2;
+        index += 2;
+        continue;
+      }
+      if (here === quote) {
+        quote = undefined;
+      }
+      length += 1;
+      index += 1;
+      continue;
+    }
+    if (here === '"' || here === "'" || here === "`") {
+      quote = here;
+      length += 1;
+      index += 1;
+      continue;
+    }
+    if (here === "/" && next === "/") {
+      const end = span.indexOf("\n", index);
+      index = end === -1 ? span.length : end;
+      continue;
+    }
+    if (here === "/" && next === "*") {
+      const end = span.indexOf("*/", index + 2);
+      index = end === -1 ? span.length : end + 2;
+      continue;
+    }
+    length += 1;
+    index += 1;
+  }
+  return length;
+}
+
 // Finds the Nth (1-indexed) occurrence of `anchor` — the endpoint call's own
 // literal path — then the nearest `if (error)` after it, and asserts the
 // throw inside that block passes a translator. Anchoring on the endpoint
@@ -62,7 +116,7 @@ function assertTranslatedRefusal(
     `${label}: no "if (error)" found after its endpoint call in ${file}`,
   ).toBeGreaterThanOrEqual(0);
   expect(
-    errorIndex - anchorIndex,
+    codeLengthOf(text.slice(anchorIndex, errorIndex)),
     `${label}: "if (error)" is implausibly far from its anchor in ${file} — the anchor likely matched the wrong call`,
   ).toBeLessThan(600);
   const throwSite = text.slice(errorIndex, errorIndex + 150);
@@ -72,6 +126,29 @@ function assertTranslatedRefusal(
       "server's raw sentinel code instead of overlay.refused/overlay.filterUnsupported",
   ).toBe(true);
 }
+
+// The measurement itself, pinned: a URL is not a comment, and a comment is not
+// distance. Getting either wrong changes what the suite below is willing to pass.
+describe("what counts as distance", () => {
+  it("keeps comment markers that are inside a literal", () => {
+    const span = 'const home = "https://example.test/a";';
+    expect(codeLengthOf(span)).toBe(span.length);
+    const block = "const glob = `a/*b*/c`;";
+    expect(codeLengthOf(block)).toBe(block.length);
+  });
+
+  it("does not count an explanation, however long", () => {
+    const code = "const a = 1;\nconst b = 2;";
+    const explained = `const a = 1;\n// ${"why ".repeat(200)}\nconst b = 2;`;
+    expect(codeLengthOf(explained)).toBe(codeLengthOf(code) + 1);
+    expect(codeLengthOf("a/* one\ntwo */b")).toBe(2);
+  });
+
+  it("stops at the end of an unterminated comment rather than reading past it", () => {
+    expect(codeLengthOf("a// trailing")).toBe(1);
+    expect(codeLengthOf("a/* never closed")).toBe(1);
+  });
+});
 
 describe("overlay refusal copy — translator coverage", () => {
   it("create-person (POST /people)", () => {

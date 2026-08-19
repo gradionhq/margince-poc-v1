@@ -13,25 +13,13 @@ import type { components } from "../api/schema";
 import { Badge, Button, Modal, TextInput } from "../design-system/atoms";
 import { RichText } from "../design-system/richtext";
 import { Select } from "../design-system/select";
+import { webUrl } from "../format/weburl";
 import { useT } from "../i18n";
 import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem } from "./common";
 import { refusalOf, SendRefusal, scheduleFields } from "./compose";
 import { useConsentPurposes } from "./consent";
 import { PersonProviderSection } from "./personprovider";
-
-// Only http(s) may become a link. A provider-supplied URL is untrusted input,
-// and a javascript: or data: href executes the moment a reader clicks it.
-function isWebUrl(href: string): boolean {
-  try {
-    const scheme = new URL(href).protocol;
-    return scheme === "https:" || scheme === "http:";
-  } catch {
-    // Not parseable as an absolute URL. A relative href would resolve against
-    // OUR origin, which a provider's source document never is.
-    return false;
-  }
-}
 
 // The three surfaces the person page opens over itself: the composer, the
 // research drawer, and the meeting brief.
@@ -989,7 +977,7 @@ export function PersonResearchDrawer({
                         the reader still sees what was claimed, without a
                         clickable payload. */}
                     {claim.sources.map((source) =>
-                      isWebUrl(source.url) ? (
+                      webUrl(source.url) ? (
                         <a
                           key={source.url}
                           className="pe-memory-channel"

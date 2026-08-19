@@ -27,6 +27,24 @@ import "./context.css";
 type ContextResponse = components["schemas"]["ContextResponse"];
 const LINKABLE = new Set<EntityKind>(ENTITY_KINDS);
 
+// The walk starts at the anchor, so the anchor comes back inside it — and a row
+// linking a reader to the page they are standing on carries nothing. Dropping it
+// can empty a section, and an empty section is a heading over nothing, so the
+// section goes with its last item.
+function neighbourhood(
+  sections: ReadonlyArray<ContextResponse["sections"][number]>,
+  anchor: string,
+): ReadonlyArray<ContextResponse["sections"][number]> {
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) => `${item.ref.type}:${item.ref.id}` !== anchor,
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
+}
+
 export function RecordContextPanel({
   entityType,
   id,
@@ -67,23 +85,30 @@ export function RecordContextPanel({
   return (
     <Card className="record-context" title={t("context.title")}>
       <QueryGate query={query as QueryLike<ContextResponse>}>
-        {(data) =>
-          (data.sections ?? []).length === 0 ? (
+        {(data) => {
+          const sections = neighbourhood(
+            data.sections ?? [],
+            `${entityType}:${id}`,
+          );
+          return sections.length === 0 ? (
             <EmptyState>{t("context.empty")}</EmptyState>
           ) : (
             <div className="context-sections">
-              {(data.sections ?? []).map((section) => (
+              {sections.map((section) => (
                 <div key={section.name} className="context-section">
                   <h3 className="t-label">{section.name}</h3>
                   <ul className="context-items">
                     {section.items.map((item) => {
+                      const self = `${item.ref.type}:${item.ref.id}`;
                       const evidenceList = (item.evidence ?? [])
-                        .map((entry) =>
-                          toEvidence(
-                            entry as { [k: string]: unknown } | undefined,
-                          ),
-                        )
-                        .filter((entry) => entry != null);
+                        .map((entry) => toEvidence(entry))
+                        .filter((entry) => entry != null)
+                        // A record is not evidence for itself. The walk cites
+                        // every item by its own ref, which the model needs — an
+                        // item with no citation trips its no-guess gate — and a
+                        // reader does not: a chip proving "Anna Weber" with
+                        // "Anna Weber" is the same claim twice.
+                        .filter((entry) => entry.source !== self);
                       return (
                         <li
                           key={`${item.ref.type}:${item.ref.id}`}
@@ -102,7 +127,14 @@ export function RecordContextPanel({
                               )}
                             </>
                           ) : (
-                            <span>{item.summary ?? item.ref.id}</span>
+                            // A kind with no record page of its own has
+                            // nothing to link to, and its id is not a reading:
+                            // it names the kind, which is what a reader can
+                            // actually do something with. The ref stays on
+                            // `title` for whoever is debugging a walk.
+                            <span title={`${item.ref.type}:${item.ref.id}`}>
+                              {item.summary ?? item.ref.type}
+                            </span>
                           )}
                           {evidenceList.map((evidence) => (
                             <EvidenceChip
@@ -117,8 +149,8 @@ export function RecordContextPanel({
                 </div>
               ))}
             </div>
-          )
-        }
+          );
+        }}
       </QueryGate>
     </Card>
   );

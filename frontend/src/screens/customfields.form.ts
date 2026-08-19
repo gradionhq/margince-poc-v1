@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { formatMoneyOrAbsent } from "../format/format";
+import { webUrl } from "../format/weburl";
 import { type Locale, useT } from "../i18n";
 import type { CreateField } from "./create";
 import type { CfObject } from "./customfields.logic";
@@ -125,6 +126,16 @@ export function customFieldDisplay(
       // avoid a timezone shift a datetime formatter would introduce).
       return String(raw);
   }
+}
+
+// Where a displayed value may be followed to, or null when it is only text.
+//
+// The type set is closed and carries no `url` type, so a link is recognised
+// from the VALUE, which makes the scheme check the load-bearing half rather
+// than a formality. Which schemes those are is not this file's to decide —
+// `format/weburl` is the one place that answers it for every surface.
+export function customFieldHref(value: string): string | null {
+  return webUrl(value)?.href ?? null;
 }
 
 // The read slice: the raw cf column values off a fetched record, so the edit

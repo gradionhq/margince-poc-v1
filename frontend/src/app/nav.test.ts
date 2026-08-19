@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { describe, expect, it } from "vitest";
-import { railTrail } from "./nav";
+import { NAV, RAIL_LESS_SCREENS, railTrail } from "./nav";
+import { parseHash, routeHash } from "./router";
 
 describe("the rail and a composed unit", () => {
   // The product's own destinations, and no group an installation can add to.
@@ -44,5 +45,22 @@ describe("the rail and a composed unit", () => {
   it("leaves the product's rows marking themselves", () => {
     const [primary] = railTrail({ screen: "deals" });
     expect(primary.activeId).toBe("deals");
+  });
+});
+
+// A row's href is handed straight back to the router on the next hashchange, so
+// a destination the router does not answer is a row that leads to the not-found
+// page. The screen union both sides share makes that a compile error; this is
+// the runtime half, because the type says the lists agree and this says the
+// strings do.
+describe("the destinations the rail names", () => {
+  it("address only screens the router answers", () => {
+    const destinations = [
+      ...NAV.map((item) => item.screen),
+      ...RAIL_LESS_SCREENS,
+    ];
+    expect(
+      destinations.map((screen) => parseHash(routeHash({ screen })).screen),
+    ).toEqual(destinations);
   });
 });

@@ -81,14 +81,15 @@ function baseRoutes(
 // handle so a play function can chain a further assertion or a non-testid
 // interaction (a role-named confirm button, a label lookup).
 //
-// The clicks are canvas-scoped — the testids are all on the card — but the
-// handle returned is `screen`, because what those clicks OPEN is a ConfirmModal
-// portalled to document.body: a canvas-scoped query for anything inside one
-// rejects however correctly the dialog is drawn.
-async function clickTestIds(canvasElement: HTMLElement, testIds: string[]) {
-  const canvas = within(canvasElement);
+// Document-scoped, because this card's verbs do not all live in the canvas:
+// OverflowMenu portals its panel to document.body, so Rotate secret and Archive
+// are outside it, and so is the ConfirmModal an item opens. A canvas-scoped
+// lookup rejects on a menu item however correctly the menu is drawn — and the
+// frame captured beside that rejection shows a closed row under the name of an
+// armed dialog.
+async function clickTestIds(testIds: string[]) {
   for (const testId of testIds) {
-    await userEvent.click(await canvas.findByTestId(testId));
+    await userEvent.click(await screen.findByTestId(testId));
   }
   return screen;
 }
@@ -168,8 +169,8 @@ export const Empty: Story = {
 // subset — the fe-uat screenshot shows the full published set.
 export const CreateOpen: Story = {
   render: cardStory(baseRoutes([])),
-  play: async ({ canvasElement }) => {
-    await clickTestIds(canvasElement, ["new-webhook-subscription"]);
+  play: async () => {
+    await clickTestIds(["new-webhook-subscription"]);
   },
 };
 
@@ -199,10 +200,8 @@ export const SecretRevealed: Story = {
         201,
       ),
   }),
-  play: async ({ canvasElement }) => {
-    const canvas = await clickTestIds(canvasElement, [
-      "new-webhook-subscription",
-    ]);
+  play: async () => {
+    const canvas = await clickTestIds(["new-webhook-subscription"]);
     await userEvent.type(
       await canvas.findByLabelText(/target url/i),
       "https://hooks.acme.test/inbound",
@@ -217,8 +216,8 @@ export const SecretRevealed: Story = {
 // admin/ops role the create affordance already gates on.
 export const EditOpen: Story = {
   render: cardStory(baseRoutes()),
-  play: async ({ canvasElement }) => {
-    await clickTestIds(canvasElement, ["edit-record"]);
+  play: async () => {
+    await clickTestIds(["edit-record"]);
   },
 };
 
@@ -226,7 +225,7 @@ export const RotateSecretConfirm: Story = {
   render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
     await openRowActions(canvasElement);
-    await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
+    await clickTestIds(["rotate-webhook-secret"]);
   },
 };
 
@@ -243,7 +242,7 @@ export const RotateSecretRevealed: Story = {
   }),
   play: async ({ canvasElement }) => {
     await openRowActions(canvasElement);
-    const canvas = await clickTestIds(canvasElement, ["rotate-webhook-secret"]);
+    const canvas = await clickTestIds(["rotate-webhook-secret"]);
     // Scoped to the dialog, not to `screen`: the confirm button is labelled
     // with the ACT ("Rotate secret") rather than a generic "Confirm", which is
     // also the label on the menu item that opened it — and the menu stays open
@@ -264,7 +263,7 @@ export const ArchiveConfirm: Story = {
   render: cardStory(baseRoutes()),
   play: async ({ canvasElement }) => {
     await openRowActions(canvasElement);
-    await clickTestIds(canvasElement, ["archive-record"]);
+    await clickTestIds(["archive-record"]);
   },
 };
 
@@ -330,12 +329,8 @@ const deliveriesRoutes = {
     }),
 };
 
-const openDeliveries = async ({
-  canvasElement,
-}: {
-  canvasElement: HTMLElement;
-}) => {
-  const canvas = await clickTestIds(canvasElement, ["view-deliveries"]);
+const openDeliveries = async () => {
+  const canvas = await clickTestIds(["view-deliveries"]);
   await canvas.findByTestId("dead-letter-group");
 };
 
@@ -378,8 +373,8 @@ export const DeliveriesReplayConfirm: Story = {
         page: { next_cursor: null, has_more: false },
       }),
   }),
-  play: async ({ canvasElement }) => {
-    await clickTestIds(canvasElement, ["view-deliveries", "replay-delivery"]);
+  play: async () => {
+    await clickTestIds(["view-deliveries", "replay-delivery"]);
   },
 };
 

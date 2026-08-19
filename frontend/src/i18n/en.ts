@@ -2215,6 +2215,11 @@ export const en = {
   "import.validating": "Checking…",
   "import.previewTitle": "What this import will do",
   "import.outcomeTitle": "What this import did",
+  // Shown when the card read this run back on mount instead of the reader
+  // having just caused it: an outcome with no press behind it reads as an
+  // import that ran by itself.
+  "import.resumedRun":
+    "Picked up from earlier: this import ran on {when}. Everything below is still open to you.",
   "import.count.created": "Create",
   "import.count.updated": "Update",
   "import.count.unchanged": "Unchanged",
@@ -5244,8 +5249,13 @@ export const en = {
   "person.research.title": "Deep research · {name}",
   "person.research.publicOnly": "Public sources only",
   "person.research.running": "Reading public sources…",
+  // Deep research and bought contact data are two capabilities, and this
+  // sentence sits directly under the bought data on the same drawer. It names
+  // the RESEARCH provider for that reason: "data provider" is the licensed
+  // contact-data vocabulary (provider.profile.*), and using it here told a
+  // reader nothing was connected while eight purchased claims sat above it.
   "person.research.notConnected":
-    "No data provider yet connected. Margince never researches a person on its own authority — a licensed provider carries the lawful basis this needs.",
+    "No research provider is connected, so no public source has been read for them. That is separate from any bought contact data above — Margince never researches a person on its own authority, and deep research needs a licensed provider that carries the lawful basis for it.",
   "person.research.staged":
     "Research is staged. Nothing changes {name}'s record until you review and save.",
   "person.research.stats": "{sources} sources read · {claims} cited claims",
