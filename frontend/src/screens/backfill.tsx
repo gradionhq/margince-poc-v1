@@ -5,7 +5,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
 import { ChoiceList } from "../design-system/choicelist";
-import { formatDuration } from "../format/format";
+import { formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -58,6 +58,14 @@ const WINDOWS: { value: BackfillWindow; label: MessageKey }[] = [
 // enough that a genuinely dead worker surfaces within a couple of polls of
 // the threshold rather than staying "live" indefinitely.
 const STALE_AFTER_MS = 3 * 60_000;
+
+// The contract pins v1 estimates to USD minor units and leaves `currency`
+// optional, so USD is the documented fallback rather than a guess. Named
+// identically in onboarding-backread.tsx, which renders THIS same field from
+// the same preview: two screens holding two answers for one number means one of
+// them is lying to the reader about what they are about to spend. The symbol
+// itself is never spelled here — Intl derives it from the code and the locale.
+const FALLBACK_CURRENCY = "USD";
 
 const isLiveState = (state: BackfillStatus["state"] | undefined) =>
   state === "running" || state === "queued";
@@ -373,16 +381,22 @@ function EstimateCard({
   onStart: () => void;
 }) {
   const t = useT();
-  const cost = ((preview.estimated_cost_minor ?? 0) / 100).toFixed(2);
+  const { locale } = useLocale();
+  const costMinor = preview.estimated_cost_minor ?? 0;
   return (
     <div className="backfill-estimate">
       <p>
         {t("backfill.estimateMessages")}{" "}
         <strong>~{preview.estimated_messages.toLocaleString()}</strong>
       </p>
-      {(preview.estimated_cost_minor ?? 0) > 0 && (
+      {costMinor > 0 && (
         <p className="t-small">
-          {t("backfill.estimateCost")} ~{cost} {preview.currency ?? "EUR"}
+          {t("backfill.estimateCost")} ~
+          {formatMoney(
+            costMinor,
+            preview.currency ?? FALLBACK_CURRENCY,
+            locale,
+          )}
         </p>
       )}
       <p className="t-small">{t("backfill.estimateNote")}</p>

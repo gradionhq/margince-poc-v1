@@ -136,30 +136,23 @@ function announce(): number {
  * applyTheme follows the way round the host says it is drawn. Following it is
  * the whole reason a view looks embedded rather than pasted in.
  *
- * A HOST THAT STATES NOTHING IS NOT A HOST THAT IS LIGHT. `hostContext.theme` is
- * optional, and the design tokens answer only `[data-theme="dark"]` — the SPA
- * always stamps the attribute itself, so the canon never needed a media arm. A
- * view has no such guarantee, and left unstamped it would render permanently
- * light inside a dark host.
+ * A HOST THAT STATES NOTHING IS NOT A HOST THAT IS LIGHT — and it is not this
+ * module's question either. `hostContext.theme` is optional (SEP-1865), and the
+ * unstated case is answered in the canon: tokens.css carries a
+ * `prefers-color-scheme: dark` arm for any document that has not been stamped
+ * light, so an unstamped view inside a dark host renders dark, and follows a
+ * reader who changes their system appearance mid-session for free.
  *
- * So the resolution is the one src/app/theme.ts already makes for the same
- * failure on the unauthenticated surface: an explicit statement wins, and the
- * platform preference answers when there is none. The attribute is ALWAYS set,
- * which is what lets this document carry no second copy of the dark palette —
- * one visual language, defined once, in tokens.css.
+ * So this stamps ONLY what the host stated. Resolving the platform preference
+ * here instead would put the answer to "what does dark look like when nobody
+ * said" in a TypeScript module the next non-SPA surface cannot find, and would
+ * freeze it at whatever the preference was when the panel opened.
  */
 function applyTheme(hostContext: unknown): void {
   const stated = asText(asRecord(hostContext).theme);
   if (stated !== "") {
     stateTheme(stated);
-    return;
   }
-  // A host that stated nothing has delegated to the platform, so a reader who
-  // flips their system appearance mid-session is followed rather than left on
-  // the theme that was current when the panel opened. A host that DID state one
-  // has decided, and its decision is not second-guessed.
-  document.documentElement.dataset.theme = platformTheme();
-  darkPreference()?.addEventListener("change", followPlatform);
 }
 
 /**
@@ -173,8 +166,8 @@ function applyTheme(hostContext: unknown): void {
  * AND A PARTIAL UPDATE IS PARTIAL. The host sends one of these whenever
  * anything about the frame changes — a resize notification carrying only
  * `containerDimensions` arrives right after every open — so "no theme stated"
- * here means "not mentioned", NOT "delegated to the platform". Treating the two
- * the same is worse than ignoring the notification altogether: it overwrites
+ * here means "not mentioned", NOT "delegated to the stylesheet". Treating the
+ * two the same is worse than ignoring the notification altogether: it undoes
  * the theme the handshake correctly resolved, moments after it resolved it.
  */
 function followHostChange(context: unknown): void {
@@ -184,34 +177,15 @@ function followHostChange(context: unknown): void {
 }
 
 /**
- * stateTheme applies a theme the host has DECIDED, and stops following the
- * platform.
+ * stateTheme applies a theme the host has DECIDED.
  *
- * The unsubscribe is what keeps a later statement from being undone: a view
- * that opened against a host stating nothing subscribes to the platform, and
- * if that host then states a theme, an OS appearance change afterwards would
- * otherwise repaint over the host's own decision.
+ * The attribute is how a decision beats the platform in BOTH directions: the
+ * canon's media arm excludes `[data-theme="light"]`, so a host that states light
+ * on a dark platform is honoured, and a host that states dark on a light one has
+ * no media query to wait for.
  */
 function stateTheme(theme: string): void {
   document.documentElement.dataset.theme = theme;
-  darkPreference()?.removeEventListener("change", followPlatform);
-}
-
-/** followPlatform repaints on a platform appearance change. Named rather than
- *  inline so it stays one listener however many results arrive. */
-function followPlatform(): void {
-  document.documentElement.dataset.theme = platformTheme();
-}
-
-/** darkPreference answers null where matchMedia is unavailable, which is a
- *  default rather than an error — the same posture theme.ts takes on storage. */
-function darkPreference(): MediaQueryList | null {
-  if (typeof window.matchMedia !== "function") return null;
-  return window.matchMedia("(prefers-color-scheme: dark)");
-}
-
-function platformTheme(): string {
-  return darkPreference()?.matches === true ? "dark" : "light";
 }
 
 /**

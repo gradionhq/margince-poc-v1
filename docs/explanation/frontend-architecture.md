@@ -318,11 +318,11 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | what a route renders | `src/App.tsx` (`ScreenView`), then the screen file |
 | a colour, a radius, a spacing rung | `src/design-system/tokens.css` (and `tokens.test.ts`) — never a call site |
 | a derived colour role | `src/design-system/brand.css` — a `color-mix()`, never a new hex |
-| light/dark behaviour | `src/app/theme.ts` + the `[data-theme="dark"]` block in `tokens.css` |
+| light/dark behaviour | `src/app/theme.ts` + `tokens.css`, which carries all three states: the light palette on bare `:root`, the `prefers-color-scheme` arm for a surface whose host states nothing, and the `[data-theme]` arms an explicit choice stamps |
 | how a derived value shows its receipts | `src/design-system/evidencemark.tsx` |
 | a staging/approval surface | `src/design-system/trust.tsx` + `src/screens/inbox.tsx` |
 | copy | `src/i18n/en.ts` **and** `src/i18n/de.ts` — key parity is compile-time |
-| money, dates, durations, zones | `src/format/format.ts` |
+| money, dates, durations, zones | `src/format/format.ts` — except which calendar day an instant falls on, and the instant a picked day ends, which are `src/format/calendarday.ts` |
 | an API call | `src/api/client.ts` is the seam; regenerate types with `pnpm gen:api` |
 | the Core's appearance or states | `src/design-system/margince-core.tsx` + `margince-core-liquid.tsx` |
 

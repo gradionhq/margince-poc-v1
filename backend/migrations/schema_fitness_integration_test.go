@@ -247,26 +247,45 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	"signal_resolution.matched_org_id":           "child row: written only through Resolve's gated attribution — the org already passed auth.EnsureLinkTarget",
 	"person_social.person_id":                    "child row: written only through the person store — CreatePerson mints the parent row itself, UpdatePerson passes auth.EnsureVisible first",
 	// The dedupe review queue (DH-DDL-1): pair ids are server-derived —
-	// recordDedupeCandidate stamps them from the ensure chokepoint's own
-	// row-scoped fuzzy query, never from a request body; the disposition
-	// endpoints address the candidate row, not the pair ids.
-	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate — the same writer and the same sweep as the person and organization pairs above, choosing the lead columns",
-	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate — the same writer and the same sweep as the person and organization pairs above, choosing the lead columns",
-	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
-	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
+	// recordDedupeCandidate is their only writer, and both ids come from the writing
+	// path's own match query, never from a request body. Which query varies more than
+	// a single phrase can carry: the fuzzy tier for a near match, an exact identity
+	// lane at confidence 1.0 for a shared phone or a lane conflict. What every path
+	// shares is that the ids are ones it resolved itself, and that is the invariant
+	// this waiver rests on — not a transaction boundary, which the identity-conflict
+	// writer deliberately does not share with its caller.
+	//
+	// The disposition endpoints accept only a winner_id already equal to one of the
+	// stored pair ids, both of which the read below has just gated.
+	//
+	// The detector applies NO row-scope predicate — no auth.ScopeClauseFor, no owner
+	// term — so it does pair a caller's record with one they cannot see. That is
+	// deliberate: a duplicate you cannot see is still a duplicate, and scoping the
+	// detector would blind it to exactly the pairs worth catching. What keeps such a
+	// pair from being DISCLOSED is the queue read, which requires BOTH sides to pass
+	// the caller's row scope (dedupeVisibilityClause, and EnsureVisible per side in
+	// GetDedupeCandidate). All six entries rest on that read, held by
+	// TestDedupeQueueHidesPairsOutsideTheCallersRowScope and, per entity type and
+	// per side, TestDedupeQueueHidesAPairTheCallerCanOnlyHalfSee.
+	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the writing path's own match query",
+	"dedupe_candidate.left_lead_id":             "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
+	"dedupe_candidate.right_lead_id":            "server-derived: stamped by recordDedupeCandidate from fuzzyLead's own match query",
+	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own connector-activity query (PO-DDL-12), never from a request body — it runs as the system principal, so what holds this is the absence of a caller, not a scope clause",
+	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own ListDueOrgs read produced (CAP-PARAM-7), never from a request body — a background pass with no caller to scope against",
 	// The signature pass's read cursor (PO-F-2a): both ids come from the
 	// pass's own SignatureCandidates query — the person it just read for and
 	// the activity whose body it just read — never from a request body.
-	"person_signature_enrich_state.person_id":   "server-derived: stamped by the enrich pass from its own row-scoped candidate query",
+	"person_signature_enrich_state.person_id":   "server-derived: stamped by the enrich pass from its own candidate query, as the system principal — no caller, so no scope clause to apply",
 	"person_signature_enrich_state.activity_id": "server-derived: stamped by the enrich pass from the activity that candidate query returned",
 	// The interaction participants (ACT-DDL-3): neither id is ever carried on
 	// a request body. Capture mints the activity in the same transaction and
-	// resolves the counterparty through the ensure chokepoint's own row-scoped
-	// lookup; a manual activity takes its person from a link the activities
+	// resolves the counterparty through the ensure chokepoint's own lookup — which
+	// carries no scope clause either, and does not need one: capture runs without a
+	// caller to scope against, and the read side is what gates disclosure. A manual
+	// activity takes its person from a link the activities
 	// store already put through auth.EnsureLinkTarget. Reads inherit the
 	// activity's own visibility (the link walk), so a participant row never
 	// discloses an activity its reader could not already open.

@@ -16,7 +16,11 @@ import {
   SectionHeader,
 } from "../design-system/atoms";
 import { DealCard } from "../design-system/composed";
-import { formatDate, formatDateTime, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoneyOrAbsent,
+} from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, QueryGate, throwProblem } from "./common";
@@ -306,9 +310,13 @@ function BriefItemCard({ item }: Readonly<{ item: MorningBriefItem }>) {
         >
           {deal?.name ?? t("home.openDeal")} <ArrowRight aria-hidden />
         </button>
-        {deal?.amount_minor != null && (
+        {/* Gated on the deal, not on its amount: a deal still on its way has
+            no figure to report yet, while a deal we HAVE and nobody priced is
+            a fact this line states as absent. Neither half is invented — a
+            euro sign over an unknown currency reads as a real EUR figure. */}
+        {deal && (
           <span className="brief-deal-amount">
-            {formatMoney(deal.amount_minor, deal.currency ?? "EUR", locale)}
+            {formatMoneyOrAbsent(deal.amount_minor, deal.currency, locale)}
           </span>
         )}
         <span className="brief-score t-mono">
@@ -523,8 +531,11 @@ export function HomeScreen() {
                   id: deal.id,
                   name: deal.name,
                   org: "",
-                  valueMinor: deal.amount_minor ?? 0,
-                  currency: deal.currency ?? "EUR",
+                  // Both halves as the wire sent them: a stalled deal nobody
+                  // priced has no figure, and the card draws that rather than
+                  // the zero and the currency it would have to invent.
+                  valueMinor: deal.amount_minor ?? null,
+                  currency: deal.currency ?? null,
                   ageMs: Math.max(
                     0,
                     Date.now() -

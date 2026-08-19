@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { screen, userEvent } from "storybook/test";
+import { screen, userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { ComposeModal, RelinkModal } from "./compose";
 import {
@@ -112,12 +112,28 @@ function composeStory(routes: RouteMap) {
   };
 }
 
+// The composer, asserted to be on screen — the first step of every composer
+// story below (RelinkModal's own story asserts its dialog the same way).
+//
+// This surface is a Modal, portalled to document.body, so `#storybook-root`
+// holds the preview decorator and nothing else however well the composer
+// renders. The render gate watches that root, which leaves it unable to tell a
+// story whose component mounted NOTHING from one that worked: an empty capture
+// passes under the story's name. A play that names what it expects is where the
+// difference becomes visible, because a rejecting play IS a failure the gate
+// reports — so a story here without one proves nothing.
+async function composerOnScreen() {
+  const dialog = within(await screen.findByRole("dialog"));
+  await dialog.findByLabelText("To");
+}
+
 // Fills the four Send preconditions (To, subject, body, purpose) then confirms
 // — the same sequence fillSendableForm drives in compose.test.tsx, so a story
 // reaches the send outcome (409 gate / 501 unavailable) it means to capture.
 // `screen` rather than the story canvas throughout: this composer IS a Modal,
 // portalled to document.body, so a canvas-scoped query searches an empty div.
 async function fillAndSend() {
+  await composerOnScreen();
   const canvas = screen;
   await userEvent.type(canvas.getByLabelText("To"), "buyer@acme.test");
   await userEvent.tab();
@@ -144,6 +160,9 @@ type Story = StoryObj;
 // until the four preconditions are met.
 export const Empty: Story = {
   render: composeStory({}),
+  play: async () => {
+    await composerOnScreen();
+  },
 };
 
 // "Draft with AI" fills To/Subject/Body from the returned EmailDraft and
@@ -155,9 +174,9 @@ export const Drafted: Story = {
     "POST /activities/act-1/draft-email": () => jsonResponse(DRAFT),
   }),
   play: async () => {
-    const canvas = screen;
+    await composerOnScreen();
     await userEvent.click(
-      canvas.getByRole("button", { name: "Draft with AI" }),
+      screen.getByRole("button", { name: "Draft with AI" }),
     );
   },
 };
@@ -266,7 +285,7 @@ export const Default: Story = {
     );
   },
   play: async () => {
-    const canvas = screen;
-    await userEvent.type(canvas.getByRole("searchbox"), "Acme");
+    const dialog = within(await screen.findByRole("dialog"));
+    await userEvent.type(dialog.getByRole("searchbox"), "Acme");
   },
 };

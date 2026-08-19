@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
@@ -43,7 +44,57 @@ function stub(body: unknown, status = 200) {
   );
 }
 
+// A cursor-paginated library: the first page hands back the cursor the second
+// one is only reachable with, so a test that renders the second page has
+// proven the walk, not just the button.
+function stubTwoPages() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      lastRequest = request;
+      const cursor = new URL(request.url).searchParams.get("cursor");
+      const body =
+        cursor === "cur-2"
+          ? {
+              data: [
+                attachment({
+                  id: "f-2",
+                  entity_id: "p-1",
+                  filename: "older.pdf",
+                }),
+              ],
+              page: { has_more: false, next_cursor: null },
+            }
+          : {
+              data: [
+                attachment({
+                  id: "f-1",
+                  entity_id: "p-1",
+                  filename: "newest.pdf",
+                }),
+              ],
+              page: { has_more: true, next_cursor: "cur-2" },
+            };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
+  );
+}
+
 let lastRequest: Request | undefined;
+
+// A response the test holds open: the stub awaits `arrival`, so the test owns
+// the moment a page comes back and can wait on the states either side of it
+// instead of on a duration.
+function heldPage(): Readonly<{ arrival: Promise<void>; deliver: () => void }> {
+  let deliver: () => void = () => undefined;
+  const arrival = new Promise<void>((resolve) => {
+    deliver = resolve;
+  });
+  return { arrival, deliver };
+}
 
 function show(ui: ReactNode) {
   const client = new QueryClient({
@@ -174,6 +225,95 @@ describe("the person's files tab", () => {
 
     expect(await screen.findByRole("link", { name: "one.pdf" })).toBeTruthy();
     expect(screen.getByText("Showing part of the list")).toBeTruthy();
+  });
+
+  it("reads the older files behind the first page when the reader asks for more", async () => {
+    stubTwoPages();
+    const user = userEvent.setup();
+    show(<PersonFilesTab personId="p-1" />);
+
+    await screen.findByRole("link", { name: "newest.pdf" });
+    expect(screen.getByText("Showing part of the list")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(await screen.findByRole("link", { name: "older.pdf" })).toBeTruthy();
+    // The second page lengthens the list rather than replacing it: a reader
+    // who has scrolled past the first twenty keeps them.
+    expect(screen.getByRole("link", { name: "newest.pdf" })).toBeTruthy();
+    if (!lastRequest) {
+      throw new Error("the tab asked for nothing at all");
+    }
+    expect(new URL(lastRequest.url).searchParams.get("cursor")).toBe("cur-2");
+  });
+
+  it("says nothing about a cut list once the last page has arrived", async () => {
+    stubTwoPages();
+    const user = userEvent.setup();
+    show(<PersonFilesTab personId="p-1" />);
+
+    await screen.findByRole("link", { name: "newest.pdf" });
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await screen.findByRole("link", { name: "older.pdf" });
+
+    // Silence is the difference between "all of them" and "the first twenty",
+    // so the truncation sentence and the button both go once the walk ends.
+    expect(screen.queryByText("Showing part of the list")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("keeps the files already read when a later page fails to load", async () => {
+    // The second page is held open and released by the test, because the DOM a
+    // failed later page leaves behind is the DOM that was already there: rows,
+    // the truncation sentence, and a pressable button. Asserting straight after
+    // the click would therefore pass on "nothing has happened yet". The button
+    // refusing a press is the walk being out; it becoming pressable again is
+    // the failure having landed, and only then is the tab worth asking.
+    const secondPage = heldPage();
+    let call = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        call += 1;
+        if (call === 1) {
+          return new Response(
+            JSON.stringify({
+              data: [
+                attachment({
+                  id: "f-1",
+                  entity_id: "p-1",
+                  filename: "newest.pdf",
+                }),
+              ],
+              page: { has_more: true, next_cursor: "cur-2" },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        await secondPage.arrival;
+        return new Response(JSON.stringify({ title: "Error" }), {
+          status: 500,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+    const user = userEvent.setup();
+    show(<PersonFilesTab personId="p-1" />);
+
+    await screen.findByRole("link", { name: "newest.pdf" });
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    const loadMore = () => screen.getByRole("button", { name: "Load more" });
+    await waitFor(() => expect(loadMore().hasAttribute("disabled")).toBe(true));
+    secondPage.deliver();
+    await waitFor(() =>
+      expect(loadMore().hasAttribute("disabled")).toBe(false),
+    );
+
+    // The failure belongs to one page, not to the library: the rows stay, and
+    // the button is still there to try the same page again.
+    expect(screen.getByRole("link", { name: "newest.pdf" })).toBeTruthy();
+    expect(screen.queryByText("This section did not load.")).toBeNull();
   });
 
   it("scopes the request to the person whose files these are", async () => {

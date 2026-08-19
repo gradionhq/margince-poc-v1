@@ -171,10 +171,10 @@ type archiveWire[Res any] struct {
 // archive stops serving the object at the source, so the mirror has no
 // archived state to keep; honoring that promise needs an archived-row
 // substrate and a settled answer to what archive MEANS when the system of
-// record is an incumbent. Both are upstream contract questions against
-// margince-foundation's overlay chapter; this shadow does not paper over the
-// gap by pretending the record is still there, and the integration test
-// asserts the 404 so the day that answer lands, it fails loudly.
+// record is an incumbent. Both are open contract questions. This shadow does
+// not paper over the gap by pretending the record is still there, and the
+// integration test asserts the 404 so the day that answer lands, it fails
+// loudly.
 //
 // The body can also be stale by the width of the pre-read-then-archive
 // window — an incumbent update landing in that gap is not reflected —

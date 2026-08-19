@@ -1,7 +1,7 @@
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
 import { type CSSProperties, useId, useState } from "react";
-import { api } from "../api/client";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
 import { Badge, Button, Card, EmptyState } from "../design-system/atoms";
@@ -142,7 +142,7 @@ export function AiCallsCard() {
   const query = useInfiniteQuery({
     enabled: canSee,
     queryKey: ["ai-calls", task],
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/ai/calls", {
         params: {

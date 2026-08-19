@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { FIRST_PAGE } from "../api/client";
 import { navigate, type Route, routeHash } from "../app/router";
 import { Button } from "../design-system/atoms";
 import {
@@ -136,7 +137,7 @@ export function useListQuery<Row>({
   const infinite = useInfiniteQuery({
     queryKey: [key, query],
     queryFn: ({ pageParam }) => fetchPage(query, pageParam),
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     getNextPageParam: (last) =>
       last.page.has_more && last.page.next_cursor
         ? last.page.next_cursor

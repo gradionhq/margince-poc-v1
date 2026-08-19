@@ -15,8 +15,7 @@
 // different places: the timeline module renders a floor draft with no model
 // available, the signals module renders a warm-intro draft, and the
 // composition layer runs the model drafters. A module may not import a
-// sibling, so shared is the only tier all three can reach
-// (specs/subsystems/drafting.md, "Where it lives").
+// sibling, so shared is the only tier all three can reach.
 //
 // The bands are pinned by DRAFT-AC-E-3 and DRAFT-AC-E-4: at BandNone a draft
 // may imply no earlier contact, and at BandWeeks or BandMonths it may not

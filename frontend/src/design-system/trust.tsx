@@ -57,13 +57,18 @@ export function formatSourceLines(lines: readonly number[]): string {
 // vocabulary's Evidence before handing it to EvidenceChip. Anything that
 // doesn't carry both fields is treated as "no evidence" rather than guessed.
 // Shared by every screen that renders an audit/history row's evidence
-// (settings' audit log, the record History timelines) so there is one
-// narrowing, not a copy per call site.
-export function toEvidence(
-  raw: { [key: string]: unknown } | null | undefined,
-): Evidence | null {
+// (settings' audit log, the record History timelines, the context panel) so
+// there is one narrowing, not a copy per call site.
+//
+// The parameter is `unknown` because this function IS the boundary: a caller
+// that has to assert its value into a shape before handing it over has done the
+// narrowing itself, unchecked, which is what this function exists to prevent.
+export function toEvidence(raw: unknown): Evidence | null {
   if (
-    raw &&
+    typeof raw === "object" &&
+    raw !== null &&
+    "snippet" in raw &&
+    "source" in raw &&
     typeof raw.snippet === "string" &&
     typeof raw.source === "string"
   ) {
@@ -88,12 +93,42 @@ export function AutonomyDot({ tier }: Readonly<{ tier: "auto" | "confirm" }>) {
 // otherwise run the row wide before the reader even asks to see it.
 const SOURCE_DISPLAY_MAX = 40;
 
-// The evidence-or-omit chip shortened to just its origin: strip the scheme
-// and a leading "www.", keep the bare host once the path is root, otherwise
-// show host+path so two snippets from the same site still read apart.
-// Anything that isn't a URL (a free-text source, e.g. "email 12 Jun") comes
-// back as-is, only truncated.
+// A record reference, which is what the contract documents an evidence source to
+// be ("Provenance ref, e.g. \"activity:018f…\""): a record KIND and the uuid of
+// one row. Matched on a whole uuid rather than on any hex, so a free-text source
+// that happens to carry a colon ("gmail:msg-18c2", "deal_coverage_risk:margin")
+// stays the words somebody wrote.
+const RECORD_REF =
+  /^([a-z][a-z_]{0,31}):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The kind half of a record reference, or null for a source that is not one.
+function recordKind(source: string): string | null {
+  return RECORD_REF.exec(source)?.[1] ?? null;
+}
+
+// What a reader sees where the source goes.
+//
+// A chip exists to make a claim checkable, and a uuid is checkable by nobody: a
+// record page proved a name with `lead:019fff1e-8439-…` and the panel read as
+// noise to the one person it was written for. The kind is the half of a
+// reference that means something on screen, so that is the half that shows —
+// never the row id, which stays on the title attribute for whoever has to trace
+// the row back. Every other source is somebody's words and is shown as written.
+function sourceLabel(source: string): string {
+  return recordKind(source) ?? source;
+}
+
+// The same chip shortened to just its origin: strip the scheme and a leading
+// "www.", keep the bare host once the path is root, otherwise show host+path so
+// two snippets from the same site still read apart. Anything that isn't a URL (a
+// free-text source, e.g. "email 12 Jun") comes back as-is, only truncated.
 function shortenSource(source: string): string {
+  const kind = recordKind(source);
+  if (kind !== null) {
+    // Before the URL branch, which would otherwise read a reference as a
+    // scheme plus a path and hand back the bare uuid as its "host".
+    return kind;
+  }
   let display: string;
   try {
     const url = new URL(source);
@@ -141,16 +176,21 @@ export function EvidenceChip({
     ) : null;
   const text = (
     <>
-      "{evidence.snippet}" · {evidence.source}
+      "{evidence.snippet}" · {sourceLabel(evidence.source)}
       {lineRef}
     </>
   );
+  // Undefined for a source that is already shown in full: a tooltip repeating
+  // the text under the cursor tells the reader nothing.
+  const fullRef =
+    recordKind(evidence.source) === null ? undefined : evidence.source;
   if (collapsed) {
     return (
       <span className="evidence-chip-collapsed">
         <button
           type="button"
           className="evidence-chip evidence-chip-toggle"
+          title={fullRef}
           aria-expanded={expanded}
           aria-label={t("trust.evidenceFrom", {
             source: shortenSource(evidence.source),
@@ -169,12 +209,21 @@ export function EvidenceChip({
   }
   if (onOpen) {
     return (
-      <button type="button" className="evidence-chip" onClick={onOpen}>
+      <button
+        type="button"
+        className="evidence-chip"
+        title={fullRef}
+        onClick={onOpen}
+      >
         {text}
       </button>
     );
   }
-  return <span className="evidence-chip">{text}</span>;
+  return (
+    <span className="evidence-chip" title={fullRef}>
+      {text}
+    </span>
+  );
 }
 
 // Low confidence is shown as low, never hidden (§4.2) — there is no prop to

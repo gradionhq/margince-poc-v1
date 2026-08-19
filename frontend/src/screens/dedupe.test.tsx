@@ -236,3 +236,59 @@ describe("the duplicate review queue", () => {
     ).toBeNull();
   });
 });
+
+// The signal is what a reviewer's decision turns on, so it has to be readable —
+// and readable by more than colour. Red text alone reaches nobody who cannot see
+// the difference, and it left the other two signals told apart by nothing at all.
+describe("the queue names each signal in words", () => {
+  it("distinguishes all three signals by their words, not only by colour", async () => {
+    backend([
+      pair({
+        evidence: [
+          {
+            field: "full_name",
+            left_value: "A",
+            right_value: "A",
+            signal: "agree",
+          },
+          {
+            field: "email",
+            left_value: "a@x.test",
+            right_value: "b@x.test",
+            signal: "collide",
+          },
+          {
+            field: "phone",
+            left_value: "+49",
+            right_value: null,
+            signal: "one_sided",
+          },
+        ],
+      }),
+    ]);
+    show();
+    expect(await screen.findByText("conflict")).toBeTruthy();
+    expect(screen.getByText("agree")).toBeTruthy();
+    expect(screen.getByText("one side only")).toBeTruthy();
+  });
+
+  // The wire types the field as a plain string, not a closed enum. A signal this
+  // release has no word for is still one the detector acted on, so it renders as
+  // itself rather than as a blank cell that reads as no signal.
+  it("renders a signal it has no word for as the wire's own value", async () => {
+    backend([
+      pair({
+        evidence: [
+          {
+            field: "vat_id",
+            left_value: "DE1",
+            right_value: "DE1",
+            signal: "normalised_match",
+          },
+        ],
+      }),
+    ]);
+    show();
+    expect(await screen.findByText("normalised_match")).toBeTruthy();
+  });
+});

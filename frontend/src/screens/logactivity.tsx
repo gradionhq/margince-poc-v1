@@ -12,6 +12,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
+import { dueInstant } from "../format/calendarday";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
@@ -103,8 +104,14 @@ export function LogActivityForm({
           subject: input.subject.trim(),
           body: outgoingBody || null,
           occurred_at: new Date().toISOString(),
+          // The picked day becomes the instant that day ENDS in the writer's
+          // own zone (format/calendarday). Handing the bare `yyyy-mm-dd` to
+          // `new Date` reads it as UTC midnight instead, which is neither the
+          // end of the day nor, west of UTC, the day the writer picked: the task
+          // arrived already overdue, and the tasks list — which buckets in the
+          // reader's zone — filed it under yesterday.
           ...(input.kind === "task" && input.dueAt
-            ? { due_at: new Date(input.dueAt).toISOString() }
+            ? { due_at: dueInstant(input.dueAt) }
             : {}),
           ...(isTranscript ? { source_system: "transcript" } : {}),
           links: [{ entity_type: entityType, entity_id: entityId }],

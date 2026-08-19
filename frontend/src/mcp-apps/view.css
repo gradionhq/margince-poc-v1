@@ -15,11 +15,11 @@
  * reached over the network would be an origin this view has declared it does not
  * have.
  *
- * THERE IS NO DARK ARM HERE, and that is deliberate. tokens.css answers
- * [data-theme="dark"], and bridge.ts guarantees the attribute is always set —
- * the host's statement when it makes one, the platform preference when it does
- * not. A media arm here would be a second, partial copy of the dark palette,
- * which is the thing this file exists to stop. */
+ * THERE IS NO DARK ARM HERE, and that is deliberate. tokens.css answers both
+ * ways round on its own — [data-theme="dark"] for a host that states one, and
+ * prefers-color-scheme for a document nobody stamped, which is what an unstated
+ * host leaves this view as. A media arm here would be a second, partial copy of
+ * the dark palette, which is the thing this file exists to stop. */
 
 @import "../design-system/tokens.css";
 

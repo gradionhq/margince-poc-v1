@@ -980,7 +980,7 @@ the generic descriptor card, which is what makes that fallback a tested path rat
 
 | PR | Contents |
 |---|---|
-| **0** | The ADR, on `margince-foundation`. Nothing merges ahead of it. |
+| **0** | The ADR. Nothing merges ahead of it. |
 | **1a** | `Runtime` type + contract; the `Handle`-identifier and no-`init()` gates; secrets (`extension_secret` core migration, port, `SecretsRequest`); tier-vocabulary alignment; the `x_`→`ext_` rename; the runtime-role boot assertion. |
 | **1b** | Migrations slice: `ext` schema, namespace mapping + join-collision rule, role and grant topology, the apply-as-`ext_<name>` catalog gate, `cmd/migrate` required **and** `make migrate` given `GOWORK_COMPOSED`. |
 | **1c** | Contract + frontend: overlay merge, `gen-aitasks` merge-safety, two-phase `make gen`, the RBAC vocabulary seam (plus `/me` snapshot and AST-pin tests), contract-derived manifest + widened digests, `Tool` narrowing with literals re-emitted, endpoint router seam, vanilla `schema.d.ts` + composed types + tsconfig alias, Go stage in CI and `Dockerfile.web`. The largest PR. |
@@ -1003,7 +1003,7 @@ reachable until the jobs slice.
 
 ## 8. The ADR
 
-**The number problem is real and unresolved.** Verified against `margince-foundation`'s `origin/main`:
+**The number problem is real and unresolved.** Verified against the decision index:
 **ADR-0069** is taken (`ADR-0069-configured-embed-width-and-deployment-reindex.md`), and so are
 **A115** (embed width), **A116** (outbound webhook payloads) and **A117** (overlay→native cutover) — all
 unrelated, all ratified. The extensions ADR still sits at 0069 on the unpushed

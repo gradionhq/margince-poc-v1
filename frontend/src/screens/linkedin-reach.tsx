@@ -20,14 +20,22 @@ import "./linkedin-reach.css";
 
 type LinkedInReach = components["schemas"]["LinkedInReachResponse"];
 
-const REACH_KEY = ["linkedin-reach"] as const;
+// The largest page the contract's `limit` admits, asked for explicitly. This
+// view has no cursor — the endpoint declares no cursor parameter and the
+// response carries none — so ONE page is the whole of what a reader can reach,
+// which makes where the list stops this screen's stated choice rather than the
+// server's unnamed default of 50. The footnote reads `accounts_total`, computed
+// over everything, so what sits past the edge is still counted out loud.
+const REACH_PAGE_LIMIT = 200;
+
+const REACH_KEY = ["linkedin-reach", REACH_PAGE_LIMIT] as const;
 
 function useLinkedInReach() {
   return useQuery({
     queryKey: REACH_KEY,
     queryFn: async (): Promise<LinkedInReach> => {
       const { data, error } = await api.GET("/me/linkedin-reach", {
-        params: { query: {} },
+        params: { query: { limit: REACH_PAGE_LIMIT } },
       });
       if (error) {
         throwProblem(error);

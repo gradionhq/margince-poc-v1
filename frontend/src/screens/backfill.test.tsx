@@ -173,6 +173,23 @@ describe("the connect-time backfill payoff", () => {
     expect(requestsTo(calls, "/backfill", "POST").length).toBe(0);
   });
 
+  // The estimate is what the reader consents to SPEND, so the unit printed on
+  // it has to be the unit the server priced in. The contract pins v1 estimates
+  // to USD minor units and leaves `currency` optional, which is why the
+  // onboarding step of this same read falls back to USD — one field labelled
+  // two ways by two screens means one of them is telling the reader the wrong
+  // price.
+  it("prices an unlabelled estimate in the contract's own unit, never in euro", async () => {
+    stubApi({
+      statuses: [statusNone],
+      preview: { ...previewOf(400), estimated_cost_minor: 250 },
+    });
+    render(<BackfillPanel provider="gmail" />);
+
+    expect(await screen.findByText(/~US\$2\.50/)).toBeTruthy();
+    expect(screen.queryByText(/EUR/)).toBeNull();
+  });
+
   it("starts the import only on the explicit consent click", async () => {
     const calls = stubApi({
       statuses: [statusNone],

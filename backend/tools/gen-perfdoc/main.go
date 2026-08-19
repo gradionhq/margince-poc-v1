@@ -27,10 +27,8 @@ import (
 	"path/filepath"
 )
 
-// publishedBudget is one row of the table this product publishes in
-// specs/quality/acceptance-standards.md (and, for the two below it, the
-// capture and mobile chapters). Every one gets a row whether or not anything
-// measures it.
+// publishedBudget is one row of the performance-budget table this product
+// publishes. Every budget gets a row whether or not anything measures it.
 type publishedBudget struct {
 	id        string
 	operation string

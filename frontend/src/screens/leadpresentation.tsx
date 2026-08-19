@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { navigate } from "../app/router";
 import { Badge, Button } from "../design-system/atoms";
 import {
@@ -188,7 +188,12 @@ export function LeadBoard({
       status: "new" | "working";
     }) => {
       const { data, error } = await api.PATCH("/leads/{id}", {
-        params: { path: { id: moved.id }, ...ifMatch(moved.version) },
+        // Refused rather than sent unpinned: a row the server did not version is
+        // one this client can make no concurrency claim about.
+        params: {
+          path: { id: moved.id },
+          ...ifMatch(requireVersion(moved.version)),
+        },
         body: { status: moved.status },
       });
       if (error) throwProblem(error, t);

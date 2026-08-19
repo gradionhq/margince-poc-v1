@@ -5,18 +5,17 @@ body:
   - type: markdown
     attributes:
       value: |
-        **Margince is built contract-first.** The specification is the source of
-        truth and the code is built from it: when the two disagree, the
-        specification wins. That shapes what happens to this issue.
+        **What the product does today is defined by this repository** — the
+        code, the tests, and `backend/api/crm.yaml`. Describe the capability you
+        need and why; a maintainer decides whether it is a gap to build, a
+        proposal that needs a product ruling first, or something already
+        possible another way.
 
-        - If the specification already asks for this and the code does not do it
-          yet, that is a **capability gap** — a normal unit of work here.
-        - If the specification is silent, this is a **proposal**, and the
-          specification changes first. Landing the spec change is part of the
-          work, not somebody else's prerequisite.
-        - If the specification says the opposite, that is a **discrepancy** to
-          be reconciled upstream — not something to be worked around in this
-          code.
+        Reversible product behaviour — a field, a filter, a view, a workflow —
+        is normal work and needs no ceremony. A change to security, privacy,
+        agent authority, auditability, public contract compatibility or
+        licensing is a **guardrail** change: still workable, but it carries a
+        decision record and usually a test alongside it.
 
   - type: textarea
     id: need
@@ -34,29 +33,28 @@ body:
       required: true
 
   - type: dropdown
-    id: spec-status
+    id: kind
     attributes:
-      label: What the specification says
+      label: What kind of change is this
       description: >-
-        The specification repository is private, so this is a self-report. Answer
-        honestly, including "I have no access" — that is expected from outside
-        contributors and simply means a maintainer resolves it.
+        Your best read. A maintainer confirms it — getting this wrong costs
+        nothing.
       options:
-        - The spec asks for this already (capability gap)
-        - The spec is silent (proposal — spec change needed first)
-        - The spec appears to say the opposite (discrepancy)
-        - I have no access to the specification
+        - Ordinary product behaviour (a field, filter, view, or workflow)
+        - Touches a guardrail (security, privacy, agent authority, audit, contract compatibility, licensing)
+        - A public API, MCP tool, or event contract change
+        - Not sure
     validations:
       required: true
 
   - type: input
-    id: spec-ref
+    id: decision-ref
     attributes:
-      label: Specification reference
+      label: Related decision record, if you know of one
       description: >-
-        Chapter, ADR number, appendix, or pin ID — the identifier only. Never
-        paste specification paths or contents into this public repository.
-      placeholder: "ADR-0055, or subsystems/deals-and-pipeline.md AC-7"
+        A decision number from docs/adr/, if one bears on this. Leave blank if
+        none — a maintainer will find it.
+      placeholder: "ADR-0055"
 
   - type: textarea
     id: today
@@ -94,6 +92,6 @@ body:
       options:
         - label: >-
             No secrets, no customer or personal data, no local filesystem paths,
-            and no private specification paths or contents — the specification
-            is cited by chapter, ADR, or pin ID.
+            and nothing quoted from a private document. Cite a decision by its
+            number.
           required: true

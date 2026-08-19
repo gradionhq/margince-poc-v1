@@ -3,7 +3,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import type { MessageKey } from "../i18n/en";
-import { type Route, routeHash } from "./router";
+import { isScreen, type Route, routeHash } from "./router";
 
 // The sidebar is a STACK of navigation levels, not one rail with a special case
 // bolted on for Settings. Level one is the rail's own destinations; a screen
@@ -69,7 +69,11 @@ export type NavTrailLevel = {
 export function navLevelRoute(path: readonly string[], id: string): Route {
   const segments = [...path, id];
   return {
-    screen: segments[0],
+    // A level's path is strings by the time a row is a link, so its first
+    // segment is checked here exactly as a typed hash's is: a level rooted at no
+    // screen this app answers addresses the not-found page rather than minting a
+    // link to nowhere.
+    screen: isScreen(segments[0]) ? segments[0] : "not-found",
     id: segments[1],
     id2: segments[2],
     id3: segments[3],

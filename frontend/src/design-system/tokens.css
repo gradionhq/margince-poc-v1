@@ -323,6 +323,88 @@
   --dangerBg: rgba(248, 113, 113, 0.16);
 }
 
+/*
+ * The same dark palette, for a document whose host stated NOTHING.
+ *
+ * The attribute arm above is the whole answer only where something stamps the
+ * attribute. The SPA does (app/theme.ts resolves the theme before React
+ * mounts, precisely so no surface renders un-themed), but the SPA is not the
+ * only document that reads these tokens: an MCP App view is drawn inside a
+ * third-party host whose theme statement is OPTIONAL (SEP-1865), and an
+ * unstamped document with no arm here renders permanently light inside a dark
+ * host however carefully the dark values were authored. So the canon owns the
+ * three states rather than each surface re-deciding them in script: a stated
+ * theme wins, the platform preference answers when nobody stated one, and the
+ * light default holds when the platform has no preference either.
+ *
+ * `:not([data-theme="light"])` is what keeps an EXPLICIT light choice winning
+ * over a dark platform — without it every reader who chose light in the app
+ * would be overruled by their operating system. The explicit dark arm is
+ * likewise still needed above, so the toggle wins in both directions: a dark
+ * choice on a light platform has no media query to match.
+ *
+ * The values are a copy, and a copy is a liability, so it is pinned rather
+ * than trusted: tokens.test.ts fails when this arm and the attribute arm stop
+ * declaring exactly the same tokens with exactly the same values. The prose
+ * explaining each value lives with the attribute arm, once.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bgPage: #0e1b16;
+    --bgElevated: #142420;
+    --bgCard: #1a2c26;
+    --bgHover: #1f332c;
+
+    --accent: #16a34a;
+
+    --accentLight: rgba(22, 163, 74, 0.14);
+    --accentMed: rgba(22, 163, 74, 0.26);
+
+    --textOnAccentControl: #04240f;
+
+    --textOnStatusControl: #04240f;
+
+    --mono0Fill: rgba(22, 163, 74, 0.22);
+    --mono0Text: #4ade80;
+    --mono1Fill: rgba(34, 211, 238, 0.18);
+    --mono1Text: #67e8f9;
+    --mono2Fill: rgba(192, 132, 252, 0.18);
+    --mono2Text: #d8b4fe;
+    --mono3Fill: rgba(251, 146, 60, 0.18);
+    --mono3Text: #fdba74;
+    --mono4Fill: rgba(96, 165, 250, 0.18);
+    --mono4Text: #93c5fd;
+    --mono5Fill: rgba(251, 113, 133, 0.18);
+    --mono5Text: #fda4af;
+
+    --textPrimary: #e8eeeb;
+    --textContent: #c3cec8;
+    --textSecondary: #8fa099;
+    --textTertiary: #66776f;
+    --textMuted: #43524b;
+
+    --borderSubtle: #22352e;
+    --borderStrong: #31463d;
+
+    --borderControl: #5f7a6e;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 16px rgba(0, 0, 0, 0.36);
+    --shadow-pop: 0 8px 30px rgba(0, 0, 0, 0.55);
+
+    --tealLight: rgba(14, 116, 144, 0.28);
+
+    --tealText: #5cb6cf;
+
+    --aiText: #9ba0f0;
+    --textMeta: #8fa099;
+
+    --success: #4ade80;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --dangerBg: rgba(248, 113, 113, 0.16);
+  }
+}
+
 /* A finger is not a pointer, and a 40px control under one is a control you
  * miss. The height floor rises wherever the primary input is coarse — a phone,
  * a tablet, a touchscreen laptop — which is where SC 2.5.5's 44×44 was actually

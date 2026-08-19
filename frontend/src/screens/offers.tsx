@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -158,7 +158,10 @@ function EditOfferHeaderModal({
   const mutation = useMutation({
     mutationFn: async (input: HeaderEditValues) => {
       const { data, error } = await api.PATCH("/offers/{id}", {
-        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+        params: {
+          path: { id: offer.id },
+          ...ifMatch(requireVersion(offer.version)),
+        },
         body: {
           currency: input.currency,
           buyer_org_id: input.buyer_org_id,
@@ -847,7 +850,10 @@ function SendOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const mutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/offers/{id}/send", {
-        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+        params: {
+          path: { id: offer.id },
+          ...ifMatch(requireVersion(offer.version)),
+        },
       });
       if (error) {
         throwProblem(error);
@@ -908,7 +914,10 @@ function AcceptOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const mutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/offers/{id}/accept", {
-        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+        params: {
+          path: { id: offer.id },
+          ...ifMatch(requireVersion(offer.version)),
+        },
       });
       if (error) {
         throwProblem(error);
@@ -974,7 +983,10 @@ function RejectOfferAction({ offer }: Readonly<{ offer: Offer }>) {
   const mutation = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/offers/{id}/reject", {
-        params: { path: { id: offer.id }, ...ifMatch(offer.version) },
+        params: {
+          path: { id: offer.id },
+          ...ifMatch(requireVersion(offer.version)),
+        },
         body: { reason: reason || null },
       });
       if (error) {

@@ -27,6 +27,38 @@ export function formatMoney(
   return formatter.format(amountMinor / 10 ** digits);
 }
 
+// What the product shows for a money figure it does not have. Not a zero and
+// not a guessed currency: "€0 open" and "we do not know" are different claims,
+// and a euro sign on a figure that might be dong is worse than no figure.
+export const MONEY_ABSENT = "—";
+
+/**
+ * A money reading, or nothing. BOTH halves are required.
+ *
+ * Money on the wire is an integer minor amount PLUS its ISO currency
+ * (data-semantics §1), and either half can be absent: the amount is null when
+ * the server could not compute one, the currency is null on a deal nobody has
+ * priced. Neither absence has a safe default. A missing currency rendered as
+ * EUR puts a euro sign on a figure that might be dollars, and the reader
+ * cannot tell it apart from a real euro amount; a missing amount rendered as 0
+ * states a figure the server never sent.
+ *
+ * This is the one spelling of that rule. It was written independently in six
+ * screens before it lived here, and the sites that did NOT write it defaulted
+ * to EUR instead — including one that reached Intl with an empty currency code
+ * and threw mid-render.
+ */
+export function formatMoneyOrAbsent(
+  amountMinor: number | null | undefined,
+  currency: string | null | undefined,
+  locale: Locale,
+): string {
+  if (amountMinor == null || !currency) {
+    return MONEY_ABSENT;
+  }
+  return formatMoney(amountMinor, currency, locale);
+}
+
 /**
  * A money figure for a KPI SLOT: €428k rather than €428,000.00.
  *

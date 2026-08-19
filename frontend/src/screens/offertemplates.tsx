@@ -224,7 +224,11 @@ export function OfferTemplatesAdmin() {
             <CreateAction
               label={t("template.new")}
               invalidate="offer-templates"
-              screen="offer-templates"
+              // `stay` because a fresh template has no page of its own to
+              // open: the list the row joins is already on screen, and this
+              // panel is one of the settings surfaces the screen names.
+              screen="settings"
+              stay
               create={createTemplate}
               fields={TEMPLATE_FIELDS}
             />

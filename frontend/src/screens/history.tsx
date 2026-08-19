@@ -4,7 +4,7 @@ import {
   useInfiniteQuery,
 } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import type { EntityKind } from "../app/entity";
 import {
@@ -60,7 +60,7 @@ export function useRecordHistory(
   return useInfiniteQuery({
     queryKey: ["record-history", kind, id],
     enabled,
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET(
         "/records/{entity_type}/{id}/history",
@@ -201,7 +201,7 @@ export function useFieldHistory(
   return useInfiniteQuery({
     queryKey: ["field-history", kind, id, field ?? "", actorType ?? ""],
     enabled: enabled ?? true,
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/field-history", {
         params: {

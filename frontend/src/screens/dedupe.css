@@ -36,6 +36,15 @@
    colliding one is the reason to look before merging. The tone rides on the
    row's data attribute rather than a class the TSX assembles, so the sheet
    carries exactly the signals the contract names. */
+/* The signal reads as a label on the row rather than as one more value: the two
+   values either side of it are the record's own words, and this one is ours. */
+.dedupe-signal {
+  color: var(--textMeta);
+  font-size: var(--fs-meta);
+  white-space: nowrap;
+}
+/* Colour REINFORCES the signal word beside it; it never carries the signal on
+   its own. */
 .dedupe-evidence tr[data-signal="collide"] td {
   color: var(--danger);
 }

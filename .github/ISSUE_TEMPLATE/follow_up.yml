@@ -56,7 +56,7 @@ body:
         - Correctness gap (wrong behaviour reachable today)
         - Missing test or gate (behaviour may be right, nothing proves it)
         - Cleanup or simplification (behaviour is right, shape is not)
-        - Missing capability (spec asks for it, code does not do it yet)
+        - Missing capability (the product should do this and does not)
     validations:
       required: true
 
@@ -70,6 +70,6 @@ body:
       options:
         - label: >-
             No secrets, no customer or personal data, no local filesystem paths,
-            and no private specification paths or contents — the specification
-            is cited by chapter, ADR, or pin ID.
+            and nothing quoted from a private document. Cite a decision by its
+            number.
           required: true

@@ -151,7 +151,8 @@ export const en = {
   "search.group.deal": "Deals",
   "search.group.activity": "Activities",
   "search.group.lead": "Leads",
-  "search.tier.mirrored": "from HubSpot",
+  "search.tier.mirrored": "from a connected system",
+  "search.tier.unverified": "unverified",
 
   "context.title": "Related evidence",
   "context.empty": "Nothing related yet.",
@@ -184,10 +185,12 @@ export const en = {
   "brief.nothingSent": "Nothing sent yet",
   "board.count": "{count} deals",
   "board.weighted": "weighted {value}",
+  "board.mixedCurrencies": "several currencies — no single total",
   "deal.stalled": "stalled",
   "deal.singleThreaded": "single-threaded",
   "deal.staged": "staged",
   "deal.archived": "archived",
+  "record.notShown": "Not shown",
   "record.timeline": "Timeline",
   "record.edit": "Edit",
   "record.save": "Save",
@@ -664,6 +667,8 @@ export const en = {
   "co.chip.linkedin": "LinkedIn",
   "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 mo",
+  "co.strip.notAssessed": "Not assessed",
+  "co.strip.lifetimeOf": "{amount} lifetime",
   "co.strip.overdue": "Overdue",
   // The collapsed slot's label, shown once in place of the strip's money
   // readings when the connection cannot answer any of them. Generic on
@@ -1503,6 +1508,7 @@ export const en = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Omitted",
   "deal.fcSlipped": "Slipped",
+  "deal.fcUncategorised": "No category yet",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Stalled only",
@@ -1522,6 +1528,8 @@ export const en = {
 
   "deal.offers": "Offers",
   "deal.newOffer": "New offer",
+  "deal.offerNeedsCurrency":
+    "Price this deal first — an offer is written in the deal's own currency.",
   "deal.offerNumber": "Offer #",
   "deal.offerRevision": "Rev.",
   "deal.offersEmpty": "No offers yet",
@@ -2054,6 +2062,7 @@ export const en = {
   "tasks.clearReminder": "Clear reminder",
 
   "reports.sub": "deals by stage — unweighted next to weighted",
+  "reports.currency": "Currency",
   "reports.count": "Deals",
   "reports.unweighted": "Unweighted",
   "reports.weighted": "Weighted",
@@ -2206,6 +2215,11 @@ export const en = {
   "import.validating": "Checking…",
   "import.previewTitle": "What this import will do",
   "import.outcomeTitle": "What this import did",
+  // Shown when the card read this run back on mount instead of the reader
+  // having just caused it: an outcome with no press behind it reads as an
+  // import that ran by itself.
+  "import.resumedRun":
+    "Picked up from earlier: this import ran on {when}. Everything below is still open to you.",
   "import.count.created": "Create",
   "import.count.updated": "Update",
   "import.count.unchanged": "Unchanged",
@@ -2788,6 +2802,10 @@ export const en = {
   "dedupe.empty": "No duplicates waiting — the queue is clear.",
   "dedupe.confidence": "Match confidence:",
   "dedupe.field": "Field",
+  "dedupe.signal": "Signal",
+  "dedupe.signalAgree": "agree",
+  "dedupe.signalCollide": "conflict",
+  "dedupe.signalOneSided": "one side only",
   "dedupe.left": "Keep left",
   "dedupe.right": "Keep right",
   "dedupe.kindPerson": "Person",
@@ -5076,7 +5094,6 @@ export const en = {
   "person.strip.openDeal": "Open deal",
   "person.strip.nextMeeting": "Next meeting",
   "person.strip.consent": "Consent",
-  "person.strip.notShown": "Not shown",
   "person.strip.never": "Never",
   "person.strip.today": "Today",
   "person.strip.yesterday": "Yesterday",
@@ -5232,8 +5249,13 @@ export const en = {
   "person.research.title": "Deep research · {name}",
   "person.research.publicOnly": "Public sources only",
   "person.research.running": "Reading public sources…",
+  // Deep research and bought contact data are two capabilities, and this
+  // sentence sits directly under the bought data on the same drawer. It names
+  // the RESEARCH provider for that reason: "data provider" is the licensed
+  // contact-data vocabulary (provider.profile.*), and using it here told a
+  // reader nothing was connected while eight purchased claims sat above it.
   "person.research.notConnected":
-    "No data provider yet connected. Margince never researches a person on its own authority — a licensed provider carries the lawful basis this needs.",
+    "No research provider is connected, so no public source has been read for them. That is separate from any bought contact data above — Margince never researches a person on its own authority, and deep research needs a licensed provider that carries the lawful basis for it.",
   "person.research.staged":
     "Research is staged. Nothing changes {name}'s record until you review and save.",
   "person.research.stats": "{sources} sources read · {claims} cited claims",

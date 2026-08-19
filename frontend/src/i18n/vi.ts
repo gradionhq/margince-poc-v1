@@ -149,7 +149,8 @@ export const vi = {
   "search.group.deal": "Deal",
   "search.group.activity": "Hoạt động",
   "search.group.lead": "Lead",
-  "search.tier.mirrored": "từ HubSpot",
+  "search.tier.mirrored": "từ hệ thống đã kết nối",
+  "search.tier.unverified": "chưa xác minh",
 
   "context.title": "Bằng chứng liên quan",
   "context.empty": "Chưa có gì liên quan.",
@@ -182,10 +183,12 @@ export const vi = {
   "brief.nothingSent": "Chưa gửi gì",
   "board.count": "{count} deal",
   "board.weighted": "trọng số {value}",
+  "board.mixedCurrencies": "nhiều loại tiền tệ — không có tổng chung",
   "deal.stalled": "đình trệ",
   "deal.singleThreaded": "chỉ một đầu mối",
   "deal.staged": "chờ duyệt",
   "deal.archived": "đã lưu trữ",
+  "record.notShown": "Không hiển thị",
   "record.timeline": "Timeline",
   "record.edit": "Sửa",
   "record.save": "Lưu",
@@ -645,6 +648,8 @@ export const vi = {
   "co.chip.linkedin": "LinkedIn",
   "co.strip.netInvoicedLifetime": "Đã xuất hóa đơn ròng · trọn đời",
   "co.strip.netInvoiced": "Đã xuất hóa đơn ròng · 12 tháng",
+  "co.strip.notAssessed": "Chưa đánh giá",
+  "co.strip.lifetimeOf": "{amount} tổng cộng",
   "co.strip.overdue": "Quá hạn",
   "co.strip.finance": "Tài chính",
   "co.strip.financeUnknown": "—",
@@ -1495,6 +1500,7 @@ export const vi = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Loại trừ",
   "deal.fcSlipped": "Trượt tiến độ",
+  "deal.fcUncategorised": "Chưa phân loại",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Chỉ deal đình trệ",
@@ -1514,6 +1520,8 @@ export const vi = {
 
   "deal.offers": "Báo giá",
   "deal.newOffer": "Báo giá mới",
+  "deal.offerNeedsCurrency":
+    "Hãy định giá thương vụ này trước — báo giá được lập theo tiền tệ của thương vụ.",
   "deal.offerNumber": "Số báo giá",
   "deal.offerRevision": "Bản",
   "deal.offersEmpty": "Chưa có báo giá",
@@ -2049,6 +2057,7 @@ export const vi = {
   "tasks.clearReminder": "Xoá lời nhắc",
 
   "reports.sub": "deal theo giai đoạn — chưa trọng số cạnh có trọng số",
+  "reports.currency": "Tiền tệ",
   "reports.count": "Deal",
   "reports.unweighted": "Chưa trọng số",
   "reports.weighted": "Có trọng số",
@@ -2198,6 +2207,8 @@ export const vi = {
   "import.validating": "Đang kiểm tra…",
   "import.previewTitle": "Lần nhập này sẽ làm gì",
   "import.outcomeTitle": "Lần nhập này đã làm gì",
+  "import.resumedRun":
+    "Tiếp tục từ trước: lần nhập này đã chạy vào {when}. Mọi thao tác bên dưới vẫn còn dùng được.",
   "import.count.created": "Tạo mới",
   "import.count.updated": "Cập nhật",
   "import.count.unchanged": "Không đổi",
@@ -2786,6 +2797,10 @@ export const vi = {
   "dedupe.empty": "Không có trùng lặp nào đang chờ — hàng đợi đã sạch.",
   "dedupe.confidence": "Độ tin cậy khi khớp:",
   "dedupe.field": "Trường",
+  "dedupe.signal": "Tín hiệu",
+  "dedupe.signalAgree": "trùng khớp",
+  "dedupe.signalCollide": "xung đột",
+  "dedupe.signalOneSided": "chỉ một bên",
   "dedupe.left": "Giữ bên trái",
   "dedupe.right": "Giữ bên phải",
   "dedupe.kindPerson": "Người",
@@ -5050,7 +5065,6 @@ export const vi = {
   "person.strip.openDeal": "Deal đang mở",
   "person.strip.nextMeeting": "Cuộc họp kế tiếp",
   "person.strip.consent": "Đồng ý",
-  "person.strip.notShown": "Không hiển thị",
   "person.strip.never": "Chưa bao giờ",
   "person.strip.today": "Hôm nay",
   "person.strip.yesterday": "Hôm qua",
@@ -5206,8 +5220,11 @@ export const vi = {
   "person.research.title": "Nghiên cứu sâu · {name}",
   "person.research.publicOnly": "Chỉ nguồn công khai",
   "person.research.running": "Đang đọc các nguồn công khai…",
+  // "nhà cung cấp dịch vụ nghiên cứu", không phải "nhà cung cấp dữ liệu": cách
+  // nói thứ hai dành cho dữ liệu liên hệ đã mua (provider.profile.*), vốn hiển
+  // thị ngay phía trên câu này.
   "person.research.notConnected":
-    "Chưa kết nối nhà cung cấp dữ liệu. Margince không bao giờ tự ý nghiên cứu về một cá nhân — việc này cần một nhà cung cấp được cấp phép.",
+    "Chưa kết nối nhà cung cấp dịch vụ nghiên cứu, nên chưa có nguồn công khai nào được đọc về người này. Điều đó không liên quan đến dữ liệu liên hệ đã mua ở trên — Margince không bao giờ tự ý nghiên cứu về một cá nhân, và nghiên cứu sâu cần một nhà cung cấp được cấp phép, có cơ sở pháp lý riêng.",
   "person.research.staged":
     "Kết quả đang ở trạng thái chờ. Hồ sơ của {name} không thay đổi cho đến khi bạn xem lại và lưu.",
   "person.research.stats":

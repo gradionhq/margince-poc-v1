@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type UserConfig } from "vite";
-import { inlineViews } from "./scripts/vite-inline-views";
+import { inlineViews } from "./scripts/vite-inline-views.ts";
 
 // The MCP App views' own build. vite.config.ts is UNTOUCHED, and deliberately:
 // it has no `build` section at all today, so every pin below — the browser
@@ -75,9 +75,11 @@ export function mcpAppView(name: string, outDir: string): UserConfig {
 }
 
 // Selected by `--mode <view>` so vite loads and transpiles this file itself.
-// The build driver is plain .mjs and cannot import the factory above directly:
-// Node's type stripping would not resolve this file's own extensionless import
-// of the plugin.
+// The build driver (scripts/build-mcp-apps.mjs) names this file by path rather
+// than importing the factory above, and no constraint requires that: every
+// specifier here carries its real extension, so Node's type stripping resolves
+// this file and a TypeScript driver could import `mcpAppView` directly. Which
+// language the driver should be is an open question — #1699.
 export default defineConfig(({ mode }) =>
   mcpAppView(mode, `dist/.mcp-apps-staging/${mode}`),
 );
