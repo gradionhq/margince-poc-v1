@@ -41,7 +41,14 @@ const (
 	// for the trio and must reserve most of its corpus for what the company
 	// sells and whom it serves.
 	profileImpressumExcerptRunes = 2_500
-	profileMaxImpressumPages     = 1
+	// Three, not one. A large site's first legal page by corpus rank is
+	// routinely a privacy policy or terms of use, which name no address at
+	// all — so a one-page bound spent the entire legal budget on a page that
+	// could not ground the trio, and the profile returned nothing for 36 of
+	// the demo dataset's companies. Three pages reaches the actual Impressum
+	// on a multi-locale site while still leaving most of the corpus to what
+	// the company sells.
+	profileMaxImpressumPages = 3
 )
 
 // profileSystem is the profile call's prompt.

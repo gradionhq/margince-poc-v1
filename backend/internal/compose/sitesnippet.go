@@ -240,6 +240,22 @@ func (x snippetIndex) nameInCited(id, name string) (string, bool) {
 			return ref.passage + " " + x.refs[adjacent].passage, true
 		}
 	}
+	// Last resort: the value as a contiguous run of CONTENT tokens.
+	//
+	// This is the address case. An Impressum prints the street, the postcode
+	// and city, and the country as separate elements; a faithful reading
+	// joins them, and no contiguous run of page TEXT ever equals that join,
+	// because the join crossed markup. Comparing content tokens drops the
+	// punctuation and whitespace that markup inserted and compares the words
+	// themselves.
+	//
+	// Contiguous, not merely in-order: the same rule the legal census
+	// applies, and for the same reason it documents — a passage printing
+	// "24114 Kiel" and "HRB 123456" must never vouch for an invented
+	// "HRB 24114". Allowing gaps would confirm a fabricated identifier.
+	if printedInOrder(contentTokens(ref.norm), contentTokens(nameNorm)) {
+		return ref.passage, true
+	}
 	return "", false
 }
 

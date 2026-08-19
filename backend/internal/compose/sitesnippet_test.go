@@ -130,6 +130,72 @@ func TestNameInCitedForgivesTheHeadingBoundaryNeverThePage(t *testing.T) {
 	}
 }
 
+// TestNameInCitedAcceptsAnAddressSplitByMarkup pins the case that cost the
+// demo dataset 94 company addresses.
+//
+// An Impressum prints the street, the postcode and city, and the country as
+// separate elements. A faithful reading joins them into one value, and no
+// contiguous run of the page ever equals that join — so the substring gate
+// refused real addresses that were demonstrably on the page.
+func TestNameInCitedAcceptsAnAddressSplitByMarkup(t *testing.T) {
+	idx := newSnippetIndex([]crawlPage{{
+		URL: seedURL + "/impressum",
+		Text: "Impressum\nadesso SE\nAdessoplatz 1\n44269 Dortmund\nDeutschland\n" +
+			strings.Repeat("Weitere Angaben nach Paragraf 5 TMG folgen an dieser Stelle. ", 4),
+	}})
+	for _, value := range []string{
+		"Adessoplatz 1 44269 Dortmund",
+		"Adessoplatz 1 44269 Dortmund Deutschland",
+		"adesso SE",
+	} {
+		if _, ok := idx.nameInCited("s0", value); !ok {
+			t.Errorf("the page carries %q across separate lines, and the gate refused it", value)
+		}
+	}
+}
+
+// TestNameInCitedStillRefusesWhatIsNotOnThePage is the other half of the
+// relaxation above: forgiving markup must not forgive invention. Every case
+// here has to keep failing, or the no-guess property is gone.
+func TestNameInCitedStillRefusesWhatIsNotOnThePage(t *testing.T) {
+	idx := newSnippetIndex([]crawlPage{{
+		URL: seedURL + "/impressum",
+		Text: "Impressum\nadesso SE\nAdessoplatz 1\n44269 Dortmund\nDeutschland\n" +
+			strings.Repeat("Weitere Angaben nach Paragraf 5 TMG folgen an dieser Stelle. ", 4),
+	}})
+	for name, value := range map[string]string{
+		"an invented street":     "Hauptstrasse 7 44269 Dortmund",
+		"an invented city":       "Adessoplatz 1 44269 Bielefeld",
+		"a wholly absent value":  "Rue de la Paix 4 75002 Paris",
+		"the words out of order": "Dortmund 44269 Adessoplatz 1",
+		"a fragment of a word":   "essoplat 1",
+		"a single absent token":  "Bielefeld",
+	} {
+		if _, ok := idx.nameInCited("s0", value); ok {
+			t.Errorf("%s was evidenced: %q", name, value)
+		}
+	}
+}
+
+// TestNameInCitedRefusesTokensAssembledAcrossAGap is the hole the legal
+// census documents and this fallback must not open: a passage printing
+// "24114 Kiel" and "HRB 123456" separately must never vouch for the
+// invented "HRB 24114". Contiguity of content tokens is what forbids it.
+func TestNameInCitedRefusesTokensAssembledAcrossAGap(t *testing.T) {
+	idx := newSnippetIndex([]crawlPage{{
+		URL: seedURL + "/impressum",
+		Text: "Sitz der Gesellschaft: 24114 Kiel\nRegistergericht Kiel HRB 123456\n" +
+			strings.Repeat("Weitere Pflichtangaben folgen hier. ", 5),
+	}})
+	if _, ok := idx.nameInCited("s0", "HRB 24114"); ok {
+		t.Error("an identifier assembled from tokens printed apart was evidenced")
+	}
+	// The real, contiguous one still passes.
+	if _, ok := idx.nameInCited("s0", "HRB 123456"); !ok {
+		t.Error("the printed registration number was refused")
+	}
+}
+
 func TestContentWordOverlapIsAWarningSignalNotAGate(t *testing.T) {
 	passage := normalizeEvidence("Wir liefern Automatisierung für die Industrie seit 1998.")
 	if !contentWordOverlap("Industrial Automatisierung provider", passage) {
