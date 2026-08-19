@@ -5108,4 +5108,25 @@ export const vi = {
   "filters.op.atLeast": "\u00edt nh\u1ea5t l\u00e0",
   "filters.op.lessThan": "nh\u1ecf h\u01a1n",
   "filters.op.atMost": "nhi\u1ec1u nh\u1ea5t l\u00e0",
+
+  // Giao di\u1ec7n B\u1ed9 l\u1ecdc & Ch\u1ee7 \u0111\u1ec1.
+  "filters.title": "B\u1ed9 l\u1ecdc & ch\u1ee7 \u0111\u1ec1",
+  "filters.subtitle":
+    "T\u1ea1o b\u1ed9 l\u1ecdc, xem n\u00f3 ch\u1ecdn nh\u1eefng g\u00ec, r\u1ed3i l\u01b0u th\u00e0nh ch\u1ee7 \u0111\u1ec1.",
+  "filters.objectLabel": "L\u1ecdc lo\u1ea1i b\u1ea3n ghi n\u00e0o",
+  "filters.tab.contacts": "Li\u00ean h\u1ec7",
+  "filters.tab.companies": "C\u00f4ng ty",
+  "filters.tab.deals": "Th\u01b0\u01a1ng v\u1ee5",
+  "filters.builderTitle": "B\u1ed9 l\u1ecdc",
+  "filters.dynamic":
+    "\u0110\u1ed9ng \u2014 t\u00ednh l\u1ea1i sau m\u1ecdi s\u1ef1 ki\u1ec7n",
+  "filters.matchContacts": "{count} li\u00ean h\u1ec7 kh\u1edbp",
+  "filters.matchCompanies": "{count} c\u00f4ng ty kh\u1edbp",
+  "filters.matchDeals": "{count} th\u01b0\u01a1ng v\u1ee5 kh\u1edbp",
+  "filters.noFilterYet":
+    "Th\u00eam \u0111i\u1ec1u ki\u1ec7n \u0111\u1ec3 xem k\u1ebft qu\u1ea3",
+  "filters.loadingVocabulary":
+    "\u0110ang t\u1ea3i c\u00e1c tr\u01b0\u1eddng c\u00f3 th\u1ec3 l\u1ecdc\u2026",
+  "filters.noFields":
+    "Lo\u1ea1i b\u1ea3n ghi n\u00e0y kh\u00f4ng c\u00f3 tr\u01b0\u1eddng n\u00e0o l\u1ecdc \u0111\u01b0\u1ee3c.",
 } as const satisfies Record<MessageKey, string>;

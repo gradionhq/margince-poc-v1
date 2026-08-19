@@ -5152,4 +5152,21 @@ export const de = {
   "filters.op.atLeast": "ist mindestens",
   "filters.op.lessThan": "ist kleiner als",
   "filters.op.atMost": "ist h\u00f6chstens",
+
+  // Die Oberfl\u00e4che \u201eFilter & Ansichten\u201c.
+  "filters.title": "Filter & Ansichten",
+  "filters.subtitle":
+    "Filter erstellen, Treffer beobachten und als Ansicht speichern.",
+  "filters.objectLabel": "Welche Datens\u00e4tze gefiltert werden",
+  "filters.tab.contacts": "Kontakte",
+  "filters.tab.companies": "Firmen",
+  "filters.tab.deals": "Gesch\u00e4fte",
+  "filters.builderTitle": "Filter",
+  "filters.dynamic": "Dynamisch \u2014 bei jedem Ereignis neu berechnet",
+  "filters.matchContacts": "{count} Kontakte treffen zu",
+  "filters.matchCompanies": "{count} Firmen treffen zu",
+  "filters.matchDeals": "{count} Gesch\u00e4fte treffen zu",
+  "filters.noFilterYet": "Bedingung hinzuf\u00fcgen, um die Treffer zu sehen",
+  "filters.loadingVocabulary": "Filterbare Felder werden geladen\u2026",
+  "filters.noFields": "Keine filterbaren Felder f\u00fcr diesen Datensatztyp.",
 } as const satisfies Record<MessageKey, string>;
