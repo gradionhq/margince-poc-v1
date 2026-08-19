@@ -71,7 +71,7 @@ func TestParseAddressOnTheShapesTheDatasetHolds(t *testing.T) {
 			// One company's page really does carry a word joiner here, and it
 			// sits exactly where the postcode match has to begin.
 			name:    "an invisible word joiner before the postcode",
-			printed: "Viktoriastraße 3b ⁠ 86150 Augsburg",
+			printed: "Viktoriastraße 3b \u2060 86150 Augsburg",
 			want:    address{Line1: "Viktoriastraße 3b", PostalCode: "86150", City: "Augsburg"},
 		},
 	} {
@@ -198,12 +198,12 @@ func TestParseAddressTakesTheLastPostcodeNotTheFirst(t *testing.T) {
 // Persian and the Indic scripts they control joining and are part of the
 // spelling. Dropping them would corrupt an address rather than clean it.
 func TestCleanPrintedAddressKeepsJoinersThatAreSpelling(t *testing.T) {
-	withZWNJ := "خیابان‌ولیعصر 12"
-	if got := cleanPrintedAddress(withZWNJ); !strings.Contains(got, "‌") {
+	withZWNJ := "خیابان\u200cولیعصر 12"
+	if got := cleanPrintedAddress(withZWNJ); !strings.Contains(got, "\u200c") {
 		t.Errorf("a zero-width non-joiner was stripped from %q -> %q", withZWNJ, got)
 	}
 	// The word joiner one real page prints IS removed.
-	if got := cleanPrintedAddress("Viktoriastraße 3b⁠ 86150"); strings.Contains(got, "⁠") {
+	if got := cleanPrintedAddress("Viktoriastraße 3b\u2060 86150"); strings.Contains(got, "\u2060") {
 		t.Errorf("the word joiner survived: %q", got)
 	}
 }
