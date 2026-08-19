@@ -59,7 +59,7 @@ export function AccessPreviewPanel({
 function AccessSummary({ access }: Readonly<{ access: AccessPreview }>) {
   const t = useT();
   const verbs = (object: string): string => {
-    const grant = access.objects[object];
+    const grant = access.objects?.[object];
     if (!grant || !grant.read) {
       return t("users.access.none");
     }
@@ -68,7 +68,7 @@ function AccessSummary({ access }: Readonly<{ access: AccessPreview }>) {
     if (grant.delete) parts.push(t("users.access.delete"));
     return parts.join(" · ");
   };
-  const teams = access.teams.map((team) => team.name).join(", ");
+  const teams = (access.teams ?? []).map((team) => team.name).join(", ");
   return (
     <ul className="t-small users-access-list">
       <li>{t("users.access.identity")}</li>
@@ -87,7 +87,7 @@ function AccessSummary({ access }: Readonly<{ access: AccessPreview }>) {
           {verbs(object)}
         </li>
       ))}
-      {access.field_masks.map((mask) => (
+      {(access.field_masks ?? []).map((mask) => (
         <li key={`${mask.object}.${mask.field}`}>
           {t("users.access.mask", {
             field: `${mask.object}.${mask.field}`,

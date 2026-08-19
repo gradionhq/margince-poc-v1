@@ -122,6 +122,20 @@ function backend(
         admin_password_link: true,
       });
     }
+    if (req.url.includes("/teams") && req.method === "GET") {
+      return jsonResponse({ data: [], page: { has_more: false } });
+    }
+    // The access preview is the server's own sentence about the role; this
+    // suite is about the invite and the roster, so it answers a neutral rep.
+    if (req.url.includes("/users/access-preview")) {
+      return jsonResponse({
+        role: "rep",
+        row_scope: "team",
+        objects: {},
+        field_masks: [],
+        teams: [],
+      });
+    }
     if (req.url.includes("/users") && req.method === "GET") {
       return jsonResponse(ROSTER);
     }
@@ -310,6 +324,7 @@ describe("UsersAdminCard", () => {
         email: "new@acme.test",
         display_name: "New Person",
         role: "rep",
+        team_ids: [],
       });
     });
   });
@@ -353,6 +368,18 @@ describe("UsersAdminCard", () => {
           return jsonResponse({
             user: { email: "admin@acme.test" },
             roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/teams") && req.method === "GET") {
+          return jsonResponse({ data: [], page: { has_more: false } });
+        }
+        if (req.url.includes("/users/access-preview")) {
+          return jsonResponse({
+            role: "rep",
+            row_scope: "team",
+            objects: {},
+            field_masks: [],
             teams: [],
           });
         }
@@ -447,6 +474,18 @@ describe("UsersAdminCard", () => {
             teams: [],
           });
         }
+        if (req.url.includes("/teams") && req.method === "GET") {
+          return jsonResponse({ data: [], page: { has_more: false } });
+        }
+        if (req.url.includes("/users/access-preview")) {
+          return jsonResponse({
+            role: "rep",
+            row_scope: "team",
+            objects: {},
+            field_masks: [],
+            teams: [],
+          });
+        }
         return jsonResponse(twoRoles);
       }),
     );
@@ -517,6 +556,18 @@ describe("UsersAdminCard", () => {
             teams: [],
           });
         }
+        if (req.url.includes("/teams") && req.method === "GET") {
+          return jsonResponse({ data: [], page: { has_more: false } });
+        }
+        if (req.url.includes("/users/access-preview")) {
+          return jsonResponse({
+            role: "rep",
+            row_scope: "team",
+            objects: {},
+            field_masks: [],
+            teams: [],
+          });
+        }
         if (req.url.includes("/users") && req.method === "GET") {
           return jsonResponse(ROSTER);
         }
@@ -555,6 +606,18 @@ describe("UsersAdminCard", () => {
           return jsonResponse({
             user: { email: "admin@acme.test" },
             roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/teams") && req.method === "GET") {
+          return jsonResponse({ data: [], page: { has_more: false } });
+        }
+        if (req.url.includes("/users/access-preview")) {
+          return jsonResponse({
+            role: "rep",
+            row_scope: "team",
+            objects: {},
+            field_masks: [],
             teams: [],
           });
         }
@@ -599,6 +662,18 @@ describe("UsersAdminCard", () => {
           return jsonResponse({
             user: { email: "admin@acme.test" },
             roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/teams") && req.method === "GET") {
+          return jsonResponse({ data: [], page: { has_more: false } });
+        }
+        if (req.url.includes("/users/access-preview")) {
+          return jsonResponse({
+            role: "rep",
+            row_scope: "team",
+            objects: {},
+            field_masks: [],
             teams: [],
           });
         }
@@ -651,6 +726,18 @@ describe("UsersAdminCard", () => {
           return jsonResponse({
             user: { email: "admin@acme.test" },
             roles: ["admin"],
+            teams: [],
+          });
+        }
+        if (req.url.includes("/teams") && req.method === "GET") {
+          return jsonResponse({ data: [], page: { has_more: false } });
+        }
+        if (req.url.includes("/users/access-preview")) {
+          return jsonResponse({
+            role: "rep",
+            row_scope: "team",
+            objects: {},
+            field_masks: [],
             teams: [],
           });
         }
