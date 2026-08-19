@@ -14,6 +14,7 @@ package people
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -241,6 +242,33 @@ type UpdateRelationshipInput struct {
 	IfVersion        *int64
 }
 
+// lockPersonForEmployment serializes every writer of one person's employment
+// flags, which is what the demote-then-grant pair below needs to be one unit.
+// Without it two patches on DIFFERENT employments of the same person each read
+// "no primary elsewhere" and each grant the flag, and the second commit answers
+// 409 on uq_rel_current_primary_employer — the same race the create path already
+// closed, reached through the other verb.
+//
+// Silent for anything that is not an employment: a deal stakeholder or a partner
+// edge shares none of this state, and taking a person lock for one would
+// serialize writes that never contend.
+func lockPersonForEmployment(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var personID *ids.PersonID
+	err := tx.QueryRow(ctx,
+		`SELECT person_id FROM relationship WHERE id = $1 AND kind = 'employment'`, id).Scan(&personID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Not an employment, or gone. Either way the row lock below is what
+		// reports it, and it reports it the same way it always has.
+		return nil
+	case err != nil:
+		return fmt.Errorf("people: reading the employment's person for the write lock: %w", err)
+	case personID == nil:
+		return nil
+	}
+	return storekit.LockWriteIdentity(ctx, tx, "employment", personID.String())
+}
+
 func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRelationshipInput) (relationshipRow, error) {
 	if err := auth.Require(ctx, "relationship", principal.ActionUpdate); err != nil {
 		return relationshipRow{}, err
@@ -249,6 +277,21 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// The row lock makes the state read and the update below one
 		// race-free unit.
+		// The per-person lock comes FIRST, before the row lock, and that order is
+		// the whole reason it is taken from an unlocked peek rather than from the
+		// row this patch is about. Create takes the advisory lock and then touches
+		// rows; if this path took the row lock first and the advisory second, a
+		// create holding the advisory and waiting on a row would deadlock against
+		// an update holding that row and waiting on the advisory.
+		//
+		// An unlocked read is enough to supply the KEY because a patch cannot move
+		// an edge's endpoints — person_id is immutable here, so the value cannot
+		// change under the lock it selects. Anything else about the row is read
+		// again below, under the row lock, which is what makes that read
+		// authoritative.
+		if err := lockPersonForEmployment(ctx, tx, id); err != nil {
+			return err
+		}
 		if _, err := storekit.LockRow(ctx, tx, "relationship", id, storekit.LiveOnly); err != nil {
 			return err
 		}

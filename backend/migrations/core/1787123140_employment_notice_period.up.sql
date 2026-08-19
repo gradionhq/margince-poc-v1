@@ -27,19 +27,26 @@ LOCK TABLE relationship IN SHARE ROW EXCLUSIVE MODE;
 -- period. A row with no end date was never touched, and one already past is
 -- correctly unflagged.
 --
--- WHAT THIS CANNOT DISTINGUISH, stated rather than glossed: a row the old
--- predicate cleared and a row somebody deliberately created non-primary look
--- identical afterwards — nothing recorded which happened. So a notice-period
--- employment that was chosen to be non-primary, is somebody's only one, and was
--- created in the window between 1787111736's deploy and this one, is promoted
--- here against its author's intent. That window is hours wide and the outcome is
--- one PATCH away; leaving every genuinely damaged row unrepaired to avoid it
--- would be the worse trade. The alternative — reading `version` to guess which
--- rows the migration touched — would be a guess dressed as a fact.
+-- ROW-LEVEL PROVENANCE, because "restore what was cleared" and "flag every sole
+-- notice-period employment" are different sets and only the first is this
+-- migration's business. 1787111736 ran as ONE transaction, so every row its
+-- UPDATE touched carries the same `updated_at` — the trigger stamps it — and
+-- that timestamp is at or before the moment the ledger recorded the version.
+-- A row somebody created afterwards with `is_current_primary = false` on
+-- purpose has a LATER `updated_at`, so bounding on the ledger excludes it
+-- rather than reversing a decision its author can see themselves having made.
+--
+-- coalesce to the epoch when the ledger has no row for that version: on a fresh
+-- database this migration runs in the same deploy as 1787111736 and there is
+-- nothing to repair, so an empty bound must select nothing rather than
+-- everything.
 UPDATE relationship r SET is_current_primary = true
  WHERE r.kind = 'employment' AND r.archived_at IS NULL
    AND NOT r.is_current_primary
    AND r.ended_at > current_date
+   AND r.updated_at <= coalesce(
+         (SELECT applied_at FROM schema_migrations_core WHERE version = '1787111736'),
+         '-infinity'::timestamptz)
    AND NOT EXISTS (
      SELECT 1 FROM relationship o
       WHERE o.kind = 'employment' AND o.person_id = r.person_id

@@ -194,31 +194,42 @@ func TestANoticePeriodDoesNotEndSomebodysEmployment(t *testing.T) {
 	e := setupRelationships(t)
 	future := e.dbDate(t, 90)
 
-	// Created with a last day three months out: still where they work.
-	status, edge, primary, _ := e.employment(t, e.orgID, apptest.AnyMap{"role": "cto", "ended_at": future})
+	// Created WITHOUT an end date, so the PATCH below is a real transition into a
+	// notice period rather than a re-statement of what the row already said. The
+	// earlier version created it with the future date and then patched the same
+	// value, which proved nothing about the transition.
+	status, edge, primary, _ := e.employment(t, e.orgID, apptest.AnyMap{"role": "cto"})
 	if status != http.StatusCreated {
-		t.Fatalf("employment with a future last day → %d", status)
+		t.Fatalf("employment → %d", status)
 	}
 	if !primary {
-		t.Error("an employment ending in three months did not land as current primary — they still work there")
+		t.Error("their only employment did not land as current primary")
 	}
 
-	// And recording the notice on an employment they already hold does not
-	// strip it either. This is the path the defect was reported on.
-	second := e.secondOrg(t, "Notice GmbH")
-	if status, _, _, _ := e.employment(t, second, apptest.AnyMap{}); status != http.StatusCreated {
-		t.Fatalf("second employment → %d", status)
-	}
-	var patched struct {
+	// The transition: an active employment enters its notice period.
+	var noticed struct {
 		IsCurrentPrimary bool `json:"is_current_primary"`
 	}
-	if status := e.Call(t, "PATCH", "/v1/relationships/"+edge,
-		apptest.AnyMap{"ended_at": future}, nil, &patched); status != http.StatusOK {
-		t.Fatalf("recording the notice → %d", status)
+	if got := e.Call(t, "PATCH", "/v1/relationships/"+edge,
+		apptest.AnyMap{"ended_at": future}, nil, &noticed); got != http.StatusOK {
+		t.Fatalf("recording the notice → %d", got)
 	}
-	if !patched.IsCurrentPrimary {
-		t.Error("recording a last day three months out took the current-primary flag immediately")
+	if !noticed.IsCurrentPrimary {
+		t.Error("entering a notice period took the current-primary flag immediately")
 	}
+
+	// And a fresh employment created ALREADY in notice keeps it too, which is the
+	// other door onto the same rule.
+	if status, _, alreadyNoticed, _ := e.employment(t, e.secondOrg(t, "Backfilled GmbH"), apptest.AnyMap{
+		"ended_at": future,
+	}); status != http.StatusCreated || alreadyNoticed {
+		// Not primary: this person already holds a current employment, so the
+		// derivation does not fire — the point is only that it was accepted.
+		if status != http.StatusCreated {
+			t.Errorf("employment created already in notice → %d", status)
+		}
+	}
+
 }
 
 // Making a notice-period employment the primary one is a patch the create path

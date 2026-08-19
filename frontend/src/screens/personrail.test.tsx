@@ -535,11 +535,21 @@ describe("adding a company", () => {
 
   // `.checked` directly rather than a jest-dom matcher: this suite does not
   // install them, and the assertion is about the box's own state.
+  //
+  // NARROWED, not asserted. `as HTMLInputElement` would be the unchecked cast T6
+  // forbids, and here it would also lie usefully: a control that stopped being an
+  // <input> would read `undefined`, which is falsy, so every "not ticked"
+  // assertion below would keep passing over a checkbox that no longer exists.
   function currentEmployerTicked(): boolean {
     const box = screen.getByRole("checkbox", {
       name: "This is their current employer",
     });
-    return (box as HTMLInputElement).checked;
+    if (!(box instanceof HTMLInputElement)) {
+      throw new Error(
+        `the current-employer control is a ${box.tagName}, not an input`,
+      );
+    }
+    return box.checked;
   }
 
   // Narrowed, not asserted: the recorded body is `unknown` because it came off

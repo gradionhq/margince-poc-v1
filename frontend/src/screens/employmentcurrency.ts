@@ -15,6 +15,12 @@ type Employment = components["schemas"]["Person360Employment"];
 // today is the reader's OWN day, and it is also what the rail SENDS as `ended_at`
 // when somebody ends an employment — one spelling, so the date written and the
 // date compared against cannot be a day apart.
+//
+// Built from the local components rather than by `toLocaleDateString("en-CA")`.
+// That happens to yield ISO on the engines we ship against and is not promised
+// to: the value is compared LEXICOGRAPHICALLY here and sent as a `date` to the
+// server, so a locale that formatted it any other way would silently answer a
+// different question and write a malformed field.
 // `toISOString` would be UTC, which is a different day from the reader's for
 // part of every day and a different day again from the database's.
 //
@@ -22,7 +28,9 @@ type Employment = components["schemas"]["Person360Employment"];
 // from the deployment; nothing here can close that, and the flag is only ever
 // used for DISPLAY on this side — the server decides what it stores.
 export function today(): string {
-  return new Date().toLocaleDateString("en-CA");
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 // stillHeld: the job has not ended yet. A last day that has ARRIVED is a

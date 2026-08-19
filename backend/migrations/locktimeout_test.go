@@ -175,7 +175,7 @@ func checkLockTimeouts(t *testing.T, namespace string, dir fs.FS) {
 // it. The ORDER matters as much as the presence: a timeout set after the lock
 // bounds nothing.
 func unboundedLock(sql string) string {
-	statements := withoutComments(sql)
+	statements := executableSQL(sql)
 	// POSITION matters, not merely presence. `DROP TABLE foo; CREATE TABLE foo …`
 	// mentions a CREATE for `foo` while its first statement takes ACCESS
 	// EXCLUSIVE on the live `foo` — the exact hazard this gate exists for. So a
@@ -203,6 +203,32 @@ func unboundedLock(sql string) string {
 	}
 }
 
+// commaSiblings picks up the tables AFTER the first in a comma-separated list.
+// Only `LOCK TABLE`, `DROP TABLE` and `TRUNCATE` take one; ALTER and CREATE INDEX
+// name a single relation and then a column list, which must not be read as more
+// tables.
+var commaSiblings = regexp.MustCompile(`(?i),\s*(?:ONLY\s+)?([\w".]+)`)
+
+// takesRelationList reports whether this statement form can name more than one
+// table, so the siblings are only parsed where they mean what they look like.
+var takesRelationList = regexp.MustCompile(`(?is)^\s*(LOCK|DROP\s+TABLE|TRUNCATE)\b`)
+
+// relationsIn lists every table one blocking statement names, lower-cased and
+// unquoted: the one its pattern captured, plus any comma-separated siblings.
+// Reading only the capture let `LOCK TABLE scratch, relationship;` pass in a file
+// that creates `scratch` — the first table was its own, the second was live, and
+// the second is the one that matters.
+func relationsIn(statement, captured string) []string {
+	out := []string{strings.ToLower(strings.Trim(captured, `"`))}
+	if !takesRelationList.MatchString(statement) {
+		return out
+	}
+	for _, m := range commaSiblings.FindAllStringSubmatch(statement, -1) {
+		out = append(out, strings.ToLower(strings.Trim(m[1], `"`)))
+	}
+	return out
+}
+
 // firstBlockingIndex returns where the earliest reportable blocking statement
 // starts, or -1. A statement aimed at a table this same file creates is skipped:
 // nothing else can be holding a lock on a table that did not exist a moment ago.
@@ -218,10 +244,15 @@ func firstBlockingIndex(statements string, own map[string]int) int {
 	}
 	for _, pattern := range blockingStatements {
 		for _, loc := range pattern.FindAllStringSubmatchIndex(statements, -1) {
-			table := strings.ToLower(strings.Trim(statements[loc[2]:loc[3]], `"`))
-			createdAt, isOwn := own[table]
-			if !isOwn || loc[0] < createdAt {
-				note(loc[0])
+			// EVERY relation the statement names, not just the captured one. A file
+			// that creates `scratch` skipped `LOCK TABLE scratch, relationship;` on
+			// the strength of its first table while the second was a live one.
+			for _, table := range relationsIn(statements[loc[0]:loc[1]], statements[loc[2]:loc[3]]) {
+				createdAt, isOwn := own[table]
+				if !isOwn || loc[0] < createdAt {
+					note(loc[0])
+					break
+				}
 			}
 		}
 	}
@@ -242,14 +273,20 @@ func version(path string) string {
 	return name
 }
 
-// withoutComments drops `--` line comments so prose about locking is not read as
-// locking — the migrations here carry long explanatory headers and every one of
-// them would otherwise be a false positive.
+// executableSQL is what the checks above run against: `--` comments removed, and
+// the CONTENTS of every quoted string blanked while its quotes stay put.
 //
-// Quoted strings are respected. A `--` inside one is data, not a comment, and
-// truncating there would hide every statement after it on the line: the shape
-// `PERFORM '--'; LOCK TABLE …` would read as a file that takes no lock at all.
-func withoutComments(sql string) string {
+// Both halves are load-bearing, in opposite directions. Comments must go or every
+// migration's explanatory header — this tree's are long and all mention locking —
+// reads as a lock. String contents must go or a literal counts as code: a
+// `SELECT` of the text "SET LOCAL lock_timeout" satisfied the timeout check for a
+// file that never set one, and a `SELECT` of the text "LOCK TABLE x" reported a
+// lock that was only ever a string.
+//
+// And a `--` INSIDE a string is data, not a comment. Truncating there would hide
+// every statement after it on the line, so `PERFORM '--'; LOCK TABLE …` would
+// read as a file taking no lock at all.
+func executableSQL(sql string) string {
 	var out strings.Builder
 	out.Grow(len(sql))
 	inString := false
@@ -258,6 +295,14 @@ func withoutComments(sql string) string {
 		case sql[i] == '\'':
 			inString = !inString
 			out.WriteByte(sql[i])
+		case inString:
+			// Blanked, not dropped: the length and the line structure stay put so
+			// the POSITIONS the order check compares remain the file's own.
+			if sql[i] == '\n' {
+				out.WriteByte('\n')
+			} else {
+				out.WriteByte(' ')
+			}
 		case !inString && sql[i] == '-' && i+1 < len(sql) && sql[i+1] == '-':
 			// Skip to the end of the line, keeping the newline so statement
 			// boundaries and line structure survive.
@@ -316,6 +361,13 @@ func TestTheLockGateReportsWhatItClaimsTo(t *testing.T) {
 		{"a bare lock with no mode", "LOCK TABLE relationship;", true},
 		{"ONLY", "LOCK TABLE ONLY relationship IN SHARE ROW EXCLUSIVE MODE;", true},
 		{"a table list", "LOCK TABLE relationship, person;", true},
+		// The two bypasses a reviewer found by reading the matcher rather than the
+		// tree, both of which passed every case above.
+		{"a timeout that is only a string literal", "SELECT 'SET LOCAL lock_timeout = x';\nALTER TABLE relationship ADD COLUMN note text;", true},
+		{"a lock that is only a string literal", "SELECT 'LOCK TABLE relationship';", false},
+		{"a live table hiding behind a created one in a lock list", "CREATE TABLE scratch (id uuid);\nLOCK TABLE scratch, relationship;", true},
+		{"a list of only tables this file creates", "CREATE TABLE a (id uuid);\nCREATE TABLE b (id uuid);\nLOCK TABLE a, b;", false},
+		{"a column list is not a relation list", "CREATE TABLE thing (id uuid, other uuid);\nCREATE INDEX i ON thing (id, other);", false},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
 			reason := unboundedLock(probe.sql)
