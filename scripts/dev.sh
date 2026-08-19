@@ -387,9 +387,9 @@ up)
   # .env.local exports those vars, and the api/worker started below inherit them —
   # no key ever lands in a config file. Seed .env.local from the tracked template
   # on first run so a fresh clone has a documented place for these keys.
-  if [[ ! -f .env.local && -f .env.template ]]; then
-    cp .env.template .env.local
-    echo "dev: seeded .env.local from .env.template — edit it to set keys (GEMINI_API_KEY, MARGINCE_GMAIL_*, …)"
+  if [[ ! -f .env.local && -f .env.example ]]; then
+    cp .env.example .env.local
+    echo "dev: seeded .env.local from .env.example — edit it to set keys (GEMINI_API_KEY, MARGINCE_GMAIL_*, …)"
   fi
   ai_flag=(--ai-fake)
   if [[ -f .env.local ]]; then

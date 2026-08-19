@@ -50,7 +50,7 @@ func (e *Env) String(fs *flag.FlagSet, target *string, name, env, literal, usage
 // Apply fills every registered flag the caller did not pass from its environment
 // variable. Call it immediately after fs.Parse.
 //
-// An empty environment value is treated as unset, matching .env.template's
+// An empty environment value is treated as unset, matching .env.example's
 // promise that "an empty value is treated as unset, so a blank line is safe" —
 // otherwise a blank line in a sourced env file would erase a literal default.
 func (e *Env) Apply(fs *flag.FlagSet, getenv func(string) string) {
