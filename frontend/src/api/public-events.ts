@@ -561,7 +561,7 @@ export interface components {
              */
             entity_id: string;
         };
-        /** @description activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map. */
+        /** @description activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target and SetActivityAudience's audience — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map. */
         PublicEventActivityChangedFields: {
             /** @description The activity's new subject (absent when this update did not touch it). */
             subject?: string;
@@ -590,6 +590,11 @@ export interface components {
             /** @description The activity's new completion state (absent when this update did not touch it). */
             is_done?: boolean;
             relinked?: components["schemas"]["PublicEventActivityRelinkedRef"];
+            /**
+             * @description The activity's new audience (absent when this update did not touch it). Who is named is not carried: a subscriber that must know re-reads the row under its own audience, exactly as a human does.
+             * @enum {string}
+             */
+            audience?: "workspace" | "participants" | "selected";
         };
         /** @description Payload for activity.updated — a BOUNDED delta (unlike the person/organization/deal/lead family's genuinely open patch): UpdateActivity and RelinkActivity together cover a fixed, KNOWN set of inner keys, so changed_fields is a typed struct here, not an open map. */
         PublicEventActivityUpdated: {
@@ -1144,6 +1149,7 @@ type ReadonlyArray<T> = [
     unknown[]
 ] ? Readonly<Exclude<T, undefined>> : Readonly<Exclude<T, undefined>[]>;
 export const subscribableEventTypeValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["SubscribableEventType"]> = ["deal.created", "deal.owner_changed", "deal.stage_changed", "deal.archived", "deal.updated", "deal.restored", "project.created", "project.updated", "project.phase_changed", "project.archived", "contract.created", "contract.updated", "contract.status_changed", "contract.archived", "offer.created", "offer.sent", "offer.accepted", "offer.rejected", "offer.superseded", "pipeline.created", "pipeline.updated", "pipeline.archived", "stage.created", "stage.updated", "stage.archived", "person.created", "person.archived", "person.merged", "person.updated", "person.restored", "conversation_claim.captured", "conversation_claim.changed", "organization.created", "organization.archived", "organization.merged", "organization.updated", "lead.created", "lead.disqualified", "lead.promoted", "lead.demoted", "lead.merged", "lead.sla_breached", "lead.updated", "activity.captured", "activity.archived", "activity.updated", "engagement.reply", "consent.changed", "email_signature.changed", "linkedin_account.changed", "linkedin_network.imported", "linkedin_match.decided", "retention.applied", "retention.restricted", "signal.detected", "signal.resolved", "voice.profile_created", "voice.profile_updated", "voice.profile_archived", "voice.corpus_changed", "voice.build_changed", "voice.version_changed", "voice.draft_outcome_recorded", "user.invited", "user.password_link_issued", "user.deactivated", "user.reactivated", "role.changed", "passport.revoked", "onboarding.state_changed", "mirror.conflict", "mirror.budget_degraded", "mirror.deleted", "mirror.write_rejected", "incumbent.connected", "incumbent.disconnected", "approval.requested", "approval.decided", "coldstart.read_back_proposed", "coldstart.accepted", "coldstart.rejected", "audit.appended"];
+export const publicEventActivityChangedFieldsAudienceValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventActivityChangedFields"]["audience"]> = ["workspace", "participants", "selected"];
 export const publicEventRetentionRestrictedActionValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventRetentionRestricted"]["action"]> = ["restrict", "release", "pin"];
 export const publicEventApprovalDecidedVerdictValues: ReadonlyArray<FlattenedDeepRequired<components>["schemas"]["PublicEventApprovalDecided"]["verdict"]> = ["approved", "rejected", "expired"];
 export type operations = Record<string, never>;

@@ -324,6 +324,9 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
+	if err := limitLinkLessAudience(ctx, tx, id, rec, decision); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	// The trace runs LAST, so it can carry the reason the ladder just settled on:
 	// a message from a sender a previous verdict judged noise commits exactly
 	// like any other and is then archived by the hide sweep, and a trace saying

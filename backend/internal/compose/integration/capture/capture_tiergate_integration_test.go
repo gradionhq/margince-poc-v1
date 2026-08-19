@@ -74,6 +74,11 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 			WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' IN ('ds1@docusign.net', 'gx1@event.gitex.com')`); n != 2 {
 			t.Fatalf("%d transactional-suppression breadcrumbs, want 2", n)
 		}
+		// A message that will link to no record is not thereby the whole
+		// workspace's: it is held inside its participants.
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id IN ('ds1@docusign.net', 'gx1@event.gitex.com') AND audience = 'participants'`); n != 2 {
+			t.Fatalf("%d suppressed link-less activities held to their participants, want 2", n)
+		}
 	})
 	t.Run("a conference blast WITHOUT corroboration is deferred, not suppressed", func(t *testing.T) {
 		// The same prefix subdomain, but no List-Unsubscribe and a human
@@ -99,6 +104,11 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 		}
 		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'rc1@event.realco.example'`); n != 1 {
 			t.Fatal("the activity must stand — deferring the record never drops the message")
+		}
+		// Deferred is not terminal: a later verdict may admit the sender and
+		// link the message, so its audience is left at the default.
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'rc1@event.realco.example' AND audience = 'workspace'`); n != 1 {
+			t.Fatal("a deferred sender's message was limited before its verdict")
 		}
 	})
 }

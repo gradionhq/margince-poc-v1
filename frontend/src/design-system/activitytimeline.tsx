@@ -94,6 +94,7 @@ export function activityTimeline(
     // limit of what the page knew.
     body: activity.body,
     direction: activity.direction,
+    withheld: activity.content_state === "withheld",
     threadKey: activity.thread_key,
     bulkAttested: activity.bulk_mail_attested,
     atIso: activity.occurred_at,

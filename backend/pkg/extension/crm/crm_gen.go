@@ -31,6 +31,24 @@ func (e ActivityCaptureLabel) Valid() bool {
 	}
 }
 
+// Defines values for ActivityContentState.
+const (
+	Available ActivityContentState = "available"
+	Withheld  ActivityContentState = "withheld"
+)
+
+// Valid indicates whether the value is a known member of the ActivityContentState enum.
+func (e ActivityContentState) Valid() bool {
+	switch e {
+	case Available:
+		return true
+	case Withheld:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityDirection.
 const (
 	ActivityDirectionInbound     ActivityDirection = "inbound"
@@ -103,6 +121,27 @@ func (e ActivityMeetingStatus) Valid() bool {
 	case ActivityMeetingStatusLessThannil:
 		return true
 	case ActivityMeetingStatusNoShow:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityAudience.
+const (
+	Participants ActivityAudience = "participants"
+	Selected     ActivityAudience = "selected"
+	Workspace    ActivityAudience = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the ActivityAudience enum.
+func (e ActivityAudience) Valid() bool {
+	switch e {
+	case Participants:
+		return true
+	case Selected:
+		return true
+	case Workspace:
 		return true
 	default:
 		return false
@@ -255,7 +294,10 @@ type Activity struct {
 
 	// AssigneeId Task only.
 	AssigneeId *string `json:"assignee_id,omitempty"`
-	Body       *string `json:"body,omitempty"`
+
+	// Audience Who may read this activity's CONTENT once the row is discoverable at all. `workspace` — everyone who can discover it (the default); `participants` — the humans on it (the capturing mailbox owner, anyone stamped as a participant by seat); `selected` — the participants plus the users and teams named through PATCH /activities/{id}/audience. Set only through that endpoint, by a human with write authority over the activity.
+	Audience *ActivityAudience `json:"audience,omitempty"`
+	Body     *string           `json:"body,omitempty"`
 
 	// BulkMailAttested This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it bulk. Per message, never per sender: the same address sends a newsletter and a reply, and treating the sender as bulk would bury the reply.
 	BulkMailAttested *bool `json:"bulk_mail_attested,omitempty"`
@@ -270,7 +312,10 @@ type Activity struct {
 	// The kind says what sort of interaction happened; this says what carried it. They
 	// are separate axes, and reading one off the other is what ADR-0107 retired.
 	ChannelProvider *ProviderRef `json:"channel_provider,omitempty"`
-	CreatedAt       time.Time    `json:"created_at"`
+
+	// ContentState Whether this response carries the activity's content. `withheld` means the caller may discover the row (a linked record is theirs to read) but is not in its audience: only the safe markers are filled — id, kind, channel_provider, occurred_at, direction, audience, links, is_done/due_at for a task, provenance and timestamps — and subject, body, thread_key, capture_label, source_id and raw are null. An `available` row is complete.
+	ContentState *ActivityContentState `json:"content_state,omitempty"`
+	CreatedAt    time.Time             `json:"created_at"`
 
 	// Direction inbound/outbound for email/call; null for note/task.
 	Direction *ActivityDirection `json:"direction,omitempty"`
@@ -321,6 +366,9 @@ type Activity struct {
 // ActivityCaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
 type ActivityCaptureLabel string
 
+// ActivityContentState Whether this response carries the activity's content. `withheld` means the caller may discover the row (a linked record is theirs to read) but is not in its audience: only the safe markers are filled — id, kind, channel_provider, occurred_at, direction, audience, links, is_done/due_at for a task, provenance and timestamps — and subject, body, thread_key, capture_label, source_id and raw are null. An `available` row is complete.
+type ActivityContentState string
+
 // ActivityDirection inbound/outbound for email/call; null for note/task.
 type ActivityDirection string
 
@@ -329,6 +377,9 @@ type ActivityKind string
 
 // ActivityMeetingStatus Set only when kind=meeting.
 type ActivityMeetingStatus string
+
+// ActivityAudience Who may read an activity's content — see Activity.audience.
+type ActivityAudience string
 
 // ActivityLink defines model for ActivityLink.
 type ActivityLink struct {

@@ -1103,6 +1103,19 @@ export const vi = {
     "Ở đây có nhiều hoạt động hơn sức chứa. Chỉ những hoạt động mới nhất được liệt kê.",
   "timeline.sent": "Đã gửi",
   "timeline.received": "Đã nhận",
+  "timeline.withheld": "Nội dung chỉ dành cho người tham gia",
+  "compose.audience": "Hiển thị",
+  "compose.audienceTitle": "Ai được đọc tin nhắn này?",
+  "compose.audienceLegend": "Hiển thị của riêng tin nhắn này",
+  "compose.audienceWorkspace": "Mọi người trong tổ chức",
+  "compose.audienceWorkspaceHint":
+    "Ai thấy được liên hệ này cũng đọc được tin nhắn này.",
+  "compose.audienceParticipants": "Chỉ người tham gia",
+  "compose.audienceParticipantsHint":
+    "Chỉ những người có trên tin nhắn này đọc được tiêu đề và nội dung. Người khác chỉ thấy rằng có một tin nhắn được trao đổi vào ngày đó.",
+  "compose.audienceConfirm": "Lưu hiển thị",
+  "compose.audienceNote":
+    "Chỉ áp dụng cho tin nhắn này — không cho chuỗi hội thoại và không cho liên hệ.",
   "timeline.textMore": "Đọc",
   "timeline.textLess": "Thu gọn",
   "timeline.tailMore": "Hiện chữ ký và phần trích dẫn",

@@ -109,18 +109,27 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
-	scope, err := activityScope(ctx, arg)
+	// DISCOVER-gated, like the activities list: a limited conversation on
+	// this contact is still a row on the timeline — date, direction, kind —
+	// with its content withheld (content_state), not a gap the reader
+	// cannot tell from silence.
+	scope, err := activityDiscoverScope(ctx, arg)
+	if err != nil {
+		return nil, false, err
+	}
+	contentArm, err := auth.ActivityAudienceArm(ctx, "a", arg)
 	if err != nil {
 		return nil, false, err
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT a.id, a.kind, a.channel_provider, a.subject, a.body, a.direction,
-		       a.occurred_at, a.due_at, a.is_done, a.source, a.captured_by, a.created_at
+		       a.occurred_at, a.due_at, a.is_done, a.source, a.captured_by, a.created_at,
+		       a.audience, (%s) AS content_available
 		FROM activity a
 		WHERE a.archived_at IS NULL AND %s AND (%s) %s
 		ORDER BY a.occurred_at DESC, a.id DESC
 		LIMIT %d`,
-		fmt.Sprintf(personLinkedActivity, personPos), scope, extra, sectionCap+1), args...)
+		contentArm, fmt.Sprintf(personLinkedActivity, personPos), scope, extra, sectionCap+1), args...)
 	if err != nil {
 		return nil, false, err
 	}
@@ -129,12 +138,22 @@ func (s *Service) readActivities(ctx context.Context, tx pgx.Tx, personID ids.Pe
 	for rows.Next() {
 		var a crmcontracts.Activity
 		var id ids.UUID
+		var audience string
+		var contentAvailable bool
 		if err := rows.Scan(&id, &a.Kind, &a.ChannelProvider, &a.Subject, &a.Body,
 			&a.Direction, &a.OccurredAt, &a.DueAt, &a.IsDone, &a.Source, &a.CapturedBy,
-			&a.CreatedAt); err != nil {
+			&a.CreatedAt, &audience, &contentAvailable); err != nil {
 			return nil, false, err
 		}
 		a.Id = openapi_types.UUID(id)
+		aud := crmcontracts.ActivityAudience(audience)
+		a.Audience = &aud
+		state := crmcontracts.ActivityContentStateAvailable
+		if !contentAvailable {
+			state = crmcontracts.ActivityContentStateWithheld
+			a.Subject, a.Body = nil, nil
+		}
+		a.ContentState = &state
 		// The link is implied by the read — every row here is linked to this
 		// person — so the payload carries the id rather than re-reading
 		// activity_link for a fact the query already asserted.

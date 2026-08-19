@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   CheckSquare,
+  Lock,
   Mail,
   MessageCircle,
   PencilLine,
@@ -438,6 +439,14 @@ export type TimelineEntry = {
    * Art. 17 request, which is why this is optional rather than empty string.
    */
   body?: string | null;
+  /**
+   * The row is discoverable but its CONTENT is not this reader's: the
+   * activity's audience was limited by a human and the reader is not in it.
+   * The row keeps its place — date, direction, kind — and says so, rather
+   * than vanishing into what reads as silence (the withheld state of
+   * README § "Absent, disabled, or withheld").
+   */
+  withheld?: boolean;
   /**
    * Rendered content for a row whose substance is not prose — the old→new
    * diff on a `change` row. Sits where the body would, so a change reads at
@@ -1056,7 +1065,14 @@ export function TimelineRow({
                 inside phrasing content. The row lays out identically, because
                 .tl-body is a flex column either way. */}
       <div className="tl-body">
-        <span className="tl-title">{entry.title}</span>
+        {entry.withheld ? (
+          <span className="tl-title tl-withheld">
+            <Lock aria-hidden />
+            {t("timeline.withheld")}
+          </span>
+        ) : (
+          <span className="tl-title">{entry.title}</span>
+        )}
         {entry.body && (
           <TimelineText text={entry.body} email={entry.kind === "email"} />
         )}

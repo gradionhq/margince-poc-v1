@@ -3566,6 +3566,44 @@ paths:
               schema: { $ref: '#/components/schemas/Activity' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /activities/{id}/audience:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Activities]
+      operationId: setActivityAudience
+      x-agent-access: human-only
+      # Session cookie only, matching auth.RequireHuman at runtime: who may read a
+      # conversation is a human's call about their own correspondence.
+      security: [{ cookieAuth: [] }]
+      summary: Limit (or re-open) who may read this activity's content.
+      description: |
+        Sets the activity's `audience` and, for `selected`, replaces the named members in one
+        transaction. Per message, never per thread or per contact: limiting one email says nothing
+        about its siblings or about the people on it. The caller needs write authority over the
+        activity (author, assignee, host, or a linked record that is theirs to change). A row held
+        under a statutory retention obligation answers `423`. Every other seat that can discover
+        the row keeps seeing it as `content_state: withheld` — date, direction and the record it is
+        about, not the subject or body.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetActivityAudienceRequest' }
+      responses:
+        '200':
+          description: The activity, as the caller now reads it.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '423': { $ref: '#/components/responses/RetentionHeld' }
+
   /activities/{id}/meeting-brief:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -13199,6 +13237,14 @@ components:
           examples:
             notFound:
               value: { type: 'https://errors.gradion.com/not_found', title: Not found, status: 404, code: not_found, detail: Resource not found. }
+    RetentionHeld:
+      description: 'The record is held under a statutory retention obligation and cannot be changed (`code: locked`).'
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+          examples:
+            held:
+              value: { type: 'https://errors.gradion.com/locked', title: Locked, status: 423, code: locked, detail: The record is held under a statutory retention obligation. }
     Conflict:
       description: State conflict (duplicate key, concurrent edit, already-decided, default-pipeline collision).
       content:
@@ -18794,6 +18840,25 @@ components:
             This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it
             bulk. Per message, never per sender: the same address sends a newsletter and a reply,
             and treating the sender as bulk would bury the reply.
+        audience:
+          allOf: [{ $ref: '#/components/schemas/ActivityAudience' }]
+          readOnly: true
+          description: >-
+            Who may read this activity's CONTENT once the row is discoverable at all. `workspace` —
+            everyone who can discover it (the default); `participants` — the humans on it (the
+            capturing mailbox owner, anyone stamped as a participant by seat); `selected` — the
+            participants plus the users and teams named through PATCH /activities/{id}/audience.
+            Set only through that endpoint, by a human with write authority over the activity.
+        content_state:
+          type: string
+          enum: [available, withheld]
+          readOnly: true
+          description: >-
+            Whether this response carries the activity's content. `withheld` means the caller may
+            discover the row (a linked record is theirs to read) but is not in its audience: only the
+            safe markers are filled — id, kind, channel_provider, occurred_at, direction, audience,
+            links, is_done/due_at for a task, provenance and timestamps — and subject, body,
+            thread_key, capture_label, source_id and raw are null. An `available` row is complete.
         meeting_status: { type: [string, 'null'], enum: [null, booked, held, no_show, canceled], description: 'Set only when kind=meeting.' }
         source_system: { type: [string, 'null'], description: 'gmail/gcal/outlook/transcript — idempotency key part.' }
         source_id: { type: [string, 'null'], description: Provider message/event id — idempotency key part. }
@@ -18894,6 +18959,27 @@ components:
         source: { type: string }
         raw: { type: [object, 'null'], additionalProperties: true }
 
+    ActivityAudience:
+      type: string
+      enum: [workspace, participants, selected]
+      description: Who may read an activity's content — see Activity.audience.
+    SetActivityAudienceRequest:
+      type: object
+      required: [audience]
+      properties:
+        audience: { $ref: '#/components/schemas/ActivityAudience' }
+        members:
+          type: array
+          maxItems: 200
+          description: >-
+            The users and teams admitted besides the participants. Read only when `audience` is
+            `selected`; replaces the previous set.
+          items:
+            type: object
+            required: [subject_type, subject_id]
+            properties:
+              subject_type: { type: string, enum: [user, team] }
+              subject_id: { type: string, format: uuid }
     UpdateActivityRequest:
       type: object
       properties:

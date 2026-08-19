@@ -362,12 +362,12 @@ func (s *TraceStore) hideUnreadableLinks(ctx context.Context, tx pgx.Tx, entries
 	}
 	args := []any{linked}
 	addArg := func(v any) int { args = append(args, v); return len(args) }
-	// ActivityDiscoverClause, not the generic one: an activity has no owner, so it
-	// inherits the sensitivity of the records it attaches to — visible when ANY
-	// linked person, organization or deal is, and visible to everyone when it
-	// has no links at all (a workspace-shared note). The generic clause refuses
-	// this table outright, which is how the wrong one announces itself.
-	scope, err := auth.ActivityDiscoverClause(ctx, "a", addArg)
+	// ActivityContentClause, not the generic one: an activity has no owner, so
+	// it inherits the sensitivity of the records it attaches to — and a trace
+	// row carries the message's subject and counterparty, so the reader must
+	// be in its AUDIENCE, not merely able to discover it. The generic clause
+	// refuses this table outright, which is how the wrong one announces itself.
+	scope, err := auth.ActivityContentClause(ctx, "a", addArg)
 	if err != nil {
 		return err
 	}
@@ -395,7 +395,10 @@ func (s *TraceStore) hideUnreadableLinks(ctx context.Context, tx pgx.Tx, entries
 	}
 	for i := range entries {
 		if entries[i].ActivityID != nil && !readable[*entries[i].ActivityID] {
+			// The trace still says a message landed; what it said and with
+			// whom stays with the audience.
 			entries[i].ActivityID = nil
+			entries[i].Subject, entries[i].Counterparty = "", ""
 		}
 	}
 	return nil

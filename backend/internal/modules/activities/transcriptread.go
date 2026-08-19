@@ -225,7 +225,7 @@ func (s *Store) rearmIfAbandoned(
 // here too — an activity the caller cannot see is ErrNotFound, not an empty
 // transcript.
 func transcriptLineCount(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID) (int, error) {
-	activity, err := readActivity(ctx, tx, activityID, storekit.LiveOnly)
+	activity, err := readActivityContent(ctx, tx, activityID, storekit.LiveOnly)
 	if err != nil {
 		return 0, err
 	}
@@ -269,7 +269,7 @@ func (s *Store) ReadTranscript(ctx context.Context, activityID ids.ActivityID) (
 	}
 	var out TranscriptReading
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		activity, err := readActivity(ctx, tx, activityID, storekit.LiveOnly)
+		activity, err := readActivityContent(ctx, tx, activityID, storekit.LiveOnly)
 		if err != nil {
 			return err
 		}
@@ -417,7 +417,7 @@ func (s *Store) GetTranscriptRead(ctx context.Context, activityID ids.ActivityID
 	}
 	var out TranscriptRead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := readActivity(ctx, tx, activityID, storekit.LiveOnly); err != nil {
+		if _, err := readActivityContent(ctx, tx, activityID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		var err error
@@ -445,7 +445,7 @@ func (s *Store) LatestTranscriptRead(ctx context.Context, activityID ids.Activit
 	}
 	var out TranscriptRead
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := readActivity(ctx, tx, activityID, storekit.LiveOnly); err != nil {
+		if _, err := readActivityContent(ctx, tx, activityID, storekit.LiveOnly); err != nil {
 			return err
 		}
 		var err error

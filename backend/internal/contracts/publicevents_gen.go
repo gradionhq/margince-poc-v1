@@ -9,6 +9,27 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for PublicEventActivityChangedFieldsAudience.
+const (
+	Participants PublicEventActivityChangedFieldsAudience = "participants"
+	Selected     PublicEventActivityChangedFieldsAudience = "selected"
+	Workspace    PublicEventActivityChangedFieldsAudience = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the PublicEventActivityChangedFieldsAudience enum.
+func (e PublicEventActivityChangedFieldsAudience) Valid() bool {
+	switch e {
+	case Participants:
+		return true
+	case Selected:
+		return true
+	case Workspace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PublicEventApprovalDecidedVerdict.
 const (
 	Approved PublicEventApprovalDecidedVerdict = "approved"
@@ -324,10 +345,13 @@ type PublicEventActivityCaptured struct {
 	SourceSystem *string `json:"source_system,omitempty"`
 }
 
-// PublicEventActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
+// PublicEventActivityChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target and SetActivityAudience's audience — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
 type PublicEventActivityChangedFields struct {
 	// AssigneeId The activity's new assignee (absent when this update did not touch it).
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
+
+	// Audience The activity's new audience (absent when this update did not touch it). Who is named is not carried: a subscriber that must know re-reads the row under its own audience, exactly as a human does.
+	Audience *PublicEventActivityChangedFieldsAudience `json:"audience,omitempty"`
 
 	// Body Whether the body was touched (a presence flag, not the content — bodies can be large and are never echoed onto the wire).
 	Body *bool `json:"body,omitempty"`
@@ -351,6 +375,9 @@ type PublicEventActivityChangedFields struct {
 	Subject *string `json:"subject,omitempty"`
 }
 
+// PublicEventActivityChangedFieldsAudience The activity's new audience (absent when this update did not touch it). Who is named is not carried: a subscriber that must know re-reads the row under its own audience, exactly as a human does.
+type PublicEventActivityChangedFieldsAudience string
+
 // PublicEventActivityRelinkedRef The entity an activity was relinked onto (activities/lifecycle.go's RelinkActivity) — an association change, not a re-capture, so it travels as one changed_fields key rather than its own event verb.
 type PublicEventActivityRelinkedRef struct {
 	// EntityId The relink target's id.
@@ -362,7 +389,7 @@ type PublicEventActivityRelinkedRef struct {
 
 // PublicEventActivityUpdated Payload for activity.updated — a BOUNDED delta (unlike the person/organization/deal/lead family's genuinely open patch): UpdateActivity and RelinkActivity together cover a fixed, KNOWN set of inner keys, so changed_fields is a typed struct here, not an open map.
 type PublicEventActivityUpdated struct {
-	// ChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
+	// ChangedFields activity.updated's BOUNDED delta: UpdateActivity's known mutable fields (subject, body, occurred_at, due_at, remind_at, assignee_id, is_done) each carried only when this update touched them, plus RelinkActivity's relinked target and SetActivityAudience's audience — a fixed, KNOWN key set (unlike person/organization/deal/lead.updated's genuinely open patch), so it is typed rather than an open map.
 	ChangedFields PublicEventActivityChangedFields `json:"changed_fields"`
 }
 

@@ -150,20 +150,36 @@ func openTaskAssigneeClause(assignee *ids.UserID, arg func(any) int) string {
 }
 
 // listActivitiesFilter builds the timeline query's join, WHERE terms and
-// bind arguments from one list input.
-func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join string, where []string, args []any, err error) {
+// bind arguments from one list input, plus the per-row audience test the
+// SELECT projects as content_state.
+func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join string, where []string, content string, args []any, err error) {
 	where = []string{"1=1"}
 	args = []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
-	// The timeline carries the workspace's most sensitive free-text, so
-	// it is scoped through the linked records.
-	scope, err := auth.ActivityContentClause(ctx, "a", arg)
+	// The timeline is DISCOVER-gated: a row reachable through a record the
+	// caller may read is listed, and whether its content comes with it is
+	// the audience's call, answered per row (content_state). The free text
+	// of a limited conversation is blanked by the scan, never selected into
+	// the response.
+	gate := auth.ActivityDiscoverClause
+	if filtersOnContent(in) {
+		// A filter over the subject, the body or the thread key is a READ
+		// of them: a withheld row that matched would tell the caller what it
+		// says through has_more and the page boundary. Such a list is
+		// content-gated, so a limited row is simply not there.
+		gate = auth.ActivityContentClause
+	}
+	scope, err := gate(ctx, "a", arg)
 	if err != nil {
-		return "", nil, nil, err
+		return "", nil, "", nil, err
 	}
 	if scope != "" {
 		where = append(where, scope)
+	}
+	content, err = auth.ActivityAudienceArm(ctx, "a", arg)
+	if err != nil {
+		return "", nil, "", nil, err
 	}
 	if !in.IncludeArchived {
 		where = append(where, "a.archived_at IS NULL")
@@ -184,7 +200,7 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 		// the very link that was just written.
 		column := linkColumn(*in.EntityType)
 		if column == "" {
-			return "", nil, nil, &InvalidLinkTypeError{EntityType: *in.EntityType}
+			return "", nil, "", nil, &InvalidLinkTypeError{EntityType: *in.EntityType}
 		}
 		if *in.EntityType == string(datasource.RecordOrganization) {
 			// An account's timeline is wider than its direct links: mail is
@@ -214,9 +230,15 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, decodeErr := storekit.DecodeCursor(*in.Cursor)
 		if decodeErr != nil {
-			return "", nil, nil, decodeErr
+			return "", nil, "", nil, decodeErr
 		}
 		where = append(where, sprintf("(a.occurred_at, a.id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
-	return join, where, args, nil
+	return join, where, content, args, nil
+}
+
+// filtersOnContent reports whether the list narrows on fields a withheld row
+// does not disclose.
+func filtersOnContent(in ListActivitiesInput) bool {
+	return (in.ThreadKey != nil && *in.ThreadKey != "") || (in.Query != nil && *in.Query != "")
 }

@@ -160,6 +160,10 @@ func (r *FollowUpReconciler) reconcileWorkspace(ctx context.Context) error {
 				JOIN activity_link l ON l.activity_id = a.id AND l.deal_id = d.id
 				WHERE a.kind IN ('call','email','meeting')
 				  AND a.archived_at IS NULL
+				  -- The subject lands in an approval every decider of the
+				  -- deal reads, so only a message the whole workspace may
+				  -- read is evidence here; a limited one is its audience's.
+				  AND a.audience = 'workspace'
 				  AND a.occurred_at >= $1
 				ORDER BY a.occurred_at DESC, a.id DESC
 				LIMIT 1
