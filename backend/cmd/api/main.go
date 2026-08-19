@@ -71,11 +71,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
+	// INSTALLED as the process default, not merely built. Everything below is
+	// handed this logger explicitly, but the tree also logs through the
+	// package-level slog functions — jobs.faultFor is the one whose line is the
+	// entire trail a postponed tick leaves — and those reach slog.Default() or
+	// nothing.
+	logger, err := httpserver.InstallProcessLogger(stdout, cfg.logLevel, cfg.logFormat)
 	if err != nil {
 		return err
 	}
-	logger := slog.New(httpserver.WithCorrelation(handler))
 	config.WarnUndeclared(logger, cfg.unknownVars)
 
 	pool, err := database.NewPool(ctx, cfg.dsn)

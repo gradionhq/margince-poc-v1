@@ -174,7 +174,7 @@ func compareSets(t *testing.T, at string, want, got map[string]bool) {
 func everyFailureClass() map[string]bool {
 	classes := map[string]bool{}
 	for _, cause := range failuresWorthClassing() {
-		classes[failureClass(cause)] = true
+		classes[failureClass(cause).Class] = true
 	}
 	return classes
 }
