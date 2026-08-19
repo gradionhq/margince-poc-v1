@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestQualifyOpensTheDealAndSeatsTheContactInOneTransaction(t *testing.T) {
@@ -80,6 +81,43 @@ func TestQualifyOpensTheDealAndSeatsTheContactInOneTransaction(t *testing.T) {
 	}
 }
 
+// The seat on the deal takes the same object admission CreateRelationship
+// takes: a caller who may qualify and open deals but not create
+// relationships is refused the whole qualify-with-deal, not handed an edge
+// through a side door.
+func TestQualifyWithDealNeedsTheRelationshipGrant(t *testing.T) {
+	e := integration.Setup(t)
+	admin := e.Admin()
+	dealsStore := deals.NewStore(e.DB(), DealsInstallation())
+	if err := dealsStore.SeedDefaults(admin); err != nil {
+		t.Fatal(err)
+	}
+	peopleStore := people.NewStore(e.DB()).WithDealOpener(leadDealOpener{deals: dealsStore})
+	email := "noseat@example.test"
+	lead, _, err := peopleStore.CreateLead(admin, people.CreateLeadInput{Email: &email, Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	narrow := e.As(ids.NewV7(), nil, principal.Permissions{
+		RoleKeys: []string{"rep"}, RowScope: principal.RowScopeAll,
+		Objects: map[string]principal.ObjectGrant{
+			"lead":     {Create: true, Read: true, Update: true, Delete: true},
+			"person":   {Create: true, Read: true, Update: true},
+			"deal":     {Create: true, Read: true, Update: true},
+			"pipeline": {Read: true},
+		},
+	})
+	_, err = peopleStore.QualifyLead(narrow, ids.From[ids.LeadKind](ids.UUID(lead.Id)), people.PromoteLeadInput{
+		Trigger: "human_qualify", Deal: &people.QualifyDealInput{},
+	})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("qualify-with-deal without relationship:create err = %v, want ErrPermissionDenied", err)
+	}
+	if _, err := peopleStore.GetLead(admin, ids.From[ids.LeadKind](ids.UUID(lead.Id)), storekit.LiveOnly); err != nil {
+		t.Errorf("the refused qualify should have left the lead live and open: %v", err)
+	}
+}
+
 func TestQualifyRollsBackWhenTheDealIsRefused(t *testing.T) {
 	e := integration.Setup(t)
 	admin := e.Admin()
@@ -117,6 +155,35 @@ func TestQualifyRollsBackWhenTheDealIsRefused(t *testing.T) {
 	}
 	if e.WsCount(t, `SELECT count(*) FROM person WHERE converted_from_lead_id = $1`, ids.UUID(lead.Id)) != 0 {
 		t.Error("a person survived the rolled-back promotion")
+	}
+
+	// A stage alone is placed in its own pipeline, not the default one.
+	other, err := dealsStore.CreatePipeline(admin, deals.CreatePipelineInput{Name: "Partners", Stages: []deals.StageInput{
+		{Name: "Intro", Position: 1, Semantic: "open", WinProbability: 10},
+		{Name: "Won", Position: 2, Semantic: "won", WinProbability: 100},
+		{Name: "Lost", Position: 3, Semantic: "lost", WinProbability: 0},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intro := ids.UUID((*other.Stages)[0].Id)
+	stageEmail := "stage-only@example.test"
+	stageLead, _, err := peopleStore.CreateLead(admin, people.CreateLeadInput{Email: &stageEmail, Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := peopleStore.QualifyLead(admin, ids.From[ids.LeadKind](ids.UUID(stageLead.Id)), people.PromoteLeadInput{
+		Trigger: "human_qualify", Deal: &people.QualifyDealInput{StageID: &intro},
+	})
+	if err != nil {
+		t.Fatalf("qualify with a stage alone: %v", err)
+	}
+	placed, err := dealsStore.GetDeal(admin, ids.From[ids.DealKind](*out.DealID), storekit.LiveOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placed.PipelineId == nil || *placed.PipelineId != other.Id || placed.StageId == nil || ids.UUID(*placed.StageId) != intro {
+		t.Errorf("stage-only qualify put the deal in pipeline %v stage %v, want the stage's own pipeline %s / %s", placed.PipelineId, placed.StageId, other.Id, intro)
 	}
 
 	// Without the edge wired, asking for a deal is refused outright rather

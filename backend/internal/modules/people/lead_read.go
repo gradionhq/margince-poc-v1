@@ -26,10 +26,12 @@ import (
 // liveOnlyClause narrows a read to unarchived rows, spelled once.
 const liveOnlyClause = ` AND archived_at IS NULL`
 
-// The two trailing subqueries derive the working-surface facts (ADR-0118/A169)
+// The trailing subqueries derive the working-surface facts (ADR-0118/A169)
 // from activity_link rather than storing them on the lead: the last touch,
-// and how many tasks are still open against it. Every lead read is FROM the
-// unaliased table, which is what lets them name lead.id.
+// how many tasks are still open against it, and the strongest engagement
+// signal. Every lead read is FROM the unaliased table, which is what lets
+// them name lead.id. A restricted activity (A165: held under a statutory
+// retention obligation) is in none of them, the same as in every other read.
 const leadColumns = `id, full_name, email, title, company_name, candidate_org_key,
 	linkedin_url, status, score, score_override_reason, score_computed, owner_id, project_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at,
@@ -43,20 +45,20 @@ const leadColumns = `id, full_name, email, title, company_name, candidate_org_ke
 	                                           ELSE 'inbound_reply' END,
 	                           'activity_id', a.id, 'occurred_at', a.occurred_at)
 	   FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	  WHERE l.lead_id = lead.id AND a.archived_at IS NULL
+	  WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.restricted_at IS NULL
 	    AND ((a.kind = 'email' AND a.direction = 'inbound')
 	         OR (a.kind = 'meeting' AND a.meeting_status IN ('booked','held')))
 	  ORDER BY CASE WHEN a.kind = 'meeting' AND a.meeting_status = 'held' THEN 0
 	                WHEN a.kind = 'meeting' THEN 1 ELSE 2 END, a.occurred_at DESC, a.id LIMIT 1),
 	(SELECT max(a.occurred_at) FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL),
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.restricted_at IS NULL),
 	(SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done),
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.restricted_at IS NULL AND a.kind = 'task' AND NOT a.is_done),
 	(SELECT a.subject FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.restricted_at IS NULL AND a.kind = 'task' AND NOT a.is_done
 	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
 	(SELECT a.due_at FROM activity_link l JOIN activity a ON a.id = l.activity_id
-	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.kind = 'task' AND NOT a.is_done
+	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL AND a.restricted_at IS NULL AND a.kind = 'task' AND NOT a.is_done
 	   ORDER BY a.due_at NULLS LAST, a.created_at, a.id LIMIT 1),
 	(SELECT factor.value->>'factor'
 	   FROM LATERAL (

@@ -15049,7 +15049,7 @@ type Lead struct {
 	// Status The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
 	Status LeadStatus `json:"status"`
 
-	// StatusSetBy Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.
+	// StatusSetBy Who last placed the lead on its status: a human by hand (an agent acting for one counts as the human), or the system from captured activity. Null for a lead nobody has moved yet — one still on new, or one carried over from before the ladder existed.
 	StatusSetBy *LeadStatusSetBy `json:"status_set_by,omitempty"`
 	Title       *string          `json:"title,omitempty"`
 	UpdatedAt   time.Time        `json:"updated_at"`
@@ -15069,7 +15069,7 @@ type LeadSlaState string
 // LeadStatus The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
 type LeadStatus string
 
-// LeadStatusSetBy Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.
+// LeadStatusSetBy Who last placed the lead on its status: a human by hand (an agent acting for one counts as the human), or the system from captured activity. Null for a lead nobody has moved yet — one still on new, or one carried over from before the ladder existed.
 type LeadStatusSetBy string
 
 // LeadDisqualifyReason defines model for LeadDisqualifyReason.
@@ -18756,8 +18756,9 @@ type PromoteLeadPreviewOutcome string
 
 // PromoteLeadRequest defines model for PromoteLeadRequest.
 type PromoteLeadRequest struct {
-	// Deal Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
-	// to use the default pipeline's first open stage. The deal's owner is the lead's owner
+	// Deal Open a deal in the same transaction as the promotion. Omit both ids to use the
+	// default pipeline's first open stage; a pipeline alone takes its first open stage; a
+	// stage alone is placed in its own pipeline. The deal's owner is the lead's owner
 	// and its organization is left unset (a lead has no organization). The deal's id lands
 	// on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
 	Deal *QualifyDealRequest `json:"deal,omitempty"`
@@ -19043,8 +19044,9 @@ type PutOnboardingStateRequestSourceMode string
 // PutOnboardingStateRequestStep defines model for PutOnboardingStateRequest.Step.
 type PutOnboardingStateRequestStep string
 
-// QualifyDealRequest Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
-// to use the default pipeline's first open stage. The deal's owner is the lead's owner
+// QualifyDealRequest Open a deal in the same transaction as the promotion. Omit both ids to use the
+// default pipeline's first open stage; a pipeline alone takes its first open stage; a
+// stage alone is placed in its own pipeline. The deal's owner is the lead's owner
 // and its organization is left unset (a lead has no organization). The deal's id lands
 // on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
 type QualifyDealRequest struct {

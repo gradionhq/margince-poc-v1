@@ -17,8 +17,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // QualifyDealInput is what a qualify call asks the deal opener for. Nil
@@ -70,9 +72,11 @@ type PromoteOutcome struct {
 	DealID *ids.UUID
 }
 
-// openQualifiedDeal runs after the lead is marked promoted, still under its
-// row lock and inside the same transaction: the deal opens, and the lead
-// points at it. A deal failure fails the whole promotion.
+// openQualifiedDeal runs once the person exists and before the lead is
+// marked promoted, under the lead row lock and inside the same transaction:
+// the deal opens, the contact is seated on it, and the caller writes the
+// deal's id into the promotion's own UPDATE and audit image. A deal failure
+// fails the whole promotion.
 func (s *Store) openQualifiedDeal(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, lead crmcontracts.Lead, personID ids.PersonID, in *QualifyDealInput) (*ids.UUID, error) {
 	if in == nil {
 		return nil, nil
@@ -90,9 +94,6 @@ func (s *Store) openQualifiedDeal(ctx context.Context, tx pgx.Tx, leadID ids.Lea
 	if err != nil {
 		return nil, fmt.Errorf("open deal for qualified lead: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE lead SET qualified_deal_id = $2 WHERE id = $1`, leadID, dealID); err != nil {
-		return nil, fmt.Errorf("link qualified deal: %w", err)
-	}
 	if err := seatPersonOnQualifiedDeal(ctx, tx, personID, dealID, deal.Source); err != nil {
 		return nil, err
 	}
@@ -102,10 +103,18 @@ func (s *Store) openQualifiedDeal(ctx context.Context, tx pgx.Tx, leadID ids.Lea
 // seatPersonOnQualifiedDeal makes the new contact a stakeholder on the deal
 // the qualify call opened — the same edge the deal page's committee shows,
 // and the edge that stops an undo of the qualification while the deal is
-// live (demote's person_has_deal rule). Written here rather than through
-// CreateRelationship because both endpoints were minted in this very
-// transaction under the caller's own grants; nothing to re-probe.
+// live (demote's person_has_deal rule). The row is written here because both
+// endpoints were minted in this very transaction (no row-scope re-probe can
+// see them yet), but the OBJECT admission is the same CreateRelationship
+// takes: the edge verb, and the anchor's write verb.
 func seatPersonOnQualifiedDeal(ctx context.Context, tx pgx.Tx, personID ids.PersonID, dealID ids.UUID, source string) error {
+	if err := auth.Require(ctx, "relationship", principal.ActionCreate); err != nil {
+		return err
+	}
+	anchorObject, _ := relationshipAnchor("deal_stakeholder")
+	if err := auth.Require(ctx, anchorObject, principal.ActionUpdate); err != nil {
+		return err
+	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
 		return err

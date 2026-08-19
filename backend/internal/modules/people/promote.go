@@ -143,11 +143,11 @@ func (s *Store) QualifyLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		out.Person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, out.Merged, mergeFields, active)
+		out.DealID, err = s.openQualifiedDeal(ctx, tx, id, lead, personID, in.Deal)
 		if err != nil {
 			return err
 		}
-		out.DealID, err = s.openQualifiedDeal(ctx, tx, id, lead, personID, in.Deal)
+		out.Person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, out.Merged, mergeFields, active, out.DealID)
 		return err
 	})
 	return out, err
@@ -239,12 +239,17 @@ func carryLeadActivities(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, pers
 // recording trigger + evidence + the resulting person), and the paired
 // lead.promoted + person.* events — all inside the caller's transaction,
 // still under the lead row lock taken by PromoteLead.
-func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, mergeFields map[string]any, active []fieldcatalog.Column) (crmcontracts.Person, error) {
+func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, mergeFields map[string]any, active []fieldcatalog.Column, dealID *ids.UUID) (crmcontracts.Person, error) {
 	now := time.Now().UTC()
+	setBy, err := statusSetByFor(ctx)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	tag, err := tx.Exec(ctx,
-		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3, `+firstResponseSet+`
+		`UPDATE lead SET status = 'promoted', status_set_by = $4, promoted_person_id = $2, promoted_at = $3, archived_at = $3,
+		        qualified_deal_id = $5, `+firstResponseSet+`
 		 WHERE id = $1 AND archived_at IS NULL`,
-		id, personID, now)
+		id, personID, now, setBy, dealID)
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("mark lead promoted: %w", err)
 	}
@@ -268,6 +273,9 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 	}
 	if in.EvidenceNote != nil {
 		after["evidence_note"] = *in.EvidenceNote
+	}
+	if dealID != nil {
+		after["qualified_deal_id"] = *dealID
 	}
 	auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
 		map[string]any{leadStatusColumn: lead.Status}, after)

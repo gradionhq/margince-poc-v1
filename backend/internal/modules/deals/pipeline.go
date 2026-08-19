@@ -328,3 +328,44 @@ func (s *Store) StageSemantic(ctx context.Context, stageID ids.UUID) (semantic s
 	})
 	return semantic, pipelineID, err
 }
+
+// BirthStageTx resolves where a deal born inside the caller's transaction
+// goes: the named pipeline and stage; a named stage's own pipeline; a named
+// pipeline's first open stage; or the default pipeline's first open stage.
+// Runs on the caller's transaction so a seam that already holds one — the
+// lead qualify path — takes no second pooled connection while it waits.
+// An archived or terminal target reads as missing, and a stage that is not
+// in the pipeline it was named with is a missing stage too.
+func BirthStageTx(ctx context.Context, tx pgx.Tx, pipelineID *ids.UUID, stageID *ids.UUID) (ids.PipelineID, ids.StageID, error) {
+	if err := auth.Require(ctx, "pipeline", principal.ActionRead); err != nil {
+		return ids.PipelineID{}, ids.StageID{}, err
+	}
+	var pipeline, stage ids.UUID
+	var err error
+	switch {
+	case stageID != nil:
+		query := `SELECT pipeline_id, id FROM stage WHERE id = $1 AND semantic = 'open' AND archived_at IS NULL`
+		args := []any{*stageID}
+		if pipelineID != nil {
+			query += ` AND pipeline_id = $2`
+			args = append(args, *pipelineID)
+		}
+		err = tx.QueryRow(ctx, query, args...).Scan(&pipeline, &stage)
+	case pipelineID != nil:
+		err = tx.QueryRow(ctx,
+			`SELECT pipeline_id, id FROM stage WHERE pipeline_id = $1 AND semantic = 'open' AND archived_at IS NULL
+			 ORDER BY position, created_at LIMIT 1`, *pipelineID).Scan(&pipeline, &stage)
+	default:
+		err = tx.QueryRow(ctx,
+			`SELECT s.pipeline_id, s.id FROM stage s JOIN pipeline p ON p.id = s.pipeline_id
+			  WHERE p.is_default AND p.archived_at IS NULL AND s.semantic = 'open' AND s.archived_at IS NULL
+			  ORDER BY s.position, s.created_at LIMIT 1`).Scan(&pipeline, &stage)
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.PipelineID{}, ids.StageID{}, fmt.Errorf("no open stage to open the deal in: %w", apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return ids.PipelineID{}, ids.StageID{}, fmt.Errorf("resolve the deal's birth stage: %w", err)
+	}
+	return ids.From[ids.PipelineKind](pipeline), ids.From[ids.StageKind](stage), nil
+}

@@ -14028,7 +14028,7 @@ export interface components {
             readonly disqualify_reason?: string | null;
             readonly disqualify_note?: string | null;
             /**
-             * @description Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.
+             * @description Who last placed the lead on its status: a human by hand (an agent acting for one counts as the human), or the system from captured activity. Null for a lead nobody has moved yet — one still on new, or one carried over from before the ladder existed.
              * @enum {string|null}
              */
             readonly status_set_by?: "human" | "system" | null;
@@ -14129,8 +14129,9 @@ export interface components {
             deal?: components["schemas"]["QualifyDealRequest"];
         };
         /**
-         * @description Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
-         *     to use the default pipeline's first open stage. The deal's owner is the lead's owner
+         * @description Open a deal in the same transaction as the promotion. Omit both ids to use the
+         *     default pipeline's first open stage; a pipeline alone takes its first open stage; a
+         *     stage alone is placed in its own pipeline. The deal's owner is the lead's owner
          *     and its organization is left unset (a lead has no organization). The deal's id lands
          *     on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
          */

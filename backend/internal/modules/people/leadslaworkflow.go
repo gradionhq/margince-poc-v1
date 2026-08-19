@@ -162,10 +162,12 @@ func (s *Store) leadResponseTouches(ctx context.Context, activityID ids.Activity
 			SELECT l.lead_id, coalesce(a.direction, ''), a.captured_by, a.occurred_at,
 			       EXISTS (SELECT 1 FROM activity_link li JOIN activity ai ON ai.id = li.activity_id
 			               WHERE li.lead_id = l.lead_id AND ai.direction = 'inbound'
-			                 AND ai.archived_at IS NULL AND ai.occurred_at < a.occurred_at),
+			                 AND ai.archived_at IS NULL AND `+auth.ActivityAvailableClause("ai")+`
+			                 AND ai.occurred_at < a.occurred_at),
 			       a.kind, coalesce(a.meeting_status, '')
 			FROM activity_link l JOIN activity a ON a.id = l.activity_id
-			WHERE l.activity_id = $1 AND l.lead_id IS NOT NULL AND a.archived_at IS NULL`, activityID)
+			WHERE l.activity_id = $1 AND l.lead_id IS NOT NULL AND a.archived_at IS NULL
+			  AND `+auth.ActivityAvailableClause("a"), activityID)
 		if err != nil {
 			return err
 		}
@@ -194,6 +196,14 @@ func (s *Store) AdvanceLeadStatus(ctx context.Context, leadID ids.LeadID, target
 	}
 	moved := false
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		// A lead outside the caller's row scope reads as absent, and an
+		// absent lead owes no step — the system actor is unbounded, a
+		// narrower caller is told nothing about rows it cannot see.
+		if err := auth.EnsureWritable(ctx, tx, "lead", leadID.UUID); errors.Is(err, apperrors.ErrNotFound) {
+			return nil
+		} else if err != nil {
+			return err
+		}
 		lock, err := storekit.LockRow(ctx, tx, "lead", leadID.UUID, storekit.LiveOnly)
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return nil // archived or gone: a terminal lead owes no step

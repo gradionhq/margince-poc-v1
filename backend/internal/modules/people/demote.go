@@ -97,10 +97,14 @@ func (s *Store) DemoteLead(ctx context.Context, id ids.LeadID, reason string) (c
 		if err != nil {
 			return err
 		}
+		setBy, err := statusSetByFor(ctx)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'engaged', status_set_by = 'system', archived_at = NULL,
+			`UPDATE lead SET status = 'engaged', status_set_by = $2, archived_at = NULL,
 			        promoted_person_id = NULL, promoted_at = NULL, qualified_deal_id = NULL
-			 WHERE id = $1`, id); err != nil {
+			 WHERE id = $1`, id, setBy); err != nil {
 			return fmt.Errorf("restore lead: %w", err)
 		}
 

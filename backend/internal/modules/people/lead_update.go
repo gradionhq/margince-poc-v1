@@ -369,14 +369,25 @@ func stampStatusSetBy(ctx context.Context, p *storekit.Patch, current crmcontrac
 	if in.Status == nil || LeadStatus(*in.Status) == LeadStatus(current.Status) {
 		return nil
 	}
-	actor, err := storekit.Actor(ctx)
+	setBy, err := statusSetByFor(ctx)
 	if err != nil {
 		return err
 	}
-	setBy := crmcontracts.LeadStatusSetByHuman
-	if actor.Type == principal.PrincipalSystem {
-		setBy = crmcontracts.LeadStatusSetBySystem
-	}
-	p.Set(leadStatusSetByColumn, current.StatusSetBy, string(setBy))
+	p.Set(leadStatusSetByColumn, current.StatusSetBy, setBy)
 	return nil
+}
+
+// statusSetByFor names who is placing the lead on its status: the system
+// when the actor is the system principal (a workflow, a migration-time
+// repair), a human otherwise — an agent acting for a human counts as the
+// human's hand, because the human's seat is what admitted it.
+func statusSetByFor(ctx context.Context) (string, error) {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if actor.Type == principal.PrincipalSystem {
+		return string(crmcontracts.LeadStatusSetBySystem), nil
+	}
+	return string(crmcontracts.LeadStatusSetByHuman), nil
 }

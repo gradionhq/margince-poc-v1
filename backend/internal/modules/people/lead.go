@@ -420,10 +420,14 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID, in Disqualify
 				return err
 			}
 		}
+		setBy, err := statusSetByFor(ctx)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'disqualified', archived_at = now(), disqualify_reason_id = $2, disqualify_note = $3, `+
+			`UPDATE lead SET status = 'disqualified', status_set_by = $4, archived_at = now(), disqualify_reason_id = $2, disqualify_note = $3, `+
 				firstResponseSet+` WHERE id = $1 AND archived_at IS NULL`,
-			id, in.ReasonID, in.Note); err != nil {
+			id, in.ReasonID, in.Note, setBy); err != nil {
 			return err
 		}
 		after := map[string]any{leadStatusColumn: "disqualified"}
