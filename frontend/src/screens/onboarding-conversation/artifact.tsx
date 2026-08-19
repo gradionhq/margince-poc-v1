@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
+import { Callout } from "../../design-system/callout";
 import { useT } from "../../i18n";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
 import { CompanyStep } from "../onboarding-company-form";
@@ -27,6 +28,25 @@ export type FindingHighlight = Readonly<{
 // Matches the ob-conv-pulse animation length in conversation.css.
 const PULSE_MS = 1200;
 
+/** The one look that can turn the state a refusal names into a different one,
+ * where there is one — the route forward wherever the refusal is also what
+ * holds Continue down. */
+export type RefusalRetry = Readonly<{ run: () => void; busy: boolean }>;
+
+/**
+ * A confirm the server refused in a way pressing the same button again cannot
+ * change, said on the surface that carries the button rather than in the
+ * transcript beside it.
+ *
+ * The sentence arrives already translated: which of the refusals this is, and
+ * therefore which words it takes, is the driver's knowledge — this pane only
+ * knows where a refusal belongs.
+ */
+export type ConfirmRefusal = Readonly<{
+  message: string;
+  retry: RefusalRetry | null;
+}>;
+
 type CompanyActArtifactProps = Readonly<{
   mode: ArtifactMode;
   /** The manual interview replaces the dossier until its review begins. */
@@ -47,6 +67,13 @@ type CompanyActArtifactProps = Readonly<{
   confirmPending: boolean;
   confirmDisabled: boolean;
   saveError: string | null;
+  /** A confirm the server refused, if one stands. It renders once, at the head
+   * of this pane, for every scene the pane can be showing — the review board,
+   * the edit form and the manual interview all press the same Continue.
+   * Optional like `review`: a caller mounting this pane to inspect one scene has
+   * no refusal to report, and an absent prop must read as "none" rather than as
+   * a notice with nothing in it. */
+  refusal?: ConfirmRefusal | null;
 }>;
 
 export function CompanyActArtifact(props: CompanyActArtifactProps) {
@@ -138,8 +165,42 @@ export function CompanyActArtifact(props: CompanyActArtifactProps) {
           </p>
         </div>
       )}
+      {props.refusal != null && <RefusalNotice refusal={props.refusal} />}
       <ArtifactBody {...props} />
     </div>
+  );
+}
+
+// What the pane says about the press it just refused. `alert`, not `status`:
+// the reader pressed Continue and nothing happened, so this interrupts —
+// exactly the case the Callout contract reserves it for. The action beside it
+// is the one look that can end the state named, where there is one; where
+// Continue is blocked it IS the route forward, which is why it is the notice
+// that carries it rather than the board's foot bar.
+function RefusalNotice({
+  refusal,
+}: Readonly<{ refusal: ConfirmRefusal }>): ReactNode {
+  const t = useT();
+  return (
+    <Callout
+      tone="warn"
+      live="alert"
+      className="ob-conv-refusal"
+      actions={
+        refusal.retry === null ? undefined : (
+          <Button
+            small
+            variant="ghost"
+            disabled={refusal.retry.busy}
+            onClick={refusal.retry.run}
+          >
+            {t("common.retry")}
+          </Button>
+        )
+      }
+    >
+      <p>{refusal.message}</p>
+    </Callout>
   );
 }
 
