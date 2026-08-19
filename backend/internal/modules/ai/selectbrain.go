@@ -20,9 +20,9 @@ import (
 // parser rejects unknown keys, so a stray `api_key:` here is a loud error that
 // points the operator at the env var (ADR-0020: BYOK, we provide no inference).
 type ProviderConfig struct {
-	Provider string `yaml:"provider"` // one of knownProviders
-	Model    string `yaml:"model"`    // provider-native model id, resolved from the logical tier
-	BaseURL  string `yaml:"base_url"` // endpoint override; empty means the provider default
+	Provider string `yaml:"provider" json:"provider"` // one of knownProviders
+	Model    string `yaml:"model" json:"model"`       // provider-native model id, resolved from the logical tier
+	BaseURL  string `yaml:"base_url" json:"base_url"` // endpoint override; empty means the provider default
 	// Input is what the bound model can be GIVEN, in the acceptedModalities
 	// vocabulary (inputmodality.go). It does two jobs: on openai_compatible and
 	// vllm it IS the carriage, because only there is the answer a property of the
@@ -31,7 +31,7 @@ type ProviderConfig struct {
 	//
 	// Nil — the common case — means the provider's own answer: text-only on the
 	// two OpenAI-wire providers, whatever the wire carries on the rest.
-	Input []string `yaml:"input"`
+	Input []string `yaml:"input" json:"input,omitempty"`
 }
 
 // Provider defaults. The Anthropic URL is the vendor's public API; a
