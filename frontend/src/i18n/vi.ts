@@ -1107,12 +1107,15 @@ export const vi = {
   "compose.audience": "Hiển thị",
   "compose.audienceTitle": "Ai được đọc tin nhắn này?",
   "compose.audienceLegend": "Hiển thị của riêng tin nhắn này",
-  "compose.audienceWorkspace": "Mọi người trong không gian làm việc",
-  "compose.audienceWorkspaceHint": "Ai thấy được liên hệ này cũng đọc được tin nhắn này.",
+  "compose.audienceWorkspace": "Mọi người trong tổ chức",
+  "compose.audienceWorkspaceHint":
+    "Ai thấy được liên hệ này cũng đọc được tin nhắn này.",
   "compose.audienceParticipants": "Chỉ người tham gia",
-  "compose.audienceParticipantsHint": "Chỉ những người có trên tin nhắn này đọc được tiêu đề và nội dung. Người khác chỉ thấy rằng có một tin nhắn được trao đổi vào ngày đó.",
+  "compose.audienceParticipantsHint":
+    "Chỉ những người có trên tin nhắn này đọc được tiêu đề và nội dung. Người khác chỉ thấy rằng có một tin nhắn được trao đổi vào ngày đó.",
   "compose.audienceConfirm": "Lưu hiển thị",
-  "compose.audienceNote": "Chỉ áp dụng cho tin nhắn này — không cho chuỗi hội thoại và không cho liên hệ.",
+  "compose.audienceNote":
+    "Chỉ áp dụng cho tin nhắn này — không cho chuỗi hội thoại và không cho liên hệ.",
   "timeline.textMore": "Đọc",
   "timeline.textLess": "Thu gọn",
   "timeline.tailMore": "Hiện chữ ký và phần trích dẫn",

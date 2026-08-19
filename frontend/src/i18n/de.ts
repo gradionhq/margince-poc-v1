@@ -1110,12 +1110,15 @@ export const de = {
   "compose.audience": "Sichtbarkeit",
   "compose.audienceTitle": "Wer darf diese Nachricht lesen?",
   "compose.audienceLegend": "Sichtbarkeit dieser einen Nachricht",
-  "compose.audienceWorkspace": "Alle im Arbeitsbereich",
-  "compose.audienceWorkspaceHint": "Jeder, der den Kontakt sehen darf, liest auch diese Nachricht.",
+  "compose.audienceWorkspace": "Alle in der Organisation",
+  "compose.audienceWorkspaceHint":
+    "Jeder, der den Kontakt sehen darf, liest auch diese Nachricht.",
   "compose.audienceParticipants": "Nur Beteiligte",
-  "compose.audienceParticipantsHint": "Nur die Personen auf dieser Nachricht lesen Betreff und Inhalt. Andere sehen nur, dass an diesem Tag eine Nachricht gewechselt wurde.",
+  "compose.audienceParticipantsHint":
+    "Nur die Personen auf dieser Nachricht lesen Betreff und Inhalt. Andere sehen nur, dass an diesem Tag eine Nachricht gewechselt wurde.",
   "compose.audienceConfirm": "Sichtbarkeit speichern",
-  "compose.audienceNote": "Gilt nur f\u00fcr diese Nachricht \u2014 nicht f\u00fcr den Thread und nicht f\u00fcr den Kontakt.",
+  "compose.audienceNote":
+    "Gilt nur f\u00fcr diese Nachricht \u2014 nicht f\u00fcr den Thread und nicht f\u00fcr den Kontakt.",
   "timeline.textMore": "Lesen",
   "timeline.textLess": "Weniger",
   "timeline.tailMore": "Signatur und Zitat anzeigen",

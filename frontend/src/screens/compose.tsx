@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { ifMatch, requireVersion } from "../api/version";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -1616,7 +1617,10 @@ export function AudienceAction({
   const mutation = useMutation({
     mutationFn: async (audience: ActivityAudience) => {
       const { data, error } = await api.PATCH("/activities/{id}/audience", {
-        params: { path: { id: activity.id } },
+        params: {
+          path: { id: activity.id },
+          ...ifMatch(requireVersion(activity.version)),
+        },
         body: { audience },
       });
       if (error) throwProblem(error);
@@ -1652,9 +1656,7 @@ export function AudienceAction({
           confirmDisabled={choice === current}
           onConfirm={() => mutation.mutate(choice)}
           pending={mutation.isPending}
-          error={
-            mutation.isError ? problemMessageOf(mutation.error, t) : null
-          }
+          error={mutation.isError ? problemMessageOf(mutation.error, t) : null}
         >
           <div className="compose-fields">
             <ChoiceList
