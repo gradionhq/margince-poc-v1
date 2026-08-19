@@ -1,6 +1,7 @@
 # ADR-0055 — An agent's writes are governed the same way whichever transport they arrive on
 
-**Status:** Active
+**Status:** Active — the mechanism stands; the confirm-first SET is under
+revision by ADR-0121.
 **Decided:** 2026-07-04
 
 ## The decision
@@ -16,7 +17,10 @@ table
 serves both doors, keyed from the operation annotations in the contract, so a
 tier
 is declared once. A mutating operation an agent reaches that maps to no tier is
-refused rather than admitted, so a forgotten annotation fails closed. Operations
+refused rather than admitted, so a forgotten annotation fails closed. ADR-0121 revises **which**
+operations are confirm-first — cutting them to the ones no reversal can undo —
+and leaves this mechanism untouched: one tier table, keyed from the contract,
+serving both doors. Operations
 an
 agent must never perform for itself — approving or rejecting an approval,
 consent

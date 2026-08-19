@@ -30,22 +30,41 @@ every time: a task falling due, a mention, an approval waiting on them, a report
 they asked for. This decision claims that ground so nothing else quietly grows a
 second answer to it.
 
+**What counts as a notification, decided 2026-08-19.** Something happened that
+changes what a person believes about their data. A resolved potential duplicate
+qualifies: two records they thought were separate are now one. An agent
+enriching a field does not: it filled in something they already expected to be
+filled. The test is not "did something happen" but "would this person answer a
+question differently now". Applying it is what keeps the volume sane, so an
+agent working through two hundred records does not produce two hundred lines.
+
 The shape, deliberately simplified and **subject to change**:
 
 - A notification names its recipient, its kind, what it is about, and whether it
-  has been seen.
+  has been read. One state, not two — the earlier draft distinguished "seen"
+  from "read" and that distinction was dropped, because nothing can measure the
+  difference and a state nobody can verify is not worth a column.
 - A person can say which kinds reach them and by which route — in the product,
   by mail digest, or not at all.
 - Something reads the event stream and fans events out to the people who should
   see them. It sends mail through the channel above rather than opening a second
   one.
 
+**The daily and weekly briefing are owed too, and are not built.** The briefing
+machinery exists — `backend/internal/compose/briefs` ranks and scores what
+matters to a person, and it is read on demand. What does not exist is a cadence:
+nothing arrives daily or weekly, and there is no place to choose. The digest
+route above is that same delivery, so the two are one design pass rather than
+two. Who sets the frequency — the operator for everyone, each person for
+themselves, or an operator default a person can override — is open, and the
+third is the usual answer.
+
 **None of this is built.** There is no notification table, no module, and no
 route in the contract. Anything here that reads as settled is not: the entity
-shape, the preference model, the digest cadence and the read-state semantics all
-need a proper design pass before code. Treat this section as the placeholder
-that keeps the question owned, not as a specification to build from — and when
-that pass happens, replace this section in the same change.
+shape, the preference model, the digest cadence and the fan-out rule all need a
+proper design pass before code. Treat this section as the placeholder that keeps
+the question owned, not as a specification to build from — and when that pass
+happens, replace this section in the same change.
 
 ## What it binds in this repository
 
