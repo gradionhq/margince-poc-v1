@@ -187,11 +187,7 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}
-	version, err := cfg.bindingDigest()
-	if err != nil {
-		return RoutingConfig{}, err
-	}
-	cfg.sourceHash = version
+	cfg.sourceHash = cfg.bindingDigest()
 	return cfg, nil
 }
 
@@ -215,13 +211,13 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 // re-pointed tier, a different base URL, a narrowed `input`. Those are exactly
 // the cases where content a model wrote must stop being attributed to a model
 // that no longer produces it.
-func (cfg RoutingConfig) bindingDigest() (string, error) {
-	encoded, err := json.Marshal(cfg)
-	if err != nil {
-		return "", fmt.Errorf("ai: routing config: encoding the binding for its version: %w", err)
-	}
+func (cfg RoutingConfig) bindingDigest() string {
+	// A plain struct of strings, ints and a string-keyed map — marshal cannot
+	// fail on it, and the same spelling guards the sibling fingerprints in
+	// compose/orgbrief and compose/orgdossier that this digest feeds.
+	encoded, _ := json.Marshal(cfg) //nolint:errchkjson // plain scalars and a string-keyed map; marshal cannot fail
 	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
 }
 
 // localProviders can serve the sovereign zero-egress profile.
