@@ -272,6 +272,46 @@ func embedReindexDecode[T any](t *testing.T, e *apptest.AppEnv, method, path str
 // read ops (status: returns reindex_needed after a stale-identity row is
 // present; preview: labeled per-workspace+total) over the real handler +
 // search.Store.
+// TestStatusEntitiesPendingDoesNotGrowWithTheWorkspaceCount pins the arithmetic
+// the status read must NOT do. Since ADR-0091 §8 phase D no embeddable entity
+// carries a tenant, so PendingByWorkspace holds the SAME rows under every
+// workspace it enumerates; summing that rollup reports an installation with two
+// of them as having twice the backlog. `entities_pending` is what an operator
+// reads before confirming a reindex and what the preview prices, so the
+// exaggeration would be a bill rather than a display.
+//
+// The assertion is a DELTA rather than an absolute count, so it holds whatever
+// else the harness happens to seed: adding a workspace changes no entity, so it
+// must change no number. A test pinning an absolute would have to be rewritten
+// every time the fixture grows, and would have passed against the summing
+// version for a single-workspace installation — which is exactly how the
+// summing version survived in the transport after the store stopped doing it.
+func TestStatusEntitiesPendingDoesNotGrowWithTheWorkspaceCount(t *testing.T) {
+	router := embedReindexRouter(t, "reindex-count-v1")
+	e := setupEmbedReindex(t, router)
+	wsID := embedReindexWorkspaceID(t, e)
+	seedStaleEmbeddingRow(t, e, wsID)
+
+	status, before, _ := embedStatus(t, e)
+	if status != http.StatusOK {
+		t.Fatalf("baseline status -> %d, want 200", status)
+	}
+	if before.EntitiesPending < 1 {
+		t.Fatalf("entities_pending = %d, want >= 1 — the delta below proves nothing against an empty backlog", before.EntitiesPending)
+	}
+
+	SeedExtraWorkspace(t, e.Owner, "reindex-count-second", false)
+
+	status, after, _ := embedStatus(t, e)
+	if status != http.StatusOK {
+		t.Fatalf("status after the second workspace -> %d, want 200", status)
+	}
+	if after.EntitiesPending != before.EntitiesPending {
+		t.Fatalf("entities_pending went %d -> %d when a second workspace was added and no entity was: the total is summing a rollup whose entries are the same rows",
+			before.EntitiesPending, after.EntitiesPending)
+	}
+}
+
 func TestEmbedReindexStatusAndPreviewReflectPendingEntities(t *testing.T) {
 	router := embedReindexRouter(t, "reindex-status-v1")
 	e := setupEmbedReindex(t, router)
