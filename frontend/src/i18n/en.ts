@@ -4,12 +4,15 @@
 export const en = {
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
-  // The two themes as the options of a choice — Settings → Account offers both at
-  // once, so each is named by what it IS rather than by what picking it does. The
-  // two labels above stay the names of the ICON-ONLY control on sign-in and
-  // onboarding, where one button stands for the theme it switches to.
+  // The three appearance choices, as the options of a chooser — the account menu
+  // offers all of them at once, so each is named by what it IS rather than by
+  // what picking it does. The two labels above stay the names of the ICON-ONLY
+  // control on sign-in and onboarding, where one button stands for the theme it
+  // switches to. "System" names the machine whose preference it follows, not a
+  // third appearance: it resolves to one of the other two and keeps resolving.
   "theme.light": "Light",
   "theme.dark": "Dark",
+  "theme.system": "System",
 
   "trust.accept": "Accept",
   "trust.edit": "Edit",
@@ -76,12 +79,18 @@ export const en = {
   "shell.railAria": "Primary navigation",
   "shell.skipToContent": "Skip to content",
   "shell.logoAria": "Margince",
-  "shell.search": "Search",
+  "shell.searchEverything": "Search everything…",
+  "shell.breadcrumbAria": "Breadcrumb",
+  "shell.approvals": "Approvals",
+  "shell.license.seats": "{used}/{granted} seats",
+  "shell.license.none": "No license",
+  "shell.license.refused": "License refused",
+  "shell.license.aria": "Licensing and seats",
+  "shell.approvalsWaiting": "Approvals — {count} waiting",
   "shell.signOutAria": "Sign out",
   "shell.collapse": "Collapse sidebar",
   "shell.expand": "Expand sidebar",
   "shell.accountAria": "Account",
-  "shell.account": "Account",
   "shell.theme": "Theme",
   "shell.more": "More",
   "shell.unknownPage": "Not found",
@@ -155,14 +164,14 @@ export const en = {
   "action.readCompany": "Read a company",
   "action.booking": "Booking page",
 
-  "fab.open": "Ask about this",
-  "fab.close": "Close",
-  "fab.panelAria": "Ask about this record",
-  "fab.context": "Ask about {context}",
-  "fab.scope": "Your agent reads only what you can see.",
-  "fab.inputAria": "Your question",
-  "fab.placeholder": "Ask about what you're looking at…",
-  "fab.send": "Ask",
+  "common.close": "Close",
+  "ask.panelAria": "Ask about what you're looking at",
+  "ask.context": "Ask about {context}",
+  "ask.scope": "Your agent reads only what you can see.",
+  "ask.inputAria": "Your question",
+  "ask.placeholder": "Ask about what you're looking at…",
+  "ask.send": "Ask",
+  "ask.sendEmpty": "Write a question first.",
 
   "explain.open": "Explain this number",
   "explain.title": "How this number is built",
@@ -2002,7 +2011,7 @@ export const en = {
   "explain.sources": "Source rows",
 
   "ai.sub": "bring your own agent — governed by the two-tier contract",
-  "ai.fromPalette": "From the palette",
+  "ai.carriedQuestion": "Your question",
   "ai.tiers": "What an agent may do",
   "ai.tierAutoExecute": "Read & draft run instantly.",
   "ai.tierAutoExecuteDetail":

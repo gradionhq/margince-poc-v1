@@ -10,6 +10,11 @@ import "../src/app.css";
 // design-system/composed.tsx) that most stories never reach — importing
 // them here keeps story renders matching production chrome.
 import "../src/app/shell.css";
+// The strip's own sheet, for the same reason and with the same failure mode: a
+// story that builds a `.topbar` by class — the account block's frames do — drew
+// no grid, no height, no ground and no rule until this was here, and the trail
+// sat at the window's edge instead of the column's.
+import "../src/app/topbar.css";
 import "../src/design-system/composed.css";
 // atoms.css for the same reason, and it bites hardest: `.card`, `.btn` and the
 // rest are reached BY CLASS from components that import nothing from atoms.tsx

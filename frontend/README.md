@@ -29,7 +29,7 @@ in `src/app/ui-preview.ts`; the naming prefix is the contract with the reader.
 |---|---|
 | `VITE_UI_PREVIEW_OIDC=1` | The federated sign-in buttons on the login screen, with the second provider marked *not yet available*. |
 | `VITE_UI_PREVIEW_RESET=1` | The "Forgot password?" link and the request card it opens. |
-| `VITE_UI_PREVIEW_TASKBAR=1` | The bottom agent taskbar — the competing proposal to the page-head dock, with the page you are on to the left of it and the workspace to the right. Its counts are READ from the API; what it cannot read (an agent run in flight) is reachable only from the review-only switcher in its panel. It takes the page-head dock and the Ask FAB down while it is on. |
+| `VITE_UI_PREVIEW_TASKBAR=1` | The bottom agent taskbar — the competing proposal to the shipped dock, which floats at the foot of the content column, with the page you are on to the left of the bar and the workspace to the right. Its counts are READ from the API; what it cannot read (an agent run in flight) is reachable only from the review-only switcher in its panel. It takes the dock down while it is on, so exactly one agent surface is ever on screen. |
 
 ```sh
 pnpm dev:preview                    # every switch on — the demo entry point
@@ -105,7 +105,7 @@ default.
   StagedProposal) — never stacked under a field again. The migration is real but
   partial: the company record page consumes the mark today while the other record
   screens still render the older primitives directly. Then the **Margince Core**
-  (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed nine-state
+  (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed eight-state
   vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
   callers pass `state` and size it through `--coreSize` / `--coreGlass` and
   never restyle it), `motion.ts` (reduced motion jumps to the END state, never
@@ -116,7 +116,8 @@ default.
   groups — a label is presentation and never a route id: `deals` presents as
   Pipeline, `inbox` as Approvals, `ai` as Ask Margince), `theme.ts` (light/dark
   resolved and applied BEFORE React mounts, so an unauthenticated screen can be
-  dark at all), the hash router, the ⌘K palette, and the Ask FAB. See
+  dark at all), the hash router, the ⌘K palette, and the agent dock (the one floating AI
+  affordance, carrying the record-scoped ask). See
   [docs/explanation/frontend-architecture.md](../docs/explanation/frontend-architecture.md).
 - `src/screens/` — one file per surface, or one directory when a surface is a
   state machine (`onboarding-conversation/`); unbuilt routes render the honest

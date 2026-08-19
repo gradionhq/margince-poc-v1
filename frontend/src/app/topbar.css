@@ -1,0 +1,255 @@
+/* ===== the top bar =====
+ * The session's own strip: the sidebar control, the trail, the search, and the
+ * person. It stands on the SAME ground as the sidebar (--bgElevated) with one
+ * hairline under it, so the chrome reads as a single L around the content
+ * instead of two panels that happen to meet at a corner.
+ *
+ * It never scrolls: it is the first row of the content column's flex box and
+ * the scroller is its sibling, which is cheaper than `position: sticky` and
+ * cannot be defeated by a screen that establishes its own scroll container. */
+/* Three tracks, the outer two equal: the search sits at the centre of the
+   CONTENT column and stays there whatever the two sides carry. In flow rather
+   than absolutely positioned — a centred field taken out of the row leaves the
+   trail beside it bounded by nothing, and a long record name then runs UNDER the
+   field and out the other side, unclipped and with no tooltip, which is what the
+   first version of this bar did above 1100px. `minmax(0, 1fr)` is what lets the
+   trail shrink and ellipsis instead. */
+.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  /* One number for the strip's height, read by the sidebar too: the head that
+     carries the logomark is sized against it so the first destination's row
+     begins exactly where this bar's rule ends. */
+  height: var(--topbarH);
+  padding: var(--space-2) var(--pageGutter);
+  background: var(--bgElevated);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+/* Where you are, beside the control that widens the room you are in. */
+.topbar-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.topbar-trail {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The sidebar control lives HERE rather than in the sidebar, so the affordance
+   that opens the panel does not travel with the panel — collapsed, it used to
+   hide under the logomark and reveal on hover, which is a control you have to
+   already know about to find. */
+.topbar-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--textMeta);
+  cursor: pointer;
+}
+.topbar-toggle:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.topbar-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ===== search =====
+ * Centred on the content column, which is what the bar spans. It glides with the
+ * column when the sidebar collapses — `--railW` animates as a registered length
+ * (shell.css), so the grid beside it moves rather than snapping. */
+.topbar-searchslot {
+  width: min(420px, 34vw);
+}
+.topbar-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgPage);
+  color: var(--textMeta);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.topbar-search:hover {
+  border-color: var(--borderStrong);
+  color: var(--textSecondary);
+}
+.topbar-search:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.topbar-searchlabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* One cap per KEY. Two small squares read as keys because they are shaped like
+   keys; the single wide box they replace read as a label. */
+.topbar-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+}
+.topbar-keys kbd {
+  display: grid;
+  place-items: center;
+  /* Sized to the character, not to a common floor: ⌘ and K are different widths
+     and two caps forced to one width read as a pair of buttons. 18px tall, 4px
+     inset, 6px radius, 11px at medium — the reference's own measurements. */
+  height: 18px;
+  padding: 0 4px; /* ds:ignore optical inset on a key cap, not rhythm */
+  border: 1px solid var(--borderSubtle);
+  border-radius: 6px;
+  background: var(--bgPage);
+  color: var(--textMeta);
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+
+/* Focus rings in this strip take `--accent`, the THEMED state colour, not
+   `--accentBrand`: the brand token stays emerald in both themes by design and
+   falls to 3.0:1 against the strip in the dark one. */
+
+/* What is waiting on this person. A bare glyph, like `.iconbtn` a row's verb:
+   the strip is chrome, and a filled control here would out-shout the trail that
+   says where the reader is. */
+.topbar-bell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  border-radius: var(--r-sm);
+  color: var(--textMeta);
+  text-decoration: none;
+}
+.topbar-bell:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.topbar-bell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* On the glyph rather than beside it, so the count cannot widen the strip and
+   push the search off centre as it grows. */
+.topbar-bellcount {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 15px;
+  padding: 0 3px; /* ds:ignore optical inset on a count chip, not rhythm */
+  border-radius: var(--r-full);
+  background: var(--accentBrand);
+  color: var(--textOnAccent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+  text-align: center;
+}
+
+/* The account menu drops from the STRIP, not from the trigger: anchored to the
+   32px avatar it began 9px above the strip's own rule and covered it. The offset
+   is the trigger's centring inside the bar plus the gap under the rule, so it
+   holds at any bar height and at the larger touch control size. */
+.topbar .accountmenu {
+  top: calc(
+    100% +
+    (var(--topbarH) - var(--control-h-sm)) /
+    2 +
+    var(--space-2) +
+    1px
+  );
+}
+
+/* Below this width a centred field and the trail beside it are competing for
+   the same pixels, and the trail is the half that cannot be recovered from a
+   keyboard shortcut. The search keeps its place in the row and drops to its
+   glyph — never off the bar, because on touch there is no ⌘K to fall back on. */
+@media (max-width: 1100px) {
+  .topbar {
+    display: flex;
+    /* One gap for the whole strip: the three glyphs at the end sit the same
+       distance apart as the collapse control and the trail at the start, so the
+       row reads as one rhythm rather than two. */
+    gap: var(--space-2);
+  }
+  .topbar-lead {
+    flex: 1;
+  }
+  .topbar-searchslot {
+    width: auto;
+    flex: none;
+    order: 1;
+  }
+  .topbar-trail {
+    flex: none;
+  }
+  /* A bare glyph, exactly like the bell beside it. The field's border and ground
+     are what say "type here"; with no room for the label they said nothing and
+     left one of three icons in a box. */
+  .topbar-search {
+    width: var(--control-h-sm);
+    justify-content: center;
+    padding: 0;
+    border-color: transparent;
+    background: transparent;
+  }
+  .topbar-search:hover {
+    border-color: transparent;
+    background: var(--bgHover);
+    color: var(--textPrimary);
+  }
+  .topbar-searchlabel,
+  .topbar-keys {
+    display: none;
+  }
+  .topbar-trail {
+    order: 2;
+  }
+}
+
+/* At phone width the sidebar is the bottom bar, so there is no panel to collapse
+   and no control for it. What stays is what a phone reader cannot get any other
+   way: where they are, how to search, and who they are. */
+@media (max-width: 700px) {
+  .topbar {
+    padding: var(--space-2) var(--pageGutter);
+    gap: var(--space-2);
+  }
+  .topbar-toggle {
+    display: none;
+  }
+  /* The bottom bar carries Approvals at this width — same queue, same bell, in
+     the reach the thumb already covers. A second one up here would be the same
+     count twice on a 390px row that has three things on it. */
+  .topbar-bell {
+    display: none;
+  }
+}

@@ -58,6 +58,13 @@ export type NavTrailLevel = {
   titleKey?: MessageKey;
   groups: readonly NavLevelGroup[];
   activeId?: string;
+  // Whether the active row IS the page, or only the section the page sits in.
+  // A record route makes its list's row active while the page is the record —
+  // and the trail in the top bar is what names that page, and claims it. Two
+  // elements claiming `aria-current="page"` for different things is worse than
+  // one claiming a little less, so a row that is only an ancestor says
+  // `aria-current="true"` instead: current in this set, not the page.
+  ancestor?: boolean;
   path: readonly string[];
   badgeIds?: ReadonlySet<string>;
   barIds?: ReadonlySet<string>;
@@ -107,17 +114,19 @@ function activeEntry(level: NavTrailLevel): NavLevelEntry | undefined {
 export function navTrail(
   top: NavTrailLevel,
   route: Route,
+  // Which of the top level's rows the route makes current. For every destination
+  // the PRODUCT owns this is the route's screen; the caller that knows better
+  // passes something else (app/nav.ts: a composed unit's route has screen `ext`
+  // and no row of its own). An id no rendered row carries simply marks nothing —
+  // on those routes the trail in the top bar is what says where the reader is.
+  activeId: string,
   section?: NavSection,
-  // Which of the top level's rows the route makes current. It defaults to the
-  // route's screen, which is what a primary entry's id is for every
-  // destination the PRODUCT owns — and is passed explicitly by the caller that
-  // knows better: a composed unit's route has screen `ext` and no row of its
-  // own, so it names `settings`, the door it is offered from. Nothing in this
-  // level renders that id; the shell's Settings door reads the activeId and
-  // claims the page itself (app/shell.tsx).
-  activeId: string = route.screen,
 ): readonly NavTrailLevel[] {
-  const trail: NavTrailLevel[] = [{ ...top, activeId }];
+  // A segment under the screen means the page is something the screen holds —
+  // a record, a unit — rather than the screen itself.
+  const trail: NavTrailLevel[] = [
+    { ...top, activeId, ancestor: route.id !== undefined },
+  ];
   if (!section || section.screen !== route.screen) {
     return trail;
   }

@@ -10,16 +10,16 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { AskFab } from "./fab";
 import {
   ASK_QUERY_KEY,
   type Command,
   CommandPalette,
-  paletteHotkeyLabel,
+  paletteHotkeyCaps,
 } from "./palette";
 
-// B-EP09.5 (AC-shell-3..7), B-EP09.6 (AC-shell-8), and RS-1 (live /search
-// records + see-all) acceptance.
+// B-EP09.5 (AC-shell-3..7) and RS-1 (live /search records + see-all)
+// acceptance. B-EP09.6 (AC-shell-8) moved to app/agentdock.test.tsx with the
+// composer it covers: the Ask FAB was absorbed into the agent dock.
 
 afterEach(() => {
   cleanup();
@@ -79,18 +79,27 @@ const commands: Command[] = [
 
 // The palette answers to both modifiers, but the affordance may advertise only
 // one, and ⌘ names a key a Windows keyboard does not have.
-describe("paletteHotkeyLabel", () => {
+describe("paletteHotkeyCaps", () => {
   it("names the modifier the platform actually has", () => {
-    expect(paletteHotkeyLabel("MacIntel")).toBe("⌘K");
-    expect(paletteHotkeyLabel("iPhone")).toBe("⌘K");
-    expect(paletteHotkeyLabel("Win32")).toBe("Ctrl K");
-    expect(paletteHotkeyLabel("Linux x86_64")).toBe("Ctrl K");
+    expect(paletteHotkeyCaps("MacIntel")).toEqual(["⌘", "K"]);
+    expect(paletteHotkeyCaps("iPhone")).toEqual(["⌘", "K"]);
+    expect(paletteHotkeyCaps("Win32")).toEqual(["Ctrl", "K"]);
+    expect(paletteHotkeyCaps("Linux x86_64")).toEqual(["Ctrl", "K"]);
   });
 
   // An unreported platform is far more likely to be Windows or Linux than a Mac,
   // and Ctrl is the modifier that works on both.
   it("falls back to Ctrl when the platform is unknown", () => {
-    expect(paletteHotkeyLabel("")).toBe("Ctrl K");
+    expect(paletteHotkeyCaps("")).toEqual(["Ctrl", "K"]);
+  });
+
+  // One cap per key, and never a string a caller has to take apart again: the
+  // surface that draws these drew them by splitting "⌘K" with a lookbehind regex,
+  // which does not parse at all on an engine without lookbehind.
+  it("hands back one entry per key, so no caller has to split a string", () => {
+    for (const platform of ["MacIntel", "Win32", ""]) {
+      expect(paletteHotkeyCaps(platform)).toHaveLength(2);
+    }
   });
 });
 
@@ -183,40 +192,5 @@ describe("CommandPalette (AC-shell-3/4/5/6)", () => {
 
     await userEvent.click(screen.getByText("Dana Buyer at Acme"));
     expect(window.location.hash).toBe("#/contacts/p1");
-  });
-});
-
-describe("AskFab (AC-shell-8)", () => {
-  it("mounts on core screens with the context label tracking the screen", async () => {
-    render(<AskFab route={{ screen: "deals" }} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Ask about this" }),
-    );
-    expect(screen.getByText("Ask about Pipeline")).toBeTruthy();
-  });
-
-  it("tracks the active record id when present", async () => {
-    render(<AskFab route={{ screen: "companies", id: "brandt" }} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Ask about this" }),
-    );
-    expect(screen.getByText("Ask about brandt")).toBeTruthy();
-  });
-
-  it("renders the load-bearing scope copy", async () => {
-    render(<AskFab route={{ screen: "home" }} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Ask about this" }),
-    );
-    expect(
-      screen.getByText("Your agent reads only what you can see."),
-    ).toBeTruthy();
-  });
-
-  it("is absent on the ai screen and on rail-less surfaces", () => {
-    const { container } = render(<AskFab route={{ screen: "ai" }} />);
-    expect(container.querySelector(".askfab")).toBeNull();
-    const { container: book } = render(<AskFab route={{ screen: "book" }} />);
-    expect(book.querySelector(".askfab")).toBeNull();
   });
 });

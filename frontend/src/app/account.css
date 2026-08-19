@@ -1,37 +1,44 @@
-/* ===== the account block at the foot of the sidebar =====
-   Every rule is scoped to `.rail`: this block belongs to the sidebar's ground
-   and its geometry (the 64px collapsed rail, the padded expanded one) is what
-   the anchoring below is measured against. */
+/* ===== the account block =====
+   An avatar in the top bar's trail, and the menu that drops out of it.
 
-.rail .account {
+   One container. The block had a sidebar form once and it went with the foot it
+   stood in, so nothing here is scoped by a container any more — what remains is
+   the component's own chrome, plus the one width where the flyout cannot open
+   outward at all (the phone rule below). */
+
+.account {
   position: relative;
-  /* The block is the last flex item of a column that grows; without this it
-     would shrink under the navigation above it on a short viewport. */
+  /* The menu is positioned against this box, and the trail is a flex row that
+     would otherwise squeeze it. */
   flex: none;
 }
 
-/* The trigger is a ROW, not an avatar button: it reads as the person it belongs
-   to, so it prints who is signed in and says — with the chevron — that there is
-   more behind it. */
-.rail .account .user {
-  display: flex;
-  align-items: center;
-  gap: 9px; /* ds:ignore matches .navitem's icon-to-label gap so the rows align */
-  width: 100%;
-  min-width: 0;
-  padding: 6px; /* ds:ignore optical inset that keeps the 28px avatar on the nav rows' left edge */
+/* The trigger is the AVATAR and nothing else. The strip is chrome true of the
+   whole session rather than a row about a person, so it takes the strip's own
+   control size — from the token, so it follows the coarse-pointer bump its three
+   neighbours take instead of staying at whatever the pointer-precise number was.
+   The name and the address are not drawn: the sentence they carry reaches a
+   screen reader through the clipped line (account.tsx), and the panel prints them
+   when it opens, which is where the reader confirms whose account this is.
+   Sized rather than padded, because a padded row is 40px tall in a 34px strip and
+   pushes every item in the bar 3px off its centre. */
+.account .user {
+  display: grid;
+  place-items: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-full);
   background: transparent;
   color: var(--textPrimary);
   font-family: var(--f-body);
-  text-align: left;
   cursor: pointer;
 }
-.rail .account .user:hover {
+.account .user:hover {
   background: var(--bgHover);
 }
-.rail .account .user:focus-visible {
+.account .user:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -39,65 +46,43 @@
    themselves, and `min-width: 0` is what lets them — a flex item's floor is its
    content width until it is told otherwise, and without it the row grows instead
    of the text ellipsing. */
-.rail .acctwho {
+.acctwho {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px; /* ds:ignore two stacked lines of one block, not separated content */
 }
-.rail .acctwho b,
-.rail .acctmail {
+.acctwho b,
+.acctmail {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rail .acctwho b {
+.acctwho b {
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   color: var(--textPrimary);
 }
-.rail .acctmail {
+.acctmail {
   font-size: var(--fs-meta);
   color: var(--textMeta);
 }
-.rail .acctchev {
-  flex: none;
-  color: var(--textMeta);
-}
-
-/* Collapsed there is one thing to show and 64px to show it in: the avatar,
-   centred in a target that still measures the 44px the rail's own rows keep
-   (WDS-NAV-1). The name, the address and the chevron are not rendered — the
-   sentence they carry reaches a screen reader through the clipped line instead
-   (account.tsx), which is absolutely positioned and therefore needs this row as
-   its containing block. */
-.rail .account.collapsed .user {
-  position: relative;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  margin: 0 auto;
-  justify-content: center;
-}
 
 /* ===== the menu =====
-   Upward, out of the trigger: the block sits at the foot of the rail, so a menu
-   dropped under it would open off the bottom of the viewport.
-   The expanded rail clips horizontally (`overflow-x: hidden`), so the menu takes
-   the rail's own content width rather than a width of its own — anything wider
-   would be cut off rather than overhang. */
-.rail .accountmenu {
+   Downward and anchored to the trigger's RIGHT edge, which is the top bar's
+   arrangement: the trigger sits at the top-right of the viewport, so a menu
+   anchored on its left edge would open off the screen. */
+.accountmenu {
   position: absolute;
-  left: 0;
+  top: calc(100% + 6px);
   right: 0;
-  bottom: calc(100% + 6px);
-  top: auto;
-  min-width: 188px;
-  /* The floor above sets the comfortable width; this keeps it a floor rather than
-     a promise the viewport cannot keep. A narrow phone at 200% zoom leaves less
-     room than 188px plus the rail's own gutter, and the menu is anchored to an
+  left: auto;
+  width: 236px;
+  /* The width above is the comfortable reading measure; this keeps it a measure
+     rather than a promise the viewport cannot keep. A narrow phone at 200% zoom
+     leaves less room than that plus the gutter, and the menu is anchored to an
      edge, so growing past the viewport clips it on the other side. */
   max-width: calc(100vw - 2 * var(--space-2));
   display: flex;
@@ -109,36 +94,26 @@
   border-radius: var(--r-sm);
   box-shadow: var(--shadow-pop);
   z-index: 60;
-  /* The menu comes OUT OF the trigger rather than appearing above it: the
+  /* The menu comes OUT OF the trigger rather than appearing beside it: the
      transform origin is the control that opened it, so the growth reads as one
      movement instead of a panel switching on. Short (0.14s) because this is
      chrome — a menu you have to wait for is a menu that feels slow — and on the
      shell's own curve, so it belongs to the same choreography as the sidebar
      collapse rather than carrying a second easing vocabulary.
      Transform and opacity only: both composite, so it cannot cost a frame.
-     The fallback repeats `.app`'s curve because the rail is also rendered
+     The fallback repeats `.app`'s curve because the block is also rendered
      outside the shell (the component workbench), and an unresolved custom
      property in a shorthand invalidates the whole declaration — which would
      silently drop the animation there rather than degrade it. */
-  animation: accountmenu-rise 0.14s
+  animation: accountmenu-drop 0.14s
     var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
-  transform-origin: bottom center;
+  transform-origin: top right;
 }
-/* Collapsed the rail is 64px and opts out of clipping, so the menu pops out
-   BESIDE it and brings its own width — 220px, the comfortable reading measure
-   the expanded rail happens to give it. Its bottom edge lines up with the
-   trigger's, which is what makes it read as belonging to that row. */
-.rail .account.collapsed .accountmenu {
-  left: calc(100% + 8px);
-  right: auto;
-  bottom: 0;
-  width: 220px;
-  transform-origin: bottom left;
-}
-@keyframes accountmenu-rise {
+
+@keyframes accountmenu-drop {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.97);
+    transform: translateY(-4px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -148,24 +123,29 @@
 /* The end state, immediately — a menu that renders nothing under reduced motion
    is broken, not accessible. */
 @media (prefers-reduced-motion: reduce) {
-  .rail .accountmenu {
+  .accountmenu,
+  .accountsub {
     animation: none;
   }
 }
 
 /* ===== the rows =====
-   One rule for the popover's rows and the phone sheet's flat ones: the sheet IS
-   the sidebar, so the two carry the same row geometry and only the chrome around
-   them differs. A second spelling is how the sheet would come to read as a
-   different product. */
-.rail .accountmenu a,
-.rail .accountmenu button,
-.rail .accountrows a,
-.rail .accountrows button {
+   One class for the popover's rows, the flyout's, and the phone sheet's flat
+   ones: the sheet IS the sidebar, so the surfaces carry the same row geometry and
+   only the chrome around them differs. A class rather than an element selector,
+   because the flyout nests its own buttons inside a row's wrapper and a
+   descendant rule would reach controls that are not rows at all. */
+/* Almost no leading glyphs. A gear beside "Settings" is the word twice, so the
+   destinations are labels the eye reads straight down — and the ONE row that
+   ends the session keeps its mark, because it is the one row here whose result
+   is not another screen. The theme row's trailing chevron is the panel's other
+   mark, and it means the same kind of thing: there is more behind this row. */
+.acctrow {
   display: flex;
   align-items: center;
   gap: 9px; /* ds:ignore the menu row's own optics, unchanged from the menu it replaces */
   padding: 7px 9px; /* ds:ignore the menu row's own optics, unchanged from the menu it replaces */
+  width: 100%;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -176,82 +156,143 @@
   text-decoration: none;
   cursor: pointer;
 }
-.rail .accountmenu a:hover,
-.rail .accountmenu button:hover,
-.rail .accountrows a:hover,
-.rail .accountrows button:hover {
+.acctrow:hover {
   background: var(--bgHover);
   color: var(--textPrimary);
 }
-.rail .accountmenu button:disabled,
-.rail .accountrows button:disabled {
+.acctrow:disabled {
   opacity: 0.6;
   cursor: default;
 }
-.rail .accountmenu a:focus-visible,
-.rail .accountmenu button:focus-visible,
-.rail .accountrows a:focus-visible,
-.rail .accountrows button:focus-visible {
+.acctrow:disabled:hover {
+  background: transparent;
+  color: var(--textContent);
+}
+.acctrow:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-/* The groups: the account surfaces, then the way out. An <hr> rather than a
+/* The label takes the room the row has, so what follows it — the flyout's
+   chevron — is pushed to the row's trailing edge instead of sitting against the
+   word. */
+.acctrowlabel {
+  flex: 1;
+  min-width: 0;
+}
+.acctmore {
+  flex: none;
+  color: var(--textMeta);
+}
+/* The groups: who you are, where you go, then the way out. An <hr> rather than a
    border on the first row of a group — it is a separator, and a screen reader is
    told so. */
-.rail .accountmenu hr,
-.rail .accountrows hr {
+.accountmenu hr {
   height: 1px;
   border: 0;
-  margin: var(--space-1) 0;
+  /* Wall to wall. The panel carries a 5px inset so its rows clear the rounded
+     corner, and a separator that respected it read as a short line floating
+     inside the menu rather than as the division between two groups — so it
+     bleeds back out through the inset it sits in. */
+  margin: var(--space-1) -5px; /* ds:ignore bleeds the panel's own optical inset, not a rhythm */
   background: var(--borderSubtle);
 }
 
-/* ===== the rows, flat =====
-   The phone sheet has no popover to open, so it gets the rows themselves: the
-   same list, without the elevated surface, the border or the rise — those belong
-   to a thing that opens over something else, and inside the sheet there is
-   nothing to open over. */
-.rail .accountrows {
-  display: flex;
-  flex-direction: column;
-  gap: 1px; /* ds:ignore the menu's own row rhythm — one list, not spaced blocks */
-}
-/* Who is signed in, above the rows: it takes the rows' own inset so the block
-   stands on the same left edge as they do rather than against the sheet's wall.
-   Deliberately outside the row rule above — no hover and no pointer, because it
-   is a statement about who you are, not a row that goes anywhere. */
-.rail .accountrows .acctsheetwho {
+/* Who is signed in, at the top of the panel. In the top bar the trigger carries
+   no name, so this is the only place the reader confirms the account before
+   acting on it. It takes the rows' own inset so the block stands on the same left
+   edge as they do, and it is deliberately outside the row rule — no hover and no
+   pointer, because it is a statement about who you are, not a row that goes
+   anywhere. */
+.acctmenuwho {
   display: flex;
   padding: 7px 9px; /* ds:ignore the row inset it lines up with, not a rhythm of its own */
 }
 
-/* ===== the rows inside the phone sheet =====
-   In the sheet the account rows stand in ONE list with the destinations above
-   them, so they take the destinations' geometry rather than the menu's: the same
-   48px touch row, the same icon column, the same label size. The menu's compact
-   optics belong to a popover under a pointer, and beside 48px rows they read as a
-   different list bolted to the bottom of this one.
-   The breakpoint is the sheet's own (PHONE_MAX_WIDTH in app/viewport.ts, and the
-   `.rail.sheetopen` rules in app/shell.css it has to agree with). */
+/* ===== the theme flyout =====
+   The seat is what the flyout is measured against; it is `role="none"` in the
+   markup and draws nothing of its own. */
+.acctthemeseat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+/* It opens to the LEFT. The menu this hangs off is anchored to a trigger at the
+   top-right of the viewport, so the room is reliably on the inside and reliably
+   not on the outside — an outward flyout would open past the window edge on
+   every screen. */
+.accountsub {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 5px);
+  left: auto;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px; /* ds:ignore the popover inset of the menu it flies out of */
+  gap: 1px; /* ds:ignore one list, not spaced blocks */
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  /* Above the menu it flies out of, which is itself above the shell. */
+  z-index: 61;
+  animation: accountsub-open 0.12s
+    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  transform-origin: top right;
+}
+
+@keyframes accountsub-open {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+/* The tick keeps its column whether or not it is drawn, so the three labels stand
+   on one left edge instead of shifting as the choice moves. */
+.accttick {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  color: var(--accent);
+}
+
+.acctthemelabel {
+  font-size: var(--fs-sm);
+  color: var(--textContent);
+}
+
+/* ===== the flyout at phone width =====
+   A 168px flyout opening INWARD from a menu that is itself anchored to the right
+   edge starts at a negative x once the viewport is narrower than about 430px:
+   the menu's own left edge is already close to the window's, and there is no
+   scrollbar to recover what falls off it. It is also the only appearance control
+   at that width, so it may not be the one that goes off screen.
+   Below the sheet's breakpoint (PHONE_MAX_WIDTH in app/viewport.ts) it stops
+   being a popover and becomes an indented group inside the menu: in the flow, no
+   surface of its own, its rows stepped in so they read as belonging to the row
+   that opened them. */
 @media (max-width: 700px) {
-  .rail.sheetopen .accountrows a,
-  .rail.sheetopen .accountrows button {
-    gap: var(--space-3);
-    min-height: 48px;
-    padding: 0 var(--space-3);
-    border-radius: 8px; /* ds:ignore the rail row's own radius, matched from .navitem */
-    font-size: 13.5px; /* matched from .rail.sheetopen .navlabel */
+  .accountsub {
+    position: static;
+    min-width: 0;
+    padding: var(--space-1) 0 var(--space-1) var(--space-4);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation: none;
   }
-  /* The glyphs arrive at 15px from the menu's markup; in the sheet they stand in
-     the destinations' 18px column. */
-  .rail.sheetopen .accountrows svg {
-    width: 18px;
-    height: 18px;
-  }
-  .rail.sheetopen .accountrows .acctsheetwho {
-    padding: var(--space-2) var(--space-3);
-  }
-  .rail.sheetopen .accountrows hr {
-    margin: var(--space-2) 0;
-  }
+}
+
+/* A refused sign-out, stated in the menu it was asked from. It bleeds out
+   through the panel's optical inset like the separators do, so the callout meets
+   both edges instead of floating inside a 5px frame. */
+.acctrowalert {
+  padding: var(--space-1) 0 0;
 }

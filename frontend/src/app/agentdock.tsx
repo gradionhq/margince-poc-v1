@@ -5,20 +5,29 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import { Button, Textarea } from "../design-system/atoms";
 import { MarginceCoreScene } from "../design-system/margince-core";
 import { useT } from "../i18n";
 import { useAgentTierMap } from "./autonomy";
+import { useRouteSubject } from "./pagemeta";
+import { ASK_QUERY_KEY } from "./palette";
 import { usePopoverDismiss } from "./popover";
+import { navigate, type Route } from "./router";
 import "./agentdock.css";
 
-// The agent dock: the Margince Core at the right edge of the page head, and
-// everything the runtime can honestly say about the agent behind it.
+// The agent dock: the Margince Core floating at the foot of the content column,
+// and everything the runtime can honestly say about the agent behind it.
+//
+// It is the ONLY floating AI affordance in the product. It used to share the
+// page with a separate "Ask about this" FAB in the opposite corner, and two
+// glowing corners left a reader unable to tell which of them was the agent — so
+// the FAB's composer moved in here (B-EP09.6, AC-shell-8) and the FAB is gone.
 //
 // Three densities, because the agent is present on every screen and only
 // sometimes the thing you came for:
 //   at rest   — who it is and what state it is in, and nothing else;
 //   on hover  — the affordance that says there is more here;
-//   on click  — the panel, where the numbers live.
+//   on click  — the panel, where the ask composer and the numbers live.
 // What wants attention is exempt from that ladder: a waiting-approvals count is
 // shown at rest, because a signal you have to hover to find is not a signal.
 //
@@ -26,7 +35,9 @@ import "./agentdock.css";
 // it does not continuously prove a provider is reachable, so the dock states
 // configuration and never liveness. The status dot is the neutral tone for the
 // same reason — a success green beside "Configured" would read as a health
-// check nobody performed.
+// check nobody performed. The composer's scope line is load-bearing for the
+// same reason: the agent reads only the RBAC ∩ Passport intersection, and the
+// panel must never imply more.
 //
 // The orb is the Core primitive (WDS-CORE-1), the same ball sign-in and
 // onboarding show — there is one orb in the product, and a CSS lookalike in
@@ -34,7 +45,7 @@ import "./agentdock.css";
 // surface claiming configuration rather than work in flight — the waiting count
 // beside it is what carries the one live signal this dock has, in a number a
 // reader can act on. The feed is off: nothing is arriving here, and a mote
-// drifting through the page head is a moving speck beside the page title.
+// drifting over the page is a moving speck at the foot of the column.
 
 // The tools the catalog actually carries, split by how they act. Absent a
 // loaded catalog the row that reads this is not rendered — "0 auto-execute" is
@@ -49,10 +60,66 @@ function tierCounts(map: Record<string, string>): {
   return { auto, confirm: tiers.length - auto, total: tiers.length };
 }
 
+// The record-scoped ask, inherited whole from the FAB this dock absorbed: the
+// same copy under the same keys, in the same three parts. The context line
+// names what the question will be asked ABOUT, in the same words the trail at
+// the top of the window uses (app/pagemeta.ts) — and the scope line under it is
+// the caveat that keeps the naming honest.
+function AskComposer({ route }: Readonly<{ route: Route }>) {
+  const t = useT();
+  const context = useRouteSubject(route);
+  const [question, setQuestion] = useState("");
+  const asked = question.trim();
+  // The question goes where the product already carries one: the Ask surface
+  // reads `ASK_QUERY_KEY` on mount and prints what it was handed
+  // (screens/ai.tsx), which is the same seam the palette's own "ask" command
+  // uses. There is no chat backend behind either of them and this invents none —
+  // what it does is take the reader, and their sentence, to the surface the
+  // answer will come from.
+  const send = () => {
+    if (!asked) {
+      return;
+    }
+    // NOSONAR: persisted value is a trimmed plain string from a controlled input, consumed as text (never eval'd or rendered as HTML)
+    sessionStorage.setItem(ASK_QUERY_KEY, asked);
+    navigate({ screen: "ai" });
+  };
+  return (
+    // Named, so a screen reader landing inside the panel knows which of its
+    // parts it is standing in: the composer is the one part of this panel that
+    // takes input rather than pointing somewhere else.
+    <section className="agentask" aria-label={t("ask.panelAria")}>
+      <span className="t-label">{t("ask.context", { context })}</span>
+      <p className="t-caption agentaskscope">{t("ask.scope")}</p>
+      <Textarea
+        aria-label={t("ask.inputAria")}
+        placeholder={t("ask.placeholder")}
+        rows={3}
+        value={question}
+        onChange={(event) => setQuestion(event.target.value)}
+      />
+      {/* Refused while there is nothing to send, and it says which — a primary
+          button that accepts a press and does nothing is the same defect as one
+          wired to nothing at all. */}
+      <Button
+        variant="primary"
+        small
+        disabled={!asked}
+        reason={asked ? undefined : t("ask.sendEmpty")}
+        onClick={send}
+      >
+        {t("ask.send")}
+      </Button>
+    </section>
+  );
+}
+
 function DockPanel({
+  route,
   waiting,
   panel,
 }: Readonly<{
+  route: Route;
   waiting: number | undefined;
   panel: React.RefObject<HTMLElement | null>;
 }>) {
@@ -62,6 +129,19 @@ function DockPanel({
     // A section, not a div: `aria-label` names an element only where the role
     // supports naming, so on a bare div the name is dropped and the panel is
     // unreachable by name. Named, it is a region a screen reader can land on.
+    //
+    // A region and NOT role="dialog", which is what the FAB's panel claimed:
+    // this is a popover. Nothing traps focus in it, the page behind it stays
+    // live and clickable, and an outside click dismisses it — the dialog role
+    // would promise a modal contract that none of that keeps.
+    //
+    // The order below is deliberate, narrowest first: who you are talking to,
+    // then the question scoped to the record you are standing on, then the full
+    // Ask surface for anything wider, then what the agent has waiting and what
+    // it is allowed to do, and last the block that is only example data. The
+    // composer leads because it is what a reader opening this dock from a record
+    // came to do, and "Ask Margince" only reads as "wider than this one record"
+    // once the narrower thing is visible above it.
     <section
       className="agentpanel"
       ref={panel}
@@ -78,6 +158,10 @@ function DockPanel({
           <span className="agentstate">{t("agent.configured")}</span>
         </span>
       </div>
+      {/* Everywhere except the full Ask surface: there, a scoped composer would
+          be a smaller copy of the page behind it, offering to ask about the
+          screen the reader is already asking on. */}
+      {route.screen !== "ai" && <AskComposer route={route} />}
       <a className="agentcta" href="#/ai">
         <Sparkles size={15} aria-hidden />
         {t("nav.ai")}
@@ -133,8 +217,9 @@ function DockPanel({
 }
 
 export function AgentDock({
+  route,
   approvalsWaiting,
-}: Readonly<{ approvalsWaiting?: number }>) {
+}: Readonly<{ route: Route; approvalsWaiting?: number }>) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -178,7 +263,10 @@ export function AgentDock({
         )}
         <ChevronDown size={15} className="agentchev" aria-hidden />
       </button>
-      {open && <DockPanel waiting={waiting} panel={panel} />}
+      {/* After the trigger in the DOM even though it opens ABOVE it: this is a
+          disclosure, and a Tab out of the trigger has to land in what the
+          trigger just expanded. CSS does the upward placement. */}
+      {open && <DockPanel route={route} waiting={waiting} panel={panel} />}
     </div>
   );
 }

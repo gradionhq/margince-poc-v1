@@ -738,7 +738,7 @@ function SetRoleAction({
             >
               {t("record.save")}
             </Button>
-            <Button onClick={() => setOpen(false)}>{t("fab.close")}</Button>
+            <Button onClick={() => setOpen(false)}>{t("common.close")}</Button>
           </div>
         </div>
       </Modal>

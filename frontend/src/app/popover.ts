@@ -8,8 +8,9 @@ import { type RefObject, useEffect } from "react";
  * tick late, so the click that OPENED the popover does not immediately close it
  * again.
  *
- * One implementation, two callers (the sidebar's account menu and the page
- * head's agent dock): a second copy of this is how two popovers in the same
+ * One implementation, every popover in the chrome — the strip's account menu and
+ * the theme flyout inside it, the agent dock at the foot of the content column,
+ * and the phone sheet: a second copy of this is how two popovers in the same
  * product end up dismissing differently.
  */
 export function usePopoverDismiss(

@@ -128,15 +128,16 @@ async function pageOverflow(page: Page): Promise<string[]> {
 /**
  * The one account affordance, at the foot of the sidebar.
  *
- * Scoped to `.railfoot` rather than found by name alone: WHERE it is is half of
- * what the restructure promises — the person sits under the destinations, not
- * in a strip above the page — and a second account control appearing anywhere
- * else would still satisfy a bare name lookup. The name itself is deliberately
- * a substring: expanded, the trigger prints who is signed in and carries that
- * text into its accessible name (WCAG 2.5.3), so it reads "<person> — Konto".
+ * Scoped to the top bar's trailing cluster rather than found by name alone:
+ * WHERE it is is half of what the restructure promises — the person sits at the
+ * end of the session strip, opposite the trail that says where you are — and a
+ * second account control appearing anywhere else would still satisfy a bare
+ * name lookup. The name itself is deliberately a substring: the trigger carries
+ * who is signed in into its accessible name (WCAG 2.5.3), so it reads
+ * "<person> — Konto".
  */
 function accountTrigger(page: Page) {
-  return page.locator("nav.rail .railfoot").getByRole("button", {
+  return page.locator(".topbar .topbar-trail").getByRole("button", {
     name: "Konto",
   });
 }
@@ -209,7 +210,12 @@ test("AC-shell-1k: one h1 per railed page, and on a record it is the record's ow
   await expect(heading).toHaveCount(1);
   await expect(heading).toHaveText("Anna Weber");
   await expect(page.locator(".record-head h1")).toHaveText("Anna Weber");
-  await expect(page.locator(".pagecrumb .pageback")).toHaveText("Kontakte");
+  // The trail that leads back to the list stands in the top bar, where it is
+  // true of the page rather than part of the document the reader is reading.
+  await expect(page.locator(".topbar .crumbs a").last()).toHaveText("Kontakte");
+  await expect(page.locator('.topbar [aria-current="page"]')).toHaveText(
+    "Anna Weber",
+  );
 
   // An id segment that names no record is the screen's own state, so it is named
   // in WORDS and never as the slug it is addressed by: #/settings/privacy is the
@@ -240,56 +246,87 @@ test("AC-shell-3/4/5: ⌘K opens focused+empty, filters, Enter navigates", async
   await expect(page).toHaveURL(/#\/deals$/);
 });
 
-test("AC-shell-7: the sidebar's search row opens the palette", async ({
-  page,
-}) => {
+test("AC-shell-7: the top bar's search opens the palette", async ({ page }) => {
   await page.goto("/#/home");
-  const rail = page.locator("nav.rail");
-  // One search affordance in the product, and it is the sidebar's first row.
-  // A BUTTON, never a field: the palette owns the query, and a second input
-  // taking one here is exactly what this criterion forbids.
-  await expect(rail.locator("input")).toHaveCount(0);
-  await rail.getByRole("button", { name: "Suche" }).click();
+  const topbar = page.locator(".topbar");
+  // One search affordance in the product, and it is the centre of the session
+  // strip. A BUTTON, never a field: the palette owns the query, and a second
+  // input taking one here is exactly what this criterion forbids.
+  await expect(topbar.locator("input")).toHaveCount(0);
+  await topbar.locator(".topbar-search").click();
   await expect(
     page.getByRole("textbox", { name: "Befehlspalette" }),
   ).toBeVisible();
-  // And it is not an eleventh destination — the ten links AC-shell-1 counts
-  // are unchanged by search moving into the sidebar.
-  await expect(rail.locator(".navlevel a.navitem")).toHaveCount(10);
+  // And it is not an eleventh destination — the ten links AC-shell-1 counts are
+  // unchanged by search leaving the sidebar.
+  await expect(page.locator("nav.rail .navlevel a.navitem")).toHaveCount(10);
 });
 
-test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", async ({
+// The scoped ask lives in the agent dock now — the "Ask about this" FAB was
+// absorbed into it, so that there is ONE floating AI affordance rather than two
+// in opposite corners. The dock itself stands on every core screen including
+// the AI surface; what the AI surface must not carry is the scoped COMPOSER,
+// which would offer to ask about the page the reader is already asking on.
+test("AC-shell-8: the agent dock offers a scoped ask on core screens, never on the AI surface", async ({
   page,
 }) => {
-  await page.goto("/#/contacts");
-  await expect(page.locator(".askfab")).toBeVisible();
-  await page.goto("/#/deals");
-  await expect(page.locator(".askfab")).toBeVisible();
-  await page.goto("/#/ai");
-  await expect(page.locator(".askfab")).toHaveCount(0);
+  // The panel is a disclosure that outlives a route change — a hash navigation
+  // does not reload the document and the dock is the same component either side
+  // of it — so this ENSURES it is open rather than toggling: a second click on an
+  // already-expanded trigger closes it, which is what a plain click did here.
+  const openDock = async (hash: string) => {
+    await page.goto(hash);
+    const trigger = page.locator(".agentdocktrigger");
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+      await trigger.click();
+    }
+    await expect(page.locator(".agentpanel")).toBeVisible();
+  };
+
+  await openDock("/#/contacts");
+  await expect(page.locator(".agentask")).toBeVisible();
+  await openDock("/#/deals");
+  await expect(page.locator(".agentask")).toBeVisible();
+  await openDock("/#/ai");
+  await expect(page.locator(".agentask")).toHaveCount(0);
 });
 
-// The account block carries the two things it is FOR — this person's own account
-// and the way out — and nothing that changes a setting in place: theme and
-// language are preferences and live on Settings → Account. A menu offering a
-// control would put a per-person setting in the one place a reader goes to LEAVE.
+// The account menu carries what belongs to the PERSON rather than to the page:
+// the one door into Settings, the appearance they read in, and the way out. It
+// is the product's only settings door now — the sidebar carries destinations and
+// nothing else — so a second one appearing anywhere is the regression, not a
+// second row inside here.
 //
-// And no second row into settings generally: it landed on the same page the
-// account row does, since settings opens on its first entry, while the rail
-// already carries that door.
-test("features/10 §7: the account menu offers this person's surface and the way out, and no preferences", async ({
+// Appearance sits here rather than on a settings page because it is the one
+// preference a reader changes to see the thing they are looking at differently,
+// and walking to a settings tab to do it means leaving what they were reading.
+test("features/10 §7: the account menu holds the settings door, the appearance choice and the way out", async ({
   page,
 }) => {
   await page.goto("/#/home");
   await accountTrigger(page).click();
-  const menu = page.locator("nav.rail .accountmenu");
-  await expect(menu.getByRole("link", { name: "Konto" })).toHaveAttribute(
-    "href",
-    "#/settings/account",
-  );
-  await expect(menu.getByRole("link")).toHaveCount(1);
-  await expect(menu.getByRole("button", { name: "Abmelden" })).toBeVisible();
-  await expect(menu.getByRole("combobox")).toHaveCount(0);
+  const menu = page.locator(".topbar [role='menu']").first();
+  await expect(
+    menu.getByRole("menuitem", { name: "Einstellungen" }),
+  ).toHaveAttribute("href", "#/settings");
+  // ONE row in here navigates. Counted as anchors rather than by the link role:
+  // inside a `role="menu"` every row carries `role="menuitem"`, which is what a
+  // menu's keyboard contract needs and what replaces the implicit link role.
+  await expect(menu.locator("a[href]")).toHaveCount(1);
+  await expect(menu.getByRole("menuitem", { name: "Abmelden" })).toBeVisible();
+
+  // Appearance is a submenu, not a control sitting open in the menu: three
+  // choices spelled out flat would out-weigh the two destinations either side.
+  const theme = menu.getByRole("menuitem", { name: "Design" });
+  await expect(theme).toHaveAttribute("aria-expanded", "false");
+  await theme.click();
+  const choices = page.locator(".accountsub");
+  await expect(choices.getByRole("menuitemradio")).toHaveCount(3);
+  await choices.getByRole("menuitemradio", { name: "Dunkel" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(
+    choices.getByRole("menuitemradio", { name: "Dunkel" }),
+  ).toHaveAttribute("aria-checked", "true");
 });
 
 test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
@@ -310,6 +347,25 @@ test("features/10 §7: the locale switch flips the chrome DE↔EN", async ({
   // own face: every word on it is rendered from the catalog that just changed.
   await expect(page.getByText("Preferences")).toBeVisible();
   await expect(page.getByRole("combobox", { name: "Language" })).toBeVisible();
+});
+
+// Appearance is chosen from the account menu now — it is the setting a reader
+// changes most often, and from wherever they happen to be standing. Preferences
+// keeps the preferences that are not appearance, so this asserts what the card
+// LOST rather than that the card went away: the language control beside it has
+// to still be there, or a Preferences card that failed to render would pass.
+test("features/10 §7: Settings → Account keeps language and offers no theme control", async ({
+  page,
+}) => {
+  await page.goto("/#/settings/account");
+  await expect(page.getByText("Voreinstellungen")).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Sprache" })).toBeVisible();
+  for (const name of ["Hell", "Dunkel", "System", "Design"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("group", { name, exact: true })).toHaveCount(0);
+  }
 });
 
 /**

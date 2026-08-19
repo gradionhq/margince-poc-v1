@@ -7,12 +7,14 @@ import type { MessageKey } from "./en";
 export const de = {
   "theme.toDark": "Dunkles Design",
   "theme.toLight": "Helles Design",
-  // Die beiden Designs als Optionen einer Auswahl: Einstellungen → Konto zeigt
-  // beide gleichzeitig, also heißt jede so, wie sie IST, und nicht danach, was
+  // Die drei Auswahlmöglichkeiten fürs Erscheinungsbild: das Kontomenü zeigt
+  // alle gleichzeitig, also heißt jede so, wie sie IST, und nicht danach, was
   // ein Klick tut. Die beiden Labels darüber bleiben die Namen des reinen
-  // Icon-Schalters auf Anmeldung und Onboarding.
+  // Icon-Schalters auf Anmeldung und Onboarding. "System" benennt das Gerät,
+  // dessen Einstellung übernommen wird, kein drittes Aussehen.
   "theme.light": "Hell",
   "theme.dark": "Dunkel",
+  "theme.system": "System",
 
   "trust.accept": "Übernehmen",
   "trust.edit": "Bearbeiten",
@@ -79,12 +81,18 @@ export const de = {
   "shell.railAria": "Hauptnavigation",
   "shell.skipToContent": "Zum Inhalt springen",
   "shell.logoAria": "Margince",
-  "shell.search": "Suche",
+  "shell.searchEverything": "Alles durchsuchen…",
+  "shell.breadcrumbAria": "Navigationspfad",
+  "shell.approvals": "Freigaben",
+  "shell.license.seats": "{used}/{granted} Sitze",
+  "shell.license.none": "Keine Lizenz",
+  "shell.license.refused": "Lizenz abgelehnt",
+  "shell.license.aria": "Lizenz und Sitze",
+  "shell.approvalsWaiting": "Freigaben — {count} offen",
   "shell.signOutAria": "Abmelden",
   "shell.collapse": "Seitenleiste einklappen",
   "shell.expand": "Seitenleiste ausklappen",
   "shell.accountAria": "Konto",
-  "shell.account": "Konto",
   "shell.theme": "Design",
   "shell.more": "Mehr",
   "shell.unknownPage": "Nicht gefunden",
@@ -145,14 +153,14 @@ export const de = {
   "action.readCompany": "Firma einlesen",
   "action.booking": "Buchungsseite",
 
-  "fab.open": "Dazu fragen",
-  "fab.close": "Schließen",
-  "fab.panelAria": "Zu diesem Datensatz fragen",
-  "fab.context": "Frage zu {context}",
-  "fab.scope": "Dein Agent liest nur, was du sehen kannst.",
-  "fab.inputAria": "Deine Frage",
-  "fab.placeholder": "Frag zu dem, was du gerade offen hast…",
-  "fab.send": "Fragen",
+  "common.close": "Schließen",
+  "ask.panelAria": "Frag zu dem, was du gerade offen hast",
+  "ask.context": "Frage zu {context}",
+  "ask.scope": "Dein Agent liest nur, was du sehen kannst.",
+  "ask.inputAria": "Deine Frage",
+  "ask.placeholder": "Frag zu dem, was du gerade offen hast…",
+  "ask.send": "Fragen",
+  "ask.sendEmpty": "Formuliere zuerst eine Frage.",
 
   "explain.open": "Diese Zahl erklären",
   "explain.title": "So setzt sich die Zahl zusammen",
@@ -2003,7 +2011,7 @@ export const de = {
   "explain.sources": "Quellzeilen",
 
   "ai.sub": "bring deinen eigenen Agenten mit — geregelt über die zwei Stufen",
-  "ai.fromPalette": "Aus der Palette",
+  "ai.carriedQuestion": "Deine Frage",
   "ai.tiers": "Was ein Agent darf",
   "ai.tierAutoExecute": "Lesen & Entwerfen läuft sofort.",
   "ai.tierAutoExecuteDetail":

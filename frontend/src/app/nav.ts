@@ -1,13 +1,13 @@
 import {
   BarChart3,
+  Bell,
   Building2,
   CheckSquare,
   Home,
+  Kanban,
   type LucideIcon,
   Merge,
-  ShieldCheck,
   Sparkles,
-  Target,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -71,11 +71,19 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     headingKey: "nav.group.work",
     items: [
-      { screen: "deals", labelKey: "nav.deals", icon: Target },
+      // The board, not a bullseye: this route opens a column per stage with the
+      // deals standing in them, and `Target` drew a goal — which is what a quota
+      // surface would be. A reader scanning five glyphs on a phone bar with no
+      // labels under them has only the shape to go on.
+      { screen: "deals", labelKey: "nav.deals", icon: Kanban },
       { screen: "tasks", labelKey: "nav.tasks", icon: CheckSquare },
-      // ShieldCheck, not another check-in-square: Approvals sits directly under
-      // Tasks and a near-identical glyph makes the pair unreadable at 20px.
-      { screen: "inbox", labelKey: "nav.inbox", icon: ShieldCheck },
+      // The same bell the top bar rings. Approvals are the one queue that waits
+      // on a PERSON, and the chrome reports it in three places at once — this
+      // row, the strip's own affordance, and the phone bar; two glyphs for one
+      // queue reads as two queues. It also keeps the pair under Tasks readable:
+      // a shield-check beside a check-in-square was two ticks in two boxes at
+      // 20px, and this is a different shape entirely.
+      { screen: "inbox", labelKey: "nav.inbox", icon: Bell },
     ],
   },
   {
@@ -178,11 +186,12 @@ function primaryLevel(): NavTrailLevel {
 
 // Which primary row a route makes current. It is the route's screen for every
 // destination the product owns, and `settings` for a unit's — a unit screen
-// routes as `{screen: "ext", id: "<unit>"}` and has no row of its own, so
-// without this the rail would mark NOTHING current on it and the page would
-// read as if it sat outside the app. Settings is where the reader came from
-// and where the unit is listed, so it is the honest answer rather than a
-// convenience.
+// routes as `{screen: "ext", id: "<unit>"}` and has no row of its own. Nothing
+// in the sidebar renders that id today: Settings left the rail for the account
+// menu, so a unit route marks no row and the top bar's trail is what says where
+// the reader is (`Settings / <unit>`). The mapping stays because it is the
+// honest answer to the question — a unit IS reached from Settings — and because
+// the level machinery asks it for every route, unit routes included.
 function activeRowFor(route: Route): string {
   return route.screen === EXTENSION_SCREEN ? "settings" : route.screen;
 }
@@ -193,5 +202,5 @@ export function railTrail(
   route: Route,
   section?: NavSection,
 ): readonly NavTrailLevel[] {
-  return navTrail(primaryLevel(), route, section, activeRowFor(route));
+  return navTrail(primaryLevel(), route, activeRowFor(route), section);
 }

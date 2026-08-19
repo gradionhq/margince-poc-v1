@@ -50,12 +50,11 @@
   margin-bottom: var(--space-4);
 }
 
-/* A control whose width is intrinsic: a two-option segmented control is two
-   words wide and a language dropdown is one language wide. Both sit in a
-   `.field`, which is a flex COLUMN — its default `align-items: stretch` is what
-   dragged them across the whole page column. Stated once here rather than as an
-   inline width per control, because the rule is about what the control IS, not
-   about this page. */
+/* A control whose width is intrinsic: a language dropdown is one language wide.
+   It sits in a `.field`, which is a flex COLUMN — its default
+   `align-items: stretch` is what dragged it across the whole page column.
+   Stated once here rather than as an inline width per control, because the rule
+   is about what the control IS, not about this page. */
 .settings-intrinsic {
   align-items: flex-start;
 }

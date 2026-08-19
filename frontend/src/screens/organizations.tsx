@@ -2177,7 +2177,9 @@ function CompanyPage({
             pay for them. */}
         {auditOpen && <RecordHistoryTab kind="organization" id={org.id} />}
         <div className="form-actions">
-          <Button onClick={() => setAuditOpen(false)}>{t("fab.close")}</Button>
+          <Button onClick={() => setAuditOpen(false)}>
+            {t("common.close")}
+          </Button>
         </div>
       </Modal>
     </RecordView>

@@ -1,13 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import {
-  ChevronDown,
-  Menu,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Search,
-  Settings,
-  X,
-} from "lucide-react";
+import { BadgeCheck, ChevronDown, Menu, X } from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -21,16 +13,14 @@ import {
 import type { components } from "../api/schema";
 import { Button, Modal } from "../design-system/atoms";
 import { Logomark } from "../design-system/logomark";
-import { useTruncationTooltip } from "../design-system/tooltip";
 import { useT } from "../i18n";
-import type { MessageKey } from "../i18n/en";
-import { useEntityName } from "../screens/entityref";
+import { useLicenseEntitlement } from "../screens/license";
 import { SETTINGS_SCREEN, useSettingsSection } from "../screens/settings";
-import { AccountMenu, AccountRows } from "./account";
 import { AgentDock } from "./agentdock";
+import { useCan } from "./capability";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
-import { type EntityKind, SCREEN_ENTITY } from "./entity";
+import { SCREEN_ENTITY } from "./entity";
 import { EXTENSION_SCREEN, findExtension } from "./extensions";
 import {
   GRIDDED_RECORD_SCREENS,
@@ -48,12 +38,11 @@ import {
   NavWalkProvider,
   useNavLevel,
   useNavWalk,
-  useNavWalkClaim,
 } from "./navlevel";
-import { paletteHotkeyLabel } from "./palette";
+import { PAGE_SUB_KEYS, resolveTitle, sectionHead } from "./pagemeta";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
-import { SorModeChip } from "./sormodechip";
+import { TopBar } from "./topbar";
 import { uiPreviewTaskbarEnabled } from "./ui-preview";
 import { usePhoneViewport } from "./viewport";
 import "./shell.css";
@@ -65,21 +54,24 @@ type CompanyProfile = components["schemas"]["CompanyProfile"];
 // specifies, unchanged — the labeled state is additive, so the spec stays true
 // at 64px rather than being replaced.
 //
-// The sidebar carries everything that is true for the whole session: where you
-// can go, how you search, and who you are signed in as. The content column
-// carries only what is true for THIS screen — its heading, its actions, and the
-// agent. There is no top bar: a full-width strip of chrome above every screen
-// spent the scarcest space in the layout on things the sidebar already holds.
+// The chrome is an L: the sidebar carries where you can GO, and the top bar
+// above the content (app/topbar.tsx) carries everything else that is true of the
+// whole session — where you are, how you search, and who you are signed in as.
+// The sidebar holds destinations and nothing else, because a panel that also
+// held the search, the settings door and the person had four different kinds of
+// row in one column and read as a list of everything.
+//
+// The content column carries only what is true of THIS screen: its heading,
+// which stands INSIDE the scroller and scrolls with the page because it belongs
+// to the document, and the agent, which floats at the column's foot.
 
 // The attention counts the whole chrome reads — the rail badges them and the
-// agent beside the page title reports the same numbers. They are the levels'
+// agent at the foot of the column reports the same numbers. They are the levels'
 // own currency (app/subnav.ts), named here for the shell because App.tsx hands
 // them in at that seam.
 export type ShellCounts = NavCounts;
 
 const COLLAPSE_KEY = "margince.sidebarCollapsed";
-// Comfortably past --shellAnim (0.36s) in shell.css: the two must not disagree.
-const SETTLE_MS = 420;
 
 // Storage is unavailable in some embedded contexts; a missing preference is a
 // default, never an error.
@@ -124,77 +116,15 @@ function BrandBlock() {
   );
 }
 
-// The sidebar's own shortcut, spelled the way the platform spells it — the
-// palette's label helper answers the same question for ⌘K.
-function collapseHotkeyLabel(platform: string): string {
-  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘B" : "Ctrl B";
-}
-// The search row's tooltip shares the collapsed rail's tooltip state with the
-// destinations, and that state is keyed by screen id. Search is not a screen —
-// it opens the palette over the one you are on — so it needs a key of its own
-// that no NAV entry can ever take.
-const SEARCH_TIP_KEY = "rail-search";
-
-// Search sits directly under the brand, above the destinations: it is how you
-// reach anything the ten rows do not list, so it reads as the first way to
-// move rather than as an eleventh place to go. It is a BUTTON styled as a row
-// and never accepts inline typing (AC-shell-7, one search affordance) — the
-// keyboard shortcut beside it is the same palette this opens.
-//
-// It stays on screen inside a drilled-in level, at every width: ⌘K is invisible
-// to anyone who does not already know it, and on touch there is no ⌘K at all, so
-// hiding the row leaves a level with no way to search from at all.
-function RailSearch({
-  collapsed,
-  tipOpen,
-  onOpenSearch,
-  onTip,
-}: Readonly<{
-  collapsed: boolean;
-  tipOpen: boolean;
-  onOpenSearch: () => void;
-  onTip: (key: string | null) => void;
-}>) {
-  const t = useT();
-  const label = t("shell.search");
-  return (
-    <div className="railsearchwrap">
-      <button
-        type="button"
-        className="navitem railsearch"
-        aria-label={label}
-        onClick={onOpenSearch}
-        onMouseEnter={() => onTip(SEARCH_TIP_KEY)}
-        onMouseLeave={() => onTip(null)}
-        onFocus={() => onTip(SEARCH_TIP_KEY)}
-        onBlur={() => onTip(null)}
-      >
-        <Search aria-hidden />
-        <span className="navlabel">{label}</span>
-        {/* The shortcut is a hint, not a second name: aria-label above already
-            says "Search", so a screen reader is not made to spell out ⌘K. */}
-        <kbd className="t-mono" aria-hidden>
-          {paletteHotkeyLabel(navigator.platform)}
-        </kbd>
-        {collapsed && tipOpen && (
-          <span className="navtip" role="tooltip">
-            {label}
-          </span>
-        )}
-      </button>
-    </div>
-  );
-}
-
-// The SETTINGS door's tooltip shares the collapsed rail's tooltip state with the
-// destinations, and that state is keyed by screen id. The door is not one of the
-// ten, so — like search — it needs a key of its own that no NAV entry can take.
-const SETTINGS_TIP_KEY = "rail-settings";
-
 // WCAG 2.4.1, Bypass Blocks. Every page in the product puts the same block ahead
-// of its content — the brand, the search, up to eleven navigation rows, the More
-// button, the settings door and the account menu — and without this a keyboard
-// reader walked all of it again on every page they opened.
+// of its content — up to eleven navigation rows and the entitlement row in the
+// sidebar, then the strip's collapse control, trail, search, system-of-record
+// chip, approvals bell and account menu — and without this a keyboard reader
+// walked all of it again on every page they opened.
+//
+// The destination is the SCROLLER, not the content column: the strip is the first
+// row of that column, so a skip that landed on `.main` put the reader in front of
+// the very chrome they asked to skip.
 //
 // A button, not the conventional `<a href="#content">`, because this app is
 // hash-routed: setting the hash to "#content" is a NAVIGATION here, and the
@@ -219,58 +149,81 @@ function SkipToContent({
   );
 }
 
-// Settings, at the foot directly above the account block. It is a DOOR rather
-// than an eleventh destination: the ten rows above are where the work happens,
-// and Settings is a section you go into and come back out of. Without it the
-// settings level could only be entered through the account menu's popover — you
-// could walk out of the level and never back into it.
-//
-// It claims the current page ONLY when the level on screen cannot, which is
-// what `current` carries. Inside the section the level itself is on screen with
-// the reader's own entry current and this stays quiet; on a route that marks
-// Settings current without rendering a row for it — a composed unit's screen,
-// which lives under Settings without being one of its tabs — this is the only
-// element that can say so. The document still claims exactly ONE current page,
-// which is the invariant, not the silence.
-function RailSettingsDoor({
+// The tooltip key for the entitlement row on the collapsed rail. Like every
+// other key here it is the row's own: sharing one with a destination would light
+// that destination's tooltip when this row takes focus.
+const LICENSE_TIP_KEY = "rail-license";
+
+/**
+ * What this installation is entitled to, at the foot of the sidebar.
+ *
+ * Seats are the one number about the INSTALLATION that changes under people
+ * while they work — an invitation spends one, and the refusal when the last one
+ * is gone arrives at the worst moment, in the middle of adding a colleague. The
+ * foot is where a tool puts its plan for exactly this reason: it is true of the
+ * whole session, it is small, and it is one click from the surface that explains
+ * it.
+ *
+ * Absent for a principal whose roles do not grant `license:read` — silently, not
+ * as a refusal. A read they may not have is not a fact being withheld from them;
+ * it is a fact that is none of their work, and a rail row saying so would be a
+ * permission boundary drawn on every screen they open. The grant is read from
+ * the session snapshot the shell already holds, so the request is never made at
+ * all for those readers.
+ */
+function RailLicense({
   collapsed,
-  current,
   tipOpen,
   onTip,
 }: Readonly<{
   collapsed: boolean;
-  current: boolean;
   tipOpen: boolean;
   onTip: (key: string | null) => void;
 }>) {
   const t = useT();
-  const label = t("nav.settings");
-  const claimFocus = useNavWalkClaim();
-  const href = routeHash({ screen: SETTINGS_SCREEN });
+  const mayRead = useCan("license", "read");
+  const query = useLicenseEntitlement(mayRead);
+  const entitlement = query.data;
+  if (!mayRead || !entitlement) {
+    return null;
+  }
+  // Four postures, and the copy says which: a cap to count against, a license
+  // that caps nothing, no license at all, and one the installation refused. The
+  // number is never invented — an absent `seats_granted` is not a grant of zero.
+  const capped =
+    entitlement.state === "valid" && entitlement.seats_granted !== undefined;
+  const label = capped
+    ? t("shell.license.seats", {
+        used: entitlement.seats_used,
+        granted: entitlement.seats_granted ?? 0,
+      })
+    : entitlement.state === "valid"
+      ? t("license.state.licensed")
+      : entitlement.state === "rejected"
+        ? t("shell.license.refused")
+        : t("shell.license.none");
+  // What a reader has to act on rather than merely know: over the cap, refused,
+  // past expiry but still accepted, or close enough to expiry to renew. Reported
+  // here and explained on the surface this leads to — nothing is enforced in the
+  // chrome.
+  const pressing =
+    entitlement.over_limit ||
+    entitlement.state === "rejected" ||
+    entitlement.license?.in_grace === true ||
+    entitlement.license?.renewal_due === true;
   return (
     <a
-      className={
-        current ? "navitem railsettings active" : "navitem railsettings"
-      }
-      aria-current={current ? "page" : undefined}
-      href={href}
-      aria-label={label}
-      // This link is the walk INTO the section, so it hands its focus on to the
-      // level it opens (navlevel.tsx). Without the claim the rail is replaced
-      // under a reader standing on this row and focus falls to <body>: the walk
-      // out was pinned and the walk in was not, so a keyboard reader could enter
-      // Settings and land at the top of the document.
-      //
-      // Not preventDefault'd, and no navigate() call: the href is what moves,
-      // which keeps middle-click and "open in new tab" working. A claim armed by
-      // a navigation that never happens is spent by nobody and harmless.
-      onClick={() => claimFocus(href)}
-      onMouseEnter={() => onTip(SETTINGS_TIP_KEY)}
+      className={pressing ? "raillicense pressing" : "raillicense"}
+      href={routeHash({ screen: SETTINGS_SCREEN, id: "license" })}
+      // The row prints a count; the name says what is being counted, because
+      // "12/25" spoken alone is not a sentence about anything.
+      aria-label={`${t("shell.license.aria")} — ${label}`}
+      onMouseEnter={() => onTip(LICENSE_TIP_KEY)}
       onMouseLeave={() => onTip(null)}
-      onFocus={() => onTip(SETTINGS_TIP_KEY)}
+      onFocus={() => onTip(LICENSE_TIP_KEY)}
       onBlur={() => onTip(null)}
     >
-      <Settings aria-hidden />
+      <BadgeCheck aria-hidden />
       <span className="navlabel">{label}</span>
       {collapsed && tipOpen && (
         <span className="navtip" role="tooltip">
@@ -290,7 +243,6 @@ function railClasses(
   state: Readonly<{
     collapsed: boolean;
     sheetOpen: boolean;
-    settling: boolean;
     leveled: boolean;
   }>,
 ): string {
@@ -298,7 +250,6 @@ function railClasses(
     "rail",
     state.collapsed ? "collapsed" : "expanded",
     state.sheetOpen ? "sheetopen" : "",
-    state.settling ? "settling" : "",
     state.leveled ? "leveled" : "",
   ]
     .filter((name) => name !== "")
@@ -309,16 +260,12 @@ type RailProps = {
   route: Route;
   counts?: ShellCounts;
   collapsed?: boolean;
-  onToggle?: () => void;
-  onOpenSearch: () => void;
 };
 
 export function WorkspaceRail({
   route,
   counts,
   collapsed = false,
-  onToggle,
-  onOpenSearch,
   section,
 }: Readonly<RailProps & { section?: NavSection }>) {
   const t = useT();
@@ -335,23 +282,6 @@ export function WorkspaceRail({
   const phone = usePhoneViewport();
   const nav = useRef<HTMLElement>(null);
   const more = useRef<HTMLButtonElement>(null);
-  // While the sidebar is mid-collapse the pointer is still inside the head — it
-  // has not narrowed past it yet — so the hover rules would hold the toggle on
-  // screen at its new centred position and read as the icon sliding into the
-  // logomark. Reveal is suppressed until the width settles. Kept slightly longer
-  // than --shellAnim so it cannot end mid-transition.
-  const [settling, setSettling] = useState(false);
-  const settleTimer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(settleTimer.current), []);
-  const handleToggle = useCallback(() => {
-    setSettling(true);
-    window.clearTimeout(settleTimer.current);
-    settleTimer.current = window.setTimeout(
-      () => setSettling(false),
-      SETTLE_MS,
-    );
-    onToggle?.();
-  }, [onToggle]);
   const dismissTip = useCallback((event: KeyboardEvent) => {
     if (event.key === "Escape") {
       setTip(null);
@@ -421,20 +351,25 @@ export function WorkspaceRail({
   // this nav cannot become without giving up its landmark. The body stops
   // scrolling for the same reason: a touch that starts on the scrim should
   // dismiss, not scroll the page underneath.
+  //
+  // The SKIP LINK goes inert with it, and is not an afterthought: it is a sibling
+  // of the nav rather than a child of the column, so Tab past the sheet's last row
+  // wrapped onto it, drew it over the scrim, and pointed it at an inert element —
+  // a control that takes focus, shows itself, and does nothing.
   useEffect(() => {
     if (!sheetOpen) {
       return;
     }
-    const main = document.querySelector<HTMLElement>(".main");
+    const locked = document.querySelectorAll<HTMLElement>(".main, .skiplink");
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    if (main) {
-      main.inert = true;
+    for (const element of locked) {
+      element.inert = true;
     }
     return () => {
       document.body.style.overflow = previous;
-      if (main) {
-        main.inert = false;
+      for (const element of locked) {
+        element.inert = false;
       }
     };
   }, [sheetOpen]);
@@ -444,24 +379,6 @@ export function WorkspaceRail({
   const inSheet = NAV.some(
     (item) => item.screen === route.screen && !MOBILE_PRIMARY.has(item.screen),
   );
-
-  // Whether the Settings door is the thing that says where you are.
-  //
-  // A route can mark `settings` current while no ROW on screen carries that id:
-  // a composed unit's screen does exactly that (nav.ts's activeRowFor), because
-  // a unit lives under Settings without being one of its tabs. The door is then
-  // the only element that can claim the page, and without this the rail marks
-  // NOTHING current on every unit route.
-  //
-  // Derived from the level rather than from a list of routes, so it stays true
-  // for whatever else comes to mark Settings current — and so it cannot produce
-  // a second current element: the moment a rendered row carries the id, this is
-  // false and the row answers instead.
-  const settingsIsCurrent =
-    level.shown.activeId === SETTINGS_SCREEN &&
-    !level.shown.groups.some((group) =>
-      group.items.some((item) => item.id === SETTINGS_SCREEN),
-    );
 
   return (
     <>
@@ -474,7 +391,6 @@ export function WorkspaceRail({
         className={railClasses({
           collapsed,
           sheetOpen,
-          settling,
           leveled: level.parent !== undefined,
         })}
         aria-label={t("shell.railAria")}
@@ -482,34 +398,7 @@ export function WorkspaceRail({
       >
         <div className="railhead">
           <BrandBlock />
-          {onToggle && (
-            <button
-              type="button"
-              className="railtoggle"
-              aria-label={collapsed ? t("shell.expand") : t("shell.collapse")}
-              // The shortcut belongs in the tooltip, not in the accessible
-              // name: a speech-input user says the words they can read, and
-              // "Collapse sidebar ⌘B" is not one of them.
-              title={`${
-                collapsed ? t("shell.expand") : t("shell.collapse")
-              } · ${collapseHotkeyLabel(navigator.platform)}`}
-              aria-expanded={!collapsed}
-              onClick={handleToggle}
-            >
-              {collapsed ? (
-                <PanelLeftOpen size={17} aria-hidden />
-              ) : (
-                <PanelLeftClose size={17} aria-hidden />
-              )}
-            </button>
-          )}
         </div>
-        <RailSearch
-          collapsed={collapsed}
-          tipOpen={tip === SEARCH_TIP_KEY}
-          onOpenSearch={onOpenSearch}
-          onTip={setTip}
-        />
         {/* Keyed by depth so a level that arrives is a new element and plays its
             entrance; two addresses at the SAME depth are the same level with
             another row current, and nothing should move. */}
@@ -550,25 +439,15 @@ export function WorkspaceRail({
           </span>
         </button>
         <div className="grow" />
-        {/* Who you are signed in as, at the foot where a dashboard sidebar keeps
-          it — and the menu opens upward from there, so it never covers the
-          destinations you were reading. */}
+        {/* The foot reports what the INSTALLATION is entitled to. It is not a
+            destination and never claims the current page: it is a reading, and
+            what it leads to is a settings tab. */}
         <div className="railfoot">
-          {/* The way INTO Settings, above the person it belongs to. Hidden at
-            phone width (shell.css), where the sheet's account rows already
-            offer it and the bar has no room for a sixth control. */}
-          <RailSettingsDoor
+          <RailLicense
             collapsed={collapsed}
-            current={settingsIsCurrent}
-            tipOpen={tip === SETTINGS_TIP_KEY}
+            tipOpen={tip === LICENSE_TIP_KEY}
             onTip={setTip}
           />
-          {/* In the sheet the rows stand on their own. The sheet exists only at
-            phone width, where the foot has no room above it for a popover to
-            open into — anchored to the bottom of the viewport the menu had
-            nowhere to go, so the rows it hides were unreachable. Everywhere else
-            the rail carries ONE account affordance, which is the menu. */}
-          {sheetOpen ? <AccountRows /> : <AccountMenu collapsed={collapsed} />}
         </div>
       </nav>
     </>
@@ -589,116 +468,41 @@ export function SettingsRail(props: Readonly<RailProps>) {
 }
 
 /**
- * The page head on a settings route, naming the tab the reader opened.
+ * The chrome on a settings route, naming the tab the reader opened.
  *
- * It reads the same section the rail does — the hook derives it from the
- * capability cache the rail already warmed, so the two cannot disagree about
- * which tab is current, and neither can the content column, which resolves it
- * from that same hook.
+ * Both halves read the same section the rail does — the hook derives it from the
+ * capability cache the rail already warmed, so the trail, the heading and the
+ * sidebar cannot disagree about which tab is current.
  */
-function SettingsPageHead({
+function SettingsTopBar({
   route,
-  actions,
   counts,
-}: Readonly<{ route: Route; actions?: ReactNode; counts?: ShellCounts }>) {
+  collapsed,
+  onToggle,
+  onOpenSearch,
+}: Readonly<{
+  route: Route;
+  counts?: ShellCounts;
+  collapsed: boolean;
+  onToggle: () => void;
+  onOpenSearch: () => void;
+}>) {
   const section = useSettingsSection(route.id);
   return (
-    <PageHead
+    <TopBar
       route={route}
-      actions={actions}
-      counts={counts}
       section={section}
+      counts={counts}
+      collapsed={collapsed}
+      onToggle={onToggle}
+      onOpenSearch={onOpenSearch}
     />
   );
 }
 
-// The line under the page's name, for the screens whose name alone does not
-// say what the page is for. It belongs to the page rather than to anything on
-// it, which is why it lives beside the title keys: a screen that printed its
-// own subtitle had to print its own title above it to hang it on, and the
-// shell was already printing that title — the page then named itself twice.
-//
-// Only a subtitle true of the WHOLE page qualifies. Copy that describes the
-// current tab, filter or segment belongs beside that control, where it changes
-// with it; the page head cannot see those and would go stale.
-const PAGE_SUB_KEYS: Record<string, MessageKey> = {
-  inbox: "inbox.sub",
-  ai: "ai.sub",
-  dedupe: "dedupe.intro",
-};
-
-// Off-rail screens (reached from Settings, not the NAV rail) carry their own
-// title key. Every authenticated route resolves to real copy — a raw screen
-// slug is never shown as a page title.
-const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
-  settings: "nav.settings",
-  offers: "nav.offers",
-  partners: "nav.partners",
-  share: "nav.share",
-  search: "nav.search",
-};
-
-// The record's name at the end of the trail: unresolved (loading, or a record
-// this principal cannot read) falls back to the id in mono rather than to
-// nothing.
-function RecordName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
-  const t = useT();
-  const { name, reading } = useEntityName(kind, id);
-  // A read that never arrived says so. The trail used to print the id for a
-  // failed read exactly as it does for a record that has no name, so a 403 on
-  // the crumb was indistinguishable from a record whose display field is blank
-  // — and the id, being the thing a reader cannot act on, is the worst of the
-  // three things it could have said.
-  //
-  // Truncated to keep the trail on one line, so the tooltip is what carries a
-  // name too long for it.
-  const text = name ?? (reading === "failed" ? t("ref.nameLoadFailed") : id);
-  const tip = useTruncationTooltip<HTMLSpanElement>(text);
-  return (
-    <span
-      className={name ? "pagecrumb-name" : "pagecrumb-name t-mono"}
-      ref={tip.ref}
-      {...tip.trigger}
-    >
-      {text}
-      {tip.tip}
-    </span>
-  );
-}
-
-function resolveTitle(
-  screen: string,
-  labelKey: MessageKey | undefined,
-  t: ReturnType<typeof useT>,
-): string {
-  if (labelKey) {
-    return t(labelKey);
-  }
-  const offRailKey = OFF_RAIL_TITLE_KEYS[screen];
-  // An address nobody in this app answers. The screen under it says so in
-  // words; the heading must not print the slug the reader typed as though the
-  // product had a page by that name.
-  return offRailKey ? t(offRailKey) : t("shell.unknownPage");
-}
-
-// What a section contributes to the page head: the entry the reader opened. The
-// section's own `activeId` is its answer and comes first, fallbacks included; the
-// route's segment stands in only for a caller that resolved nothing.
-function sectionHead(
-  section: NavSection | undefined,
-  route: Route,
-): { section: NavSection; entry: NavLevelEntry } | undefined {
-  if (!section || section.screen !== route.screen) {
-    return undefined;
-  }
-  const activeId = section.activeId ?? route.id;
-  for (const group of section.groups) {
-    const entry = group.items.find((item) => item.id === activeId);
-    if (entry) {
-      return { section, entry };
-    }
-  }
-  return undefined;
+function SettingsPageTitle({ route }: Readonly<{ route: Route }>) {
+  const section = useSettingsSection(route.id);
+  return <PageTitle route={route} section={section} />;
 }
 
 // One group of the switcher's list, with the section's own heading above it — the
@@ -750,7 +554,9 @@ function SectionPickGroup({
  * The LIST claims the current page and the button does not: the entries are the
  * section's navigation, the same links the sidebar's level carries above the
  * breakpoint, while the button is a control that opens them — and a control is
- * not a page. Only one element in the document may make that claim.
+ * not a page. Several elements may name the current page (the trail's last stop
+ * and the sidebar's active row both do, and agree); what none of them may do is
+ * claim it for something that is not a destination.
  */
 function SectionSwitcher({
   section,
@@ -807,20 +613,23 @@ function SectionSwitcher({
   );
 }
 
-// The page head: the heading of the screen you are on, and beside it the two
-// things that are true of the whole product rather than of this screen — which
-// system of record is answering, and the agent. It is not a bar: no panel, no
-// border, no shadow, so the heading sits on the same ground as the content
-// under it and the eye reads one column rather than a stack of frames.
-export function PageHead({
+/**
+ * The page's own name, standing in the content column above the content it
+ * names.
+ *
+ * It is INSIDE the scroller and scrolls away with the page, because the heading
+ * belongs to the document rather than to the chrome: the top bar says where you
+ * are and stays, this says what this page is and goes when you have read it.
+ *
+ * No page is named twice. A record's surface prints its own identity block and a
+ * composed unit names its own screen, so this yields to both — a second name at
+ * heading level would leave a screen reader picking between two page titles.
+ */
+export function PageTitle({
   route,
-  actions,
-  counts,
   section,
 }: Readonly<{
   route: Route;
-  actions?: ReactNode;
-  counts?: ShellCounts;
   section?: NavSection;
 }>) {
   const t = useT();
@@ -829,113 +638,66 @@ export function PageHead({
   const navItem = NAV.find((item) => item.screen === route.screen);
   const inSection = sectionHead(section, route);
   // On a screen that publishes a level, the page is the ENTRY the reader opened
-  // rather than the section they opened it from: the sidebar's level carries the
-  // section's name, and printing it here too named the section twice and the
-  // surface never — a settings page read "Settings" above a heading reading
-  // "Settings" with the audit log under both.
+  // rather than the section they opened it from: the section is named by the
+  // trail in the top bar and by the sidebar's level, and printing it here too
+  // named the section twice and the surface never — a settings page read
+  // "Settings" above a heading reading "Settings" with the audit log under both.
   //
-  // At phone width the sidebar is showing the destinations instead, so nothing
-  // else on screen says which section this page belongs to: the pair swaps, the
-  // heading names the section, and the switcher under it names the entry and
-  // opens the others. Each of the two is still named exactly once.
+  // At every width, now. The heading used to name the SECTION at phone width,
+  // because the sidebar shows destinations there and nothing else on screen said
+  // which section the page belonged to. The trail says it at every width, so the
+  // swap left the phone naming the section twice and the entry twice.
   const entryTitle = inSection ? t(inSection.entry.labelKey) : undefined;
-  const sectionTitle =
-    phone && inSection ? t(inSection.section.titleKey) : undefined;
-  const title =
-    sectionTitle ??
-    entryTitle ??
-    resolveTitle(route.screen, navItem?.labelKey, t);
+  const title = entryTitle ?? resolveTitle(route.screen, navItem?.labelKey, t);
   // A record kind, and only then: an id segment that names no record is a
   // screen's own state — the settings tab, for one — and the page is still the
   // screen. Printing that slug as the page's name gave Settings an h1 reading
   // "privacy".
-  const recordKind = route.id ? SCREEN_ENTITY[route.screen] : undefined;
-  // A composed unit names its own page, so the head yields to it exactly as it
-  // yields to a record — and for the same reason: the unit's screen prints its
-  // name, and a second one at heading level would leave a screen reader picking
-  // between two page titles.
-  //
+  const recordNamesPage =
+    route.id !== undefined && SCREEN_ENTITY[route.screen] !== undefined;
   // Conditioned on the DESCRIPTOR resolving, not on the screen slug alone. A
   // unit route is deliberately absent from both the NAV rail and
-  // OFF_RAIL_TITLE_KEYS, so resolveTitle fell through to shell.unknownPage and
-  // printed "Not found" over every unit surface an installation answers. But a
-  // unit this installation did not compose is genuinely an unknown page, and the
-  // screen under it says so in words — so that case keeps the heading rather
-  // than yielding to a surface that will not name itself either.
-  //
-  // No crumb, unlike a record: a record's trail leads back to its list, and
-  // there is no `#/ext` index to lead back to. A unit has no row in the rail at
-  // all — it is offered from Settings, on the page holding the credential it is
-  // configured with (screens/extension-units.tsx), and the Settings door is
-  // what the rail marks current while one is open. What would go HERE is a
-  // level a unit publishes BELOW its own screen, and none does.
+  // OFF_RAIL_TITLE_KEYS, so resolveTitle falls through to shell.unknownPage —
+  // and a unit this installation did not compose is genuinely an unknown page,
+  // whose screen says so in words. That case keeps the heading rather than
+  // yielding to a surface that will not name itself either.
   const unitNamesPage =
     route.screen === EXTENSION_SCREEN && findExtension(route.id) !== null;
-  // Read only on the branch that prints an h1: a record surface and a composed
-  // unit name themselves, and a subtitle under a crumb would describe the list
-  // the crumb leads back to rather than the record on screen.
+  // Read only on the branch that prints an h1: a surface that names itself gets
+  // no subtitle from here either, or the page would carry a description of a
+  // heading it is not showing.
   const subKey = PAGE_SUB_KEYS[route.screen];
 
+  if (recordNamesPage || unitNamesPage) {
+    return null;
+  }
+
+  // At phone width a section's page IS its switcher: the control names the page
+  // and opens the others, so it stands AS the heading rather than under a
+  // heading repeating it. The page is still named exactly once at heading level,
+  // and the trail above it is the only other place the name appears — the same
+  // arithmetic as every other route.
+  const switcher = phone && inSection && (
+    <SectionSwitcher section={inSection.section} entry={inSection.entry} />
+  );
+
   return (
-    <>
-      <header className="pagehead">
-        <div className="pagetitle">
-          {/* A list, a report, a settings surface: the shell names it, and that
-            name is the page's one h1 — before this the only page-level name was
-            a span in the top bar, so the document had no heading to jump to.
-            A RECORD names itself: its surface prints the identity block, so the
-            head yields and shows the trail that leads here instead. Printing
-            the name twice, once at heading level and once beside the avatar,
-            would leave a screen reader picking between two page titles. */}
-          {unitNamesPage ? null : recordKind && route.id ? (
-            <p className="pagecrumb">
-              <a
-                className="pageback"
-                href={routeHash({ screen: route.screen })}
-              >
-                {navItem && (
-                  <navItem.icon
-                    size={14}
-                    strokeWidth={1.8}
-                    aria-hidden="true"
-                  />
-                )}
-                {title}
-              </a>
-              <span aria-hidden="true">/</span>
-              <RecordName kind={recordKind} id={route.id} />
-            </p>
-          ) : (
-            <>
-              <h1 className="t-display">{title}</h1>
-              {subKey && <p className="pagesub">{t(subKey)}</p>}
-            </>
-          )}
-        </div>
-        <div className="pageaside">
-          {actions}
-          <SorModeChip />
-          {/* One agent surface at a time: with the taskbar preview on, the bar at
-              the bottom of the viewport IS the agent, and a second chip beside
-              the page title reports the same thing in the same words two feet
-              away (app/ui-preview.ts). */}
-          {uiPreviewTaskbarEnabled() ? null : (
-            <AgentDock approvalsWaiting={counts?.inbox} />
-          )}
-        </div>
-      </header>
-      {/* Beside the heading it was a control wedged into the page's title; under
-          the head it is what it does — the row you change the section from,
-          spanning the column the content below it stands in. */}
-      {phone && inSection && (
-        <div className="pageswitchwrap">
-          <SectionSwitcher
-            section={inSection.section}
-            entry={inSection.entry}
-          />
-        </div>
-      )}
-    </>
+    <div className="pagetitle">
+      <div className="pagetitle-text">
+        {/* The heading is named by the PAGE even when a control is all it
+            contains. Name-from-content would otherwise reach into the switcher's
+            own `aria-label` — "Privacy & audit — change section" — and put an
+            instruction in the document's heading list. The control keeps that
+            name; the heading states the page. */}
+        <h1
+          className={switcher ? "t-display pageswitchhead" : "t-display"}
+          aria-label={switcher ? title : undefined}
+        >
+          {switcher || title}
+        </h1>
+        {subKey && <p className="pagesub">{t(subKey)}</p>}
+      </div>
+    </div>
   );
 }
 
@@ -943,12 +705,10 @@ export function Shell({
   children,
   counts,
   onOpenSearch,
-  pageActions,
 }: Readonly<{
   children: ReactNode;
   counts?: ShellCounts;
   onOpenSearch: () => void;
-  pageActions?: ReactNode;
 }>) {
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
@@ -967,7 +727,6 @@ export function Shell({
   // a section route is a different component, mounted on the way in and gone
   // again on the way out.
   const walk = useNavWalk(route, !railless && !leveled);
-  const contentRegion = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   // A route change opens a different page, and a page opens at its top. Nothing
   // in the browser does this for us here: the document itself never scrolls
@@ -1001,6 +760,43 @@ export function Shell({
     });
   }, []);
 
+  // ⌘B / Ctrl B, the shortcut the toggle's own tooltip has advertised since the
+  // sidebar had a toggle — and which nothing bound, so the tooltip named a key
+  // that did nothing. Registered here because this is where the state lives.
+  // Ignored while a text field has focus: the same chord is bold in every editor
+  // on the platform, and a composer is exactly where a reader would reach for it.
+  useEffect(() => {
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      // The chord EXACTLY: one platform modifier and no others. Accepting any
+      // combination that merely included Meta or Ctrl took Cmd+Shift+B — which
+      // is bold-with-a-selection in most editors, and something of its own in
+      // the browser — and swallowed it with preventDefault.
+      const platformKey = event.metaKey !== event.ctrlKey;
+      if (
+        !platformKey ||
+        event.altKey ||
+        event.shiftKey ||
+        event.key.toLowerCase() !== "b"
+      ) {
+        return;
+      }
+      // `instanceof` rather than an assertion: an event target is an
+      // `EventTarget`, and focus genuinely can sit on an SVGElement, which has
+      // no `isContentEditable` at all.
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA)$/.test(target.tagName))
+      ) {
+        return;
+      }
+      event.preventDefault();
+      toggle();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggle]);
+
   useEffect(() => {
     document.body.dataset.screen = route.screen;
   }, [route.screen]);
@@ -1024,13 +820,11 @@ export function Shell({
     route,
     counts,
     collapsed,
-    onToggle: toggle,
-    onOpenSearch,
   };
 
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
-      <SkipToContent target={contentRegion} />
+      <SkipToContent target={scroller} />
       {/* One rail, two suppliers of what it shows: a screen owning a level wires
           its own data in, everything else renders the destinations alone. The
           provider spans both, because the way out of a level is asked for on the
@@ -1042,30 +836,54 @@ export function Shell({
           <WorkspaceRail {...railProps} />
         )}
       </NavWalkProvider>
-      {/* Focusable only as the skip link's destination — never a tab stop of its
-          own, which is what tabIndex -1 buys. A reader who takes the skip lands
-          here, and the next Tab continues into the page's own controls. */}
-      <main
-        className={gridded ? "main main-gridded" : "main"}
-        ref={contentRegion}
-        tabIndex={-1}
-      >
+      <main className={gridded ? "main main-gridded" : "main"}>
         {leveled ? (
-          <SettingsPageHead
+          <SettingsTopBar
             route={route}
-            actions={pageActions}
             counts={counts}
+            collapsed={collapsed}
+            onToggle={toggle}
+            onOpenSearch={onOpenSearch}
           />
         ) : (
-          <PageHead route={route} actions={pageActions} counts={counts} />
+          <TopBar
+            route={route}
+            counts={counts}
+            collapsed={collapsed}
+            onToggle={toggle}
+            onOpenSearch={onOpenSearch}
+          />
         )}
         {/* Public, onboarding, and preference routes are intentionally
             railless; these advisories belong only here. */}
         <EconomyBanner />
         <EmbedReindexBanner />
-        <div className="scroll" ref={scroller}>
+        {/* Focusable only as the skip link's destination — never a tab stop of
+            its own, which is what tabIndex -1 buys. A reader who takes the skip
+            lands here, PAST the strip, and the next Tab continues into the page's
+            own controls. */}
+        <div className="scroll" ref={scroller} tabIndex={-1}>
+          {leveled ? (
+            <SettingsPageTitle route={route} />
+          ) : (
+            <PageTitle route={route} />
+          )}
           {children}
         </div>
+        {/* The agent stands at the foot of the content column, centred, on every
+            screen — one floating affordance rather than a status chip in the
+            chrome and an Ask button in the opposite corner, which is what the
+            product carried before and what left a reader asking which of the two
+            was the agent. It is positioned against `.main` rather than the
+            viewport, so it centres on the column it belongs to and moves with
+            the sidebar instead of drifting off-centre when the sidebar opens.
+            ONE agent surface at a time: the taskbar preview draws the competing
+            proposal at the foot of the VIEWPORT (App.tsx, app/ui-preview.ts), so
+            the switch that raises it takes this one down rather than standing
+            two agents on the same edge. */}
+        {uiPreviewTaskbarEnabled() ? null : (
+          <AgentDock route={route} approvalsWaiting={counts?.inbox} />
+        )}
       </main>
     </div>
   );

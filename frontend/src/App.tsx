@@ -17,7 +17,6 @@ import {
   type ExtensionScreenRegistry,
   findExtension,
 } from "./app/extensions";
-import { AskFab } from "./app/fab";
 import {
   CommandPalette,
   useBuiltinCommands,
@@ -639,14 +638,11 @@ function AuthedApp({
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
-      {/* One agent affordance in this corner, never two: the taskbar preview's
-          page half is the same offer the FAB makes, so the switch that draws the
-          bar takes the FAB down (app/ui-preview.ts). */}
-      {taskbarPreview ? (
-        <AgentTaskbar route={route} />
-      ) : (
-        <AskFab route={route} />
-      )}
+      {/* One agent surface at a time. The dock is the shipped one and the shell
+          mounts it at the foot of the content column; this preview switch swaps
+          it for the bar being judged against it (app/ui-preview.ts), so the two
+          proposals are never on screen together. */}
+      {taskbarPreview && <AgentTaskbar route={route} />}
     </>
   );
 }

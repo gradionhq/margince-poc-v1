@@ -22,7 +22,7 @@ const tokenDecls = tokensCss.replace(/\/\*[\s\S]*?\*\//g, "");
 // Values verbatim from the mockups; comparison normalizes case, whitespace and
 // a leading zero before a decimal point so formatting is free but values are not.
 const canonical: Record<string, string> = {
-  "--bgPage": "#FBFCFB",
+  "--bgPage": "#FBF9FA",
   "--bgElevated": "#ffffff",
   "--bgCard": "#EEF1F0",
   "--bgHover": "#F3F6F4",
