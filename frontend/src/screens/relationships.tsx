@@ -319,7 +319,10 @@ function AddRelationshipAction({
         role: role.trim() || undefined,
         started_at: startedAt || undefined,
         source: "manual",
-        is_current_primary: false,
+        // Not sent at all. This form offers every relationship kind and no
+        // primary control, so `false` here was a literal rather than anybody's
+        // decision — and for an employment it silently blocked the server's own
+        // rule that a person's only current job is their current primary one.
         ...scopeQuery(scope),
         ...endpointBody(endpoint.field, target.id),
       };

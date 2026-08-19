@@ -255,7 +255,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResol
 		  FROM person p
 		  LEFT JOIN relationship r
 		    ON r.person_id = p.id AND r.kind = 'employment'
-		   AND r.is_current_primary AND r.archived_at IS NULL
+		   AND `+CurrentPrimaryEmploymentSQL("r")+` AND r.archived_at IS NULL
 		  LEFT JOIN organization_domain od
 		    ON od.organization_id = r.organization_id AND od.archived_at IS NULL
 		 WHERE p.archived_at IS NULL

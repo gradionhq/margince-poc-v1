@@ -18012,7 +18012,11 @@ components:
         deal_id: { type: [string, 'null'], format: uuid }
         project_id: { type: [string, 'null'], format: uuid }
         role: { type: [string, 'null'] }
-        is_current_primary: { type: boolean, default: false }
+        # No `default`. The server decides this field when it is OMITTED — an
+        # employment for somebody with no other current one becomes their
+        # primary — so declaring a default would tell every generated client to
+        # materialize `false` and state a decision its caller never made.
+        is_current_primary: { type: boolean }
         started_at: { type: [string, 'null'], format: date }
         ended_at: { type: [string, 'null'], format: date }
         source: { type: string }

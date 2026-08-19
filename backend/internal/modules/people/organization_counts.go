@@ -102,7 +102,7 @@ func fillContactCounts(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUI
 		 JOIN person p ON p.id = rel.person_id AND p.archived_at IS NULL
 		 WHERE rel.organization_id = ANY($1)
 		   AND rel.kind = 'employment'
-		   AND rel.is_current_primary
+		   AND `+CurrentPrimaryEmploymentSQL("rel")+`
 		   AND rel.archived_at IS NULL`+scope+`
 		 GROUP BY rel.organization_id`, args,
 		func(o *crmcontracts.Organization, n int) { o.ContactCount = &n })

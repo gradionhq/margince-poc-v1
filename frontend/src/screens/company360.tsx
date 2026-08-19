@@ -651,7 +651,9 @@ function SetRoleAction({
           person_id: contact.person_id,
           deal_id: dealId,
           role: picked,
-          is_current_primary: false,
+          // Not sent: the flag is an EMPLOYMENT fact and this edge is a deal
+          // stakeholder, so the literal said nothing and only stood in the way
+          // of a gate that can now assert no screen states it by hand.
           source: "manual",
         },
       });
