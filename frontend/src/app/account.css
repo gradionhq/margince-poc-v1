@@ -13,22 +13,26 @@
   flex: none;
 }
 
-/* The rail's trigger is a ROW, not an avatar button: it reads as the person it
-   belongs to, so it prints who is signed in and says — with the chevron — that
-   there is more behind it. */
+/* The trigger is the AVATAR and nothing else. The strip is chrome true of the
+   whole session rather than a row about a person, so it takes the strip's own
+   control size — from the token, so it follows the coarse-pointer bump its three
+   neighbours take instead of staying at whatever the pointer-precise number was.
+   The name and the address are not drawn: the sentence they carry reaches a
+   screen reader through the clipped line (account.tsx), and the panel prints them
+   when it opens, which is where the reader confirms whose account this is.
+   Sized rather than padded, because a padded row is 40px tall in a 34px strip and
+   pushes every item in the bar 3px off its centre. */
 .account .user {
-  display: flex;
-  align-items: center;
-  gap: 9px; /* ds:ignore matches .navitem's icon-to-label gap so the rows align */
-  width: 100%;
-  min-width: 0;
-  padding: 6px; /* ds:ignore optical inset that keeps the 28px avatar on the nav rows' left edge */
+  display: grid;
+  place-items: center;
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+  padding: 0;
   border: 0;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-full);
   background: transparent;
   color: var(--textPrimary);
   font-family: var(--f-body);
-  text-align: left;
   cursor: pointer;
 }
 .account .user:hover {
