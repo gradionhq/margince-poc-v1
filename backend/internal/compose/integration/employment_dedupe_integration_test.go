@@ -17,6 +17,7 @@ package integration
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 )
@@ -167,6 +168,42 @@ func TestAnExplicitlyUnsetPrimaryFlagIsHonouredOnTheOnlyEmployment(t *testing.T)
 	}
 	if e.isPrimary(t, first) {
 		t.Error("editing the role re-derived the flag the caller had explicitly unset")
+	}
+}
+
+// A recorded last day that has not arrived is a NOTICE PERIOD, and somebody
+// serving one still works there. Reading `ended_at` as "gone" the moment it is
+// set took them off their employer's contact list months early, and nothing
+// could put them back: the column cannot be cleared through the API and the
+// patch that would restore the flag is refused by the same rule.
+func TestANoticePeriodDoesNotEndSomebodysEmployment(t *testing.T) {
+	e := setupRelationships(t)
+	future := time.Now().AddDate(0, 3, 0).Format("2006-01-02")
+
+	// Created with a last day three months out: still where they work.
+	status, edge, primary, _ := e.employment(t, e.orgID, apptest.AnyMap{"role": "cto", "ended_at": future})
+	if status != http.StatusCreated {
+		t.Fatalf("employment with a future last day → %d", status)
+	}
+	if !primary {
+		t.Error("an employment ending in three months did not land as current primary — they still work there")
+	}
+
+	// And recording the notice on an employment they already hold does not
+	// strip it either. This is the path the defect was reported on.
+	second := e.secondOrg(t, "Notice GmbH")
+	if status, _, _, _ := e.employment(t, second, apptest.AnyMap{}); status != http.StatusCreated {
+		t.Fatalf("second employment → %d", status)
+	}
+	var patched struct {
+		IsCurrentPrimary bool `json:"is_current_primary"`
+	}
+	if status := e.Call(t, "PATCH", "/v1/relationships/"+edge,
+		apptest.AnyMap{"ended_at": future}, nil, &patched); status != http.StatusOK {
+		t.Fatalf("recording the notice → %d", status)
+	}
+	if !patched.IsCurrentPrimary {
+		t.Error("recording a last day three months out took the current-primary flag immediately")
 	}
 }
 

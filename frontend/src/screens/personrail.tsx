@@ -771,7 +771,16 @@ function AddEmploymentModal({
   const headingId = useId();
   const [org, setOrg] = useState<RecordPickerCandidate | null>(null);
   const [role, setRole] = useState("");
-  const [isCurrent, setIsCurrent] = useState(false);
+  // null means the reader never touched the box, and that is not the same as
+  // unticking it. An untouched box sends NOTHING, and the server decides — a
+  // person's only current employment becomes their current primary one. Sending
+  // `false` for an untouched box made this modal, the surface the whole defect
+  // was reported from, the one place that rule could never fire.
+  //
+  // Deliberately not "tick it by default when they have no employer": that
+  // would be a second copy of the server's rule, in a language that cannot see
+  // the rows it depends on, free to drift from it.
+  const [isCurrent, setIsCurrent] = useState<boolean | null>(null);
   const [allConnected, setAllConnected] = useState(false);
 
   // Wraps the shared org search with this person's own already-connected
@@ -796,7 +805,7 @@ function AddEmploymentModal({
   function close() {
     setOrg(null);
     setRole("");
-    setIsCurrent(false);
+    setIsCurrent(null);
     setAllConnected(false);
     create.reset();
     onClose();
@@ -837,7 +846,7 @@ function AddEmploymentModal({
         </Field>
         <Checkbox
           label={t("person.rail.isCurrentEmployer")}
-          checked={isCurrent}
+          checked={isCurrent ?? false}
           disabled={create.isPending}
           onChange={(event) => setIsCurrent(event.target.checked)}
         />
@@ -868,7 +877,8 @@ function AddEmploymentModal({
                 person_id: personId,
                 organization_id: org.id,
                 role: role.trim() || undefined,
-                is_current_primary: isCurrent,
+                // Omitted when untouched — see the state above.
+                is_current_primary: isCurrent ?? undefined,
                 source: "ui",
               },
               { onSuccess: close },

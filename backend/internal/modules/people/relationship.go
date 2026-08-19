@@ -100,6 +100,24 @@ type CreateRelationshipInput struct {
 	Source           string
 }
 
+// employmentIsOver is the ONE spelling of "this job is behind them", and the
+// only thing that may strip a person's current-primary flag. `date` is the
+// effective end date at the call site — the incoming one on a create, the
+// patched-or-existing one on an update.
+//
+// It is a date COMPARISON, not a null check. An `ended_at` in the future is a
+// NOTICE PERIOD, and somebody serving one still works there: reading the
+// column's mere presence as "gone" took them off their employer's contact list
+// on the day their last day was recorded, months before it arrived, with no way
+// back — `ended_at` cannot be cleared through the API.
+//
+// current_date, evaluated by Postgres. A Go clock would answer a different
+// question on a server in a different timezone from the database, and every
+// reader of the flag this decides is SQL that knows only the database's own day.
+func employmentIsOver(date string) string {
+	return storekit.SQLf("(%s IS NOT NULL AND %s <= current_date)", date, date)
+}
+
 func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInput) (relationshipRow, error) {
 	// A SUPPLIED kind outside the vocabulary is a different fault from an omitted
 	// one, and they used to answer the same sentence: a caller who sent
@@ -143,14 +161,21 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 		}
 		// One current primary employer per person: demote the incumbent
 		// inside the same transaction rather than failing the write. An
-		// employment that arrives already ended claims nothing, so it displaces
-		// nobody — see the insert below, which refuses it the flag.
+		// employment that arrives already OVER claims nothing, so it displaces
+		// nobody — see the insert below, which refuses it the flag. A future
+		// end date is a notice period and DOES displace: they work there.
+		//
+		// That last test is in the statement, not in Go, so it reads the same
+		// clock the insert below reads. A Go-side comparison would answer a
+		// different question on a server in a different timezone from the
+		// database, and the two would disagree about exactly one day.
 		if in.Kind == "employment" && in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
-			in.EndedAt == nil && in.PersonID != nil {
+			in.PersonID != nil {
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
-				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL`,
-				*in.PersonID); err != nil {
+				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL
+				  AND NOT `+employmentIsOver("$2::date"),
+				*in.PersonID, in.EndedAt); err != nil {
 				return err
 			}
 		}
@@ -180,7 +205,7 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 			          SELECT 1 FROM relationship
 			           WHERE kind = 'employment' AND person_id = $2 AND archived_at IS NULL
 			             AND (ended_at IS NULL OR is_current_primary)))
-			          AND ($1 <> 'employment' OR $10::date IS NULL),
+			          AND ($1 <> 'employment' OR NOT `+employmentIsOver("$10::date")+`),
 			        $9, $10, $11, $12)
 			RETURNING `+relationshipColumns,
 			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID, in.ProjectID,
@@ -276,11 +301,12 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 			  role = coalesce($2, role),
 			  -- An employment somebody has LEFT is not their CURRENT primary
 			  -- one, whichever half of the patch makes it so: ending the job
-			  -- clears the flag, and setting the flag on a job already ended
+			  -- clears the flag, and setting the flag on a job already over
 			  -- does not take. Written against the row rather than as a Go
-			  -- condition, so the two halves cannot drift apart.
+			  -- condition, so the two halves cannot drift apart. LEFT, not
+			  -- "has a date" — see employmentIsOver.
 			  is_current_primary = coalesce($3, is_current_primary)
-			    AND (kind <> 'employment' OR coalesce($5, ended_at) IS NULL),
+			    AND (kind <> 'employment' OR NOT `+employmentIsOver("coalesce($5, ended_at)")+`),
 			  started_at = coalesce($4, started_at),
 			  ended_at = coalesce($5, ended_at)
 			WHERE id = $1

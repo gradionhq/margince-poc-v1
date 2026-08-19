@@ -27,6 +27,22 @@
 --
 -- SHARE ROW EXCLUSIVE, not EXCLUSIVE: it blocks INSERT/UPDATE/DELETE and lets
 -- readers through, which is the smallest lock that closes the window.
+--
+-- lock_timeout for the reason 0139 sets it, and it matters MORE here than in a
+-- plain drop: a pending strong lock request queues behind whatever transaction
+-- is already running, and every write arriving after it queues behind the
+-- request. So an unbounded wait does not merely delay this migration — it stops
+-- every employment write in the installation for as long as it waits, during
+-- the rolling deploy the lock above exists to survive. Three seconds turns that
+-- into a fast, loud failure: the transaction rolls back whole, nothing is
+-- half-applied, and the deploy retries.
+--
+-- ADDED AFTER THIS MIGRATION SHIPPED, which the additive-only rule normally
+-- forbids. It is safe here and only here: lock_timeout governs how the lock is
+-- ACQUIRED and touches neither schema nor data, so a database that already
+-- applied this version is unaffected and a fresh one lands on identical rows.
+-- The divergence the rule protects against cannot occur.
+SET LOCAL lock_timeout = '3s';
 LOCK TABLE relationship IN SHARE ROW EXCLUSIVE MODE;
 
 -- An employment somebody has LEFT is not their CURRENT primary one, and until

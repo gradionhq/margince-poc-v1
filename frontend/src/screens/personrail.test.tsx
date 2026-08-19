@@ -1,6 +1,13 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { meFixture } from "../app/mefixture";
@@ -154,20 +161,48 @@ function json(body: unknown): Response {
   });
 }
 
+// Every body this rail POSTs, in order, so a test can assert what was SENT
+// rather than what the component happened to render afterwards. The employment
+// modal's whole contract with the server is the shape of one request.
+const sent: Array<{ path: string; body: unknown }> = [];
+
 function mount(view: Person360) {
+  sent.length = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(
         input instanceof Request ? input.url : String(input),
         "https://test",
       );
+      // openapi-fetch hands `fetch` a Request, not (url, init), so the body is
+      // on the Request and reading it needs a clone — consuming the original
+      // would leave the real call with an empty body.
+      const request = input instanceof Request ? input : null;
+      const method = request?.method ?? init?.method;
+      if (method === "POST") {
+        const raw = request
+          ? await request.clone().text()
+          : String(init?.body ?? "");
+        if (raw !== "") {
+          sent.push({ path: url.pathname, body: JSON.parse(raw) });
+        }
+      }
       // The session probe is the one route that must answer a real body: an
       // unroutable /me fails every grant closed, which changes the edit
       // affordances the rail draws and nothing about its readings.
-      return url.pathname.endsWith("/me")
-        ? json(meFixture({ allow: { person: ["read", "update"] } }))
-        : json({ data: [], page });
+      if (url.pathname.endsWith("/me")) {
+        return json(meFixture({ allow: { person: ["read", "update"] } }));
+      }
+      // The employer picker searches organizations; without a candidate the
+      // modal's Save stays disabled and there is no request to inspect.
+      if (url.pathname.endsWith("/organizations")) {
+        return json({
+          data: [{ id: "o-9", display_name: "Employer GmbH" }],
+          page,
+        });
+      }
+      return json({ data: [], page });
     }),
   );
   const client = new QueryClient({
@@ -470,5 +505,64 @@ describe("the sibling sections governed by their own grants", () => {
     const companies = section("Companies");
     expect(within(companies).getByText("Brandt Automotive GmbH")).toBeTruthy();
     expect(within(companies).queryByText(WITHHELD_SENTENCE)).toBeNull();
+  });
+});
+
+// The employment modal's contract with the server is the SHAPE of one request,
+// and nothing rendered afterwards reveals it. An omitted `is_current_primary`
+// is what lets the server apply its own rule — a person's only current
+// employment is their current primary one — and this modal sending `false` for
+// an untouched checkbox is what made the surface the defect was reported from
+// the one place that rule could never fire.
+describe("adding a company", () => {
+  async function openAndPickEmployer() {
+    await userEvent.click(screen.getByRole("button", { name: "Add company" }));
+    await userEvent.type(screen.getByRole("searchbox"), "emp");
+    await userEvent.click(await screen.findByText("Employer GmbH"));
+  }
+
+  async function employmentBody(): Promise<Record<string, unknown>> {
+    // The mutation is in flight when the click returns, so the assertion waits
+    // for the request rather than for anything the modal renders — what was
+    // SENT is the only thing under test here.
+    await waitFor(() => {
+      if (!sent.some((request) => request.path.endsWith("/relationships"))) {
+        throw new Error(
+          `no employment was posted; requests were ${JSON.stringify(sent)}`,
+        );
+      }
+    });
+    const post = sent.find((request) =>
+      request.path.endsWith("/relationships"),
+    );
+    return (post?.body ?? {}) as Record<string, unknown>;
+  }
+
+  it("omits is_current_primary when the reader never touched the checkbox", async () => {
+    mount(granted);
+    await screen.findByRole("button", { name: "Add company" });
+    await openAndPickEmployer();
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    const body = await employmentBody();
+    expect(body.organization_id).toBe("o-9");
+    // `in`, not a falsy check: sending `false` and omitting the key are the two
+    // different requests this whole change turns on, and `body.x === false`
+    // cannot tell them apart from `undefined`.
+    expect("is_current_primary" in body).toBe(false);
+  });
+
+  it("sends is_current_primary when the reader ticks it", async () => {
+    mount(granted);
+    await screen.findByRole("button", { name: "Add company" });
+    await openAndPickEmployer();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "This is their current employer" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    // The other direction, because a modal that could only omit the field would
+    // give a reader no way to say which of two employers is the main one.
+    expect((await employmentBody()).is_current_primary).toBe(true);
   });
 });
