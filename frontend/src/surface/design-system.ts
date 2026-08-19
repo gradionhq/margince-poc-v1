@@ -32,6 +32,28 @@ export {
   SegmentedControl,
   TextInput,
 } from "../design-system/atoms";
+// Callout, because a unit sometimes has to warn a person about a choice it is
+// nonetheless going to let them make.
+//
+// The case that earned it: zalo-personal's capture card offers "everyone I talk
+// to, except the people I leave out", which puts a rep's family, friends and
+// doctor into the company CRM. That is a legitimate answer and it is warned
+// about, not blocked — and a warning composed by a unit out of a Badge and a
+// paragraph carries no ground, no border and none of the weight the same
+// sentence has anywhere else in the product. A unit ships no stylesheet, so
+// "make it look like a warning" is not something it can do for itself; the
+// alternative to publishing this is a warning that reads as body copy.
+//
+// The tones are claims rather than decoration — see the component's own note —
+// and that is exactly why this is publishable: a unit picking `warn` is saying
+// the same thing core says with it.
+export { Callout, type CalloutTone } from "../design-system/callout";
+// ChoiceList, because a unit offering an either/or has otherwise to hide it in a
+// dropdown: `Select` was the only closed-choice control published, and a menu
+// covering two options makes a person open it to discover what the alternative
+// was. A binary a rep has to weigh is the one choice that must be readable at
+// rest, and no radio group existed to publish until this one.
+export { type Choice, ChoiceList } from "../design-system/choicelist";
 // FactList, because a unit screen has NO other way to draw a label→value pair.
 //
 // No extension ships a stylesheet — nothing in extensions/*/frontend imports
@@ -91,4 +113,11 @@ export { Select, type SelectOption } from "../design-system/select";
 // on screen or with an earlier part of the same paste, and a remove control that
 // names the token it takes away. A unit that splits on commas gets none of those
 // and looks like the product until somebody pastes.
-export { TokenInput } from "../design-system/tokeninput";
+// TokenList, because a set somebody assembled has to READ as a set.
+//
+// A unit that renders "name, then a remove button" per person produces a run of
+// sentences — eight of them for eight people — and it cannot do better, because
+// the chip ground, the gap and the placement of the X are all stylesheet, which
+// a unit does not ship. This is the same token `TokenInput` draws, deliberately
+// from the same file: one visual, one home.
+export { type Token, TokenInput, TokenList } from "../design-system/tokeninput";

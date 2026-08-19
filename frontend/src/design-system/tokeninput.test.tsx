@@ -6,7 +6,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { TokenInput } from "./tokeninput";
+import { TokenInput, TokenList } from "./tokeninput";
 
 // The `in` operator's value control. Every rule below is one a reader would
 // otherwise discover by losing a value they typed.
@@ -145,5 +145,64 @@ describe("removing a value", () => {
     expect(screen.queryByText("AT")).toBeNull();
     expect(screen.getByText("DE")).toBeTruthy();
     expect(screen.getByText("CH")).toBeTruthy();
+  });
+});
+
+// The same token without the text box: a set built somewhere else, drawn as a
+// set. What matters is that each remove control names its OWN token and that a
+// reader who may not change the set is not shown controls that refuse.
+describe("TokenList", () => {
+  const PEOPLE = [
+    { id: "8801", label: "Chi Mai" },
+    { id: "8802", label: "Anh Tuan" },
+  ];
+
+  it("draws a list, and removes the token its own control names", async () => {
+    const user = userEvent.setup();
+    const removed: string[] = [];
+    render(
+      <TokenList
+        items={PEOPLE}
+        removeLabel={(item) => `Take ${item.label} off the list`}
+        onRemove={(id) => removed.push(id)}
+      />,
+    );
+
+    // A list, so a screen reader can say how many before walking them.
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    await user.click(
+      screen.getByRole("button", { name: "Take Anh Tuan off the list" }),
+    );
+    expect(removed).toEqual(["8802"]);
+  });
+
+  it("offers no remove control at all when the set is read-only", () => {
+    render(
+      <TokenList
+        items={PEOPLE}
+        removeLabel={(item) => `Take ${item.label} off the list`}
+      />,
+    );
+
+    // Absent rather than disabled: a viewer who may not change a set is not one
+    // whose controls are temporarily unavailable.
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.getByText("Chi Mai")).toBeTruthy();
+  });
+
+  it("refuses removal while the caller is busy, without hiding the set", () => {
+    render(
+      <TokenList
+        items={PEOPLE}
+        disabled
+        removeLabel={(item) => `Take ${item.label} off the list`}
+        onRemove={() => {}}
+      />,
+    );
+
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.hasAttribute("disabled")).toBe(true);
+    }
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 });

@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type CSSProperties, useState } from "react";
 import { Field } from "./atoms";
 import { DateInput } from "./dateinput";
-import { TokenInput } from "./tokeninput";
+import { TokenInput, TokenList } from "./tokeninput";
 
 /**
  * The two value controls a typed filter clause needs and the design system did
@@ -141,6 +141,31 @@ export const Dark: Story = {
       <Field label="Last emailed before">
         {(control) => <DateInput {...control} defaultValue="2026-07-18" />}
       </Field>
+    </div>
+  ),
+};
+
+/**
+ * The set WITHOUT the text box — the shape a picker fills. Two states on one
+ * canvas, because they are the two a caller ships: a set somebody can edit, and
+ * the same set shown to a reader who may only look at it.
+ */
+export const ListWithoutAField: Story = {
+  render: () => (
+    <div style={column}>
+      <TokenList
+        items={[
+          { id: "8801", label: "Chi Mai" },
+          { id: "8802", label: "Anh Tuan" },
+          { id: "8803", label: "Nguyễn Bá Dũng" },
+        ]}
+        removeLabel={(item) => `Take ${item.label} off the list`}
+        onRemove={() => {}}
+      />
+      <TokenList
+        items={[{ id: "8801", label: "Chi Mai" }]}
+        removeLabel={(item) => `Take ${item.label} off the list`}
+      />
     </div>
   ),
 };

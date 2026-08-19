@@ -423,7 +423,7 @@ func TestThePersonListNarrowsToOneEmployer(t *testing.T) {
 
 	// Seeded through the real writer, so the edge carries whatever that writer
 	// stamps: a hand-inserted row proves nothing about the rows production makes.
-	employ := func(person ids.UUID, org ids.UUID, current bool) {
+	employ := func(person ids.UUID, org ids.UUID, ended *time.Time) {
 		t.Helper()
 		personID := ids.From[ids.PersonKind](person)
 		orgID := ids.From[ids.OrganizationKind](org)
@@ -431,18 +431,22 @@ func TestThePersonListNarrowsToOneEmployer(t *testing.T) {
 			Kind:             "employment",
 			PersonID:         &personID,
 			OrganizationID:   &orgID,
-			IsCurrentPrimary: current,
+			IsCurrentPrimary: boolPtr(ended == nil),
+			EndedAt:          ended,
 			Source:           "manual",
 		}); err != nil {
 			t.Fatalf("seeding the employment edge: %v", err)
 		}
 	}
-	employ(staff, acme, true)
+	left := time.Date(2021, 6, 30, 0, 0, 0, 0, time.UTC)
+	employ(staff, acme, nil)
 	// A past employer at the same account: the filter answers who works there,
 	// not who has ever worked there, and returning the leaver beside the staff
-	// is the wrong answer wearing the right shape.
-	employ(leaver, acme, false)
-	employ(elsewhere, other, true)
+	// is the wrong answer wearing the right shape. DATED as over, because that
+	// is what past is — an undated non-primary job cannot say it, now that a
+	// person's only employment is their current primary one.
+	employ(leaver, acme, &left)
+	employ(elsewhere, other, nil)
 
 	orgID := ids.From[ids.OrganizationKind](acme)
 	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OrganizationID: &orgID})

@@ -254,14 +254,14 @@ function GateColumn({
   }> =
     scan === undefined
       ? {
-          core: running === true ? "working" : "listening",
+          core: running === true ? "ingesting" : "dormant",
           title: name
             ? t("ob.gate.title", { name })
             : t("ob.gate.titleAnonymous"),
           sub: t("ob.gate.sub"),
         }
       : {
-          core: coreStateFor(scan.read.status),
+          core: coreStateFor(scan.read),
           title: settled
             ? t("ob.scan.doneTitle", { host: scan.host })
             : t("ob.scan.title", { host: scan.host }),
@@ -301,11 +301,19 @@ const BROKEN: ReadonlySet<CompanySiteRead["status"]> = new Set([
   "abandoned",
 ]);
 
-function coreStateFor(status: CompanySiteRead["status"]): MarginceCoreState {
-  if (SETTLED.has(status)) {
-    return "success";
+function coreStateFor(read: CompanySiteRead): MarginceCoreState {
+  if (SETTLED.has(read.status)) {
+    return "applied";
   }
-  return BROKEN.has(status) ? "error" : "working";
+  if (BROKEN.has(read.status)) {
+    return "error";
+  }
+  // A site read IS intake: pages arriving, one after another — until the
+  // extracting phase, where the agent is working over what it has rather than
+  // taking more on. Reading the phase as well as the status is what keeps this
+  // orb saying the same thing as the one on the read screen itself
+  // (onboarding-read.tsx), which has always drawn the distinction.
+  return read.phase === "extracting" ? "reasoning" : "ingesting";
 }
 
 // The one phase line, from the only two fields that carry a phase. `status`

@@ -96,6 +96,7 @@ export const en = {
   // control READS the entry it is on; the name says what pressing it does and
   // keeps that word inside itself (WCAG 2.5.3).
   "shell.sectionSwitch": "{name} — change section",
+  "attention.selected": "{n} selected",
   "agent.title": "Margince AI",
   "agent.regionAria": "Margince AI status",
   "agent.configured": "Configured",

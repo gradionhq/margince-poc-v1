@@ -95,10 +95,13 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 		personID := ids.From[ids.PersonKind](fromID)
 		orgID := ids.From[ids.OrganizationKind](toID)
 		_, err := w.people.CreateRelationship(ctx, people.CreateRelationshipInput{
-			Kind:             "employment",
-			PersonID:         &personID,
-			OrganizationID:   &orgID,
-			IsCurrentPrimary: strings.EqualFold(a.Label, "primary"),
+			Kind:           "employment",
+			PersonID:       &personID,
+			OrganizationID: &orgID,
+			// The mirrored label is the incumbent's own answer, so it is stated
+			// either way — a non-primary association must not be promoted by the
+			// store's own rule for a caller who said nothing.
+			IsCurrentPrimary: ptrBool(strings.EqualFold(a.Label, "primary")),
 			Source:           w.provenance("relationship", a.FromID+"→"+a.ToID),
 		})
 		if err != nil {

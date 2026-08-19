@@ -67,3 +67,25 @@
 .token-remove:disabled {
   cursor: not-allowed;
 }
+
+/* The token SET on its own, with no field around it (TokenList).
+ *
+ * A row of things rather than a run of words: that is the whole point, and it is
+ * what a hand-rolled "name Button name Button" row cannot be. The list resets
+ * its own bullets and indent — a `ul` inside a card otherwise carries the
+ * browser's 40px marker gutter, and the tokens would sit off the card's grid. */
+.token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Standing alone, a token carries the padding the field version borrows from the
+   frame around it. Inside `.token-input` the field's own padding does that work;
+   here there is no field, and a chip with no vertical padding reads as text. */
+.token-standalone {
+  padding: var(--space-1) var(--space-2);
+}

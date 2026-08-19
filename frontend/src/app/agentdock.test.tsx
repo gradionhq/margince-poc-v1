@@ -92,7 +92,7 @@ describe("AgentDock", () => {
     // taking a feed, claims liveness just as loudly as the word would.
     expect(
       container.querySelector(".agentorb")?.getAttribute("data-core-state"),
-    ).toBe("quiet");
+    ).toBe("dormant");
     expect(container.querySelector(".core-feed")).toBeNull();
   });
 

@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { api } from "./api/client";
+import { AttentionProvider } from "./app/attention";
 import { AppErrorBoundary } from "./app/errorboundary";
 import { createQueryClient } from "./app/queryclient";
 import { applyTheme, resolveTheme } from "./app/theme";
@@ -57,7 +58,12 @@ createRoot(root).render(
             every other user-facing string, so it cannot render above the
             catalog it reads from. */}
         <AppErrorBoundary>
-          <App />
+          {/* Inside the boundary, outside App: the chrome that reads attention
+              and the screens that publish it are both under App, and a provider
+              that mounted with them would remount every time App did. */}
+          <AttentionProvider>
+            <App />
+          </AttentionProvider>
         </AppErrorBoundary>
       </LocaleProvider>
     </QueryClientProvider>

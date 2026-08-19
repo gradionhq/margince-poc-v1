@@ -93,6 +93,7 @@ export const de = {
   "shell.navBackTo": "Zurück zu {name}",
   "shell.navTop": "Bereiche",
   "shell.sectionSwitch": "{name} — Bereich wechseln",
+  "attention.selected": "{n} ausgewählt",
   "agent.title": "Margince KI",
   "agent.regionAria": "Margince-KI-Status",
   "agent.configured": "Konfiguriert",

@@ -67,7 +67,7 @@ function Shell({ session }: Readonly<{ session: RouteMap[string] }>) {
           than inheriting a "already shown" flag from the story before it. */}
       <WorkbenchEntranceScope>
         <ConversationWorkbench
-          core="listening"
+          core="dormant"
           railState={state}
           status="Ready"
           artifact={

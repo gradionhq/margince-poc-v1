@@ -17,21 +17,33 @@ const reading = state({ act: "company", phase: "co.reading" });
 
 describe("presenceFor: welcome and company act", () => {
   it("idles before the restore settles", () => {
-    expect(presenceFor(initialConversationState)).toEqual({ core: "idle" });
+    expect(presenceFor(initialConversationState)).toEqual({ core: "dormant" });
   });
 
-  it("listens while the human owes the URL", () => {
+  it("rests while the human owes the URL", () => {
+    // Not a state that claims to be listening: this agent reads captured
+    // activity, and the surface's own field is what asks for the URL.
     expect(presenceFor(state({ act: "company", phase: "co.intro" }))).toEqual({
-      core: "listening",
+      core: "dormant",
     });
   });
 
-  it("works with a pages-driven ring while the read runs", () => {
+  it("ingests with a pages-driven ring while the read crawls", () => {
     const presence = presenceFor(reading, {
       read: { status: "reading", phase: "crawling", pages_read: 10 },
     });
-    expect(presence.core).toBe("working");
+    expect(presence.core).toBe("ingesting");
     expect(presence.progress).toBeCloseTo(0.25);
+  });
+
+  it("turns to reasoning once the read stops crawling and starts extracting", () => {
+    // The two halves of a read are two different states: pages ARRIVING, then the
+    // agent working over what arrived. One `working` for both was the Core saying
+    // "busy" through a process the reader can actually follow.
+    const presence = presenceFor(reading, {
+      read: { status: "reading", phase: "extracting", pages_read: 40 },
+    });
+    expect(presence.core).toBe("reasoning");
   });
 
   it("keeps the ring inside its honest band: floor, crawl cap, extracting", () => {
@@ -49,22 +61,24 @@ describe("presenceFor: welcome and company act", () => {
     expect(extracting.progress).toBeCloseTo(0.84);
   });
 
-  it("asks for attention while a clarify question waits", () => {
+  it("flags a clarify question, because the read hit something it cannot resolve", () => {
     expect(
       presenceFor(state({ act: "company", phase: "co.clarify" })).core,
-    ).toBe("attention");
+    ).toBe("flagged");
   });
 
-  it("marks review and confirmed as success", () => {
+  it("rests at review and applies once confirmed", () => {
+    // Review is proposals in front of a person: the agent has stopped, so the orb
+    // must not claim work nobody asked it to keep doing.
     expect(
       presenceFor(state({ act: "company", phase: "co.review" })).core,
-    ).toBe("success");
+    ).toBe("dormant");
     expect(
       presenceFor(state({ act: "company", phase: "co.confirmed" })).core,
-    ).toBe("success");
+    ).toBe("applied");
   });
 
-  it("shows error on a broken or failed read, quiet on deferred", () => {
+  it("shows error on a broken or failed read, rest on deferred", () => {
     expect(presenceFor(reading, { readBroken: true }).core).toBe("error");
     expect(
       presenceFor(reading, {
@@ -75,14 +89,14 @@ describe("presenceFor: welcome and company act", () => {
       presenceFor(reading, {
         read: { status: "deferred", phase: null, pages_read: 3 },
       }).core,
-    ).toBe("quiet");
+    ).toBe("dormant");
   });
 });
 
 describe("presenceFor: voice, results, connect", () => {
   it("rings the build stages as quarters while building", () => {
     const base = state({ act: "voice", phase: "vo.building" });
-    expect(presenceFor(base)).toEqual({ core: "working", progress: 0.08 });
+    expect(presenceFor(base)).toEqual({ core: "ingesting", progress: 0.08 });
     expect(
       presenceFor({ ...base, lastBuildStage: "snapshot" }).progress,
     ).toBeCloseTo(0.25);
@@ -91,43 +105,43 @@ describe("presenceFor: voice, results, connect", () => {
     ).toBeCloseTo(1);
   });
 
-  it("asks for attention on the speaker question", () => {
+  it("rests on the speaker question, because the agent is not working", () => {
     expect(presenceFor(state({ act: "voice", phase: "vo.speaker" })).core).toBe(
-      "attention",
+      "dormant",
     );
   });
 
   it("maps the build result to its honest presence", () => {
     const result = state({ act: "voice", phase: "vo.result" });
     expect(presenceFor({ ...result, lastBuildStatus: "succeeded" }).core).toBe(
-      "success",
+      "applied",
     );
     expect(presenceFor({ ...result, lastBuildStatus: "failed" }).core).toBe(
       "error",
     );
     expect(presenceFor({ ...result, lastBuildStatus: "deferred" }).core).toBe(
-      "quiet",
+      "dormant",
     );
   });
 
-  it("listens while collecting and after a skip", () => {
+  it("rests while collecting and after a skip", () => {
     expect(
       presenceFor(state({ act: "voice", phase: "vo.collecting" })).core,
-    ).toBe("listening");
+    ).toBe("dormant");
     expect(presenceFor(state({ act: "voice", phase: "vo.skipped" })).core).toBe(
-      "listening",
+      "dormant",
     );
   });
 
-  it("celebrates the recap, listens through consent, succeeds on done", () => {
+  it("settles on the recap, rests through consent, applies on done", () => {
     expect(presenceFor(state({ act: "results", phase: "re.recap" }))).toEqual({
-      core: "success",
+      core: "applied",
     });
     expect(presenceFor(state({ act: "connect", phase: "cn.consent" }))).toEqual(
-      { core: "listening" },
+      { core: "dormant" },
     );
     expect(presenceFor(state({ act: "done", phase: "cn.done" }))).toEqual({
-      core: "success",
+      core: "applied",
     });
   });
 });

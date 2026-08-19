@@ -150,20 +150,26 @@ func clientInputValidation(err error) (error, bool) {
 // because the two halves answer different questions: that one knows a fixed set
 // of shared types by name, while this one knows no types at all — a module opts
 // in by implementing a method, and this reads whatever it declared.
-// maxFaultText bounds each value a module-declared fault contributes to a
+// MaxFaultText bounds each value a module-declared fault contributes to a
 // caller-facing body. The interfaces are implemented across eight modules and
 // their docs ask for no internal detail, but a boundary that only asks is a
 // boundary that leaks the first time someone passes a constraint name or a
 // wrapped driver message through. Long enough for a real explanation, short
 // enough that nothing large rides out.
-const maxFaultText = 300
+//
+// Exported as a shared FIGURE, not a promise: the MCP renderer bounds the
+// message it echoes and borrows this number rather than inventing a second,
+// but this package applies it only on the module-declared path — a Message
+// from a direct Validation call arrives unbounded, and escaping can push one
+// that was inside it back over. The echoing surface does its own bounding.
+const MaxFaultText = 300
 
 // boundFaultText caps one caller-facing value from a module-declared fault.
 func boundFaultText(s string) string {
-	if len(s) <= maxFaultText {
+	if len(s) <= MaxFaultText {
 		return s
 	}
-	cut := maxFaultText
+	cut := MaxFaultText
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}

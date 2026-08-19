@@ -155,7 +155,7 @@ function Artifact() {
 // Everything both variants share, so the one story-visible difference between
 // them is the `variant` prop itself.
 const BASE = {
-  state: "listening",
+  state: "reasoning",
   eyebrow: "Hi, I'm Margince",
   title: "Your company research AI",
   status: "I'm ready to research",

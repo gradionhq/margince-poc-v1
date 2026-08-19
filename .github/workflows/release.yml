@@ -36,9 +36,16 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+# Cancellation is scoped per JOB below rather than to the whole workflow, because
+# the two halves of this flow want opposite treatment. Drafting and baking are
+# superseded work — a newer merge should not wait out a full docker bake for a
+# commit nobody will consume — while publishing is a mutation of the dist service
+# and must never be interrupted part-way, so it carries a group that serializes
+# instead of one that cancels.
+#
+# A release therefore describes the push that triggered it, not every commit
+# below it: the patch range is that push's before..after, and a commit whose lane
+# was superseded gets no release of its own.
 
 env:
   # The release-management CLI image, published :latest from constellation's
@@ -55,6 +62,11 @@ env:
 jobs:
   draft:
     name: Draft release
+    # Superseded by a newer merge on the same ref: the tip is the commit worth
+    # drafting.
+    concurrency:
+      group: ${{ github.workflow }}-draft-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -169,6 +181,11 @@ jobs:
   docker-image:
     name: Build docker container
     needs: [draft]
+    # The long half — and the reason cancellation is here at all. A bake for a
+    # commit the tip has already replaced is work nobody reads.
+    concurrency:
+      group: ${{ github.workflow }}-bake-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -272,6 +289,15 @@ jobs:
   publish:
     name: Publish release
     needs: [draft, docker-image]
+    # `cancel-in-progress: false` here and nowhere else: publishing mutates the
+    # dist service, so a publish that has started always finishes. The group
+    # bounds how many can be in flight — one publish at a time per ref, and a
+    # publish still pending when a newer one arrives gives up its place. It is a
+    # mutual exclusion, not an ordering: which version reaches the dist service
+    # first is not something a concurrency group can decide.
+    concurrency:
+      group: ${{ github.workflow }}-publish-${{ github.ref }}
+      cancel-in-progress: false
     # `!= 'false'`, not `== 'true'`: on a re-run of failed jobs the draft job
     # does not re-execute and GitHub drops its outputs, so an equality test
     # against 'true' silently skipped the publish of a fully patched release.

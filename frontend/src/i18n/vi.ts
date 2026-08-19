@@ -101,6 +101,7 @@ export const vi = {
   "shell.navBackTo": "Quay lại {name}",
   "shell.navTop": "Điều hướng",
   "shell.sectionSwitch": "{name} — chuyển mục",
+  "attention.selected": "Đã chọn {n}",
   "agent.title": "Margince AI",
   "agent.regionAria": "Trạng thái Margince AI",
   "agent.configured": "Đã cấu hình",
