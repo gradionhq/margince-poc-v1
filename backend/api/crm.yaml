@@ -6907,6 +6907,69 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /capture/exclusions:
+    get:
+      tags: [Capture]
+      operationId: listCaptureExclusions
+      summary: The addresses and domains capture keeps out — the workspace's rules and the caller's own.
+      description: |
+        A pre-capture exclusion keeps a message out of the CRM entirely: a message naming an excluded
+        address, or any address on an excluded domain (subdomains included), is dropped before
+        anything is stored, leaving only a trace that names the KIND of rule. A `workspace` rule is
+        the installation's and binds every connection; a `user` rule is the caller's own boundary for
+        the mailbox they connected and binds only their connections. The list is the workspace's
+        rules plus the caller's — never a colleague's personal ones.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '200':
+          description: The rules that bind the caller's connections.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureExclusionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Capture]
+      operationId: createCaptureExclusion
+      summary: Keep an address or a domain out of capture.
+      description: |
+        A `workspace` rule takes admin or ops; a `user` rule takes any human seat and names the
+        caller. Not retroactive: mail already captured stays. Idempotent on the folded value.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCaptureExclusionRequest' }
+      responses:
+        '201':
+          description: The rule.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CaptureExclusion' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /capture/exclusions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    delete:
+      tags: [Capture]
+      operationId: deleteCaptureExclusion
+      summary: Lift an exclusion.
+      description: |
+        A workspace rule by admin or ops; a user rule by the user it names. Mail from the address or
+        domain is captured again from the next message on; nothing already dropped comes back.
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      responses:
+        '204': { description: Lifted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /capture/email-domains/{domain}:
     parameters:
       - name: domain
@@ -13987,6 +14050,36 @@ components:
             Whether a human vouched for this domain. Only a verified domain — or one the
             installation's own company claims — suppresses storage.
         created_at: { type: string, format: date-time }
+    CaptureExclusion:
+      type: object
+      required: [id, scope, kind, value, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        scope: { $ref: '#/components/schemas/CaptureExclusionScope' }
+        kind: { $ref: '#/components/schemas/CaptureExclusionKind' }
+        value: { type: string, description: 'The folded address or domain.' }
+        created_at: { type: string, format: date-time }
+    CaptureExclusionScope:
+      type: string
+      enum: [workspace, user]
+      description: Whose rule it is — the installation's, or the caller's own for the mailbox they connected.
+    CaptureExclusionKind:
+      type: string
+      enum: [address, domain]
+    CaptureExclusionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CaptureExclusion' }
+    CreateCaptureExclusionRequest:
+      type: object
+      required: [scope, kind, value]
+      properties:
+        scope: { $ref: '#/components/schemas/CaptureExclusionScope' }
+        kind: { $ref: '#/components/schemas/CaptureExclusionKind' }
+        value: { type: string, maxLength: 320, description: 'An email address, or a bare domain.' }
     WorkspaceEmailDomainListResponse:
       type: object
       required: [data]

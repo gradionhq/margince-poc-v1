@@ -4731,6 +4731,23 @@ export const en = {
   "captureSettings.adminOnly": "Only an admin or ops can change this.",
 
   "ownDomains.companyTitle": "Company domains",
+  "captureExclusions.title": "Keep out of capture",
+  "captureExclusions.sub":
+    "Addresses and domains whose messages never enter the CRM. Your own rules bind only the mailboxes you connected; the organization's rules bind everyone.",
+  "captureExclusions.notRetroactive":
+    "Takes effect from the next message. Messages already captured stay.",
+  "captureExclusions.empty": "No exclusions.",
+  "captureExclusions.scope.user": "Only me",
+  "captureExclusions.scope.workspace": "Whole organization",
+  "captureExclusions.kind.address": "Address",
+  "captureExclusions.kind.domain": "Domain",
+  "captureExclusions.scopeLabel": "Applies to",
+  "captureExclusions.kindLabel": "Kind",
+  "captureExclusions.addLabel": "Exclude an address or a domain",
+  "captureExclusions.placeholder.address": "name@example.com",
+  "captureExclusions.placeholder.domain": "example.com",
+  "captureExclusions.add": "Exclude",
+  "captureExclusions.remove": "Capture {value} again",
   "ownDomains.title": "Own email domains",
   "ownDomains.sub":
     "The domains that belong to this company. When colleagues write to each other, that message is not stored. Not even for you.",

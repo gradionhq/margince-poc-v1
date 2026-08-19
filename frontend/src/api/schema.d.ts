@@ -4397,6 +4397,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/capture/exclusions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The addresses and domains capture keeps out — the workspace's rules and the caller's own.
+         * @description A pre-capture exclusion keeps a message out of the CRM entirely: a message naming an excluded
+         *     address, or any address on an excluded domain (subdomains included), is dropped before
+         *     anything is stored, leaving only a trace that names the KIND of rule. A `workspace` rule is
+         *     the installation's and binds every connection; a `user` rule is the caller's own boundary for
+         *     the mailbox they connected and binds only their connections. The list is the workspace's
+         *     rules plus the caller's — never a colleague's personal ones.
+         */
+        get: operations["listCaptureExclusions"];
+        put?: never;
+        /**
+         * Keep an address or a domain out of capture.
+         * @description A `workspace` rule takes admin or ops; a `user` rule takes any human seat and names the
+         *     caller. Not retroactive: mail already captured stays. Idempotent on the folded value.
+         */
+        post: operations["createCaptureExclusion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/capture/exclusions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Lift an exclusion.
+         * @description A workspace rule by admin or ops; a user rule by the user it names. Mail from the address or
+         *     domain is captured again from the next message on; nothing already dropped comes back.
+         */
+        delete: operations["deleteCaptureExclusion"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/capture/email-domains/{domain}": {
         parameters: {
             query?: never;
@@ -9046,6 +9100,32 @@ export interface components {
             verified: boolean;
             /** Format: date-time */
             created_at?: string;
+        };
+        CaptureExclusion: {
+            /** Format: uuid */
+            id: string;
+            scope: components["schemas"]["CaptureExclusionScope"];
+            kind: components["schemas"]["CaptureExclusionKind"];
+            /** @description The folded address or domain. */
+            value: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /**
+         * @description Whose rule it is — the installation's, or the caller's own for the mailbox they connected.
+         * @enum {string}
+         */
+        CaptureExclusionScope: "workspace" | "user";
+        /** @enum {string} */
+        CaptureExclusionKind: "address" | "domain";
+        CaptureExclusionListResponse: {
+            data: components["schemas"]["CaptureExclusion"][];
+        };
+        CreateCaptureExclusionRequest: {
+            scope: components["schemas"]["CaptureExclusionScope"];
+            kind: components["schemas"]["CaptureExclusionKind"];
+            /** @description An email address, or a bare domain. */
+            value: string;
         };
         WorkspaceEmailDomainListResponse: {
             data: components["schemas"]["WorkspaceEmailDomain"][];
@@ -26335,6 +26415,78 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listCaptureExclusions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The rules that bind the caller's connections. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureExclusionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createCaptureExclusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCaptureExclusionRequest"];
+            };
+        };
+        responses: {
+            /** @description The rule. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureExclusion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteCaptureExclusion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lifted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     deleteWorkspaceEmailDomain: {

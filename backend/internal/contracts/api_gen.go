@@ -1512,6 +1512,42 @@ func (e CaptureConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for CaptureExclusionKind.
+const (
+	CaptureExclusionKindAddress CaptureExclusionKind = "address"
+	CaptureExclusionKindDomain  CaptureExclusionKind = "domain"
+)
+
+// Valid indicates whether the value is a known member of the CaptureExclusionKind enum.
+func (e CaptureExclusionKind) Valid() bool {
+	switch e {
+	case CaptureExclusionKindAddress:
+		return true
+	case CaptureExclusionKindDomain:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CaptureExclusionScope.
+const (
+	CaptureExclusionScopeUser      CaptureExclusionScope = "user"
+	CaptureExclusionScopeWorkspace CaptureExclusionScope = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the CaptureExclusionScope enum.
+func (e CaptureExclusionScope) Valid() bool {
+	switch e {
+	case CaptureExclusionScopeUser:
+		return true
+	case CaptureExclusionScopeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureTraceEntryOutcome.
 const (
 	CaptureTraceEntryOutcomeCaptured   CaptureTraceEntryOutcome = "captured"
@@ -9899,28 +9935,28 @@ func (e ProfileFieldKey) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	ListActivitiesParamsKindCall    ListActivitiesParamsKind = "call"
-	ListActivitiesParamsKindEmail   ListActivitiesParamsKind = "email"
-	ListActivitiesParamsKindMeeting ListActivitiesParamsKind = "meeting"
-	ListActivitiesParamsKindMessage ListActivitiesParamsKind = "message"
-	ListActivitiesParamsKindNote    ListActivitiesParamsKind = "note"
-	ListActivitiesParamsKindTask    ListActivitiesParamsKind = "task"
+	Call    ListActivitiesParamsKind = "call"
+	Email   ListActivitiesParamsKind = "email"
+	Meeting ListActivitiesParamsKind = "meeting"
+	Message ListActivitiesParamsKind = "message"
+	Note    ListActivitiesParamsKind = "note"
+	Task    ListActivitiesParamsKind = "task"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case ListActivitiesParamsKindCall:
+	case Call:
 		return true
-	case ListActivitiesParamsKindEmail:
+	case Email:
 		return true
-	case ListActivitiesParamsKindMeeting:
+	case Meeting:
 		return true
-	case ListActivitiesParamsKindMessage:
+	case Message:
 		return true
-	case ListActivitiesParamsKindNote:
+	case Note:
 		return true
-	case ListActivitiesParamsKindTask:
+	case Task:
 		return true
 	default:
 		return false
@@ -12338,6 +12374,30 @@ type CaptureConsent struct {
 	Wording *string `json:"wording,omitempty"`
 }
 
+// CaptureExclusion defines model for CaptureExclusion.
+type CaptureExclusion struct {
+	CreatedAt time.Time            `json:"created_at"`
+	Id        openapi_types.UUID   `json:"id"`
+	Kind      CaptureExclusionKind `json:"kind"`
+
+	// Scope Whose rule it is — the installation's, or the caller's own for the mailbox they connected.
+	Scope CaptureExclusionScope `json:"scope"`
+
+	// Value The folded address or domain.
+	Value string `json:"value"`
+}
+
+// CaptureExclusionKind defines model for CaptureExclusionKind.
+type CaptureExclusionKind string
+
+// CaptureExclusionListResponse defines model for CaptureExclusionListResponse.
+type CaptureExclusionListResponse struct {
+	Data []CaptureExclusion `json:"data"`
+}
+
+// CaptureExclusionScope Whose rule it is — the installation's, or the caller's own for the mailbox they connected.
+type CaptureExclusionScope string
+
 // CaptureSettings The workspace-shared capture posture (ADR-0072/A118, CAP-PARAM-7). Read by every role,
 // changed only by admin/ops.
 type CaptureSettings struct {
@@ -13513,6 +13573,17 @@ type CreateAutomationRequest struct {
 	Key    string                 `json:"key"`
 	Name   string                 `json:"name"`
 	Params map[string]interface{} `json:"params"`
+}
+
+// CreateCaptureExclusionRequest defines model for CreateCaptureExclusionRequest.
+type CreateCaptureExclusionRequest struct {
+	Kind CaptureExclusionKind `json:"kind"`
+
+	// Scope Whose rule it is — the installation's, or the caller's own for the mailbox they connected.
+	Scope CaptureExclusionScope `json:"scope"`
+
+	// Value An email address, or a bare domain.
+	Value string `json:"value"`
 }
 
 // CreateConsentPurposeRequest defines model for CreateConsentPurposeRequest.
@@ -25174,6 +25245,9 @@ type AddConsumerMailDomainJSONRequestBody = AddConsumerMailDomainRequest
 // CreateWorkspaceEmailDomainJSONRequestBody defines body for CreateWorkspaceEmailDomain for application/json ContentType.
 type CreateWorkspaceEmailDomainJSONRequestBody = CreateWorkspaceEmailDomainRequest
 
+// CreateCaptureExclusionJSONRequestBody defines body for CreateCaptureExclusion for application/json ContentType.
+type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
+
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
 
@@ -31841,6 +31915,15 @@ type ServerInterface interface {
 	// Stop treating a domain as the workspace's own.
 	// (DELETE /capture/email-domains/{domain})
 	DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request, domain string)
+	// The addresses and domains capture keeps out — the workspace's rules and the caller's own.
+	// (GET /capture/exclusions)
+	ListCaptureExclusions(w http.ResponseWriter, r *http.Request)
+	// Keep an address or a domain out of capture.
+	// (POST /capture/exclusions)
+	CreateCaptureExclusion(w http.ResponseWriter, r *http.Request)
+	// Lift an exclusion.
+	// (DELETE /capture/exclusions/{id})
+	DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id)
 	// The workspace's capture settings.
 	// (GET /capture/settings)
 	GetCaptureSettings(w http.ResponseWriter, r *http.Request)
@@ -33296,6 +33379,24 @@ func (_ Unimplemented) CreateWorkspaceEmailDomain(w http.ResponseWriter, r *http
 // Stop treating a domain as the workspace's own.
 // (DELETE /capture/email-domains/{domain})
 func (_ Unimplemented) DeleteWorkspaceEmailDomain(w http.ResponseWriter, r *http.Request, domain string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The addresses and domains capture keeps out — the workspace's rules and the caller's own.
+// (GET /capture/exclusions)
+func (_ Unimplemented) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Keep an address or a domain out of capture.
+// (POST /capture/exclusions)
+func (_ Unimplemented) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Lift an exclusion.
+// (DELETE /capture/exclusions/{id})
+func (_ Unimplemented) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -38306,6 +38407,78 @@ func (siw *ServerInterfaceWrapper) DeleteWorkspaceEmailDomain(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteWorkspaceEmailDomain(w, r, domain)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCaptureExclusions operation middleware
+func (siw *ServerInterfaceWrapper) ListCaptureExclusions(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCaptureExclusions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateCaptureExclusion operation middleware
+func (siw *ServerInterfaceWrapper) CreateCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateCaptureExclusion(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCaptureExclusion operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCaptureExclusion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCaptureExclusion(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -54202,6 +54375,15 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/capture/email-domains/{domain}", wrapper.DeleteWorkspaceEmailDomain)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/capture/exclusions", wrapper.ListCaptureExclusions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/capture/exclusions", wrapper.CreateCaptureExclusion)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/capture/exclusions/{id}", wrapper.DeleteCaptureExclusion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/capture/settings", wrapper.GetCaptureSettings)
