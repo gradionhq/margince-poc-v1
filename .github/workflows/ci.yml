@@ -212,11 +212,19 @@ jobs:
               - '.grant.yaml'
               - 'sbom-schemas/**'
               - 'Makefile'
-              - '.github/workflows/ci.yml'
-              # A composite action is cataloged as a package by the SBOM scan, so
-              # adding one changes what the license gate judges. Omitting this is
-              # how .github/actions/go-build-cache reached main unscanned and left
-              # the gate latently red for the next dependency PR.
+              # EVERY workflow, not just this one. syft catalogs a `uses:` as a
+              # package, so any workflow that gains a reference changes what the
+              # license gate judges — a pinned remote action brings its license,
+              # and a `uses:` of a local reusable workflow brings none at all.
+              # `.github/actions/**` was already here for the composite-action
+              # case, and the story below is why: the same catalog entry arrived
+              # from a path this filter did not name, and turned the gate red the
+              # same way.
+              #
+              # Omitting .github/actions/** is how .github/actions/go-build-cache
+              # reached main unscanned and left the gate latently red for the next
+              # dependency PR.
+              - '.github/workflows/**'
               - '.github/actions/**'
 
   # Every commit in a PR carries a Developer Certificate of Origin sign-off.

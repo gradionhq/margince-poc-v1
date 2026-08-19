@@ -61,6 +61,15 @@ ignore-packages:
   # The first PR afterwards to touch a go.mod, a package.json or the Makefile
   # inherited the failure.
   - ./.github/actions/* # first-party composite actions (BUSL-1.1, same as the repo)
+  # Local REUSABLE WORKFLOWS, for the same reason and by the same mechanism:
+  # `uses: ./.github/workflows/x.yml` is cataloged as a package exactly as a
+  # composite action is, carries no purl either, and so is equally out of
+  # sbom-supplement's reach. It is a file in this repo under this repo's own
+  # license, not a third-party dependency — the only third-party `uses:` are the
+  # pinned remote ones, and those keep their real licenses and are still judged.
+  # Globbed so calling a second workflow is covered on the day it happens rather
+  # than the day it turns the gate red.
+  - ./.github/workflows/* # first-party reusable workflows (BUSL-1.1, same as the repo)
 
 require-license: true # When true, deny packages with no detected licenses
 require-known-license: true
