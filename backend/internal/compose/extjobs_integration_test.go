@@ -53,13 +53,22 @@ func testJobDecl() extension.JobDeclaration {
 // set and restores the empty set afterwards. The set is process-wide (it is a
 // boot binding), so a test that left it behind would compose a phantom job into
 // every suite that ran after it.
-func composeJob(t *testing.T, decl extension.JobDeclaration, handle extension.JobHandler) {
+//
+// classes are the unit's declared failure vocabulary, and they go through the
+// real RegisterExtensions rather than being poked into the job table: only a
+// class this installation REGISTERED is honoured on the write path, so a suite
+// that registered its own would be proving something about a table nothing in
+// production fills that way.
+func composeJob(t *testing.T, decl extension.JobDeclaration, handle extension.JobHandler,
+	classes ...extension.FailureClass,
+) {
 	t.Helper()
 	err := RegisterExtensions(
 		[]extension.Extension{{
-			Name:    decl.Unit,
-			Version: "0.1.0",
-			Jobs:    []extension.Job{{Name: decl.Job, Handle: handle}},
+			Name:           decl.Unit,
+			Version:        "0.1.0",
+			Jobs:           []extension.Job{{Name: decl.Job, Handle: handle}},
+			FailureClasses: classes,
 		}},
 		nil,
 		[]extension.JobDeclaration{decl},

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/riverqueue/river"
 
@@ -103,6 +104,9 @@ func faultFor(ctx context.Context, kind string, err error) error {
 	// classification it would have had anyway.
 	if class, ok := extension.FailureClassOf(err); ok {
 		if registered, found := registeredFailureClass(kind, class); found {
+			if in, asked := extension.RescheduleAfter(err); asked {
+				return rescheduleFor(ctx, kind, registered.Class, in, err)
+			}
 			// THE CAUSE STILL GOES TO THE LOG. Classifying a failure says what
 			// KIND of thing went wrong; it does not say which host did not
 			// resolve, and that detail is the diagnosis — the thing this seam
@@ -126,6 +130,71 @@ func faultFor(ctx context.Context, kind string, err error) error {
 	// the kind nor anything else identifying the tick.
 	slog.ErrorContext(ctx, "jobs: a worker failed with an unclassified cause", faultLogAttrs(ctx, kind, "", err)...)
 	return &fault{sentence: unrecognised, cause: err}
+}
+
+// The bounds a requested postponement is held to before it reaches the queue.
+//
+// A delay is a REQUEST from a unit, exactly as a class is, and this is the half
+// of the seam that makes the request safe to honour.
+//
+// WHAT THE CEILING PROTECTS, said precisely, because the imprecise version is
+// checkably false: a postponed row is `scheduled`, and `scheduled` IS counted —
+// health.go's waitingStates and the queue-depth gauge both include it, so a row
+// postponed for a year still shows up as one piece of waiting work. What it
+// escapes is the AGE reading. Every "how long has this waited" measurement in
+// this package filters `scheduled_at <= now()`, correctly, because nothing
+// scheduled for the future is late — so a far-future delay produces a count
+// nobody can age, forever, and "waiting: 1" is what a healthy idle tick looks
+// like too. The ceiling keeps the delay inside the window where a stuck
+// postponement eventually becomes measurable instead of permanently plausible.
+//
+// The floor carries two jobs. River PANICS on a negative duration, so a unit
+// that computed one from a clock — a deadline already past, a subtraction that
+// went the wrong way — would take the worker process down rather than fail a
+// tick, and a bound is the only place that can be caught once for everybody.
+// Zero is not a panic but is River's "run me immediately", which for a failing
+// tick is a spin against a provider that is already refusing; a second is long
+// enough not to be one and short enough that no unit meaning "as soon as
+// possible" is meaningfully denied.
+//
+// A CALLER STAYING UNDER THE CEILING IS NOT LEFT TO PROSE. It used to say the
+// ceiling "sits well above any cadence a connector declares", which was a claim
+// about one day's tree that nothing enforced — and it hid the inversion it was
+// meant to reassure about, since a unit declaring a cadence above this bound
+// reconciles its delay against that cadence perfectly and then gets clamped to
+// less, polling a refusing provider harder during an outage than in health.
+// backend/pollcadenceparity_test.go reads this bound out of this file and holds
+// every postponing unit under it.
+const (
+	minRescheduleDelay = time.Second
+	maxRescheduleDelay = 15 * time.Minute
+)
+
+// rescheduleFor turns a unit's postponement request into the queue's own control
+// return.
+//
+// WARN, not ERROR, and the level is the message. A postponed tick is not a
+// failure: nothing was lost, nothing is owed an operator, and logging it at the
+// level a dead job uses would put a routine outage in the same lane as work that
+// needs a human. It is logged at all because a connector that has been
+// postponing itself for a day is a fact somebody eventually needs, and it is the
+// one fact a snooze leaves nowhere else — River records no attempt error for a
+// snooze, so this line and the unit's own row are the whole trail.
+func rescheduleFor(ctx context.Context, kind, class string, in time.Duration, err error) error {
+	delay := min(max(in, minRescheduleDelay), maxRescheduleDelay)
+	attrs := append(faultLogAttrs(ctx, kind, class, err), "retry_in", delay.String())
+	// A CLAMPED REQUEST SAYS SO. The bounds exist to catch a unit that computed a
+	// delay wrong, and a clamp that logged only its own result made that mistake
+	// invisible: a unit asking for 72 hours and a unit asking for fifteen minutes
+	// produced byte-identical output, so the one thing the bound was written to
+	// notice left no trace anywhere. The request is carried only when it differs,
+	// because a field that repeats retry_in on every healthy line is noise the
+	// clamped case then hides in.
+	if delay != in {
+		attrs = append(attrs, "requested", in.String())
+	}
+	slog.WarnContext(ctx, "jobs: a worker postponed its own tick rather than failing", attrs...)
+	return river.JobSnooze(delay)
 }
 
 // faultLogAttrs is what every fault log line carries, spelled once so the three
