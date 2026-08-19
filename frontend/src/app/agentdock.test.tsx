@@ -322,14 +322,33 @@ describe("the record-scoped ask (AC-shell-8)", () => {
     expect(screen.getByText("Ask about Brandt Logistik GmbH")).toBeTruthy();
   });
 
-  // Loading, or a record this principal cannot read: the id is not a name, but
-  // it is true, and it is what the reader can quote when they ask why the answer
-  // was refused. A composer that named nothing would be a question about the
-  // whole product.
-  it("falls back to the record id when the name has not resolved", async () => {
+  // A read still in flight: the id is not a name, but it is true, and it is what
+  // the reader can quote. A composer that named nothing would be a question about
+  // the whole product.
+  //
+  // The read is pinned rather than left to the environment. Seeded with no name
+  // the query runs for real, and what it does then is the runner's business — a
+  // machine with no network rejects it in a millisecond and the panel says the
+  // name did not load, which is the case BELOW, not this one. A read that never
+  // answers is what "has not resolved" means, so that is what this hands it.
+  it("falls back to the record id while the name is still coming", async () => {
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
     render(<AgentDock route={{ screen: "companies", id: "brandt" }} />);
     await openDock();
     expect(screen.getByText("Ask about brandt")).toBeTruthy();
+  });
+
+  // A read that will never arrive is a different sentence, and it may not borrow
+  // the id: painting it for a refused or failed read states as settled fact a
+  // question nothing answered (screens/entityref.tsx).
+  it("says the name did not load when the read failed, and never the id", async () => {
+    vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
+    render(<AgentDock route={{ screen: "companies", id: "brandt" }} />);
+    await openDock();
+    await waitFor(() =>
+      expect(screen.getByText("Ask about Name didn't load")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Ask about brandt")).toBeNull();
   });
 
   // The agent reads only the RBAC ∩ Passport intersection. This sentence is the
