@@ -299,6 +299,14 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  /* Never shrinks. The panel is a flex COLUMN, and on a window shorter than the
+     navigation is tall the default `flex-shrink: 1` took the overflow out of the
+     tallest item that could give it — this one, silently, 14px of it. The head
+     then stood shorter than the strip it is aligned to and every icon below it
+     rode up by that much, so collapsing the panel (which stops scrolling, so
+     stops shrinking) moved the whole column. Both halves of that are wrong: the
+     logomark's axis is the strip's, and the rows hold still. */
+  flex: none;
   /* The strip's height exactly, pulled up out of the rail's own top padding: the
      logomark then sits on the same horizontal axis as the trail and the search
      across the rule from it, and the panel's 1px row gap still puts the first
@@ -611,12 +619,17 @@
   font-size: var(--fs-lead);
   font-weight: var(--fw-semibold);
   color: var(--textPrimary);
+  /* One line in both states. Left to wrap, a two-word level name set two lines
+     deep expanded and one line deep collapsed, and the rows under it moved on
+     the collapse. The panel clips its own overflow-x expanded; collapsed the
+     name is not drawn at all. */
+  white-space: nowrap;
 }
 /* The header block ends here, and the rule says so — bled out through the title's
    own inset and the rail's gutter so it meets both edges and divides the SIDEBAR
    rather than underlining a word. Carried by the title rather than by the first
-   group, so it travels with the thing it belongs to: collapsed, the name is
-   clipped and the line goes with it, where the group hairlines take over. */
+   group, so it travels with the thing it belongs to: collapsed, the name gives up
+   its ink and this line is what is left of the level's head. */
 .rail .navtitle::after {
   content: "";
   display: block;
@@ -630,14 +643,13 @@
 }
 /* Collapsed there is no room for the name — and it must not leave the document
    either: the rows below are icons, and this heading is what says which level
-   they are. Clipped rather than removed, the trade `.sr-only` makes. */
+   they are. So it keeps its BOX and gives up only its ink, the same trade
+   `.navheading` makes one level up. Taken out of the flow instead (the `.sr-only`
+   treatment this used to have) it took 37px of the column with it, and every row
+   under it jumped up by that much on the collapse. The rule it carries stays and
+   still divides the level's head from its rows. */
 .rail.collapsed .navtitle {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
+  color: transparent;
 }
 /* The way back up: the first control in the level and the only one that leaves
    it, so it is the one thing here that looks like a control. On `.navitem`'s
@@ -707,6 +719,9 @@
   display: none;
 }
 .rail .railfoot {
+  /* As the head: the reading and its rule keep their height whether the panel
+     scrolls or not. */
+  flex: none;
   margin: var(--space-3) calc(-1 * var(--space-2)) 0;
   /* The same air above the row as the rail's own bottom padding leaves under it,
      so the reading sits centred in the band the rule closes rather than riding
@@ -752,17 +767,13 @@
 .rail .raillicense.pressing {
   color: var(--warn);
 }
-/* Collapsed, a row IS its target: there is no label to widen it, so it keeps the
-   44px the canonical rail specifies (WDS-NAV-1) rather than the 34px an expanded
-   row needs. */
-.rail.collapsed .navitem,
-.rail.collapsed .raillicense {
-  min-height: 44px;
-}
-.rail.collapsed .raillicense {
-  justify-content: center;
-  padding: 0;
-}
+/* Collapsed, this row changes exactly what a destination's row changes: the
+   reading goes and the glyph stays where it was. It keeps the destinations'
+   height and their 14px inset, so the whole column — ten places and the reading
+   under them — holds still through the collapse instead of re-spacing itself.
+   The label is absolutely positioned like theirs and fades with them; it is
+   taken out of the flow here as well so a screen reader is not offered a name
+   that is no longer drawn. */
 .rail.collapsed .raillicense .navlabel {
   display: none;
 }
@@ -1260,7 +1271,8 @@
   }
   /* The close control keeps its glyph and drops its word: pinned in the corner
      there is no room for one, and "Close" is what its `aria-label` says. */
-  .rail.sheetopen .railmore .navlabel {
+  .rail.sheetopen .railmore .navlabel,
+  .rail.sheetopen.collapsed .railmore .navlabel {
     display: none;
   }
   .rail.sheetopen .railmore {
@@ -1318,6 +1330,11 @@
   .rail.sheetopen.collapsed .navlabel,
   .rail.sheetopen .navitem:has(.count) .navlabel {
     display: block;
+    /* The collapse animation fades the label out (`.rail.collapsed .navlabel`)
+       as well as taking its width, and `display: block` alone does not put the
+       ink back: a reader whose desktop rail was left collapsed opened the sheet
+       to ten unlabelled glyphs. */
+    opacity: 1;
     position: static;
     left: auto;
     right: auto;
@@ -1376,6 +1393,7 @@
   .rail.sheetopen .raillicense .navlabel,
   .rail.sheetopen.collapsed .raillicense .navlabel {
     display: block;
+    opacity: 1;
   }
   .rail.sheetopen .raillicense {
     min-height: 48px;

@@ -50,10 +50,11 @@ vi.mock("@composition/extensions", () => ({
 // Automations left it for Settings → AI and the dedupe queue took the slot,
 // which is a UI divergence on the founder's back-fill list), at most one active
 // item tracking the route (AC-shell-2), badges only on the attention screens and
-// only from live counts (AC-shell-1e), 44x44 collapsed targets with a dismissible
-// tooltip (AC-shell-1c/1d), and the phone bar with its More sheet. It carries no
-// search row, no collapse control, no Settings door and no account block any
-// more — each of those moved to the top bar (topbar.test.tsx).
+// only from live counts (AC-shell-1e), collapsed rows on the expanded rows' own
+// geometry with a dismissible tooltip (AC-shell-1d), and the phone bar with its
+// More sheet. It carries no search row, no collapse control, no Settings door
+// and no account block any more — each of those moved to the top bar
+// (topbar.test.tsx).
 //
 // The second suite is the panel's own DEPTH: a section route replaces the ten
 // destinations with that section's entries, one level at a time, with the way
