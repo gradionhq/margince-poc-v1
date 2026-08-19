@@ -5174,4 +5174,5 @@ export const de = {
   "filters.resultsCaption":
     "Die erste Seite der Treffer \u2014 genug, um den Filter zu pr\u00fcfen, nicht die gesamte Auswahl.",
   "filters.noMatches": "Keine Datens\u00e4tze entsprechen diesem Filter.",
+  "filters.loadView": "Gespeicherten Filter laden",
 } as const satisfies Record<MessageKey, string>;

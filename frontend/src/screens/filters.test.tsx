@@ -42,16 +42,22 @@ const DEAL_VOCAB = {
 
 /** Every request the screen made, so a test can assert what it asked rather than
  *  inferring it from what rendered. */
-function mount(preview?: {
-  match_count: number;
-  columns?: readonly string[];
-  rows?: readonly Record<string, unknown>[];
-}) {
+function mount(
+  preview?: {
+    match_count: number;
+    columns?: readonly string[];
+    rows?: readonly Record<string, unknown>[];
+  },
+  views: readonly Record<string, unknown>[] = [],
+) {
   const seen: string[] = [];
+  const written: unknown[] = [];
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input instanceof Request ? input.url : input);
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : null;
+      const url = String(request ? request.url : input);
+      const method = request?.method ?? init?.method ?? "GET";
       seen.push(url);
       const json = (body: unknown) =>
         new Response(JSON.stringify(body), {
@@ -73,6 +79,21 @@ function mount(preview?: {
           truncated: false,
         });
       }
+      if (url.includes("/views")) {
+        // A save is recorded rather than answered with a fixture: what the
+        // screen STORES is the thing worth asserting, and a canned view row
+        // would prove nothing about the blob that produced it.
+        if (method === "POST") {
+          written.push(
+            request ? await request.json() : JSON.parse(String(init?.body)),
+          );
+          return json({ id: "v-new", ...(views[0] ?? {}) });
+        }
+        return json({
+          data: views,
+          page: { next_cursor: null, has_more: false },
+        });
+      }
       return json({});
     }),
   );
@@ -84,7 +105,19 @@ function mount(preview?: {
       <LocaleProvider>{children}</LocaleProvider>
     </QueryClientProvider>
   );
-  return { seen, wrapper };
+  return { seen, written, wrapper };
+}
+
+/** A stored view row, with whatever `query` blob the test is about. */
+function viewRow(name: string, query: unknown) {
+  return {
+    id: `v-${name}`,
+    owner_id: "u-1",
+    resource: "people",
+    name,
+    query,
+    version: 1,
+  };
 }
 
 afterEach(cleanup);
@@ -182,6 +215,85 @@ it("names the count after the object, not after a placeholder", async () => {
   // "3 deals match", not "3 contacts match" and not "3 match" — the object is
   // part of the sentence, which is why the copy is keyed per object.
   expect(await screen.findByText("3 deals match")).toBeTruthy();
+});
+
+it("restores a saved filter, count and all, without a clause being retyped", async () => {
+  const { wrapper } = mount({ match_count: 7 }, [
+    viewRow("Berliners", {
+      filter: { and: [{ field: "full_name", op: "contains", value: "ann" }] },
+    }),
+  ]);
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(
+    await screen.findByRole("button", { name: "Load a saved filter" }),
+  );
+  await user.click(screen.getByRole("button", { name: "Berliners" }));
+
+  // The stored clause is on screen AND askable: a view that restores a tree the
+  // engine would refuse is a view that fails the moment it is opened.
+  expect(await screen.findByDisplayValue("ann")).toBeTruthy();
+  expect(await screen.findByText("7 contacts match")).toBeTruthy();
+});
+
+it("does not offer a view whose stored filter it cannot read", async () => {
+  const { wrapper } = mount({ match_count: 1 }, [
+    // A row written by an older build, or by hand: the operator is not one this
+    // engine has. An entry that lights up and restores nothing is worse than no
+    // entry, so the menu has nothing to show and does not render at all.
+    viewRow("Stale", {
+      filter: { and: [{ field: "c", op: "like", value: "x" }] },
+    }),
+    viewRow("List state", { list: { q: "ann", sort: "", filters: {} } }),
+  ]);
+  render(<FiltersScreen />, { wrapper });
+
+  await screen.findByRole("button", { name: "Add clause" });
+  expect(
+    screen.queryByRole("button", { name: "Load a saved filter" }),
+  ).toBeNull();
+});
+
+it("offers no save until the filter is one the engine would accept", async () => {
+  const { wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  // A clause with an empty value is refused per-leaf as filter_value_invalid, so
+  // saving it would store a view nobody can open.
+  expect(screen.queryByRole("button", { name: "Save view" })).toBeNull();
+
+  await user.type(screen.getByLabelText("Value"), "ann");
+
+  expect(await screen.findByRole("button", { name: "Save view" })).toBeTruthy();
+});
+
+it("saves the tree under the key the server validates as a filter", async () => {
+  const { written, wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  await user.click(await screen.findByRole("button", { name: "Save view" }));
+  await user.type(screen.getByLabelText("Name"), "Anns");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => {
+    expect(written).toHaveLength(1);
+  });
+  // `people`, not `person` — the two endpoint families spell the same object
+  // differently, and sending the filter vocabulary's word here would 422.
+  // And the tree goes under `filter`, carrying no editor ids.
+  expect(written[0]).toEqual({
+    resource: "people",
+    name: "Anns",
+    query: {
+      filter: { and: [{ field: "full_name", op: "eq", value: "ann" }] },
+    },
+  });
 });
 
 it("starts a fresh tree when the object changes", async () => {

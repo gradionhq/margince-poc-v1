@@ -83,10 +83,43 @@ const PREVIEW = {
   truncated: false,
 };
 
+// One readable view and one this build cannot read, because the menu's rule is
+// that the second kind is left out — a catalog page that only ever shows the
+// happy row documents half the behaviour.
+const SAVED_VIEWS = {
+  data: [
+    {
+      id: "v-1",
+      owner_id: "u-1",
+      resource: "people",
+      name: "Gold tier in Berlin",
+      query: {
+        filter: {
+          and: [
+            { field: "city", op: "eq", value: "Berlin" },
+            { field: "cf_loyalty_tier", op: "eq", value: "gold" },
+          ],
+        },
+      },
+      version: 1,
+    },
+    {
+      id: "v-2",
+      owner_id: "u-1",
+      resource: "people",
+      name: "Saved by an older build",
+      query: { filter: { and: [{ field: "city", op: "like", value: "Ber" }] } },
+      version: 1,
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
+};
+
 function routes(): void {
   installFetchStub({
     "GET /filters/vocabulary": () => jsonResponse(PERSON_VOCAB),
     "POST /filters/preview": () => jsonResponse(PREVIEW),
+    "GET /views": () => jsonResponse(SAVED_VIEWS),
   });
 }
 
@@ -99,6 +132,30 @@ export const NothingAskedYet: Story = {
   render: () => {
     routes();
     return <FiltersScreen />;
+  },
+};
+
+export const LoadedFromASavedView: Story = {
+  // The whole round trip: a stored tree becomes an editable one, and the count
+  // comes back for it without a clause being retyped. The menu holds two rows
+  // and offers one — the unreadable view is not on it.
+  render: () => {
+    routes();
+    return <FiltersScreen />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The menu's panel is anchored to its trigger from OUTSIDE the canvas — a
+    // card clips its own overflow, so the panel cannot live inside one. Its items
+    // are therefore found through the document, not the story's root.
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Load a saved filter" }),
+    );
+    await userEvent.click(
+      await page.findByRole("button", { name: "Gold tier in Berlin" }),
+    );
+    await canvas.findByText("3 contacts match");
   },
 };
 

@@ -5186,6 +5186,7 @@ export const en = {
   "filters.resultsCaption":
     "The first page of matches — enough to check the filter, not the whole selection.",
   "filters.noMatches": "No records match this filter.",
+  "filters.loadView": "Load a saved filter",
 } as const;
 
 export type MessageKey = keyof typeof en;

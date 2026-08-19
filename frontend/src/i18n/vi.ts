@@ -5135,4 +5135,5 @@ export const vi = {
     "Trang \u0111\u1ea7u c\u1ee7a k\u1ebft qu\u1ea3 kh\u1edbp \u2014 \u0111\u1ee7 \u0111\u1ec3 ki\u1ec3m tra b\u1ed9 l\u1ecdc, kh\u00f4ng ph\u1ea3i to\u00e0n b\u1ed9.",
   "filters.noMatches":
     "Kh\u00f4ng c\u00f3 b\u1ea3n ghi n\u00e0o kh\u1edbp b\u1ed9 l\u1ecdc n\u00e0y.",
+  "filters.loadView": "T\u1ea3i b\u1ed9 l\u1ecdc \u0111\u00e3 l\u01b0u",
 } as const satisfies Record<MessageKey, string>;

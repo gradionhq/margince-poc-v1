@@ -28,6 +28,11 @@ import {
 } from "./filterdata";
 import { FilterResults } from "./filterresults";
 import "./filters.css";
+import {
+  LoadFilterViewMenu,
+  SaveFilterViewAction,
+  type ViewResource,
+} from "./savedviews";
 import { fieldsNamed, type Node, newGroup } from "./segmentpredicate";
 
 /**
@@ -63,6 +68,21 @@ const UNIT_LABEL: Record<ObjectTab, MessageKey> = {
   contacts: "unit.contacts",
   companies: "unit.companies",
   deals: "unit.deals",
+};
+
+/**
+ * The same three objects again, as `/views` spells them.
+ *
+ * A third spelling, and it is not a mistake to fix here: `/filters/*` takes
+ * `person` and `/views` takes `people`, both enumerated in the contract. So this
+ * screen is where the two vocabularies meet, and the correspondence is written
+ * down once — beside `RESOURCE_OF`, so a reader sees both mappings together —
+ * rather than derived at each call site by adding an "s".
+ */
+const VIEW_OF: Record<ObjectTab, ViewResource> = {
+  contacts: "people",
+  companies: "organizations",
+  deals: "deals",
 };
 
 /** A resource this screen can address, or the default when the route names none. */
@@ -123,6 +143,8 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
                   A dynamic list recomputes on every event, and that is the
                   property a reader needs before trusting a count at all. */}
               <Badge tone="accent">{t("filters.dynamic")}</Badge>
+              <LoadFilterViewMenu resource={VIEW_OF[tab]} onLoad={setTree} />
+              <SaveFilterViewAction resource={VIEW_OF[tab]} tree={tree} />
             </span>
           }
         />

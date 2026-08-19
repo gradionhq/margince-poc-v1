@@ -215,6 +215,115 @@ function hasUsableOperand(op: FilterOp, value: LeafValue): boolean {
   }
 }
 
+/** The operator names, as a set, so a decoded value can be checked against them. */
+const OPERATORS: ReadonlySet<string> = new Set<FilterOp>([
+  "eq",
+  "neq",
+  "gt",
+  "lt",
+  "gte",
+  "lte",
+  "in",
+  "contains",
+  "exists",
+]);
+
+/**
+ * A stored predicate back into an editable tree, or null when it is not one.
+ *
+ * The inverse of `encode`, and it lives beside it for the same reason the id
+ * stripping does: a round trip that loses or invents a clause is a filter that
+ * selects something other than what was saved, and both halves have to be
+ * readable together to see that they agree.
+ *
+ * The argument is `unknown` because that is what it really is. A saved view's
+ * `query` is an open JSON object the server persists verbatim — so this is
+ * handed rows written by an older build, by a fixture, or by hand, and every
+ * field is checked rather than trusted. Nothing here throws: a caller restoring
+ * a view gets null and drops it, because a view that lights up and restores a
+ * filter different from the one it names is worse than a view that is not
+ * offered.
+ *
+ * An empty group is refused rather than restored. It is a shape the engine
+ * would reject anyway (`filter_shape_invalid`), and restoring one hands the
+ * reader a named view indistinguishable from a blank builder.
+ */
+export function decode(stored: unknown): Node | null {
+  if (stored === null || typeof stored !== "object" || Array.isArray(stored)) {
+    return null;
+  }
+  const node = stored as Record<string, unknown>;
+  const isAnd = "and" in node;
+  const isOr = "or" in node;
+  // A group joins its children ONE way. A blob carrying both keys is not a
+  // stricter filter than either of them — it is a shape with no meaning, and
+  // picking one would restore a filter nobody saved.
+  if (isAnd && isOr) {
+    return null;
+  }
+  if (isAnd || isOr) {
+    const join = isAnd ? "and" : "or";
+    return decodeGroup(node[join], join);
+  }
+  return decodeLeaf(node);
+}
+
+function decodeGroup(children: unknown, join: "and" | "or"): Group | null {
+  if (!Array.isArray(children) || children.length === 0) {
+    return null;
+  }
+  const decoded: Node[] = [];
+  for (const child of children) {
+    const one = decode(child);
+    // One unreadable clause makes the whole tree unreadable. Dropping it would
+    // silently widen the filter — an `and` missing a leaf selects MORE rows
+    // than the one that was saved, under the name the reader trusts.
+    if (one === null) {
+      return null;
+    }
+    decoded.push(one);
+  }
+  return newGroup(join, decoded);
+}
+
+function decodeLeaf(node: Record<string, unknown>): Leaf | null {
+  const { field, op, value } = node;
+  if (typeof field !== "string" || field === "") {
+    return null;
+  }
+  if (typeof op !== "string" || !OPERATORS.has(op)) {
+    return null;
+  }
+  return isLeafValue(value) ? newLeaf(field, op as FilterOp, value) : null;
+}
+
+/**
+ * Whether a decoded operand is one the editor can hold.
+ *
+ * A shape check, not a completeness one: `contains ""` decodes fine and then
+ * fails `isComplete`, which is the honest split — the tree is readable, and the
+ * Save button is what refuses it.
+ *
+ * A mixed array is refused. `["a", 1]` is not a list this editor has a control
+ * for, and admitting it would put a value on screen that no edit can produce.
+ */
+function isLeafValue(value: unknown): value is LeafValue {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    return true;
+  }
+  if (!Array.isArray(value)) {
+    return false;
+  }
+  return (
+    value.every((item) => typeof item === "string") ||
+    value.every((item) => typeof item === "number")
+  );
+}
+
 /**
  * The fields this tree names, in the order a reader wrote them, each once.
  *
