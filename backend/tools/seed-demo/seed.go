@@ -343,30 +343,17 @@ func ensureOrganization(c *client, comp company, dryRun bool) (id string, existe
 		// eventually-consistent behind an index, and a company created
 		// moments ago is exactly the case it has not caught up with.
 		if existing, ok := conflictingID(err); ok {
+			// The same convergence the found-by-search path gets: this company
+			// IS already on file, so it must still gain what the dataset has
+			// since learned.
+			if err := fillOrganizationAddress(c, existing, comp); err != nil {
+				return "", false, err
+			}
 			return existing, true, nil
 		}
 		return "", false, err
 	}
 	return out.ID, false, nil
-}
-
-func findOrganization(c *client, comp company) (id string, found bool, err error) {
-	var page struct {
-		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-		} `json:"data"`
-	}
-	query := url.Values{"q": {comp.displayName()}, "limit": {"25"}}
-	if err := c.get("/v1/organizations", query, &page); err != nil {
-		return "", false, fmt.Errorf("searching for %s: %w", comp.Domain, err)
-	}
-	for _, row := range page.Data {
-		if strings.EqualFold(row.DisplayName, comp.displayName()) {
-			return row.ID, true, nil
-		}
-	}
-	return "", false, nil
 }
 
 // ensurePerson finds someone by their address and creates them if absent.

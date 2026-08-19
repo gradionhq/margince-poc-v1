@@ -18,6 +18,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 )
@@ -76,16 +77,34 @@ func parseAddress(printed string) address {
 	if printed == "" {
 		return address{}
 	}
-	out := address{Line1: printed}
 	rest, country := splitTrailingCountry(printed)
-	out.Country = country
+	// A value that is nothing BUT a country word describes no address. Sending
+	// the country alone would file a company in Germany with no street, city
+	// or postcode, which reads as an address on every screen that shows one.
+	if strings.TrimSpace(rest) == "" {
+		return address{}
+	}
+	out := address{Line1: printed, Country: country}
 
-	match := dachPostcode.FindStringSubmatchIndex(rest)
-	if match == nil {
+	// The LAST match, not the first. A postcode ends a DACH address, and an
+	// earlier digit run is something else that came before the street — a
+	// suite, a building number, a PO box. Taking the first match read
+	// "Suite 1200 Hauptstrasse 5 80331 München" as postcode 1200 in the city
+	// of Hauptstrasse.
+	all := dachPostcode.FindAllStringSubmatchIndex(rest, -1)
+	if all == nil {
 		out.Line1 = strings.TrimSpace(strings.TrimRight(rest, ","))
 		return out
 	}
-	groups := dachPostcode.FindStringSubmatch(rest)
+	match := all[len(all)-1]
+	groups := make([]string, 0, len(match)/2)
+	for i := 0; i < len(match); i += 2 {
+		if match[i] < 0 {
+			groups = append(groups, "")
+			continue
+		}
+		groups = append(groups, rest[match[i]:match[i+1]])
+	}
 	if out.Country == "" {
 		out.Country = countryPrefixes[strings.ToUpper(groups[1])]
 	}
@@ -110,8 +129,17 @@ func parseAddress(printed string) address {
 func cleanPrintedAddress(printed string) string {
 	printed = strings.Map(func(r rune) rune {
 		switch r {
-		case '\u200b', '\u200c', '\u200d', '\u2060', '\ufeff':
-			return -1 // zero-width and word joiners: rendering hints, not content
+		case '\u200b', '\u2060', '\ufeff':
+			// Zero-width space, word joiner, BOM: rendering hints a CMS emits
+			// mid-line, and one company's page puts a word joiner exactly
+			// where its postcode begins.
+			//
+			// U+200C and U+200D are deliberately NOT here. They look like the
+			// same class of invisible character and are not: in Persian and
+			// the Indic scripts they control joining and are part of the
+			// spelling, so dropping them would corrupt an address rather than
+			// clean it.
+			return -1
 		case '\u00a0', '\u2007', '\u202f':
 			return ' ' // the non-breaking spaces a CMS emits between number and unit
 		}
@@ -188,32 +216,64 @@ func organizationBody(comp company) jsonBody {
 
 // fillOrganizationAddress puts an address on a company already on file.
 //
-// Only ever FILLS: a record that already carries a street is left alone. The
-// dataset is one source among several a real installation has, and overwriting
-// an address somebody corrected by hand would make re-seeding destructive
-// rather than convergent.
+// Only ever FILLS, and only a record with NO address at all. The dataset is one
+// source among several a real installation has, so re-seeding must not be
+// destructive: a record carrying any address part — a city somebody typed, a
+// line2 the crawl never sees — is left exactly as it is. Checking line1 alone
+// would replace all six columns and quietly drop the rest.
 func fillOrganizationAddress(c *client, orgID string, comp company) error {
-	parsed := parseAddress(comp.value("registered_address"))
-	body := addressBody(parsed)
+	body := addressBody(parseAddress(comp.value("registered_address")))
 	if body == nil {
 		return nil
 	}
 	var current struct {
 		Address *struct {
-			Line1 string `json:"line1"`
+			Line1      string `json:"line1"`
+			Line2      string `json:"line2"`
+			City       string `json:"city"`
+			Region     string `json:"region"`
+			PostalCode string `json:"postal_code"`
+			Country    string `json:"country"`
 		} `json:"address"`
 		Version int `json:"version"`
 	}
 	if err := c.get("/v1/organizations/"+orgID, nil, &current); err != nil {
 		return fmt.Errorf("reading %s back: %w", comp.Domain, err)
 	}
-	if current.Address != nil && strings.TrimSpace(current.Address.Line1) != "" {
-		return nil
+	if current.Address != nil {
+		for _, part := range []string{
+			current.Address.Line1, current.Address.Line2, current.Address.City,
+			current.Address.Region, current.Address.PostalCode, current.Address.Country,
+		} {
+			if strings.TrimSpace(part) != "" {
+				return nil
+			}
+		}
 	}
-	if err := c.patch("/v1/organizations/"+orgID, jsonBody{
-		"address": body, "if_version": current.Version,
-	}, nil); err != nil {
+	// The version guard goes in the If-Match header: the body's `if_version`
+	// is accepted and ignored, so a write spelled that way is last-write-wins
+	// and would overwrite an address added between the read above and here.
+	if err := c.patchGuarded("/v1/organizations/"+orgID, current.Version, jsonBody{"address": body}, nil); err != nil {
 		return fmt.Errorf("setting the address on %s: %w", comp.Domain, err)
 	}
 	return nil
+}
+
+func findOrganization(c *client, comp company) (id string, found bool, err error) {
+	var page struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	query := url.Values{"q": {comp.displayName()}, "limit": {"25"}}
+	if err := c.get("/v1/organizations", query, &page); err != nil {
+		return "", false, fmt.Errorf("searching for %s: %w", comp.Domain, err)
+	}
+	for _, row := range page.Data {
+		if strings.EqualFold(row.DisplayName, comp.displayName()) {
+			return row.ID, true, nil
+		}
+	}
+	return "", false, nil
 }

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -134,6 +135,26 @@ func (c *client) patch(path string, body jsonBody, out any) error { //craft:igno
 		return fmt.Errorf("building request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	return c.do(req, out)
+}
+
+// patchGuarded is patch with an optimistic-concurrency precondition.
+//
+// The version goes in the If-Match HEADER, which is the only place these
+// endpoints read it. An `if_version` in the body is accepted and IGNORED — a
+// PATCH carrying a version that cannot exist answers 200 and writes anyway —
+// so a guard spelled that way is not a guard at all.
+func (c *client) patchGuarded(path string, version int, body jsonBody, out any) error { //craft:ignore naked-any out is any JSON shape the caller declares; json.Decode's own contract
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encoding request: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPatch, c.base+path, bytes.NewReader(encoded))
+	if err != nil {
+		return fmt.Errorf("building request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("If-Match", strconv.Itoa(version))
 	return c.do(req, out)
 }
 

@@ -3,7 +3,10 @@
 
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestParseAddressOnTheShapesTheDatasetHolds pins the real cases. Every value
 // here was taken from a company's accepted.json, so a change that breaks one
@@ -146,5 +149,61 @@ func TestAddressBodySendsOnlyWhatWasPrinted(t *testing.T) {
 	}
 	if body["line1"] == "" {
 		t.Error("the printed address was not sent at all")
+	}
+}
+
+// TestParseAddressRefusesACountryOnValueWithNoAddress — a value that is
+// nothing but a country word describes no address, and sending the country
+// alone would file a company in Germany with no street, city or postcode.
+// That reads as an address on every screen that shows one.
+func TestParseAddressRefusesACountryOnValueWithNoAddress(t *testing.T) {
+	for _, printed := range []string{"Germany", "Deutschland", " , Austria ", ""} {
+		got := parseAddress(printed)
+		if !got.empty() {
+			t.Errorf("parseAddress(%q) = %+v, want nothing", printed, got)
+		}
+		if addressBody(got) != nil {
+			t.Errorf("parseAddress(%q) produced a request body", printed)
+		}
+	}
+}
+
+// TestParseAddressTakesTheLastPostcodeNotTheFirst — a postcode ends a DACH
+// address, and an earlier digit run is something that came before the street:
+// a suite, a building number, a PO box. Reading the first match turned
+// "Suite 1200 Hauptstrasse 5 80331 München" into postcode 1200 in a city
+// called Hauptstrasse.
+func TestParseAddressTakesTheLastPostcodeNotTheFirst(t *testing.T) {
+	for _, tc := range []struct {
+		printed string
+		want    address
+	}{
+		{
+			printed: "Suite 1200 Hauptstrasse 5 80331 München",
+			want:    address{Line1: "Suite 1200 Hauptstrasse 5", PostalCode: "80331", City: "München"},
+		},
+		{
+			printed: "Gebäude 4000 Nord Musterweg 2 12345 Ort",
+			want:    address{Line1: "Gebäude 4000 Nord Musterweg 2", PostalCode: "12345", City: "Ort"},
+		},
+	} {
+		if got := parseAddress(tc.printed); got != tc.want {
+			t.Errorf("parseAddress(%q)\n got %+v\nwant %+v", tc.printed, got, tc.want)
+		}
+	}
+}
+
+// TestCleanPrintedAddressKeepsJoinersThatAreSpelling — U+200C and U+200D look
+// like the same class of invisible character as a word joiner and are not: in
+// Persian and the Indic scripts they control joining and are part of the
+// spelling. Dropping them would corrupt an address rather than clean it.
+func TestCleanPrintedAddressKeepsJoinersThatAreSpelling(t *testing.T) {
+	withZWNJ := "خیابان‌ولیعصر 12"
+	if got := cleanPrintedAddress(withZWNJ); !strings.Contains(got, "‌") {
+		t.Errorf("a zero-width non-joiner was stripped from %q -> %q", withZWNJ, got)
+	}
+	// The word joiner one real page prints IS removed.
+	if got := cleanPrintedAddress("Viktoriastraße 3b⁠ 86150"); strings.Contains(got, "⁠") {
+		t.Errorf("the word joiner survived: %q", got)
 	}
 }
