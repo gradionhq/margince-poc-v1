@@ -196,6 +196,14 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"draftEmail":          draftEmailCommand,
 	"relinkActivity":      relinkActivityCommand,
 	"runReport":           runReportCommand,
+
+	// The two decisions, over four routes. They are the only entries here whose
+	// command names no target record, and the resolver says why: the row a
+	// decision acts on is an approval, which is the authority object itself.
+	"approveApproval":       decideApprovalCommand,
+	"rejectApproval":        decideApprovalCommand,
+	"approveApprovalBundle": decideBundleCommand,
+	"rejectApprovalBundle":  decideBundleCommand,
 }
 
 // archiveCommand decodes one DELETE /v1/<collection>/{id} into the archive

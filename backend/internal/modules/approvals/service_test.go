@@ -160,21 +160,111 @@ func humanCtx(perms principal.Permissions) context.Context {
 	})
 }
 
-// Deciding is human work: an agent principal — including the one that
-// staged the action — is refused, and a context with no actor at all is
-// an internal error, not a silent pass.
-func TestHumanOnlyRefusesAgentsAndMissingActors(t *testing.T) {
-	agent := principal.WithActor(context.Background(), principal.Principal{
-		Type: principal.PrincipalAgent, ID: "agent:test",
-	})
-	if err := humanOnly(agent); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Errorf("agent principal → %v, want ErrPermissionDenied", err)
+// A decision needs a person behind it, and a passport carries one: the
+// admission question is whether this call names a human, never which transport
+// it arrived on. A credential nobody lent — no on_behalf_of — names none, and
+// neither does the system principal or a connector.
+func TestActingForAHumanAdmitsAPassportAndRefusesWhatNobodyLent(t *testing.T) {
+	lender := ids.NewV7()
+	cases := []struct {
+		name  string
+		actor *principal.Principal
+		want  bool // admitted
+	}{
+		{"a human in their own seat", &principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:test", UserID: ids.NewV7()}, true},
+		{"a passport minted by a human", &principal.Principal{
+			Type: principal.PrincipalAgent, ID: "agent:test", UserID: lender, OnBehalfOf: lender}, true},
+		{"a passport naming nobody", &principal.Principal{
+			Type: principal.PrincipalAgent, ID: "agent:unlent"}, false},
+		{"the system principal", &principal.Principal{
+			Type: principal.PrincipalSystem, ID: "system"}, false},
+		{"a connector", &principal.Principal{
+			Type: principal.PrincipalConnector, ID: "connector:imap"}, false},
+		{"no actor at all", nil, false},
 	}
-	if err := humanOnly(context.Background()); err == nil {
-		t.Error("context without an actor passed the human gate")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.actor != nil {
+				ctx = principal.WithActor(ctx, *tc.actor)
+			}
+			err := actingForAHuman(ctx)
+			if tc.want && err != nil {
+				t.Fatalf("admitted actor refused: %v", err)
+			}
+			if !tc.want && err == nil {
+				t.Fatal("an actor with no person behind it passed the gate")
+			}
+			// A missing actor is an internal wiring fault, not a permission
+			// answer: it must not read to a caller as "you may not".
+			if !tc.want && tc.actor != nil && !errors.Is(err, apperrors.ErrPermissionDenied) {
+				t.Fatalf("refusal → %v, want ErrPermissionDenied", err)
+			}
+		})
 	}
-	if err := humanOnly(humanCtx(principal.Permissions{})); err != nil {
-		t.Errorf("human principal refused: %v", err)
+}
+
+// Being somebody's agent is admission, not authority: what a passport may
+// RELEASE is bounded by the caps its human granted it. A human carries no
+// ScopeSet at all, so the rule must not answer anything for them.
+func TestAgentReleaseSpendsTheCapsTheReleaseSpends(t *testing.T) {
+	agent := func(scopes ...principal.Scope) principal.Principal {
+		return principal.Principal{Type: principal.PrincipalAgent, ID: "agent:test",
+			OnBehalfOf: ids.NewV7(), Scopes: principal.NewScopeSet(scopes...)}
+	}
+	cases := []struct {
+		name    string
+		p       principal.Principal
+		kind    string
+		approve bool
+		want    bool // admitted
+	}{
+		{"a read passport cannot decide", agent(principal.ScopeRead), "advance_deal", true, false},
+		{"a write passport decides an ordinary proposal", agent(principal.ScopeWrite), "advance_deal", true, true},
+		{"a write passport cannot release a held draft", agent(principal.ScopeWrite), "held_draft", true, false},
+		{"send releases the held draft", agent(principal.ScopeWrite, principal.ScopeSend), "held_draft", true, true},
+		{"a write passport can still cancel one", agent(principal.ScopeWrite), "held_draft", false, true},
+		{"a held scheduled send is the same rule", agent(principal.ScopeWrite), KindScheduledSendHeld, true, false},
+		{"no passport answers its own step-up", agent(principal.ScopeWrite, principal.ScopeSend), KindQuotaRelease, true, false},
+		{"not even to decline it", agent(principal.ScopeWrite), KindQuotaRelease, false, false},
+		{"a human is bounded by their seat, not by caps", principal.Principal{
+			Type: principal.PrincipalHuman, UserID: ids.NewV7()}, "held_draft", true, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := agentReleaseSpends(tc.p, tc.kind, tc.approve)
+			if tc.want && err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if !tc.want {
+				if err == nil {
+					t.Fatal("a credential released something it was not granted")
+				}
+				if !errors.Is(err, apperrors.ErrPermissionDenied) {
+					t.Fatalf("refusal → %v, want ErrPermissionDenied", err)
+				}
+			}
+		})
+	}
+}
+
+// A kind named in sendingKinds that no staging ever carries costs a cap nobody
+// spends and protects nothing: the entry reads as a rule and is dead text. So
+// every entry has to be a kind this module governs, and — since what these
+// releases put on the wire is a message — one governed on the timeline object.
+// A misspelling fails here rather than silently admitting the send it meant to
+// bound.
+func TestEverySendingKindIsAKindWhoseReleaseIsAMessage(t *testing.T) {
+	for kind := range sendingKinds {
+		grants, err := decisionGrantsFor(kind, nil)
+		if err != nil {
+			t.Fatalf("%s is named as a sending kind but this module governs no such kind: %v", kind, err)
+		}
+		if !slices.ContainsFunc(grants, func(g grantRequirement) bool { return g.Object == objectActivity }) {
+			t.Errorf("%s is named as a sending kind but deciding it takes no %s grant, so the two rules "+
+				"disagree about what its release does", kind, objectActivity)
+		}
 	}
 }
 

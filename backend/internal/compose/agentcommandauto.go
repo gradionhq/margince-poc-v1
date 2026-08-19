@@ -84,3 +84,43 @@ func runReportCommand(_ agentPolicy, _ restCommandDeps, r *http.Request, _ []byt
 	}
 	return agents.NewRunReportCall(agents.RunReportCommand{Report: report}), nil
 }
+
+// decideApprovalCommand decodes a decision on ONE staged proposal. The verdict
+// is read off the route rather than the body: approve and reject are two
+// operations over one decision, and the body carries only the reason.
+func decideApprovalCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
+	id, err := pathOperand(r, "id")
+	if err != nil {
+		return nil, err
+	}
+	approvalID, err := ids.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewDecideApprovalCall(agents.DecideApprovalCommand{
+		ApprovalID: approvalID, Approve: approvesApproval(pol.Op),
+	}), nil
+}
+
+// decideBundleCommand decodes the same decision given to a whole act.
+func decideBundleCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
+	id, err := pathOperand(r, "bundle_id")
+	if err != nil {
+		return nil, err
+	}
+	bundleID, err := ids.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	return agents.NewDecideBundleCall(agents.DecideBundleCommand{
+		BundleID: bundleID, Approve: approvesApproval(pol.Op),
+	}), nil
+}
+
+// approvesApproval reads the verdict out of the operation that carried it.
+// Written as "which operations approve" rather than "which reject" so an
+// operation this table has never heard of decides nothing: an unknown verb
+// falls to reject, which discards a proposal instead of performing one.
+func approvesApproval(op string) bool {
+	return op == "approveApproval" || op == "approveApprovalBundle"
+}

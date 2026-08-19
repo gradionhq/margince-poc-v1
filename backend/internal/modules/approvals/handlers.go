@@ -57,14 +57,10 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 		httperr.Write(w, r, invalid)
 		return
 	}
-	rows, page, err := h.svc.List(r.Context(), in)
+	data, page, err := h.svc.ListWire(r.Context(), in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
-	}
-	data := make([]crmcontracts.Approval, 0, len(rows))
-	for _, a := range rows {
-		data = append(data, h.wire(a))
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
 		Data: data,
@@ -114,12 +110,12 @@ func listInput(params crmcontracts.ListApprovalsParams) (ListInput, *httperr.Det
 }
 
 func (h Handlers) GetApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	a, err := h.svc.Get(r.Context(), pathID[ids.ApprovalKind](id))
+	a, err := h.svc.GetWire(r.Context(), pathID[ids.ApprovalKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, h.wire(a))
+	httperr.WriteJSON(w, http.StatusOK, a)
 }
 
 func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ApproveApprovalParams) {
@@ -200,17 +196,10 @@ func (h Handlers) decideBundle(w http.ResponseWriter, r *http.Request, bundleID 
 	if r.Body != nil && r.ContentLength != 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	members, err := h.svc.DecideBundle(r.Context(), ids.UUID(bundleID), approve, req.Reason)
+	data, err := h.svc.DecideBundleWire(r.Context(), ids.UUID(bundleID), approve, req.Reason)
 	if err != nil {
 		writeErr(w, r, err)
 		return
-	}
-	data := make([]crmcontracts.ApprovalBundleMember, 0, len(members))
-	for _, member := range members {
-		data = append(data, crmcontracts.ApprovalBundleMember{
-			Approval: h.wire(member.Approval),
-			Outcome:  crmcontracts.ApprovalBundleMemberOutcome(member.Outcome),
-		})
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ApprovalBundleDecision{BundleId: bundleID, Data: data})
 }

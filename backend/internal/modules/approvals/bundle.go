@@ -76,7 +76,7 @@ func (e *BundleTooLargeError) Error() string {
 // absent (ErrNotFound), the same existence-hiding Get gives, so the bundle id
 // cannot become a lookup oracle either.
 func (s *Service) DecideBundle(ctx context.Context, bundleID ids.UUID, approve bool, reason *string) ([]BundleMember, error) {
-	if err := humanOnly(ctx); err != nil {
+	if err := actingForAHuman(ctx); err != nil {
 		return nil, err
 	}
 	if bundleID.IsZero() {

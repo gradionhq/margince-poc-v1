@@ -3,11 +3,11 @@
 
 package agents
 
-// The four auto-execute commands (gradionhq/margince-poc-v1#928 task 7):
-// logging an activity, drafting a reply, re-associating an activity, and
-// running a report. All four are 🟢 today, so nothing stages them and neither
-// question below is reached on today's tiers — the same standing the seven
-// nested commands (commandnested.go) have.
+// The six auto-execute commands: logging an activity, drafting a reply,
+// re-associating an activity, running a report, and answering one staged
+// proposal or a whole bundle of them. All six are 🟢 today, so nothing stages
+// them and neither question below is reached on today's tiers — the same
+// standing the seven nested commands (commandnested.go) have.
 //
 // They are registered anyway, for that file's reason: a tier floor (#982)
 // tightening one makes this the answer a human decides from, and the only
@@ -224,4 +224,73 @@ func (runReportResolver) Subject(_ context.Context, cmd RunReportCommand) (Stage
 // installation's catalog does.
 func (runReportResolver) Guards(_ context.Context, _ RunReportCommand) error {
 	return nil
+}
+
+// DecideApprovalCommand is one person's answer to one staged proposal,
+// whichever door asked for it. Approve is the answer itself, and it belongs to
+// the command rather than to the route because the two routes that carry it are
+// one decision with two verdicts.
+type DecideApprovalCommand struct {
+	ApprovalID ids.UUID
+	Approve    bool
+}
+
+// NewDecideApprovalCall binds one decision to the resolver that speaks it.
+func NewDecideApprovalCall(cmd DecideApprovalCommand) GovernedCall {
+	return bind[DecideApprovalCommand](decideApprovalResolver{}, cmd)
+}
+
+type decideApprovalResolver struct{}
+
+// Subject names the decision and NOT a target record, which is the one thing
+// worth saying about it: the row this call acts on is the approval, and an
+// approval is not a record the staging path can row-scope or version-pin. A
+// target named here would be an authority object pointing at an authority
+// object — so the summary carries what a human would need to read and the
+// target stays absent, the way runReportResolver's does for a report key.
+func (decideApprovalResolver) Subject(_ context.Context, cmd DecideApprovalCommand) (StageInfo, error) {
+	return StageInfo{Summary: fmt.Sprintf("%s staged action %s", verdictWord(cmd.Approve), cmd.ApprovalID)}, nil
+}
+
+// Guards stands down: what may be decided is the approvals engine's own
+// question, answered against the deciding person's grants, the target's row
+// scope and the caps the credential carries — none of which this module holds.
+// A second answer here would be a weaker copy that drifts.
+func (decideApprovalResolver) Guards(_ context.Context, _ DecideApprovalCommand) error {
+	return nil
+}
+
+// DecideBundleCommand is the same answer given to every still-waiting member of
+// one act.
+type DecideBundleCommand struct {
+	BundleID ids.UUID
+	Approve  bool
+}
+
+// NewDecideBundleCall binds one bundle decision to its resolver.
+func NewDecideBundleCall(cmd DecideBundleCommand) GovernedCall {
+	return bind[DecideBundleCommand](decideBundleResolver{}, cmd)
+}
+
+type decideBundleResolver struct{}
+
+// Subject names the act, for the reason the single decision's does not name a
+// record: a bundle is a grouping and never a second authority object, so there
+// is nothing here to pin either.
+func (decideBundleResolver) Subject(_ context.Context, cmd DecideBundleCommand) (StageInfo, error) {
+	return StageInfo{Summary: fmt.Sprintf("%s every waiting proposal of act %s",
+		verdictWord(cmd.Approve), cmd.BundleID)}, nil
+}
+
+// Guards stands down for decideApprovalResolver's reason, per member.
+func (decideBundleResolver) Guards(_ context.Context, _ DecideBundleCommand) error {
+	return nil
+}
+
+// verdictWord is the one spelling of a verdict in a summary a human reads.
+func verdictWord(approve bool) string {
+	if approve {
+		return "Approve"
+	}
+	return "Reject"
 }

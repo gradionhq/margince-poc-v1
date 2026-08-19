@@ -114,7 +114,16 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// two answers, which is what ADR-0055 exists to prevent.
 	opts = append(opts, withContractTierFloor(),
 		agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}, gate, opts...)
+	// ONE approvals service for both directions of the 🟡 loop, and it is the
+	// service that carries the follow-on EFFECTS. Staging can run on a bare
+	// engine — it writes a proposal and nothing else — but deciding cannot: a
+	// kind whose release the engine does not know about would be marked approved
+	// and never performed, so a held message would read as sent and stay held.
+	// The HTTP door decides on an effects-registered service for exactly this
+	// reason (approvalsHandlersWithEffects), and TestBothDoorsReleaseTheSameKinds
+	// holds the two together.
+	approvalsSvc := approvalsServiceWithEffects(pool)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvalsSvc}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
@@ -145,6 +154,10 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// so it rides its own seam rather than the datasource one — and that seam
 	// needs the overlay guard the record verbs get from the Dispatcher for free.
 	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
+	// The confirm-first queue, read and answered from the same conversation a
+	// call was staged in. Nothing here decides anything the person behind the
+	// passport could not decide in the app.
+	agents.RegisterApprovalTools(registry, approvalInbox{svc: approvalsSvc})
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))), reportToolCatalog())
 	// The governed workspace query. It takes the provider as well as the runner
 	// because the two halves of an answer come from different places: the plan

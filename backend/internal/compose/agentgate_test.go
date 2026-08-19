@@ -75,13 +75,21 @@ func TestUpdateRecordIsAutoExecuteOnBothArtifacts(t *testing.T) {
 	}
 }
 
-// The self-approval class and the config surface the advance_deal floor
-// reads must stay human-only in the contract: an agent may stage a 🟡
-// action but never approve one — its own least of all — and must not
-// move which stages count as won/lost.
+// The credential class and the config surface the advance_deal floor reads must
+// stay human-only in the contract: lending authority, recording somebody's
+// consent and moving which stages count as won/lost are decisions that belong to
+// a person in their own seat, and no passport carries them.
+//
+// Deciding an approval is NOT in this class, and the difference is worth stating
+// because it reads like the same thing. A passport is a credential a human
+// minted and can revoke, carrying that human's own seat, grants and row scope;
+// answering a proposal on it is that person answering (ADR-0055), and what
+// bounds the answer is what bounds them — plus the caps they chose to lend,
+// which is what stops "acting as the user" from meaning more than the user
+// granted. The operations below are different: each one would let a credential
+// widen what a credential may do, which no amount of acting-as can justify.
 func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 	humanOnly := map[string]bool{
-		"approveApproval": true, "rejectApproval": true,
 		"recordConsent": true, "createConsentPurpose": true,
 		"createDataSubjectRequest": true, "updateDataSubjectRequest": true,
 		"createPipeline": true, "updatePipeline": true,
@@ -109,6 +117,27 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 		// holding it may take, and anything that can enumerate the
 		// list can pick from it.
 		"getConsentRequest": true,
+	}
+	// And the pin the paragraph above depends on: a decision reaches this
+	// surface only as a governed tool call spending a cap. If any of these four
+	// ever became reachable at a lighter class — a read scope, or no tool at all
+	// — the reasoning that took them out of the map above would no longer hold,
+	// and nothing else would notice.
+	for route, op := range map[string]string{
+		"POST /v1/approvals/{id}/approve":               "approveApproval",
+		"POST /v1/approvals/{id}/reject":                "rejectApproval",
+		"POST /v1/approval-bundles/{bundle_id}/approve": "approveApprovalBundle",
+		"POST /v1/approval-bundles/{bundle_id}/reject":  "rejectApprovalBundle",
+	} {
+		pol, known := agentPolicies[route]
+		if !known {
+			t.Errorf("%s (%s) has left the policy table — the decision is ungoverned rather than human-only", route, op)
+			continue
+		}
+		if pol.Access != accessTool || pol.Scope != scopeWrite {
+			t.Errorf("%s (%s) is admitted as %q spending %q; a decision is a tool call that spends write",
+				route, op, pol.Access, pol.Scope)
+		}
 	}
 	seen := map[string]bool{}
 	for route, pol := range agentPolicies {
