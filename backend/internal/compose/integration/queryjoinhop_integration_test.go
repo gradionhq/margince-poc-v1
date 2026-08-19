@@ -163,9 +163,16 @@ func TestAnActivityIsSelectedByThePersonItLinks(t *testing.T) {
 func TestAJoinHopCannotSelectThroughARecordTheCallerCannotSee(t *testing.T) {
 	q := setupQuery(t)
 	f := q.seedEmployments(t)
+	// Rep1 captured the Stuttgart organization privately. An organization is
+	// otherwise readable by every seat with the grant, so capture privacy is
+	// what keeps the hop's landing record out of Rep3's row scope.
+	if _, err := q.Owner.Exec(context.Background(),
+		`UPDATE organization SET visibility = 'owner' WHERE id = $1`, f.rep1Org); err != nil {
+		t.Fatalf("capturing the Stuttgart organization privately: %v", err)
+	}
 
-	// Rep3 owns the Hamburg organization and neither the Stuttgart one nor the
-	// person employed there.
+	// Rep3 owns the Hamburg organization and cannot read the private
+	// Stuttgart one, though the person employed there is visible.
 	answer, err := q.answer(q.teamRep(q.Rep3, q.Team2), `{"version": "v1", "target": "person",
 		"traverse": {"relation": "organizations",
 		             "where": [{"field": "address.city", "op": "eq", "value": "Stuttgart"}]}}`)

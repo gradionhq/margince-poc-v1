@@ -76,14 +76,14 @@ func seedAuditDiffRow(t *testing.T, e *Env, entityType string, entityID ids.UUID
 
 func TestFieldHistoryGatesOnReadPermissionAndVisibility(t *testing.T) {
 	e := Setup(t)
-	// Owned by Rep1 (Team1): an ownerless record is workspace-shared at
-	// every tier, so the out-of-scope assertion below
-	// needs a real owner to exclude the Team2-only caller.
+	// Capture-private to Rep1: a contact is readable by every seat unless
+	// its capture is private, so that is the state the out-of-scope
+	// assertion below needs to exclude Rep3.
 	personID := e.SeedPerson(t, "History Subject", &e.Rep1)
+	e.MakeCapturePrivate(t, "person", personID, e.Rep1)
 
-	// Rep3 sits only in Team2, which shares no membership with the
-	// record's owner: 404, not an empty page — existence-hiding on the
-	// row-scope gate like every record read.
+	// Rep3 is not the owner: 404, not an empty page — existence-hiding on
+	// the visibility gate like every record read.
 	outsiderCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, RepPerms)
 	_, err := privacy.ListFieldHistory(outsiderCtx, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "person", EntityID: personID,
@@ -254,16 +254,17 @@ func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 
 // TestFieldHistoryForActivityDispatchesToLinkWalkVisibility covers
 // entity_type=activity specifically: activity carries no owner_id, so its
-// row-scope goes through the link-walk (auth.EnsureActivityVisible), never
+// row-scope goes through the link-walk (auth.EnsureActivityContentVisible), never
 // the generic owner-scoped auth.EnsureVisible, which does not even know
 // the "activity" table.
 func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
 	e := Setup(t)
-	// Owned by Rep1 (Team1): the activity's own visibility rides its
-	// link to this person, so a real owner is needed to exclude the
-	// Team2-only caller below.
+	// The activity's own visibility rides its link to this person, which
+	// is capture-private to Rep1 — the state that excludes Rep3 below.
+	// Rep1 logs it, because the private contact is invisible to anyone else.
 	myPerson := e.SeedPerson(t, "Field History Subject", &e.Rep1)
-	admin := e.Admin()
+	e.MakeCapturePrivate(t, "person", myPerson, e.Rep1)
+	admin := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 
 	activity, _, err := e.Activities.LogActivity(admin, activities.LogActivityInput{
 		Kind: "note", Subject: strPtr("Pricing call"), Source: "manual",
@@ -279,8 +280,7 @@ func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
 		map[string]any{"subject": "Pricing call"},
 		map[string]any{"subject": "Pricing call (updated)"}, occurredAt)
 
-	// Rep1 shares Team1 with the linked person's owner: in scope, sees
-	// the diff.
+	// Rep1 owns the linked contact: in scope, sees the diff.
 	inScope := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithActivity())
 	page, err := privacy.ListFieldHistory(inScope, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "activity", EntityID: activityID,
@@ -298,9 +298,8 @@ func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {
 		t.Fatalf("in-scope caller did not see the subject diff: %+v", page.Entries)
 	}
 
-	// Rep3 sits only in Team2, which shares no membership with the
-	// linked person's owner: 404, existence-hiding like every other
-	// row-scope miss.
+	// Rep3 cannot read the linked contact, so the activity is out of reach:
+	// 404, existence-hiding like every other visibility miss.
 	outOfScope := e.As(e.Rep3, []ids.UUID{e.Team2}, repPermsWithActivity())
 	if _, err := privacy.ListFieldHistory(outOfScope, e.DB(), privacy.FieldHistoryFilter{
 		EntityType: "activity", EntityID: activityID,

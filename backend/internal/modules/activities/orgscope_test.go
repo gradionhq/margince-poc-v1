@@ -22,7 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// unscopedCtx binds the one principal for whom auth.ActivityScopeClause
+// unscopedCtx binds the one principal for whom auth.ActivityContentClause
 // contributes nothing, so the assertions below are about the entity filter
 // alone. That principal is SYSTEM, not an admin: an activity's links reach
 // person and organization rows, which carry capture privacy

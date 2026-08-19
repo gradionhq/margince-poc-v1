@@ -49,35 +49,26 @@ func collectionsPerms() principal.Permissions {
 	return p
 }
 
-// adminCollectionsCtx is an unbounded (row_scope=all) principal that can
-// read lists and people — the cross-team oracle the scope assertions
-// measure the rep's narrowed view against.
-func (e *Env) adminCollectionsCtx() context.Context {
-	return e.As(ids.NewV7(), nil, principal.Permissions{
-		RoleKeys: []string{"admin"},
-		Objects: map[string]principal.ObjectGrant{
-			"person": {Read: true},
-			"list":   {Create: true, Read: true, Update: true, Delete: true},
-		},
-		RowScope: principal.RowScopeAll,
-	})
-}
-
 func TestDynamicList_membershipIsRowScopedToTheCaller(t *testing.T) {
 	e := Setup(t)
 	store := collections.NewStore(e.DB())
 
 	mine := e.SeedPerson(t, "Mine Renewal", &e.Rep1)
-	foreign := e.SeedPerson(t, "Foreign Renewal", &e.Rep3)
+	// A teammate's PRIVATE capture: a person who is merely owned is readable
+	// by every seat with the grant, so capture privacy is what keeps this one
+	// inside Rep2's row scope alone — and Rep2 shares Rep1's team, so the
+	// list itself stays readable to both.
+	private := e.SeedPerson(t, "Private Renewal", &e.Rep2)
+	e.MakeCapturePrivate(t, "person", private, e.Rep2)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, collectionsPerms())
 
-	// One filter, matching BOTH teams' owners.
+	// One filter, matching BOTH owners.
 	created, err := store.CreateList(rep, collections.CreateListInput{
-		Name: "Owned by rep1 or rep3", EntityType: "person", ListType: "dynamic",
+		Name: "Owned by rep1 or rep2", EntityType: "person", ListType: "dynamic",
 		Definition: map[string]any{
 			"field": "owner_id", "op": "in",
-			"value": []any{e.Rep1.String(), e.Rep3.String()},
+			"value": []any{e.Rep1.String(), e.Rep2.String()},
 		},
 	})
 	if err != nil {
@@ -97,18 +88,18 @@ func TestDynamicList_membershipIsRowScopedToTheCaller(t *testing.T) {
 		return got
 	}
 
-	// The team-scoped rep's segment includes their own match and EXCLUDES
-	// the foreign-team match, even though the filter names its owner — the
-	// predicate narrows visibility, it never widens it.
+	// Rep1's segment includes their own match and EXCLUDES the private
+	// capture, even though the filter names its owner — the predicate
+	// narrows visibility, it never widens it.
 	got := members(rep)
-	if !got[mine] || got[foreign] {
-		t.Errorf("rep segment = %v, want mine=%s present, foreign=%s absent", got, mine, foreign)
+	if !got[mine] || got[private] {
+		t.Errorf("rep segment = %v, want mine=%s present, private=%s absent", got, mine, private)
 	}
 
-	// The unbounded oracle sees both: the delta IS the scope clause working.
-	oracle := members(e.adminCollectionsCtx())
-	if !oracle[mine] || !oracle[foreign] {
-		t.Errorf("admin segment = %v, want both teams' matches", oracle)
+	// The captor sees both: the delta IS the scope clause working.
+	captor := members(e.As(e.Rep2, []ids.UUID{e.Team1}, collectionsPerms()))
+	if !captor[mine] || !captor[private] {
+		t.Errorf("captor segment = %v, want both matches", captor)
 	}
 }
 

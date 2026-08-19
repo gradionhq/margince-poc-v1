@@ -252,6 +252,9 @@ func TestOrgRollupRestrictedNodeDisclosedAndGrantRestores(t *testing.T) {
 	st := seedRollupStages(t, e)
 	root := seedRollupOrg(t, e, "Root Co", &e.Rep1, nil)
 	child := seedRollupOrg(t, e, "Restricted Child", &e.Rep3, &root)
+	// Ownership alone no longer hides an account from a colleague; capture
+	// privacy does, and a record_grant still opens it.
+	e.MakeCapturePrivate(t, "organization", child, e.Rep3)
 	grandchild := seedRollupOrg(t, e, "Ownerless Grandchild", nil, &child)
 	for _, org := range []ids.UUID{root, child, grandchild} {
 		seedRollupOpenDeal(t, e, st, org, int64Ptr(10_000), strPtr("EUR"))
@@ -374,6 +377,7 @@ func TestOrgRollupClosedWonQuarterWindow(t *testing.T) {
 func TestOrgRollupRootGates(t *testing.T) {
 	e := Setup(t)
 	foreign := seedRollupOrg(t, e, "Foreign Org", &e.Rep3, nil)
+	e.MakeCapturePrivate(t, "organization", foreign, e.Rep3)
 
 	// Nonexistent root, unbounded admin: the tree walk itself must
 	// answer not-found (the visibility gate has nothing to probe for an
@@ -382,8 +386,8 @@ func TestOrgRollupRootGates(t *testing.T) {
 		t.Errorf("nonexistent root: err = %v, want not found", err)
 	}
 
-	// Rep1 sits in Team1; the root's owner Rep3 does not — out of scope
-	// reads as not-there, never as an empty rollup.
+	// Rep3 captured the root privately, so Rep1 cannot read it — out of
+	// scope reads as not-there, never as an empty rollup.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, rollupOrgReadPerms(principal.RowScopeTeam))
 	if _, err := compose.OrgHierarchyRollup(rep, e.Pool, foreign, "tree", time.Now); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("out-of-scope root: err = %v, want not found", err)

@@ -7,7 +7,7 @@ package compose
 // applies the very same predicate its list endpoint uses, so the export
 // can never hand a caller a row their lists would hide. Every clause here
 // composes the platform auth predicates (auth.ScopeClauseFor /
-// ActivityScopeClause / VisiblePredicate) — scope policy has exactly one
+// ActivityContentClause / VisiblePredicate) — scope policy has exactly one
 // spelling (ADR-0054 §8); the writer only routes each member to the
 // matching one.
 
@@ -30,7 +30,7 @@ func memberScope(ctx context.Context, m exportMember, alias string, arg func(any
 	case scopeShareable:
 		return auth.ScopeClauseFor(ctx, m.table, alias, arg)
 	case scopeActivity:
-		return auth.ActivityScopeClause(ctx, alias, arg)
+		return auth.ActivityContentClause(ctx, alias, arg)
 	case scopeRelationship:
 		return relationshipExportScope(ctx, alias, arg)
 	case scopeAttachment:
@@ -159,7 +159,7 @@ func polymorphicVisible(ctx context.Context, typeCol, idCol string, arg func(any
 			typeCol, e.kind, e.table, idCol, predicate("ep")))
 	}
 	// Activities have no owner; they inherit visibility from their links.
-	activityClause, err := auth.ActivityScopeClause(ctx, "av", arg)
+	activityClause, err := auth.ActivityContentClause(ctx, "av", arg)
 	if err != nil {
 		return "", err
 	}

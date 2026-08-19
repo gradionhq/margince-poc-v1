@@ -370,7 +370,7 @@ func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType strin
 	case targetSignal:
 		ensure = auth.EnsureSignalVisibleLive
 	case objectActivity:
-		ensure = auth.EnsureActivityVisibleLive
+		ensure = auth.EnsureActivityContentVisibleLive
 	case targetRelationship:
 		// An edge inherits the CONJUNCTION of its endpoints' scope, which is one
 		// spelling in platform/auth because people's own reads and this probe are

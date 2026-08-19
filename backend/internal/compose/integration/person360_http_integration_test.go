@@ -51,10 +51,12 @@ func call(ctx context.Context, method, path string,
 }
 
 // A contact outside row scope is a 404 on every surface. An empty 200 would
-// confirm the record exists and only its contents are withheld.
+// confirm the record exists and only its contents are withheld. Capture
+// privacy is what puts a colleague's contact out of scope.
 func TestPerson360SurfacesAllRefuseAForeignContactWith404(t *testing.T) {
 	e := Setup(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 	h := personHandlers(e)
 	id := crmcontracts.Id(theirs)

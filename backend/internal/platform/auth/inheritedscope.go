@@ -27,7 +27,7 @@ import (
 // (A165/ADR-0114 §2). A restricted row is unavailable in EVERY ordinary read
 // path — lists, timelines, search, exports, embeddings, agent grounding — for
 // every principal, the unbounded admin included, because the obligation
-// justifies storage and nothing else. It is composed into ActivityScopeClause
+// justifies storage and nothing else. It is composed into ActivityDiscoverClause
 // so the ~30 readers that carry the scope get it for free, and it is exported
 // for the readers that legitimately bypass the scope (an engine-internal
 // aggregate, a capture-side gate) and must still exclude what is held.
@@ -36,29 +36,40 @@ func ActivityAvailableClause(alias string) string {
 	return alias + ".restricted_at IS NULL"
 }
 
-// ActivityScopeClause is the activity analogue of ScopeClause:
-// activities have no owner, but their free-text inherits the
-// sensitivity of the records they attach to. An activity is visible when
-// ANY linked person/organization/deal is visible under the caller's row
-// scope, or when it has no links at all (a workspace-shared note).
-// It lives here, not in a module: it is the one scope
-// rule that spans person, organization, deal and activity_link rows, and
-// both the activities timeline and people's promotion-evidence check
-// enforce it — scope policy has exactly one spelling (ADR-0054 §8).
-// alias names the activity table in the outer query.
+// ActivityDiscoverClause is the activity analogue of ScopeClause, and the
+// weaker of the two activity gates: it answers whether the caller may learn
+// that an activity EXISTS — its occurred_at, direction, kind, who owns it —
+// without its content. Activities have no owner, but their free-text
+// inherits the sensitivity of the records they attach to. An activity is
+// discoverable when ANY linked person/organization/deal/lead/project is
+// visible under the caller's row scope, or when it has no links at all (a
+// workspace-shared note). It lives here, not in a module: it is the one
+// scope rule that spans the record tables and activity_link rows, and scope
+// policy has exactly one spelling (ADR-0054 §8). alias names the activity
+// table in the outer query.
+//
+// A reader that shows subject, body, participants, thread, attachments or
+// anything derived from them composes ActivityContentClause instead; this
+// clause is for the safe markers alone (a last-touch date, an open-task
+// count, an evidence probe), and a caller that picks it for content is the
+// defect restrictedreaders_test.go and the module census exist to catch.
 //
 // It is never empty: an unbounded principal is spared the link-walk, not the
 // availability test (ActivityAvailableClause). Callers written for the older
 // "empty means unscoped" contract keep working — an always-present clause is
 // what they append when it is present.
-func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+func ActivityDiscoverClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
 	p, err := rbacActor(ctx)
 	if err != nil {
 		return "", err
 	}
+	return activityDiscoverClause(p, alias, arg), nil
+}
+
+func activityDiscoverClause(p principal.Principal, alias string, arg func(any) int) string {
 	available := ActivityAvailableClause(alias)
 	if UnboundedFor(p, linkTargetTables...) {
-		return available, nil
+		return available
 	}
 	// One correlated pass over the activity's links, not two. bool_or is
 	// exactly the ANY-link rule, and its empty-set answer — NULL, coalesced
@@ -74,10 +85,58 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 	// fixture happens to run as.
 	return fmt.Sprintf(`%[3]s AND coalesce((SELECT bool_or(%[2]s)
 	   FROM activity_link l WHERE l.activity_id = %[1]s.id), true)`,
-		alias, linkTargetVisible(p, "l", arg), available), nil
+		alias, linkTargetVisible(p, "l", arg), available)
 }
 
-// SignalScopeClause is the signal analogue of ActivityScopeClause: a
+// ActivityContentClause is the stronger activity gate: discoverable AND the
+// caller is in the activity's AUDIENCE. An activity's audience is
+// `workspace` (the default — everyone who can discover it reads it),
+// `participants` (the humans on it: the capturing mailbox owner, anyone
+// stamped as a participant by seat) or `selected` (the participants plus
+// the users and teams named in activity_audience_member). Every reader that
+// serves content — subject, body, attachments, participants, thread, and
+// everything derived from them: search, embeddings, briefs, exports,
+// webhooks — composes this one.
+//
+// The audience is a property of the ROW a human set, so it does not yield
+// to row_scope=all: an admin reading a colleague's limited mail is the
+// disclosure the limit exists to prevent. Only the system principal — the
+// relay, the privacy engines, the indexers writing on behalf of nobody —
+// reads the audience arm away. The arms sit behind the cheap audience
+// column test, so the EXISTS probes run for limited rows alone.
+func ActivityContentClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", err
+	}
+	discover := activityDiscoverClause(p, alias, arg)
+	if p.Type == principal.PrincipalSystem {
+		return discover, nil
+	}
+	return discover + " AND " + activityAudienceArm(p, alias, arg), nil
+}
+
+// activityAudienceArm renders the audience membership test for one human (or
+// the human behind an agent). The participant arms hold for every audience:
+// a person on a conversation always reads it, limited or not.
+func activityAudienceArm(p principal.Principal, alias string, arg func(any) int) string {
+	me := arg(p.UserID)
+	// captured_by is `human:<uuid>` for a hand-logged row and
+	// `connector:<name>:<uuid>` for a captured one; both end in the user's
+	// id, so one suffix match names the author and the mailbox owner alike.
+	author := arg("%:" + p.UserID.String())
+	teams := arg(p.TeamIDs)
+	return fmt.Sprintf(`(%[1]s.audience = 'workspace'
+	   OR %[1]s.captured_by LIKE $%[3]d
+	   OR EXISTS (SELECT 1 FROM activity_participant ap WHERE ap.activity_id = %[1]s.id AND ap.user_id = $%[2]d)
+	   OR (%[1]s.audience = 'selected' AND EXISTS (
+	      SELECT 1 FROM activity_audience_member am WHERE am.activity_id = %[1]s.id
+	        AND ((am.subject_type = 'user' AND am.subject_id = $%[2]d)
+	          OR (am.subject_type = 'team' AND am.subject_id = ANY($%[4]d))))))`,
+		alias, me, author, teams)
+}
+
+// SignalScopeClause is the signal analogue of ActivityDiscoverClause: a
 // A signal is visible when its SUBJECT is visible and its own visibility
 // admits the reader. A subject-less signal (a raw item still awaiting
 // resolution) is workspace-shared, like an unlinked note.
@@ -87,7 +146,7 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 // while a signal's evidence could only come from records at least as visible as
 // its subject — the producers reached an account through a direct activity_link
 // row, which is the same link that makes an activity readable to that account's
-// readers (ActivityScopeClause is the any-link rule).
+// readers (ActivityDiscoverClause is the any-link rule).
 //
 // The producers now also reach an account through the employer of the contact a
 // message is filed against, and through its deal. Neither is a link on the
@@ -169,20 +228,54 @@ func EnsureSignalVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error 
 	return probeExistsLive(ctx, tx, "signal s", "s", idPos, clause, args)
 }
 
-// EnsureActivityVisible is EnsureVisible for activities, using the
-// linked-entity scope above; out of scope reads as ErrNotFound.
+// EnsureActivityVisible is EnsureVisible for activities under the DISCOVER
+// gate: the caller may learn the row exists. A caller about to hand back
+// content uses EnsureActivityContentVisible. Out of scope reads as
+// ErrNotFound.
 func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	return ensureActivity(ctx, tx, id, ActivityDiscoverClause, false)
+}
+
+// EnsureActivityVisibleLive is EnsureActivityVisible with the two
+// strictnesses a caller serving STORED data needs — the row must still be
+// live, and an unbounded actor does not skip the probe. See EnsureVisibleLive.
+func EnsureActivityVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	return ensureActivity(ctx, tx, id, ActivityDiscoverClause, true)
+}
+
+// EnsureActivityContentVisible is the single-row CONTENT gate: discoverable
+// and in the caller's audience. A limited activity the caller may discover
+// but not read answers ErrNotFound here exactly like an invisible one — the
+// existence-hiding probe has one answer, and a reader that wants to render
+// a withheld marker lists with ActivityDiscoverClause and projects
+// content_state instead of probing twice.
+func EnsureActivityContentVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	return ensureActivity(ctx, tx, id, ActivityContentClause, false)
+}
+
+// EnsureActivityContentVisibleLive is EnsureActivityContentVisible with the
+// live-row strictness of EnsureVisibleLive.
+func EnsureActivityContentVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	return ensureActivity(ctx, tx, id, ActivityContentClause, true)
+}
+
+type activityClause func(ctx context.Context, alias string, arg func(any) int) (string, error)
+
+// ensureActivity is the one probe behind the four spellings above. It is
+// never skipped, even for an unbounded principal: the clause always carries
+// the availability test, and a restricted row must read as gone to everyone.
+func ensureActivity(ctx context.Context, tx pgx.Tx, id ids.UUID, clauseFor activityClause, live bool) error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(id)
 
-	clause, err := ActivityScopeClause(ctx, "a", arg)
+	clause, err := clauseFor(ctx, "a", arg)
 	if err != nil {
 		return err
 	}
-	// Never skipped, even for an unbounded principal: the clause always
-	// carries the availability test, and a restricted row must read as gone
-	// to everyone.
+	if live {
+		return probeExistsLive(ctx, tx, "activity a", "a", idPos, clause, args)
+	}
 	var visible bool
 	err = tx.QueryRow(ctx,
 		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM activity a WHERE a.id = $%d AND %s)`, idPos, clause),
@@ -194,21 +287,6 @@ func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 		return apperrors.ErrNotFound
 	}
 	return nil
-}
-
-// EnsureActivityVisibleLive is EnsureActivityVisible with the two
-// strictnesses a caller serving STORED data needs — the row must still be
-// live, and an unbounded actor does not skip the probe. See EnsureVisibleLive.
-func EnsureActivityVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-
-	clause, err := ActivityScopeClause(ctx, "a", arg)
-	if err != nil {
-		return err
-	}
-	return probeExistsLive(ctx, tx, "activity a", "a", idPos, clause, args)
 }
 
 // probeExistsLive is the one spelling of "this row exists, is not archived,

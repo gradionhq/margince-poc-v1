@@ -31,7 +31,7 @@ import (
 // the three-arm walk in the view.
 //
 // The predicate answers WHICH activities belong to the account and nothing else.
-// WHO may read one is auth.ActivityScopeClause, which every caller composes
+// WHO may read one is auth.ActivityContentClause, which every caller composes
 // alongside this.
 //
 // orgPos is the bind position carrying the organization id; the caller registers
@@ -158,7 +158,7 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 
 	// The timeline carries the workspace's most sensitive free-text, so
 	// it is scoped through the linked records.
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return "", nil, nil, err
 	}

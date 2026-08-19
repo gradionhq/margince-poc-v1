@@ -222,14 +222,17 @@ func TestTheTraceDoorWithholdsAnActivityOutsideTheReadersRowScope(t *testing.T) 
 	// read, so an absent object grant is a seat that cannot exist — and it
 	// refuses in auth.Require before any SQL, which is not the half that breaks
 	// silently. Two things are therefore load-bearing in this seed: the activity
-	// is LINKED to a person another team owns (an unlinked activity is
-	// workspace-shared and visible at every scope), and the reader is at TEAM
-	// scope (an unbounded reader makes the scope clause empty). Remove either
-	// and the row-scope half of the gate can be deleted with nothing red.
+	// is LINKED only to a person another rep captured privately (an unlinked
+	// activity is workspace-shared and visible at every scope, and a person
+	// who is merely owned by somebody else is readable by every seat), and the
+	// reader is at TEAM scope (an unbounded reader makes the scope clause
+	// empty). Remove either and the row-scope half of the gate can be deleted
+	// with nothing red.
 	e := Setup(t)
 	owner := OwnerConn(t)
 	msg := seedTracedMessage(t, e, e.Rep1, capturedMail("hidden-activity"))
 	theirPerson := e.SeedPerson(t, "Out Of Reach", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirPerson, e.Rep3)
 	LinkActivity(t, owner, msg.activityID, "person", theirPerson)
 
 	narrow := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
@@ -266,6 +269,7 @@ func TestTheActivityDoorRefusesAMessageOutsideTheReadersRowScope(t *testing.T) {
 	owner := OwnerConn(t)
 	msg := seedTracedMessage(t, e, e.Rep1, capturedMail("out-of-scope"))
 	theirPerson := e.SeedPerson(t, "Out Of Reach", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirPerson, e.Rep3)
 	LinkActivity(t, owner, msg.activityID, "person", theirPerson)
 	narrow := e.As(e.Rep1, []ids.UUID{e.Team1}, AccountRepPerms)
 
@@ -274,13 +278,13 @@ func TestTheActivityDoorRefusesAMessageOutsideTheReadersRowScope(t *testing.T) {
 		t.Errorf("err = %v, want ErrNotFound — any error would otherwise pass, "+
 			"including a nil dereference", err)
 	}
-	// The control, over the SAME seed: the team that owns the linked person
+	// The control, over the SAME seed: the owner of the linked private person
 	// reads it. Without this, an activity that was never seeded — or a link
 	// that landed nowhere — answers ErrNotFound too, and the refusal above
 	// would prove only that the fixture failed.
 	reaches := e.As(e.Rep3, []ids.UUID{e.Team2}, AccountRepPerms)
 	if _, err := ladderAssembler(e, false).ByActivityID(reaches, msg.activityID); err != nil {
-		t.Fatalf("the team that owns the linked person could not read it either: %v — "+
+		t.Fatalf("the owner of the linked person could not read it either: %v — "+
 			"the seed did not land, so the refusal above proves nothing", err)
 	}
 }

@@ -192,9 +192,10 @@ func (e *BriefEngine) LatestRun(ctx context.Context, now time.Time) (BriefRun, e
 // The join is the point: a brief item is a REFERENCE to a deal, persisted
 // when the ranking queued it and served for as long as the run lives, so
 // the deal's row scope is re-applied HERE rather than inherited from the
-// snapshot that wrote it. A deal reassigned since then leaves the queue,
-// which is the same answer the deal's own read gives on that id
-// (deals.Store.GetDeal: the object gate, then auth.EnsureVisible).
+// snapshot that wrote it. A deal archived or otherwise gone from the
+// rep's read since then leaves the queue, which is the same answer the
+// deal's own read gives on that id (deals.Store.GetDeal: the object gate,
+// then auth.EnsureVisible).
 //
 // Unexpired snoozes stay hidden; everything else, including the rows the
 // caller just re-surfaced, reads back.
@@ -323,7 +324,7 @@ func (e *BriefEngine) markItem(ctx context.Context, itemID ids.UUID, state strin
 		// The mark's twin of the join in readRunItems: the item names a deal
 		// that may have moved since the run was assembled, and a mark is a
 		// read-back as much as a write. Checked BEFORE actionability, so a
-		// deal the rep can no longer see answers not-found rather than
+		// deal the rep can no longer read answers not-found rather than
 		// disclosing the item's state through a conflict.
 		if err := auth.EnsureVisible(ctx, tx, "deal", item.DealID); err != nil {
 			return err

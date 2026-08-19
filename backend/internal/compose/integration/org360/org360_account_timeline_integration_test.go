@@ -172,19 +172,21 @@ func TestAccountTimelineReachesMailThroughItsContactsAndDeals(t *testing.T) {
 }
 
 // The account walk decides WHICH activities belong to the account. WHO may
-// read one is still the activity link-walk row scope, so reaching further must
-// not hand a bounded rep an item they could not open.
-func TestTheAccountWalkDoesNotWidenTheCallersRowScope(t *testing.T) {
+// read one is still the activity link-walk read gate, so reaching further must
+// not hand a rep an item whose only link is a contact they cannot open — here
+// a colleague's capture-private contact.
+func TestTheAccountWalkDoesNotWidenTheCallersReadScope(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
-	// Both contacts work at the account; only one is inside Rep1's team scope.
+	// Both contacts work at the account; one is capture-private to Rep3.
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	employAt(t, e, mine, org, nil)
-	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	theirs := e.SeedPerson(t, "Their Private Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	employAt(t, e, theirs, org, nil)
 
 	visible := accountMailAt(t, owner, e.WS, "terms", org360Clock.Add(-1*time.Hour))
@@ -194,8 +196,8 @@ func TestTheAccountWalkDoesNotWidenTheCallersRowScope(t *testing.T) {
 
 	listed, _ := accountTimeline(rep, t, e, org, 25, "")
 	if containsActivity(listed, hidden) {
-		t.Errorf("the account timeline hands a bounded rep an activity whose only link "+
-			"is a contact outside their row scope (%v): %v", hidden, listed)
+		t.Errorf("the account timeline hands a rep an activity whose only link "+
+			"is a contact they cannot read (%v): %v", hidden, listed)
 	}
 	// The positive control: reaching through a contact still works, so the gate
 	// narrows the page rather than emptying it.

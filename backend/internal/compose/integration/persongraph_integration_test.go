@@ -99,10 +99,11 @@ func seedExchange(t *testing.T, e *Env, colleague, person ids.UUID, subject stri
 func TestPersonGraphRefusesAContactOutsideRowScope(t *testing.T) {
 	e := Setup(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
 
 	if code, _ := readGraph(rep, t, e, theirs); code != http.StatusNotFound {
-		t.Errorf("graph of another team's contact → %d, want 404", code)
+		t.Errorf("graph of a capture-private contact → %d, want 404", code)
 	}
 }
 
@@ -177,7 +178,8 @@ func TestPersonGraphWithholdsReceiptsFromACallerWithNoActivityGrant(t *testing.T
 }
 
 // The account arm is row-scoped IN the query. A coworker outside the caller's
-// scope is absent, and the graph must not disclose them by adjacency.
+// scope — a colleague's capture-private contact — is absent, and the graph
+// must not disclose them by adjacency.
 func TestPersonGraphHidesCoworkersOutsideRowScope(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
@@ -185,6 +187,7 @@ func TestPersonGraphHidesCoworkersOutsideRowScope(t *testing.T) {
 	mine := e.SeedPerson(t, "Anna Weber", &e.Rep1)
 	visible := e.SeedPerson(t, "Visible Coworker", &e.Rep1)
 	hidden := e.SeedPerson(t, "Hidden Coworker", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", hidden, e.Rep3)
 
 	for _, p := range []ids.UUID{mine, visible, hidden} {
 		SeedIDRow(t, owner, `INSERT INTO relationship
@@ -263,6 +266,7 @@ func TestPersonGraphRefusesAnArchivedContact(t *testing.T) {
 func TestPersonGraphServiceReturnsNotFoundForAForeignContact(t *testing.T) {
 	e := Setup(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
 
 	err := database.WithWorkspaceTx(rep, e.Pool, func(tx pgx.Tx) error {

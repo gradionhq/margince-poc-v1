@@ -108,21 +108,29 @@ func (c *telegramEnv) ingestOne(t *testing.T, u telegramUpdate, cfg compose.JobR
 // workspace-wide.
 //
 // The visibility half is held against a control: the SAME reader must be
-// refused an owned record. Without that, "the stranger could read it" would
-// also pass on a row-scope clause that had stopped filtering anything.
+// refused a capture-private record (people are otherwise readable by every
+// seat). Without that, "the stranger could read it" would also pass on a
+// visibility clause that had stopped filtering anything.
 func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.T) {
 	c := setupTelegramConnected(t)
 	u := telegramUpdate{updateID: 5201, messageID: 21, senderID: 770201, username: "annlee", firstName: "Ann", text: "Is this still available?"}
 
-	// An owned record, created before the capture, is the control the
-	// visibility assertion below is measured against.
+	// A capture-private record, created before the capture, is the control
+	// the visibility assertion below is measured against.
 	var owned struct {
 		ID string `json:"id"`
 	}
 	if status := c.Call(t, "POST", "/v1/people", apptest.AnyMap{
-		"full_name": "Owned By The Admin", "owner_id": c.admin,
+		"full_name": "Private To The Admin", "owner_id": c.admin,
 	}, nil, &owned); status != 201 {
-		t.Fatalf("seeding the owned control person → %d", status)
+		t.Fatalf("seeding the private control person → %d", status)
+	}
+	if err := apptest.InWorkspace(c.AppEnv, t, c.Slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE person SET visibility = 'owner' WHERE id = $1`, owned.ID)
+		return err
+	}); err != nil {
+		t.Fatalf("making the control person capture-private: %v", err)
 	}
 
 	c.ingestOne(t, u, compose.JobRunnerConfig{})
@@ -176,10 +184,10 @@ func TestAC_TG_3_UnknownSenderBecomesOwnerlessWorkspaceVisiblePerson(t *testing.
 	c.assertWorkspaceVisible(t, personID, owned.ID, activityID)
 }
 
-// assertWorkspaceVisible holds AC-TG-3's second half over the REAL row-scope
+// assertWorkspaceVisible holds AC-TG-3's second half over the REAL read
 // clauses: a human on the tightest scope a seat can hold reads the ownerless
-// person and their conversation, and is refused the owned control.
-func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, ownedPersonID, activityID string) {
+// person and their conversation, and is refused the capture-private control.
+func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, privatePersonID, activityID string) {
 	t.Helper()
 	reader := c.strangerRepCtx(t, map[string]principal.ObjectGrant{
 		"person": {Read: true}, "activity": {Read: true},
@@ -195,12 +203,12 @@ func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, ownedPerson
 			"an ownerless connector record is workspace-shared", err)
 	}
 
-	owned, err := ids.ParseAs[ids.PersonKind](ownedPersonID)
+	private, err := ids.ParseAs[ids.PersonKind](privatePersonID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.GetPerson(reader, owned, storekit.LiveOnly); err == nil {
-		t.Fatal("the same reader could also read a person owned by another human — the row scope is not filtering, so the visibility claim above is vacuous")
+	if _, err := store.GetPerson(reader, private, storekit.LiveOnly); err == nil {
+		t.Fatal("the same reader could also read another human's capture-private person — the visibility clause is not filtering, so the claim above is vacuous")
 	}
 
 	// And the conversation itself, not only the record it hangs off: the

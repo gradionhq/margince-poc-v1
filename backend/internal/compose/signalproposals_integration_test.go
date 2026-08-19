@@ -301,15 +301,17 @@ var teamScopedDecider = principal.Permissions{
 // A signal is matched for settlement by resolved_org_id, while signal row
 // scope is inherited from its SUBJECT (auth.SignalScopeClause). Those are
 // different questions and can disagree: a signal resolved to this account
-// whose subject is a deal in another team is on an account the decider can
-// read and about a record they cannot. Settling it would mutate a row outside
-// their scope on the strength of a decision they were never shown it for.
+// whose subject is a contact capture-private to another rep is on an account
+// the decider can read and about a record they cannot. Settling it would
+// mutate a row outside their scope on the strength of a decision they were
+// never shown it for.
 func TestAcceptingSettlesOnlyTheContradictionsTheDeciderCanSee(t *testing.T) {
 	e := integration.Setup(t)
 	org := seedAccountAtStage(t, e, "customer")
 	mine := seedOpenContractEnded(t, e, org)
-	// Same account, but its subject is a deal owned by the OTHER team.
-	theirs := seedOpenContractEndedOnDeal(t, e, org, seedDealOwnedBy(t, e, e.Rep3))
+	// Same account, but its subject is a person capture-private to the OTHER
+	// team's rep — the one state that still hides an identity row from a seat.
+	theirs := seedOpenContractEndedOnPerson(t, e, org, seedCapturePrivatePersonOf(t, e, e.Rep3))
 
 	proposePass(t, e)
 	if _, err := approvalsServiceWithEffects(e.Pool).Decide(
@@ -320,41 +322,32 @@ func TestAcceptingSettlesOnlyTheContradictionsTheDeciderCanSee(t *testing.T) {
 
 	// The account is ownerless, so it is visible at every tier — which is what
 	// makes this the control: the two signals differ ONLY in their subject, so
-	// the one that stays open stays open because of the deal it is about and
-	// nothing else.
+	// the one that stays open stays open because of the contact it is about
+	// and nothing else.
 	if status := signalStatus(t, e, mine); status != "acknowledged" {
 		t.Errorf("the signal subjected to the account itself reads %q, want "+
 			"acknowledged — the scope bound is settling rows it should not withhold", status)
 	}
 	if status := signalStatus(t, e, theirs); status != "open" {
-		t.Errorf("a signal whose subject is another team's deal reads %q after the "+
+		t.Errorf("a signal whose subject is another rep's private contact reads %q after the "+
 			"accept, want open — it was settled by a decision made without it ever "+
 			"being visible to the decider", status)
 	}
 }
 
-// seedDealOwnedBy plants a deal on another team, so a signal subjected to it
-// sits outside a team-scoped decider's row scope.
-func seedDealOwnedBy(t *testing.T, e *integration.Env, owner ids.UUID) ids.UUID {
+// seedCapturePrivatePersonOf plants a contact capture-private to one rep, so
+// a signal subjected to it sits outside every other seat's read scope.
+func seedCapturePrivatePersonOf(t *testing.T, e *integration.Env, owner ids.UUID) ids.UUID {
 	t.Helper()
-	pipeline, stage, _ := integration.DealFixture(t, e)
-	deal := ids.NewV7()
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
-			VALUES ($1, 'Their renewal', $2, $3, $4, 'manual', 'human:seed')`,
-			deal, pipeline, stage, owner)
-		return err
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return deal
+	person := e.SeedPerson(t, "Their contact", &owner)
+	e.MakeCapturePrivate(t, "person", person, owner)
+	return person
 }
 
-// seedOpenContractEndedOnDeal files a contradiction that RESOLVES to the
-// account but is ABOUT a deal — the shape where resolved_org_id and the
+// seedOpenContractEndedOnPerson files a contradiction that RESOLVES to the
+// account but is ABOUT a person — the shape where resolved_org_id and the
 // subject scope disagree.
-func seedOpenContractEndedOnDeal(t *testing.T, e *integration.Env, org, deal ids.UUID) ids.UUID {
+func seedOpenContractEndedOnPerson(t *testing.T, e *integration.Env, org, person ids.UUID) ids.UUID {
 	t.Helper()
 	signal := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -362,10 +355,10 @@ func seedOpenContractEndedOnDeal(t *testing.T, e *integration.Env, org, deal ids
 			INSERT INTO signal (id, kind, source_channel, entity_type, entity_id,
 			                    resolved_org_id, resolution_state, severity, summary, status,
 			                    detected_at, source, captured_by)
-			VALUES ($1, 'contract_ended', 'derived', 'deal', $2, $3, 'resolved',
-			        'warn', 'Their renewal will not proceed.', 'open',
+			VALUES ($1, 'contract_ended', 'derived', 'person', $2, $3, 'resolved',
+			        'warn', 'Their contact wrote that the renewal will not proceed.', 'open',
 			        now(), 'signal-scan', 'agent:contract_ended')`,
-			signal, deal, org)
+			signal, person, org)
 		return err
 	}); err != nil {
 		t.Fatal(err)

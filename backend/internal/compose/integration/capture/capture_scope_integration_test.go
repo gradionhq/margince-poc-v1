@@ -5,11 +5,14 @@
 
 package capture
 
-// The Sink's row scope: a captured record resolves onto an INCUMBENT row —
+// The Sink's read scope: a captured record resolves onto an INCUMBENT row —
 // the lead a new address collides with, the activity a replayed natural key
 // already landed as — and every one of those reads is a read. A connector
-// runs under its granting human's row scope, so an incumbent that human
-// cannot see must neither come back as a ref nor become a merge proposal.
+// runs under its granting human's read scope. Leads are readable by every
+// seat of the workspace, so a collision with another team's lead stages a
+// merge proposal; an activity whose only link is a colleague's
+// capture-private contact is one that human cannot see, and a replay onto it
+// must neither come back as a ref nor touch the row.
 
 import (
 	"context"
@@ -79,11 +82,12 @@ func newScopeCaptureRegistry(t *testing.T, e *integration.SearchEnv, fake *scope
 	return registry, stager
 }
 
-func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
+func TestCaptureStagesAMergeForALeadCollidingWithAnotherTeamsLead(t *testing.T) {
 	e := integration.SetupSearch(t)
-	// A lead owned by team2's rep — outside the team1 granting human's scope.
-	e.SeedID(t, `INSERT INTO lead (id, full_name, email, owner_id, source, captured_by)
-		VALUES ($1, 'Hidden Prospect', 'collide@scope.test', $2, 'manual', 'human:x')`, e.Rep3)
+	// A lead owned by team2's rep. Leads carry no capture privacy, so the
+	// team1 granting human reads it and the collision is theirs to resolve.
+	incumbent := e.SeedID(t, `INSERT INTO lead (id, full_name, email, owner_id, source, captured_by)
+		VALUES ($1, 'Other Team Prospect', 'collide@scope.test', $2, 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityLead,
@@ -98,30 +102,28 @@ func TestCaptureSkipsALeadCollidingWithAnInvisibleIncumbent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = registry.SyncOnce(grantCtx, connID)
-	if !errors.Is(err, connector.ErrSkip) {
-		t.Fatalf("collision with an invisible lead → %v, want connector.ErrSkip", err)
+	if err := registry.SyncOnce(grantCtx, connID); err != nil {
+		t.Fatalf("collision with another team's lead → %v, want a staged merge and no error", err)
 	}
-	// The skip names the natural key and never the address: the message must
-	// not re-store the PII the capture was refused over.
-	if strings.Contains(err.Error(), "collide@scope.test") {
-		t.Errorf("the skip message carries the captured address: %q", err)
+	if len(stager.staged) != 1 {
+		t.Fatalf("staged merges = %+v, want exactly one against the incumbent lead", stager.staged)
 	}
-	if !strings.Contains(err.Error(), "graph/sender-9") {
-		t.Errorf("the skip message does not name the natural key: %q", err)
+	if got := stager.staged[0]; got.TargetType != "lead" || got.TargetID != incumbent {
+		t.Errorf("merge target = %s/%v, want lead/%v", got.TargetType, got.TargetID, incumbent)
 	}
-	if len(stager.staged) != 0 {
-		t.Errorf("staged a merge against an invisible lead: %+v", stager.staged)
-	}
+	// The collision stages a proposal for a human; it never folds the address
+	// into a second lead row.
 	if n := countRows(t, e, `SELECT count(*) FROM lead WHERE source_id = 'sender-9'`); n != 0 {
-		t.Errorf("the refused capture created %d duplicate lead rows, want 0", n)
+		t.Errorf("the collision created %d duplicate lead rows, want 0", n)
 	}
 }
 
 func TestCaptureSkipsAnActivityReplayWhoseIncumbentLeftTheGrantingHumansScope(t *testing.T) {
 	e := integration.SetupSearch(t)
-	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
-		VALUES ($1, 'Foreign Counterparty', $2, 'manual', 'human:x')`, e.Rep3)
+	// Capture-private to Rep3: the one state that hides a person from the
+	// team1 granting human.
+	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+		VALUES ($1, 'Foreign Private Counterparty', $2, 'owner', 'manual', 'human:x')`, e.Rep3)
 
 	fake := &scopeFake{records: []connector.NormalizedRecord{{
 		EntityType: datasource.EntityActivity,

@@ -198,7 +198,7 @@ func openTasksFilter(ctx context.Context, in ListOpenTasksInput, arg func(any) i
 	// read one is decided by the records it links to. A task is the most
 	// personal row on that table — it names what a colleague undertook — so
 	// it is scoped exactly as the timeline is, through auth rather than here.
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return nil, err
 	}

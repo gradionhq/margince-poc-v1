@@ -205,13 +205,15 @@ func TestRequestAttachmentAccessAuditsANoteAndReturnsRequested(t *testing.T) {
 // TestRequestAttachmentAccessHidesAnInvisibleParent proves request-access
 // carries the same existence-hiding gate: poc-v1 has no restricted-but-
 // disclosed row, so a caller who cannot see the parent gets 404, not a
-// locked-row placeholder.
+// locked-row placeholder. The parent is a capture-private contact — the one
+// state that hides a person from another seat.
 func TestRequestAttachmentAccessHidesAnInvisibleParent(t *testing.T) {
 	e := Setup(t)
 	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling).WithBlobstore(blobstore.NewMemory())
 	adminCtx := e.Admin()
 	person := e.SeedPerson(t, "Rep1's Access Target", &e.Rep1)
 	att := uploadTestAttachment(adminCtx, t, h, person, "hidden.pdf", []byte("hidden"))
+	e.MakeCapturePrivate(t, "person", person, e.Rep1)
 
 	repCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
 	rec := httptest.NewRecorder()

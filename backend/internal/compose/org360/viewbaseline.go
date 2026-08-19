@@ -106,7 +106,7 @@ func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos, sincePos := arg(orgID), arg(since)
-	activityScope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	activityScope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
 		return out, err
 	}

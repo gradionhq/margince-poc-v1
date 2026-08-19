@@ -55,7 +55,7 @@ const (
 	// grant — person, organization, deal, lead (auth.ScopeClauseFor).
 	scopeShareable scopeMode = iota
 	// scopeActivity walks activity_link: an activity is visible when any
-	// linked record is, or when it has no links (auth.ActivityScopeClause).
+	// linked record is, or when it has no links (auth.ActivityContentClause).
 	scopeActivity
 	// scopeRelationship requires every non-null endpoint to be visible.
 	scopeRelationship

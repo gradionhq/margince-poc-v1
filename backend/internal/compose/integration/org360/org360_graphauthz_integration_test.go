@@ -11,8 +11,9 @@ package org360
 //
 //   - a group the caller's grants refuse is absent and NAMED, never drawn as a
 //     company with no contacts;
-//   - every node carries its own object's row scope, so the card cannot
-//     out-see the endpoint that owns the record;
+//   - every node carries its own object's read gate (capture privacy on
+//     people and accounts), so the card cannot out-see the endpoint that owns
+//     the record;
 //   - an edge needs BOTH its ends visible — a stakeholder seat is withheld
 //     when either the deal or the person is;
 //   - the intro path names the contact the warm room names, and stays quiet
@@ -156,17 +157,20 @@ func TestOrganizationGraphOmitsAGroupTheCallerMayNotRead(t *testing.T) {
 	}
 }
 
-// TestOrganizationGraphPrunesNodesToTheCallersRowScope: the grant says which
-// KINDS a caller may see, the row scope says which ROWS. Every node kind is
-// checked, because one unscoped arm is a side channel for the whole class.
-func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
+// TestOrganizationGraphPrunesNodesToTheCallersReadScope: the grant says which
+// KINDS a caller may see, the per-row read gate says which ROWS. People and
+// accounts can be capture-private to another user; deals are readable by every
+// seat. Every node kind is checked, because one unscoped arm is a side channel
+// for the whole class.
+func TestOrganizationGraphPrunesNodesToTheCallersReadScope(t *testing.T) {
 	e := integration.Setup(t)
 	svc := org360Service(e)
 	pipeline, stage, _ := integration.DealFixture(t, e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
-	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	theirs := e.SeedPerson(t, "Their Private Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	employ(t, e, mine, org, "cto")
 	employ(t, e, theirs, org, "cfo")
 
@@ -177,7 +181,8 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 	}
 
 	myPartner := e.SeedOrg(t, "My Partner", &e.Rep1)
-	theirPartner := e.SeedOrg(t, "Their Partner", &e.Rep3)
+	theirPartner := e.SeedOrg(t, "Their Private Partner", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", theirPartner, e.Rep3)
 	for _, partner := range []ids.UUID{myPartner, theirPartner} {
 		e.WsExec(t, `INSERT INTO relationship (kind, organization_id, counterparty_org_id, source, captured_by)
 			VALUES ('referred_by', $1, $2, 'manual', 'human:x')`, partner, org)
@@ -192,18 +197,20 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("graph: %v", err)
 	}
-	for _, want := range []ids.UUID{mine, myDeal, myPartner} {
+	// The other team's deal is drawn too: deals carry no capture privacy and
+	// are readable across teams.
+	for _, want := range []ids.UUID{mine, myDeal, theirDeal, myPartner} {
 		if !graphHasNode(graph, want) {
-			t.Errorf("node %v is missing — it is inside the caller's row scope", want)
+			t.Errorf("node %v is missing — the caller may read it", want)
 		}
 	}
-	for _, forbidden := range []ids.UUID{theirs, theirDeal, theirPartner} {
+	for _, forbidden := range []ids.UUID{theirs, theirPartner} {
 		if graphHasNode(graph, forbidden) {
-			t.Errorf("node %v was drawn — it is outside the caller's row scope", forbidden)
+			t.Errorf("node %v was drawn — it is capture-private to another user", forbidden)
 		}
 	}
 	if edges := graphEdgeKinds(graph); edges[crmcontracts.OrganizationGraphEdgeKindDealStakeholder] != 0 {
-		t.Error("a stakeholder edge was drawn for a person outside the caller's row scope")
+		t.Error("a stakeholder edge was drawn for a capture-private person the caller cannot read")
 	}
 	// referred_by is recorded on the PARTNER's row, so the edge starts there.
 	// Counted as well as checked: a loop that only judges the edges it finds
@@ -219,21 +226,23 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 		}
 	}
 	if referrals != 1 {
-		t.Errorf("referred_by edges = %d, want exactly 1 — the in-scope partner and only it", referrals)
+		t.Errorf("referred_by edges = %d, want exactly 1 — the readable partner and only it", referrals)
 	}
 }
 
-// TestOrganizationGraphHidesAnAccountOutsideTheCallersRowScope: the root read
-// is the whole graph's gate, and out-of-scope must be indistinguishable from
-// nonexistent.
-func TestOrganizationGraphHidesAnAccountOutsideTheCallersRowScope(t *testing.T) {
+// TestOrganizationGraphHidesACapturePrivateAccount: the root read is the whole
+// graph's gate, and a capture-private account must be indistinguishable from a
+// nonexistent one.
+func TestOrganizationGraphHidesACapturePrivateAccount(t *testing.T) {
 	e := integration.Setup(t)
 	svc := org360Service(e)
-	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
+	theirsRaw := e.SeedOrg(t, "Other Rep's Private Account", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", theirsRaw, e.Rep3)
+	theirs := ids.From[ids.OrganizationKind](theirsRaw)
 
 	_, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), theirs)
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("graph out of row scope → %v, want ErrNotFound (existence-hiding)", err)
+		t.Errorf("graph on a capture-private account → %v, want ErrNotFound (existence-hiding)", err)
 	}
 	mine := ids.From[ids.OrganizationKind](e.SeedOrg(t, "My Account", &e.Rep1))
 	if _, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms), mine); err != nil {

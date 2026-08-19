@@ -257,7 +257,7 @@ func activityParentClause(ctx context.Context, arg func(any) int) (string, error
 		}
 		return "", err
 	}
-	clause, err := auth.ActivityScopeClause(ctx, "p", arg)
+	clause, err := auth.ActivityContentClause(ctx, "p", arg)
 	if err != nil {
 		return "", err
 	}

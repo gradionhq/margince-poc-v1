@@ -269,8 +269,11 @@ func TestAnInverseTraversalJoinsOnTheReferringColumn(t *testing.T) {
 // A hop is a READ of the record it lands on. A caller who cannot see the
 // Stuttgart organization must not be able to select deals through it either.
 func TestTheHopCarriesItsOwnRowScopeUnderItsOwnAlias(t *testing.T) {
-	sql, _ := compilePlanDoc(teamReaderFor(entityDeal, entityOrganization), t, `{
-		"version": "v1", "target": "deal",
+	// A project is the one traversable target a team reader still reads
+	// under its own row scope; the organization it hops to carries capture
+	// privacy, so both aliases render an owner arm to tell apart.
+	sql, _ := compilePlanDoc(teamReaderFor(entityProject, entityOrganization), t, `{
+		"version": "v1", "target": "project",
 		"traverse": {"relation": "organization"}}`)
 	lateral, outer, found := strings.Cut(sql, ") hop ON true")
 	if !found {

@@ -277,9 +277,12 @@ func TestSiteReadIsScopedToTheOrganizationTheCallerCanSee(t *testing.T) {
 		t.Fatalf("GetSiteRead under another org → %v, want ErrNotFound", err)
 	}
 
-	// An org outside the caller's row scope is invisible: starting a read
-	// on it is the existence-hiding 404, not a permission error.
-	foreign := siteReadOrg(e.SeedOrg(t, "Rep3's Org", &e.Rep3))
+	// An org capture-private to another rep is invisible (an organization is
+	// otherwise readable by every seat): starting a read on it is the
+	// existence-hiding 404, not a permission error.
+	foreignID := e.SeedOrg(t, "Rep3's Org", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", foreignID, e.Rep3)
+	foreign := siteReadOrg(foreignID)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{

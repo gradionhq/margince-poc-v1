@@ -329,7 +329,7 @@ func (s *Store) approvalTargetVisibleThroughParent(ctx context.Context, targetTy
 		})
 	case targetActivity:
 		return s.rowScopedVisible(ctx, targetType, func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureActivityVisible(c, tx, targetID)
+			return auth.EnsureActivityContentVisible(c, tx, targetID)
 		})
 	case targetRelationship:
 		// An edge inherits the CONJUNCTION of its endpoints' scope.

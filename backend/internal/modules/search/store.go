@@ -114,7 +114,7 @@ func branchScope(ctx context.Context, branch searchBranch, alias string, arg fun
 		return "", false, nil
 	}
 	if branch.activityWalk {
-		scope, err = auth.ActivityScopeClause(ctx, alias, arg)
+		scope, err = auth.ActivityContentClause(ctx, alias, arg)
 	} else {
 		scope, err = auth.ScopeClauseFor(ctx, branch.entity, alias, arg)
 	}

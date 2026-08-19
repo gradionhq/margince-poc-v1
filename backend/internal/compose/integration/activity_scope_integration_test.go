@@ -42,9 +42,11 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 
-	// Team2's activity: linked to a person Rep3 owns, so Rep1's team scope
-	// hides it.
+	// Team2's activity: linked only to a capture-private contact Rep3 owns,
+	// so the link-walk hides it from Rep1 (a plain contact would be readable
+	// by every seat and would carry the activity with it).
 	theirPerson := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirPerson, e.Rep3)
 	theirActivity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
 		VALUES ($1, 'email', 'Q3 renewal terms', 'confidential body', now(), 'manual', 'human:x')`)
 	LinkActivity(t, owner, theirActivity, "person", theirPerson)
@@ -78,6 +80,58 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	if links := e.WsCount(t, `SELECT count(*) FROM activity_link WHERE activity_id = $1 AND person_id = $2`,
 		theirActivity, theirPerson); links != 1 {
 		t.Errorf("victim link rows = %d, want 1 — a refused relink must not delete it", links)
+	}
+
+	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)
+}
+
+// A readable activity is not thereby an editable one. Customer identity is
+// workspace-readable, so another team's mail filed against a plain contact is
+// OPEN to a team-scoped rep — and still theirs alone to change: the write arm
+// is own/team scope or a write grant on a linked record, the author, the
+// assignee or the host. Refusal is 403, because the row is visibly readable
+// and a 404 would have nothing left to hide.
+func TestAReadableActivityOfAnotherTeamIsNotEditable(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+
+	theirPerson := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	theirActivity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Q3 renewal terms', 'body', now(), 'manual', 'human:x')`)
+	LinkActivity(t, owner, theirActivity, "person", theirPerson)
+	theirID := ids.From[ids.ActivityKind](theirActivity)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)
+	myPerson := e.SeedPerson(t, "My Contact", &e.Rep1)
+
+	if _, err := e.Activities.GetActivity(rep, theirID, storekit.LiveOnly); err != nil {
+		t.Fatalf("GetActivity of another team's mail on a plain contact → %v, want it readable", err)
+	}
+	subject := "rewritten"
+	if _, err := e.Activities.UpdateActivity(rep, theirID, activities.UpdateActivityInput{Subject: &subject}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("UpdateActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.Activities.RelinkActivity(rep, theirID, activities.RelinkActivityInput{
+		EntityType: "person", EntityID: myPerson, ReplaceExistingOfType: true,
+	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("RelinkActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.Activities.ArchiveActivity(rep, theirID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("ArchiveActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
+	}
+	var got string
+	if err := owner.QueryRow(context.Background(), `SELECT subject FROM activity WHERE id = $1`, theirActivity).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "Q3 renewal terms" {
+		t.Errorf("subject after refused edits = %q, want unchanged", got)
+	}
+
+	// A write grant on the linked contact is the licence the scope withheld.
+	e.WsExec(t, `INSERT INTO record_grant (record_type, record_id, subject_type, subject_id, access, granted_by)
+		VALUES ('person', $1, 'user', $2, 'write', $3)`, theirPerson, e.Rep1, e.Rep3)
+	if _, err := e.Activities.UpdateActivity(rep, theirID, activities.UpdateActivityInput{Subject: &subject}); err != nil {
+		t.Errorf("UpdateActivity with a write grant on the linked contact → %v, want allowed", err)
 	}
 
 	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)

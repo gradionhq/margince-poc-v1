@@ -254,7 +254,7 @@ func (s *Store) SendMessage(ctx context.Context, anchorID ids.ActivityID, in Sen
 		// is with, so this transaction reads records too — and anything that
 		// reads a record carries the row-scope gate, whatever an earlier read
 		// already answered.
-		if err := auth.EnsureActivityVisible(ctx, tx, anchorID.UUID); err != nil {
+		if err := auth.EnsureActivityContentVisible(ctx, tx, anchorID.UUID); err != nil {
 			return err
 		}
 		var err error
@@ -288,7 +288,7 @@ type channelConversation struct {
 func (s *Store) channelProviderOf(ctx context.Context, anchorID ids.ActivityID) (string, error) {
 	var provider string
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureActivityVisible(ctx, tx, anchorID.UUID); err != nil {
+		if err := auth.EnsureActivityContentVisible(ctx, tx, anchorID.UUID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx,
@@ -311,7 +311,7 @@ func (s *Store) resolveConversation(ctx context.Context, anchorID ids.ActivityID
 		// anything that reads a record carries the row-scope gate — an
 		// out-of-scope anchor reads as ErrNotFound, the answer a missing one
 		// gives.
-		if err := auth.EnsureActivityVisible(ctx, tx, anchorID.UUID); err != nil {
+		if err := auth.EnsureActivityContentVisible(ctx, tx, anchorID.UUID); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx,

@@ -174,8 +174,11 @@ func TestAttachmentHandlersErrorPaths(t *testing.T) {
 	}
 
 	// List for a parent the caller cannot see → 404 (existence-hiding), not an
-	// empty page that would confirm the entity exists.
+	// empty page that would confirm the entity exists. The parent is a
+	// capture-private contact: the one state that hides a person from
+	// another seat.
 	person := e.SeedPerson(t, "Rep1 Only", &e.Rep1)
+	e.MakeCapturePrivate(t, "person", person, e.Rep1)
 	repCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
 	lr := httptest.NewRecorder()
 	h.ListAttachments(lr, httptest.NewRequest(http.MethodGet, "/v1/attachments", nil).WithContext(repCtx),
@@ -269,8 +272,9 @@ func TestAttachmentUploadThenDownloadRoundTrip(t *testing.T) {
 func TestAttachmentUploadDeniedForInvisibleParent(t *testing.T) {
 	e := Setup(t)
 	store, _ := attachmentStore(e)
-	// The person is owned by Rep1; Rep3 (own-scope, other team) cannot see it.
+	// The person is capture-private to Rep1; Rep3 cannot see it.
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
+	e.MakeCapturePrivate(t, "person", person, e.Rep1)
 	ctx := e.As(e.Rep3, []ids.UUID{e.Team2}, ownPersonPerms())
 
 	_, err := store.UploadAttachment(ctx, activities.AttachmentInput{
@@ -279,9 +283,10 @@ func TestAttachmentUploadDeniedForInvisibleParent(t *testing.T) {
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("upload to an invisible parent: err = %v, want ErrNotFound (existence-hiding)", err)
 	}
-	// The denial lands before any row is written: an admin sees no attachment
+	// The denial lands before any row is written: the owner sees no attachment
 	// on the person (and, by the store's RBAC-before-Put ordering, no object).
-	list, _, lerr := store.ListAttachments(e.Admin(), "person", person, nil, nil)
+	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
+	list, _, lerr := store.ListAttachments(owner, "person", person, nil, nil)
 	if lerr != nil {
 		t.Fatalf("ListAttachments: %v", lerr)
 	}
@@ -301,10 +306,13 @@ func TestAttachmentUploadDeniedForInvisibleParent(t *testing.T) {
 func TestOpenAttachmentHidesAnInvisibleParent(t *testing.T) {
 	e := Setup(t)
 	store, _ := attachmentStore(e)
-	// Owned by Rep1; Rep3 holds own-scope in the other team and cannot see it.
+	// Capture-private to Rep1; Rep3 cannot see it, and neither can anyone
+	// but Rep1 — so Rep1 is the one who uploads.
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
+	e.MakeCapturePrivate(t, "person", person, e.Rep1)
+	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 
-	uploaded, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
+	uploaded, err := store.UploadAttachment(owner, activities.AttachmentInput{
 		EntityType: "person", EntityID: person, Filename: "secret.pdf", Content: bytes.NewReader([]byte("secret bytes")),
 	})
 	if err != nil {
@@ -325,14 +333,14 @@ func TestOpenAttachmentHidesAnInvisibleParent(t *testing.T) {
 		t.Fatalf("downloading through an invisible parent: err = %v, want ErrNotFound (a 403 would confirm the file exists)", err)
 	}
 
-	// The owner still reaches it, so the refusal above is the row scope talking
-	// and not a broken read that refuses everyone.
-	_, ownerRC, err := store.OpenAttachment(e.Admin(), ids.UUID(uploaded.Id))
+	// The owner still reaches it, so the refusal above is the visibility rule
+	// talking and not a broken read that refuses everyone.
+	_, ownerRC, err := store.OpenAttachment(owner, ids.UUID(uploaded.Id))
 	if err != nil {
-		t.Fatalf("the admin cannot download the file either: %v", err)
+		t.Fatalf("the owner cannot download the file either: %v", err)
 	}
 	if err := ownerRC.Close(); err != nil {
-		t.Errorf("closing the admin's reader: %v", err)
+		t.Errorf("closing the owner's reader: %v", err)
 	}
 }
 

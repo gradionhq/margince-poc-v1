@@ -52,8 +52,10 @@ func TestTheWriteArmCountsOnlyAWriteGrant(t *testing.T) {
 func TestTheVisibilityArmStillCountsEveryLiveGrant(t *testing.T) {
 	// The mirror of the test above, and the reason it exists: write satisfies
 	// read, so narrowing the VISIBILITY arm to `write` would stop a read share
-	// from opening the record at all — the feature, not the defect.
-	for _, table := range []string{"person", "organization", "deal", "lead", "project"} {
+	// from opening the record at all — the feature, not the defect. deal and
+	// lead are absent: every seat reads them whole (tableclass.go), so there
+	// is nothing left for a grant to widen.
+	for _, table := range []string{"person", "organization", "project"} {
 		var args []any
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		sql := VisiblePredicate(human(principal.RowScopeTeam), table, arg)("t")

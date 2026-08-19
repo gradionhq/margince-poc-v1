@@ -138,7 +138,7 @@ func (s *Store) Availability(ctx context.Context, host ids.UserID, from, to time
 	hostPos := arg(host)
 	fromPos := arg(from.Add(-assumedMeetingDuration))
 	toPos := arg(to)
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
 		return nil, false, err
 	}

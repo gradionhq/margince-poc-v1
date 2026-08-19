@@ -41,26 +41,32 @@ func (e *SearchEnv) seedDealFixtures(t *testing.T, n int, owner *ids.UUID) {
 	}
 }
 
+// A deal is readable by every seat holding the deal grant, so the specimen
+// for a count that must not out-see the lists is a capture-private person:
+// the row a person row scope still hides from everyone but its captor.
 func TestAdHocReportPlanCountsUnderRowScope(t *testing.T) {
 	e := SetupSearch(t)
-	e.seedDealFixtures(t, 3, &e.Rep3) // owned by team2's rep
+	for i := 0; i < 3; i++ {
+		e.SeedID(t, fmt.Sprintf(`INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+			VALUES ($1, 'Private %d', $2, 'owner', 'manual', 'human:x')`, i), e.Rep3)
+	}
 	provider := compose.NewProvider(e.Pool)
 
-	// row_scope=all counts all three.
-	res, err := provider.RunReport(e.Admin(), datasource.ReportPlan{
-		Entity: datasource.EntityDeal, GroupBy: []string{"status"},
+	// The captor counts all three.
+	res, err := provider.RunReport(e.AsTeamRep(e.Rep3, e.Team2), datasource.ReportPlan{
+		Entity: datasource.EntityPerson, GroupBy: []string{"source"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.Rows) != 1 || fmt.Sprint(res.Rows[0][1]) != "3" {
-		t.Fatalf("ad-hoc plan rows = %+v, want one open row counting 3", res.Rows)
+		t.Fatalf("ad-hoc plan rows = %+v, want one manual row counting 3", res.Rows)
 	}
 
-	// A team1 rep sees none of team2's deals — aggregates cannot leak
-	// what the lists hide.
+	// A colleague sees none of the private captures — aggregates cannot
+	// leak what the lists hide.
 	res, err = provider.RunReport(e.AsTeamRep(e.Rep1, e.Team1), datasource.ReportPlan{
-		Entity: datasource.EntityDeal, GroupBy: []string{"status"},
+		Entity: datasource.EntityPerson, GroupBy: []string{"source"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,11 +246,13 @@ func TestAssembleContextFixedDepthWalk(t *testing.T) {
 		t.Logf("note: org appears only when linked through an activity: %+v", sections["related_organizations"])
 	}
 
-	// An anchor outside the caller's row scope assembles nothing.
-	foreignDeal := e.SeedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, owner_id, source, captured_by)
-		SELECT $1, 'Foreign Deal', pipeline_id, stage_id, $2, 'manual', 'human:x' FROM deal LIMIT 1`, e.Rep3)
+	// An anchor outside the caller's row scope assembles nothing. A deal is
+	// readable by every seat with the grant, so the anchor that can be out of
+	// scope is a colleague's capture-private person.
+	privatePerson := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+		VALUES ($1, 'Private Contact', $2, 'owner', 'manual', 'human:x')`, e.Rep3)
 	if _, err := retriever.AssembleContext(e.AsTeamRep(e.Rep1, e.Team1),
-		datasource.EntityRef{Type: datasource.EntityDeal, ID: foreignDeal}, retrieval.AssembleOptions{}); err == nil {
+		datasource.EntityRef{Type: datasource.EntityPerson, ID: privatePerson}, retrieval.AssembleOptions{}); err == nil {
 		t.Fatal("foreign anchor must be absent, not assembled")
 	}
 }

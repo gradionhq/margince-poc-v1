@@ -323,18 +323,20 @@ func TestAcceptAttachmentExtractionRequiresFieldKeys(t *testing.T) {
 	a.requireUntouchedDeal(t)
 }
 
-func TestAcceptAttachmentExtractionHidesAnInvisibleParent(t *testing.T) {
+// A deal is readable by every seat, so Rep3 (Team2, team row scope) reads
+// Rep1's deal and the attachment on it — but accepting a reading WRITES the
+// deal, and the team row scope still binds writes: the accept is refused as
+// a denial, and the deal is untouched.
+func TestAcceptAttachmentExtractionRefusesAWriteToAnotherTeamsDeal(t *testing.T) {
 	a := setupExtractionAccept(t)
 
-	// Rep3 (Team2, team row scope) cannot see Rep1's deal: the attachment
-	// answers the same existence-hiding 404 as every other attachment op.
 	ctx := a.As(a.Rep3, []ids.UUID{a.Team2}, RepPerms)
 	_, err := a.engine.Accept(ctx, ids.UUID(a.att.Id), crmcontracts.AcceptExtractionRequest{
 		ExtractionId: openapi_types.UUID(a.reading),
-		FieldKeys:    []string{"amount_minor"},
+		FieldKeys:    []string{"amount_minor", "currency"},
 	})
-	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("err = %v, want ErrNotFound (existence-hiding)", err)
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("err = %v, want ErrPermissionDenied (the row is readable, not writable)", err)
 	}
 	a.requireUntouchedDeal(t)
 }

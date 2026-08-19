@@ -146,8 +146,10 @@ func createRaw(t *testing.T, store *signals.Store, ctx context.Context, rawRef s
 }
 
 // A signal's visibility follows the record it is ABOUT: a signal on a
-// person another team owns does not exist for a team-scoped rep (404,
-// existence-hiding), while the workspace admin sees it.
+// person another rep captured privately does not exist for a colleague (404,
+// existence-hiding), while the captor sees it. A person who is merely owned
+// is readable by every seat with the grant, so capture privacy is what keeps
+// the subject — and the signal — out of the colleague's row scope.
 func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	e := SetupSearch(t)
 	store := signalStore(e)
@@ -164,28 +166,36 @@ func TestSignalRowScopeFollowsSubjectEntity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admin create: %v", err)
 	}
+	// Made private once the signal exists: the admin who created it is not
+	// the captor and could not bind a signal to a private subject.
+	if _, err := e.Owner.Exec(context.Background(),
+		`UPDATE person SET visibility = 'owner' WHERE id = $1`, foreignPerson); err != nil {
+		t.Fatalf("capturing the subject privately: %v", err)
+	}
 
 	rep := signalActor(e, e.Rep1, principal.RowScopeTeam, []ids.UUID{e.Team1})
 	if _, err := store.GetSignal(rep, ids.From[ids.SignalKind](ids.UUID(sig.Id)), 0); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("team1 rep read of a team2-subject signal = %v, want ErrNotFound (existence-hiding)", err)
+		t.Fatalf("colleague's read of a private-subject signal = %v, want ErrNotFound (existence-hiding)", err)
 	}
-	if _, err := store.GetSignal(e.adminSignals(), ids.From[ids.SignalKind](ids.UUID(sig.Id)), 0); err != nil {
-		t.Fatalf("admin read of the same signal = %v, want it visible", err)
+	captor := signalActor(e, e.Rep3, principal.RowScopeTeam, []ids.UUID{e.Team2})
+	if _, err := store.GetSignal(captor, ids.From[ids.SignalKind](ids.UUID(sig.Id)), 0); err != nil {
+		t.Fatalf("captor read of the same signal = %v, want it visible", err)
 	}
 }
 
 // The resolver may attribute only to an organization the caller can see:
-// a team-scoped rep resolving a signal whose only domain match is an org
-// another team owns gets an unattributable drop, not a stamped
-// resolved_org_id that would leak the foreign org's id/existence.
+// a rep resolving a signal whose only domain match is an org a colleague
+// captured privately gets an unattributable drop, not a stamped
+// resolved_org_id that would leak the private org's id/existence.
 func TestResolverDoesNotAttributeToAnInvisibleOrg(t *testing.T) {
 	e := SetupSearch(t)
 	store := signalStore(e)
 
-	// An org (with a matching domain) owned by rep3 — outside team1's scope.
+	// An org (with a matching domain) captured privately by rep3 — outside
+	// every other seat's row scope.
 	foreignOrg := e.SeedID(t,
-		`INSERT INTO organization (id, display_name, owner_id, source, captured_by)
-		 VALUES ($1, 'Foreign Co', $2, 'manual', 'human:x')`, e.Rep3)
+		`INSERT INTO organization (id, display_name, owner_id, visibility, source, captured_by)
+		 VALUES ($1, 'Foreign Co', $2, 'owner', 'manual', 'human:x')`, e.Rep3)
 	if _, err := e.Owner.Exec(context.Background(),
 		`INSERT INTO organization_domain (id, organization_id, domain, source, captured_by)
 		 VALUES ($1, $2, 'foreign.example', 'manual', 'human:x')`, ids.NewV7(), ids.UUID(foreignOrg)); err != nil {
@@ -209,14 +219,15 @@ func TestResolverDoesNotAttributeToAnInvisibleOrg(t *testing.T) {
 		t.Fatalf("resolved_org_id = %v, want nil — an invisible org must never be stamped", resolved.ResolvedOrgId)
 	}
 
-	// The admin, who CAN see the org, resolves the same class of signal to it.
-	adminSig := createRaw(t, store, admin, "inbound:hi@foreign.example")
-	adminResolved, err := store.Resolve(admin, adminSig)
+	// The captor, who CAN see the org, resolves the same class of signal to it.
+	captor := signalActor(e, e.Rep3, principal.RowScopeTeam, []ids.UUID{e.Team2})
+	captorSig := createRaw(t, store, admin, "inbound:hi@foreign.example")
+	captorResolved, err := store.Resolve(captor, captorSig)
 	if err != nil {
-		t.Fatalf("admin resolve: %v", err)
+		t.Fatalf("captor resolve: %v", err)
 	}
-	if adminResolved.ResolvedOrgId == nil || ids.UUID(*adminResolved.ResolvedOrgId) != ids.UUID(foreignOrg) {
-		t.Fatalf("admin resolved_org_id = %v, want %v", adminResolved.ResolvedOrgId, ids.UUID(foreignOrg))
+	if captorResolved.ResolvedOrgId == nil || ids.UUID(*captorResolved.ResolvedOrgId) != ids.UUID(foreignOrg) {
+		t.Fatalf("captor resolved_org_id = %v, want %v", captorResolved.ResolvedOrgId, ids.UUID(foreignOrg))
 	}
 }
 

@@ -235,7 +235,7 @@ func TestSendEmailRefusesAnAnchorOutsideTheCallersRowScope(t *testing.T) {
 	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
 		e.as(principal.RowScopeOwn), FromActivity(anchor), sendInput("transactional"), stubConsentGate{}, stager)
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("send anchored to another rep's activity → %v, want ErrNotFound (existence-hiding)", err)
+		t.Fatalf("send anchored to another rep's capture-private contact → %v, want ErrNotFound (existence-hiding)", err)
 	}
 	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
 		t.Fatal("a send refused at the row-scope gate still staged a delivery or logged an activity")

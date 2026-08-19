@@ -33,11 +33,11 @@ func TestABoundedCallerIsToldTheAnswerIsBoundedAndNeverHowMuch(t *testing.T) {
 	e := Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 
-	// One corpus: three people Rep1 owns, none of them Rep3's and none of them
-	// on Rep3's team. Three rather than one, because a count that leaked would
-	// be indistinguishable from a boolean at one row.
+	// One corpus: three people capture-private to Rep1 — the one state that
+	// hides a contact from another seat. Three rather than one, because a
+	// count that leaked would be indistinguishable from a boolean at one row.
 	for _, name := range []string{"Withheld Alpha", "Withheld Beta", "Withheld Gamma"} {
-		e.SeedPerson(t, name, &e.Rep1)
+		e.MakeCapturePrivate(t, "person", e.SeedPerson(t, name, &e.Rep1), e.Rep1)
 	}
 
 	const query = `{"q":"Withheld","record_type":"person"}`
@@ -48,7 +48,7 @@ func TestABoundedCallerIsToldTheAnswerIsBoundedAndNeverHowMuch(t *testing.T) {
 	// bounded caller sees nothing AND is told that it is looking through a
 	// bound, so "nothing I can see" and "nothing exists" stop rendering alike.
 	if got := recordCount(t, bounded.Data); got != 0 {
-		t.Fatalf("the bounded caller read %d of another team's people — this suite is not testing what it claims", got)
+		t.Fatalf("the bounded caller read %d of another rep's private captures — this suite is not testing what it claims", got)
 	}
 	if got := recordCount(t, unbounded.Data); got != 3 {
 		t.Fatalf("the unbounded caller read %d people, want the 3 seeded — the corpus is not what the bounded arm was denied", got)

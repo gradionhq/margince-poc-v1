@@ -31,15 +31,17 @@ import (
 )
 
 // The widening itself is a platform/auth property, so it is asserted at
-// the store layer where scoped principals are cheap to mint.
+// the store layer where scoped principals are cheap to mint. A contact is
+// readable by every seat unless its capture is private, so the record a
+// share opens here is a capture-private contact of rep3's.
 func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 	e := SetupSearch(t)
-	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Shared Secret', $2, 'manual', 'human:x')`, e.Rep3)
+	foreign := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by) VALUES ($1, 'Shared Secret', $2, 'owner', 'manual', 'human:x')`, e.Rep3)
 
 	repCtx := e.AsTeamRep(e.Rep1, e.Team1)
 	peopleStore := people.NewStore(e.DB())
 
-	// Before the grant: team scope hides rep3's record from rep1.
+	// Before the grant: capture privacy hides rep3's record from rep1.
 	if _, err := peopleStore.GetPerson(repCtx, PersonIDOf(foreign), storekit.LiveOnly); err == nil {
 		t.Fatal("foreign person visible before any grant")
 	}

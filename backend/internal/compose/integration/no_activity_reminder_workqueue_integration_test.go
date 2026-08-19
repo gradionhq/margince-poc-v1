@@ -35,11 +35,12 @@ package integration
 // the SAME read the built Tasks screen performs today
 // (frontend/src/screens/tasks.tsx: GET /activities?kind=task), which
 // resolves to activities.Store.ListActivities scoped by
-// auth.ActivityScopeClause — an activity is visible to a viewer when ANY
-// entity it links to is visible under that viewer's own row-scope. This
-// suite asserts against that real scope clause (not a tautological
-// "the list is non-empty"): Sam's own read must surface the reminder,
-// and an unrelated rep's identical read must NOT.
+// auth.ActivityDiscoverClause — an activity is discoverable to a viewer when ANY
+// entity it links to is visible to that viewer. A deal is an identity table,
+// readable by every human seat holding the deal grant, so the reminder task
+// on Sam's deal is discoverable workspace-wide: Sam's own read must surface
+// it, and so must an unrelated rep's identical read — the same clause that
+// would hide a task linked only to a capture-private contact.
 //
 // A known gap this suite deliberately does not paper over: the OpenAPI
 // contract also declares an `assignee_id` filter on this endpoint ("Open
@@ -156,16 +157,17 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	}
 
 	// The identical read for an unrelated rep (a different team, no
-	// stake in Sam's deal) must NOT surface it — proving this is a real
-	// row-scoped queue, not an unbounded list any assertion would pass
-	// against.
+	// stake in Sam's deal) surfaces it too: the task inherits its
+	// visibility from the deal, and a deal is readable by every human seat
+	// holding the deal grant. The queue is scoped by the linked records,
+	// not by who authored the automation.
 	strangerCtx := e.As(e.Rep3, []ids.UUID{e.Team2}, repPermsWithActivity())
 	strangerTasks, _, err := e.Activities.ListActivities(strangerCtx, activities.ListActivitiesInput{Kind: strPtr("task")})
 	if err != nil {
 		t.Fatalf("an unrelated rep listing tasks: %v", err)
 	}
-	if taskListContains(strangerTasks, taskID) {
-		t.Fatalf("an unrelated rep's Tasks screen surfaced Sam's reminder task %s — the scope clause is not actually row-limited", taskID)
+	if !taskListContains(strangerTasks, taskID) {
+		t.Fatalf("an unrelated rep's Tasks screen did not surface reminder task %s — a task on a deal is discoverable to every deal reader", taskID)
 	}
 }
 

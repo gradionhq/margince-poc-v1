@@ -71,18 +71,20 @@ func TestListActivitiesCarriesItsLinks(t *testing.T) {
 // Activity visibility is an ANY-link rule: one visible link makes the whole
 // activity readable. The link PROJECTION cannot inherit that, or reading a
 // shared contact's timeline would hand back the ids of the other records the
-// same thread touches — records the caller's scope exists to hide.
+// same thread touches — records the caller may not read. Contacts are readable
+// by every seat, so the hidden target here is a capture-private contact: only
+// its owner may read it.
 func TestListActivitiesDropsLinksToRecordsOutOfRowScope(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
-	pipeline, stage, _ := DealFixture(t, e)
 
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
-	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
+	theirPrivate := e.SeedPerson(t, "Their Private Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirPrivate, e.Rep3)
 	activity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'meeting', 'Joint call', now(), 'manual', 'human:x')`)
 	LinkActivity(t, owner, activity, "person", mine)
-	LinkActivity(t, owner, activity, "deal", theirDeal)
+	LinkActivity(t, owner, activity, "person", theirPrivate)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLinkRepPerms)
 	got, _, err := e.Activities.ListActivities(rep, activities.ListActivitiesInput{})
@@ -96,9 +98,9 @@ func TestListActivitiesDropsLinksToRecordsOutOfRowScope(t *testing.T) {
 		t.Fatal("links[] is null — the visible link must still be reported")
 	}
 	for _, link := range *got[0].Links {
-		if ids.UUID(link.EntityId) == theirDeal {
-			t.Errorf("links[] carries deal %v, which the caller cannot read — an any-link activity gate does not license disclosing every target",
-				theirDeal)
+		if ids.UUID(link.EntityId) == theirPrivate {
+			t.Errorf("links[] carries capture-private contact %v, which the caller cannot read — an any-link activity gate does not license disclosing every target",
+				theirPrivate)
 		}
 	}
 	if len(*got[0].Links) != 1 || ids.UUID((*got[0].Links)[0].EntityId) != mine {

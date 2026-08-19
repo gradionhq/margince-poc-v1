@@ -90,7 +90,7 @@ func (s *Store) ReadPipelineFacts(ctx context.Context, id ids.UUID) (PipelineFac
 	}
 	var out PipelineFacts
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
-		if err := auth.EnsureActivityVisible(ctx, tx, id); err != nil {
+		if err := auth.EnsureActivityContentVisible(ctx, tx, id); err != nil {
 			return err
 		}
 		var label *string

@@ -132,12 +132,21 @@ func TestQueryWorkspaceSourcesEveryRowItAnswersWith(t *testing.T) {
 // correctly scoped row set described by an envelope naming records the caller
 // cannot see would leak exactly what the row scope withheld, and nothing in the
 // executor's suite can see the envelope.
+//
+// The target is `project`, the record type that still carries the own/team/all
+// row scope: a deal is readable by every seat holding the deal grant, so two
+// principals asking about deals would get the same answer by design.
 func TestQueryWorkspaceAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testing.T) {
 	q := setupQuery(t)
 	f := q.seedFixture(t)
+	rep3Project := q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep3, f.rep3Org)
+	// An ownerless project is workspace-shared and visible at every tier.
+	sharedProject := q.SeedID(t, `INSERT INTO project (id, name, organization_id, source, captured_by)
+		VALUES ($1, 'Rollout', $2, 'manual', 'human:x')`, f.rep1Org)
 	registry := compose.NewRegistry(q.Pool, compose.SendPath{})
-	const plan = `{"plan":{"version": "v1", "target": "deal",
-		"where": [{"field": "status", "op": "eq", "value": "open"}]}}`
+	const plan = `{"plan":{"version": "v1", "target": "project",
+		"where": [{"field": "name", "op": "eq", "value": "Rollout"}]}}`
 
 	adminSealed := invokeQuery(q.admin(), t, registry, plan)
 	repSealed := invokeQuery(q.teamRep(q.Rep1, q.Team1), t, registry, plan)
@@ -145,13 +154,13 @@ func TestQueryWorkspaceAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testin
 
 	adminRows, repRows := rowIDs(admin), rowIDs(rep)
 	if len(adminRows) != 3 {
-		t.Fatalf("the unbounded reader sees %d of 3 open deals — the corpus is not what the bounded arm is measured against", len(adminRows))
+		t.Fatalf("the unbounded reader sees %d of 3 projects — the corpus is not what the bounded arm is measured against", len(adminRows))
 	}
-	if !repRows[f.rep1Deal] || !repRows[f.sharedDeal] {
+	if !repRows[f.project] || !repRows[sharedProject] {
 		t.Fatalf("the rep cannot see their own rows: %v", repRows)
 	}
-	if repRows[f.rep3Deal] {
-		t.Fatal("the rep reads another team's deal — hydration widened an answer row scope had already narrowed")
+	if repRows[rep3Project] {
+		t.Fatal("the rep reads another team's project — hydration widened an answer row scope had already narrowed")
 	}
 	for id := range repRows {
 		if !adminRows[id] {
@@ -175,8 +184,8 @@ func TestQueryWorkspaceAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testin
 	// The leak that would matter: a record only the OTHER team can see, named
 	// in this caller's envelope. The plan has no hop, so the rows are the only
 	// records this answer may rest on.
-	if sealedNames(repSealed, f.rep3Deal) {
-		t.Errorf("the rep's envelope names %s, another team's deal", f.rep3Deal)
+	if sealedNames(repSealed, rep3Project) {
+		t.Errorf("the rep's envelope names %s, another team's project", rep3Project)
 	}
 }
 
@@ -185,7 +194,7 @@ func TestQueryWorkspaceAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testin
 // a side channel that answers questions about records the caller was denied.
 func TestAHopThroughARecordTheCallerCannotSeeAdmitsNothing(t *testing.T) {
 	q := setupQuery(t)
-	q.seedFixture(t)
+	f := q.seedFixture(t)
 	registry := compose.NewRegistry(q.Pool, compose.SendPath{})
 	const plan = `{"plan":{
 		"version": "v1", "target": "deal",
@@ -194,6 +203,12 @@ func TestAHopThroughARecordTheCallerCannotSeeAdmitsNothing(t *testing.T) {
 		             "where": [{"field": "address.city", "op": "eq", "value": "Stuttgart"}]}}}`
 
 	admin := queryPayload(t, invokeQuery(q.admin(), t, registry, plan).Data)
+	// Capture privacy is what keeps an organization out of a colleague's row
+	// scope; the deal behind it stays readable in itself.
+	if _, err := q.Owner.Exec(context.Background(),
+		`UPDATE organization SET visibility = 'owner' WHERE id = $1`, f.rep3Org); err != nil {
+		t.Fatalf("capturing the organization privately: %v", err)
+	}
 	rep := queryPayload(t, invokeQuery(q.teamRep(q.Rep1, q.Team1), t, registry, plan).Data)
 
 	if len(admin.Rows) != 1 {

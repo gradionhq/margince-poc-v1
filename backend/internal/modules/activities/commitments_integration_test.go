@@ -38,7 +38,7 @@ import (
 // never be told either of these, and they are distinctive enough that a
 // substring search over the whole answer is conclusive.
 const (
-	hiddenDealName   = "Confidential Zeta renewal"
+	hiddenPersonName = "Zeta Privatkontakt"
 	visiblePersonNam = "Ada Lovelace"
 	hiddenProjectNam = "Confidential Zeta rollout"
 )
@@ -123,38 +123,33 @@ func (e *promiseEnv) exec(t *testing.T, sql string, args ...any) {
 }
 
 // seedSplitTask writes the shape the disclosure rule is about: ONE open task
-// linked both to a person the caller owns and to a deal they do not.
+// linked both to a person the caller owns and to a capture-private person
+// (visibility='owner') owned by somebody else. A person is workspace-readable
+// identity, so only capture privacy still puts a linked record outside the
+// caller's row scope.
 //
 // The activity gate is an ANY-LINK rule, so the visible person makes the task
 // readable — and that is correct. What must not follow is being told the name
-// of the deal on the other link.
-func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenDealID ids.UUID) {
+// of the private contact on the other link.
+func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenPersonID ids.UUID) {
 	t.Helper()
-	orgID, personID := ids.NewV7(), ids.NewV7()
-	pipelineID, stageID := ids.NewV7(), ids.NewV7()
-	hiddenDealID, taskID = ids.NewV7(), ids.NewV7()
+	personID := ids.NewV7()
+	hiddenPersonID, taskID = ids.NewV7(), ids.NewV7()
 
-	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, source, captured_by)
-		VALUES ($1, 'Zeta GmbH', $2, 'seed', 'system')`, orgID, e.rep)
-	e.exec(t, `INSERT INTO pipeline (id, name, is_default, position)
-		VALUES ($1, 'Default', true, 1)`, pipelineID)
-	e.exec(t, `INSERT INTO stage (id, pipeline_id, name, position, win_probability)
-		VALUES ($1, $2, 'Qualified', 1, 20)`, stageID, pipelineID)
 	e.exec(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
 		VALUES ($1, $2, $3, 'seed', 'system')`, personID, visiblePersonNam, e.rep)
-	// Owned by the OTHER rep, so an own-scoped caller cannot read it.
-	e.exec(t, `INSERT INTO deal (id, name, organization_id, owner_id, pipeline_id, stage_id, source, captured_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'seed', 'system')`,
-		hiddenDealID, hiddenDealName, orgID, e.other, pipelineID, stageID)
+	// Captured privately by the OTHER rep, so nobody else can read it.
+	e.exec(t, `INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+		VALUES ($1, $2, $3, 'owner', 'seed', 'system')`, hiddenPersonID, hiddenPersonName, e.other)
 
 	e.exec(t, `INSERT INTO activity (id, kind, subject, occurred_at, due_at, assignee_id, is_done, source, captured_by)
 		VALUES ($1, 'task', 'Renew the Zeta contract', now(), now() - interval '2 days',
 			$2, false, 'seed', 'system')`, taskID, e.rep)
 	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id)
 		VALUES ($1, $2, 'person', $3)`, ids.NewV7(), taskID, personID)
-	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, deal_id)
-		VALUES ($1, $2, 'deal', $3)`, ids.NewV7(), taskID, hiddenDealID)
-	return taskID, hiddenDealID
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id)
+		VALUES ($1, $2, 'person', $3)`, ids.NewV7(), taskID, hiddenPersonID)
+	return taskID, hiddenPersonID
 }
 
 // A task reachable through a visible person is readable in full. Being told
@@ -162,7 +157,7 @@ func (e *promiseEnv) seedSplitTask(t *testing.T) (taskID, hiddenDealID ids.UUID)
 // by the caller's scope on each linked record — not by the task's.
 func TestAPromiseNamesOnlyTheRecordsItsReaderMaySee(t *testing.T) {
 	e := setupPromises(t)
-	taskID, hiddenDealID := e.seedSplitTask(t)
+	taskID, hiddenPersonID := e.seedSplitTask(t)
 
 	tasks, _, err := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws))).ListOpenTasks(e.as(), ListOpenTasksInput{})
 	if err != nil {
@@ -184,13 +179,13 @@ func TestAPromiseNamesOnlyTheRecordsItsReaderMaySee(t *testing.T) {
 	for _, about := range found.About {
 		named[about.EntityID.String()] = about.Name
 	}
-	if _, told := named[hiddenDealID.String()]; told {
-		t.Errorf("the answer names a deal owned by another rep (%s) — an activity readable "+
-			"through one visible link does not license disclosing the others", hiddenDealID)
+	if _, told := named[hiddenPersonID.String()]; told {
+		t.Errorf("the answer names another rep's capture-private contact (%s) — an activity readable "+
+			"through one visible link does not license disclosing the others", hiddenPersonID)
 	}
 	for id, name := range named {
-		if name == hiddenDealName {
-			t.Errorf("the answer carries the hidden deal's NAME against %s, which is the "+
+		if name == hiddenPersonName {
+			t.Errorf("the answer carries the private contact's NAME against %s, which is the "+
 				"disclosure the link-visibility clause exists to prevent", id)
 		}
 	}

@@ -362,12 +362,12 @@ func (s *TraceStore) hideUnreadableLinks(ctx context.Context, tx pgx.Tx, entries
 	}
 	args := []any{linked}
 	addArg := func(v any) int { args = append(args, v); return len(args) }
-	// ActivityScopeClause, not the generic one: an activity has no owner, so it
+	// ActivityDiscoverClause, not the generic one: an activity has no owner, so it
 	// inherits the sensitivity of the records it attaches to — visible when ANY
 	// linked person, organization or deal is, and visible to everyone when it
 	// has no links at all (a workspace-shared note). The generic clause refuses
 	// this table outright, which is how the wrong one announces itself.
-	scope, err := auth.ActivityScopeClause(ctx, "a", addArg)
+	scope, err := auth.ActivityDiscoverClause(ctx, "a", addArg)
 	if err != nil {
 		return err
 	}

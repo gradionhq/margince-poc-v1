@@ -77,15 +77,17 @@ func personRoomService(e *Env) *person360.Service {
 
 // A contact outside the caller's row scope must be a NOT FOUND, never an empty
 // page. An empty page confirms the record exists and only its contents are
-// withheld, which is the disclosure existence-hiding is for.
+// withheld, which is the disclosure existence-hiding is for. A colleague's
+// contact leaves the caller's row scope through capture privacy.
 func TestPerson360RefusesAContactOutsideTheCallersRowScope(t *testing.T) {
 	e := Setup(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
 	_, err := personRoomService(e).Assemble(rep, ids.From[ids.PersonKind](theirs))
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("Assemble on another team's contact → %v, want ErrNotFound", err)
+		t.Errorf("Assemble on a capture-private contact → %v, want ErrNotFound", err)
 	}
 }
 
@@ -203,11 +205,12 @@ func TestCorrectionLedgerRefusesAWriteWithoutTheSubjectsUpdateGrant(t *testing.T
 	}
 }
 
-// A verdict about another team's contact is a not-found, so the endpoint
+// A verdict about a capture-private contact is a not-found, so the endpoint
 // cannot be used to probe which record ids exist.
 func TestCorrectionLedgerRefusesASubjectOutsideRowScope(t *testing.T) {
 	e := Setup(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
 	err := ai.NewFeedbackStore(e.DB()).Record(rep, ai.RecordInput{
@@ -215,7 +218,7 @@ func TestCorrectionLedgerRefusesASubjectOutsideRowScope(t *testing.T) {
 		ClaimPath: "profile_field:title", Verdict: ai.VerdictSuppressed,
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("Record on another team's contact → %v, want ErrNotFound", err)
+		t.Errorf("Record on a capture-private contact → %v, want ErrNotFound", err)
 	}
 }
 
@@ -511,10 +514,11 @@ func TestRelationshipChangesSayNothingAboutAContactWithNoHistory(t *testing.T) {
 func TestRelationshipChangesRefuseAContactOutsideRowScope(t *testing.T) {
 	e := Setup(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, roomPerms)
 
 	if _, err := personChanges(rep, t, e, ids.From[ids.PersonKind](theirs)); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("changes for another team's contact → %v, want ErrNotFound", err)
+		t.Errorf("changes for a capture-private contact → %v, want ErrNotFound", err)
 	}
 }
 

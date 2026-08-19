@@ -68,7 +68,7 @@ func newestMessage(
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
-	activityScope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	activityScope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
 		return lastMessage{}, false, err
 	}
@@ -293,7 +293,7 @@ func hasOpenTask(
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
-	activityScope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	activityScope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
 		return false, err
 	}

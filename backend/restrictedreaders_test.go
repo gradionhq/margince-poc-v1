@@ -13,7 +13,7 @@ package backendarch
 //
 // A file satisfies the gate by ONE of three means, each a real exclusion:
 //
-//   - it carries the shared row scope (auth.ActivityScopeClause or one of the
+//   - it carries the shared row scope (auth.ActivityDiscoverClause / ActivityContentClause or one of the
 //     probes built on it), which always composes ActivityAvailableClause;
 //   - it names restricted_at itself, or the privacy floor fragments that do;
 //   - it filters `archived_at IS NULL`, which excludes held rows because the
@@ -41,8 +41,9 @@ var activityReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+activity(\s|$|
 // row whatever else the file contains. Matched file-wide, because the gate is
 // a Go call rather than SQL and a file that makes it makes it for its reads.
 var scopeMarkers = []string{
-	"ActivityScopeClause", "ActivityAvailableClause",
+	"ActivityDiscoverClause", "ActivityContentClause", "ActivityAvailableClause",
 	"EnsureActivityVisible", "EnsureActivityVisibleLive",
+	"EnsureActivityContentVisible", "EnsureActivityContentVisibleLive",
 	"correspondenceFloorPredicate", "handelsbriefShielded",
 }
 
@@ -158,7 +159,7 @@ func TestEveryReaderOfTheActivityTableExcludesRestrictedRows(t *testing.T) {
 			continue
 		}
 		for _, offender := range unguardedActivityReaders(src.File) {
-			t.Errorf("%s: %s reads the activity table and excludes no held row — compose auth.ActivityScopeClause / ActivityAvailableClause, filter `restricted_at IS NULL` or `archived_at IS NULL`, or ratify the reader in restrictedReadersAdmitted with the cost stated (A165/ADR-0114 §2)", src.Path, offender)
+			t.Errorf("%s: %s reads the activity table and excludes no held row — compose auth.ActivityContentClause / ActivityDiscoverClause / ActivityAvailableClause, filter `restricted_at IS NULL` or `archived_at IS NULL`, or ratify the reader in restrictedReadersAdmitted with the cost stated (A165/ADR-0114 §2)", src.Path, offender)
 		}
 	}
 }

@@ -34,10 +34,23 @@ const personLinkedActivity = `EXISTS (
 	SELECT 1 FROM activity_link l
 	WHERE l.activity_id = a.id AND l.person_id = $%d)`
 
-// activityScope renders the caller's activity row scope, defaulting to the
-// permissive clause when the scope adds no predicate of its own.
+// activityScope renders the caller's activity CONTENT gate for the timeline
+// rows this section hands back, defaulting to the permissive clause when the
+// scope adds no predicate of its own.
 func activityScope(ctx context.Context, arg func(any) int) (string, error) {
-	clause, err := auth.ActivityScopeClause(ctx, "a", arg)
+	return activityScopeUnder(ctx, arg, auth.ActivityContentClause)
+}
+
+// activityDiscoverScope is the DISCOVER gate for the sections that disclose a
+// date and a direction and nothing else (last touch): a limited conversation
+// still counts as a touch, its content stays withheld.
+func activityDiscoverScope(ctx context.Context, arg func(any) int) (string, error) {
+	return activityScopeUnder(ctx, arg, auth.ActivityDiscoverClause)
+}
+
+func activityScopeUnder(ctx context.Context, arg func(any) int,
+	gate func(context.Context, string, func(any) int) (string, error)) (string, error) {
+	clause, err := gate(ctx, "a", arg)
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +165,7 @@ func (s *Service) lastTouchSection(ctx context.Context, tx pgx.Tx, personID ids.
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
-	scope, err := activityScope(ctx, arg)
+	scope, err := activityDiscoverScope(ctx, arg)
 	if err != nil {
 		return err
 	}

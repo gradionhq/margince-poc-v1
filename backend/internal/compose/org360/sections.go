@@ -84,7 +84,7 @@ func nextStepsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
-	activityScope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	activityScope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}

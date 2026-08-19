@@ -90,12 +90,13 @@ func TestMeetingBriefRefusesACallerWithNoPersonGrant(t *testing.T) {
 //
 // An activity carries no owner of its own — the CHECK forbids an assignee on
 // anything but a task — so its visibility is inherited from the records it is
-// linked to. A meeting linked only to another team's contact is therefore
-// outside this caller's scope.
+// linked to. A meeting linked only to another rep's capture-private contact is
+// therefore outside this caller's scope.
 func TestMeetingBriefRefusesAMeetingItCannotReach(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'meeting', 'Their review', $2,
 		        'manual', 'human:x')`, roomTomorrow)
@@ -105,7 +106,7 @@ func TestMeetingBriefRefusesAMeetingItCannotReach(t *testing.T) {
 
 	_, err := meetingBriefService(e).Get(rep, meeting)
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("brief on a meeting linked only to another team's contact → %v, want ErrNotFound", err)
+		t.Errorf("brief on a meeting linked only to a capture-private contact → %v, want ErrNotFound", err)
 	}
 }
 
@@ -114,14 +115,15 @@ func TestMeetingBriefRefusesAMeetingItCannotReach(t *testing.T) {
 //
 // The two tables diverge legitimately: participants are resolved from message
 // headers, links are supplied by the connector. So a conversation can name this
-// caller's attendee as a participant while being linked only to another team's
-// contact — and an unscoped sub-select would report when that conversation
-// happened, disclosing both its timing and that it exists at all.
+// caller's attendee as a participant while being linked only to another rep's
+// capture-private contact — and an unscoped sub-select would report when that
+// conversation happened, disclosing both its timing and that it exists at all.
 func TestMeetingBriefDoesNotReportALastTouchTheCallerCannotRead(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 	attendee := e.SeedPerson(t, "Ana Roth", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 
 	meeting := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'meeting', 'Expansion review', $2,

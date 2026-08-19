@@ -184,52 +184,60 @@ func TestOrganizationBriefIsCachedPerReader(t *testing.T) {
 	}
 }
 
-// The per-viewer claim itself: a reader who cannot see a deal must get a
-// brief that does not mention it.
+// The per-viewer claim itself: a reader who cannot see a contact must get a
+// brief that does not count it.
 //
 // The sibling test above proves the cache is keyed per reader. That is a
 // different claim — two readers could each get their own row and both rows
 // still describe everything. This one checks the content, through the
 // deterministic floor so the assertion is about the assembled INPUT rather
-// than about what a model chose to write.
+// than about what a model chose to write. A deal is readable by every seat
+// holding the deal grant, so the specimen is a capture-private contact: the
+// one record a person row scope still hides from everybody but its owner.
 func TestOrganizationBriefDescribesOnlyWhatItsReaderCanSee(t *testing.T) {
 	e := Setup(t)
-	pipeline, stage, _ := DealFixture(t, e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", nil))
-	// Owned by Rep3, who sits in the other team: Rep1's team scope cannot
-	// reach this deal, and an unbounded reader can.
-	hidden := e.SeedDeal(t, "Other team retrofit", pipeline, stage, &e.Rep3)
-	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, hidden, org.UUID)
+	// Captured privately by Rep3: only Rep3 reads this contact, whatever
+	// row scope anyone else holds.
+	hidden := e.SeedPerson(t, "Private contact", &e.Rep3)
+	personID := ids.From[ids.PersonKind](hidden)
+	if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
+		Kind: "employment", PersonID: &personID, OrganizationID: &org,
+		IsCurrentPrimary: boolPtr(true), Source: "manual",
+	}); err != nil {
+		t.Fatalf("seeding the employment edge: %v", err)
+	}
+	// Made private after the edge exists: the seeding admin is not the
+	// captor and could not link to a private contact.
+	e.MakeCapturePrivate(t, "person", hidden, e.Rep3)
 
 	svc := briefService(e, nil, "")
 
-	// The assertion is on the CITATIONS, not on the writer's wording. A
-	// brief cites the records it was written from, so "was this reader told
-	// about that deal" is answerable without coupling the test to a sentence
-	// anyone might reasonably rephrase.
-	unbounded, err := svc.Get(e.As(e.Rep1, nil, briefReaderPerms), org, false)
+	// The floor reports the relationship strength "across N known contact(s)"
+	// only when the reader can see at least one contact, so the contact count
+	// line is what tells the two briefs apart.
+	ownerBrief, err := svc.Get(e.As(e.Rep3, []ids.UUID{e.Team2}, briefReaderPerms), org, false)
 	if err != nil {
-		t.Fatalf("brief for an unbounded reader: %v", err)
+		t.Fatalf("brief for the contact's owner: %v", err)
 	}
-	if !cites(briefSentences(unbounded), hidden) {
-		t.Errorf("the unbounded reader's brief never cites the deal they can see: %q",
-			briefText(briefSentences(unbounded)))
+	if !strings.Contains(briefText(briefSentences(ownerBrief)), "known contact") {
+		t.Errorf("the owner's brief never counts the contact they can see: %q",
+			briefText(briefSentences(ownerBrief)))
 	}
 
-	scoped := briefReaderPerms
-	scoped.RowScope = principal.RowScopeTeam
-	restricted, err := svc.Get(e.As(e.Rep1, []ids.UUID{e.Team1}, scoped), org, false)
+	restricted, err := svc.Get(e.As(e.Rep1, nil, briefReaderPerms), org, false)
 	if err != nil {
-		t.Fatalf("brief for a team-scoped reader: %v", err)
+		t.Fatalf("brief for a reader outside the capture: %v", err)
 	}
-	// A clickable reference to a record the reader would be refused is the
-	// disclosure, whatever the sentence around it says.
-	if cites(briefSentences(restricted), hidden) {
-		t.Errorf("the brief cites deal %v, which this reader cannot open", hidden)
+	// A count that moved because a colleague captured a private contact is
+	// the disclosure, whatever the sentence around it says.
+	if strings.Contains(briefText(briefSentences(restricted)), "known contact") {
+		t.Errorf("the brief counts a contact this reader cannot open: %q",
+			briefText(briefSentences(restricted)))
 	}
 	// The two readers' briefs must actually differ. Without this, both
 	// assertions above would also hold for a writer that said nothing at all.
-	if briefText(briefSentences(restricted)) == briefText(briefSentences(unbounded)) {
+	if briefText(briefSentences(restricted)) == briefText(briefSentences(ownerBrief)) {
 		t.Errorf("both readers got the same brief: %q", briefText(briefSentences(restricted)))
 	}
 }
@@ -324,7 +332,10 @@ func TestOrganizationBriefServesTheFloorWithoutALane(t *testing.T) {
 // existence-hiding answer the record read gives.
 func TestOrganizationBriefHidesAnAccountOutOfRowScope(t *testing.T) {
 	e := Setup(t)
-	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
+	account := e.SeedOrg(t, "Private Account", &e.Rep3)
+	// Capture privacy is what takes an account out of a row scope now.
+	e.MakeCapturePrivate(t, "organization", account, e.Rep3)
+	theirs := ids.From[ids.OrganizationKind](account)
 	scoped := briefReaderPerms
 	scoped.RowScope = principal.RowScopeTeam
 
@@ -417,7 +428,9 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 // 404, not a 200 carrying an empty brief.
 func TestOrganizationBriefTransportRefusesOutOfScope(t *testing.T) {
 	e := Setup(t)
-	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
+	account := e.SeedOrg(t, "Private Account", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", account, e.Rep3)
+	theirs := ids.From[ids.OrganizationKind](account)
 	scoped := briefReaderPerms
 	scoped.RowScope = principal.RowScopeTeam
 	handlers := orgbrief.NewHandlers(briefService(e, nil, ""), nativeMode)

@@ -26,14 +26,16 @@ import (
 
 // seedRecipient creates a person with one email address, owned by the given
 // user, so the send path's email→person resolve can find them.
-func seedRecipient(t *testing.T, e *Env, name, email string, owner *ids.UUID) {
+func seedRecipient(t *testing.T, e *Env, name, email string, owner *ids.UUID) ids.UUID {
 	t.Helper()
-	if _, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{
+	person, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{
 		FullName: name, OwnerID: userIDPtr(owner), Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: email, EmailType: "work", IsPrimary: true}},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("seeding %s: %v", name, err)
 	}
+	return ids.UUID(person.Id)
 }
 
 // livePreferenceTokens counts the minted tokens. The assertion resting on it
@@ -57,7 +59,10 @@ func TestPreferenceTokenMintRefusesAnInvisibleRecipient(t *testing.T) {
 	e := Setup(t)
 	store := consent.NewStore(e.DB())
 
-	seedRecipient(t, e, "Foreign Recipient", "foreign@recipient.test", &e.Rep2)
+	// A recipient leaves a colleague's row scope through capture privacy:
+	// ownership alone keeps a person readable by every seat with the grant.
+	foreignID := seedRecipient(t, e, "Foreign Recipient", "foreign@recipient.test", &e.Rep2)
+	e.MakeCapturePrivate(t, "person", foreignID, e.Rep2)
 	seedRecipient(t, e, "Own Recipient", "own@recipient.test", &e.Rep1)
 
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, ownPersonPerms())
@@ -72,15 +77,16 @@ func TestPreferenceTokenMintRefusesAnInvisibleRecipient(t *testing.T) {
 	}
 
 	// Positive control: the gate narrows the mint, it does not break it. The
-	// same seat mints for a recipient it CAN read, and the unbounded admin
-	// mints for the one it cannot.
+	// same seat mints for a recipient it CAN read, and the private capture's
+	// owner mints for the one it cannot.
 	own, found, err := store.PreferenceTokenForEmail(rep1, "own@recipient.test")
 	if err != nil || !found || !strings.HasPrefix(own, "pref_") {
 		t.Fatalf("minting for the caller's own recipient = (%q, %v, %v), want a pref_ token", own, found, err)
 	}
-	foreign, found, err := store.PreferenceTokenForEmail(e.Admin(), "foreign@recipient.test")
+	captor := e.As(e.Rep2, []ids.UUID{e.Team1}, ownPersonPerms())
+	foreign, found, err := store.PreferenceTokenForEmail(captor, "foreign@recipient.test")
 	if err != nil || !found || !strings.HasPrefix(foreign, "pref_") {
-		t.Fatalf("admin minting for the foreign recipient = (%q, %v, %v), want a pref_ token", foreign, found, err)
+		t.Fatalf("the captor minting for the private recipient = (%q, %v, %v), want a pref_ token", foreign, found, err)
 	}
 	if own == foreign {
 		t.Fatal("two recipients share one preference token — a token must address exactly one person")

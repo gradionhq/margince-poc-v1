@@ -55,9 +55,20 @@ const (
 // single-row visibility gate. Out of scope reads as ErrNotFound.
 func ensureAttachmentParentVisible(ctx context.Context, tx pgx.Tx, entityType string, id ids.UUID) error {
 	if entityType == "activity" {
-		return auth.EnsureActivityVisible(ctx, tx, id)
+		return auth.EnsureActivityContentVisible(ctx, tx, id)
 	}
 	return auth.EnsureVisible(ctx, tx, entityType, id)
+}
+
+// ensureAttachmentParentWritable is the upload's gate: hanging a file on a
+// record changes that record, so the parent must be the caller's to change,
+// not merely theirs to read. Out of scope still reads as ErrNotFound; a
+// readable parent the caller may not change answers ErrPermissionDenied.
+func ensureAttachmentParentWritable(ctx context.Context, tx pgx.Tx, entityType string, id ids.UUID) error {
+	if entityType == "activity" {
+		return auth.EnsureActivityWritable(ctx, tx, id)
+	}
+	return auth.EnsureWritable(ctx, tx, entityType, id)
 }
 
 // requireParentOrHide checks the parent object grant AFTER the attachment row

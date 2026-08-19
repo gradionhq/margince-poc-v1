@@ -68,11 +68,17 @@ func TestSearchContextAnswersRankedRecordsWithTheirExcerpts(t *testing.T) {
 	}
 }
 
-// The two-principal property, at the hydration step. A rep sees strictly their
-// own half, and the answer never says how much it left out.
+// The two-principal property, at the hydration step. A rep sees strictly what
+// their row scope admits, and the answer never says how much it left out.
 func TestSearchContextNarrowsToTheCallersRowScope(t *testing.T) {
 	e := setupQuery(t)
 	f := seedContextFixture(t, e)
+	// Ownership alone leaves a person readable by every seat with the grant;
+	// capture privacy is what takes the other person out of Rep1's row scope.
+	if _, err := e.Owner.Exec(context.Background(),
+		`UPDATE person SET visibility = 'owner' WHERE id = $1`, f.rep3Person); err != nil {
+		t.Fatalf("capturing the other person privately: %v", err)
+	}
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 
 	sealed := invokeContextSearch(e.teamRep(e.Rep1, e.Team1), t, registry,
@@ -84,11 +90,11 @@ func TestSearchContextNarrowsToTheCallersRowScope(t *testing.T) {
 	// hits but present there would have been read and paid for on the caller's
 	// behalf and then quietly dropped.
 	if sealedNames(sealed, f.rep3Person) {
-		t.Errorf("the envelope sources the other team's person %s", f.rep3Person)
+		t.Errorf("the envelope sources the private person %s", f.rep3Person)
 	}
 
 	if contextHas(answer, f.rep3Person) {
-		t.Fatalf("a rep was served the other team's person %s", f.rep3Person)
+		t.Fatalf("a rep was served the private person %s", f.rep3Person)
 	}
 	if !contextHas(answer, f.rep1Person) {
 		t.Fatalf("the rep's own person is missing — the narrowing went too far: %+v", answer.Hits)

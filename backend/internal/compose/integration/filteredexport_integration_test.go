@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // dealEngine resolves the deal vocabulary the same way the export handler
@@ -47,16 +48,13 @@ func dealEngine(ctx context.Context, t *testing.T, e *SearchEnv) storekit.Query 
 	return engine
 }
 
-// filteredDealFixture seeds three deals that separate the two exclusion
-// axes: one owned-and-matching (kept), one owned-but-not-matching (dropped
-// by the predicate), and one matching-but-owned-by-the-other-team (dropped
-// by row scope). forecast_category is the predicate field — independent of
-// owner_id, so the predicate filter and the scope filter cannot be
-// conflated.
+// filteredDealFixture seeds three deals: two of rep1's, of which one matches
+// the predicate, and one matching deal of the other team's. A deal is
+// readable by every seat, so every caller with deal.read sees two matches.
 type filteredDealFixture struct {
 	matchOwn   ids.UUID // rep1, forecast 'commit' — visible AND matches
 	missOwn    ids.UUID // rep1, forecast 'omitted' — visible but does not match
-	matchOther ids.UUID // rep3, forecast 'commit' — matches but invisible to rep1
+	matchOther ids.UUID // rep3, forecast 'commit' — the other team's matching deal
 }
 
 func (e *SearchEnv) seedFilteredDeals(t *testing.T) filteredDealFixture {
@@ -83,20 +81,34 @@ func commitDeals() storekit.Predicate {
 // TestFilteredExportIsScopedAndFiltered is the pinned intersection: a
 // team-scoped caller's filtered export contains exactly the rows that are
 // both visible to them and match the predicate — excluding invisible rows
-// AND non-matching rows.
+// AND non-matching rows. The specimen is a project: a deal is readable by
+// every seat, while a project keeps the own/team/all row scope, so only a
+// project can show the scope half of the intersection.
 func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 	e := SetupSearch(t)
-	f := e.seedFilteredDeals(t)
+	org := e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Project Org', 'manual', 'human:x')`)
+	project := func(owner ids.UUID, name, phase string) ids.UUID {
+		return e.SeedID(t, `INSERT INTO project (id, name, organization_id, owner_id, phase, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'manual', 'human:x')`, name, org, owner, phase)
+	}
+	matchOwn := project(e.Rep1, "Match Own", "pursuing")     // visible AND matches
+	missOwn := project(e.Rep1, "Miss Own", "initiative")     // visible but does not match
+	matchOther := project(e.Rep3, "Match Other", "pursuing") // matches but invisible to rep1
 
-	ctx := e.exportRep(e.Rep1, e.Team1)
+	ctx := e.projectReader(&e.Rep1, &e.Team1, principal.RowScopeTeam)
+	engine, ok, err := compose.NewCollectionsStore(e.Pool).SegmentEngine(ctx, "project")
+	if err != nil || !ok {
+		t.Fatalf("resolve project engine: ok=%v err=%v", ok, err)
+	}
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
-		ctx, dealEngine(ctx, t, e), commitDeals(), "csv",
+		ctx, engine, storekit.Predicate{Field: "phase", Op: "eq", Value: "pursuing"}, "csv",
 	)
 	if err != nil {
 		t.Fatalf("filtered export: %v", err)
 	}
 	if result.RowCount != 1 {
-		t.Fatalf("row count = %d, want 1 (only the visible matching deal)", result.RowCount)
+		t.Fatalf("row count = %d, want 1 (only the visible matching project)", result.RowCount)
 	}
 
 	gotIDs := CSVColumn(t, result.Body, "id")
@@ -104,14 +116,14 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 	for _, id := range gotIDs {
 		set[id] = true
 	}
-	if !set[f.matchOwn.String()] {
-		t.Fatalf("export dropped the caller's own matching deal %s: got %v", f.matchOwn, gotIDs)
+	if !set[matchOwn.String()] {
+		t.Fatalf("export dropped the caller's own matching project %s: got %v", matchOwn, gotIDs)
 	}
-	if set[f.missOwn.String()] {
-		t.Fatalf("export LEAKED a non-matching deal %s (predicate not applied): got %v", f.missOwn, gotIDs)
+	if set[missOwn.String()] {
+		t.Fatalf("export LEAKED a non-matching project %s (predicate not applied): got %v", missOwn, gotIDs)
 	}
-	if set[f.matchOther.String()] {
-		t.Fatalf("export LEAKED an invisible deal %s (row scope not applied): got %v", f.matchOther, gotIDs)
+	if set[matchOther.String()] {
+		t.Fatalf("export LEAKED an invisible project %s (row scope not applied): got %v", matchOther, gotIDs)
 	}
 }
 

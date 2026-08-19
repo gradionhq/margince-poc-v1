@@ -44,17 +44,19 @@ func repPermsWithOrg() principal.Permissions {
 	return p
 }
 
-// An FK argument to a row-scoped record is a read of that record: a rep
-// must not be able to attach a deal or a child organization to an
-// organization their row scope hides — RLS and composite FKs stop
-// cross-tenant corruption, but only the visibility probe proves the
-// caller could read the target.
+// An FK argument to a visibility-gated record is a read of that record: a
+// rep must not be able to attach a deal or a child organization to an
+// organization they cannot read — composite FKs stop cross-tenant
+// corruption, but only the visibility probe proves the caller could read
+// the target. Accounts are readable by every seat, so the hidden target is
+// a capture-private organization of the other team's rep.
 func TestFKTargetsRequireRowScopeVisibility(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
 
-	foreignOrg := e.SeedOrg(t, "Their Org", &e.Rep3) // team2's record
-	visibleOrg := e.SeedOrg(t, "Our Org", &e.Rep1)   // rep1's own
+	foreignOrg := e.SeedOrg(t, "Their Org", &e.Rep3) // capture-private to Rep3
+	e.MakeCapturePrivate(t, "organization", foreignOrg, e.Rep3)
+	visibleOrg := e.SeedOrg(t, "Our Org", &e.Rep1) // rep1's own
 	foreignOrgID := ids.From[ids.OrganizationKind](foreignOrg)
 	visibleOrgID := ids.From[ids.OrganizationKind](visibleOrg)
 	myDeal := ids.From[ids.DealKind](e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1))

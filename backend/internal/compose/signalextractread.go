@@ -119,7 +119,7 @@ var dueThreadsQuery = `
 			       -- most private thing it read.
 			       --
 			       -- A message with no links at all counts as shared, which is
-			       -- the link-less note rule auth.ActivityScopeClause already
+			       -- the link-less note rule auth.ActivityContentClause already
 			       -- applies — its empty link set reads as visible. Calling it
 			       -- private here would disagree with the gate the reader
 			       -- actually faces, and withhold a finding about mail anyone
@@ -130,7 +130,7 @@ var dueThreadsQuery = `
 			  LEFT JOIN (` + activities.OrgReachSet() + `) ro ON ro.activity_id = a.id
 			  -- Who may read this message, asked of the records it is filed
 			  -- against. A message is readable when ANY of its links is
-			  -- (auth.ActivityScopeClause), so one workspace-visible link
+			  -- (auth.ActivityContentClause), so one workspace-visible link
 			  -- shares it; only an activity whose every link is capture-private
 			  -- belongs to one person, and then that person is its owner.
 			  LEFT JOIN LATERAL (

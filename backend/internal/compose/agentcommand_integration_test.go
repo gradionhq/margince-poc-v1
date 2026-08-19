@@ -130,10 +130,10 @@ func TestAnArchiveOfARowOutsideTheAgentsScopeStagesNothing(t *testing.T) {
 	native := NewProvider(e.Pool)
 	staging := approvalsAdapter{svc: approvals.NewService(e.DB())}
 
-	// Rep3 sits in Team2; the agent below acts for Rep1, in Team1. The person is
-	// OWNED by Rep3 — an ownerless row is workspace-shared and visible at every
-	// tier (auth.ScopeClause), so a fixture without an owner would be seen by
-	// the agent and this test would prove nothing about row scope.
+	// Rep3 sits in Team2; the agent below acts for Rep1, in Team1. A person is
+	// readable by every seat of the workspace whoever owns it, so ownership alone
+	// hides nothing — the row is made CAPTURE-PRIVATE to Rep3 (visibility='owner'),
+	// the one state that still puts a person out of another seat's read scope.
 	elsewhere := e.As(e.Rep3, []ids.UUID{e.Team2}, integration.AdminPerms)
 	hidden, err := native.Create(elsewhere, datasource.CreateInput{
 		EntityType: datasource.EntityPerson,
@@ -143,6 +143,7 @@ func TestAnArchiveOfARowOutsideTheAgentsScopeStagesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding the out-of-scope person: %v", err)
 	}
+	e.MakeCapturePrivate(t, "person", hidden.ID, e.Rep3)
 	// The fixture is only evidence if the agent's own seat really cannot reach
 	// it, and the row scope is what must do the hiding — not a missing grant.
 	if _, err := native.Read(e.As(e.Rep3, []ids.UUID{e.Team2}, integration.RepPerms), datasource.EntityRef{

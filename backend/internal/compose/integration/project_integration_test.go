@@ -519,35 +519,40 @@ func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
 // Scoping rather than refusing is deliberate — a refusal would confirm that
 // an invisible link exists, which is precisely what the scope withholds.
 //
-// Deal links carry the test because several are allowed per activity: the
-// replacement INSERT succeeds, so whatever the delete removed stays removed.
-// On a one-per-activity type the insert refuses and the whole transaction
-// rolls back, which would hide the difference this test exists to show.
+// Organization links carry the test because several are allowed per activity:
+// the replacement INSERT succeeds, so whatever the delete removed stays
+// removed. On a one-per-activity type the insert refuses and the whole
+// transaction rolls back, which would hide the difference this test exists to
+// show. And an organization can be capture-private, which is what keeps a
+// link invisible to a colleague — a deal is readable by every seat with the
+// grant, so it can no longer stand in for a hidden link.
 func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 	e := Setup(t)
-	pipeline, open, _ := DealFixture(t, e)
-	theirs := e.SeedDeal(t, "Their deal", pipeline, open, &e.Rep1)
-	mine := e.SeedDeal(t, "My deal", pipeline, open, &e.Rep3)
+	theirs := e.SeedOrg(t, "Their private account", &e.Rep1)
+	mine := e.SeedOrg(t, "My account", &e.Rep3)
 	person := e.SeedPerson(t, "Shared Contact", &e.Rep3)
 
-	// One activity linked to the other team's deal and to a person the
-	// attacker owns. The person link is how they reach the activity at all.
+	// One activity linked to the other rep's private account and to a person
+	// the attacker owns. The person link is how they reach the activity at all.
 	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
 		Kind: "note", Source: "manual",
 		Links: []activities.ActivityLinkInput{
-			{EntityType: "deal", EntityID: theirs},
+			{EntityType: "organization", EntityID: theirs},
 			{EntityType: "person", EntityID: person},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Made private once the link exists: the seeding admin is not the captor
+	// and could not link to a private account.
+	e.MakeCapturePrivate(t, "organization", theirs, e.Rep1)
 
 	attacker := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects: map[string]principal.ObjectGrant{
 			"activity":              {Read: true, Update: true},
-			"deal":                  {Read: true},
+			"organization":          {Read: true},
 			"person":                {Read: true},
 			"installation_settings": {Read: true},
 		},
@@ -556,25 +561,25 @@ func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 
 	if _, err := e.Activities.RelinkActivity(attacker, ids.From[ids.ActivityKind](ids.UUID(act.Id)),
 		activities.RelinkActivityInput{
-			EntityType: "deal", EntityID: mine, ReplaceExistingOfType: true,
+			EntityType: "organization", EntityID: mine, ReplaceExistingOfType: true,
 		}); err != nil {
-		t.Fatalf("relinking to a deal the caller owns: %v", err)
+		t.Fatalf("relinking to an account the caller owns: %v", err)
 	}
 
 	// Their own link landed — so the write really happened and the delete
 	// really ran, which is what makes the next assertion mean something.
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM activity_link
-		WHERE activity_id = $1 AND entity_type = 'deal' AND deal_id = $2`,
+		WHERE activity_id = $1 AND entity_type = 'organization' AND organization_id = $2`,
 		ids.UUID(act.Id), mine); n != 1 {
 		t.Fatalf("the caller's own relink did not land (%d links)", n)
 	}
 	// And the link they could never see is untouched.
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM activity_link
-		WHERE activity_id = $1 AND entity_type = 'deal' AND deal_id = $2`,
+		WHERE activity_id = $1 AND entity_type = 'organization' AND organization_id = $2`,
 		ids.UUID(act.Id), theirs); n != 1 {
-		t.Fatalf("the other team's deal link was removed by a caller who could not see it (%d remain)", n)
+		t.Fatalf("the private account's link was removed by a caller who could not see it (%d remain)", n)
 	}
 }
 

@@ -248,20 +248,21 @@ func TestPromotionReleasesACapturedPersonToTheWorkspace(t *testing.T) {
 	}
 }
 
-func TestAnOutOfTeamRepNeverReachesEitherVisibility(t *testing.T) {
+func TestAnOutOfTeamRepReachesOnlyThePromotedRow(t *testing.T) {
 	e := setupCapturePrivacy(t)
 	captured := e.capturePerson(t, "owner")
 	promoted := e.capturePerson(t, "workspace")
 
-	// The admin holds no team, so at row_scope=team they reach neither row.
-	// This is the control: it proves the teammate result above comes from
-	// capture privacy and not from an accidentally empty team predicate.
+	// The admin holds no team, so at row_scope=team the owner predicate would
+	// reach nothing — but a person is workspace-readable identity, so the
+	// promoted row reads anyway. This is the control: it proves the captured
+	// row is hidden by capture privacy alone, not by an empty team predicate.
 	outsider := e.as(e.admin, principal.RowScopeTeam)
 	if e.canRead(outsider, t, captured) {
 		t.Error("an out-of-team rep read an owner-private person")
 	}
-	if e.canRead(outsider, t, promoted) {
-		t.Error("an out-of-team rep read another team's person: the owner scope " +
-			"itself stopped working")
+	if !e.canRead(outsider, t, promoted) {
+		t.Error("an out-of-team rep cannot read another team's promoted person: " +
+			"a person is readable by every seat once it is released to the workspace")
 	}
 }

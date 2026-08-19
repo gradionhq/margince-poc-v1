@@ -87,7 +87,8 @@ var shareableTables = map[string]bool{
 var ownerPrivateTables = map[string]bool{tablePerson: true, tableOrganization: true}
 
 // UnboundedFor reports whether the actor reads the named tables with NO
-// predicate at all: Unbounded narrowed by capture privacy. Every read
+// predicate at all: an unbounded actor, or an identity table (tableclass.go)
+// any human reads whole — both narrowed by capture privacy. Every read
 // path that skips its row-scope clause asks THIS, not Unbounded, so that
 // adding a visibility column to a table tightens every such path at once.
 // Unbounded itself stays what it is — an admission test ("is this an
@@ -96,11 +97,8 @@ func UnboundedFor(p principal.Principal, tables ...string) bool {
 	if p.Type == principal.PrincipalSystem {
 		return true
 	}
-	if !Unbounded(p) {
-		return false
-	}
 	for _, table := range tables {
-		if ownerPrivateTables[table] {
+		if ownerPrivateTables[table] || !readsEveryRow(p, table) {
 			return false
 		}
 	}
@@ -146,13 +144,21 @@ const (
 )
 
 func predicateFor(p principal.Principal, table string, arg func(any) int, capture capturePrivacy) func(alias string) string {
-	scope := OwnerPredicate(p, arg)
+	// Customer identity is workspace-readable (tableclass.go): the own/team
+	// arm is TRUE for every principal, and only capture privacy and a grant
+	// can still say anything about the row. The owner predicate is not even
+	// rendered for it — a registered parameter the SQL never names is a
+	// Postgres error, not a no-op.
+	scope := func(string) string { return "TRUE" }
+	if !identityTables[table] {
+		scope = OwnerPredicate(p, arg)
+	}
 	// The system principal is trusted by construction and reads both
 	// arms away; an unbounded human still faces capture privacy.
 	private := bool(capture) && ownerPrivateTables[table] && p.Type != principal.PrincipalSystem
-	// An unbounded actor needs no grant arm to see a shareable row —
-	// unless capture privacy just took it away from them again.
-	shareable := shareableTables[table] && (!Unbounded(p) || private)
+	// An actor who reads every row needs no grant arm to see a shareable
+	// row — unless capture privacy just took it away from them again.
+	shareable := shareableTables[table] && (!readsEveryRow(p, table) || private)
 	if !private && !shareable {
 		return scope
 	}
