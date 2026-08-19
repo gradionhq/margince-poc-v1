@@ -4,7 +4,7 @@
 
 ## Why
 
-<!-- The reason this change exists. Link the spec ticket, ADR, or decision it
+<!-- The reason this change exists. Link the issue or decision record it
      implements. State the invariant, not the fix narration. -->
 
 ## How verified
@@ -16,7 +16,7 @@
 - [ ] `make check` is green
 - [ ] `make test-integration` is green (or: this change does not touch tenant data / RLS / the write shape)
 - [ ] `make craft-static` reports no new blockers
-- [ ] This diff and description carry no secrets, no customer data, no local machine paths, and no private specification paths or contents — the spec is cited by chapter, ADR, or pin ID (this repository is public)
+- [ ] This diff and description carry no secrets, no customer data, no local machine paths, and nothing quoted from or pointing at a private document — a decision is cited by its number (this repository is public)
 
 ## AI involvement
 

@@ -38,12 +38,12 @@ doesn't ship
 
 ## This repository
 
-This is the build repo: the running Go code. The full specification
-(product principles, architecture, the OpenAPI contract, the data model,
-and a subsystem chapter per capability carrying its own acceptance
-criteria) lives in a separate spec repo.
-We build contract-first, and when code and spec disagree, the spec
-wins.
+This is where Margince is built: the running Go code, the OpenAPI
+contract it is generated from, the tests that prove its behaviour, and
+the documentation for building and operating it. There is no separate
+specification that outranks what is here — `backend/api/crm.yaml` is the
+contract, the tests are the record of behaviour, and the decisions behind
+both are in [docs/adr/](docs/adr/).
 
 **Start here:**
 
@@ -323,7 +323,7 @@ per-client throttling at the proxy.
   account brief, Ask Margince, next-step suggestions, the one-hop
   connections graph), Approvals, Automations, Reports, and the Company
   Context settings screen — a standalone static build served separately
-  from the API, light and dark, design tokens from the spec's design
+  from the API, light and dark, design tokens from the product's design
   language. Security headers (CSP, frame-denial, nosniff) are set on every
   API response. See
   [docs/explanation/frontend-architecture.md](docs/explanation/frontend-architecture.md).
@@ -352,19 +352,16 @@ contract routes for these exist and answer 501.
 
 ## Working conventions (where findings go)
 
-Building from the spec is also a test **of** the spec, so findings are
-routed, not lost:
+Findings are routed, not lost:
 
-- **Implementation decisions** — anything the spec left open that this
-  code had to decide — are explained in the commit message and PR that
-  makes the change, so a reviewer can separate "the spec says" from "we
-  chose"; git history is the record.
-- **Spec/ticket defects** — a contradiction, an omission, a vocabulary
-  gap, an unimplementable acceptance criterion found while building — are
-  reconciled upstream against the spec, naming the
-  spec section and a suggested fix. The durable record is the spec's own
-  amendment (ADR/DECISIONS); contract-first (P3), a spec defect is
-  reconciled upstream, never silently worked around in this source.
+- **Implementation decisions** are explained in the commit message and PR
+  that makes the change; git history is the record.
+- **Decisions that bind future work** — a security posture, a contract
+  shape, a persistence choice — get a record in [docs/adr/](docs/adr/),
+  written in the same PR as the change. A record can be superseded; write
+  the replacement alongside the code that changes it.
+- **Anything found but not fixed** — a bug, a gap, a follow-up — becomes a
+  GitHub issue in this repo, labelled.
 - **Session state** — progress, in-flight work, pickup point — goes in
   [STATUS.md](STATUS.md), updated at the end of every working session.
 
@@ -434,8 +431,6 @@ source is public and free to read, run, and modify.
   ships** (BUSL body caps this at four years; we hold ours to two, A37/ADR-0029).
 
 The Additional Use Grant fills only BUSL's parameter fields; the license body is
-the verbatim canonical text, so SPDX/GitHub detect it as `BUSL-1.1`. The full
-model, rationale, and enforcement design live in the spec's
-`business/12-license.md`. Each tagged
-release restamps the Change Date to its publication date + 2 years — the rule is
+the verbatim canonical text, so SPDX/GitHub detect it as `BUSL-1.1`. Each tagged release restamps the Change Date to its publication date + 2 years —
+the rule is
 [docs/reference/license-release-rule.md](docs/reference/license-release-rule.md).
