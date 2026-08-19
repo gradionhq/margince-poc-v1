@@ -229,8 +229,17 @@ func TestLeadSourceGovernsHumanWritesAndTheScore(t *testing.T) {
 			t.Errorf("own-scoped actor counts %d leads under %q, want %d — a lead is workspace-readable", got, s.Key, counts[s.Key])
 		}
 	}
-	if len(scoped.Discovered) != len(list.Discovered) {
-		t.Errorf("own-scoped actor sees discovered sources %+v, want the same %d every seat sees", scoped.Discovered, len(list.Discovered))
+	discovered := map[string]int{}
+	for _, d := range list.Discovered {
+		discovered[d.Key] = d.LeadCount
+	}
+	if len(scoped.Discovered) != len(discovered) {
+		t.Errorf("own-scoped actor sees discovered sources %+v, want the same %d every seat sees", scoped.Discovered, len(discovered))
+	}
+	for _, d := range scoped.Discovered {
+		if want, ok := discovered[d.Key]; !ok || want != d.LeadCount {
+			t.Errorf("own-scoped actor discovers %q with %d leads, want %d — a lead is workspace-readable", d.Key, d.LeadCount, want)
+		}
 	}
 }
 

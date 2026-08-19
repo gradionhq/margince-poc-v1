@@ -65,18 +65,20 @@ func (s *Store) PreviewLeadPromotion(ctx context.Context, id ids.LeadID) (crmcon
 		}
 		out.Outcome = crmcontracts.PromoteLeadPreviewOutcomeMerge
 		// Two gates before a person is returned: the object grant (may this
-		// role read people at all) and the row scope (may this caller see
-		// THIS person). Failing either withholds. The outcome still says
-		// merge, which promotion itself already discloses with its 409.
+		// role read people at all) and WRITE authority over the row — the
+		// same probe promotion itself takes, because merging changes the
+		// matched person. A readable person the caller may not change is
+		// withheld here exactly as promotion will refuse it, so the preview
+		// never promises a merge the act then declines.
 		grantErr := auth.Require(ctx, "person", principal.ActionRead)
 		if grantErr != nil && !errors.Is(grantErr, apperrors.ErrPermissionDenied) {
 			return grantErr
 		}
-		visible, err := auth.VisibleTo(ctx, tx, "person", match.PersonID.UUID)
+		writable, err := auth.WritableBy(ctx, tx, "person", match.PersonID.UUID)
 		if err != nil {
 			return err
 		}
-		if grantErr != nil || !visible {
+		if grantErr != nil || !writable {
 			withheld := true
 			out.PersonWithheld = &withheld
 			return nil
