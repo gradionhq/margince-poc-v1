@@ -237,12 +237,19 @@ describe("log activity from a 360", () => {
     // Reserved means VISIBLE-but-disabled. `hidden` is display:none, which
     // collapses the row and reintroduces the reflow this test exists to stop.
     expect(due.closest("div")?.hasAttribute("hidden")).toBe(false);
+    // Read the clock on both sides of the switch: a run that straddles
+    // midnight would otherwise fail on which "today" the prefill caught.
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const dayBeforeSwitch = calendarDay(new Date(), zone);
     await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
-    expect(
-      screen
-        .getByLabelText("Due date", { selector: "input" })
-        .hasAttribute("disabled"),
-    ).toBe(false);
+    const dayAfterSwitch = calendarDay(new Date(), zone);
+    const enabled = screen.getByLabelText<HTMLInputElement>("Due date", {
+      selector: "input",
+    });
+    expect(enabled.hasAttribute("disabled")).toBe(false);
+    // Becoming a task fills the empty field with the writer's own today —
+    // the date that would otherwise be assumed invisibly at submit.
+    expect([dayBeforeSwitch, dayAfterSwitch]).toContain(enabled.value);
   });
 
   it("posts a task's due_at as the END of the picked day in the writer's own zone", async () => {
@@ -250,7 +257,9 @@ describe("log activity from a 360", () => {
     stubApi({ "POST /activities": createdActivity }, captured);
     render(<LogActivity entityType="organization" entityId="o1" />);
     await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
-    await userEvent.type(screen.getByLabelText("Due date"), PICKED_DAY);
+    fireEvent.change(screen.getByLabelText("Due date"), {
+      target: { value: PICKED_DAY },
+    });
     await userEvent.type(screen.getByLabelText("Subject *"), "Send proposal");
     await userEvent.click(screen.getByRole("button", { name: "Log" }));
     await waitFor(() =>
@@ -281,7 +290,9 @@ describe("log activity from a 360", () => {
     stubApi({ "POST /activities": createdActivity }, captured);
     render(<LogActivity entityType="organization" entityId="o1" />);
     await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
-    await userEvent.type(screen.getByLabelText("Due date"), PICKED_DAY);
+    fireEvent.change(screen.getByLabelText("Due date"), {
+      target: { value: PICKED_DAY },
+    });
     await userEvent.type(screen.getByLabelText("Subject *"), "Send proposal");
     await userEvent.click(screen.getByRole("button", { name: "Log" }));
     await waitFor(() =>

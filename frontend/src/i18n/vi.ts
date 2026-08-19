@@ -2000,6 +2000,7 @@ export const vi = {
   "log.subject": "Tiêu đề",
   "log.body": "Nội dung",
   "log.dueAt": "Ngày đến hạn",
+  "log.dueAtHint": "Chỉ áp dụng cho công việc",
   "log.save": "Ghi nhận",
   "log.saving": "Đang ghi nhận…",
 
