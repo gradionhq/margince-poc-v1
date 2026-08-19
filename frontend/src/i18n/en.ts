@@ -5433,6 +5433,26 @@ export const en = {
   "filters.op.atLeast": "is at least",
   "filters.op.lessThan": "is less than",
   "filters.op.atMost": "is at most",
+
+  // The Filters & views screen's own chrome. The match line is keyed per object
+  // because "3 contacts match" and "3 companies match" are different sentences in
+  // every language, and a shared "{count} match" would make the object a
+  // placeholder that some grammars cannot place.
+  "filters.title": "Filters & views",
+  "filters.subtitle":
+    "Build a filter, watch what it selects, and save it as a view.",
+  "filters.objectLabel": "Which records to filter",
+  "filters.tab.contacts": "Contacts",
+  "filters.tab.companies": "Companies",
+  "filters.tab.deals": "Deals",
+  "filters.builderTitle": "Filter",
+  "filters.dynamic": "Dynamic \u2014 recomputes on every event",
+  "filters.matchContacts": "{count} contacts match",
+  "filters.matchCompanies": "{count} companies match",
+  "filters.matchDeals": "{count} deals match",
+  "filters.noFilterYet": "Add a clause to see what it selects",
+  "filters.loadingVocabulary": "Loading the fields you can filter on\u2026",
+  "filters.noFields": "No filterable fields for this record type.",
 } as const;
 
 export type MessageKey = keyof typeof en;
