@@ -74,6 +74,25 @@ type OutboundFile struct {
 	Body         []byte
 }
 
+// The INBOUND bounds — all four of them, and the aggregate is not optional.
+//
+// Named for the DIRECTION because Carriage carries different numbers about the
+// other one: what this installation will accept from a provider is not what a
+// provider will carry for it.
+//
+// MaxInboundMessageBytes is what makes InboundFile.Body safe to hold in memory.
+// Without it, MaxInboundFiles × MaxInboundFileBytes licenses 500 MiB per message
+// — ten times what mail has ever admitted — on code that reads as bounded.
+// MaxInboundFilesExamined is the separate ceiling on files LOOKED AT: a crafted
+// message can hold hundreds of thousands of empty parts, and the cost of walking
+// them is not the cost of keeping them.
+const (
+	MaxInboundFiles         = 20
+	MaxInboundFilesExamined = 200
+	MaxInboundFileBytes     = 25 << 20
+	MaxInboundMessageBytes  = 50 << 20
+)
+
 // sniffLen is what http.DetectContentType actually reads. Reading exactly that
 // much keeps the sniff off the whole file.
 const sniffLen = 512

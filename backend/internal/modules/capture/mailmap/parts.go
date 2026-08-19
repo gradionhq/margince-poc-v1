@@ -23,16 +23,19 @@ import (
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
-// The inbound bounds (DOC-PARAM-3/4/5). They exist so one message cannot
-// exhaust storage: a message beyond them is captured with the parts that fit,
-// and what did not fit is reported rather than dropped in silence (DOC-AC-12).
+// The inbound bounds (DOC-PARAM-3/4/5), which are the PUBLISHED bounds
+// (extension.MaxInbound*). Aliased rather than restated so there is one number
+// per bound: a channel producer and this parser bound the same message the same
+// way. They exist so one message cannot exhaust storage — a message beyond them
+// is captured with the parts that fit, and what did not fit is reported rather
+// than dropped in silence (DOC-AC-12).
 const (
-	maxParts = 20
+	maxParts = extension.MaxInboundFiles
 	// maxPartsExamined is the hard ceiling on parts LOOKED AT, well above any
 	// real message and far below what a crafted one can hold.
-	maxPartsExamined = 200
-	maxPartBytes     = 25 << 20
-	maxMessageBytes  = 50 << 20
+	maxPartsExamined = extension.MaxInboundFilesExamined
+	maxPartBytes     = extension.MaxInboundFileBytes
+	maxMessageBytes  = extension.MaxInboundMessageBytes
 )
 
 // Part is one file a message carried, already bounded and named safely.
