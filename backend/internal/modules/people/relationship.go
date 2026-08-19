@@ -88,10 +88,16 @@ type CreateRelationshipInput struct {
 	DealID            *ids.DealID
 	ProjectID         *ids.ProjectID
 	Role              *string
-	IsCurrentPrimary  bool
-	StartedAt         *time.Time
-	EndedAt           *time.Time
-	Source            string
+	// IsCurrentPrimary is TRI-STATE, and the third state is what makes the rule
+	// in the insert safe: nil means the caller expressed no opinion and the
+	// store decides, false means they said this is NOT the person's current
+	// primary employment. Collapsing the two would silently invert a choice the
+	// caller can see themselves making — the person rail's "current employer"
+	// checkbox sends exactly that false.
+	IsCurrentPrimary *bool
+	StartedAt        *time.Time
+	EndedAt          *time.Time
+	Source           string
 }
 
 func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInput) (relationshipRow, error) {
@@ -125,9 +131,22 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 		if err := ensureRelationshipEndpoints(ctx, tx, in); err != nil {
 			return err
 		}
+		// Both rules below read the person's OTHER employments and then write
+		// against what they read, so they are one unit per person or they are a
+		// race: two concurrent unmarked employments at different companies would
+		// each see no primary, each claim it, and one would come back 409 naming
+		// a flag its caller never sent.
+		if in.Kind == "employment" && in.PersonID != nil {
+			if err := storekit.LockWriteIdentity(ctx, tx, "employment", in.PersonID.String()); err != nil {
+				return err
+			}
+		}
 		// One current primary employer per person: demote the incumbent
-		// inside the same transaction rather than failing the write.
-		if in.Kind == "employment" && in.IsCurrentPrimary && in.PersonID != nil {
+		// inside the same transaction rather than failing the write. An
+		// employment that arrives already ended claims nothing, so it displaces
+		// nobody — see the insert below, which refuses it the flag.
+		if in.Kind == "employment" && in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
+			in.EndedAt == nil && in.PersonID != nil {
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
 				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL`,
@@ -135,10 +154,34 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 				return err
 			}
 		}
+		// Two rules about is_current_primary, spelled in the insert so the
+		// returned row is the row that landed — a follow-up UPDATE would bump
+		// the version under the caller about to read it back.
+		//
+		// A person's ONLY current employment is their current primary one, WHEN
+		// THE CALLER SAID NOTHING ($8 IS NULL). The column defaults to false and
+		// nothing else ever promotes, so without this a person with exactly one
+		// employer has none marked: a state no reader of the column expects and
+		// none of them can repair. A caller who sent the field keeps their
+		// answer, including an explicit false — deriving over it would invert a
+		// choice they can see themselves making. The subquery excludes an
+		// ended-but-still-primary row as well as a current one, because
+		// promoting past either would violate uq_rel_current_primary_employer.
+		//
+		// And an employment that arrives already ended never holds the flag,
+		// however it was asked for — history being backfilled is not where
+		// somebody works today. That is the same rule the UPDATE below applies,
+		// and both read it off the row rather than off the request.
 		row := tx.QueryRow(ctx, `
 			INSERT INTO relationship (kind, person_id, organization_id, counterparty_org_id,
 			                          deal_id, project_id, role, is_current_primary, started_at, ended_at, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7,
+			        coalesce($8, $1 = 'employment' AND NOT EXISTS (
+			          SELECT 1 FROM relationship
+			           WHERE kind = 'employment' AND person_id = $2 AND archived_at IS NULL
+			             AND (ended_at IS NULL OR is_current_primary)))
+			          AND ($1 <> 'employment' OR $10::date IS NULL),
+			        $9, $10, $11, $12)
 			RETURNING `+relationshipColumns,
 			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID, in.ProjectID,
 			in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt, in.Source, capturedBy)
@@ -214,7 +257,12 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 		if in.IfVersion != nil && *in.IfVersion != current.Version {
 			return apperrors.ErrVersionSkew
 		}
+		// Not for an employment this patch leaves ended, and not for one that
+		// already was: the UPDATE below refuses such a row the flag, so
+		// demoting the incumbent for it would clear the person's primary
+		// employer and put nothing in its place.
 		if in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
+			in.EndedAt == nil && current.EndedAt == nil &&
 			current.Kind == "employment" && current.PersonID != nil {
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
@@ -226,7 +274,13 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 		row := tx.QueryRow(ctx, `
 			UPDATE relationship SET
 			  role = coalesce($2, role),
-			  is_current_primary = coalesce($3, is_current_primary),
+			  -- An employment somebody has LEFT is not their CURRENT primary
+			  -- one, whichever half of the patch makes it so: ending the job
+			  -- clears the flag, and setting the flag on a job already ended
+			  -- does not take. Written against the row rather than as a Go
+			  -- condition, so the two halves cannot drift apart.
+			  is_current_primary = coalesce($3, is_current_primary)
+			    AND (kind <> 'employment' OR coalesce($5, ended_at) IS NULL),
 			  started_at = coalesce($4, started_at),
 			  ended_at = coalesce($5, ended_at)
 			WHERE id = $1

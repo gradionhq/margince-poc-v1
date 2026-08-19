@@ -30,10 +30,13 @@ import (
 // their refusal into a lie about what the caller sent.
 func relationshipCreateInput(req crmcontracts.CreateRelationshipRequest) CreateRelationshipInput {
 	in := CreateRelationshipInput{
-		Kind:              string(req.Kind),
-		Role:              req.Role,
-		Source:            req.Source,
-		IsCurrentPrimary:  req.IsCurrentPrimary != nil && *req.IsCurrentPrimary,
+		Kind:   string(req.Kind),
+		Role:   req.Role,
+		Source: req.Source,
+		// Passed through as the pointer, not collapsed to a bool: the store
+		// decides the flag only for a caller who omitted it, and an omitted
+		// field and an explicit false are different requests.
+		IsCurrentPrimary:  req.IsCurrentPrimary,
 		PersonID:          idArg[ids.PersonKind](req.PersonId),
 		OrganizationID:    idArg[ids.OrganizationKind](req.OrganizationId),
 		CounterpartyOrgID: idArg[ids.OrganizationKind](req.CounterpartyOrgId),

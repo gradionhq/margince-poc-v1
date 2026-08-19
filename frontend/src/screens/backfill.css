@@ -36,10 +36,10 @@
 /* The window choices wrap rather than overflow: three labelled radios plus the
    control-label gap outgrow a narrow or zoomed column, and a horizontal
    scrollbar is not an acceptable way to reach the third option. */
+/* Only the rhythm this screen expects around the group: the row, the gap and the
+   option layout all belong to `ChoiceList` now, and restating them here would be
+   this sheet arguing with the control. */
 .backfill-windows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-3);
   margin: var(--space-3) 0;
 }
 .backfill-estimate {

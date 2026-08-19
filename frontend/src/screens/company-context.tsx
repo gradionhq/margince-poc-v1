@@ -9,6 +9,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { usePublishSelection } from "../app/attention";
 import { useCanUpsert } from "../app/capability";
 import { navigate } from "../app/router";
 import {
@@ -295,6 +296,9 @@ export function CompanyContextCard() {
   const [form, setForm] = useState<CompanyInput | null>(null);
   const [readID, setReadID] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // The agent surface reports what the reader is doing, and a selection is the
+  // clearest statement of it a screen can make (app/attention.tsx).
+  usePublishSelection(selected.size);
   const [resolutions, setResolutions] = useState<Record<string, Resolution>>(
     {},
   );

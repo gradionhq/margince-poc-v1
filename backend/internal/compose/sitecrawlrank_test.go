@@ -106,3 +106,38 @@ func TestAnIndustryPageNamedPublisherIsNotAnImprint(t *testing.T) {
 		}
 	}
 }
+
+// TestLegalIdentityPathKnowsOtherLanguagesNotMarketingPages widens the legal
+// classifier to the mandatory legal-notice page as other countries name it,
+// and pins the line it must not cross.
+//
+// The demo dataset had 60 companies where no page was classified as a legal
+// notice, and not one of them yielded a registered address. Most publish
+// only /contact and /about — those stay OUT, because an address taken off a
+// marketing page is the guess the legal gate exists to refuse.
+func TestLegalIdentityPathKnowsOtherLanguagesNotMarketingPages(t *testing.T) {
+	for _, url := range []string{
+		"https://example.com/mentions-legales",
+		"https://example.com/aviso-legal",
+		"https://example.com/note-legali",
+		"https://example.com/legal-notice",
+		"https://example.com/fr/mentions-legales",
+	} {
+		if !legalIdentityPath(url) {
+			t.Errorf("%s is a mandatory legal notice and was not treated as one", url)
+		}
+	}
+	for _, url := range []string{
+		"https://example.com/contact",
+		"https://example.com/contact-us",
+		"https://example.com/about",
+		"https://example.com/about-us",
+		"https://example.com/company",
+		"https://example.com/privacy-policy",
+		"https://example.com/terms",
+	} {
+		if legalIdentityPath(url) {
+			t.Errorf("%s is not a legal notice, and treating it as one lets an address come off a marketing page", url)
+		}
+	}
+}

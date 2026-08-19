@@ -23,12 +23,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
+// Derived from relationshipConflictDetails, not restated beside it: a rule
+// added to the mapper without being covered here would otherwise be a rule
+// nothing checks, and the mapper is the one list that has to be complete.
 func TestRelationshipUniquenessRefusalKeepsBothTheSentinelAndTheConstraint(t *testing.T) {
-	for _, constraint := range []string{
-		"uq_rel_current_primary_employer",
-		"uq_rel_deal_person_role",
-		"uq_rel_project_stakeholder",
-	} {
+	for constraint := range relationshipConflictDetails {
 		t.Run(constraint, func(t *testing.T) {
 			mapped := mapRelationshipConstraint(
 				&pgconn.PgError{Code: "23505", ConstraintName: constraint}, "project_stakeholder")
@@ -67,11 +66,20 @@ func TestRelationshipUniquenessRefusalKeepsBothTheSentinelAndTheConstraint(t *te
 // and a message describing the wrong pair sends them hunting a row that does
 // not exist.
 func TestEachUniquenessRuleDescribesWhatItActuallyRefused(t *testing.T) {
-	for constraint, want := range map[string]string{
+	described := map[string]string{
 		"uq_rel_current_primary_employer": "current primary employer",
 		"uq_rel_deal_person_role":         "role on the deal",
-		"uq_rel_project_stakeholder":      "stakeholder on the project",
-	} {
+		employmentUnique:                  "already works at that company",
+		projectStakeholderUnique:          "stakeholder on the project",
+	}
+	// The generic fallback below is a truthful refusal but a vague one, so no
+	// rule may reach it by being forgotten here.
+	for constraint := range relationshipConflictDetails {
+		if _, covered := described[constraint]; !covered {
+			t.Errorf("%s is mapped to a client message that nothing asserts", constraint)
+		}
+	}
+	for constraint, want := range described {
 		t.Run(constraint, func(t *testing.T) {
 			got := (&RelationshipConflictError{Constraint: constraint}).Error()
 			if !strings.Contains(got, want) {

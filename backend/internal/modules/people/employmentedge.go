@@ -62,8 +62,12 @@ func organizationIsLive(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 
 // plantEmploymentEdge attaches one person to one company, and only when they
 // have no current primary employer: capture SUGGESTS an employer, it never
-// reassigns somebody's. The current-primary partial unique is the structural
-// guard; the NOT EXISTS keeps a concurrent race from surfacing as a 500.
+// reassigns somebody's. TWO partial uniques are the structural guard — the
+// current-primary one and uq_rel_employment, which refuses a second live edge
+// for the same pair — and ON CONFLICT DO NOTHING is what makes either of them
+// a no-op here rather than a failure: capture has nothing to add to an
+// employment that already exists. The NOT EXISTS keeps a concurrent race with
+// the first from surfacing as a 500.
 func plantEmploymentEdge(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID, orgID ids.OrganizationID) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO relationship (kind, person_id, organization_id, is_current_primary, source, captured_by)

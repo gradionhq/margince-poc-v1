@@ -135,7 +135,7 @@ describe("the connect-time backfill payoff", () => {
       preview: previewOf(90210),
     });
     render(<BackfillPanel provider="gmail" />);
-    await screen.findByRole("radiogroup");
+    await screen.findByRole("group");
 
     for (const label of [
       "3 months",
@@ -296,7 +296,7 @@ describe("honest capability and staleness", () => {
     expect(screen.queryByRole("alert")).toBeNull();
     // Not a retryable error state: no window picker offered for a provider
     // that structurally can't run this op.
-    expect(screen.queryByRole("radiogroup")).toBeNull();
+    expect(screen.queryByRole("group")).toBeNull();
   });
 
   // The estimate is a floor: Gmail's exact count is capped at a page budget,

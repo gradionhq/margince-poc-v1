@@ -83,7 +83,7 @@ const OAUTH_OUTCOME_NOTE: Record<
   error: { key: "connectors.oauthError", tone: "danger" },
 };
 
-type ConnectorsResult = {
+export type ConnectorsResult = {
   // GET /connectors answers 501 code:not_implemented when this deployment
   // never wired mail capture (httperr.NotImplemented) — a calm, documented
   // feature-off state, never an error card (mirrors webhooks.tsx's
@@ -510,18 +510,15 @@ function ConnectorRow({
   );
 }
 
-export function ConnectorsCard() {
-  const t = useT();
-  const qc = useQueryClient();
-  const [pendingDisconnect, setPendingDisconnect] = useState<Provider | null>(
-    null,
-  );
-  const [imapConnectOpen, setImapConnectOpen] = useState(false);
-  const [notConfigured501, setNotConfigured501] = useState<Provider | null>(
-    null,
-  );
-
-  const connectors = useQuery({
+/**
+ * The installation's capture connections, in one spelling.
+ *
+ * Exported because the card is no longer the only reader: chrome that reports
+ * whether the agent can reach its sources needs the same list, and two queries
+ * against one path are two answers that can disagree on screen.
+ */
+export function useConnectors() {
+  return useQuery({
     queryKey: ["connectors"],
     queryFn: async (): Promise<ConnectorsResult> => {
       const { data, error, response } = await api.GET("/connectors");
@@ -534,6 +531,20 @@ export function ConnectorsCard() {
       return { notConfigured: false, data: data.data };
     },
   });
+}
+
+export function ConnectorsCard() {
+  const t = useT();
+  const qc = useQueryClient();
+  const [pendingDisconnect, setPendingDisconnect] = useState<Provider | null>(
+    null,
+  );
+  const [imapConnectOpen, setImapConnectOpen] = useState(false);
+  const [notConfigured501, setNotConfigured501] = useState<Provider | null>(
+    null,
+  );
+
+  const connectors = useConnectors();
 
   const connect = useMutation({
     mutationFn: async (provider: Provider) => {

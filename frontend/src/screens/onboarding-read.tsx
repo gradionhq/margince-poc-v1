@@ -84,24 +84,36 @@ function presenceState(
 ): MarginceCoreState {
   if (
     props.mode === "website" &&
-    (props.error || props.read?.status === "failed")
+    (props.error ||
+      // Every status this screen counts as failure, not just the one named
+      // `failed`: an abandoned read is a read that did not finish either, and
+      // it fell through to the resting fallback below, where the orb said the
+      // surface was waiting on a person when it was actually broken.
+      (props.read !== null &&
+        props.read !== undefined &&
+        failedStatuses.has(props.read.status)))
   ) {
     return "error";
   }
   if (running && props.read?.status !== "deferred") {
-    return "working";
+    // Pages arriving while the read runs; the extracting phase is the agent
+    // working over them rather than taking more on.
+    return props.read?.phase === "extracting" ? "reasoning" : "ingesting";
   }
   if (props.read?.status === "deferred") {
-    return "quiet";
+    // Deferred has not started, so the Core rests rather than looking busy.
+    return "dormant";
   }
   if (
     props.read?.status === "ready" ||
     props.read?.status === "partial" ||
     props.read?.status === "confirmed"
   ) {
-    return "success";
+    return "applied";
   }
-  return props.mode ? "listening" : "idle";
+  // Nothing running either way: a mode chosen and a mode not chosen are both a
+  // surface waiting on a person, which is the same thing for the orb.
+  return "dormant";
 }
 
 function coreProgress(read: CompanySiteRead | null): number | undefined {

@@ -54,6 +54,7 @@ import { paletteHotkeyLabel } from "./palette";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
+import { uiPreviewTaskbarEnabled } from "./ui-preview";
 import { usePhoneViewport } from "./viewport";
 import "./shell.css";
 
@@ -907,7 +908,13 @@ export function PageHead({
         <div className="pageaside">
           {actions}
           <SorModeChip />
-          <AgentDock approvalsWaiting={counts?.inbox} />
+          {/* One agent surface at a time: with the taskbar preview on, the bar at
+              the bottom of the viewport IS the agent, and a second chip beside
+              the page title reports the same thing in the same words two feet
+              away (app/ui-preview.ts). */}
+          {uiPreviewTaskbarEnabled() ? null : (
+            <AgentDock approvalsWaiting={counts?.inbox} />
+          )}
         </div>
       </header>
       {/* Beside the heading it was a control wedged into the page's title; under

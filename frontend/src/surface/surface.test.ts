@@ -34,7 +34,14 @@ describe("the published frontend surface", () => {
     expect(Object.keys(designSystem).sort()).toEqual([
       "Badge",
       "Button",
+      // Callout, ChoiceList and TokenList: what a unit needs to WARN about a
+      // choice, to offer one readably, and to draw the set that answers it.
+      // Published together because they are one screen's worth of gap — a unit
+      // ships no stylesheet, so each of the three was otherwise a hand-composed
+      // approximation of a control the core already draws properly.
+      "Callout",
       "Card",
+      "ChoiceList",
       "EmptyState",
       // FactList: a unit screen had no other way to draw a label→value pair,
       // because no extension ships a stylesheet — so both connector screens
@@ -45,6 +52,7 @@ describe("the published frontend surface", () => {
       "SectionHeader",
       "Select",
       "TextInput",
+      "TokenList",
     ]);
     expect(Object.keys(apiSurface).sort()).toEqual([
       "ProblemError",
