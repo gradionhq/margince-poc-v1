@@ -88,6 +88,10 @@ var (
 // core's baseline is 1787111736, the migration whose missing timeout prompted the
 // rule and which is fixed in the same change that arms it. custom's is the next
 // stamp after its newest file, so the rule binds what is written from here.
+// gatekit:fixture the version each namespace's numbering starts this obligation
+// at — expected data about how the two namespaces number themselves, not a
+// waived cost. Nothing here excuses a finding; a version below its namespace's
+// baseline is a migration the rule was never armed for.
 var lockTimeoutBaseline = map[string]string{
 	"core":   "1787111736",
 	"custom": "20260817110001",
