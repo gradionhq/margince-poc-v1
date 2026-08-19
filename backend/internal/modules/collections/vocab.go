@@ -74,7 +74,8 @@ func taggableEntityTypes() []string {
 // (storekit.Field.Link) rather than against the base table. The entity_type is
 // baked in per resource because that is what makes the polymorphic join answer
 // for THIS record type and no other. taggable carries no workspace_id (dropped
-// by 0228); the surrounding transaction is what binds the tenant.
+// by 0228), and no link subquery here names one — see customerLink below for why
+// that is the tenancy model rather than a hole in it.
 func tagLinkFor(entity string) storekit.Field {
 	return storekit.Field{
 		Expr: "tg.tag_id",
@@ -82,6 +83,51 @@ func tagLinkFor(entity string) storekit.Field {
 		Link: "EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = '" + entity +
 			"' AND tg.entity_id = t.id AND %s)",
 	}
+}
+
+// ownerTeamIDField is the vocabulary's name for the team half of the ownership
+// dial — as distinct from ownerTeamField below, the leaf it names.
+const ownerTeamIDField = "owner_team_id"
+
+// ownerTeamField selects the records owned by any member of one team: the same
+// rows the `owner_team_id` list parameter answers, reached the way a link leaf
+// can express.
+//
+// ONE value, shared by every owner-scoped engine rather than built per resource,
+// because it varies by nothing — a constructor like tagLinkFor would be a
+// function returning a constant. It reads colOwnerID for the same reason the
+// base-table owner leaf does: one spelling of the owner column.
+//
+// The dial has a third position the vocabulary needs no leaf for: unassigned is
+// `owner_id` with `exists: false`. A reader looking for it here should not
+// conclude it is missing.
+//
+// This is a FILTER, not a scope. The executor ANDs it with the caller's
+// row-scope clause, so naming a team the caller cannot see answers their own
+// visible rows filtered to nothing — never that team's rows.
+var ownerTeamField = storekit.Field{
+	Expr: "tm.team_id",
+	Type: storekit.FieldID,
+	Link: "EXISTS (SELECT 1 FROM team_membership tm WHERE tm.user_id = " + colOwnerID +
+		" AND %s)",
+}
+
+// relationshipTypeField is the account's relationship to us, which is
+// MULTI-VALUED: an account can be a customer and a partner at once, so the fact
+// lives in its own table and this leaf selects accounts that are AT LEAST this.
+//
+// Archived rows are excluded inside the wrapper. A retired relationship is one
+// the account no longer has, and a segment naming it would otherwise keep
+// selecting accounts on a fact somebody deliberately withdrew.
+//
+// A picklist leaf compares text and the engine holds no per-field enum, so a
+// value no row carries selects nothing rather than being refused.
+// TestAPicklistLeafComparesAnUnrecognisedValueRatherThanRefusingIt gates that.
+var relationshipTypeField = storekit.Field{
+	Expr: "rt.relationship_type",
+	Type: storekit.FieldPicklist,
+	Link: "EXISTS (SELECT 1 FROM organization_relationship_type rt" +
+		" WHERE rt.organization_id = t.id AND rt.archived_at IS NULL AND %s)",
 }
 
 // customerLink is the EXISTS template a deal's filter reaches its customer
@@ -96,9 +142,11 @@ func tagLinkFor(entity string) storekit.Field {
 // somebody archived a company — a pipeline figure shifting for a reason nobody
 // filtering could see.
 //
-// The organization table is read inside the caller's own transaction, so the RLS
-// GUC contract binds it exactly as it binds the base table: there is no path
-// here that reaches another workspace's rows.
+// The subquery names no tenant column, and neither does any sibling here: core
+// 0217 (ADR-0091 phase A) retired every row-level-security policy, so the
+// workspace GUC binds nothing on its own and an installation serves ONE
+// organization (ADR-0061). That is what makes the read tenant-safe — not a
+// policy, which is why this says so rather than claiming one.
 const customerLink = "EXISTS (SELECT 1 FROM organization o WHERE o.id = t.organization_id AND %s)"
 
 // customerField types one organization column as a deal-side filter leaf. The
@@ -113,8 +161,9 @@ var segmentEngines = map[string]storekit.Query{
 		Table:     "person",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			ownerIDField:   {Expr: colOwnerID, Type: storekit.FieldID},
-			tagFilterField: tagLinkFor("person"),
+			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerTeamIDField: ownerTeamField,
+			tagFilterField:   tagLinkFor("person"),
 		},
 	},
 	"organization": {
@@ -126,18 +175,20 @@ var segmentEngines = map[string]storekit.Query{
 		// export built on one can carry it.
 		BaseWhere: whereArchivedNull + " AND NOT t.is_anchor",
 		Fields: map[string]storekit.Field{
-			ownerIDField: {Expr: colOwnerID, Type: storekit.FieldID},
-			"industry":   {Expr: "t.industry", Type: storekit.FieldText},
-			"size_band":  {Expr: "t.size_band", Type: storekit.FieldPicklist},
-			"lifecycle":  {Expr: "t.lifecycle", Type: storekit.FieldPicklist},
+			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerTeamIDField: ownerTeamField,
+			"industry":       {Expr: "t.industry", Type: storekit.FieldText},
+			"size_band":      {Expr: "t.size_band", Type: storekit.FieldPicklist},
+			"lifecycle":      {Expr: "t.lifecycle", Type: storekit.FieldPicklist},
 			// RETIRED with the column (ADR-0079/A124), and kept here for the one
 			// release it survives: a saved segment written against it must keep
 			// evaluating until its author has moved it to lifecycle. Dropping the
 			// field would turn every such list into an error at read time, which
 			// is a worse answer than a stale one. Named in retiredCoreFields
 			// below, so no surface OFFERS it for a new clause.
-			"classification": {Expr: "t.classification", Type: storekit.FieldPicklist},
-			tagFilterField:   tagLinkFor("organization"),
+			"classification":    {Expr: "t.classification", Type: storekit.FieldPicklist},
+			"relationship_type": relationshipTypeField,
+			tagFilterField:      tagLinkFor("organization"),
 		},
 	},
 	"deal": {
@@ -147,6 +198,7 @@ var segmentEngines = map[string]storekit.Query{
 			"pipeline_id":       {Expr: "t.pipeline_id", Type: storekit.FieldID},
 			"stage_id":          {Expr: "t.stage_id", Type: storekit.FieldID},
 			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerTeamIDField:    ownerTeamField,
 			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID},
 			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID},
 			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID},
@@ -173,6 +225,7 @@ var segmentEngines = map[string]storekit.Query{
 		Fields: map[string]storekit.Field{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerTeamIDField:    ownerTeamField,
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
 			tagFilterField:      tagLinkFor("lead"),
 		},
@@ -182,6 +235,7 @@ var segmentEngines = map[string]storekit.Query{
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			ownerIDField:      {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerTeamIDField:  ownerTeamField,
 			"organization_id": {Expr: "t.organization_id", Type: storekit.FieldID},
 			"phase":           {Expr: "t.phase", Type: storekit.FieldPicklist},
 			tagFilterField:    tagLinkFor(projectEntity),
