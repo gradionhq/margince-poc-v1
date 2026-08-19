@@ -45,7 +45,12 @@ out="${1:-$adr_dir/README.md}"
     num="${base#ADR-}"; num="${num%%-*}"
     # The title is the H1 with the "ADR-NNNN — " prefix stripped.
     title="$(grep -m1 '^# ' "$f" | sed 's/^# //; s/^ADR-[0-9]* — //')"
-    status="$(grep -m1 '^\*\*Status:\*\*' "$f" | sed 's/^\*\*Status:\*\* //')"
+    # A status may wrap onto following lines — a record that names which half
+    # of it is built usually does. Take every line from the marker up to the
+    # blank line that ends the metadata block, and collapse it into one cell so
+    # the table does not truncate the qualifier mid-sentence.
+    status="$(awk '/^\*\*Status:\*\*/{f=1} f{if ($0 ~ /^\*\*Decided:\*\*/ || $0 == "") exit; print}' "$f" \
+      | sed 's/^\*\*Status:\*\* //' | tr '\n' ' ' | sed 's/  */ /g; s/ *$//')"
     printf '| [ADR-%s](%s.md) | %s | %s |\n' "$num" "$base" "$title" "${status:-—}"
   done
 } > "$out"
