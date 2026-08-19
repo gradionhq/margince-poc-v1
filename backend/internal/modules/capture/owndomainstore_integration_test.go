@@ -153,7 +153,7 @@ func TestTheListSeparatesTheCompanysOwnClaimFromTheRegistry(t *testing.T) {
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
-			VALUES ( $1, 'ourcompany.example', true, 'manual', 'human:test')`, orgID)
+			VALUES ($1, 'ourcompany.example', true, 'manual', 'human:test')`, orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the anchor company: %v", err)

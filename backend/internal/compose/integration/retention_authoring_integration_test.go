@@ -562,7 +562,7 @@ func TestRetentionAnonymizesAnUnattachedPersonAndArchivesAnAgedNote(t *testing.T
 		VALUES ($1, 'Old Contact', 'Old', 'Contact', 'Buyer', 'manual', 'human:x', now() - interval '800 days')`,
 		personID)
 	e.WsExec(t, `INSERT INTO person_email (person_id, email, source, captured_by)
-		VALUES ( $1, 'old.contact@example.test', 'manual', 'human:x')`, personID)
+		VALUES ($1, 'old.contact@example.test', 'manual', 'human:x')`, personID)
 	// A NOTE, deliberately: an internal note is not commercial correspondence, so
 	// it carries no statutory floor and the 1095-day archive reaches it. An email
 	// of the same age would be shielded, which is the boundary

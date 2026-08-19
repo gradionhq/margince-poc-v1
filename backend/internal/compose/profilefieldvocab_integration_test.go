@@ -38,7 +38,7 @@ func TestEveryExtractionFieldIsAccepted_ByTheLiveCheckConstraint(t *testing.T) {
 		for _, field := range extractionFieldNames {
 			if _, err := tx.Exec(context.Background(),
 				`INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, captured_by)
-				 VALUES ( $1, $2, 'v', 'e', 'https://example.test', 0.9, 'agent:test')`,
+				 VALUES ($1, $2, 'v', 'e', 'https://example.test', 0.9, 'agent:test')`,
 				orgID, field); err != nil {
 				t.Errorf("the live CHECK constraint refuses extraction field %q — widen it with the vocabulary (see 0084's pattern)", field)
 				return err

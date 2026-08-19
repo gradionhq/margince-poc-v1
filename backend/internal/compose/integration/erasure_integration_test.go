@@ -56,7 +56,7 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_email (person_id, email, source, captured_by)
-			 VALUES ( $1, $2, 'manual', 'human:x')`, personID, subjectEmail); err != nil {
+			 VALUES ($1, $2, 'manual', 'human:x')`, personID, subjectEmail); err != nil {
 			return err
 		}
 		activityID := ids.NewV7()
@@ -67,7 +67,7 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, person_id)
-			 VALUES ( $1, 'person', $2)`, activityID, personID); err != nil {
+			 VALUES ($1, 'person', $2)`, activityID, personID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -295,12 +295,12 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, person_id)
-			 VALUES ( $1, 'person', $2)`, heldActivity, personID); err != nil {
+			 VALUES ($1, 'person', $2)`, heldActivity, personID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, organization_id)
-			 VALUES ( $1, 'organization', $2)`, heldActivity, orgID); err != nil {
+			 VALUES ($1, 'organization', $2)`, heldActivity, orgID); err != nil {
 			return err
 		}
 		// The sibling note: subject-only, NOT transitively held, and (being a
@@ -313,7 +313,7 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, person_id)
-			 VALUES ( $1, 'person', $2)`, freeActivity, personID)
+			 VALUES ($1, 'person', $2)`, freeActivity, personID)
 		return err
 	})
 	if err != nil {
@@ -393,7 +393,7 @@ func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, person_id)
-			 VALUES ( $1, 'person', $2)`, email, personID); err != nil {
+			 VALUES ($1, 'person', $2)`, email, personID); err != nil {
 			return err
 		}
 		// A same-age internal note — no statutory floor.
@@ -405,7 +405,7 @@ func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
 		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, person_id)
-			 VALUES ( $1, 'person', $2)`, note, personID)
+			 VALUES ($1, 'person', $2)`, note, personID)
 		return err
 	})
 	if err != nil {

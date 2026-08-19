@@ -39,7 +39,7 @@ func erasureSubject(t *testing.T, e *integration.Env) (ids.PersonID, ids.Approva
 	const addr = "anna.erasure@example.com"
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, $2, true, 'test', 'human:seed')`, person, addr)
+		VALUES ($1, $2, true, 'test', 'human:seed')`, person, addr)
 
 	id, err := approvals.NewService(e.DB()).Stage(e.Admin(), approvals.StageInput{
 		Kind: "held_draft",
@@ -199,7 +199,7 @@ func TestErasureLeavesALookalikeAddressAlone(t *testing.T) {
 	subject := e.SeedPerson(t, "Pattern Subject", nil)
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, 't_m@example.com', true, 'test', 'human:seed')`, subject)
+		VALUES ($1, 't_m@example.com', true, 'test', 'human:seed')`, subject)
 
 	bystander, err := approvals.NewService(e.DB()).Stage(e.Admin(), approvals.StageInput{
 		Kind:           "held_draft",
@@ -239,7 +239,7 @@ func TestErasureLeavesAnAddressThatMerelyContainsTheSubjectsAlone(t *testing.T) 
 	subject := e.SeedPerson(t, "Suffix Subject", nil)
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, 'm@example.com', true, 'test', 'human:seed')`, subject)
+		VALUES ($1, 'm@example.com', true, 'test', 'human:seed')`, subject)
 
 	bystander, err := approvals.NewService(e.DB()).Stage(e.Admin(), approvals.StageInput{
 		Kind:           "held_draft",

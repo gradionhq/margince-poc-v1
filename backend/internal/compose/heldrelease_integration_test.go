@@ -92,7 +92,7 @@ func seedHeldDraft(t *testing.T, e *integration.Env, svc *approvals.Service) hel
 	// release under test.
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, $2, true, 'test', 'human:seed')`, person, to)
+		VALUES ($1, $2, true, 'test', 'human:seed')`, person, to)
 
 	// The counterparty on the thread, carrying the address a reply answers.
 	e.WsExec(t, `

@@ -54,7 +54,7 @@ func seedRestrictionFixture(t *testing.T, e *Env) restrictionFixture {
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_email (person_id, email, source, captured_by)
-			 VALUES ( $1, 'held@example.test', 'manual', 'human:x')`, f.person); err != nil {
+			 VALUES ($1, 'held@example.test', 'manual', 'human:x')`, f.person); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -72,7 +72,7 @@ func seedRestrictionFixture(t *testing.T, e *Env) restrictionFixture {
 		for _, a := range []ids.UUID{f.email, f.note} {
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO activity_link (activity_id, entity_type, person_id)
-				 VALUES ( $1, 'person', $2)`, a, f.person); err != nil {
+				 VALUES ($1, 'person', $2)`, a, f.person); err != nil {
 				return err
 			}
 		}

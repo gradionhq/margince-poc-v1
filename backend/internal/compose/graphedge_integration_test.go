@@ -59,13 +59,13 @@ func (v edgeEnv) interaction(t *testing.T, user ids.UUID, person ids.PersonID, a
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, user_id, role)
-			VALUES ( $1, $2, $3)`,
+			VALUES ($1, $2, $3)`,
 			activityID, user, userRole); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, person_id, role)
-			VALUES ( $1, $2, $3)`,
+			VALUES ($1, $2, $3)`,
 			activityID, person, personRole)
 		return err
 	}); err != nil {
@@ -80,7 +80,7 @@ func (v edgeEnv) person(t *testing.T, name string) ids.PersonID {
 	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person (id, full_name, owner_id, source, captured_by, visibility)
-			VALUES ( $1, $2, $3, 'manual', 'human:test', 'workspace')`,
+			VALUES ($1, $2, $3, 'manual', 'human:test', 'workspace')`,
 			id, name, v.e.Rep1)
 		return err
 	}); err != nil {
@@ -381,7 +381,7 @@ func TestOneMessageCountsOnceHoweverManyRolesItNames(t *testing.T) {
 	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO activity_participant (activity_id, person_id, role)
-			VALUES ( $1, $2, 'cc')`,
+			VALUES ($1, $2, 'cc')`,
 			activityID, contact)
 		return err
 	}); err != nil {

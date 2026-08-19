@@ -95,7 +95,7 @@ func seedChannelDeliveryForRollback(t *testing.T, conn *pgx.Conn, ws string, inF
 		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (kind, channel_provider, body, direction, occurred_at, source, captured_by)
-			VALUES ( 'message', 'telegram', 'Shipping Monday.', 'outbound', now(), 'manual', 'human:test')
+			VALUES ('message', 'telegram', 'Shipping Monday.', 'outbound', now(), 'manual', 'human:test')
 			RETURNING id`).Scan(&activityID); err != nil {
 			return err
 		}

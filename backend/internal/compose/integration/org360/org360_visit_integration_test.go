@@ -141,7 +141,7 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 	old := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, created_at, source, captured_by)
 		VALUES ($1, 'note', 'before the visit', '2026-05-01T09:00:00Z', '2026-05-01T09:00:00Z', 'manual', 'human:x')`)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, old, org.UUID)
+		VALUES ($1, 'organization', $2)`, old, org.UUID)
 
 	if _, err := svc.Acknowledge(admin, org); err != nil {
 		t.Fatalf("acknowledge: %v", err)
@@ -152,7 +152,7 @@ func TestOrganization360CountsWhatChangedSinceTheAcknowledgedVisit(t *testing.T)
 	fresh := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, created_at, source, captured_by)
 		VALUES ($1, 'note', 'after the visit', '2026-06-15T09:00:00Z', '2026-06-15T09:00:00Z', 'manual', 'human:x')`)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, fresh, org.UUID)
+		VALUES ($1, 'organization', $2)`, fresh, org.UUID)
 	created := e.SeedDeal(t, "Brand new deal", pipeline, stage, &e.Rep1)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, created, org.UUID)
 	if _, err := e.Deals.AdvanceDeal(admin, ids.From[ids.DealKind](before), deals.AdvanceDealInput{ToStageID: won, WonWithoutContractReason: integration.WonByImport()}); err != nil {
@@ -193,7 +193,7 @@ func TestOrganization360CountsTheWholeHistoryOnAFirstVisit(t *testing.T) {
 	logged := integration.SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
 		VALUES ($1, 'note', 'first contact', now(), 'manual', 'human:x')`)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, logged, org.UUID)
+		VALUES ($1, 'organization', $2)`, logged, org.UUID)
 
 	view, err := svc.Assemble(e.Admin(), org)
 	if err != nil {

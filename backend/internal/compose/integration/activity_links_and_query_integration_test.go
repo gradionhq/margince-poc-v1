@@ -33,7 +33,7 @@ func TestListActivitiesCarriesItsLinks(t *testing.T) {
 	// The organization arm is inserted here rather than through
 	// LinkActivity, whose column map covers person and deal only.
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, activity, org)
+		VALUES ($1, 'organization', $2)`, activity, org)
 	LinkActivity(t, owner, activity, "person", person)
 
 	got, _, err := e.Activities.ListActivities(admin, activities.ListActivitiesInput{})

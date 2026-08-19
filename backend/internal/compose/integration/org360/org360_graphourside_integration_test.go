@@ -80,13 +80,13 @@ func seedTouch(t *testing.T, e *integration.Env, owner *pgx.Conn, kind string, c
 		if colleague != nil {
 			if _, err := owner.Exec(ctx, `
 				INSERT INTO activity_participant (activity_id, user_id, role)
-				VALUES ( $1, $2, 'from')`, id, *colleague); err != nil {
+				VALUES ($1, $2, 'from')`, id, *colleague); err != nil {
 				t.Fatalf("seeding the our-side participant: %v", err)
 			}
 		}
 		if _, err := owner.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, person_id, role)
-			VALUES ( $1, $2, 'to')`, id, person); err != nil {
+			VALUES ($1, $2, 'to')`, id, person); err != nil {
 			t.Fatalf("seeding the counterparty participant: %v", err)
 		}
 	}

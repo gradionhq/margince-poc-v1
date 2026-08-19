@@ -199,7 +199,7 @@ func reconcileOrgRelationshipTypes(
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO organization_relationship_type (organization_id, relationship_type, source, captured_by)
-			 VALUES ( $1, $2, $3, $4)`,
+			 VALUES ($1, $2, $3, $4)`,
 			orgID, t, source, by); err != nil {
 			return nil, fmt.Errorf("insert relationship type %q: %w", t, err)
 		}

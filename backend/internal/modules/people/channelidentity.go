@@ -59,7 +59,7 @@ func ResolveOrCreateChannelIdentity(ctx context.Context, tx pgx.Tx, personID ids
 	// stamping — the binding outlives every message that refreshed it.
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
-		VALUES ( $1, $2, $3, NULLIF($4, ''), $2, $5)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $2, $5)
 		ON CONFLICT (provider, channel_user_id) WHERE archived_at IS NULL
 		DO NOTHING`,
 		personID, ci.Provider, ci.ChannelUserID, ci.Username, by)
