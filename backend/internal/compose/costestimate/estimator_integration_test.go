@@ -191,7 +191,7 @@ func (e *estEnv) insertLabeledActivity(t *testing.T, ws ids.UUID) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO activity (kind, source, captured_by, capture_labeled_at)
-		VALUES ( 'email', 'gmail', 'system', $1)`, inWindow); err != nil {
+		VALUES ('email', 'gmail', 'system', $1)`, inWindow); err != nil {
 		t.Fatal(err)
 	}
 }

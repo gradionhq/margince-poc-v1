@@ -85,8 +85,11 @@ func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID 
 	if !principal.SeatType(actor.SeatType).CanMutate() {
 		return "", time.Time{}, apperrors.ErrSeatTierInsufficient
 	}
-	wsID, ok := workspaceFrom(ctx)
-	if !ok {
+	// The value is no longer needed — auth_token carries no tenant since
+	// ADR-0091 §8 phase D — but the CHECK is: this refuses a caller that is not
+	// workspace-bound, before it mints an account-takeover credential. Dropping
+	// it with the column would turn a guard into a coincidence.
+	if _, ok := workspaceFrom(ctx); !ok {
 		return "", time.Time{}, apperrors.ErrNotFound
 	}
 	raw, tokenHash, err := mintSessionToken()
@@ -101,10 +104,10 @@ func (s *Service) IssuePasswordLink(ctx context.Context, actor Identity, userID 
 			return err
 		}
 		if err := tx.QueryRow(ctx,
-			`INSERT INTO auth_token (workspace_id, user_id, purpose, token_hash, expires_at)
-			 VALUES ($1, $2, 'password_reset', $3, now() + $4::interval)
+			`INSERT INTO auth_token (user_id, purpose, token_hash, expires_at)
+			 VALUES ($1, 'password_reset', $2, now() + $3::interval)
 			 RETURNING expires_at`,
-			wsID, userID, tokenHash, inviteTokenTTL.String()).Scan(&expiresAt); err != nil {
+			userID, tokenHash, inviteTokenTTL.String()).Scan(&expiresAt); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, auditVerbPasswordLinkIssued, "user", userID.UUID,

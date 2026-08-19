@@ -56,7 +56,11 @@ func pollFleet(ctx context.Context, rt extension.Runtime, dial clientFactory) er
 	if err != nil {
 		return err
 	}
-	var failures int
+	// The failed members' classes, not just how many failed. A tick that reports
+	// only a count cannot say whether one outage took everybody down or six
+	// unrelated things did, and those are the two situations an operator has to
+	// tell apart before deciding whether there is anything to chase at all.
+	var failed []extension.FailureClass
 	for _, conn := range connections {
 		// One member's slow provider must not spend the whole tick: the
 		// deadline below is per CONNECTION, so what a stall costs is that
@@ -67,7 +71,7 @@ func pollFleet(ctx context.Context, rt extension.Runtime, dial clientFactory) er
 		if pollErr == nil {
 			continue
 		}
-		failures++
+		failed = append(failed, failureClass(pollErr))
 		// The failure is recorded on the row rather than returned, so the
 		// screen shows which connection is broken and the tick's own outcome
 		// stays about the fleet.
@@ -80,14 +84,39 @@ func pollFleet(ctx context.Context, rt extension.Runtime, dial clientFactory) er
 			return noted
 		}
 	}
-	if failures > 0 && failures == len(connections) {
+	if len(failed) > 0 && len(failed) == len(connections) {
 		// Every connection failing is not one member's problem: it is this
 		// installation's egress, or the provider being down, and a tick that
 		// answered success would leave a fleet-wide outage with no signal
 		// anywhere but the rows.
-		return fmt.Errorf("dispact: all %d connection(s) failed this tick", failures)
+		return fleetFailure(failed)
 	}
 	return nil
+}
+
+// fleetFailure classifies a tick in which EVERY connected member failed.
+//
+// A SHARED class is reported as itself, and that is the case worth getting right:
+// every member failing because the provider's host does not resolve from this
+// installation is one outage happening in several places, and reporting it as its
+// own class is what turns a screenful of dead jobs into a sentence naming the
+// thing to go fix. Answering "everybody failed" there would throw away the one
+// fact the tick actually established.
+//
+// Members failing for DIFFERENT reasons is the genuinely different situation, and
+// the class for it says so rather than picking one member's cause to speak for the
+// rest. Nothing is common to them, so there is no single outage to chase, and the
+// remedy sends the operator to the per-connection classes that do have specific
+// answers.
+func fleetFailure(failed []extension.FailureClass) error {
+	cause := fmt.Errorf("dispact: all %d connection(s) failed this tick", len(failed))
+	shared := failed[0]
+	for _, class := range failed[1:] {
+		if class.Class != shared.Class {
+			return extension.Failure(classEveryMemberFailed, cause)
+		}
+	}
+	return extension.Failure(shared, cause)
 }
 
 // perConnectionBudget bounds one member's turn. The job's own wall clock
@@ -378,6 +407,9 @@ func saveCursor(ctx context.Context, rt extension.Runtime, conn connection, memb
 // installation rate-limits itself for nothing, and the member has to paste a
 // new one anyway.
 func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cause error) error {
+	// The TOKEN goes on the row, where the connector screen filters and greps on
+	// it; the SENTENCES go to the job surface. They are two halves of one declared
+	// class, so neither surface can drift into a vocabulary of its own.
 	class, status := failureClass(cause), statusConnected
 	if errors.Is(cause, errUnauthorized) {
 		status = statusReauth
@@ -391,7 +423,7 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 			    SET status = $2, last_error_class = $3, last_polled_at = now(),
 			        version = version + 1, updated_at = now()
 			  WHERE id = $1::uuid AND version = $4
-			 RETURNING `+connectionColumns, conn.ID, status, class, conn.Version).Scan)
+			 RETURNING `+connectionColumns, conn.ID, status, class.Class, conn.Version).Scan)
 		if err != nil {
 			if isNoRows(err) {
 				return nil
@@ -406,22 +438,23 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 	})
 }
 
-// failureClass names what went wrong in this unit's own vocabulary. The
-// provider's text is deliberately not carried: it is rendered on a screen, and
-// a remote party's prose is not this installation's to display.
-func failureClass(cause error) string {
+// failureClass names what went wrong in this unit's own vocabulary — the token a
+// screen filters on and the two sentences an operator reads, as one declared
+// value (failureclasses.go). The provider's text is deliberately not carried: a
+// remote party's prose is not this installation's to display or to publish.
+func failureClass(cause error) extension.FailureClass {
 	switch {
 	case errors.Is(cause, errUnauthorized):
-		return "token_rejected"
+		return classTokenRejected
 	case errors.Is(cause, errTransient):
-		return "provider_unavailable"
+		return classProviderUnavailable
 	case errors.Is(cause, errProvider):
-		return "provider_answer_unusable"
+		return classProviderAnswerUnusable
 	case errors.Is(cause, extension.ErrForbidden):
-		return "member_not_permitted"
+		return classMemberNotPermitted
 	case errors.Is(cause, extension.ErrInvalid):
-		return "connection_unusable"
+		return classConnectionUnusable
 	default:
-		return "poll_failed"
+		return classPollFailed
 	}
 }

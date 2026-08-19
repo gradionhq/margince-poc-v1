@@ -489,7 +489,7 @@ func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *test
 	}
 	e.WsExec(t, `
 		INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
-		VALUES ( $1, 'offering', 'service', 'CRM rollout', 'crm rollout',
+		VALUES ($1, 'offering', 'service', 'CRM rollout', 'crm rollout',
 		        '', '', 1, 'human', $2)`, saved.OrganizationID, "human:"+e.Rep1.String())
 
 	// The cross-tenant arm is gone with the mechanism it tested. It seeded a

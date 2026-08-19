@@ -113,10 +113,10 @@ func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids
 		return ids.Nil, "", err
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO oauth_grant (workspace_id, client_id, user_id, scopes, refresh_allowed, resource, lent_passport_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO oauth_grant (client_id, user_id, scopes, refresh_allowed, resource, lent_passport_id)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`,
-		in.WorkspaceID, in.ClientID, in.UserID, in.Scopes, in.RefreshAllowed, in.Resource,
+		in.ClientID, in.UserID, in.Scopes, in.RefreshAllowed, in.Resource,
 		in.LentPassportID).Scan(&grantID)
 	if err != nil {
 		return ids.Nil, "", err
@@ -150,9 +150,9 @@ func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids
 	// replaced_by stays NULL: the first token in a chain succeeds nothing,
 	// and rotation is what fills the forward link.
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO oauth_refresh_token (workspace_id, grant_id, token_hash, expires_at)
-		VALUES ($1, $2, $3, now() + $4::interval)`,
-		in.WorkspaceID, grantID, hashToken(refresh), refreshTokenTTL.String()); err != nil {
+		INSERT INTO oauth_refresh_token (grant_id, token_hash, expires_at)
+		VALUES ($1, $2, now() + $3::interval)`,
+		grantID, hashToken(refresh), refreshTokenTTL.String()); err != nil {
 		return ids.Nil, "", err
 	}
 	return grantID, refresh, nil

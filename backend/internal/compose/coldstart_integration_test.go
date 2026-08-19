@@ -376,7 +376,7 @@ func seedAcmeOrgWithHumanIndustry(t *testing.T, e *integration.Env, admin contex
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
-			VALUES ( $1, 'acme.example', true, 'manual', 'human:owner')`, orgID)
+			VALUES ($1, 'acme.example', true, 'manual', 'human:owner')`, orgID)
 		return err
 	})
 	if err != nil {

@@ -34,14 +34,14 @@ func legacyInteraction(t *testing.T, e *integration.Env, person ids.UUID, captur
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by, counterparty_email)
-			VALUES ( 'email', 'Alt', 'outbound', now() - interval '3 days',
+			VALUES ('email', 'Alt', 'outbound', now() - interval '3 days',
 			        'manual', $1, 'pat@counterparty.test')
 			RETURNING id`, capturedBy).Scan(&id); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, id, person)
+			VALUES ($1, 'person', $2)`, id, person)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding a legacy activity: %v", err)
@@ -55,7 +55,7 @@ func seedGraphPerson(t *testing.T, e *integration.Env, name string) ids.UUID {
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
 			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
-			VALUES ( $1, $2,
+			VALUES ($1, $2,
 			        'manual', 'human:test', 'workspace')
 			RETURNING id`, name, e.Rep1).Scan(&id)
 	}); err != nil {
@@ -121,12 +121,12 @@ func TestTheReconcileWorkerRebuildsTheProjection(t *testing.T) {
 		ctx := context.Background()
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, user_id, role)
-			VALUES ( $1, $2, 'from')`, activityID, e.Rep1); err != nil {
+			VALUES ($1, $2, 'from')`, activityID, e.Rep1); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, person_id, role)
-			VALUES ( $1, $2, 'to')`, activityID, person)
+			VALUES ($1, $2, 'to')`, activityID, person)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding participants: %v", err)

@@ -31,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
@@ -55,7 +56,7 @@ func EnsureInstallation(ctx context.Context, pool *pgxpool.Pool, log *slog.Logge
 		// the secret once the organization exists — so an installation that
 		// followed the ADR would stop booting.
 		create = func() (identity.InstallationBootstrap, error) {
-			pw, err := b.Password()
+			pw, err := b.ResolvePassword(config.FromOS)
 			if err != nil {
 				return identity.InstallationBootstrap{}, err
 			}

@@ -131,7 +131,7 @@ func addPersonEmail(t *testing.T, e *integration.Env, personID ids.UUID, email s
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO person_email (person_id, email, email_type, is_primary, source, captured_by)
-			VALUES ( $1, $2, 'work', true, 'manual', 'human:x')`,
+			VALUES ($1, $2, 'work', true, 'manual', 'human:x')`,
 			personID, email)
 		return err
 	}); err != nil {

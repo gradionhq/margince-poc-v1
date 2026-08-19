@@ -2308,8 +2308,11 @@ export const de = {
   "jobs.state.discarded": "verworfen",
   "jobs.state.cancelled": "abgebrochen",
   "jobs.attempt": "Versuch {attempt} von {max} · {when}",
+  "jobs.remedy": "Zu tun: {remedy}",
+  "jobs.jobId": "Job {id}",
+  "jobs.failingSince": "fehlerhaft seit {when}",
   "jobs.reasonVetted":
-    "Jeder Grund ist die Formulierung der Job-Schicht selbst. Die Rohursache des Workers wird nie hierher gesendet — ein Fehler, den sie nicht formulieren kann, meldet stattdessen einen festen Ersatztext.",
+    "Grund, Klasse und Abhilfe werden jeweils von der Job-Schicht selbst formuliert, nie aus der Rohursache des Workers. Kann sie einen Fehler nicht formulieren, meldet sie einen festen Ersatztext und gar keine Klasse. Eine für ungeprüften Text erfundene Klasse würde deine Alarme auf eine Vermutung stützen.",
   "jobs.generatedAt": "Gelesen um {time}",
 
   "audit.you": "Du",

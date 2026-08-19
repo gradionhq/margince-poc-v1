@@ -32,7 +32,7 @@ func (e *privacyEnv) seedAddress(t *testing.T, person ids.PersonID, email string
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO person_email (person_id, email, source, captured_by)
-			VALUES ( $1, $2, 'gmail:seed', 'connector:gmail')`,
+			VALUES ($1, $2, 'gmail:seed', 'connector:gmail')`,
 			person, email)
 		return err
 	}); err != nil {

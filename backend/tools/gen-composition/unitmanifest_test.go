@@ -698,3 +698,43 @@ func TestDigestTreeExcludesTheUnitManifest(t *testing.T) {
 		t.Fatal("the unit manifest's bytes leaked into the tree digest")
 	}
 }
+
+// TestFailureClassesRequestNoRiskTier: a unit's failure vocabulary is inert
+// operator-facing text — the names it gives the ways its own jobs fail — and not
+// a capability anybody grants, so the field is recognized and skipped like
+// Jurisdictions. It must not be REFUSED either: the generator fails closed on an
+// unrecognized field, so without this arm every unit that names its own failures
+// is ungeneratable.
+//
+// The declaration conventionally names a package-level slice rather than
+// inlining literals, so this fixture does too — what the generator has to accept
+// is the shape a unit actually writes.
+func TestFailureClassesRequestNoRiskTier(t *testing.T) {
+	const classesOnly = `package hello
+
+import "github.com/gradionhq/margince/backend/pkg/extension"
+
+var failureClasses = []extension.FailureClass{
+	{
+		Class:    "provider_unavailable",
+		Sentence: "the provider could not be reached",
+		Remedy:   "Nothing to do: the next tick catches up.",
+	},
+}
+
+func New() extension.Extension {
+	return extension.Extension{
+		Name:           "hello",
+		Version:        "0.1.0",
+		FailureClasses: failureClasses,
+	}
+}
+`
+	derived, err := deriveSynthetic(t, "hello", classesOnly)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(derived), `"risk_tiers": []`) {
+		t.Fatalf("a unit declaring only failure classes must request no risk tier:\n%s", derived)
+	}
+}

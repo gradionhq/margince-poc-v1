@@ -119,9 +119,9 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO auth_token (workspace_id, user_id, purpose, token_hash, expires_at)
-			 VALUES ($1, $2, 'password_reset', $3, now() + $4::interval)`,
-			wsID, newUserID, tokenHash, inviteTokenTTL.String()); err != nil {
+			`INSERT INTO auth_token (user_id, purpose, token_hash, expires_at)
+			 VALUES ($1, 'password_reset', $2, now() + $3::interval)`,
+			newUserID, tokenHash, inviteTokenTTL.String()); err != nil {
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "create", "user", newUserID.UUID,

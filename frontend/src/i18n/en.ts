@@ -2301,8 +2301,11 @@ export const en = {
   "jobs.state.discarded": "discarded",
   "jobs.state.cancelled": "cancelled",
   "jobs.attempt": "attempt {attempt} of {max} · {when}",
+  "jobs.remedy": "What to do: {remedy}",
+  "jobs.jobId": "job {id}",
+  "jobs.failingSince": "failing since {when}",
   "jobs.reasonVetted":
-    "Each reason is the job layer's own wording. The worker's raw cause is never sent here, so a failure it cannot phrase reports a fixed substitute instead.",
+    "Each reason, class and remedy is the job layer's own wording, never the worker's raw cause. A failure it cannot phrase reports a fixed substitute and carries no class at all. A class invented for text nobody could vet would key your alerts on a guess.",
   "jobs.generatedAt": "Read at {time}",
 
   "audit.you": "You",

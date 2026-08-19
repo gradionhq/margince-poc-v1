@@ -90,7 +90,7 @@ func TestActivityKindFKRefusesAnUnregisteredKind(t *testing.T) {
 
 	_, err := integration.OwnerConn(t).Exec(ctx, `
 		INSERT INTO activity (kind, source, captured_by)
-		VALUES ( 'dispact', 'manual', 'test')`)
+		VALUES ('dispact', 'manual', 'test')`)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "activity_kind_fkey" {
 		t.Fatalf("insert failed with %v, want a foreign_key_violation on activity_kind_fkey specifically — "+

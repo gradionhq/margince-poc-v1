@@ -199,22 +199,22 @@ func TestOperatorResetPasswordRevokesALiveOAuthGrantToo(t *testing.T) {
 
 	clientID := "client-" + ids.NewV7().String()
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-		VALUES ($1, $2, 'operator-reset-cascade', ARRAY['https://client.example/cb'])`,
-		e.admin.WorkspaceID, clientID); err != nil {
+		INSERT INTO oauth_client (client_id, client_name, redirect_uris)
+		VALUES ($1, 'operator-reset-cascade', ARRAY['https://client.example/cb'])`,
+		clientID); err != nil {
 		t.Fatalf("registering the client: %v", err)
 	}
 	grantID := ids.NewV7()
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO oauth_grant (id, workspace_id, client_id, user_id, scopes, refresh_allowed)
-		VALUES ($1, $2, $3, $4, ARRAY['read']::text[], false)`,
-		grantID, e.admin.WorkspaceID, clientID, e.member.UserID); err != nil {
+		INSERT INTO oauth_grant (id, client_id, user_id, scopes, refresh_allowed)
+		VALUES ($1, $2, $3, ARRAY['read']::text[], false)`,
+		grantID, clientID, e.member.UserID); err != nil {
 		t.Fatalf("issuing the grant: %v", err)
 	}
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
-		VALUES ($1, $2, $2, 'operator-reset-cascade', ARRAY['read']::text[], $3, now() + interval '30 days', $4)`,
-		e.admin.WorkspaceID, e.member.UserID, "operator-reset-cascade-hash-"+grantID.String(), grantID); err != nil {
+		INSERT INTO passport (on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		VALUES ($1, $1, 'operator-reset-cascade', ARRAY['read']::text[], $2, now() + interval '30 days', $3)`,
+		e.member.UserID, "operator-reset-cascade-hash-"+grantID.String(), grantID); err != nil {
 		t.Fatalf("minting the connection's credential: %v", err)
 	}
 

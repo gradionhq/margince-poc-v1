@@ -496,6 +496,12 @@ jobs:
       - name: the gate still catches
         working-directory: .
         run: make test-secret-scan
+      # Beside the secret gate because it is the same class of failure: a
+      # bootstrap credential written onto a provisioned installation is
+      # invisible, and the entrypoint runs where nobody is watching.
+      - name: the entrypoint writes no credential onto a live installation
+        working-directory: .
+        run: make test-api-entrypoint
       # The pin gate rides along here, and only here, because it reads the WHOLE
       # workflow directory while the backend scope names one file: sbom.yml and
       # patch.yml match no scope, so gated on the classifier this check would

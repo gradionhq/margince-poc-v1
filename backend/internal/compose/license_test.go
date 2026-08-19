@@ -38,7 +38,11 @@ func TestEnsureLicenseRefusesAProductionBootWithNoLicense(t *testing.T) {
 	// licensed and missing the reference, or running a development installation
 	// that never said so — and the message that names one of the two sends the
 	// other operator after a problem they do not have.
-	for _, want := range []string{"license.token_file", deployconfig.LicenseTokenEnvVar, runtimeenv.EnvVar, string(runtimeenv.Development)} {
+	//
+	// The key it points at is `license.token`, the reference form, not the
+	// legacy `license.token_file`: nothing is configured here, so this is the
+	// one message that gets to recommend rather than describe.
+	for _, want := range []string{"license.token", deployconfig.LicenseTokenEnvVar, runtimeenv.EnvVar, string(runtimeenv.Development)} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("boot refusal %q does not name %q", err, want)
 		}
@@ -82,12 +86,16 @@ func TestEnsureLicenseRefusesTheBootOnALicenseTheModuleWillNotHonor(t *testing.T
 		if err == nil {
 			t.Fatalf("EnsureLicense booted a %s installation on a license the bundled module refuses", env)
 		}
-		// The refusal has to name the setting to correct, or an operator is left to
-		// guess which of two places the token came from.
-		for _, want := range []string{"license.token_file", deployconfig.LicenseTokenEnvVar} {
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("boot refusal %q (%s) does not name %q", err, env, want)
-			}
+		// The refusal names the setting THIS deployment used, which is the whole
+		// job: an operator is otherwise left guessing which of three places the
+		// token came from.
+		if !strings.Contains(err.Error(), "license.token_file") {
+			t.Errorf("boot refusal %q (%s) does not name license.token_file, the source it read", err, env)
+		}
+		// And names only that one. Listing the alternatives it did NOT read
+		// sends an operator to a knob that is not holding their bad token.
+		if strings.Contains(err.Error(), deployconfig.LicenseTokenEnvVar) {
+			t.Errorf("boot refusal %q (%s) names %s, which was not the source", err, env, deployconfig.LicenseTokenEnvVar)
 		}
 	}
 }

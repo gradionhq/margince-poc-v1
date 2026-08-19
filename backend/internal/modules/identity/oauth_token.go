@@ -233,10 +233,15 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 	// vanish, so the answer is the same invalid_grant a spent code gets — the
 	// endpoint stays silent about which of the two it was.
 	err := tx.QueryRow(r.Context(), `
-		SELECT a.user_id, a.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource,
+		SELECT a.user_id, u.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource,
 		       a.lent_passport_id
 		FROM oauth_authorization_code a
-		JOIN oauth_client c ON (c.workspace_id, c.client_id) = (a.workspace_id, a.client_id)
+		JOIN oauth_client c ON c.client_id = a.client_id
+		-- The workspace the minted principal carries. It used to come off the
+		-- code row; since ADR-0091 §8 phase D the code carries no tenant, so it
+		-- comes from the human the code was issued to — the same value, and the
+		-- subject the credential was always about.
+		JOIN app_user u ON u.id = a.user_id
 		WHERE a.code_hash = $1 AND a.consumed_at IS NULL AND a.expires_at > now()
 		  AND `+liveClientPredicate,
 		hashOAuthCode(code)).
