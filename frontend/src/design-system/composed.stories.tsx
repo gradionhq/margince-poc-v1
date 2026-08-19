@@ -157,7 +157,7 @@ export const WithRowActions: Story = {
 function boardDeal(
   id: string,
   name: string,
-  valueMinor: number,
+  valueMinor: number | null,
   ageDays: number,
   extra?: Partial<BoardDeal>,
 ): BoardDeal {
@@ -278,4 +278,64 @@ export const BoardInSurface: StoryObj = {
       <PipelineBoard columns={boardColumns} />
     </ListSurface>
   ),
+};
+
+// The board with money it does not have.
+//
+// A money figure is an amount AND its currency, and either half can be missing:
+// a deal nobody has priced carries neither, an aggregate over such deals carries
+// a currency-less total. Every absence draws as the em dash, because the two
+// alternatives both state something false — a zero is a figure the server never
+// sent, and a guessed EUR cannot be told apart from a real EUR figure.
+//
+// Read the three columns as three different silences: the first has no currency
+// to state a total in, the second holds two and so states none at all (its count
+// is the only honest reading), and the third simply has not answered yet.
+const absentMoneyColumns: BoardMoneyColumn[] = [
+  {
+    stage: "unpriced",
+    label: "Unpriced",
+    probabilityPct: 10,
+    rawMinor: null,
+    weightedMinor: null,
+    currency: null,
+    count: 3,
+    deals: [
+      boardDeal("a1", "Contoso pilot", null, 4, { currency: null }),
+      // An amount with no currency is the case a fallback hides best: it looks
+      // like a real figure until somebody asks which money it is in.
+      boardDeal("a2", "Fabrikam trial", 90_00, 11, { currency: null }),
+      boardDeal("a3", "Initech scoping", null, 26, {
+        stalled: true,
+        currency: "EUR",
+      }),
+    ],
+  },
+  {
+    stage: "mixed",
+    label: "Mixed currencies",
+    probabilityPct: 40,
+    rawMinor: null,
+    weightedMinor: null,
+    currency: null,
+    sumHidden: true,
+    count: 2,
+    deals: [
+      boardDeal("a4", "Globex EU", 280_00, 6),
+      boardDeal("a5", "Globex US", 310_00, 8, { currency: "USD" }),
+    ],
+  },
+  {
+    stage: "loading",
+    label: "Totals in flight",
+    probabilityPct: 60,
+    rawMinor: null,
+    weightedMinor: null,
+    currency: null,
+    deals: [boardDeal("a6", "Umbrella renewal", 540_00, 2)],
+  },
+];
+
+export const BoardWithAbsentMoney: StoryObj = {
+  render: () => <PipelineBoard columns={absentMoneyColumns} />,
 };

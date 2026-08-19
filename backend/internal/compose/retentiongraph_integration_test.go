@@ -58,7 +58,7 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 			ctx := context.Background()
 			if err := tx.QueryRow(ctx, `
 				INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
-				VALUES ( 'email', 'Alt', $1, $2, 'manual', 'human:test')
+				VALUES ('email', 'Alt', $1, $2, 'manual', 'human:test')
 				RETURNING id`, direction, at).Scan(&id); err != nil {
 				return err
 			}
@@ -68,12 +68,12 @@ func TestRetentionCorrectsTheRelationshipGraphInItsOwnTransaction(t *testing.T) 
 			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO activity_participant (activity_id, user_id, role)
-				VALUES ( $1, $2, $3)`, id, e.Rep1, userRole); err != nil {
+				VALUES ($1, $2, $3)`, id, e.Rep1, userRole); err != nil {
 				return err
 			}
 			_, err := tx.Exec(ctx, `
 				INSERT INTO activity_participant (activity_id, person_id, role)
-				VALUES ( $1, $2, $3)`, id, contact, personRole)
+				VALUES ($1, $2, $3)`, id, contact, personRole)
 			return err
 		}); err != nil {
 			t.Fatalf("seeding an interaction: %v", err)

@@ -3,6 +3,7 @@ import { cleanup, render as rtlRender, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
+import { MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import {
   type BoardColumn,
@@ -124,6 +125,71 @@ describe("DealCard + PipelineBoard", () => {
     render(<PipelineBoard columns={[column]} />);
     expect(screen.getByText("137 deals")).toBeTruthy();
     expect(screen.queryByText("1 deals")).toBeNull();
+  });
+
+  // A refused sum says it was refused. Dropping the figure and leaving the count
+  // alone is a blank where a total belongs, and a blank cannot tell "these are in
+  // several currencies, so no one total means anything" apart from "nobody has
+  // priced these" — which reads as a column that failed to load. On a board whose
+  // stages hold euros, dollars and dong, most columns are in this state.
+  it("says why a mixed-currency column shows no total", () => {
+    const column: BoardMoneyColumn = {
+      stage: "won",
+      label: "Won",
+      probabilityPct: 100,
+      rawMinor: null,
+      weightedMinor: null,
+      currency: null,
+      deals: [deal],
+      count: 29,
+      sumHidden: true,
+    };
+    render(<PipelineBoard columns={[column]} />);
+    expect(
+      screen.getByText("several currencies — no single total"),
+    ).toBeTruthy();
+    // The count is a fact and stays; no money figure is invented beside it.
+    expect(screen.getByText("29 deals")).toBeTruthy();
+    expect(screen.queryByText(/weighted/)).toBeNull();
+  });
+
+  // A money figure is an amount AND its currency. Either half absent leaves no
+  // figure to draw, and both substitutes state something false: a zero is an
+  // amount the server never sent, and a currency sign the card chose cannot be
+  // told apart from one the deal actually carries.
+  it("a deal with an amount but no currency states no figure, never a currency the card chose", () => {
+    render(<DealCard deal={{ ...deal, currency: null }} />);
+    expect(screen.getByText(MONEY_ABSENT)).toBeTruthy();
+    expect(screen.queryByText(/48,000/)).toBeNull();
+  });
+
+  it("a deal with a currency but no amount states no figure, never a zero", () => {
+    render(<DealCard deal={{ ...deal, valueMinor: null }} />);
+    expect(screen.getByText(MONEY_ABSENT)).toBeTruthy();
+    expect(screen.queryByText("€0.00")).toBeNull();
+  });
+
+  // The count is a fact the column has even when the total is not: a stage of
+  // deals nobody priced still holds them, and a zero total beside that count
+  // reads as an empty stage.
+  it("a column whose total names no currency draws both figures as absent and keeps its count", () => {
+    const column: BoardMoneyColumn = {
+      stage: "proposal",
+      label: "Proposal",
+      probabilityPct: 40,
+      rawMinor: null,
+      weightedMinor: null,
+      currency: null,
+      deals: [deal],
+      count: 4,
+    };
+    render(<PipelineBoard columns={[column]} />);
+    expect(screen.getByText("4 deals")).toBeTruthy();
+    expect(screen.getByText(`weighted ${MONEY_ABSENT}`)).toBeTruthy();
+    expect(
+      screen.getByText(MONEY_ABSENT, { selector: ".board-col-money" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/€0\.00/)).toBeNull();
   });
 
   it("lets a non-deal board provide its own record noun", () => {

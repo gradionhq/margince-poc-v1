@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import {
   Button,
   Card,
@@ -207,11 +207,17 @@ function PartnerForm({
   );
 
   const mutation = useMutation({
-    mutationFn: async () => {
+    // The prior row rides the variables rather than the closure, and its
+    // presence is what decides the precondition: first creation has no version
+    // to pin, while a replacement always pins the one the form was filled from
+    // and refuses rather than upserting over an edit it never saw.
+    mutationFn: async (prior: Partner | undefined) => {
       const { data, error } = await api.PUT("/organizations/{id}/partner", {
         params: {
           path: { id: organizationId },
-          ...ifMatch(partner?.version),
+          ...(prior === undefined
+            ? {}
+            : ifMatch(requireVersion(prior.version))),
         },
         body: buildUpsertBody(values),
       });
@@ -227,7 +233,7 @@ function PartnerForm({
     <form
       onSubmit={(event) => {
         event.preventDefault();
-        mutation.mutate();
+        mutation.mutate(partner);
       }}
       style={{ display: "flex", flexDirection: "column", gap: 10 }}
     >

@@ -116,7 +116,7 @@ func (s *Store) SaveResearchClaims(ctx context.Context, personID ids.PersonID, c
 			// there, which is what a reader who just chose it expects.
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-				VALUES ( $1, $1, $2, $3, $4, $6, $5)
+				VALUES ($1, $1, $2, $3, $4, $6, $5)
 				ON CONFLICT (person_id, field) DO UPDATE
 				SET value = EXCLUDED.value,
 				    evidence_snippet = EXCLUDED.evidence_snippet,

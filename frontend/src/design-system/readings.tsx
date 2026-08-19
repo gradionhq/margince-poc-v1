@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import "./readings.css";
+import { webUrl } from "../format/weburl";
 
 // Three ways to draw a reading that is not a number in a box: a proportion as
 // a bar, a series as a line, and a labelled attribute as a pill. Copy always
@@ -126,7 +127,7 @@ export function Chip({
       <span>{children}</span>
     </>
   );
-  const destination = href && isWebUrl(href) ? href : undefined;
+  const destination = href && webUrl(href) ? href : undefined;
   if (destination) {
     return (
       <a
@@ -142,19 +143,4 @@ export function Chip({
   // A chip whose href was refused still shows the FACT — the reader loses the
   // link, not the value.
   return <span className="chip">{body}</span>;
-}
-
-// These URLs come from records, and a record's fields are typed by whoever
-// captured them — a crawler, a connector, a person pasting. `javascript:` and
-// `data:` in an href are script execution on click, so only the two schemes a
-// company link can honestly be are allowed through.
-function isWebUrl(href: string): boolean {
-  try {
-    const scheme = new URL(href).protocol;
-    return scheme === "https:" || scheme === "http:";
-  } catch {
-    // Not parseable as an absolute URL. A relative href would resolve against
-    // our own origin, which a company's website never is.
-    return false;
-  }
 }

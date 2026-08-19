@@ -161,7 +161,7 @@ func seedStaleEmbeddingRow(t *testing.T, e *apptest.AppEnv, wsID string) {
 	ctx := context.Background()
 	var personID string
 	if err := e.Owner.QueryRow(ctx,
-		`INSERT INTO person (full_name, source, captured_by) VALUES ( 'Stale Row Person', 'manual', 'human:x') RETURNING id`).Scan(&personID); err != nil {
+		`INSERT INTO person (full_name, source, captured_by) VALUES ('Stale Row Person', 'manual', 'human:x') RETURNING id`).Scan(&personID); err != nil {
 		t.Fatalf("seeding the stale-row person: %v", err)
 	}
 	if _, err := e.Owner.Exec(ctx, `

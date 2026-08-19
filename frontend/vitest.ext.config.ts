@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import base from "./vite.config";
+import base from "./vite.config.ts";
 
 // The unit-screen test lane: vitest over extensions/*/frontend/**/*.test.tsx.
 //

@@ -229,7 +229,7 @@ func TestApplySignatureFieldsWithdrawsEvidenceWhenTheFillLosesItsRace(t *testing
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO person_phone (person_id, phone, phone_type, is_primary, position, source, captured_by)
-			VALUES ( $1, '+49 30 9999999', 'work', true, 0, 'manual', 'human:test')`, personID)
+			VALUES ($1, '+49 30 9999999', 'work', true, 0, 'manual', 'human:test')`, personID)
 		return err
 	}); err != nil {
 		t.Fatal(err)

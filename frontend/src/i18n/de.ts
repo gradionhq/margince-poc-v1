@@ -141,7 +141,8 @@ export const de = {
   "search.group.deal": "Deals",
   "search.group.activity": "Aktivitäten",
   "search.group.lead": "Leads",
-  "search.tier.mirrored": "aus HubSpot",
+  "search.tier.mirrored": "aus einem verbundenen System",
+  "search.tier.unverified": "nicht verifiziert",
 
   "context.title": "Verwandte Belege",
   "context.empty": "Noch nichts Verwandtes.",
@@ -174,10 +175,12 @@ export const de = {
   "brief.nothingSent": "Noch nichts versendet",
   "board.count": "{count} Deals",
   "board.weighted": "gewichtet {value}",
+  "board.mixedCurrencies": "mehrere Währungen — keine Gesamtsumme",
   "deal.stalled": "stockt",
   "deal.archived": "archiviert",
   "deal.singleThreaded": "nur ein Kontakt",
   "deal.staged": "vorgemerkt",
+  "record.notShown": "Nicht angezeigt",
   "record.timeline": "Verlauf",
   "record.edit": "Bearbeiten",
   "record.save": "Speichern",
@@ -652,6 +655,8 @@ export const de = {
   "co.chip.linkedin": "LinkedIn",
   "co.strip.netInvoicedLifetime": "Netto fakturiert · gesamt",
   "co.strip.netInvoiced": "Netto fakturiert · 12 Monate",
+  "co.strip.notAssessed": "Nicht bewertet",
+  "co.strip.lifetimeOf": "{amount} gesamt",
   "co.strip.overdue": "Überfällig",
   "co.strip.finance": "Finanzen",
   "co.strip.financeUnknown": "—",
@@ -1498,6 +1503,7 @@ export const de = {
   "deal.fcPipeline": "Pipeline",
   "deal.fcOmitted": "Ausgeschlossen",
   "deal.fcSlipped": "Verschoben",
+  "deal.fcUncategorised": "Noch keine Kategorie",
 
   "deals.pipeline": "Pipeline",
   "deals.filterStalled": "Nur ins Stocken geraten",
@@ -1517,6 +1523,8 @@ export const de = {
 
   "deal.offers": "Angebote",
   "deal.newOffer": "Neues Angebot",
+  "deal.offerNeedsCurrency":
+    "Bepreisen Sie zuerst diesen Deal — ein Angebot wird in der Währung des Deals erstellt.",
   "deal.offerNumber": "Angebots-Nr.",
   "deal.offerRevision": "Rev.",
   "deal.offersEmpty": "Noch keine Angebote",
@@ -2064,6 +2072,7 @@ export const de = {
   "tasks.clearReminder": "Erinnerung entfernen",
 
   "reports.sub": "Deals je Phase — ungewichtet neben gewichtet",
+  "reports.currency": "Währung",
   "reports.count": "Deals",
   "reports.unweighted": "Ungewichtet",
   "reports.weighted": "Gewichtet",
@@ -2213,6 +2222,8 @@ export const de = {
   "import.validating": "Wird geprüft…",
   "import.previewTitle": "Was dieser Import tun wird",
   "import.outcomeTitle": "Was dieser Import getan hat",
+  "import.resumedRun":
+    "Von vorhin übernommen: Dieser Import lief am {when}. Alles darunter steht Ihnen weiterhin offen.",
   "import.count.created": "Anlegen",
   "import.count.updated": "Aktualisieren",
   "import.count.unchanged": "Unverändert",
@@ -2811,6 +2822,10 @@ export const de = {
   "dedupe.empty": "Keine Duplikate offen — die Warteschlange ist leer.",
   "dedupe.confidence": "Übereinstimmung:",
   "dedupe.field": "Feld",
+  "dedupe.signal": "Signal",
+  "dedupe.signalAgree": "übereinstimmend",
+  "dedupe.signalCollide": "Konflikt",
+  "dedupe.signalOneSided": "nur eine Seite",
   "dedupe.left": "Links behalten",
   "dedupe.right": "Rechts behalten",
   "dedupe.kindPerson": "Person",
@@ -5087,7 +5102,6 @@ export const de = {
   "person.strip.openDeal": "Offener Deal",
   "person.strip.nextMeeting": "Nächster Termin",
   "person.strip.consent": "Einwilligung",
-  "person.strip.notShown": "Nicht sichtbar",
   "person.strip.never": "Nie",
   "person.strip.today": "Heute",
   "person.strip.yesterday": "Gestern",
@@ -5246,8 +5260,10 @@ export const de = {
   "person.research.title": "Tiefenrecherche · {name}",
   "person.research.publicOnly": "Nur öffentliche Quellen",
   "person.research.running": "Öffentliche Quellen werden gelesen…",
+  // "Recherche-Anbieter", nicht "Datenanbieter": Letzteres ist das Wort für die
+  // zugekauften Kontaktdaten (provider.profile.*), die direkt darüber stehen.
   "person.research.notConnected":
-    "Noch kein Datenanbieter verbunden. Margince recherchiert nie aus eigener Befugnis zu einer Person — dafür braucht es einen lizenzierten Anbieter mit eigener Rechtsgrundlage.",
+    "Es ist kein Recherche-Anbieter verbunden, also wurden keine öffentlichen Quellen zu dieser Person gelesen. Das ist unabhängig von zugekauften Kontaktdaten darüber — Margince recherchiert nie aus eigener Befugnis zu einer Person, und eine Tiefenrecherche braucht einen lizenzierten Anbieter mit eigener Rechtsgrundlage.",
   "person.research.staged":
     "Die Recherche ist vorgemerkt. Am Datensatz von {name} ändert sich nichts, bis Sie prüfen und speichern.",
   "person.research.stats":

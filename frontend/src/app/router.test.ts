@@ -43,6 +43,20 @@ describe("parseHash", () => {
     expect(parseHash("")).toEqual({ screen: "home" });
     expect(parseHash("#/")).toEqual({ screen: "home" });
   });
+
+  // A hash is text a human can type, so a screen name that no longer typechecks
+  // in source still arrives here. It is a not-found PAGE, not a parse failure
+  // and not the "not built yet" surface a mistyped navigate() used to render.
+  it("resolves a screen this app does not answer to not-found", () => {
+    expect(parseHash("#/dealz")).toEqual({ screen: "not-found" });
+  });
+
+  // The segments below an unanswered screen addressed arguments of a page that
+  // is not there, so they do not ride along: a not-found route carrying an id
+  // would offer the shell a record to look up on a screen nobody has.
+  it("drops the segments under a screen this app does not answer", () => {
+    expect(parseHash("#/dealz/01J9ZK/tab")).toEqual({ screen: "not-found" });
+  });
 });
 
 describe("routeHash", () => {

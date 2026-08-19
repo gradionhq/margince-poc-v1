@@ -3,7 +3,12 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { ImportCard } from "./import";
-import { installFetchStub, meRoute, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // Bringing a customer's file in. The card is one of the two cleanest surfaces in
 // settings — every state is a Callout, the wide table scrolls in its own box —
@@ -55,4 +60,48 @@ export const Withheld: Story = {
 export const ChooseAFileDark: Story = {
   globals: { theme: "dark" },
   render: story(OPERATOR),
+};
+
+// The one state past the first step a story CAN reach, and the reason it can is
+// the point of the state: it needs no file, only the run id an earlier visit
+// left in storage and the two reads that answer for a run by id. This is what a
+// reader sees coming back from the Leads list after editing the one row they do
+// not want reversed — the outcome, the notice saying where it came from, and the
+// undo that used to vanish the moment they navigated away.
+//
+// The reference it plants is self-clearing: every other story routes these reads
+// to the empty fallback, which is not a run in a state worth reopening, so the
+// card forgets it and shows its resting state.
+export const PickedUpFromEarlier: Story = {
+  render: () => {
+    globalThis.localStorage.setItem("margince.import.run", "019ff-run");
+    installFetchStub({
+      "GET /me": meRoute(OPERATOR),
+      "GET /imports/019ff-run/report": () =>
+        jsonResponse({
+          run_id: "019ff-run",
+          status: "complete",
+          rows_read: 4,
+          disposition: { created: 3, updated: 0, unchanged: 0, skipped: 1 },
+          issues: [],
+          source_key_used: "Email",
+        }),
+      "GET /imports/019ff-run": () =>
+        jsonResponse({
+          id: "019ff-run",
+          connector: "csv",
+          object: "lead",
+          status: "complete",
+          checkpoint: 4,
+          source: "import_api",
+          created_at: "2026-08-17T14:12:00Z",
+          updated_at: "2026-08-17T14:12:40Z",
+        }),
+    });
+    return (
+      <StoryProviders>
+        <ImportCard />
+      </StoryProviders>
+    );
+  },
 };

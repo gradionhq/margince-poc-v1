@@ -11,9 +11,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
+import { calendarDay } from "../format/calendarday";
 import { LocaleProvider } from "../i18n";
 import { LogActivity } from "./logactivity";
 import { PersonScreen } from "./people";
+import { groupTask } from "./tasks";
 
 // Logging from a 360 (the "you can actually add to the timeline" acceptance):
 // the POST body carries the contract's shape (kind, subject, the viewed
@@ -57,6 +59,41 @@ const dormantStrength = {
 };
 
 type Captured = { key: string; body: unknown };
+
+// One day, picked in the form and asserted against — and the zone the machine
+// running this suite is in, because the invariant is "the day the writer picked
+// is the day the reader reads", which has to hold on every laptop rather than
+// only on one that runs UTC.
+const PICKED_DAY = "2026-07-10";
+const READER_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+// The task the form has just logged, as the tasks list receives it — everything
+// but the due date, which is the field under test.
+const LOGGED_TASK = {
+  id: "a-new",
+  kind: "task" as const,
+  subject: "Send proposal",
+  occurred_at: "2026-07-06T09:00:00Z",
+  is_done: false,
+  source: "manual",
+  captured_by: "human:u1",
+  created_at: "2026-07-06T09:00:00Z",
+  updated_at: "2026-07-06T09:00:00Z",
+};
+
+// The due_at off a captured request body. A narrowing read rather than a cast:
+// the body is genuinely unknown here, and a request that carried no due date at
+// all would otherwise pass the assertions below as `undefined`.
+function postedDueAt(body: unknown): string {
+  if (typeof body !== "object" || body === null || !("due_at" in body)) {
+    throw new Error("expected the logged activity to carry a due_at");
+  }
+  const dueAt = body.due_at;
+  if (typeof dueAt !== "string") {
+    throw new Error(`expected due_at to be an instant, got ${typeof dueAt}`);
+  }
+  return dueAt;
+}
 
 function stubApi(
   routes: Record<string, (body: unknown) => Response>,
@@ -208,12 +245,12 @@ describe("log activity from a 360", () => {
     ).toBe(false);
   });
 
-  it("posts due_at for a task", async () => {
+  it("posts a task's due_at as the END of the picked day in the writer's own zone", async () => {
     const captured: Captured[] = [];
     stubApi({ "POST /activities": createdActivity }, captured);
     render(<LogActivity entityType="organization" entityId="o1" />);
     await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
-    await userEvent.type(screen.getByLabelText("Due date"), "2026-07-10");
+    await userEvent.type(screen.getByLabelText("Due date"), PICKED_DAY);
     await userEvent.type(screen.getByLabelText("Subject *"), "Send proposal");
     await userEvent.click(screen.getByRole("button", { name: "Log" }));
     await waitFor(() =>
@@ -229,10 +266,44 @@ describe("log activity from a 360", () => {
       source: "manual",
     });
     if (!post) throw new Error("expected a POST /activities to be captured");
-    const { due_at } = post.body as { due_at: string };
-    expect(new Date(due_at).toISOString()).toBe(
-      new Date("2026-07-10").toISOString(),
+    const dueAt = new Date(postedDueAt(post.body));
+    // The instant has to fall on the day the writer picked, read where the
+    // writer is — the bare `yyyy-mm-dd` handed to `new Date` is UTC midnight,
+    // which is the previous calendar day for every writer west of UTC.
+    expect(calendarDay(dueAt, READER_ZONE)).toBe(PICKED_DAY);
+    // And at that day's END, because a task picked for today is due all day.
+    expect(dueAt.getHours()).toBe(23);
+    expect(dueAt.getMinutes()).toBe(59);
+  });
+
+  it("posts a due date the tasks list then buckets as today, not as overdue", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
+    await userEvent.type(screen.getByLabelText("Due date"), PICKED_DAY);
+    await userEvent.type(screen.getByLabelText("Subject *"), "Send proposal");
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
     );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    if (!post) throw new Error("expected a POST /activities to be captured");
+    // The two halves of the same contract, checked against each other: what
+    // this form mints is what the tasks screen groups. A writer filing a task
+    // for today at midday must find it under Today — with the day sent as UTC
+    // midnight it read as already overdue, which is the state the screen puts
+    // in red at the top of the list.
+    const middayOnThePickedDay = new Date(`${PICKED_DAY}T12:00:00`);
+    expect(
+      groupTask(
+        { ...LOGGED_TASK, due_at: postedDueAt(post.body) },
+        middayOnThePickedDay,
+        READER_ZONE,
+      ),
+    ).toBe("today");
   });
 
   it("keeps ordinary meeting notes as notes: unchecked, the field stays Details and no source_system is sent", async () => {

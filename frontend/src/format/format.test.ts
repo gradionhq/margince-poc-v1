@@ -7,6 +7,8 @@ import {
   formatDateTime,
   formatDuration,
   formatMoney,
+  formatMoneyOrAbsent,
+  MONEY_ABSENT,
 } from "./format";
 
 // B-EP09.17/18/19 acceptance: locale changes the RENDERING of the same stored
@@ -40,6 +42,36 @@ describe("money formatting (B-EP09.17)", () => {
 
   it("still scales two-decimal currencies under vi", () => {
     expect(formatMoney(128_400, "EUR", "vi")).toBe("1.284,00\u00a0€");
+  });
+});
+
+// Both halves of a money value are required, and neither absence has a safe
+// default: an invented currency is indistinguishable from a real one, and an
+// invented zero is a figure the server never sent.
+describe("money with a half missing (data-semantics §1)", () => {
+  it("renders a dash when the currency is absent, never a guessed one", () => {
+    expect(formatMoneyOrAbsent(123_456, null, "en")).toBe(MONEY_ABSENT);
+    expect(formatMoneyOrAbsent(123_456, undefined, "en")).toBe(MONEY_ABSENT);
+    // The empty string is the shape that reached Intl and threw mid-render.
+    expect(formatMoneyOrAbsent(123_456, "", "en")).toBe(MONEY_ABSENT);
+  });
+
+  it("renders a dash when the amount is absent, never a zero", () => {
+    expect(formatMoneyOrAbsent(null, "EUR", "en")).toBe(MONEY_ABSENT);
+    expect(formatMoneyOrAbsent(undefined, "EUR", "en")).toBe(MONEY_ABSENT);
+    expect(formatMoneyOrAbsent(null, "EUR", "en")).not.toContain("0");
+  });
+
+  // A real zero is a figure the server DID send, and it is not the same claim
+  // as an absent one.
+  it("renders a stored zero as money", () => {
+    expect(formatMoneyOrAbsent(0, "EUR", "en")).toBe("€0.00");
+  });
+
+  it("formats exactly as formatMoney once both halves are present", () => {
+    expect(formatMoneyOrAbsent(123_456, "EUR", "de")).toBe(
+      formatMoney(123_456, "EUR", "de"),
+    );
   });
 });
 

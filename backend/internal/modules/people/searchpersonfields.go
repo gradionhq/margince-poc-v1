@@ -105,7 +105,7 @@ func fillDiscoveredFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		}
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-			VALUES ( $1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (person_id, field) DO NOTHING`,
 			personID, f.Field, value, snippet, f.SourceRef, searchFieldSource, by)
 		if err != nil {

@@ -218,7 +218,7 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
-			VALUES ( 'Departing Contact', $1, 'manual', 'human:test', 'workspace')
+			VALUES ('Departing Contact', $1, 'manual', 'human:test', 'workspace')
 			RETURNING id`, e.Rep1).Scan(&contact); err != nil {
 			return err
 		}
@@ -230,14 +230,14 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
-			VALUES ( 'email', 'Letzte Mail', 'outbound', now(), 'manual', 'human:test')
+			VALUES ('email', 'Letzte Mail', 'outbound', now(), 'manual', 'human:test')
 			RETURNING id`).Scan(&activityID); err != nil {
 			return err
 		}
 		// A user-ONLY participant row: no person arm, no address arm.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, user_id, role)
-			VALUES ( $1, $2, 'from')`, activityID, doomed); err != nil {
+			VALUES ($1, $2, 'from')`, activityID, doomed); err != nil {
 			return err
 		}
 		// A CONFIRMED ghost pointing at the contact.
@@ -301,13 +301,13 @@ func TestRelinkRepointsOnlyThePersonItDisplaced(t *testing.T) {
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
-			VALUES ( 'email', 'Verwechslung', 'inbound', now(), 'gmail:m-9', 'connector:gmail')
+			VALUES ('email', 'Verwechslung', 'inbound', now(), 'gmail:m-9', 'connector:gmail')
 			RETURNING id`).Scan(&activityID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, activityID, linked); err != nil {
+			VALUES ($1, 'person', $2)`, activityID, linked); err != nil {
 			return err
 		}
 		// Two participants: one matching the link, one that never had a link.

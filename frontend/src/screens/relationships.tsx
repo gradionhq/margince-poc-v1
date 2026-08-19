@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import type { EntityKind } from "../app/entity";
 import { isOption } from "../app/options";
 import {
@@ -580,7 +580,7 @@ export function RelationshipsTab({
                             {
                               params: {
                                 path: { id: rel.id },
-                                ...ifMatch(rel.version),
+                                ...ifMatch(requireVersion(rel.version)),
                               },
                               body: {
                                 role: orNull(values.role),

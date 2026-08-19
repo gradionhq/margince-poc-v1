@@ -62,7 +62,7 @@ func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context
 			for i, d := range ownDomains {
 				if _, err := tx.Exec(wsCtx, `
 					INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
-					VALUES ( $1, $2, $3, 'manual', 'human:test')`, orgID, d, i == 0); err != nil {
+					VALUES ($1, $2, $3, 'manual', 'human:test')`, orgID, d, i == 0); err != nil {
 					return err
 				}
 			}

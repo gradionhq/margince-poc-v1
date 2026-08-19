@@ -9,7 +9,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan, useCanWrite } from "../app/capability";
 import {
@@ -650,7 +650,7 @@ export function MirrorUserMapCard() {
   const page = useInfiniteQuery({
     queryKey: ["overlay", "user-map"],
     enabled: readable,
-    initialPageParam: null as string | null,
+    initialPageParam: FIRST_PAGE,
     queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/overlay/user-map", {
         params: { query: { cursor: pageParam ?? undefined } },

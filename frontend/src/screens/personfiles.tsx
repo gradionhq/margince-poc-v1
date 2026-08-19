@@ -1,13 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { Badge } from "../design-system/atoms";
 import { Panel, PanelRow } from "../design-system/panel";
-import { SurfaceState } from "../design-system/surfacestate";
+import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { throwProblem } from "./common";
+import { LoadMoreButton, throwProblem } from "./common";
 import { RECORD_ZONE } from "./company360";
 import "./person360.css";
 
@@ -20,8 +20,8 @@ import "./person360.css";
 type Attachment = components["schemas"]["Attachment"];
 type Category = NonNullable<Attachment["category"]>;
 
-// The most a reader is asked to scan on a record page: enough to recognise a
-// person that has been busy without paging through their whole library.
+// The most a reader is asked to scan at once on a record page: enough to
+// recognise a person that has been busy, and the rest is one button away.
 const PAGE_LIMIT = 20;
 
 const CATEGORY_LABELS: Record<Category, MessageKey> = {
@@ -36,15 +36,17 @@ export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
   const t = useT();
   const { locale } = useLocale();
 
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: ["attachments", "person", personId],
-    queryFn: async () => {
+    initialPageParam: FIRST_PAGE,
+    queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/attachments", {
         params: {
           query: {
             entity_type: "person",
             entity_id: personId,
             limit: PAGE_LIMIT,
+            ...(pageParam ? { cursor: pageParam } : {}),
           },
         },
       });
@@ -53,26 +55,48 @@ export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
       }
       return data;
     },
+    getNextPageParam: (last) => last.page.next_cursor ?? null,
   });
 
-  const files = query.data?.data ?? [];
-  const hasMore = query.data?.page.has_more ?? false;
+  const files = query.data?.pages.flatMap((page) => page.data) ?? [];
+  // The truncation is the SERVER's statement, read off the newest page the
+  // walk has reached — not `hasNextPage`, which answers the narrower question
+  // of whether a cursor came back to walk with. A page that reports more rows
+  // without handing over a cursor is still a cut list, and saying so with no
+  // button beats claiming completeness this tab cannot verify.
+  const hasMore = query.data?.pages.at(-1)?.page.has_more ?? false;
 
   // Its own endpoint, so its own state — a failed read (`failed`) and an
   // empty library (`empty`) are different sentences and only one is about
-  // this person, and a cut page (`partial`) must never read as the whole one.
-  const state = query.isPending
-    ? "loading"
-    : query.isError
-      ? "failed"
-      : files.length === 0
-        ? "empty"
-        : hasMore
-          ? "partial"
-          : "ready";
+  // this person. `partial` is what the reader is owed while rows remain
+  // unread: the ones fetched so far, the sentence that says so, and the
+  // button that fetches the rest. Once the walk reaches the end the state is
+  // `ready` and the footer goes silent, so silence means "all of them" and
+  // never "the first twenty".
+  //
+  // A page that fails PART-WAY through the walk keeps the rows already read:
+  // the error belongs to one page, not to the library, and replacing twenty
+  // files a reader is looking at with "this section did not load" loses more
+  // than it explains. The button stays, so a retry is the same click again.
+  let state: SectionState;
+  if (query.isPending) {
+    state = "loading";
+  } else if (files.length === 0) {
+    state = query.isError ? "failed" : "empty";
+  } else {
+    state = hasMore ? "partial" : "ready";
+  }
 
   return (
-    <Panel title={t("tab.documents")}>
+    <Panel
+      title={t("tab.documents")}
+      // The walk's control belongs to the SECTION, not to any file in it, so it
+      // takes the panel's own foot band rather than trailing the rows as one
+      // more of them. Passed only where another page exists: the band draws
+      // itself whenever it is given anything, and an empty one is a strip of
+      // chrome a reader can see and cannot use.
+      footer={query.hasNextPage ? <LoadMoreButton query={query} /> : undefined}
+    >
       <SurfaceState
         state={state}
         emptyLabel={t("person.documents.empty")}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { isOption } from "../app/options";
 import { navigate } from "../app/router";
 import { activityTimeline } from "../design-system/activitytimeline";
@@ -1162,7 +1162,7 @@ function LeadLifecycle({
         throw new Error("a terminal lead takes no writes");
       }
       const { data, error } = await api.PATCH("/leads/{id}", {
-        params: { path: { id }, ...ifMatch(lead.version) },
+        params: { path: { id }, ...ifMatch(requireVersion(lead.version)) },
         body,
       });
       if (error) {
@@ -1833,7 +1833,7 @@ function LeadActions({
           const { data, error } = await api.PATCH("/leads/{id}", {
             params: {
               path: { id },
-              ...ifMatch(lead.version),
+              ...ifMatch(requireVersion(lead.version)),
             },
             body: {
               ...mapLeadUpdate(values),

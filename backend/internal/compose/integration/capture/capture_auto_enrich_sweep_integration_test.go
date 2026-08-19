@@ -46,7 +46,7 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
-			VALUES ( $1, 'gitex.com', true, 'connector:gmail', 'connector:gmail')`, orgID)
+			VALUES ($1, 'gitex.com', true, 'connector:gmail', 'connector:gmail')`, orgID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding the captured org: %v", err)

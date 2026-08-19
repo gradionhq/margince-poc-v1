@@ -10,6 +10,7 @@ import {
   SectionHeader,
   TextInput,
 } from "../design-system/atoms";
+import { calendarDay, dueInstant } from "../format/calendarday";
 import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import {
@@ -22,29 +23,19 @@ import {
 import { CreateRecordModal, NewRecordButton } from "./create";
 
 // Tasks (B-EP09.12d): open tasks grouped overdue / today / upcoming / undated
-// by due_at, with complete and snooze (+1 day) actions. Grouping compares
-// UTC instants; the rendering localizes per user zone. B-E16.1 adds the
-// reminder: remind_at rendered on the row, settable and clearable inline,
-// plus the New-task create modal.
+// by due_at, with complete and snooze (+1 day) actions. Both the grouping and
+// the rendering read the day in the reader's own zone (see format/calendarday).
+// B-E16.1 adds the reminder: remind_at rendered on the row, settable and
+// clearable inline, plus the New-task create modal.
 
 type Activity = components["schemas"]["Activity"];
 
 export type TaskGroup = "overdue" | "today" | "upcoming" | "undated";
 
-// The calendar day an instant falls on, in a named zone. `en-CA` is the one
-// locale whose short date is already ISO-ordered, so two of these compare as
-// strings without a second parse.
-function calendarDay(at: Date, zone: string): string {
-  return at.toLocaleDateString("en-CA", { timeZone: zone });
-}
-
-// Which bucket a task belongs in, decided in the READER's zone.
-//
-// It used to compare UTC calendar days while `dueInstant` below mints the wire
-// instant from LOCAL wall time — the two disagreed for any reader west of UTC.
-// Pick "today" in UTC-5 and the instant is today 23:59:59 local, which is
-// tomorrow in UTC, so the task a reader had just filed for today appeared under
-// Upcoming. The zone has to be the same one on both sides of that comparison.
+// Which bucket a task belongs in, decided in the READER's zone — the same zone
+// format/calendarday's `dueInstant` mints the wire instant in. That pairing is
+// the point of the two sitting in one module: a bucket read in a different zone
+// than the pick was made in files a task under a day the reader never chose.
 export function groupTask(task: Activity, now: Date, zone: string): TaskGroup {
   if (!task.due_at) {
     return "undated";
@@ -59,13 +50,6 @@ export function groupTask(task: Activity, now: Date, zone: string): TaskGroup {
 }
 
 const GROUP_ORDER: TaskGroup[] = ["overdue", "today", "upcoming", "undated"];
-
-// The date picker yields a local calendar day; the task stays due until that
-// day ends, so the wire instant is the local end of day (an instant at
-// midnight would file a task picked "today" as overdue at breakfast).
-function dueInstant(day: string): string {
-  return new Date(`${day}T23:59:59`).toISOString();
-}
 
 // datetime-local yields zoneless local wall time; the wire wants UTC.
 function reminderInstant(local: string): string {

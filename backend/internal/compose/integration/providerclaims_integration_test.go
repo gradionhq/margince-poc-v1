@@ -113,7 +113,7 @@ func seedMergeSubject(t *testing.T, e *Env, name string) ids.UUID {
 		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO person_email (person_id, email, source, captured_by)
-			 VALUES ( $1, $2, 'manual', 'human:x')`,
+			 VALUES ($1, $2, 'manual', 'human:x')`,
 			personID, personID.String()+"@example.com")
 		return err
 	})
@@ -203,7 +203,7 @@ func TestErasureReachesAnArchivedDuplicatesPurchasedClaims(t *testing.T) {
 		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO person_email (person_id, email, source, captured_by, archived_at)
-			 VALUES ( $1, $2, 'manual', 'human:x', now())`, archived, subjectEmail)
+			 VALUES ($1, $2, 'manual', 'human:x', now())`, archived, subjectEmail)
 		return err
 	}); err != nil {
 		t.Fatal(err)

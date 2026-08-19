@@ -318,4 +318,25 @@ describe("restorePlan", () => {
       }),
     ).toEqual({ kind: "complete" });
   });
+
+  // The state row and the company profile are separate writes and can
+  // disagree. A row claiming completion over an absent profile must reopen the
+  // company act: the onboarding gate sends every route back here while the
+  // profile is missing, so answering "complete" makes the two navigate at each
+  // other until the shell unmounts.
+  it("a completion the company profile does not support reopens the company act", () => {
+    const plan = restorePlan({
+      state: stateRow({ step: "complete" }),
+      profile: null,
+      voice: null,
+      read: null,
+      routeConnect: false,
+    });
+    expect(plan.kind).toBe("start");
+    if (plan.kind !== "start") {
+      throw new Error("expected a start plan");
+    }
+    expect(plan.companyConfirmed).toBe(false);
+    expect(plan.resumeTarget).toBeNull();
+  });
 });

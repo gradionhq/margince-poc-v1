@@ -382,13 +382,15 @@ export const NothingYet: Story = { render: () => <Cards view={empty} /> };
 
 // A connected finance source, shaped exactly like companyfinance.stories.tsx's
 // own `connected` fixture: two stories reading the same wire shape must not
-// drift into two different ideas of what "connected" looks like. The one
-// addition is `net_invoiced_lifetime`, which the strip reads beside
-// `net_invoiced` (FINANCE_READINGS in company360.tsx); companyfinance's
-// fixture never sets it because that card has no lifetime slot to feed.
-// Made larger than the trailing-year figure on purpose: lifetime is
-// everything this account has ever been billed, so it can never read smaller
-// than one year's worth of it.
+// drift into two different ideas of what "connected" looks like. It carries the
+// windows the strip does NOT draw as well as the one it does, because the strip's
+// money slot is a glance at the trailing year and the wire it reads from is the
+// Finance tab's whole summary — a fixture holding only `net_invoiced` could not
+// show that the other figures stay off the row.
+// The lifetime total is larger than the trailing-year one on purpose: lifetime
+// is everything this account has ever been billed, so it can never read smaller
+// than one year's worth of it, and a slot that reached for the wrong window
+// would be visibly wrong rather than plausibly wrong.
 const connectedFinance: FinanceSummary = {
   organization_id: "o-1",
   state: "connected",
@@ -421,12 +423,16 @@ function isRelationshipTypeLabelKey(
   return value in RELATIONSHIP_TYPE_LABELS;
 }
 
-// StateStrip: the record's own KPI row, above the tabs. Withheld is the
-// state this gallery exists for — no seeded demo account carries it, so
-// this story is the only place it renders. Connected is the other state
-// nothing seeded reaches for a story: the demo stack's finance stub always
-// answers `no_connection`, so the money figure and the provider name on its
-// detail line (FinanceStat) never render anywhere else.
+// StateStrip: the record's own readings row, above the tabs — FIVE slots on
+// every account, drawn by the shared StatStrip the person record uses.
+//
+// Three of the four stories are states nothing seeded reaches. Withheld is the
+// whole-strip permission boundary, which no demo account carries. Connected is
+// the money figure and the provider name on its detail line, which the demo
+// stack's finance stub — always `no_connection` — never produces. And Unanswered
+// is the row where four of the five readings are absent: it is the state that
+// proves a slot with nothing to report still draws and still says which reading
+// it is missing, which is precisely what no populated fixture can show.
 //
 // `Strip` itself returns `<StoryProviders>`, so it sits outside the
 // LocaleProvider it renders and cannot call `useT` directly; `StripBody`
@@ -461,22 +467,22 @@ function Strip({
   finance = { organization_id: "o-1", state: "no_connection" },
 }: Readonly<{ view?: View; finance?: FinanceSummary }>) {
   installFetchStub({
-    "GET /me": meRoute({ organization: ["read", "update"] }), // The customer branch's money slots read this directly (FinanceStat) —
-    // the same query the finance card runs — so a customer story with
-    // nothing stubbed here fires a real request the static build has
-    // nowhere to send.
+    "GET /me": meRoute({ organization: ["read", "update"] }), // The customer branch's money slot reads this directly (MoneyStat) —
+    // the same query the finance card and the payment health dimension run —
+    // so a customer story with nothing stubbed here fires a real request the
+    // static build has nowhere to send.
     "GET /organizations/o-1/finance-summary": () => jsonResponse(finance),
   });
   return (
     <StoryProviders>
       {/* Room for the row to use, not a promise about its shape: the strip's
-          column count answers to the VIEWPORT, not to this box. company360.css
-          flips it to three columns at max-width 68rem (1088px), and the render
-          gate shoots at 1024px wide (frontend/scripts/fe-uat.mjs), so the
-          captured screenshot is always the three-column fold rather than the
-          single row a full-width desktop draws. That fold is a real state and
-          worth seeing; the single row is what opening Storybook in a wide
-          window shows. */}
+          column count answers to the VIEWPORT, not to this box.
+          design-system/statstrip.css folds it to three columns at max-width
+          68rem (1088px), and the render gate shoots at 1024px wide
+          (frontend/scripts/fe-uat.mjs), so the captured screenshot is always
+          the three-column fold — five slots as three then two, which is the
+          fold this row is sized for. The single row is what opening Storybook
+          in a wide window shows. */}
       <div style={{ maxWidth: 1200 }}>
         <StripBody view={view} />
       </div>
@@ -489,13 +495,40 @@ export const StateStripPopulated: Story = {
 };
 
 // The customer row with a real accounting connection behind it: the money
-// figure and its provider name (FinanceStat's detail line) instead of the
+// figure and its provider name (MoneyStat's detail line) instead of the
 // "connect your accounting" fallback every other story here shows. The
 // overdue figure is also what pushes HealthSummaryStat's payment dimension
 // to "at_risk" (usePaymentHealth reads the same query), so this is the only
-// story where that fourth slot renders too.
+// story where that slot carries a verdict rather than its denominator.
 export const StateStripConnected: Story = {
   render: () => <Strip view={populated} finance={connectedFinance} />,
+};
+
+// The row with almost nothing to report, and still five slots: no open deals, no
+// expected close, no health section at all, and no finance connection. This is
+// the state where the rule the row is built on is visible — every slot says WHICH
+// reading it has none of, because a slot that vanished would leave the reader
+// unable to tell which one went missing.
+export const StateStripUnanswered: Story = {
+  render: () => (
+    <Strip
+      view={
+        {
+          ...populated,
+          health: undefined,
+          state_strip: {
+            account: { lifecycle: "prospect", relationship_types: [] },
+            commercial: {
+              open_count: 0,
+              stalled_count: 0,
+              priced_count: 0,
+              converted_count: 0,
+            },
+          },
+        } as unknown as View
+      }
+    />
+  ),
 };
 
 export const StateStripWithheld: Story = {

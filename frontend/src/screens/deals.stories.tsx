@@ -12,8 +12,10 @@ import {
 } from "./story-utils";
 
 // FxLine is prop-driven (no fetch/react-query inside) — the deal 360 supplies
-// the amount/currency/rate. Rendered here in its converted state and, since the
-// deal screen only mounts it when a rate exists, a low/zero-rate variant. The
+// the amount/rate and the installation's base currency. Rendered here converted
+// into a euro base, converted into a base that is NOT the euro (the case a
+// hard-coded currency got wrong on every non-euro installation), and with the
+// base still unnamed, where a converted figure cannot be stated at all. The
 // DealScreen stories exercise the offers panel over the shared fetch stub.
 const meta: Meta = {
   title: "Records/Deals",
@@ -28,6 +30,7 @@ export const FxConverted: Story = {
     <LocaleProvider initial="en">
       <FxLine
         amountMinor={100000}
+        baseCurrency="EUR"
         fxRateToBase="0.92"
         fxRateDate="2026-07-01"
         locale="en"
@@ -41,8 +44,23 @@ export const FxNoDate: Story = {
     <LocaleProvider initial="en">
       <FxLine
         amountMinor={250000}
+        baseCurrency="CHF"
         fxRateToBase="1.17"
         fxRateDate={null}
+        locale="en"
+      />
+    </LocaleProvider>
+  ),
+};
+
+export const FxBaseUnknown: Story = {
+  render: () => (
+    <LocaleProvider initial="en">
+      <FxLine
+        amountMinor={250000}
+        baseCurrency={null}
+        fxRateToBase="1.17"
+        fxRateDate="2026-07-01"
         locale="en"
       />
     </LocaleProvider>

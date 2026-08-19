@@ -75,7 +75,7 @@ func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.D
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`,
+			VALUES ($1, 'person', $2)`,
 			activityID, personID); err != nil {
 			return err
 		}

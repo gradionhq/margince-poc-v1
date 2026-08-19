@@ -142,6 +142,10 @@ export const deals = [
     organization_id: "o-brandt",
     status: "open",
     stalled: true,
+    // Every mutable record carries its row version, because the advance and the
+    // patch send it back as their precondition. A fixture without one lets a
+    // write ship unpinned in the test while the real client refuses it.
+    version: 2,
     source: "manual",
     captured_by: "human:u1",
     created_at: "2026-05-01T08:00:00Z",
@@ -159,6 +163,7 @@ export const deals = [
     organization_id: "o-brandt",
     status: "open",
     stalled: false,
+    version: 5,
     source: "manual",
     captured_by: "human:u1",
     created_at: "2026-06-15T08:00:00Z",
@@ -983,8 +988,12 @@ export async function mockApi(
           ...deals[0],
           id: "d-new",
           name: String(body.name),
+          // Echoed, both halves, exactly as the write sent them. A deal created
+          // with no currency comes back with none — a fixture that supplied one
+          // would hide from every e2e run the unpriced deal the real server
+          // returns.
           amount_minor: body.amount_minor ?? null,
-          currency: body.currency ?? "EUR",
+          currency: body.currency ?? null,
           stage_id: String(body.stage_id),
         },
         201,
@@ -1103,10 +1112,47 @@ export async function mockApi(
       );
     }
     if (path === "/deals" && method === "GET") {
-      return json(page(deals));
+      // The LIST reflects the writes too. A detail read that shows the advance
+      // while the list still shows the old stage is a fixture disagreeing with
+      // itself, and the board reads the list.
+      return json(
+        page(deals.map((deal) => ({ ...deal, ...dealPatches[deal.id] }))),
+      );
     }
-    if (path.startsWith("/deals/") && path.endsWith("/advance")) {
-      return json({ ...deals[0], stage_id: "s4", status: "won" });
+    const advanceRoute = /^\/deals\/([^/]+)\/advance$/.exec(path);
+    if (advanceRoute && method === "POST") {
+      // A write is REMEMBERED, not just answered. This handler used to return a
+      // moved stage and version while every later read still served the seed, so
+      // a re-read after an advance handed back the version the write had already
+      // superseded — which the client would then send as its next precondition.
+      //
+      // And it ENFORCES the precondition rather than accepting anything, the way
+      // the lead PATCH above already does: a UI that forgets If-Match, or sends a
+      // version the row has moved past, fails this harness loudly instead of
+      // quietly succeeding. That is the whole point of a fixture standing in for
+      // a server that would refuse.
+      const target = deals.find((deal) => deal.id === advanceRoute[1]);
+      if (!target) {
+        return json({ title: "Not Found" }, 404);
+      }
+      const current = dealPatches[target.id]?.version ?? target.version;
+      if (route.request().headers()["if-match"] !== String(current)) {
+        return json(
+          {
+            title: "Conflict",
+            detail: "version skew — reload and retry",
+            code: "version_skew",
+          },
+          409,
+        );
+      }
+      dealPatches[target.id] = {
+        ...dealPatches[target.id],
+        stage_id: "s4",
+        status: "won",
+        version: current + 1,
+      };
+      return json({ ...target, ...dealPatches[target.id] });
     }
     if (path.startsWith("/deals/") && path.endsWith("/stakeholders")) {
       return json(page([]));
@@ -1303,20 +1349,49 @@ export async function mockApi(
     if (path.startsWith("/reports/")) {
       return json({
         report: "deals-by-stage",
-        plan: { group_by: ["stage_id"] },
-        columns: ["stage_id", "raw_minor", "deal_count"],
+        // The plan echoes what the CLIENT asked for, and the client groups money
+        // by currency. A plan naming one dimension while the rows carry two
+        // describes a request nobody made, and it would let a reader of this
+        // fixture believe a single-dimension total is what the screen receives.
+        plan: { group_by: ["stage_id", "currency"] },
+        // The aliases are the REQUEST's, not this file's taste: the board asks
+        // for `count as deals` and reads `row.deals`, so a row keyed
+        // `deal_count` is a row it counts as nothing — every board column here
+        // reported "0 deals" beside a real card. The weighted total is asked for
+        // on the same request and is the server's own per-deal-rounded figure,
+        // never the raw total scaled by the stage probability.
+        columns: [
+          "stage_id",
+          "currency",
+          "raw_minor",
+          "weighted_minor",
+          "deals",
+        ],
         rows: [
           {
             stage_id: "s1",
             raw_minor: 1_250_000,
-            deal_count: 1,
+            weighted_minor: 250_000,
+            deals: 1,
             currency: "EUR",
           },
           {
             stage_id: "s2",
             raw_minor: 4_800_000,
-            deal_count: 1,
+            weighted_minor: 1_920_000,
+            deals: 1,
             currency: "EUR",
+          },
+          // A SECOND currency in a stage that already has one, because that is
+          // the case the grouping exists for: the board must show this column's
+          // count and refuse its total, and a fixture with one currency per
+          // stage can never tell whether it does.
+          {
+            stage_id: "s2",
+            raw_minor: 22_000_000_000,
+            weighted_minor: 8_800_000_000,
+            deals: 1,
+            currency: "VND",
           },
         ],
       });

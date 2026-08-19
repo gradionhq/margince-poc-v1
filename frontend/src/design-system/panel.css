@@ -25,10 +25,40 @@
   font-weight: var(--fw-medium);
   color: var(--textContent);
 }
-/* Whatever comes after the title — a badge, a button — sits at the far end
- * of the row rather than crowding the title. */
-.panel-head > :last-child:not(h2) {
-  margin-left: auto;
+/* The title and its description are one stacked item, and that item absorbs the
+ * row's free space — so whatever comes after it (a badge, a button, two of
+ * them) sits at the far end rather than crowding the title.
+ *
+ * The push is anchored on the title block rather than on the row's last child.
+ * `:last-child` can only move ONE node, so a pair of actions splits with one of
+ * them still crowding the title, and it identifies an action by NOT being an
+ * `h2` — a test that stops being true the moment the title carries a
+ * description of its own. */
+.panel-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-right: auto;
+}
+
+/* The description reads UNDER the title, not beside it at the same volume: the
+ * title is what a reader scans a page of panels for, and the line under it is
+ * what they read once they have found the one they want. */
+.panel-head-sub {
+  font-size: var(--fs-meta);
+  color: var(--textMeta);
+}
+
+/* A header carrying a description pays for its own vertical interval, and only
+ * then: `min-height` is a floor, so two lines of type otherwise sit against the
+ * hairline above the panel and the border below it, while a title alone — and a
+ * title beside a button — keep the one height the band promises.
+ *
+ * Presence-based rather than a modifier class the component remembers to set,
+ * so the markup and the spacing cannot disagree about whether there is a
+ * description, which is the same reason the seam rule below is adjacency. */
+.panel-head:has(.panel-head-sub) {
+  padding-block: var(--space-3);
 }
 
 .panel-body {

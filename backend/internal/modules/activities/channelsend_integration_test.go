@@ -116,7 +116,7 @@ func (e *sendEnv) linkPerson(t *testing.T, anchor ids.ActivityID, name string) i
 	}
 	if _, err := e.owner.Exec(ctx,
 		`INSERT INTO activity_link (activity_id, entity_type, person_id)
-		 VALUES ( $1, 'person', $2)`, anchor, person); err != nil {
+		 VALUES ($1, 'person', $2)`, anchor, person); err != nil {
 		t.Fatalf("linking the person: %v", err)
 	}
 	return person

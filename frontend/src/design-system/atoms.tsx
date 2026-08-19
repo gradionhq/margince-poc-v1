@@ -710,6 +710,7 @@ export function StatCard({
   source,
   alert,
   dot,
+  numeric,
 }: Readonly<{
   label: string;
   value: string;
@@ -732,20 +733,32 @@ export function StatCard({
   // own: the colour and the decision to show it at all come from the same
   // judgement, so a fine verdict can never carry a leftover dot.
   dot?: boolean;
+  // The reading is a FIGURE — money, a count, a duration — so it draws in the
+  // mono face, where digits share one width and a column of readings lines up
+  // instead of shifting slot to slot with every comma.
+  //
+  // A flag rather than a `ReactNode` value: the value stays a string this
+  // component owns the type of. Widened to a node, the face would be the
+  // caller's to spell, and a screen that spells type is the second author of a
+  // scale this tier owns — which is also markup arriving at a slot the copy and
+  // colour gates read as a string.
+  numeric?: boolean;
 }>) {
+  const valueClass = [
+    "stat-card-value",
+    "t-h3",
+    numeric ? "t-mono" : "",
+    tone ? `stat-card-${tone}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <section className={alert ? "stat-card stat-card-alert" : "stat-card"}>
       <span className="stat-card-label t-caption">
         {label}
         {source && <span className="stat-card-source">{source}</span>}
       </span>
-      <span
-        className={
-          tone
-            ? `stat-card-value t-h3 stat-card-${tone}`
-            : "stat-card-value t-h3"
-        }
-      >
+      <span className={valueClass}>
         {dot && tone && (
           <span
             className={`stat-card-dot stat-card-dot-${tone}`}

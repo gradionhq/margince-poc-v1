@@ -44,5 +44,5 @@ body:
       options:
         - label: >-
             No secrets, no customer or personal data, no local filesystem paths,
-            and no private specification paths or contents.
+            and nothing quoted from a private document.
           required: true

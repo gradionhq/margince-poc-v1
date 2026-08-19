@@ -87,6 +87,14 @@ export const Buttons: Story = {
           <button type="button" className="link-button">
             View existing
           </button>
+          {/* With an icon: lucide hands over a 24px glyph, so without a size
+              rule on the class this label wrapped underneath its own icon.
+              Compare the glyph here with the one in the buttons above — one
+              size, owned by the control rather than by the call site. */}
+          <button type="button" className="link-button">
+            <Plus aria-hidden />
+            Add another
+          </button>
         </div>
       </div>
       <div style={stack}>
@@ -548,6 +556,16 @@ export const Cards: Story = {
           detail="2 stalled for over 30 days"
         />
         <StatCard label="Owner" value="Carol Wagner" />
+        {/* `numeric`: a money reading draws in the mono face, so the digits
+            share one width and a column of figures lines up. The flag lives
+            here rather than a wrapped node in the value, which would make the
+            screen the author of type this tier owns. */}
+        <StatCard
+          label="Won lifetime"
+          value="€1,284,500.00"
+          numeric
+          detail="Across 14 closed deals"
+        />
       </div>
     </div>
   ),

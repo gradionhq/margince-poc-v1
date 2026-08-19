@@ -18,8 +18,7 @@
 //
 // It is in the shared tier because two of the four callers are modules
 // (activities, signals) that sit below composition and may not import a
-// sibling (specs/subsystems/drafting.md, "Where it lives"). Stdlib-only, so it
-// stays a Tier-0 leaf.
+// sibling. Stdlib-only, so it stays a Tier-0 leaf.
 package draftfloor
 
 import (

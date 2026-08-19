@@ -100,6 +100,21 @@ const (
 	aliasCount = "count"
 )
 
+// moneyDefaultBy is the DEFAULT grouping of a report whose default plan sums
+// money: the report's own dimension, then currency (REPORT-VOCAB-1).
+//
+// Currency belongs in the default grouping and not merely in the vocabulary.
+// amount_minor is a minor-unit integer in the deal's own currency, so a total
+// spanning currencies is a number with no unit — the sum data-semantics §1 r4
+// forbids outright and AC-DS-FX1 fails by construction. The default plan is
+// the one an agent calls first and a screen renders unattended, so a currency
+// split a caller has to opt into leaves that path adding dong to euros.
+// Grouping makes every total mean something; converting to one base currency
+// is the frozen-FX roll-up, a different and larger capability.
+func moneyDefaultBy(dimension string) []string {
+	return []string{dimension, fieldCurrency}
+}
+
 type reportAggregate struct {
 	Fn    string `json:"fn"`
 	Field string `json:"field,omitempty"`
@@ -164,14 +179,28 @@ const reportZoneToken = "<<installation-timezone>>"
 // are never UUIDs, so saved-report ids cannot collide.
 var prebuiltReports = map[string]reportSpec{
 	"open-deals-per-company": {
-		entity:     datasource.EntityDeal,
-		table:      tableDeal,
-		baseWhere:  "t.archived_at IS NULL AND t.status = 'open'",
-		basePlain:  "live (unarchived) open deals",
-		dimensions: map[string]string{fieldOrganizationID: colOrganizationID, fieldOwnerID: colOwnerID},
-		measures:   map[string]string{fieldAmountMinor: colAmountMinor},
-		filters:    map[string]string{fieldOwnerID: colOwnerID, fieldPipelineID: colPipelineID},
-		defaultBy:  []string{fieldOrganizationID},
+		entity:    datasource.EntityDeal,
+		table:     tableDeal,
+		baseWhere: "t.archived_at IS NULL AND t.status = 'open'",
+		basePlain: "live (unarchived) open deals",
+		// Currency is a dimension AND a filter because amount_minor is a
+		// measure here: a caller summing money on this key has to be able to
+		// split it by currency. It stays OUT of defaultBy, unlike the two
+		// reports below — this key's default plan counts deals and sums
+		// nothing, so a currency split would multiply its rows while reporting
+		// no more than it does now.
+		dimensions: map[string]string{
+			fieldOrganizationID: colOrganizationID,
+			fieldOwnerID:        colOwnerID,
+			fieldCurrency:       colCurrency,
+		},
+		measures: map[string]string{fieldAmountMinor: colAmountMinor},
+		filters: map[string]string{
+			fieldOwnerID:    colOwnerID,
+			fieldPipelineID: colPipelineID,
+			fieldCurrency:   colCurrency,
+		},
+		defaultBy: []string{fieldOrganizationID},
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: "open_deals"},
 		},
@@ -209,7 +238,7 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStalled:        deals.StalledSQL("t"),
 			fieldCurrency:       colCurrency,
 		},
-		defaultBy: []string{fieldStageID},
+		defaultBy: moneyDefaultBy(fieldStageID),
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: aliasDeals},
 			{Fn: aggFnSum, Field: fieldAmountMinor, As: "amount_minor_sum"},
@@ -266,7 +295,7 @@ var prebuiltReports = map[string]reportSpec{
 			"forecast_category": forecastCategoryExpr,
 			fieldCurrency:       colCurrency,
 		},
-		defaultBy: []string{"forecast_category"},
+		defaultBy: moneyDefaultBy("forecast_category"),
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: aliasDeals},
 			{Fn: aggFnSum, Field: fieldAmountMinor, As: "unweighted_minor"},
