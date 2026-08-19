@@ -441,7 +441,13 @@
   position: relative;
   display: flex;
 }
-.rail.collapsed .ws {
+/* Collapsed, the brand's words have no width, so the gap that separated them
+   from the logomark would be a 9px indent on a centred glyph.
+   `:not(.sheetopen)` rather than a restatement in the phone block below: the
+   sheet is 600px wide and spells the name out whatever the desktop rail was left
+   at, and a rule that closed the gap there put the name against the mark. Scoped
+   here, the gap has ONE spelling and the sheet cannot fall out of step with it. */
+.rail.collapsed:not(.sheetopen) .ws {
   gap: 0;
 }
 
