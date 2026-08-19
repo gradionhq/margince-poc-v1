@@ -994,7 +994,14 @@ describe("recovering from a rejected confirm", () => {
     // The re-check landed a read that still has nothing to confirm, so the
     // block stands: re-arming here would send the identical submission back
     // into the identical 409.
-    await vi.waitFor(() => expect(retry).toBeEnabled());
+    //
+    // Waited on `aria-busy` rather than on the control being enabled: a
+    // pending write keeps its button focusable and swallows a second press, so
+    // "enabled" is true the whole way through and the next click would land
+    // inside the look it is meant to follow.
+    await vi.waitFor(() =>
+      expect(retry).not.toHaveAttribute("aria-busy", "true"),
+    );
     expect(continueButton).toBeDisabled();
 
     fireEvent.click(retry);

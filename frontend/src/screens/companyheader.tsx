@@ -67,6 +67,7 @@ export function CompanyPrimaryActions({
   org,
   composerOpen,
   onComposerOpen,
+  archivedReasonId,
 }: Readonly<{
   org: Organization;
   // The composer's open state belongs to the PAGE, not to this button: the
@@ -75,19 +76,29 @@ export function CompanyPrimaryActions({
   // privately, which is what kept the rail rendering underneath it.
   composerOpen: boolean;
   onComposerOpen: (open: boolean) => void;
+  // The sentence the caller states once for the whole action strip. Both groups
+  // in that strip refuse for the same reason, so the reason is the page's to
+  // say — a component that minted its own would put a second copy of one fact
+  // on screen the moment the other group drew its own.
+  archivedReasonId?: string;
 }>) {
-  const t = useT();
-  const archivedId = useId();
   // An archived record takes no new activity — the write is refused
   // server-side — so all three verbs are refused rather than removed. Removing
   // them told a reader nothing: an absent button reads as a build without the
   // feature, and this account has the feature and will not accept it. One
   // sentence for the three of them, because it is one fact about the record.
-  const archived = org.archived_at ? archivedId : undefined;
+  const t = useT();
+  const ownReasonId = useId();
+  // The caller's id when it has stated the sentence for the whole strip, our
+  // own when nobody has. The refusal never depends on being handed one: a
+  // caller that forgot would otherwise turn an archived account back into one
+  // that LOOKS writable, which is worse than saying it twice.
+  const reasonId = archivedReasonId ?? ownReasonId;
+  const archived = org.archived_at ? reasonId : undefined;
   return (
     <>
-      {archived && (
-        <p className="t-caption" id={archivedId}>
+      {archived && !archivedReasonId && (
+        <p className="t-caption" id={ownReasonId}>
           {t("record.archivedReadOnly")}
         </p>
       )}
@@ -460,12 +471,15 @@ export function CompanyActionBadges({
   onOpenHistory,
   onSetUpPartner,
   onOpenDecisions,
+  archivedReasonId,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   onOpenHistory: () => void;
   onSetUpPartner: () => void;
   onOpenDecisions?: () => void;
+  // Stated by the caller for the whole strip; see CompanyPrimaryActions.
+  archivedReasonId?: string;
 }>) {
   const t = useT();
   const overlay = useSorMode() === "overlay";
@@ -478,8 +492,11 @@ export function CompanyActionBadges({
   // it has been put away.
   //
   // Undefined on a live account, which is what leaves those verbs pressable.
-  const archivedReasonId = useId();
-  const refusedByArchive = org.archived_at ? archivedReasonId : undefined;
+  // See CompanyPrimaryActions: the id is an override, never what decides
+  // whether these verbs are refused.
+  const ownReasonId = useId();
+  const menuReasonId = archivedReasonId ?? ownReasonId;
+  const refusedByArchive = org.archived_at ? menuReasonId : undefined;
   return (
     <>
       {/* What the company IS to us. Where it STANDS is a separate question,
@@ -498,13 +515,8 @@ export function CompanyActionBadges({
           and the sentence refusing them travels with them. Only a panel with
           no items at all would be worth hiding. */}
       <OverflowMenu label={t("record.moreActions")}>
-        {/* Stated ONCE at the head of the menu it refuses, so the items below
-            point at this element by id rather than each printing the same
-            line. It sits here rather than in the page's header band because
-            the band belongs to the caller (organizations.tsx) while these
-            verbs and their one reason belong together. */}
-        {org.archived_at && (
-          <p id={archivedReasonId} className="t-caption">
+        {org.archived_at && !archivedReasonId && (
+          <p id={ownReasonId} className="t-caption">
             {t("record.archivedReadOnly")}
           </p>
         )}

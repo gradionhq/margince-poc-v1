@@ -191,7 +191,7 @@ function RefusalNotice({
           <Button
             small
             variant="ghost"
-            disabled={refusal.retry.busy}
+            pending={refusal.retry.busy}
             onClick={refusal.retry.run}
           >
             {t("common.retry")}
