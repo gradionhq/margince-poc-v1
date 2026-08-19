@@ -317,57 +317,43 @@ func ensureOrganization(c *client, comp company, dryRun bool) (id string, existe
 	if id, found, err := findOrganization(c, comp); err != nil {
 		return "", false, err
 	} else if found {
+		// A company already on file still gains what the dataset has since
+		// learned. The seeder converges — "improve the crawl and re-seed" is
+		// the supported way to use it — so a field that only ever reached a
+		// CREATE would never arrive at all for the 190 companies already
+		// seeded, which is exactly what happened to the address.
+		if !dryRun {
+			if err := fillOrganizationAddress(c, id, comp); err != nil {
+				return "", false, err
+			}
+		}
 		return id, true, nil
 	}
 	if dryRun {
 		return "", false, nil
 	}
 
-	body := jsonBody{
-		"display_name": comp.displayName(),
-		"source":       seedSource,
-		"domains":      []jsonBody{{"domain": comp.Domain, "is_primary": true}},
-	}
-	addIfSet(body, "legal_name", comp.value("legal_name"))
-	addIfSet(body, "industry", comp.value("industry"))
-	if description := comp.value("offer_summary"); description != "" {
-		body["description"] = truncate(description, 500)
-	}
-
 	var out struct {
 		ID string `json:"id"`
 	}
-	if err := c.post("/v1/organizations", body, &out); err != nil {
+	if err := c.post("/v1/organizations", organizationBody(comp), &out); err != nil {
 		// The duplicate-domain refusal NAMES the record it collided with, so
 		// a second run resolves the company from the server's own answer.
 		// That is more reliable than re-probing: search is
 		// eventually-consistent behind an index, and a company created
 		// moments ago is exactly the case it has not caught up with.
 		if existing, ok := conflictingID(err); ok {
+			// The same convergence the found-by-search path gets: this company
+			// IS already on file, so it must still gain what the dataset has
+			// since learned.
+			if err := fillOrganizationAddress(c, existing, comp); err != nil {
+				return "", false, err
+			}
 			return existing, true, nil
 		}
 		return "", false, err
 	}
 	return out.ID, false, nil
-}
-
-func findOrganization(c *client, comp company) (id string, found bool, err error) {
-	var page struct {
-		Data []struct {
-			ID          string `json:"id"`
-			DisplayName string `json:"display_name"`
-		} `json:"data"`
-	}
-	query := url.Values{"q": {comp.displayName()}, "limit": {"25"}}
-	if err := c.get("/v1/organizations", query, &page); err != nil {
-		return "", false, fmt.Errorf("searching for %s: %w", comp.Domain, err)
-	}
-	for _, row := range page.Data {
-		if strings.EqualFold(row.DisplayName, comp.displayName()) {
-			return row.ID, true, nil
-		}
-	}
-	return "", false, nil
 }
 
 // ensurePerson finds someone by their address and creates them if absent.
