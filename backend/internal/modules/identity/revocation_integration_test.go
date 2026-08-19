@@ -581,6 +581,19 @@ func TestTeamsAreAdministeredAndTheAccessPreviewTellsTheTruth(t *testing.T) {
 	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("adding to an archived team → %v, want ErrNotFound", err)
 	}
+	// The membership rows survive the archive, and stop resolving: the
+	// member's access names no team until the team is restored.
+	archivedAccess, err := e.svc.UserAccess(ctx, e.admin, invited)
+	if err != nil || len(archivedAccess.Teams) != 0 {
+		t.Errorf("access while the team is archived = %d teams (%v), want none", len(archivedAccess.Teams), err)
+	}
+	if _, err := e.svc.UpdateTeam(ctx, e.admin, team.ID, UpdateTeamInput{Archived: boolPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	restoredAccess, err := e.svc.UserAccess(ctx, e.admin, invited)
+	if err != nil || len(restoredAccess.Teams) != 1 {
+		t.Errorf("access after restoring the team = %d teams (%v), want the one", len(restoredAccess.Teams), err)
+	}
 }
 
 func strPtr(s string) *string { return &s }

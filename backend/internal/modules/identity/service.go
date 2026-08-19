@@ -443,8 +443,12 @@ func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UserID) (roles []stri
 		return nil, nil, principal.Permissions{}, err
 	}
 
+	// Live teams only: an archived team keeps its membership rows so a
+	// restore brings them back, but while archived it resolves neither row
+	// scope nor a team share.
 	teamRows, err := tx.Query(ctx,
-		`SELECT team_id FROM team_membership WHERE user_id = $1`, userID)
+		`SELECT tm.team_id FROM team_membership tm JOIN team t ON t.id = tm.team_id AND t.archived_at IS NULL
+		  WHERE tm.user_id = $1`, userID)
 	if err != nil {
 		return nil, nil, principal.Permissions{}, err
 	}
