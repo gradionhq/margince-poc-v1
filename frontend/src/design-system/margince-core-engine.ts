@@ -304,6 +304,7 @@ function runOrbLoop(
   let time = CLOCK_SEED;
   let last = performance.now();
   let frame = 0;
+  let stopped = false;
   let drawnOnce = false;
   let onScreen = true;
   let windowFocused = isWindowFocused();
@@ -334,7 +335,10 @@ function runOrbLoop(
   const seen = () => onScreen && !document.hidden && windowFocused;
 
   const draw = (now: number) => {
-    const dt = Math.min(0.05, (now - last) / 1000);
+    // Floored at zero: a timestamp that goes backwards — a stubbed clock, a
+    // suspended tab, a frame delivered out of order — would otherwise ease every
+    // dot the wrong way down the curve.
+    const dt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
     // Reduced motion holds the clock still, so the composed frame is the state's
     // own rest position rather than a blank orb.
@@ -375,7 +379,11 @@ function runOrbLoop(
   };
 
   const wake = () => {
-    if (frame || !seen()) {
+    // A stopped loop stays stopped. Teardown order is `stop()` then the pointer
+    // release, so a frame the pointer queued before unmount still runs after it
+    // — and without this it would restart a loop that writes to elements React
+    // has already detached.
+    if (stopped || frame || !seen()) {
       return;
     }
     // The clock restarts on resume, so an orb parked for ten minutes continues
@@ -411,7 +419,9 @@ function runOrbLoop(
     lean,
     box: () => box,
     stop: () => {
+      stopped = true;
       cancelAnimationFrame(frame);
+      frame = 0;
       document.removeEventListener("visibilitychange", wake);
       removeEventListener("scroll", remeasure);
       releaseFocus();
@@ -438,6 +448,9 @@ function trackPointer(
   loop: Readonly<{ wake: () => void; lean: Lean; box: () => Box }>,
 ): () => void {
   let queued = false;
+  // Held so teardown can cancel it: an applied frame calls back into the loop,
+  // and one queued a moment before unmount runs a moment after it.
+  let pending = 0;
   let latest: { x: number; y: number } | null = null;
 
   const apply = () => {
@@ -472,7 +485,7 @@ function trackPointer(
       return;
     }
     queued = true;
-    requestAnimationFrame(apply);
+    pending = requestAnimationFrame(apply);
   };
   const onLeave = () => {
     loop.lean.strength = 0;
@@ -484,6 +497,7 @@ function trackPointer(
   addEventListener("pointermove", onMove, { passive: true });
   addEventListener("pointerleave", onLeave);
   return () => {
+    cancelAnimationFrame(pending);
     removeEventListener("pointermove", onMove);
     removeEventListener("pointerleave", onLeave);
   };
@@ -515,14 +529,25 @@ export function useCoreEngine(
     if (elements.length !== DOTS) {
       return;
     }
-    dotsRef.current = elements.map((el) => ({
-      el,
-      x: 0,
-      y: 0,
-      sx: 1,
-      sy: 1,
-      rotation: 0,
-    }));
+    // Kept, not rebuilt, while the same four elements are mounted. A state
+    // change only changes where the dots are GOING; rebuilding them puts all
+    // four back at the centre of the glass and eases them out again, so every
+    // ordinary transition — a page load starting, a save finishing — collapses
+    // the formation into a single blob on its way to the next one.
+    const kept = dotsRef.current;
+    const sameElements =
+      kept.length === elements.length &&
+      kept.every((dot, index) => dot.el === elements[index]);
+    if (!sameElements) {
+      dotsRef.current = elements.map((el) => ({
+        el,
+        x: 0,
+        y: 0,
+        sx: 1,
+        sy: 1,
+        rotation: 0,
+      }));
+    }
     const loop = runOrbLoop(shell, dotsRef.current, state, reduced);
     const releasePointer =
       reduced || !hasFinePointer() ? null : trackPointer(loop);

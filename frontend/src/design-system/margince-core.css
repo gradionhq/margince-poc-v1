@@ -489,7 +489,11 @@
  * rungs exist.
  */
 @container (max-width: 90px) {
-  .core {
+  /* Declared on the SHELL, not on `.core`: `.core` is the container itself, and
+     a container query never matches the element that establishes it — these
+     overrides sat here doing nothing. The shell is the outermost descendant, so
+     everything that reads the triple inherits it from one place. */
+  .core-shell {
     --coreWellRim: color-mix(in srgb, var(--coreC2) 12%, transparent);
     --coreTint: color-mix(in srgb, var(--coreC1) 4%, transparent);
     --coreTintEdge: color-mix(in srgb, var(--coreC2) 8%, transparent);
@@ -500,8 +504,6 @@
     height: 19.5%;
     margin: -9.75% 0 0 -9.75%;
   }
-  /* Two tones, not three: at this size the body tone reads as a shadow between
-     the other dots rather than as a dot of its own. */
   /* One ink, not two: at this size the lighter of the two tones reads as a
      shadow between the other dots rather than as a dot of its own. */
   .core-dot {
@@ -522,7 +524,8 @@
   }
 }
 @container (max-width: 44px) {
-  .core {
+  /* On the shell for the same reason as the rung above. */
+  .core-shell {
     --coreWellRim: color-mix(in srgb, var(--coreC2) 10%, transparent);
     --coreTint: color-mix(in srgb, var(--coreC1) 6%, transparent);
     --coreTintEdge: color-mix(in srgb, var(--coreC2) 8%, transparent);
@@ -675,9 +678,13 @@
 /* ---- reduced motion: the END state, never nothing ----------------------- */
 /*
  * The feed is atmosphere and is the one thing safe to simply remove. The sheen
- * stops where it is, and the engine draws each state's rest composition once and
- * parks: a Core that renders nothing under reduced motion is broken, not
- * accessible.
+ * gives its animation up altogether and falls back to the gradient's own origin
+ * — not the frame it had reached, which is what the window-blurred block above
+ * holds with `animation-play-state`. Pausing is right for a reader who will look
+ * again; a reader who asked for less motion is asking for a still image, and one
+ * that starts from an arbitrary angle is a still image with a memory of movement
+ * in it. The engine draws each state's rest composition once and parks: a Core
+ * that renders nothing under reduced motion is broken, not accessible.
  */
 @media (prefers-reduced-motion: reduce) {
   .core-feed {

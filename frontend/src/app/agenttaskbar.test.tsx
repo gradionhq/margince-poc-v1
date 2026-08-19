@@ -5,12 +5,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   render as rtlRender,
   screen,
   waitFor,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
@@ -244,15 +245,16 @@ const dock = (container: HTMLElement) => {
   return el;
 };
 
-const openPanel = async () => {
+const openPanel = async (user: UserEvent) => {
   const trigger = document.querySelector(".tbhit");
   if (!trigger) throw new Error("no .tbhit trigger in the rendered tree");
-  await userEvent.click(trigger);
+  await user.click(trigger);
 };
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("AgentTaskbar", () => {
@@ -312,12 +314,13 @@ describe("AgentTaskbar", () => {
   // invented, and that is a standing fact said calmly in the runtime row rather
   // than a state the bar treats as broken.
   it("stays dormant on the development AI posture and names it in the runtime row, not as a fault", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({ profile: () => jsonResponse(PROFILE("development")) });
     const { container } = render(ROUTE);
     await waitFor(() =>
       expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
     );
-    await openPanel();
+    await openPanel(user);
     await waitFor(() => {
       const runtime = container.querySelector(".tbmeta")?.textContent ?? "";
       expect(runtime).toContain("Development AI");
@@ -329,6 +332,10 @@ describe("AgentTaskbar", () => {
   // never wired in this deployment (the morning digest answers it on every
   // fresh install), and it must not paint the bar red.
   it("does not go to error when the tool answers 501", async () => {
+    // `dormant` here is on the far side of the reading BUSY_ON/BUSY_OFF
+    // windows in useSteady (app/activity.ts) — real timers would make this
+    // assertion's timing depend on how fast the machine happens to be.
+    vi.useFakeTimers();
     stubTaskbarApi({
       dedupe: () =>
         jsonResponse(
@@ -337,9 +344,11 @@ describe("AgentTaskbar", () => {
         ),
     });
     const { container } = render(ROUTE);
-    await waitFor(() =>
-      expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
-    );
+    // Real timers would need `waitFor` to poll a real setInterval, which
+    // never fires while fake timers are installed — advance past both
+    // useSteady windows directly instead of waiting on wall-clock time.
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    expect(dock(container).getAttribute("data-core-state")).toBe("dormant");
     expect(dock(container).getAttribute("data-core-state")).not.toBe("error");
   });
 
@@ -347,6 +356,10 @@ describe("AgentTaskbar", () => {
   // that outranks every other signal — including a model that is configured
   // and every source that is connected.
   it("goes to error when the tool answers a genuine 5xx", async () => {
+    // Same fake-timer discipline as the 501 case: `failed` outranks the
+    // reading windows, but it still runs inside the same 180/320ms steady
+    // machinery, so the assertion must not lean on the real clock either.
+    vi.useFakeTimers();
     stubTaskbarApi({
       dedupe: () =>
         jsonResponse(
@@ -355,11 +368,29 @@ describe("AgentTaskbar", () => {
         ),
     });
     const { container } = render(ROUTE);
-    await waitFor(() =>
-      expect(dock(container).getAttribute("data-core-state")).toBe("error"),
-    );
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    expect(dock(container).getAttribute("data-core-state")).toBe("error");
     expect(container.querySelector(".tbline")?.textContent).toBe(
       LABELS.unreachable,
+    );
+  });
+
+  // `ingesting` derived off a real read in flight must print the honest
+  // "Loading" label — `barLine` no longer consults `REVIEW_ONLY` for a state
+  // the bar reached on its own; only the switcher's override does. A held
+  // connectors read keeps the bar reading long enough for useSteady's
+  // BUSY_ON_MS window to settle without leaning on the real clock.
+  it("derives ingesting from a real read in flight and never prints the invented count", async () => {
+    vi.useFakeTimers();
+    stubTaskbarApi({ connectors: () => new Promise<Response>(() => {}) });
+    const { container } = render(ROUTE);
+    await act(() => vi.advanceTimersByTimeAsync(600));
+    expect(dock(container).getAttribute("data-core-state")).toBe("ingesting");
+    expect(container.querySelector(".tbline")?.textContent).toBe(
+      LABELS.reading,
+    );
+    expect(container.querySelector(".tbline")?.textContent).not.toBe(
+      REVIEW_ONLY.ingesting,
     );
   });
 
@@ -387,6 +418,7 @@ describe("AgentTaskbar", () => {
   // silent about them unless a reviewer overrides the state by hand — a count
   // nobody asked the bar to act on must not read as the bar acting on it.
   it("reports open duplicates only as a panel row, never as the bar's own state or CTA", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({
       dedupe: () =>
         jsonResponse({ data: [CANDIDATE("d-1"), CANDIDATE("d-2")] }),
@@ -398,7 +430,7 @@ describe("AgentTaskbar", () => {
     expect(container.querySelector(".tbline")?.textContent).toBe(LABELS.idle);
     expect(screen.queryByRole("link", { name: LABELS.decide })).toBeNull();
 
-    await openPanel();
+    await openPanel(user);
     const row = screen.getByRole("link", { name: /^Duplicate pairs open/ });
     expect(row.getAttribute("href")).toBe("#/dedupe");
     expect(row.textContent).toContain("2");
@@ -409,9 +441,10 @@ describe("AgentTaskbar", () => {
   // the approvals fetch ever settles, which is the state a status surface has
   // to be honest in.
   it("prints no count and no approvals row while the approvals read has not answered", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({ approvals: () => new Promise<Response>(() => {}) });
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
     expect(container.querySelector(".tbbadge")).toBeNull();
     expect(
       screen.queryByRole("link", { name: new RegExp(`^${LABELS.approvals}`) }),
@@ -421,6 +454,7 @@ describe("AgentTaskbar", () => {
   // A refusal reads exactly like a read that has not answered — the row must
   // stay absent once the 403 lands too, not just before it.
   it("prints no count and no approvals row when the approvals read is refused", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({
       approvals: () =>
         jsonResponse(
@@ -429,7 +463,7 @@ describe("AgentTaskbar", () => {
         ),
     });
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
     await waitFor(() =>
       expect(
         screen.queryByRole("link", {
@@ -441,13 +475,14 @@ describe("AgentTaskbar", () => {
   });
 
   it("opens the panel on a click of the bar and flips its expanded state", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi();
     const { container } = render(ROUTE);
     expect(container.querySelector(".tbpanel")).toBeNull();
     const trigger = container.querySelector(".tbhit");
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
 
-    await openPanel();
+    await openPanel(user);
     expect(container.querySelector(".tbpanel")).not.toBeNull();
     expect(
       container.querySelector(".tbhit")?.getAttribute("aria-expanded"),
@@ -455,11 +490,12 @@ describe("AgentTaskbar", () => {
   });
 
   it("lets a review-only chip override the derived state with its invented line", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi();
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
 
-    await userEvent.click(screen.getByRole("button", { name: "reasoning" }));
+    await user.click(screen.getByRole("button", { name: "reasoning" }));
     expect(dock(container).getAttribute("data-core-state")).toBe("reasoning");
     expect(container.querySelector(".tbline")?.textContent).toBe(
       REVIEW_ONLY.reasoning,
@@ -477,9 +513,10 @@ describe("AgentTaskbar", () => {
   });
 
   it("says the runtime row is not readable on a seat without automation:update", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({ me: () => jsonResponse(meFixture({ allow: {} })) });
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbmeta")?.textContent).toContain(
         LABELS.unreadable,
@@ -488,9 +525,10 @@ describe("AgentTaskbar", () => {
   });
 
   it("says nothing has run yet when the seat may read /ai/calls and none has", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi();
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbmeta")?.textContent).toContain(
         LABELS.noCallsYet,
@@ -499,6 +537,7 @@ describe("AgentTaskbar", () => {
   });
 
   it("names the served model once a call has actually run", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({
       aiCalls: () =>
         jsonResponse({
@@ -509,7 +548,7 @@ describe("AgentTaskbar", () => {
         }),
     });
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbmeta")?.textContent).toContain(
         `${AI_CALL.provider}/${AI_CALL.served_model}`,
@@ -522,6 +561,7 @@ describe("AgentTaskbar", () => {
   // that leaked the token would tell a salesperson something ran five times
   // and nothing about what.
   it("recaps a call in plain words, not the raw task token", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi({
       aiCalls: () =>
         jsonResponse({
@@ -532,7 +572,7 @@ describe("AgentTaskbar", () => {
         }),
     });
     const { container } = render(ROUTE);
-    await openPanel();
+    await openPanel(user);
     await waitFor(() =>
       expect(screen.getByText(TASK_SAID.capture_classify)).toBeTruthy(),
     );
@@ -544,6 +584,26 @@ describe("AgentTaskbar", () => {
     ).toBe("#/settings/ai");
   });
 
+  // A task named `constructor` is a plain string off the wire, but a bare
+  // lookup into an object answers it from `Object.prototype` with a
+  // function React then tries to render — `saidFor` guards with
+  // `Object.hasOwn` precisely so the recap still shows the humanised token.
+  it("shows the humanised token, not a function, for a task named constructor", async () => {
+    const user = userEvent.setup();
+    stubTaskbarApi({
+      aiCalls: () =>
+        jsonResponse({
+          data: [{ ...AI_CALL, task: "constructor" }],
+          page: emptyPage,
+          payload_capture_enabled: false,
+          tasks: ["constructor"],
+        }),
+    });
+    render(ROUTE);
+    await openPanel(user);
+    await waitFor(() => expect(screen.getByText("constructor")).toBeTruthy());
+  });
+
   // Only a company record serves a 360 read; every other screen must not ask
   // for one at all, not just decline to show it.
   it("never asks for the 360 read when the route is not a company record", async () => {
@@ -551,15 +611,16 @@ describe("AgentTaskbar", () => {
     render(ROUTE);
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     const askedFor360 = fetchMock.mock.calls.some(([request]) =>
-      new URL((request as Request).url).pathname.endsWith("/360"),
+      new URL(request.url).pathname.endsWith("/360"),
     );
     expect(askedFor360).toBe(false);
   });
 
   it("reads the 360 suggestions on a company record, from the same read the company page makes", async () => {
+    const user = userEvent.setup();
     stubTaskbarApi();
     const { container } = render(COMPANY_ROUTE);
-    await openPanel();
+    await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbsect")?.textContent).toContain(
         LABELS.nothingHere,

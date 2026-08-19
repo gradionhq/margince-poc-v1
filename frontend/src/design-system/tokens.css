@@ -102,7 +102,7 @@
   --aiMed: rgba(91, 97, 214, 0.3);
   --aiText: #3f45b0;
 
-  /* The Core's palette — the nine states of the agent orb, and nothing else in
+  /* The Core's palette — the eight states of the agent orb, and nothing else in
    * the product. Read only through the Core's own --coreC1/2/3 triples
    * (margince-core.css); a button in --orbLime is a second accent.
    *

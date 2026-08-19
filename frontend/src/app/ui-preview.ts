@@ -90,14 +90,19 @@ export function uiPreviewResetEnabled(): boolean {
  * is being judged is how it sits under a page that scrolls beside a rail that
  * collapses. Storybook shows the bar; it cannot show that.
  *
- * What it does NOT do: it does not touch the wire. Every number and sentence on
- * it comes from `app/agenttaskbar-fixture.ts` and the panel prints "Example
- * data" above them. Three of its nine states — `ingesting`, `reasoning`,
- * `drafting` — have no endpoint behind them AT ALL: there is no run-progress
- * read in the contract and no stream, which is exactly why the bar is a preview
- * and not a feature. It also SUPPRESSES the Ask FAB while it is on, because the
- * bar's page half is the same offer in the same corner and two of them is a
- * design question answered twice.
+ * What it draws is READ, not invented: approvals waiting, which sources are
+ * unreachable, the open duplicate queue, whether this deployment has a model
+ * bound, the model the last call was served by, and the account's own
+ * suggestions. A read that has not answered draws nothing rather than a zero.
+ *
+ * What makes it a PREVIEW rather than a feature is what it cannot say. Three
+ * states — the overnight run taking captured mail in, traversing the graph,
+ * drafting — have no read behind them at all: the contract serves no run phase
+ * and no stream. Those are reachable only from a switcher inside the panel,
+ * under a heading that says review-only, and the bar never enters one on its
+ * own. The other thing it does is SUPPRESS the page-head dock and the Ask FAB
+ * while it is on, because all three make the same offer and three of them is a
+ * design question answered three times.
  *
  * Read at the call rather than at module load, for the same reason as the
  * switches above.
@@ -122,7 +127,7 @@ export function announceTaskbarPreview(): void {
   }
   warnedTaskbar = true;
   console.warn(
-    "[ui-preview] VITE_UI_PREVIEW_TASKBAR is on: the bottom agent taskbar is drawn for design review. Every count and sentence on it is fixture data (app/agenttaskbar-fixture.ts), no endpoint is called, and its state is chosen by hand in the panel.",
+    "[ui-preview] VITE_UI_PREVIEW_TASKBAR is on: the bottom agent taskbar is drawn for design review, and it takes the page-head dock and the Ask FAB down while it is on. Its counts are read from the API; the states describing an agent run in flight have no read behind them and are reachable only from the review-only switcher in its panel.",
   );
 }
 

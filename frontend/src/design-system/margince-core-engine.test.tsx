@@ -28,6 +28,12 @@ function frameClock() {
   const pending = new Map<number, FrameRequestCallback>();
   let handle = 0;
   let now = 0;
+  // The engine seeds `last` from performance.now() and reads the frame's own
+  // timestamp here, so both have to come off ONE clock. Left unstubbed, every
+  // frame computes a negative delta against the real clock and the easing runs
+  // backwards — which the assertions below would not notice, because they only
+  // ask whether a value moved.
+  vi.spyOn(performance, "now").mockImplementation(() => now);
   vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((cb) => {
     handle += 1;
     pending.set(handle, cb);

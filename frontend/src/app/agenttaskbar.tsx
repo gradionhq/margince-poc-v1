@@ -68,8 +68,6 @@ const AI_SETTINGS_HREF = "#/settings/ai";
 
 /** What the installation can actually tell us, and what it cannot. */
 type Signals = Readonly<{
-  /** The state the reads add up to. */
-  state: MarginceCoreState;
   /** Approvals staged for this human; undefined until the read answers. */
   waiting: number | undefined;
   /** Sources the agent cannot reach, named as the reader knows them. */
@@ -130,8 +128,6 @@ function useSignals(): Signals {
   const duplicates = dedupe.data ? dedupe.data.data.length : undefined;
 
   return {
-    state:
-      offline.length > 0 ? "disconnected" : duplicates ? "flagged" : "dormant",
     // Absent `data` means the read has not answered, or was refused. A 0 here
     // would be this surface inventing an all-clear.
     waiting: approvals.data ? approvals.data.data.length : undefined,
@@ -296,7 +292,11 @@ function PageFindings({
  */
 /** The task in the reader's words, or the token opened up if it is a new one. */
 function saidFor(task: string): string {
-  return TASK_SAID[task] ?? task.replaceAll("_", " ");
+  // `task` comes off the wire, and a bare lookup answers `constructor` from the
+  // prototype chain with a function that React then tries to render.
+  return Object.hasOwn(TASK_SAID, task)
+    ? TASK_SAID[task]
+    : task.replaceAll("_", " ");
 }
 
 /**
@@ -512,10 +512,6 @@ function barLine(
   record: Readonly<{ reading: boolean }>,
   devLine: string,
 ): string {
-  const invented = REVIEW_ONLY[state];
-  if (invented) {
-    return invented;
-  }
   if (state === "ingesting") {
     return record.reading ? LABELS.readingRecord : LABELS.reading;
   }
@@ -636,7 +632,12 @@ export function AgentTaskbar({ route }: Readonly<{ route: Route }>) {
         <MarginceCoreScene state={state} feed={false} className="tborb" />
         <ScopeChip route={route} scope={scope?.label} />
         <span className="tbline">
-          {barLine(state, signals, record, t("auth.coreDevelopment"))}
+          {/* The invented lines belong to the switcher and to nothing else. Read
+              off `state`, they would print "Reading 128 captured items" every
+              time a real query fetched — an invented count over live work, which
+              is the one thing this surface must never do. */}
+          {(override && REVIEW_ONLY[override]) ??
+            barLine(state, signals, record, t("auth.coreDevelopment"))}
         </span>
         {cta ? (
           <a className="tbgo" href={cta.href}>

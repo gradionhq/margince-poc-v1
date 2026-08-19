@@ -20,16 +20,18 @@ import "./margince-core.css";
  *    properties is configuration; anything past that is a caller restyling a
  *    shared primitive.
  *  - **The state list is closed** (WDS-CORE-2), and it is the AGENT'S WORK
- *    LIFECYCLE: dormant → ingesting → reasoning → drafting → staged → applied,
- *    plus the three ways it stops (flagged, disconnected, error). Callers use the
+ *    LIFECYCLE: dormant → ingesting → reasoning → drafting → applied, plus the
+ *    three ways it stops (flagged, disconnected, error). Callers use the
  *    Core as a status channel, and a status channel with an open vocabulary is one
  *    nobody can test and no second caller can reuse. There is no `listening` or
  *    `speaking`: Margince's agent runs overnight over captured activity and
  *    stages proposals a human confirms — it never holds a conversation, and a
  *    state naming one would be the product claiming something it does not do.
  *  - **State is MOTION first** (`margince-core-motion.ts`), colour second
- *    (`margince-core.css`). One movement archetype per state, so the eight that
- *    share the palette's green are still eight distinguishable things.
+ *    (`margince-core.css`). One movement archetype per state, so the five that
+ *    share the palette's green — the whole run from rest to applied — are still
+ *    five distinguishable things. Only the three that stop leave the green:
+ *    amber for `flagged`, grey for `disconnected`, red for `error`.
  *  - **It is `aria-hidden`** (WDS-CORE-4). Every state it shows is also stated in
  *    text by the surface around it, which is what makes it safe to be this
  *    decorative — and why it carries no click: the dock's own button owns that.

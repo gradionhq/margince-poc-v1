@@ -84,7 +84,14 @@ function presenceState(
 ): MarginceCoreState {
   if (
     props.mode === "website" &&
-    (props.error || props.read?.status === "failed")
+    (props.error ||
+      // Every status this screen counts as failure, not just the one named
+      // `failed`: an abandoned read is a read that did not finish either, and
+      // it fell through to the resting fallback below, where the orb said the
+      // surface was waiting on a person when it was actually broken.
+      (props.read !== null &&
+        props.read !== undefined &&
+        failedStatuses.has(props.read.status)))
   ) {
     return "error";
   }

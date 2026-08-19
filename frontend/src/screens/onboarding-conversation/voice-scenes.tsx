@@ -3,7 +3,10 @@ import type { ChangeEvent, ReactNode, RefObject } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { Button, Disclosure } from "../../design-system/atoms";
-import { MarginceCoreScene } from "../../design-system/margince-core";
+import {
+  MarginceCoreScene,
+  type MarginceCoreState,
+} from "../../design-system/margince-core";
 import { usePrefersReducedMotion } from "../../design-system/motion";
 import { useT } from "../../i18n";
 import type { VoiceInsightsData } from "../voice-insights";
@@ -27,6 +30,21 @@ const BUILD_STAGES: readonly BuildStage[] = [
   "evaluate",
   "activate",
 ];
+
+/**
+ * What the Core shows while a voice build runs.
+ *
+ * The build IS the lifecycle in miniature — corpus taken in, weighed, then
+ * written into a profile — and holding the orb on one state through all four
+ * spends the vocabulary's whole point: eight distinguishable formations, showing
+ * one. A queued build with no stage yet has nothing to claim and rests.
+ */
+const BUILD_STAGE_STATE: Readonly<Record<BuildStage, MarginceCoreState>> = {
+  snapshot: "ingesting",
+  extract: "ingesting",
+  evaluate: "reasoning",
+  activate: "drafting",
+};
 
 const stageLabelKeys = {
   snapshot: "ob.conv.build.snapshot",
@@ -454,7 +472,11 @@ export function VoiceBuildScene({
   return (
     <div className="ob-scene ob-voice-building">
       <div className="ob-voice-orb">
-        <MarginceCoreScene state="reasoning" progress={progress} feed={false} />
+        <MarginceCoreScene
+          state={stage === null ? "dormant" : BUILD_STAGE_STATE[stage]}
+          progress={progress}
+          feed={false}
+        />
         {/* Decorative: the stage checklist below and the rail's own log
             (role="log" in ConversationThread) already carry the build's
             progress in words, so the crawling digits stay out of the a11y
