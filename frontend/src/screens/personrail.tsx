@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Mail, Phone } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -33,6 +33,7 @@ import {
 import { useT } from "../i18n";
 import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
+import { stillHeld, today } from "./employmentcurrency";
 import { interactionIcon } from "./interactionchrome";
 import { consentWord } from "./personstrip";
 import { personTabRoute } from "./persontab";
@@ -399,18 +400,6 @@ async function searchOrganizationCandidates(
   return data.data.map((org) => ({ id: org.id, name: org.display_name }));
 }
 
-// stillHeld mirrors people.EmploymentIsCurrentSQL: a job is theirs while its end
-// date is still ahead, so a recorded notice period counts and a date that has
-// arrived does not. Compared as DATES — the projection carries a timestamp and
-// the server compares against `current_date` — because comparing instants would
-// disagree with the server for the hours either side of midnight.
-function stillHeld(employment: Employment): boolean {
-  if (!employment.ended_at) {
-    return true;
-  }
-  return employment.ended_at.slice(0, 10) > todayDate();
-}
-
 // Person360Employment is the 360's own projection of an employment edge — it
 // carries `relationship_id` but not the relationship row's own `version`, and
 // there is no `GET /relationships/{id}` in the contract to re-read one by id
@@ -475,10 +464,6 @@ async function patchEmployment(
   }
 }
 
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 // The four writes the Companies section makes, sharing one invalidation:
 // person360 is what this section itself reads its rows from, and personBrief
 // comes with it because the brief's first sentence names the employer. The
@@ -509,7 +494,7 @@ function useEmploymentActions(personId: string) {
   });
   const end = useMutation({
     mutationFn: (employment: Employment) =>
-      patchEmployment(employment, personId, { ended_at: todayDate() }, t),
+      patchEmployment(employment, personId, { ended_at: today() }, t),
     onSuccess: invalidate,
   });
   const update = useMutation({
@@ -556,7 +541,9 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Employment | null>(null);
   const employments = [...(view.employments?.data ?? [])].sort(
-    (a, b) => Number(b.is_current_primary) - Number(a.is_current_primary),
+    (a, b) =>
+      Number(b.is_current_primary && stillHeld(b)) -
+      Number(a.is_current_primary && stillHeld(a)),
   );
   // Every org this person already has a live edge to — the 360 projection
   // drops an edge the moment it is removed, so this list IS the live set,
@@ -711,7 +698,7 @@ function EmploymentRow({
           ) : (
             <span className="inlinetext">{t("field.unset")}</span>
           )}
-          {employment.is_current_primary && (
+          {employment.is_current_primary && stillHeld(employment) && (
             <span className="pe-rail-value-good">{t("rel.current")}</span>
           )}
         </span>
@@ -802,6 +789,18 @@ function AddEmploymentModal({
   // and `hasCurrentEmployment` is read off the same rows that rule reads, so the
   // two agree by construction rather than by being maintained in step.
   const [isCurrent, setIsCurrent] = useState(!hasCurrentEmployment);
+  // useState only reads its initial value ONCE, and this modal is mounted for
+  // the life of the section rather than remounted per open. So the default has
+  // to be re-taken every time it opens, or it answers a question about the rows
+  // as they were the first time the section rendered: end the only employment,
+  // reopen, and the box would still be unticked because the initializer had
+  // already run — writing an explicit `false` for the person's one current job,
+  // which is the whole defect this default exists to prevent.
+  useEffect(() => {
+    if (open) {
+      setIsCurrent(!hasCurrentEmployment);
+    }
+  }, [open, hasCurrentEmployment]);
   const [allConnected, setAllConnected] = useState(false);
 
   // Wraps the shared org search with this person's own already-connected
@@ -826,7 +825,6 @@ function AddEmploymentModal({
   function close() {
     setOrg(null);
     setRole("");
-    setIsCurrent(!hasCurrentEmployment);
     setAllConnected(false);
     create.reset();
     onClose();

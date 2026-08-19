@@ -208,18 +208,23 @@ function mount(view: Person360) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  const tree = (shown: Person360) => (
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">
         <PersonRail
-          view={view}
+          view={shown}
           guard={undefined}
           firstName="Dana"
           onExplain={() => {}}
         />
       </LocaleProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const { rerender } = render(tree(view));
+  // Re-rendering the SAME tree with different rows, which is what the record
+  // page does when its query refetches. Mounting a fresh one would reset the
+  // state a caller may be trying to observe surviving.
+  return { rerender: (shown: Person360) => rerender(tree(shown)) };
 }
 
 beforeEach(() => {
@@ -598,6 +603,25 @@ describe("adding a company", () => {
     const body = await employmentBody();
     expect("is_current_primary" in body).toBe(true);
     expect(body.is_current_primary).toBe(false);
+  });
+
+  it("re-takes the default every time it opens, not once", async () => {
+    // `useState` reads its initializer ONCE and this modal never remounts, so a
+    // default taken at first render answers a question about the rows as they
+    // were then. Open it for somebody who has an employer (unticked), close it,
+    // and reopen after that employer is gone: the box has to be ticked, or the
+    // save states a `false` about a person with no current job — the very thing
+    // the default exists to prevent.
+    const user = driver();
+    const { rerender } = mount(granted);
+    await screen.findByRole("button", { name: "Add company" });
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+    expect(currentEmployerTicked()).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    rerender(emptyButGranted);
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+    expect(currentEmployerTicked()).toBe(true);
   });
 
   it("starts unticked for somebody who already has a current job", async () => {

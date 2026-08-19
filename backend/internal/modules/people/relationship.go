@@ -264,17 +264,25 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 		if in.IfVersion != nil && *in.IfVersion != current.Version {
 			return apperrors.ErrVersionSkew
 		}
-		// Not for an employment this patch leaves ended, and not for one that
-		// already was: the UPDATE below refuses such a row the flag, so
-		// demoting the incumbent for it would clear the person's primary
-		// employer and put nothing in its place.
+		// The incumbent is demoted only when the patched row will actually HOLD
+		// the flag, and that test lives in the statement beside the one that
+		// grants it. Read as a Go condition it drifted: `current.EndedAt == nil`
+		// refused to demote for a notice period while the UPDATE below happily
+		// granted it the flag, so both rows ended up primary and
+		// uq_rel_current_primary_employer answered 409 for a patch the create
+		// path honours. Two spellings of one rule is how that happens; there is
+		// one now, and it reads the database's clock like its twin.
 		if in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
-			in.EndedAt == nil && current.EndedAt == nil &&
 			current.Kind == "employment" && current.PersonID != nil {
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
-				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL AND id <> $2`,
-				*current.PersonID, id); err != nil {
+				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary
+				  AND archived_at IS NULL AND id <> $2
+				  AND EXISTS (
+					SELECT 1 FROM relationship patched
+					 WHERE patched.id = $2
+					   AND `+EmploymentIsCurrentSQL("coalesce($3, patched.ended_at)")+`)`,
+				*current.PersonID, id, in.EndedAt); err != nil {
 				return err
 			}
 		}

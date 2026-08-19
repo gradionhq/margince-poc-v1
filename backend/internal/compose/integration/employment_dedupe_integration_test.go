@@ -221,6 +221,47 @@ func TestANoticePeriodDoesNotEndSomebodysEmployment(t *testing.T) {
 	}
 }
 
+// Making a notice-period employment the primary one is a patch the create path
+// honours, and the update path refused it with a 409 that named the wrong
+// problem. The demote guard and the statement that grants the flag had drifted:
+// one asked "does this row have an end date", the other "has that date arrived",
+// so for a future date the incumbent was left flagged and the patched row was
+// flagged too — two primaries, and uq_rel_current_primary_employer answering for
+// both.
+//
+// No gate caught it because every existing case patched a row with no end date.
+func TestMakingANoticePeriodEmploymentThePrimaryOneReplacesTheIncumbent(t *testing.T) {
+	e := setupRelationships(t)
+
+	status, incumbent, primary, _ := e.employment(t, e.orgID, apptest.AnyMap{"role": "cto"})
+	if status != http.StatusCreated || !primary {
+		t.Fatalf("the job they hold → %d primary=%t", status, primary)
+	}
+	// A second job, ending in ninety days, not primary yet.
+	status, notice, _, _ := e.employment(t, e.secondOrg(t, "Leaving Soon GmbH"), apptest.AnyMap{
+		"ended_at": e.dbDate(t, 90),
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("the notice-period job → %d", status)
+	}
+
+	// "That one is their main employer now." The create path accepts exactly
+	// this; the patch path must too.
+	var patched struct {
+		IsCurrentPrimary bool `json:"is_current_primary"`
+	}
+	if got := e.Call(t, "PATCH", "/v1/relationships/"+notice,
+		apptest.AnyMap{"is_current_primary": true}, nil, &patched); got != http.StatusOK {
+		t.Fatalf("promoting the notice-period employment → %d, want 200 (a 409 here is the two-primaries bug)", got)
+	}
+	if !patched.IsCurrentPrimary {
+		t.Error("the patch reported success and the flag did not take")
+	}
+	if e.isPrimary(t, incumbent) {
+		t.Error("the incumbent kept the flag as well — two current primary employers is what the index refuses")
+	}
+}
+
 // The flag is written once and nothing rewrites it, so every READER has to ask
 // whether the employment is still theirs. Without that, a notice period keeps
 // counting at the old employer on the day after the last day — and forever after,

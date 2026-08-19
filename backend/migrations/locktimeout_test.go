@@ -57,7 +57,17 @@ var (
 		// LOCK TABLE only in its BLOCKING modes: `IN ACCESS SHARE MODE` conflicts
 		// with nothing a writer does. A bare `LOCK TABLE x;` defaults to ACCESS
 		// EXCLUSIVE, so a statement naming no mode counts.
-		regexp.MustCompile(`(?is)\bLOCK\s+(?:TABLE\s+)?([\w".]+)(?:\s+IN\s+(?:ACCESS\s+EXCLUSIVE|EXCLUSIVE|SHARE\s+ROW\s+EXCLUSIVE|SHARE\s+UPDATE\s+EXCLUSIVE|SHARE)\s+MODE)?\s*(?:;|$)`),
+		// LOCK TABLE in a BLOCKING mode. Split from the no-mode form below rather
+		// than folded into one pattern with an optional mode: an optional group
+		// matches emptily, so `IN ACCESS SHARE MODE` — which conflicts with
+		// nothing a writer does — satisfied it and the gate reported a lock that
+		// endangers no one. ONLY and a table list are both legal; the first table
+		// named is enough to decide whether this file created it.
+		regexp.MustCompile(`(?is)\bLOCK\s+(?:TABLE\s+)?(?:ONLY\s+)?([\w".]+)[^;]*?\bIN\s+(?:ACCESS\s+EXCLUSIVE|EXCLUSIVE|SHARE\s+ROW\s+EXCLUSIVE|SHARE\s+UPDATE\s+EXCLUSIVE|SHARE)\s+MODE`),
+		// LOCK TABLE with NO mode clause, which defaults to ACCESS EXCLUSIVE. The
+		// statement has to END at the table list, which is what keeps this from
+		// also matching the ACCESS SHARE form above.
+		regexp.MustCompile(`(?is)\bLOCK\s+(?:TABLE\s+)?(?:ONLY\s+)?([\w".]+)(?:\s*,\s*[\w".]+)*\s*;`),
 	}
 
 	// unresolvableBlockers act on a pre-existing object whose table this cannot
@@ -103,10 +113,27 @@ var lockTimeoutBaseline = map[string]string{
 var setsLockTimeout = regexp.MustCompile(`(?is)\bSET\s+(LOCAL\s+)?lock_timeout\s*=`)
 
 func TestEveryMigrationTakingABlockingLockBoundsHowLongItWaits(t *testing.T) {
-	// Derived from the embedded tree, not from a list: a namespace added later
-	// is covered without anybody remembering to add it here.
-	for _, namespace := range []string{"core", "custom"} {
+	// Read off the embedded tree rather than listed, so a namespace added later
+	// is covered without anybody remembering this file — the previous version
+	// SAID that while iterating a hardcoded pair, which would have left a third
+	// namespace silently unchecked.
+	entries, err := fs.ReadDir(files, ".")
+	if err != nil {
+		t.Fatalf("reading the embedded migration namespaces: %v", err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		namespace := entry.Name()
 		t.Run(namespace, func(t *testing.T) {
+			// A namespace with no baseline would take the zero value "" and arm
+			// its entire backlog at once, which is a hundred failures that look
+			// like this gate breaking rather than a decision somebody owes.
+			if _, set := lockTimeoutBaseline[namespace]; !set {
+				t.Fatalf("namespace %q has no lockTimeoutBaseline: pick the version this "+
+					"obligation starts at for it, in the same change that adds the namespace", namespace)
+			}
 			dir, err := fs.Sub(files, namespace)
 			if err != nil {
 				t.Fatalf("reading the %s namespace: %v", namespace, err)
@@ -149,9 +176,16 @@ func checkLockTimeouts(t *testing.T, namespace string, dir fs.FS) {
 // bounds nothing.
 func unboundedLock(sql string) string {
 	statements := withoutComments(sql)
-	own := map[string]bool{}
-	for _, m := range createsTable.FindAllStringSubmatch(statements, -1) {
-		own[strings.ToLower(strings.Trim(m[2], `"`))] = true
+	// POSITION matters, not merely presence. `DROP TABLE foo; CREATE TABLE foo …`
+	// mentions a CREATE for `foo` while its first statement takes ACCESS
+	// EXCLUSIVE on the live `foo` — the exact hazard this gate exists for. So a
+	// table counts as the file's own only from the point it is created onward.
+	own := map[string]int{}
+	for _, m := range createsTable.FindAllStringSubmatchIndex(statements, -1) {
+		name := strings.ToLower(strings.Trim(statements[m[4]:m[5]], `"`))
+		if _, seen := own[name]; !seen {
+			own[name] = m[0]
+		}
 	}
 
 	at := firstBlockingIndex(statements, own)
@@ -172,7 +206,7 @@ func unboundedLock(sql string) string {
 // firstBlockingIndex returns where the earliest reportable blocking statement
 // starts, or -1. A statement aimed at a table this same file creates is skipped:
 // nothing else can be holding a lock on a table that did not exist a moment ago.
-func firstBlockingIndex(statements string, own map[string]bool) int {
+func firstBlockingIndex(statements string, own map[string]int) int {
 	earliest := -1
 	note := func(i int) {
 		if i >= 0 && (earliest < 0 || i < earliest) {
@@ -185,7 +219,8 @@ func firstBlockingIndex(statements string, own map[string]bool) int {
 	for _, pattern := range blockingStatements {
 		for _, loc := range pattern.FindAllStringSubmatchIndex(statements, -1) {
 			table := strings.ToLower(strings.Trim(statements[loc[2]:loc[3]], `"`))
-			if !own[table] {
+			createdAt, isOwn := own[table]
+			if !isOwn || loc[0] < createdAt {
 				note(loc[0])
 			}
 		}
@@ -268,6 +303,19 @@ func TestTheLockGateReportsWhatItClaimsTo(t *testing.T) {
 		// And `--` inside a string is data. Truncating there hid every statement
 		// after it, so a file could take a lock the check never saw.
 		{"a quoted double dash", "DO $$ BEGIN PERFORM '--'; ALTER TABLE relationship ADD COLUMN x text; END $$;", true},
+
+		// Creating a table does not retroactively make an earlier lock on the
+		// live one safe. Presence of a CREATE was enough once, which exempted a
+		// drop-and-recreate from the obligation while its first statement took
+		// ACCESS EXCLUSIVE on the table other sessions were still using.
+		{"dropped before it is recreated", "DROP TABLE foo;\nCREATE TABLE foo (id uuid);", true},
+		{"created before it is altered", "CREATE TABLE foo (id uuid);\nALTER TABLE foo ADD COLUMN x text;", false},
+
+		// A bare LOCK defaults to ACCESS EXCLUSIVE, and ONLY and a table list are
+		// both legal spellings that must not slip past.
+		{"a bare lock with no mode", "LOCK TABLE relationship;", true},
+		{"ONLY", "LOCK TABLE ONLY relationship IN SHARE ROW EXCLUSIVE MODE;", true},
+		{"a table list", "LOCK TABLE relationship, person;", true},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
 			reason := unboundedLock(probe.sql)

@@ -40,10 +40,18 @@ func EmploymentIsCurrentSQL(date string) string {
 	return storekit.SQLf("(%s IS NULL OR %s > current_date)", date, date)
 }
 
-// CurrentPrimaryEmploymentSQL is what every reader of `is_current_primary`
-// actually means: the flag AND the employment still being theirs. Spelled once
-// so a new reader cannot trust the flag alone, which is what let somebody go on
-// counting at a company after their last day had passed.
+// CurrentPrimaryEmploymentSQL is what a READER of `is_current_primary` means:
+// the flag AND the employment still being theirs. Spelled once so a new reader
+// cannot trust the flag alone, which is what let somebody go on counting at a
+// company after their last day had passed.
+//
+// READERS, not every mention of the column. The uniqueness guards must stay
+// date-BLIND and deliberately do — `employmentedge.go`, `domaintriageresolve.go`
+// and both merge relink paths ask "is the flag already taken" to keep
+// uq_rel_current_primary_employer satisfied, and that index's own predicate
+// knows nothing about dates. A guard that used this helper would think the slot
+// was free while the index still held it, and answer 409 instead of skipping.
+// Two different questions about one column; this one is "who works there now".
 func CurrentPrimaryEmploymentSQL(alias string) string {
 	prefix := ""
 	if alias != "" {
