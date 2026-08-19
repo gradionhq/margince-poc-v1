@@ -364,15 +364,34 @@ func recordDedupeCandidate(ctx context.Context, tx pgx.Tx, entityType string, a,
 	case entityLead:
 		leftCol, rightCol = "left_lead_id", "right_lead_id"
 	}
-	tag, err := tx.Exec(ctx, fmt.Sprintf(`
+	var candidateID ids.UUID
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
 		INSERT INTO dedupe_candidate (entity_type, %s, %s, confidence, evidence, source, captured_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT DO NOTHING`, leftCol, rightCol),
-		entityType, left, right, confidence, payload, source, by)
+		ON CONFLICT DO NOTHING
+		RETURNING id`, leftCol, rightCol),
+		entityType, left, right, confidence, payload, source, by).Scan(&candidateID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// This pair is already proposed. Nothing was written, so nothing is
+		// audited — a no-op must not mint history.
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("people: recording dedupe candidate: %w", err)
 	}
-	return tag.RowsAffected() > 0, nil
+	// Audited, NOT published. A dedupe candidate is a question the system is
+	// asking about two records, not something that happened to either — nothing
+	// downstream acts on one, and an outbox row nobody consumes would be an
+	// event kind invented to satisfy a rule rather than a reader. What the
+	// audit row buys is the part that was actually missing: who proposed this
+	// merge, when, and on what evidence, on the record's own history rather
+	// than only in operator telemetry.
+	if _, err := storekit.Audit(ctx, tx, "create", "dedupe_candidate", candidateID, nil, map[string]any{
+		"entity_type": entityType, "confidence": confidence, auditKeySource: source,
+	}); err != nil {
+		return false, fmt.Errorf("people: audit the dedupe candidate: %w", err)
+	}
+	return true, nil
 }
 
 // nameColumn renders a parsed name part for the nullable split-name columns.
