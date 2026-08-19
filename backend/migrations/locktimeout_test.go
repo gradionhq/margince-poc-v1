@@ -101,6 +101,9 @@ var (
 // still be prevented. core/1787111736 — the migration that prompted the rule —
 // sits below the baseline and carries the timeout anyway; it is correct because
 // this change fixed it, not because the gate demands it.
+// gatekit:fixture the oldest version this gate binds in each namespace — data,
+// not a cost: a namespace's entry names where the rule starts applying, and the
+// migrations below it are tracked in #1844 rather than excused here.
 var lockTimeoutBaseline = map[string]string{
 	"core":   "1787128083",
 	"custom": "20260817110001",

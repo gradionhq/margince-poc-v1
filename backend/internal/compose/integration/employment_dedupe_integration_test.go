@@ -195,9 +195,9 @@ func TestANoticePeriodDoesNotEndSomebodysEmployment(t *testing.T) {
 	future := e.dbDate(t, 90)
 
 	// Created WITHOUT an end date, so the PATCH below is a real transition into a
-	// notice period rather than a re-statement of what the row already said. The
-	// earlier version created it with the future date and then patched the same
-	// value, which proved nothing about the transition.
+	// notice period rather than a re-statement of what the row already said. A row
+	// that starts with the future date and is then patched to the same value never
+	// crosses the boundary this test is about.
 	status, edge, primary, _ := e.employment(t, e.orgID, apptest.AnyMap{"role": "cto"})
 	if status != http.StatusCreated {
 		t.Fatalf("employment → %d", status)
@@ -229,18 +229,16 @@ func TestANoticePeriodDoesNotEndSomebodysEmployment(t *testing.T) {
 			t.Errorf("employment created already in notice → %d", status)
 		}
 	}
-
 }
 
-// Making a notice-period employment the primary one is a patch the create path
-// honours, and the update path refused it with a 409 that named the wrong
-// problem. The demote guard and the statement that grants the flag had drifted:
-// one asked "does this row have an end date", the other "has that date arrived",
-// so for a future date the incumbent was left flagged and the patched row was
-// flagged too — two primaries, and uq_rel_current_primary_employer answering for
-// both.
+// Promoting a notice-period employment demotes the incumbent, on the update path
+// exactly as on the create path. The two halves must ask the same question of a
+// date: the guard that demotes the incumbent and the statement that grants the
+// flag both mean "has that date arrived", never "does this row have a date at
+// all". Ask it two ways and a future date leaves both rows flagged —
+// uq_rel_current_primary_employer then answers for two employments at once.
 //
-// No gate caught it because every existing case patched a row with no end date.
+// Only a patch of a row that ALREADY carries an end date reaches this.
 func TestMakingANoticePeriodEmploymentThePrimaryOneReplacesTheIncumbent(t *testing.T) {
 	e := setupRelationships(t)
 

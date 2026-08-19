@@ -307,13 +307,12 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 			return apperrors.ErrVersionSkew
 		}
 		// The incumbent is demoted only when the patched row will actually HOLD
-		// the flag, and that test lives in the statement beside the one that
-		// grants it. Read as a Go condition it drifted: `current.EndedAt == nil`
-		// refused to demote for a notice period while the UPDATE below happily
-		// granted it the flag, so both rows ended up primary and
-		// uq_rel_current_primary_employer answered 409 for a patch the create
-		// path honours. Two spellings of one rule is how that happens; there is
-		// one now, and it reads the database's clock like its twin.
+		// the flag, so this statement asks the SAME question as the UPDATE below
+		// that grants it — one predicate, EmploymentIsCurrentSQL, read against the
+		// database's clock in both. Spell the rule a second time here (a Go-side
+		// `current.EndedAt == nil`, say) and the two answers part company over a
+		// notice period: this row keeps the flag, the incumbent keeps it too, and
+		// uq_rel_current_primary_employer 409s a patch the create path honours.
 		if in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
 			current.Kind == "employment" && current.PersonID != nil {
 			if _, err := tx.Exec(ctx, `

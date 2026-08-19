@@ -128,8 +128,10 @@ func TestTheNoticePeriodRepairGivesBackOnlyTheFlagsItShould(t *testing.T) {
 		// notice-period employment they marked non-primary on purpose. It looks
 		// exactly like damage except for when it was written, which is why the
 		// repair bounds on the ledger rather than on shape alone.
-		{label: "chosen non-primary later", person: "deliberate", org: "employer",
-			hasEndDate: true, endsInDays: 45, createdAfterTheDamage: true, endsPrimary: false},
+		{
+			label: "chosen non-primary later", person: "deliberate", org: "employer",
+			hasEndDate: true, endsInDays: 45, createdAfterTheDamage: true, endsPrimary: false,
+		},
 
 		// Never touched by 1787111736 — no end date, so no flag was taken. The
 		// repair must not invent one where nothing was lost.
