@@ -29,7 +29,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"sort"
 	"time"
 
@@ -354,98 +353,4 @@ func saveCursor(ctx context.Context, rt extension.Runtime, conn connection, labe
 		}
 		return recordConnection(ctx, tx, extension.AuditUpdate, eventPolled, &conn, &updated)
 	})
-}
-
-// noteFailure records on the row what went wrong, so the screen can say it.
-//
-// The class is this unit's, never the provider's message. Two of the outcomes
-// PARK the connection rather than retrying it, and which one they park as is the
-// distinction the whole error catalog is built around: a credential the provider
-// rejects is fixed by re-authorizing, and a PACKAGE the provider says is too low
-// is fixed by paying for an upgrade. Sending an operator to do one when they need
-// the other is a wasted afternoon in another company.
-func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cause error) error {
-	class, status := failureClass(cause), statusConnected
-	switch {
-	case errors.Is(cause, errUnauthorized):
-		status = statusReauth
-	case errors.Is(cause, errTierTooLow), errors.Is(cause, errAPINotRegistered):
-		status = statusTierLapse
-	}
-	if status != statusConnected {
-		// The TOKEN, not the sentence: the row's column is what the connector
-		// screen filters and greps on, and the sentence is what the job surface
-		// renders. They are two halves of one declared class, so neither surface
-		// can drift into a vocabulary of its own.
-		if _, err := park(ctx, rt, conn, class.Class, status); err != nil {
-			return errors.Join(cause, err)
-		}
-		return nil
-	}
-	err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
-		// On the version this poll READ, so a failure from a tick that started
-		// before an admin re-authorized cannot mark the connection they just
-		// repaired.
-		updated, err := scanConnection(tx.QueryRow(ctx,
-			`UPDATE `+connectionTable+`
-			    SET last_error_class = $2, last_polled_at = now(),
-			        version = version + 1, updated_at = now()
-			  WHERE id = $1::uuid AND version = $3
-			 RETURNING `+connectionColumns, conn.ID, class.Class, conn.Version).Scan)
-		if err != nil {
-			if isNoRows(err) {
-				// The row moved on without this tick. What it learned is about a
-				// connection in a state that no longer exists, and the tick that
-				// moved it will report its own outcome.
-				return nil
-			}
-			return err
-		}
-		// RECORDED, like every other state change on this row. The unit's ledger
-		// header names exactly one exemption — the poll's last_polled_at touch on
-		// an otherwise unchanged row — and this is not it: what is written here is
-		// the class a screen renders, and "when did this start failing" is the
-		// question a human brings to it.
-		return recordConnection(ctx, tx, extension.AuditUpdate, eventPolled, &conn, &updated)
-	})
-	if err != nil {
-		return errors.Join(cause, err)
-	}
-	// The failure is on the row for the screen to render; the tick's own outcome
-	// is the failure, because this installation has exactly one connection and a
-	// tick that could not poll it did not do its job.
-	//
-	// CLASSIFIED on the way out, so the class the row already carries survives the
-	// trip to the job surface too. The job layer refuses to persist a cause's own
-	// text — river_job.errors has no workspace and every admin reads it — and
-	// without the wrapper it had nothing left to report but that the failure could
-	// not be classified. The cause still travels underneath, so errors.Is keeps
-	// working for everything that classifies on the sentinels, and the unit name
-	// stays on the log line the wrapper prints.
-	return extension.Failure(class, fmt.Errorf("zalo-oa: the poll failed: %w", cause))
-}
-
-// failureClass names what went wrong in this unit's own vocabulary — the token a
-// screen filters on and the two sentences an operator reads, as one declared
-// value (failureclasses.go). The provider's text is deliberately not carried: a
-// remote party's prose is not this installation's to display or to publish.
-func failureClass(cause error) extension.FailureClass {
-	switch {
-	case errors.Is(cause, errUnauthorized):
-		return classTokenRejected
-	case errors.Is(cause, errTierTooLow):
-		return classPackageTooLow
-	case errors.Is(cause, errAPINotRegistered):
-		return classAPINotRegistered
-	case errors.Is(cause, errTransient):
-		return classProviderUnavailable
-	case errors.Is(cause, errProvider):
-		return classProviderAnswerUnusable
-	case errors.Is(cause, extension.ErrForbidden):
-		return classMemberNotPermitted
-	case errors.Is(cause, extension.ErrInvalid):
-		return classConnectionUnusable
-	default:
-		return classPollFailed
-	}
 }

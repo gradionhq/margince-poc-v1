@@ -345,6 +345,66 @@ cancel — stopping deliberately is not failing. The check cannot live at the ca
 returns reach a worker through helpers as often as directly, and every routine provider throttle
 would otherwise log as an unclassified failure.
 
+### A transient failure postpones the tick rather than dying
+
+A classified failure still has to answer a second question the class alone does not: does the tick
+**fail**, or does it **run again later**? The two are the same Go type and completely different to an
+operator — a failure spends the child's attempts and becomes dead work on the Maintenance screen,
+while a postponement reschedules the same row and shows nobody anything.
+
+A composed unit cannot return `river.JobSnooze` itself: it is a separate module that may import only
+the allowlisted `pkg/extension` surface. So it asks, with the same declared class it would have failed
+under:
+
+```go
+// zalo-oa: an unreachable provider needs nobody, so the tick runs again instead of dying.
+return extension.Reschedule(classProviderUnavailable, pollRetryDelay, cause)
+```
+
+`jobs.FaultForKind` honours the request only when the class is one this installation **registered for
+the failing kind** — the same rule the sentence is held to, so declaring a class is what buys both
+halves — and clamps the delay to `[1s, 15m]` before it reaches the queue. The floor is not cosmetic:
+River *panics* on a negative duration, so a unit that computed one from a clock would take the worker
+process down rather than fail a tick. The ceiling is about the AGE reading rather than about visibility: a
+`scheduled` row is counted as waiting by both readers, but every "how long has this waited"
+measurement filters `scheduled_at <= now()` — correctly, since nothing scheduled for the future is
+late — so a far-future delay produces a count nobody can age, forever, next to counts a healthy idle
+tick produces too. The ceiling keeps a stuck postponement inside the window where it eventually
+becomes measurable. A clamped request logs what it asked for alongside what it got, or the bound
+would catch the mistake and say nothing about it. A postponement logs at
+WARN with the cause and the delay, because River records no attempt error for a snooze and that line
+plus the unit's own row are the entire trail.
+
+Both shipped connectors ask for their **dispatcher's own cadence** (120s), and the match is the
+design. A postponed child sits in `scheduled`, one of the states the fan-out's uniqueness window
+covers, so while it waits the dispatcher's next insert for that workspace collapses into it — the
+postponement *replaces* the tick it would have raced. An outage therefore changes what a tick reports,
+not how often it runs.
+
+It is deliberately **not a backoff**, and that is a decision about loss rather than about politeness.
+For these connectors poll liveness is a *data-integrity* concern rather than a freshness one — Zalo
+drops messages from its API after roughly nine days with no webhook and no depth to page back to — so
+polling less during an outage widens the window a connector can permanently fall behind by, in
+exchange for saving one request every two minutes against a host that is already refusing. A ladder
+is buildable if a later unit wants one: River keeps a snooze count in the job's own metadata, and the
+job's attempt counter is not it (a snooze *decrements* attempt, by design, so snoozes never exhaust
+retries). What stops a backoff here is the direction, not the absence of a counter.
+
+The **throttle** arm is the one case where "the provider is refusing anyway" is not the argument:
+`errTransient` covers a 429, and a 429 is a reachable provider asking for less traffic. What makes the
+same delay right there is that it is the *healthy* cadence — a throttled tick postponing to 120s puts
+no more load on the provider than a successful one does, and it is strictly gentler than the behaviour
+it replaces, where River's ladder retried within seconds and then discarded the row. Neither connector
+reads `Retry-After`, so a provider naming a longer wait is answered on our clock
+([#1809](https://github.com/gradionhq/margince-poc-v1/issues/1809)); `capture/telegram` already
+honours the interval Telegram names, and is the pattern to follow.
+
+**Only a failure that needs nobody may postpone itself.** A refused credential, a lapsed service
+package, an unregistered API group and an answer the connector cannot read all still become dead work,
+because each of them needs a human. A postponed outage is named on the connector's own settings screen
+instead, which is where `last_error_class` has always been rendered — the row write is unchanged, and
+a postponement that skipped it would turn a noisy outage into a silent one.
+
 **`river_job.errors` is never shown to a human raw.** `jobs.Failure.StoredReason` carries the column
 verbatim and the caller must vet it with `jobs.VettedSentence(s)` before putting it on a wire: a
 worker that bypassed `Fault` stored its raw cause there, and River writes into the column too (its

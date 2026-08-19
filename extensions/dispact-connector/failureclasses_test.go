@@ -173,3 +173,59 @@ func TestAFleetFailureKeepsItsCauseReachable(t *testing.T) {
 		t.Fatalf("the cause does not name how many members failed: %q", cause.Error())
 	}
 }
+
+// TestAFleetWideOutagePostponesTheTickRatherThanFailingIt.
+//
+// This is the disposition the shared classification earns. Every member failing
+// on an unreachable provider is one outage, its own remedy says nobody needs to
+// do anything, and no cursor moved — so a tick that FAILED it would spend the
+// child's attempts and leave dead work behind, at the cadence of the poll, for
+// the length of the outage.
+//
+// The delay is asserted as well as the disposition: a postponement with no gap
+// is a spin against a provider that is already refusing.
+func TestAFleetWideOutagePostponesTheTickRatherThanFailingIt(t *testing.T) {
+	err := fleetFailure([]extension.FailureClass{classProviderUnavailable, classProviderUnavailable})
+
+	in, asked := extension.RescheduleAfter(err)
+	if !asked {
+		t.Fatalf("a fleet that could not reach the provider asked to fail rather than to run again: %v", err)
+	}
+	if in != pollRetryDelay {
+		t.Fatalf("the tick asked to run again in %s, want the dispatcher's own cadence %s", in, pollRetryDelay)
+	}
+}
+
+// TestOnlyTheUnreachableProviderPostponesItself is the asymmetry the change
+// turns on, held over the WHOLE declared set rather than over the one class that
+// motivated it.
+//
+// Every other class needs a human, and the MIXED class needs several: members
+// failing for different reasons is not one outage waiting to clear, it is
+// several problems with several owners, and postponing it would be this unit
+// quietly deciding not to tell any of them. Deriving the expectation from the
+// declared set means a class added later has to make this decision deliberately
+// instead of inheriting whichever branch it happens to fall into.
+func TestOnlyTheUnreachableProviderPostponesItself(t *testing.T) {
+	for _, class := range failureClasses {
+		t.Run(class.Class, func(t *testing.T) {
+			_, asked := extension.RescheduleAfter(dispositionFor(class, errors.New("cause")))
+			want := class.Class == classProviderUnavailable.Class
+			if asked != want {
+				t.Fatalf("class %q postpones = %v, want %v — only a failure that needs nobody may reschedule itself", class.Class, asked, want)
+			}
+		})
+	}
+}
+
+// TestOneMemberFailingOnAnUnreachableProviderStillPostpones.
+//
+// An installation with ONE connected member is the common case, and its whole
+// fleet failing is the same outage a hundred members' would be. Reading the
+// postponement off the shared class rather than off the member count is what
+// makes the two behave alike.
+func TestOneMemberFailingOnAnUnreachableProviderStillPostpones(t *testing.T) {
+	if _, asked := extension.RescheduleAfter(fleetFailure([]extension.FailureClass{classProviderUnavailable})); !asked {
+		t.Fatal("a single-member fleet meeting an unreachable provider asked to fail rather than to run again")
+	}
+}

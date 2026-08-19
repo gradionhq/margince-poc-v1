@@ -128,3 +128,51 @@ func TestAFailedTickCarriesItsClassAndItsCauseToTheJobRunner(t *testing.T) {
 		t.Fatalf("the cause did not survive the classification: %v", err)
 	}
 }
+
+// TestAnUnreachableProviderPostponesTheTickRatherThanFailingIt.
+//
+// This is the disposition the classification earns. The class's own remedy says
+// nobody needs to do anything — the cursor did not move, so the next reachable
+// tick walks the same region and loses nothing — and a tick that FAILED that
+// would spend the child's attempts and leave dead work behind, at the cadence of
+// the poll, for the length of the outage.
+//
+// It asks for the delay AS WELL as the disposition, because a postponement with
+// no gap is a spin against a provider that is already refusing.
+func TestAnUnreachableProviderPostponesTheTickRatherThanFailingIt(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 900})
+	fake := newZaloFake(t)
+	fake.errorCode = codeRateLimited
+
+	err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0)))
+
+	in, asked := extension.RescheduleAfter(err)
+	if !asked {
+		t.Fatalf("a tick that could not reach the provider asked to fail rather than to run again: %v", err)
+	}
+	if in != pollRetryDelay {
+		t.Fatalf("the tick asked to run again in %s, want the dispatcher's own cadence %s", in, pollRetryDelay)
+	}
+}
+
+// TestOnlyTheUnreachableProviderPostponesItself is the asymmetry the change
+// turns on, held over the WHOLE declared set rather than over the one class that
+// motivated it.
+//
+// Every other class needs a human — a refused credential, a lapsed package, an
+// unregistered API group, a demoted authorizing member, an answer this connector
+// cannot read — and postponing any of them would be this unit quietly deciding
+// not to tell anybody. Deriving the expectation from the declared set means a
+// class added later has to make this decision deliberately instead of inheriting
+// whichever branch it happens to fall into.
+func TestOnlyTheUnreachableProviderPostponesItself(t *testing.T) {
+	for _, class := range failureClasses {
+		t.Run(class.Class, func(t *testing.T) {
+			_, asked := extension.RescheduleAfter(dispositionFor(class, errors.New("cause")))
+			want := class.Class == classProviderUnavailable.Class
+			if asked != want {
+				t.Fatalf("class %q postpones = %v, want %v — only a failure that needs nobody may reschedule itself", class.Class, asked, want)
+			}
+		})
+	}
+}
