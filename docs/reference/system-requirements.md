@@ -18,7 +18,7 @@ page does not give sizes for that configuration.
 | **Redis 7.0 to 7.2** | Streams with consumer groups are necessary. **Valkey** is compatible, but we do not test it. |
 | **A reverse proxy that terminates TLS** | Serve the api and the web under one hostname. |
 | **A correct system clock** | Retention, automation triggers and job schedules use the system time. |
-| An S3-compatible object store | Optional. Without an object store, attachments and company logos are not available. All other functions continue. |
+| **An S3-compatible object store** | Attachments, company logos, offer PDFs, file custom fields and CSV import keep their data in it. |
 | Outbound HTTPS | Optional, for some features. The core CRM, authentication and license validation operate fully offline. |
 
 The api, worker and web containers keep no permanent local state. Postgres,
