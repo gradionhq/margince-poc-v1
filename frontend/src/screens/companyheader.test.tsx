@@ -57,6 +57,33 @@ function stub(roster: ReadonlyArray<{ id: string; display_name: string }>) {
   );
 }
 
+// /me answers, /users does not — the header on the first frames of a page load,
+// held still. Nothing waits on a clock: the resolvers are collected so a test
+// can let the roster answer when it wants to assert the settled reading.
+function stubRosterInFlight(): Array<(response: Response) => void> {
+  const answer: Array<(response: Response) => void> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((request: Request) => {
+      if (new URL(request.url).pathname.endsWith("/me")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              user: { id: "u-reader", display_name: "The Reader" },
+              allow: {},
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return new Promise<Response>((resolve) => {
+        answer.push(resolve);
+      });
+    }),
+  );
+  return answer;
+}
+
 // The tag is one span carrying "typed by" and the name as sibling text nodes, so
 // the reading a human gets is the span's whole text — asserting on the name alone
 // would pass on markup that never says what the name is doing there.
@@ -102,5 +129,59 @@ describe("who wrote this record", () => {
     // which is what the generic record reference would have rendered.
     expect(provenanceText()).toBe("typed by a person");
     expect(document.body.textContent).not.toContain("u-author");
+  });
+});
+
+// Who OWNS the record, on the same line and off the same roster read. The owner
+// has three states and the header used to have two: it read the owner through
+// the generic record reference, which paints the id whenever it has no name in
+// hand — so every company page opened with a uuid in its header and swapped it
+// for a name a moment later.
+describe("who owns this record", () => {
+  it("names the owner the roster can resolve", async () => {
+    stub([{ id: "u-owner", display_name: "Mira Voss" }]);
+    renderLine();
+
+    expect(await screen.findByText("Mira Voss")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("u-owner");
+  });
+
+  it("does not call the owner gone while the roster read is still in flight", async () => {
+    const answer = stubRosterInFlight();
+    renderLine();
+
+    // "no longer in the user list" is a claim about a read that came back. Said
+    // over one still running, it reports an owner as departed on the evidence
+    // of nothing having arrived yet.
+    expect(await screen.findByText("Loading…")).toBeTruthy();
+    expect(
+      screen.queryByText("Current owner (no longer in the user list)"),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("u-owner");
+
+    for (const resolve of answer) {
+      resolve(
+        new Response(
+          JSON.stringify({
+            data: [{ id: "u-owner", display_name: "Mira Voss" }],
+            page: { has_more: false, next_cursor: null },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    }
+    expect(await screen.findByText("Mira Voss")).toBeTruthy();
+  });
+
+  it("says the owner is outside the user list once the roster has answered without them", async () => {
+    stub([]);
+    renderLine();
+
+    expect(
+      await screen.findByText("Current owner (no longer in the user list)"),
+    ).toBeTruthy();
+    // An owner the roster cannot name is still not shown as a uuid: waiting
+    // will not resolve them, and their id answers no question a reader has.
+    expect(document.body.textContent).not.toContain("u-owner");
   });
 });

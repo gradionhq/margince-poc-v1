@@ -6,15 +6,18 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ENTITY, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
+import { useT } from "../i18n";
 import { throwProblem } from "./common";
 
 // A cross-record reference rendered as the target's display name plus a
 // backlink to its 360, resolved by id. Records point at each other by id
 // across the contract (owner, counterparty, partner org, deal); showing the
 // raw UUID is honest but unreadable, so this hydrates the name off the record
-// read and links through. The id is the fallback — shown (mono, no link)
-// while the name loads and whenever the lookup can't resolve one — so a
-// reference never renders blank or a dead link.
+// read and links through. A reference that cannot be named renders the id
+// (mono, no link) rather than blank or a dead link — on an audit row or a
+// history entry that id is the one traceable fact left. A reference whose read
+// has not answered YET says so instead, because a name that is coming and a
+// name that is never coming are different facts.
 //
 // `user`/`team` are the one exception to the "resolved name is a link"
 // rule: there is no 360 to send them to, so they resolve off the shared
@@ -109,6 +112,31 @@ export function useEntityName(
   return query.data ?? null;
 }
 
+/**
+ * A reference the page cannot put a name to, in the two readings it has.
+ *
+ * `pending` is a read that has not answered yet, and it is allowed to say so.
+ * Once the read has settled, the id is what is left: on the surfaces that keep
+ * this fallback — an audit row, a history entry, a record the reader may not
+ * open — the id is the one traceable fact, so it stays. What is never honest is
+ * painting that id while the name is still on its way, which is how a record
+ * page came to show a uuid for a moment on every load.
+ */
+function UnnamedRef({
+  id,
+  pending,
+}: Readonly<{ id: string; pending: boolean }>) {
+  const t = useT();
+  if (pending) {
+    return <span className="t-caption">{t("common.loading")}</span>;
+  }
+  return (
+    <span className="t-mono" title={id}>
+      {id}
+    </span>
+  );
+}
+
 function rosterName(kind: RosterKind, entry: User | Team): string | null {
   if (kind === "user") {
     return (entry as User).display_name ?? null;
@@ -138,63 +166,72 @@ export function EntityRef({
   // fallback are unchanged.
   name?: string | null;
 }>) {
-  const isRoster = kind === "user" || kind === "team";
-  // Both queries are called unconditionally (rules of hooks) and gated with
-  // `enabled` instead — only the branch matching `kind` actually fetches, and
-  // neither does when the caller supplied the name.
-  const recordQuery = useQuery({
+  if (!id) {
+    return <span className="t-mono">—</span>;
+  }
+  // Dispatch on the kind rather than running both resolutions and discarding
+  // one. Each branch then owns exactly the read it needs — no query has to be
+  // told to stay switched off, and none can report itself as loading when it
+  // was never going to run — and `kind` narrows here instead of being asserted
+  // inside a body that serves both.
+  if (kind === "user" || kind === "team") {
+    return <RosterRef kind={kind} id={id} name={name} />;
+  }
+  return <RecordRef kind={kind} id={id} name={name} asText={asText} />;
+}
+
+// A workspace user or team: no 360 exists to send the reader to, so a resolved
+// name renders as plain text and the reference never becomes a link.
+function RosterRef({
+  kind,
+  id,
+  name,
+}: Readonly<{ kind: RosterKind; id: string; name?: string | null }>) {
+  // A caller-supplied name wins here exactly as it does for a record: the
+  // connection graph returns its own labels, and falling straight through to
+  // the roster showed the reader a raw uuid until — and unless — /users
+  // resolved it.
+  const roster = useRoster(kind, !name);
+  const match = roster.data?.find((entry) => entry.id === id);
+  const resolved = name || (match ? rosterName(kind, match) : null);
+  if (resolved == null) {
+    return <UnnamedRef id={id} pending={roster.isPending} />;
+  }
+  return <span title={id}>{resolved}</span>;
+}
+
+// A record with a 360 behind it: a resolved name is also the backlink.
+function RecordRef({
+  kind,
+  id,
+  name,
+  asText,
+}: Readonly<{
+  kind: EntityKind;
+  id: string;
+  name?: string | null;
+  asText: boolean;
+}>) {
+  const query = useQuery({
     queryKey: [kind, "ref", id],
-    queryFn: () => fetchEntityName(kind as EntityKind, id ?? ""),
+    queryFn: () => fetchEntityName(kind, id),
     // A caller-supplied name skips the lookup; a blank one does not, because a
     // blank is the caller saying it has nothing rather than saying the record
     // is nameless.
-    enabled: Boolean(id) && !isRoster && !name,
+    enabled: !name,
     // References change rarely relative to the pages that render them; a short
     // cache keeps a 360 from re-fetching the same name on every hover/refetch.
     staleTime: 60_000,
   });
-  const rosterQuery = useRoster(
-    isRoster ? (kind as RosterKind) : "user",
-    Boolean(id) && isRoster && !name,
-  );
-
-  if (!id) {
-    return <span className="t-mono">—</span>;
-  }
-
-  if (isRoster) {
-    const rosterKind = kind as RosterKind;
-    const match = rosterQuery.data?.find((entry) => entry.id === id);
-    // A caller-supplied name wins here exactly as it does for a record: the
-    // connection graph returns its own labels, and falling straight through to
-    // the roster showed the reader a raw uuid until — and unless — /users
-    // resolved it.
-    const resolved = name || (match ? rosterName(rosterKind, match) : null);
-    // No 360 exists for a user/team, so this never becomes a link — only the
-    // id-vs-resolved-name fallback applies.
-    if (resolved == null) {
-      return (
-        <span className="t-mono" title={id}>
-          {id}
-        </span>
-      );
-    }
-    return <span title={id}>{resolved}</span>;
-  }
-
-  // Only a resolved name is a safe link target; an unresolved id (still
-  // loading, or a record the caller can't read) stays plain mono text.
+  // Only a resolved name is a safe link target; a reference with no name —
+  // still loading, or a record the caller can't read — never becomes one.
   //
   // An EMPTY supplied name counts as no name: a record whose display field is
   // blank would otherwise render as a button with nothing in it, which is a
   // link a reader can neither read nor find.
-  const resolved = name || recordQuery.data;
+  const resolved = name || query.data;
   if (resolved == null) {
-    return (
-      <span className="t-mono" title={id}>
-        {id}
-      </span>
-    );
+    return <UnnamedRef id={id} pending={query.isPending} />;
   }
   if (asText) {
     return <span title={id}>{resolved}</span>;
@@ -203,7 +240,7 @@ export function EntityRef({
     <button
       type="button"
       className="entity-link"
-      onClick={() => navigate(ENTITY[kind as EntityKind].route(id))}
+      onClick={() => navigate(ENTITY[kind].route(id))}
       title={id}
     >
       {resolved}
@@ -216,9 +253,11 @@ export function EntityRef({
  *
  * Reads the shared roster cache (one `/users` page, the same entry EntityRef
  * and the Share picker use), so a list of 50 rows costs no extra request. An
- * owner the roster cannot name still renders — as their id, mono — because a
- * row whose owner column is blank reads as unowned, and unowned is a different
- * fact with its own filter.
+ * owner the roster cannot name still renders rather than going blank, because
+ * a blank owner column reads as unowned, and unowned is a different fact with
+ * its own filter — but it renders as the same unnamed reference every other
+ * cross-record reference gets, not as a truncated id, which is a non-answer
+ * that has also lost the ability to be looked up.
  */
 export function OwnerName({
   ownerId,
@@ -232,9 +271,5 @@ export function OwnerName({
   if (named && "display_name" in named) {
     return <span>{named.display_name}</span>;
   }
-  return (
-    <span className="t-mono" title={ownerId}>
-      {ownerId.slice(0, 8)}
-    </span>
-  );
+  return <UnnamedRef id={ownerId} pending={roster.isPending} />;
 }

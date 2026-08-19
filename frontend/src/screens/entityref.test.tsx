@@ -13,8 +13,13 @@ import { LocaleProvider } from "../i18n";
 import { EntityRef } from "./entityref";
 
 // EntityRef (P-4 UUID-legibility): a cross-record reference resolves the
-// target's id to its display name and backlinks to its 360, with the id as
-// the honest fallback while loading or when the lookup can't resolve one.
+// target's id to its display name and backlinks to its 360.
+//
+// A reference with no name has two readings and they are different facts. A
+// read still in flight is going to answer; an id the roster's one page cannot
+// name (#1247) never will. Painting the id for both made every page load show
+// a uuid for a moment, and a uuid a reader sees for a moment reads as corrupt
+// data rather than as a page still loading.
 
 afterEach(() => {
   cleanup();
@@ -107,7 +112,7 @@ describe("EntityRef", () => {
     expect(window.location.hash).toBe("#/leads/l-1");
   });
 
-  it("falls back to the id (no link) when the lookup can't resolve a name", async () => {
+  it("falls back to the id (no link) once the lookup has settled without a name", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse({}, 404)),
@@ -115,6 +120,62 @@ describe("EntityRef", () => {
     render(<EntityRef kind="organization" id="o-404" />);
     await waitFor(() => expect(screen.getByText("o-404")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "o-404" })).toBeNull();
+  });
+
+  it("says a name is on its way while the record read is in flight, and shows the id only once it has settled", async () => {
+    // The resolvers are held rather than the clock: the test decides when the
+    // read answers, so both readings are asserted without waiting on time.
+    const answer: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answer.push(resolve);
+          }),
+      ),
+    );
+    render(<EntityRef kind="organization" id="o-slow" />);
+
+    expect(await screen.findByText("Loading…")).toBeTruthy();
+    expect(screen.queryByText("o-slow")).toBeNull();
+
+    for (const resolve of answer) {
+      resolve(jsonResponse({}, 404));
+    }
+
+    // Settled, the id is what is left, and it is a fact a reader can trace —
+    // unlike the same id shown for a read that had simply not answered yet.
+    await waitFor(() => expect(screen.getByText("o-slow")).toBeTruthy());
+    expect(screen.queryByText("Loading…")).toBeNull();
+  });
+
+  it("says a name is on its way while the roster read is in flight, rather than showing the user's id", async () => {
+    const answer: Array<(response: Response) => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answer.push(resolve);
+          }),
+      ),
+    );
+    render(<EntityRef kind="user" id="u-slow" />);
+
+    expect(await screen.findByText("Loading…")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("u-slow");
+
+    for (const resolve of answer) {
+      resolve(
+        jsonResponse({
+          data: [{ id: "u-slow", display_name: "Priya Shah" }],
+          page: { next_cursor: null, has_more: false },
+        }),
+      );
+    }
+
+    await waitFor(() => expect(screen.getByText("Priya Shah")).toBeTruthy());
   });
 
   it("shows a dash and fetches nothing when the id is absent", () => {
@@ -166,7 +227,7 @@ describe("EntityRef", () => {
     expect(screen.queryByRole("button", { name: "Platform Team" })).toBeNull();
   });
 
-  it("falls back to the mono id (no link) when a user id isn't in the roster", async () => {
+  it("falls back to the mono id (no link) when the settled roster does not carry the user", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (request: Request) => {

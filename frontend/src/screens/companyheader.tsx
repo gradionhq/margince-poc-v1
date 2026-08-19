@@ -274,11 +274,14 @@ export function CompanyOwnerControl({
   // The account's current owner may sit outside the roster's one page — a big
   // workspace, a deactivated user — and a select whose current value is not an
   // option renders blank. Naming them keeps the control honest about who owns
-  // it today even when it cannot resolve them.
+  // it today even when it cannot resolve them. Which sentence is honest depends
+  // on whether the roster has answered: "no longer in the user list" is a claim
+  // about a settled read, and stating it over one still in flight says the
+  // owner is gone when all that is known is that nothing has come back yet.
   if (org.owner_id && !owners.some((user) => user.value === org.owner_id)) {
     owners.unshift({
       value: org.owner_id,
-      label: t("co.owner.notInRoster"),
+      label: roster.isPending ? t("common.loading") : t("co.owner.notInRoster"),
     });
   }
   // "Unowned" is offered only while the account IS unowned. `owner_id` cannot
@@ -299,9 +302,21 @@ export function CompanyOwnerControl({
       options={options}
       canEdit={canUpdate && !readOnlyReason}
       readOnlyReason={readOnlyReason}
-      render={(value) =>
-        value ? <EntityRef kind="user" id={value} /> : t("co.pulse.unowned")
-      }
+      // The closed control reads off the SAME labels the open one offers, so
+      // the header cannot name the owner one way and the editor another. That
+      // is also what keeps the uuid out: reading the owner through the generic
+      // record reference painted the raw id for the first moments of every page
+      // load, and a uuid is not a weaker name — it is a non-answer spelled so
+      // that no reader can use it.
+      render={(value) => {
+        if (!value) {
+          return t("co.pulse.unowned");
+        }
+        return (
+          owners.find((user) => user.value === value)?.label ??
+          t("co.owner.notInRoster")
+        );
+      }}
       onSave={(next) => patch({ owner_id: next })}
     />
   );
