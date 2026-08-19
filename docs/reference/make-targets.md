@@ -181,6 +181,7 @@ exception to it.
 | `craft-residue` | Fail if any unresolved `CRAFT-FIX`/`CRAFT-DISPUTE` review-loop marker is left in the backend tree. CI's `craft-residue` job runs it on **every** non-draft change, docs included |
 | `secret-scan` | No hardcoded credential reaches `main`: gitleaks over a clean `git archive HEAD` export, policy in `.gitleaks.toml`. Scans the committed tree, not the working tree — gitleaks ignores `.gitignore`, so an in-place scan would read a sibling worktree or your real `.env.local` and differ per machine. Installs nothing on your machine and needs no account: `scripts/gitleaks-pin.sh` fetches the version- and checksum-pinned scanner into `.tmp/` on first use, so the binary — and therefore the verdict — is the one CI's `secret-scan` job runs on every non-draft change |
 | `test-api-entrypoint` | Prove `scripts/deploy/api-entrypoint.sh` writes the bootstrap admin credential **only** onto an unprovisioned installation, retires one a previous boot left, and refuses to start when its probe cannot answer. Stubs `margince-migrate`/`margince-api` on `PATH`, so it needs no container and no database. Every failure on that path is silent — a credential written to a live installation looks exactly like one that was not — and the entrypoint runs where nobody is watching. CI runs it beside the secret gate |
+| `test-dev-dsn` | Prove `scripts/dev.sh` resolves its DSNs through the same names the binaries read (`MARGINCE_OWNER_DSN` / `MARGINCE_DSN`) after an explicit `OWNER_DSN`/`APP_DSN` argument, still names the database itself so a `DEV_SLUG` stack cannot land on the base one, carries a query string like `?sslmode=require` across the swap, and never echoes a DSN. Pure shell — no Docker, no database |
 | `test-secret-scan` | Prove `secret-scan` still catches: plant a credential-shaped token in each file `.gitleaks.toml` exempts, and require the scan to fail anyway. An over-broad allowlist reports "no leaks found" exactly like a clean tree — this is the only thing that tells them apart. CI runs it right after the scan |
 | `check-craft-doc` | Assert AGENTS.md still carries its `## Craftsmanship` section — a cheap doc floor so the gate's rules cannot be silently unpinned from the rulebook. A `check-backend` prerequisite |
 
@@ -202,3 +203,18 @@ Full detail: [supply-chain.md](supply-chain.md). This lane is **not** part of `m
 `OWNER_DSN`, `APP_DSN` — all overridable (`make migrate PG_PORT=5432`).
 The Makefile exports `MARGINCE_ENV=dev` and the `MARGINCE_TEST_*`
 variables so tests find the dev containers.
+
+`make dev` resolves each DSN in the product's own order — an explicit
+`OWNER_DSN`/`APP_DSN` argument, else `MARGINCE_OWNER_DSN`/`MARGINCE_DSN` (what
+the binaries themselves read), else the compose default. It passes the result as
+an explicit `--dsn`, which is why the resolution happens in the script: `--dsn`
+outranks the environment, so a value set in `.env.local` was inert for the whole
+dev stack before this.
+
+Two things the stack keeps for itself whatever DSN it is handed. It **names the
+database**, so `DEV_SLUG=x` reaches `margince_dev_x` on slug-derived ports and
+never the base database a supplied DSN happened to name. And `--fresh` still
+refuses when the effective owner DSN is not the compose Postgres, because it
+drops through the compose container while migrations follow the DSN. A query
+string (`?sslmode=require`) survives the swap; a libpq `host=… dbname=…` DSN is
+refused, since a database segment that is not there cannot be replaced.
