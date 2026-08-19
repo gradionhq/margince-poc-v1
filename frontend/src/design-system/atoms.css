@@ -48,6 +48,26 @@
   background: var(--accentLight);
   color: var(--accent);
 }
+/* The quiet spelling: one status per row down a column, where a stack of
+ * filled pills reads as decoration. The tone survives as the dot's colour and
+ * as the label's, so the status is still tellable at a glance; the fill and
+ * the pill padding are what go. It overrides the tone tints above, which is
+ * why it is declared after them and repeats `background` rather than relying
+ * on the cascade of a class the caller may or may not have passed. */
+.badge-quiet {
+  background: none;
+  padding: 0;
+  font-weight: 400;
+  font-size: 13px;
+}
+.badge-quiet::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: currentColor;
+  flex: none;
+}
 .card {
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);

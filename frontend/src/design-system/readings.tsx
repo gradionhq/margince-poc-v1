@@ -17,17 +17,27 @@ export function Meter({
   label,
   tone,
   flat,
+  restTone,
 }: Readonly<{
   value: number;
   max: number;
   label: string;
-  // The bar carries the accent gradient by default. "warn"/"danger" are for a
-  // reading whose LOW end is the bad one — coverage, payment behaviour.
+  // What colour the FILL takes. The accent gradient by default; "warn" and
+  // "danger" for a reading the caller has decided is bad news at this value,
+  // whichever end that is — a coverage bar that has run low, an overdue bar
+  // that has run high.
   tone?: "warn" | "danger";
   // The gradient's second colour (`--away`) reads as a warning creeping in at
   // the high end, which is wrong for a reading with no low-is-bad meaning.
   // `flat` keeps the accent solid instead of fading toward it.
   flat?: boolean;
+  // What the TRACK is. Unset, it is empty space — the part of the whole this
+  // reading has not reached, drawn recessed because it means nothing on its
+  // own. Set, the remainder is itself a value the caller names beside the bar
+  // (overdue against open: what is left is money that is simply not late yet),
+  // so it takes a colour and the bar reads as two facts rather than one fact
+  // and a gutter.
+  restTone?: "accent";
 }>) {
   const filled = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   // Not a native <meter>: its children are fallback content that a supporting
@@ -38,13 +48,7 @@ export function Meter({
   return (
     // biome-ignore lint/a11y/useSemanticElements: <meter> discards the token-drawn fill and draws its own untokenised bar
     <div
-      className={
-        tone
-          ? `meterbar meterbar-${tone}`
-          : flat
-            ? "meterbar meterbar-flat"
-            : "meterbar"
-      }
+      className={meterClass(tone, flat, restTone)}
       role="meter"
       aria-label={label}
       aria-valuenow={value}
@@ -54,6 +58,27 @@ export function Meter({
       <span style={{ width: `${filled}%` }} />
     </div>
   );
+}
+
+// The bar's three independent choices — fill colour, gradient or solid, and
+// whether the track carries a meaning — as one class string. Spelled out here
+// rather than nested in the element, where a third condition turned a ternary
+// into something nobody could read at a glance.
+function meterClass(
+  tone: "warn" | "danger" | undefined,
+  flat: boolean | undefined,
+  restTone: "accent" | undefined,
+): string {
+  const classes = ["meterbar"];
+  if (tone) {
+    classes.push(`meterbar-${tone}`);
+  } else if (flat) {
+    classes.push("meterbar-flat");
+  }
+  if (restTone) {
+    classes.push(`meterbar-rest-${restTone}`);
+  }
+  return classes.join(" ");
 }
 
 // A short series as a bare polyline: the shape of a trend, with no axes, no

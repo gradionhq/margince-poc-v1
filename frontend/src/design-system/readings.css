@@ -30,6 +30,12 @@
 .meterbar-flat span {
   background: var(--accent);
 }
+/* A track that is a value rather than a gutter: the remainder is named beside
+ * the bar, so it is drawn as the second half of a whole instead of as the
+ * recessed space the fill has not reached. */
+.meterbar-rest-accent {
+  background: var(--accent);
+}
 
 /* Sparkline — the shape of a short series, no axes and no grid. `none` on the
  * fill keeps the polyline a line; `preserveAspectRatio: none` lets it stretch

@@ -765,26 +765,124 @@
   font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
-/* Overdue money is the one reading on this card that is bad news simply by
-   being present. */
-.fin-value-danger {
+/* The finance panel: one decision figure with its reasons, a quieter column
+   of context beside it, and the invoice table under both. The two columns are
+   separated by a rule rather than by space alone — at this width space reads
+   as one wide column with a gap in it. */
+.fin-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-6);
+}
+.fin-split > * + * {
+  border-left: 1px solid var(--borderSubtle);
+  padding-left: var(--space-6);
+}
+/* One column at 390px, where two would set the hero figure at a size that
+   wraps mid-number. The rule goes with the split: a border between stacked
+   blocks reads as a divider the design did not ask for. */
+@media (max-width: 640px) {
+  .fin-split {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+  .fin-split > * + * {
+    border-left: none;
+    padding-left: 0;
+  }
+}
+.fin-lead,
+.fin-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.fin-figure {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.fin-amount {
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+/* The one figure on the panel that asks for a decision, at the size that says
+   so. Overdue money is drawn in the danger tone whatever its value: unlike a
+   badge, the figure is the reading itself, and a reader who has to check
+   whether it is coloured has already read it. */
+.fin-amount-hero {
+  font-size: var(--fs-display);
+  font-weight: var(--fw-medium);
   color: var(--danger);
+  line-height: 1.1;
 }
-/* The median sentence and the shape it is drawn from, read as one reading:
-   the sparkline sits under its own label rather than beside a second one. */
-.fin-behaviour {
-  margin-bottom: var(--space-3);
+.fin-lede {
+  margin: 0;
+  color: var(--textContent);
 }
-.fin-behaviour p {
+/* The bar's two halves, named. Laid out as a row that wraps, so a long
+   currency string moves the second half onto its own line instead of
+   truncating it. */
+.fin-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
   margin: 0;
 }
-/* Overdue as a share of open. The Meter carries its own vertical rhythm, so
-   this block only has to keep the figures row off it. */
-.fin-share {
-  margin-bottom: var(--space-2);
+.fin-behaviour {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
+/* The invoice table. Its first and last cells align with the panel body's own
+   padding, so the table reads as part of the panel rather than as a block
+   inset inside it. */
 .fin-table {
-  font-size: 12.5px;
+  font-size: 13px;
+}
+.fin-table th:first-child,
+.fin-table td:first-child {
+  padding-left: var(--space-5);
+}
+.fin-table th:last-child,
+.fin-table td:last-child {
+  padding-right: var(--space-5);
+}
+.fin-col-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fin-col-status {
+  text-align: right;
+  white-space: nowrap;
+}
+/* The status badge is inline-flex, which text-align cannot move; the cell
+   pushes it to the end itself. */
+.fin-col-status .badge {
+  justify-content: flex-end;
+}
+.fin-cell-id {
+  white-space: nowrap;
+}
+/* The dates are context for the row, not its subject, so they read quieter
+   than the invoice number and the amount beside them. Tabular figures keep the
+   day and month columns aligned down the table without a second typeface
+   doing the work. */
+.fin-cell-dates {
+  color: var(--textMeta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.fin-cell-paid {
+  color: var(--textMeta);
+}
+/* Still owed, still past due: the rows that need chasing, findable without
+   reading every status. */
+.fin-row-late td {
+  background: var(--dangerBg);
 }
 .fin-provenance {
   display: inline-flex;

@@ -244,6 +244,15 @@ export const Badges: Story = {
       <Badge tone="danger">Overdue</Badge>
       <Badge tone="ai">AI</Badge>
       <Badge tone="accent">Rep</Badge>
+      {/* The quiet spelling, for a column of statuses where filled pills read
+          as decoration. Same tone vocabulary, no fill. */}
+      <Badge quiet>Open</Badge>
+      <Badge tone="danger" quiet>
+        16 days overdue
+      </Badge>
+      <Badge tone="success" quiet>
+        Paid 22 days late
+      </Badge>
     </div>
   ),
 };
