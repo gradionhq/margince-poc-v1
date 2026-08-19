@@ -711,7 +711,18 @@ DESKTOP_STAGE := build/desktop/.stage
 
 ## desktop — build the whole desktop folder (build/desktop/margince/).
 ## Reuses an already-built Postgres and bus; use desktop-rebuild to force them.
-desktop: desktop-deps desktop-app desktop-dist
+##
+## Sequential recipe, not a prerequisite list: prerequisites express dependency,
+## and under `make -j` make is free to run independent ones at once — so
+## desktop-dist would start assembling a tree the app stage had not finished
+## staging, and fail intermittently for a reason nothing in the output names.
+## The edges cannot be declared on the stage targets themselves either, because
+## each is documented as doing JUST its own step (`make desktop-dist` assembles
+## and verifies; it does not rebuild the app).
+desktop:
+	@$(MAKE) desktop-deps
+	@$(MAKE) desktop-app
+	@$(MAKE) desktop-dist
 
 ## desktop-deps — build Postgres+pgvector and the bus ONLY if they are missing.
 ## Compiling Postgres takes ~5 minutes and changes only when its pinned version
@@ -739,7 +750,12 @@ desktop-dist:
 	@bash desktop/build/build-dist.sh
 
 ## desktop-rebuild — force a full rebuild including Postgres and the bus.
-desktop-rebuild: desktop-postgres desktop-valkey desktop-app desktop-dist
+## Sequential for the same reason as `desktop` above.
+desktop-rebuild:
+	@$(MAKE) desktop-postgres
+	@$(MAKE) desktop-valkey
+	@$(MAKE) desktop-app
+	@$(MAKE) desktop-dist
 
 ## desktop-clean — remove all desktop build output (build/desktop/).
 desktop-clean:

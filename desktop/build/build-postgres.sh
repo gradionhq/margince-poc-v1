@@ -164,8 +164,9 @@ relocate() {
       *) rel="@loader_path" ;;
     esac
     # A rerun over an already-relocated tree finds the rpath present, which
-    # install_name_tool reports as an error; that one is expected, and the
-    # verify step below is what proves the rpath actually resolved.
+    # install_name_tool reports as an error. Swallowing every error is the cost
+    # of not distinguishing that one, so the verify step below checks the RESULT
+    # instead: every relocated file must end up carrying an LC_RPATH.
     install_name_tool -add_rpath "$rel" "$file" 2>/dev/null || true
 
     # install_name_tool invalidates the code signature, and arm64 macOS
@@ -208,12 +209,52 @@ verify() {
     exit 1
   fi
 
+  # Every relocated file carries an rpath.
+  #
+  # The absolute-path check above proves nothing points OUT of the bundle; it
+  # does not prove anything can be found INSIDE it. Those are different
+  # failures, and the second one is invisible here: the only thing this script
+  # executes is `postgres --version`, which loads no extension module at all. A
+  # lib/postgresql/*.so whose -add_rpath was skipped — swallowed by the `|| true`
+  # above — therefore passes every check in this file and fails at
+  # `CREATE EXTENSION vector` on the user's machine, which is the exact outcome
+  # this verification exists to prevent.
+  #
+  # Necessary, not sufficient: an LC_RPATH can be present and still point
+  # somewhere useless. Only actually loading the module would settle that, and
+  # that needs initdb and a running cluster. This catches the failure that
+  # actually happens.
+  local missing_rpath=0
+  while IFS= read -r file; do
+    if ! otool -l "$file" | grep -q LC_RPATH; then
+      echo "  $file carries no LC_RPATH" >&2
+      missing_rpath=$((missing_rpath + 1))
+    fi
+  done < <(mach_o_files)
+
+  if [ "$missing_rpath" -gt 0 ]; then
+    echo "FAIL: $missing_rpath file(s) have no rpath, so their bundled libraries cannot be found" >&2
+    exit 1
+  fi
+
   # The extensions are the reason this build exists at all; a missing
   # control file means the migrations fail on the user's first launch.
+  #
+  # And the control file is not the extension: `make install` writes the control
+  # file and the loadable module in separate steps, so a staged .control with no
+  # .so beside it passes a control-file-only check and fails at
+  # `CREATE EXTENSION` on first launch.
   local ext
   for ext in vector unaccent pg_trgm btree_gist; do
     if [ ! -f "$OUT/share/extension/$ext.control" ]; then
       echo "FAIL: extension '$ext' is missing from the build" >&2
+      exit 1
+    fi
+    # lib/<ext>.dylib, measured rather than assumed: this build installs its
+    # loadable modules directly under lib/ and has no lib/postgresql at all, and
+    # they are .dylib rather than the .so a Linux Postgres would produce.
+    if [ ! -f "$OUT/lib/$ext.dylib" ]; then
+      echo "FAIL: extension '$ext' has a control file but no loadable module at lib/$ext.dylib" >&2
       exit 1
     fi
   done

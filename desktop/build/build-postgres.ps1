@@ -146,10 +146,25 @@ function Test-Staged {
 
     # The extensions are the reason this build exists at all; a missing control
     # file means the migrations fail on the user's first launch.
+    #
+    # And the control file is not the extension. `nmake install` writes the
+    # control file and the loadable module in separate steps and Remove-Extras
+    # prunes the tree afterwards, so a staged .control with no .dll beside it
+    # passes a control-file-only check and fails at `CREATE EXTENSION vector` in
+    # migration 22 -- on the user's first launch, which is the outcome this whole
+    # verification step exists to prevent. Both halves are required.
+    #
+    # unaccent, pg_trgm and btree_gist are contrib modules whose libraries are
+    # named after the extension; vector's is too. Where a module legitimately has
+    # no library at all this list would need to say so, and none of these four do.
     foreach ($ext in @('vector', 'unaccent', 'pg_trgm', 'btree_gist')) {
         $control = Join-Path $out "share\extension\$ext.control"
         if (-not (Test-Path $control)) {
             throw "extension '$ext' is missing from the build ($control)"
+        }
+        $module = Join-Path $out "lib\$ext.dll"
+        if (-not (Test-Path $module)) {
+            throw "extension '$ext' has a control file but no loadable module ($module) -- CREATE EXTENSION would fail on the user's first launch"
         }
     }
 
@@ -157,12 +172,13 @@ function Test-Staged {
     # the DLLs it needs travelled with it. A missing runtime dependency looks
     # exactly like a working build until someone else unpacks the folder.
     #
-    # One blind spot this cannot cover: the Microsoft Visual C++ runtime is
-    # installed machine-wide, and the C++ workload this build already requires
-    # puts it there. So a missing redistributable passes here and fails on a
-    # user's machine. It is on nearly every Windows install for that same
-    # reason, which is why it is a documented limit rather than a bundled file
-    # -- see the known limits in docs/explanation/desktop-distribution.md.
+    # This smoke test alone cannot see a missing Microsoft Visual C++ runtime,
+    # because the C++ workload the build requires has already installed it
+    # machine-wide -- the binary finds it here and not on a user's machine. That
+    # is why Copy-VcRuntime stages those DLLs into bin\ and why
+    # Test-NativeDependencies below reads the import tables instead of trusting
+    # a successful launch: an import satisfied from the system directory and one
+    # satisfied from the folder look identical from inside this runner.
     Write-Step "postgres $(& (Join-Path $out 'bin\postgres.exe') --version)"
     if ($LASTEXITCODE -ne 0) {
         throw 'the staged postgres.exe could not run -- a runtime DLL is missing from the tree'

@@ -169,19 +169,33 @@ function Copy-Licenses {
     Copy-Item (Join-Path $Source 'COPYING') (Join-Path $licenses 'redis-COPYING.txt')
 
     # MSYS2 has moved this file between releases, so both known locations are
-    # tried and a miss writes the notice by hand rather than failing a build
-    # over a path -- the obligation is that the user receives the terms.
+    # tried. A miss is a BUILD FAILURE, not a hand-written summary.
+    #
+    # The obligation is that the recipient receives the TERMS, and a paragraph
+    # naming the licence with a link to it is not the terms: LGPLv3 requires the
+    # licence text to be conveyed with the work, and it incorporates GPLv3 by
+    # reference, so a compliant copy is both texts and not a summary of either.
+    # The previous fallback produced a bundle that looked complete and was not,
+    # which is the worst of the three outcomes -- worse than failing, because
+    # nobody finds out.
+    #
+    # Failing is also the cheap fix for the real cause: these paths move, and a
+    # maintainer who sees this error updates one array. A silent summary meant
+    # nobody learned the path had moved at all.
     $candidates = @('/usr/share/licenses/msys2-runtime/COPYING', '/usr/share/doc/Cygwin/COPYING')
     $target = ConvertTo-MsysPath (Join-Path $licenses 'msys2-runtime-COPYING.txt')
     $found = & (Get-MsysBash) '-lc' "for f in $($candidates -join ' '); do if [ -f `"`$f`" ]; then cp `"`$f`" '$target'; echo `"`$f`"; break; fi; done"
     if (-not $found) {
-        Set-Content -LiteralPath (Join-Path $licenses 'msys2-runtime-COPYING.txt') -Value @'
-msys-2.0.dll is the MSYS2 runtime, a fork of the Cygwin library, distributed
-here unmodified under the GNU Lesser General Public License version 3.
+        throw @"
+the MSYS2 runtime licence text was not found, so this bundle cannot ship msys-2.0.dll.
 
-Full text:   https://www.gnu.org/licenses/lgpl-3.0.txt
-Source code: https://github.com/msys2/msys2-runtime
-'@
+Looked in:
+  $($candidates -join "`n  ")
+
+msys-2.0.dll is LGPLv3 and its terms have to travel with it. Find where the
+MSYS2 package now installs COPYING and add that path to `$candidates in
+desktop/build/build-bus.ps1.
+"@
     }
 }
 

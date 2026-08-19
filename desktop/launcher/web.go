@@ -131,17 +131,50 @@ func spaHandler(root string) http.Handler {
 		}
 		// FromSlash is the other half: the cleaned URL becomes a path on this
 		// filesystem only when its separators are this filesystem's.
-		if candidate := filepath.Join(root, filepath.FromSlash(clean)); clean != "/" && fileExists(candidate) {
-			files.ServeHTTP(w, r)
-			return
+		if clean != "/" {
+			candidate := filepath.Join(root, filepath.FromSlash(clean))
+			isFile, err := regularFileExists(candidate)
+			if err != nil {
+				// Only "it is not there" means "this is a client-side route". A
+				// permission or I/O error means a shipped file cannot be READ,
+				// and answering that with the shell dresses a broken
+				// installation up as a working one — a 200 and a blank app.
+				say("  the web files under %s cannot be read: %v\n", root, err)
+				// The repo's baseline sends errors as RFC 7807 through
+				// platform/httperr, and this module cannot: it is stdlib-only and
+				// imports none of the backend, which is what keeps the launcher a
+				// supervisor rather than a second composition root. The api's own
+				// errors still go through httperr; this is the launcher's static
+				// file server reporting that its own bundled files are unreadable,
+				// to a browser, which needs a status far more than a media type.
+				//nolint:forbidigo // stdlib-only module: platform/httperr is out of reach by design
+				http.Error(w, "the installation's web files cannot be read", http.StatusInternalServerError)
+				return
+			}
+			if isFile {
+				files.ServeHTTP(w, r)
+				return
+			}
 		}
 		http.ServeFile(w, r, index)
 	})
 }
 
-func fileExists(path string) bool {
+// regularFileExists reports whether path is a regular file, distinguishing
+// absent from unreadable.
+//
+// A bool alone cannot: it collapses "no such file", which is the SPA-route case,
+// into "cannot be examined", which is a broken installation. The caller needs
+// those apart, so the error is returned rather than folded into false.
+func regularFileExists(path string) (bool, error) {
 	info, err := os.Stat(path)
-	return err == nil && !info.IsDir()
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	return !info.IsDir(), nil
 }
 
 // stop shuts the server down and reports whatever ListenAndServe returned, so

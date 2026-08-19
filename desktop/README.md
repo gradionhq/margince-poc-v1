@@ -8,7 +8,7 @@ prerequisites. The user starts it and Margince opens in their browser.
 restart. It is not signed for distribution and several surfaces are off by
 default.
 
-```
+```sh
 make desktop        # macOS   -> build/desktop/margince/          (first run ~5 min)
 make desktop-win    # Windows -> build/desktop/margince-windows/  (must run ON Windows)
 ```
@@ -22,12 +22,12 @@ capped at 103 bytes and a repo checkout is normally deep enough to blow it —
 though whether it does depends on where you cloned. The launcher measures the
 path and says so. Copy it somewhere shorter, then start it:
 
-```
+```sh
 cp -R build/desktop/margince ~/Margince
 cd ~/Margince && ./margince
 ```
 
-Windows has no such limit (there is no socket) and runs from wherever it is
+Windows has no such limit (the transport is a loopback TCP socket rather than a filesystem one, so no path length is involved) and runs from wherever it is
 put.
 
 ## The documentation
@@ -72,6 +72,6 @@ in its header why:
 
 | File | What is different, and why it has to be |
 |---|---|
-| `postgres_darwin.go` / `postgres_windows.go` | macOS: unix socket, trust auth, supervised child, SIGINT. Windows: no socket exists, so loopback + scram-sha-256, and `pg_ctl` because `postgres.exe` refuses to run under an administrator |
-| `process_darwin.go` / `process_windows.go` | POSIX signals vs. a `CTRL_BREAK` console event to the child's own process group |
-| `platform_darwin.go` / `platform_windows.go` | Executable suffix, which bus binary ships, how the local timezone is read, how a browser is opened, and whether the console has to be held open to read a failure |
+| `postgres_unix.go` / `postgres_windows.go` | macOS: unix socket, trust auth, supervised child, SIGINT. Windows: no socket exists, so loopback + scram-sha-256, and `pg_ctl` because `postgres.exe` refuses to run under an administrator |
+| `process_unix.go` / `process_windows.go` | POSIX signals vs. a `CTRL_BREAK` console event to the child's own process group |
+| `platform_unix.go` / `platform_windows.go` | Executable suffix, which bus binary ships, how the local timezone is read, how a browser is opened, and whether the console has to be held open to read a failure |

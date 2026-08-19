@@ -72,6 +72,16 @@ jobs:
           ref: ${{ inputs.ref || '' }}
           persist-credentials: false
 
+      # github.sha is the commit the workflow was DISPATCHED against, which is
+      # the default branch's tip — not what checkout just selected. With
+      # inputs.ref those differ, and an artifact named after a commit it was not
+      # built from is a build nobody can trace back. On a pull_request the two
+      # agree, so this changes nothing there.
+      - name: Resolve the commit that was actually built
+        id: built
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: backend/go.mod
@@ -103,7 +113,7 @@ jobs:
       - name: Publish the portable folder
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: margince-macos-${{ inputs.version || github.sha }}
+          name: margince-macos-${{ inputs.version || steps.built.outputs.sha }}
           path: margince-macos.tar.gz
           if-no-files-found: error
           retention-days: 14
@@ -117,7 +127,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: staging-on-failure-${{ github.sha }}
+          name: staging-on-failure-${{ steps.built.outputs.sha }}
           path: |
             build/desktop/.stage/pgsql/bin
             build/desktop/.stage/pgsql/share/extension

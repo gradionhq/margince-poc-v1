@@ -124,6 +124,12 @@ function Build-Launcher {
 Build-ServerBinaries
 if ($env:SKIP_FRONTEND -ne '1') {
     Build-Frontend
+} else {
+    # build-dist.ps1 refuses a MISSING web/index.html, which is not the same
+    # question: a staged SPA from an earlier run satisfies it while being older
+    # than the binaries beside it. Nothing downstream can tell, so the skip is
+    # announced here, where it was chosen.
+    Write-Step 'SKIP_FRONTEND=1 -- reusing the staged web/, which may predate this build'
 }
 Build-Launcher
 Write-Step "binaries in $out"

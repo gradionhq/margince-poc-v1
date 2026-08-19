@@ -1,7 +1,7 @@
 # Build the desktop app
 
 Build the self-contained folder a non-technical user runs on macOS or Windows
-with no Docker and no prerequisites: Postgres, the event bus, the api, the
+with no Docker and no services to configure: Postgres, the event bus, the api, the
 worker and the SPA, started by one launcher and used in a browser.
 
 Why it is shaped this way — the custom Postgres, the update contract, why the
@@ -14,7 +14,7 @@ What a **user** needs. Building it needs more — see the next section.
 
 | | macOS bundle | Windows bundle |
 |---|---|---|
-| **OS** | macOS 12 Monterey or newer | Windows 10 or newer (Server 2016+ shares that kernel) |
+| **OS** | macOS 12 Monterey or newer | Windows 10 or newer. Server 2016+ shares that kernel and is expected to work, but **is untested** — nothing has launched the bundle there |
 | **Architecture** | Whatever the build machine was — **not** universal. An Apple-silicon build does not run on an Intel Mac at all; an Intel build runs on Apple silicon under Rosetta 2. `make desktop-dist` prints which one it produced | x64 only. Windows on ARM has x64 emulation, but no ARM build is produced and none is tested |
 | **Must already be installed** | Nothing | The [Microsoft Visual C++ x64 redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). Present on most machines, **not** bundled |
 | **Admin rights** | Not needed | Not needed. Running as an administrator also works — `pg_ctl` drops the privileges Postgres refuses to start with |

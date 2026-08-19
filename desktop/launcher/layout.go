@@ -6,6 +6,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -128,32 +129,108 @@ bootstrap_admin:
   password_file: data/admin-password
 `, localTimezone())
 
-	if err := os.WriteFile(l.configPath(), []byte(config), 0o600); err != nil {
-		return "", fmt.Errorf("write %s: %w", l.configPath(), err)
+	if err := writeFileAtomic(l.configPath(), []byte(config), 0o600); err != nil {
+		return "", err
 	}
 	return password, nil
+}
+
+// writeFileAtomic writes through a temporary file beside the destination and
+// renames it into place, so the destination is either absent or complete.
+//
+// os.WriteFile can fail AFTER a partial write — a full disk is the ordinary
+// cause — and ensureConfig only writes margince.yaml when it finds none. A
+// half-written one therefore survives every later launch: the Stat above sees a
+// file and returns early, nothing ever repairs it, and the api refuses to parse
+// it. The installation is then stuck in a state no restart clears.
+//
+// Rename within one directory is atomic, which is the same reason initCluster
+// stages the data directory under another name and renames it at the end.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	staging := path + ".new"
+	if err := writeAndFlush(staging, data, perm); err != nil {
+		if rmErr := os.Remove(staging); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return fmt.Errorf("%w (and %s was left behind: %v)", err, staging, rmErr)
+		}
+		return err
+	}
+	if err := os.Rename(staging, path); err != nil {
+		if rmErr := os.Remove(staging); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+			return fmt.Errorf("move %s into place: %w (and it was left behind: %v)", staging, err, rmErr)
+		}
+		return fmt.Errorf("move %s into place: %w", staging, err)
+	}
+	return nil
+}
+
+// writeAndFlush writes data to path and gets it onto the disk, reporting the
+// first thing that went wrong while still always closing the file.
+func writeAndFlush(path string, data []byte, perm os.FileMode) error {
+	// #nosec G304 -- path is derived by layout from the installation directory, never from input
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", path, err)
+	}
+	_, writeErr := file.Write(data)
+	if writeErr == nil {
+		// Before the rename, not after: a rename is atomic with respect to the
+		// DIRECTORY and says nothing about the bytes having reached the disk.
+		writeErr = file.Sync()
+	}
+	closeErr := file.Close()
+	switch {
+	case writeErr != nil:
+		return fmt.Errorf("write %s: %w", path, writeErr)
+	case closeErr != nil:
+		return fmt.Errorf("close %s: %w", path, closeErr)
+	}
+	return nil
 }
 
 // ensureAdminPassword generates the bootstrap admin password once. It returns
 // an empty string when the file already existed: the secret is not the
 // launcher's to re-disclose on every start, and reading it back would put a
 // live credential on screen for anyone walking past.
+//
+// THE CREATE IS THE ONLY CHECK. There is deliberately no Stat first: a
+// stat-then-write leaves a window in which a second launcher creates the file,
+// and asking twice is what lets the two answers disagree. O_EXCL answers "did
+// it exist" and "claim it" in one syscall, so there is no window to lose. The
+// cost is a generated secret discarded on a later start, which is one read from
+// crypto/rand.
 func (l layout) ensureAdminPassword() (string, error) {
 	path := l.adminPasswordPath()
-	if _, err := os.Stat(path); err == nil {
-		return "", nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat %s: %w", path, err)
-	}
-
 	password, err := generateSecret()
 	if err != nil {
 		return "", fmt.Errorf("generate the admin password: %w", err)
 	}
-	if err := writeNewSecret(path, password); err != nil {
+	if err := writeNewSecret(path, password); err == nil {
+		return password, nil
+	} else if !errors.Is(err, os.ErrExist) {
 		return "", err
 	}
-	return password, nil
+
+	// It already existed — from an earlier start, or from a launcher that got
+	// there first while this one was generating. Either way the persisted
+	// password is the real one and this one is discarded unannounced: naming a
+	// credential that is not on disk would lock the installation out of the
+	// account it had just reported creating.
+	//
+	// Confirmed rather than assumed: O_EXCL refuses a path whose final component
+	// is a SYMLINK whether or not its target exists, and so a dangling symlink
+	// lands here too — with no credential behind it. Staying quiet about that
+	// would start an installation whose password file cannot be read, having just
+	// told the user where to find it.
+	info, statErr := os.Lstat(path)
+	if statErr != nil {
+		return "", fmt.Errorf("%s exists but cannot be examined: %w", path, statErr)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf(
+			"%s is not a regular file (%s), so no password could be stored there — remove it and start again",
+			path, info.Mode().Type())
+	}
+	return "", nil
 }
 
 // writeNewSecret creates path and refuses to touch it if it already exists.

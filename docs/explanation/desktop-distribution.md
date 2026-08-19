@@ -3,7 +3,9 @@
 Margince normally runs as a server: containers, a managed Postgres, an
 operator who configures it. This is the other shape — **one folder a
 non-technical person downloads, starts, and uses in their browser**, with no
-Docker, no terminal setup and no prerequisites.
+Docker, no terminal setup and no services to configure. (On Windows, one
+prerequisite is real and named in the how-to: the Microsoft Visual C++ x64
+redistributable, which is not redistributed here.)
 
 It exists for a single audience: one person, one computer, their own CRM. That
 audience is what justifies it. For anyone able to run `docker compose up`,
@@ -114,7 +116,7 @@ margince/
 
 Everything is relative to this folder. Nothing is written to `~/Library` or
 `%APPDATA%`, and nothing escapes to a temp directory, so it can be moved,
-copied to another machine of the same platform, or deleted as a unit.
+copied to another machine with the same OS and CPU architecture, or deleted as a unit.
 
 That makes the split load-bearing rather than cosmetic. **An update replaces
 the launcher, the starter and `runtime/`, and nothing else.** A non-technical
@@ -337,6 +339,23 @@ this properly and is not something the stdlib does; see the known limits.
   This is a workaround for the missing signature, and it is one the signature
   would delete rather than improve — a notarized build reaches none of this
   code, because Gatekeeper never asks.
+- **The event bus accepts unauthenticated local connections.** It listens on
+  loopback at an ephemeral port with no `requirepass`, so any account on the
+  machine can read and write the event stream — which carries job payloads, and
+  therefore CRM data. On a single-user desktop that is the same trust boundary as
+  the user's own files; on a shared machine it is a second account reading the
+  first one's records.
+
+  It is named here rather than fixed because closing it is not a desktop change.
+  `--redis` takes a bare `host:port` and the api builds its client with
+  `redis.Options{Addr: …}` and no `Password`, so a per-installation credential
+  means adding one to the server's own configuration surface — which every
+  deployment then inherits. Worth doing, tracked separately; not something to
+  reach into the server's config for while packaging a folder.
+
+  Note the asymmetry it creates on macOS: the database is reached through a
+  socket in a `0700` directory, so the bus is now the weaker of the two local
+  paths.
 - **Windows file permissions are the folder's, not the file's.** The `0600`
   the launcher asks for sets no DACL there, so the secrets are only as private
   as the directory the user chose. An installation under the user's own

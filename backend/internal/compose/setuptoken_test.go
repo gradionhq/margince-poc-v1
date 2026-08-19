@@ -14,8 +14,13 @@ import (
 // property that matters is not "the file gets written" but "an entry that is
 // already there is refused, and its contents are left alone". That was asserted
 // in a comment on three platforms and checked on none; these run everywhere the
-// unit lane runs, Windows included, which is the only way the OS-split
-// openNoFollow constant is exercised rather than described.
+// unit lane runs, Windows included.
+//
+// They do NOT exercise openNoFollow, and nothing here should be read as saying
+// they do: a planted regular file is refused by O_EXCL alone, and on POSIX
+// O_NOFOLLOW guards no case of its own at all (setuptokenflags_unix.go explains
+// why). The symlink behaviour O_EXCL is relied on for is pinned separately, in
+// setuptoken_unix_test.go, where a symlink can be created without privilege.
 
 func TestWriteSetupTokenFileRefusesAnExistingEntryAndLeavesItIntact(t *testing.T) {
 	t.Chdir(t.TempDir())
