@@ -247,7 +247,7 @@ describe("i18n catalogs", () => {
   });
 
   it("an unknown placeholder is left visible, never silently dropped", () => {
-    expect(translate("en", "trust.agentTag", {})).toBe("agent: {agent}");
+    expect(translate("en", "trust.agentTag", {})).toBe("Automated by {agent}");
   });
 
   it("the default locale is en (A100: en-GB)", () => {

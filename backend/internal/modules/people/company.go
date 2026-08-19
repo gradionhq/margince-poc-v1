@@ -275,17 +275,18 @@ func companySaveEventPayload(created bool, applied map[string]any, by string) ev
 	}
 }
 
-// anchorOrganization resolves the workspace's own organization, or ErrNotFound
-// when it has none yet. lock takes the row for the rest of the transaction:
+// anchorOrganization resolves the installation's own organization, or
+// ErrNotFound when it has none yet. uq_organization_anchor is a
+// `UNIQUE ((true))` singleton, so there is at most one to resolve. lock takes the row for the rest of the transaction:
 // the save path serializes concurrent edits on it, a plain read does not.
 func anchorOrganization(ctx context.Context, tx pgx.Tx, lock bool) (ids.OrganizationID, error) {
 	query := `SELECT id FROM organization
-	           WHERE workspace_id = $1 AND is_anchor AND archived_at IS NULL`
+	           WHERE is_anchor AND archived_at IS NULL`
 	if lock {
 		query += ` FOR UPDATE`
 	}
 	var orgID ids.OrganizationID
-	err := tx.QueryRow(ctx, query, workspaceID(ctx)).Scan(&orgID)
+	err := tx.QueryRow(ctx, query).Scan(&orgID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ids.OrganizationID{}, apperrors.ErrNotFound
 	}
@@ -396,9 +397,9 @@ func readCompany(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (Comp
 		`SELECT field, value, evidence_snippet, source_url, confidence,
 		        source, captured_by, updated_at
 		   FROM organization_profile_field
-		  WHERE workspace_id = $1 AND organization_id = $2
+		  WHERE organization_id = $1
 		  ORDER BY field`,
-		workspaceID(ctx), orgID)
+		orgID)
 	if err != nil {
 		return Company{}, fmt.Errorf("read company fields: %w", err)
 	}
@@ -421,9 +422,9 @@ func readCompany(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (Comp
 		`SELECT category, field, value, value_key, evidence_snippet, source_url,
 		        confidence, source, captured_by, updated_at
 		   FROM organization_fact
-		  WHERE workspace_id = $1 AND organization_id = $2
+		  WHERE organization_id = $1
 		  ORDER BY category, field, value_key, value`,
-		workspaceID(ctx), orgID)
+		orgID)
 	if err != nil {
 		return Company{}, fmt.Errorf("read company facts: %w", err)
 	}

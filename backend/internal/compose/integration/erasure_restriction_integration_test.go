@@ -47,15 +47,14 @@ func seedRestrictionFixture(t *testing.T, e *Env) restrictionFixture {
 	f := restrictionFixture{person: ids.NewV7(), email: ids.NewV7(), note: ids.NewV7(), delivery: ids.NewV7()}
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person (id, workspace_id, full_name, first_name, source, captured_by)
-			 VALUES ($1, `+ws+`, 'Held Subject', 'Held', 'manual', 'human:x')`, f.person); err != nil {
+			`INSERT INTO person (id, full_name, first_name, source, captured_by)
+			 VALUES ($1, 'Held Subject', 'Held', 'manual', 'human:x')`, f.person); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
-			 VALUES (`+ws+`, $1, 'held@example.test', 'manual', 'human:x')`, f.person); err != nil {
+			`INSERT INTO person_email (person_id, email, source, captured_by)
+			 VALUES ( $1, 'held@example.test', 'manual', 'human:x')`, f.person); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,

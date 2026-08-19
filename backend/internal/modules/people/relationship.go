@@ -49,12 +49,11 @@ var relationshipKinds = map[string]bool{
 	"partner_of": true, "referred_by": true, "co_sell_with": true,
 }
 
-const relationshipColumns = `id, workspace_id, kind, person_id, organization_id, counterparty_org_id, deal_id, project_id,
+const relationshipColumns = `id, kind, person_id, organization_id, counterparty_org_id, deal_id, project_id,
 	role, is_current_primary, started_at, ended_at, source, captured_by, version, created_at, updated_at, archived_at`
 
 type relationshipRow struct {
 	ID                ids.UUID // no RelationshipKind in the kernel vocabulary: edges stay untyped
-	WorkspaceID       ids.WorkspaceID
 	Kind              string
 	PersonID          *ids.PersonID
 	OrganizationID    *ids.OrganizationID
@@ -75,7 +74,7 @@ type relationshipRow struct {
 
 func scanRelationship(r pgx.Row) (relationshipRow, error) {
 	var out relationshipRow
-	err := r.Scan(&out.ID, &out.WorkspaceID, &out.Kind, &out.PersonID, &out.OrganizationID, &out.CounterpartyOrgID,
+	err := r.Scan(&out.ID, &out.Kind, &out.PersonID, &out.OrganizationID, &out.CounterpartyOrgID,
 		&out.DealID, &out.ProjectID, &out.Role, &out.IsCurrentPrimary, &out.StartedAt, &out.EndedAt,
 		&out.Source, &out.CapturedBy, &out.Version, &out.CreatedAt, &out.UpdatedAt, &out.ArchivedAt)
 	return out, err
@@ -137,10 +136,9 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 			}
 		}
 		row := tx.QueryRow(ctx, `
-			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, counterparty_org_id,
+			INSERT INTO relationship (kind, person_id, organization_id, counterparty_org_id,
 			                          deal_id, project_id, role, is_current_primary, started_at, ended_at, source, captured_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING `+relationshipColumns,
 			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID, in.ProjectID,
 			in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt, in.Source, capturedBy)

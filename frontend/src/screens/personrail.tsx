@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { useCallback, useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { useCan } from "../app/capability";
 import { navigate } from "../app/router";
 import {
@@ -25,6 +25,11 @@ import {
   RecordPicker,
   type RecordPickerCandidate,
 } from "../design-system/recordpicker";
+import {
+  omitted,
+  type SectionState,
+  SurfaceState,
+} from "../design-system/surfacestate";
 import { useT } from "../i18n";
 import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
@@ -47,6 +52,65 @@ type Person360 = components["schemas"]["Person360"];
 type Person = components["schemas"]["Person"];
 type PersonConsentGuard = components["schemas"]["PersonConsentGuard"];
 type UpdatePersonRequest = components["schemas"]["UpdatePersonRequest"];
+
+// --- what this reader was allowed to read ----------------------------------
+
+// A negative verdict must first prove it was allowed to look.
+//
+// The 360 answers a section the reader has no grant for by leaving it out and
+// naming it in `sections_omitted`, so an absent field carries two opposite
+// meanings — nothing was captured, or nothing was shown — and only the list
+// tells them apart. This rail is the worst place in the product to get that
+// wrong: its words are short verdicts ("One-sided", "Never", "Thin") that read
+// as measured facts rather than as summaries, so a reader without an activity
+// grant is told the contact has never written to them.
+//
+// So the list is read ONCE, into the sections this rail derives its words
+// from, rather than as a check each verdict is trusted to remember — seven
+// separate checks is the shape that left every one of them unwritten.
+type Withheld = Readonly<{
+  lastTouch: boolean;
+  activities: boolean;
+  commercial: boolean;
+  nextMeeting: boolean;
+  network: boolean;
+  employments: boolean;
+}>;
+
+function withheldSections(view: Person360): Withheld {
+  return {
+    lastTouch: omitted(view, "last_touch"),
+    activities: omitted(view, "activities"),
+    commercial: omitted(view, "commercial"),
+    nextMeeting: omitted(view, "next_meeting"),
+    network: omitted(view, "network"),
+    employments: omitted(view, "employments"),
+  };
+}
+
+// A withheld reading says so rather than rendering the word a derivation would
+// have produced from the absence, and it carries no tone, because there is no
+// verdict to colour. The strip on this same page keeps the identical rule for
+// its own six readings (personstrip.tsx), down to the word, so the two halves
+// of the record cannot disagree about what a missing section means.
+function reading(
+  value: string,
+  withheld: boolean,
+  t: ReturnType<typeof useT>,
+): string {
+  return withheld ? t("record.notShown") : value;
+}
+
+// The body state of a section whose sentence is a claim about the record.
+// `empty` is the only state allowed to say there is none of something, so a
+// withheld section keeps its place in the rail and says it is withheld instead
+// of drawing as an account with nothing on it.
+function bodyState(withheld: boolean, count: number): SectionState {
+  if (withheld) {
+    return "withheld";
+  }
+  return count === 0 ? "empty" : "ready";
+}
 
 export function PersonRail({
   view,
@@ -91,7 +155,10 @@ async function patchPersonField(
   body: UpdatePersonRequest,
 ): Promise<void> {
   const { error } = await api.PATCH("/people/{id}", {
-    params: { path: { id: person.id }, ...ifMatch(person.version) },
+    params: {
+      path: { id: person.id },
+      ...ifMatch(requireVersion(person.version)),
+    },
     body,
   });
   if (error) {
@@ -365,13 +432,13 @@ async function fetchEmploymentVersion(
 // "mark as ended" verb both patch through here, so a role edit and an ended
 // date answer the same version-skew and permission failures the same way.
 //
-// An unresolved version is refused here rather than sent unpinned: `ifMatch`
-// with no version sends no If-Match header at all, so a row this rail could
-// not read back would otherwise write straight over whatever changed
-// underneath it instead of failing loud with a 409. The list scoping
-// fetchEmploymentVersion uses can legitimately come back without this row
-// (a narrower read scope, a paged response, an edge whose kind changed), and
-// that has to read as a refusal, not as permission to skip the pin.
+// An unresolved version is refused here rather than sent unpinned: a write with
+// no precondition writes straight over whatever changed underneath it instead of
+// failing loud with a 409. The list scoping fetchEmploymentVersion uses can
+// legitimately come back without this row (a narrower read scope, a paged
+// response, an edge whose kind changed), and this rail is the one place that
+// knows to say so — hence its own sentence for the reader rather than the shared
+// refusal, which can only report that the write did not happen.
 async function patchEmployment(
   employment: Employment,
   personId: string,
@@ -516,19 +583,24 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
         )
       }
     >
-      {employments.length === 0 && (
-        <p className="pe-prose">{t("person.rail.noEmployment")}</p>
-      )}
-      {employments.map((employment) => (
-        <EmploymentRow
-          key={employment.relationship_id}
-          employment={employment}
-          canEdit={canEdit}
-          readOnlyReason={readOnlyReason}
-          actions={actions}
-          onRemove={() => setRemoving(employment)}
-        />
-      ))}
+      <SurfaceState
+        state={bodyState(
+          withheldSections(view).employments,
+          employments.length,
+        )}
+        emptyLabel={t("person.rail.noEmployment")}
+      >
+        {employments.map((employment) => (
+          <EmploymentRow
+            key={employment.relationship_id}
+            employment={employment}
+            canEdit={canEdit}
+            readOnlyReason={readOnlyReason}
+            actions={actions}
+            onRemove={() => setRemoving(employment)}
+          />
+        ))}
+      </SurfaceState>
       <AddEmploymentModal
         open={adding}
         onClose={() => setAdding(false)}
@@ -855,6 +927,7 @@ function RelationshipPulse({
   onExplain,
 }: Readonly<{ view: Person360; onExplain: () => void }>) {
   const t = useT();
+  const hidden = withheldSections(view);
   const inbound = view.last_inbound_at;
   const outbound = view.last_outbound_at;
   const twoWay = Boolean(inbound && outbound);
@@ -872,29 +945,47 @@ function RelationshipPulse({
         </span>
       }
     >
+      {/* Four of these five readings are derived from the two directional
+          timestamps, which arrive together or not at all — one grant governs
+          both — so one question answers all four. */}
       <Row
         label={t("person.rail.direction")}
-        value={twoWay ? t("person.rail.twoWay") : t("person.rail.oneSided")}
+        value={reading(
+          twoWay ? t("person.rail.twoWay") : t("person.rail.oneSided"),
+          hidden.lastTouch,
+          t,
+        )}
       />
-      <Row label={t("person.rail.lastReply")} value={sinceWords(inbound, t)} />
+      <Row
+        label={t("person.rail.lastReply")}
+        value={reading(sinceWords(inbound, t), hidden.lastTouch, t)}
+      />
       <Row
         label={t("person.rail.coverage")}
-        value={
-          colleagues === 1
-            ? t("person.rail.colleagueOne")
-            : t("person.rail.colleagues", { count: colleagues })
-        }
+        value={reading(colleagueWords(colleagues, t), hidden.network, t)}
       />
-      <Row label={t("person.rail.trend")} value={trendWord(view, t)} />
+      <Row
+        label={t("person.rail.trend")}
+        value={reading(trendWord(view, t), hidden.lastTouch, t)}
+      />
       <div className="pe-pulse-overall">
+        {/* The overall reading is the only one drawn in the verdict colour, and
+            a withheld reading is not a verdict: colouring "Not shown" would
+            state a healthy relationship in the one place a reader glances. */}
         <Row
           label={t("person.rail.overall")}
-          value={overallWord(view, t)}
-          strong
+          value={reading(overallWord(view, t), hidden.lastTouch, t)}
+          strong={!hidden.lastTouch}
         />
       </div>
     </Disclosure>
   );
+}
+
+function colleagueWords(count: number, t: ReturnType<typeof useT>): string {
+  return count === 1
+    ? t("person.rail.colleagueOne")
+    : t("person.rail.colleagues", { count });
 }
 
 function trendWord(view: Person360, t: ReturnType<typeof useT>): string {
@@ -934,24 +1025,28 @@ function WhoKnows({
       open
       summary={t("person.rail.whoKnows", { name: firstName })}
     >
-      {colleagues.length === 0 && (
-        <p className="pe-prose">{t("person.rail.nobodyYet")}</p>
-      )}
-      {colleagues.slice(0, 3).map((colleague) => (
-        <div className="pe-colleague" key={colleague.user_id}>
-          <Avatar name={colleague.display_name} />
-          <span>
-            <span className="pe-colleague-name">{colleague.display_name}</span>
-            <span className="pe-colleague-proof">
-              {/* The PROOF, never a ranking nobody can check: six unanswered
-                  sends must not read as stronger than two real exchanges. */}
-              {t("person.rail.exchanges", {
-                count: colleague.interactions_90d,
-              })}
+      <SurfaceState
+        state={bodyState(withheldSections(view).network, colleagues.length)}
+        emptyLabel={t("person.rail.nobodyYet")}
+      >
+        {colleagues.slice(0, 3).map((colleague) => (
+          <div className="pe-colleague" key={colleague.user_id}>
+            <Avatar name={colleague.display_name} />
+            <span>
+              <span className="pe-colleague-name">
+                {colleague.display_name}
+              </span>
+              <span className="pe-colleague-proof">
+                {/* The PROOF, never a ranking nobody can check: six unanswered
+                    sends must not read as stronger than two real exchanges. */}
+                {t("person.rail.exchanges", {
+                  count: colleague.interactions_90d,
+                })}
+              </span>
             </span>
-          </span>
-        </div>
-      ))}
+          </div>
+        ))}
+      </SurfaceState>
     </Disclosure>
   );
 }
@@ -960,30 +1055,54 @@ function WhoKnows({
 
 function SignalsAndRisks({ view }: Readonly<{ view: Person360 }>) {
   const t = useT();
-  const signals = derivedSignals(view, t);
+  const { signals, skipped } = derivedSignals(view, withheldSections(view), t);
   return (
     <Disclosure className="pe-sect" open summary={t("person.rail.signals")}>
-      {signals.length === 0 && (
-        <p className="pe-prose">{t("person.rail.noSignals")}</p>
-      )}
-      {signals.map((signal) => (
-        <div className="pe-signal" key={signal.text}>
-          <span className={`pe-dot pe-dot-${signal.tone}`} />
-          <span>{signal.text}</span>
-        </div>
-      ))}
+      <SurfaceState
+        state={signalsState(signals.length, skipped)}
+        emptyLabel={t("person.rail.noSignals")}
+      >
+        {signals.map((signal) => (
+          <div className="pe-signal" key={signal.text}>
+            <span className={`pe-dot pe-dot-${signal.tone}`} />
+            <span>{signal.text}</span>
+          </div>
+        ))}
+      </SurfaceState>
     </Disclosure>
   );
 }
 
+// "Nothing stands out on this relationship" is the strongest sentence in the
+// rail — it is the one a reader stops reading after — so it may only be said
+// when every rule below actually ran. A derivation that had to skip a rule for
+// want of a grant says the list is short instead, and one that could run none
+// of them says it is withheld: a reader who is shown one signal out of three
+// otherwise takes it for the whole finding.
+function signalsState(shown: number, skipped: boolean): SectionState {
+  if (!skipped) {
+    return shown === 0 ? "empty" : "ready";
+  }
+  return shown === 0 ? "withheld" : "partial";
+}
+
+type Signal = Readonly<{ text: string; tone: "good" | "warn" | "bad" }>;
+
 // Deterministic, from what the page already read. Each one is a fact the
 // reader can check against the cards beside it rather than an assessment.
+//
+// A rule whose section this reader may not see is SKIPPED and reported as
+// skipped, never resolved against the absence: "no next meeting booked" derived
+// from a withheld calendar is an assertion about the deal manufactured out of a
+// permission boundary, and it is indistinguishable from the real finding.
 function derivedSignals(
   view: Person360,
+  hidden: Withheld,
   t: ReturnType<typeof useT>,
-): ReadonlyArray<{ text: string; tone: "good" | "warn" | "bad" }> {
-  const out: Array<{ text: string; tone: "good" | "warn" | "bad" }> = [];
-  const quiet = daysSince(view.last_inbound_at);
+): Readonly<{ signals: ReadonlyArray<Signal>; skipped: boolean }> {
+  const out: Signal[] = [];
+  let skipped = hidden.lastTouch;
+  const quiet = hidden.lastTouch ? null : daysSince(view.last_inbound_at);
   if (quiet != null && quiet > 14) {
     out.push({
       text: t("person.rail.noReplyDays", { count: quiet }),
@@ -995,14 +1114,23 @@ function derivedSignals(
       tone: "good",
     });
   }
+  if (hidden.commercial) {
+    return { signals: out, skipped: true };
+  }
+  const deal = view.commercial?.deal;
   const committee = view.commercial?.committee?.length ?? 0;
-  if (view.commercial?.deal && committee === 0) {
+  if (deal && committee === 0) {
     out.push({ text: t("person.rail.singleThreaded"), tone: "warn" });
   }
-  if (!view.next_meeting && view.commercial?.deal) {
+  // The meeting rule needs BOTH sections — a visible deal for the finding to be
+  // about, and a readable calendar to prove nothing is booked on it — so a
+  // withheld calendar only costs a signal where there is a deal to book against.
+  if (deal && hidden.nextMeeting) {
+    skipped = true;
+  } else if (deal && !view.next_meeting) {
     out.push({ text: t("person.rail.noMeetingBooked"), tone: "warn" });
   }
-  return out;
+  return { signals: out, skipped };
 }
 
 // --- Consent and channels --------------------------------------------------
@@ -1131,6 +1259,11 @@ function verdictClass(verdict: string | undefined): string {
 // it — this is the glance, the Activity tab is the ledger.
 function RecentActivity({ view }: Readonly<{ view: Person360 }>) {
   const t = useT();
+  // The section's own emptiness is decided BEFORE the rows are defaulted: an
+  // absent list and an empty one collapse into the same `[]` here, and that
+  // collapse is what turns "you may not read the timeline" into "nothing has
+  // ever happened with this contact".
+  const withheld = withheldSections(view).activities;
   const rows = (view.activities?.data ?? []).slice(0, 3);
   return (
     <Disclosure
@@ -1138,17 +1271,19 @@ function RecentActivity({ view }: Readonly<{ view: Person360 }>) {
       open
       summary={t("person.rail.recentActivity")}
     >
-      {rows.length === 0 && (
-        <p className="pe-prose">{t("person.rail.nothingCaptured")}</p>
-      )}
-      {rows.map((row) => (
-        <div className="pe-rail-row" key={row.id}>
-          <span className="pe-rail-label">{row.subject ?? row.kind}</span>
-          <span className="pe-rail-value-muted">
-            {sinceWords(row.occurred_at, t)}
-          </span>
-        </div>
-      ))}
+      <SurfaceState
+        state={bodyState(withheld, rows.length)}
+        emptyLabel={t("person.rail.nothingCaptured")}
+      >
+        {rows.map((row) => (
+          <div className="pe-rail-row" key={row.id}>
+            <span className="pe-rail-label">{row.subject ?? row.kind}</span>
+            <span className="pe-rail-value-muted">
+              {sinceWords(row.occurred_at, t)}
+            </span>
+          </div>
+        ))}
+      </SurfaceState>
       {/* The rail's own glance leaves the tab's ledger one click away, the
           same "see the rest elsewhere" verb the section's own body carries
           now that there is no panel footer band to hold it. */}

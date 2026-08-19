@@ -36,21 +36,19 @@ func seedOrgWithEvidence(ctx context.Context, t *testing.T, e *dedupeEnv) ids.Or
 		// human-set legal_name (evidence columns null — the read must map
 		// them to nil, not the zero string).
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_profile_field
-			  (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1,$2,'icp','Energy-intensive manufacturers','"…for energy-intensive manufacturers"','https://voltaq.test/about',0.9,'site_read','agent:deepread'),
-			       ($1,$2,'legal_name','Voltaq Systems GmbH',NULL,NULL,NULL,'human','human:'||$3)`,
-			e.ws, orgID, e.rep); err != nil {
+			INSERT INTO organization_profile_field (organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1,'icp','Energy-intensive manufacturers','"…for energy-intensive manufacturers"','https://voltaq.test/about',0.9,'site_read','agent:deepread'),
+			       ($1,'legal_name','Voltaq Systems GmbH',NULL,NULL,NULL,'human','human:'||$2)`,
+			orgID, e.rep); err != nil {
 			return err
 		}
 		// Two facts across two categories: a company/phone (value_key '')
 		// and a signal/certification (value_key non-empty).
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization_fact
-			  (workspace_id, organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1,$2,'company','phone','+49 30 1234','','"+49 30 1234"','https://voltaq.test/impressum',0.95,'site_read','agent:deepread'),
-			       ($1,$2,'signal','certification','ISO 9001','iso 9001','"ISO 9001 certified"','https://voltaq.test/quality',0.8,'site_read','agent:deepread')`,
-			e.ws, orgID); err != nil {
+			INSERT INTO organization_fact (organization_id, category, field, value, value_key, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1,'company','phone','+49 30 1234','','"+49 30 1234"','https://voltaq.test/impressum',0.95,'site_read','agent:deepread'),
+			       ($1,'signal','certification','ISO 9001','iso 9001','"ISO 9001 certified"','https://voltaq.test/quality',0.8,'site_read','agent:deepread')`,
+			orgID); err != nil {
 			return err
 		}
 		return nil

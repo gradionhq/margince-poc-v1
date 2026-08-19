@@ -2,6 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+// The installation read every form shares: one query, one key, so the currency
+// this form writes is the same fact the settings screen shows.
+import { useInstallationSettings } from "../app/uploadlimit";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { FileDropzoneControl } from "../design-system/filedropzone";
 import { Select } from "../design-system/select";
@@ -25,8 +28,9 @@ type ValueBasis = NonNullable<
   components["schemas"]["CreateContractRequest"]["value_basis"]
 >;
 
-// The draft the form edits. Money travels as a pair, so the two fields live
-// together and are submitted together or not at all.
+// The draft the form edits. Money travels as a pair, so the amount and its
+// currency live together — and that currency is only ever one the record or the
+// installation stated, never a default this file picked on their behalf.
 type ContractDraft = {
   title: string;
   contractNumber: string;
@@ -44,7 +48,11 @@ const EMPTY_DRAFT: ContractDraft = {
   title: "",
   contractNumber: "",
   valueMinor: 0,
-  currency: "EUR",
+  // No currency of its own. There is no currency control on this form, so
+  // whatever stands here is written to the record unseen — and a literal would
+  // label every installation's agreements in one country's money. The unit
+  // comes from the installation itself, resolved at the moment of the save.
+  currency: "",
   valueBasis: "total",
   startsOn: "",
   endsOn: "",
@@ -69,6 +77,11 @@ export function ContractForm({
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ContractDraft>(draftOf(contract));
   const [file, setFile] = useState<File | undefined>();
+  // The installation's own declared currency — the only one this form can
+  // supply, since it offers the reader no currency control. Undefined while the
+  // read is in flight and if it never answers, and undefined stays undefined:
+  // guessing a unit is the failure this whole pairing exists to prevent.
+  const baseCurrency = useInstallationSettings().data?.base_currency;
 
   // Re-seed when the modal opens on a DIFFERENT agreement. Without this the
   // form keeps the previous row's values, and a reader correcting the second
@@ -268,7 +281,9 @@ export function ContractForm({
           variant="primary"
           reason={invalid ? t(invalid) : undefined}
           disabled={save.isPending || invalid !== null}
-          onClick={() => save.mutate({ draft, file })}
+          onClick={() =>
+            save.mutate({ draft: pricedIn(draft, baseCurrency), file })
+          }
         >
           {t(contract ? "contracts.form.saveEdit" : "contracts.form.save")}
         </Button>
@@ -288,7 +303,11 @@ function draftOf(contract: Contract | undefined): ContractDraft {
     title: contract.title,
     contractNumber: contract.contract_number ?? "",
     valueMinor: contract.value_minor ?? 0,
-    currency: contract.currency ?? "EUR",
+    // A recorded agreement keeps its OWN currency. The two money columns are
+    // paired by the database, so an agreement carrying none carries no amount
+    // either: it is being priced here for the first time, exactly like a new
+    // one, and takes the installation's unit at the save.
+    currency: contract.currency ?? "",
     valueBasis: contract.value_basis as ValueBasis,
     startsOn: contract.starts_on ?? "",
     endsOn: contract.ends_on ?? "",
@@ -299,6 +318,31 @@ function draftOf(contract: Contract | undefined): ContractDraft {
         : String(contract.notice_period_days),
     signedOn: contract.signed_on ?? "",
   };
+}
+
+/**
+ * The draft as it will be SAVED: an amount the reader typed, in the currency the
+ * agreement already records, or else the installation's own.
+ *
+ * Resolved at the save rather than seeded into the draft because the modal opens
+ * the instant a reader clicks a row, which can be before the installation read
+ * has answered — a draft seeded with the blank would keep the blank after the
+ * answer arrived, and re-seeding on arrival would throw away what the reader had
+ * typed by then.
+ *
+ * With no answer at all the currency stays blank, and `contractBody` sends the
+ * half-pair the form actually holds. That is the one honest option left: the
+ * server refuses it where the reader can see the refusal, whereas dropping the
+ * amount would report a saved agreement whose value quietly went nowhere.
+ */
+export function pricedIn(
+  draft: ContractDraft,
+  baseCurrency: string | undefined,
+): ContractDraft {
+  if (draft.currency !== "") {
+    return draft;
+  }
+  return { ...draft, currency: baseCurrency ?? "" };
 }
 
 /**
@@ -495,7 +539,11 @@ async function patchContract(
       title: draft.title.trim(),
       contract_number: draft.contractNumber.trim() || null,
       value_minor: draft.valueMinor > 0 ? draft.valueMinor : null,
-      currency: draft.valueMinor > 0 ? draft.currency : null,
+      // Same pairing as a create, and the same refusal to complete it with a
+      // guess: an amount whose currency the form does not hold goes out as the
+      // half it is, for the server to refuse in the open.
+      currency:
+        draft.valueMinor > 0 && draft.currency !== "" ? draft.currency : null,
       value_basis: draft.valueBasis,
       starts_on: draft.startsOn || null,
       ends_on: draft.endsOn || null,
@@ -573,11 +621,18 @@ export function contractBody(
   if (draft.contractNumber.trim() !== "") {
     body.contract_number = draft.contractNumber.trim();
   }
-  // Money is a PAIR: an amount with no currency cannot be converted and the
-  // server refuses half of one, so the form sends both or neither.
+  // Money is a PAIR: an amount with no currency cannot be converted, and the
+  // record's own CHECK refuses half of one. So the amount travels with the
+  // currency the form HOLDS — never with one it made up, and never without the
+  // amount the reader typed. Holding no currency, the form sends the half-pair
+  // and takes the refusal: an invented unit would be believed for the life of
+  // the record, and dropping the amount would report a saved agreement whose
+  // value quietly went nowhere.
   if (draft.valueMinor > 0) {
     body.value_minor = draft.valueMinor;
-    body.currency = draft.currency;
+    if (draft.currency !== "") {
+      body.currency = draft.currency;
+    }
   }
   if (draft.startsOn !== "") {
     body.starts_on = draft.startsOn;

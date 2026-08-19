@@ -153,9 +153,8 @@ func (s *Store) SetDomainAdmission(ctx context.Context, domain, admission, reaso
 // verdict that concluded it.
 func setDomainAdmissionTx(ctx context.Context, tx pgx.Tx, domain, admission, reason, source string) error {
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO organization_domain_disposition
-		  (workspace_id, domain, status, admission, admission_reason, admission_source, admission_at)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		INSERT INTO organization_domain_disposition (domain, status, admission, admission_reason, admission_source, admission_at)
+		VALUES (
 		        $1, $2, $3, $4, $5, now())
 		ON CONFLICT (domain) DO UPDATE
 		   SET admission = EXCLUDED.admission,

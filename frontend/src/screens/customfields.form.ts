@@ -10,7 +10,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { formatMoney } from "../format/format";
+import { formatMoneyOrAbsent } from "../format/format";
 import { webUrl } from "../format/weburl";
 import { type Locale, useT } from "../i18n";
 import type { CreateField } from "./create";
@@ -112,7 +112,11 @@ export function customFieldDisplay(
   }
   switch (field.type) {
     case "currency":
-      return formatMoney(Number(raw), field.currency ?? "EUR", opts.locale);
+      // The catalog carries the code for a currency field (CF-T06), so one that
+      // arrives without it is a broken definition rather than a shape to guess
+      // at: the reader is told the figure cannot be read, instead of being
+      // handed a euro sign over a unit nobody stated.
+      return formatMoneyOrAbsent(Number(raw), field.currency, opts.locale);
     case "boolean":
       return raw === true || raw === "true"
         ? opts.boolLabels.yes

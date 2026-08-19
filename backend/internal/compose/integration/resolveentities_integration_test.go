@@ -35,10 +35,10 @@ type resolveFixture struct {
 func seedResolveFixture(t *testing.T, e *queryEnv) resolveFixture {
 	t.Helper()
 	var f resolveFixture
-	f.rep1Person = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Anna Weber', 'manual', 'human:x')`, e.Rep1)
-	f.rep3Person = e.Seed(t, `INSERT INTO person (id, workspace_id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, $3, 'Bernd Kruse', 'manual', 'human:x')`, e.Rep3)
+	f.rep1Person = e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Anna Weber', 'manual', 'human:x')`, e.Rep1)
+	f.rep3Person = e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
+		VALUES ($1, $2, 'Bernd Kruse', 'manual', 'human:x')`, e.Rep3)
 	seedEmail(t, e, f.rep1Person, "anna@acme.example")
 	seedEmail(t, e, f.rep3Person, "bernd@logistik.example")
 	return f
@@ -47,9 +47,9 @@ func seedResolveFixture(t *testing.T, e *queryEnv) resolveFixture {
 func seedEmail(t *testing.T, e *queryEnv, person ids.UUID, address string) {
 	t.Helper()
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO person_email (id, workspace_id, person_id, email, email_type, is_primary, source, captured_by)
-		 VALUES ($1, $2, $3, $4, 'work', true, 'manual', 'human:x')`,
-		ids.NewV7(), e.WS, person, address); err != nil {
+		`INSERT INTO person_email (id, person_id, email, email_type, is_primary, source, captured_by)
+		 VALUES ($1, $2, $3, 'work', true, 'manual', 'human:x')`,
+		ids.NewV7(), person, address); err != nil {
 		t.Fatalf("seeding %s: %v", address, err)
 	}
 }

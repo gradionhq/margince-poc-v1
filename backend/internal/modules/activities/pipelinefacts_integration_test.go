@@ -122,10 +122,10 @@ func (e *factsEnv) seed(t *testing.T, row capturedRow) ids.UUID {
 	}
 	if row.withPerson {
 		person := ids.NewV7()
-		e.exec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			VALUES ($1, $2, 'Linked Person', 'test', 'connector:gmail')`, person, e.ws)
+		e.exec(t, `INSERT INTO person (id, full_name, source, captured_by)
+			VALUES ($1, 'Linked Person', 'test', 'connector:gmail')`, person)
 		e.exec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, id, person)
+			VALUES ($1, 'person', $2)`, id, person)
 	}
 	return id
 }
@@ -206,10 +206,10 @@ func TestReadingPipelineFactsTakesTheRowScopeNotJustTheGrant(t *testing.T) {
 	e.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Other')`,
 		other, e.ws, "other-"+other.String()+"@facts.test")
 	person := ids.NewV7()
-	e.exec(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by, owner_id)
-		VALUES ($1, $2, 'Theirs', 'test', 'connector:gmail', $3)`, person, e.ws, other)
+	e.exec(t, `INSERT INTO person (id, full_name, source, captured_by, owner_id)
+		VALUES ($1, 'Theirs', 'test', 'connector:gmail', $2)`, person, other)
 	e.exec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
-		VALUES ( $1, 'person', $2)`, id, person)
+		VALUES ($1, 'person', $2)`, id, person)
 
 	// The allow arm over the same seed: unbounded scope reads it. Without this,
 	// a link that failed to land would make the refusal below meaningless.

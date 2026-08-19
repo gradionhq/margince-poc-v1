@@ -3,14 +3,13 @@
 
 package people
 
-// The lead list read: the shared listPage runner bound to the lead table,
-// so the list orders by the request's validated sort rather than always by
-// creation time. Score is the field this matters most for — a lead list is
-// read to find the warmest rows, and a score column that cannot order them
-// is a number the reader has to scan for by eye.
+// The lead list read: the default operational queue plus the shared listPage
+// runner for explicit field sorts. Score remains available as an explicit
+// sort without displacing the SLA-first default.
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -57,6 +56,9 @@ var leadListFields = map[string]string{
 // ListLeads is the row-scoped lead list read: quick-find, the status and
 // owner filters, and keyset pagination under the validated sort.
 func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontracts.Lead, storekit.Page, error) {
+	if in.Sort == nil || *in.Sort == "" {
+		return s.listLeadWorkQueue(ctx, in)
+	}
 	return listPage(ctx, s, in.Sort, in.Limit, listPageSpec[crmcontracts.Lead]{
 		entity:  leadEntity,
 		columns: leadColumns,
@@ -70,12 +72,15 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 				OwnerID:         in.OwnerID,
 				OwnerTeamID:     in.OwnerTeamID,
 				Unassigned:      in.Unassigned,
-				Query:           in.Query,
+				Query:           nil,
 				Cursor:          in.Cursor,
 				nameColumn:      leadNameColumn,
 			}.clauses(active, sorted, arg)
 			if err != nil {
 				return nil, err
+			}
+			if in.Query != nil && *in.Query != "" {
+				where = append(where, leadQuickFindClause(*in.Query, arg))
 			}
 			// The lead's own narrowing, alongside the shared chain.
 			if in.Status != nil {
@@ -99,6 +104,13 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 			return last.CreatedAt, ids.UUID(last.Id)
 		},
 	})
+}
+
+func leadQuickFindClause(query string, arg func(any) int) string {
+	pos := arg(strings.TrimSpace(query))
+	return storekit.SQLf(`(%s OR email = lower($%d)
+		OR lower(rtrim(linkedin_url, '/')) = lower(rtrim($%d, '/')))`,
+		storekit.QuickFindClause(pos, leadNameColumn), pos, pos)
 }
 
 // scanLeadPage drains one list query's rows: each lead plus, under a

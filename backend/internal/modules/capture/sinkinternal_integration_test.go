@@ -55,14 +55,14 @@ func bootstrapInternalMailWorkspace(t *testing.T, ownDomains ...string) (context
 		if err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
 			orgID := ids.NewV7()
 			if _, err := tx.Exec(wsCtx, `
-				INSERT INTO organization (id, workspace_id, display_name, is_anchor, source, captured_by)
-				VALUES ($1, $2, 'Our Company', true, 'manual', 'human:test')`, orgID, wsUUID); err != nil {
+				INSERT INTO organization (id, display_name, is_anchor, source, captured_by)
+				VALUES ($1, 'Our Company', true, 'manual', 'human:test')`, orgID); err != nil {
 				return err
 			}
 			for i, d := range ownDomains {
 				if _, err := tx.Exec(wsCtx, `
-					INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-					VALUES ($1, $2, $3, $4, 'manual', 'human:test')`, wsUUID, orgID, d, i == 0); err != nil {
+					INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+					VALUES ( $1, $2, $3, 'manual', 'human:test')`, orgID, d, i == 0); err != nil {
 					return err
 				}
 			}

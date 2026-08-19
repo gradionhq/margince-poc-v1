@@ -50,13 +50,13 @@ func seedEnrichPerson(t *testing.T, e *integration.Env, email, body string) ids.
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, source, captured_by)
-			VALUES ($1, $2, 'Bob Person', 'gmail:seed', 'connector:gmail')`, person, e.WS); err != nil {
+			INSERT INTO person (id, full_name, source, captured_by)
+			VALUES ($1, 'Bob Person', 'gmail:seed', 'connector:gmail')`, person); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, source, captured_by)
-			VALUES ($1, $2, $3, 'work', true, 'gmail:seed', 'connector:gmail')`, e.WS, person, email); err != nil {
+			INSERT INTO person_email (person_id, email, email_type, is_primary, source, captured_by)
+			VALUES ( $1, $2, 'work', true, 'gmail:seed', 'connector:gmail')`, person, email); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `

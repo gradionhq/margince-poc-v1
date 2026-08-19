@@ -211,8 +211,7 @@ func exactPersonByEmail(ctx context.Context, tx pgx.Tx, emails []string) (ids.Pe
 	var id ids.PersonID
 	err := tx.QueryRow(ctx, `
 		SELECT person_id FROM person_email
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND email = ANY($1) AND archived_at IS NULL
+		WHERE email = ANY($1) AND archived_at IS NULL
 		ORDER BY person_id
 		LIMIT 1`, lowered).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -259,8 +258,7 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResol
 		   AND r.is_current_primary AND r.archived_at IS NULL
 		  LEFT JOIN organization_domain od
 		    ON od.organization_id = r.organization_id AND od.archived_at IS NULL
-		 WHERE p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND p.archived_at IS NULL
+		 WHERE p.archived_at IS NULL
 		   AND (f_fold_apostrophes(lower(p.full_name)) % f_fold_apostrophes(lower($1))
 		        OR ($2::uuid IS NOT NULL AND r.organization_id = $2))`,
 		c.FullName, c.CurrentPrimaryOrgID)

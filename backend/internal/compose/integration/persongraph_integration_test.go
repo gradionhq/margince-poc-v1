@@ -78,12 +78,12 @@ func seedExchange(t *testing.T, e *Env, colleague, person ids.UUID, subject stri
 	LinkActivity(t, owner, id, "person", person)
 	if _, err := owner.Exec(ctx, `
 		INSERT INTO activity_participant (activity_id, user_id, role)
-		VALUES ( $1, $2, 'from')`, id, colleague); err != nil {
+		VALUES ($1, $2, 'from')`, id, colleague); err != nil {
 		t.Fatalf("seeding our side: %v", err)
 	}
 	if _, err := owner.Exec(ctx, `
 		INSERT INTO activity_participant (activity_id, person_id, role)
-		VALUES ( $1, $2, 'to')`, id, person); err != nil {
+		VALUES ($1, $2, 'to')`, id, person); err != nil {
 		t.Fatalf("seeding their side: %v", err)
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, e.WS)
@@ -187,9 +187,9 @@ func TestPersonGraphHidesCoworkersOutsideRowScope(t *testing.T) {
 	hidden := e.SeedPerson(t, "Hidden Coworker", &e.Rep3)
 
 	for _, p := range []ids.UUID{mine, visible, hidden} {
-		SeedRow(t, owner, `INSERT INTO relationship
-			(id, workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, $2, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`, e.WS)
+		SeedIDRow(t, owner, `INSERT INTO relationship
+			(id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`)
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, graphPerms)
@@ -285,9 +285,9 @@ func TestPersonGraphGivesAColleagueOneNodeAcrossBothArms(t *testing.T) {
 	coworker := e.SeedPerson(t, "Their Colleague", &e.Rep1)
 
 	for _, p := range []ids.UUID{mine, coworker} {
-		SeedRow(t, owner, `INSERT INTO relationship
-			(id, workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, $2, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`, e.WS)
+		SeedIDRow(t, owner, `INSERT INTO relationship
+			(id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`)
 	}
 	// The SAME colleague corresponds with both.
 	seedExchange(t, e, e.Rep1, mine, "with Anna")
@@ -341,9 +341,9 @@ func TestPersonGraphAccountEdgesCarryCountsAndNoMessages(t *testing.T) {
 	coworker := e.SeedPerson(t, "Their Colleague", &e.Rep1)
 
 	for _, p := range []ids.UUID{mine, coworker} {
-		SeedRow(t, owner, `INSERT INTO relationship
-			(id, workspace_id, kind, person_id, organization_id, source, captured_by)
-			VALUES ($1, $2, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`, e.WS)
+		SeedIDRow(t, owner, `INSERT INTO relationship
+			(id, kind, person_id, organization_id, source, captured_by)
+			VALUES ($1, 'employment', '`+p.String()+`', '`+org.String()+`', 'manual', 'human:x')`)
 	}
 	// Nobody knows Anna; somebody knows her coworker. That is exactly the case
 	// the account arm exists for.

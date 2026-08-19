@@ -108,7 +108,7 @@ describe("the research tab's enrichment evidence", () => {
       />,
     );
     expect(screen.getByText("Captured by:")).toBeTruthy();
-    expect(screen.getByText("agent: enrich")).toBeTruthy();
+    expect(screen.getByText("Automated by enrich")).toBeTruthy();
     // The value itself is the evidence affordance's trigger: opening it is
     // what surfaces the snippet, so the row's receipt is reachable through
     // the value rather than a separate widget.

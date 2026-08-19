@@ -21,10 +21,10 @@ test("AC-leads-list: a row names its owner and opens the lead's own page", async
   // The owner column answers "whose lead is this" — the same column the
   // people and company lists carry, never "typed by a person".
   await expect(row).toContainText("Lena Fischer");
-  // Exactly the name cell: since rows became selectable, every row also holds
-  // an sr-only "<name> auswählen" label for its checkbox, and a substring
-  // match resolves to both.
-  await row.getByText("Jonas Petersen", { exact: true }).click();
+  // The link's accessible name also carries the company, while the row's
+  // selection checkbox carries the same person's name. Role plus a
+  // start-anchored name selects the route without coupling to the company.
+  await row.getByRole("link", { name: /^Jonas Petersen/ }).click();
   await expect(page).toHaveURL(/#\/leads\/l-1$/);
   await expect(
     page.getByRole("heading", { level: 1, name: "Jonas Petersen" }),

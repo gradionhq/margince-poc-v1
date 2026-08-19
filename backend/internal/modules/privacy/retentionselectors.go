@@ -19,8 +19,7 @@ package privacy
 // activities, the holds of every linked record plus the statutory floor.
 var retentionSelectors = map[string]string{
 	"lead/unconverted": `SELECT id FROM lead
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
+		WHERE status IN ('new','working') AND archived_at IS NULL AND NOT legal_hold
 		  AND full_name IS DISTINCT FROM 'Anonymized Lead'
 		  AND created_at < now() - make_interval(days => $1) LIMIT $2`,
 	"activity/": `SELECT a.id FROM activity a
@@ -46,8 +45,7 @@ var retentionSelectors = map[string]string{
 		          AND (coalesce(p.legal_hold, false) OR coalesce(o.legal_hold, false) OR coalesce(d.legal_hold, false)))
 		LIMIT $2`,
 	"person/no_consent_no_deal": `SELECT p.id FROM person p
-		WHERE p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND p.archived_at IS NULL AND NOT p.legal_hold
+		WHERE p.archived_at IS NULL AND NOT p.legal_hold
 		  AND p.full_name IS DISTINCT FROM 'Erased Subject'
 		  AND p.created_at < now() - make_interval(days => $1)
 		  AND NOT EXISTS (SELECT 1 FROM person_consent pc WHERE pc.person_id = p.id AND pc.state = 'granted')

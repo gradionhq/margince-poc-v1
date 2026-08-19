@@ -187,7 +187,6 @@ func matchSitePerson(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, i
 // not a fill: adding an address to an existing person changes who that record
 // is reachable as, and the site is not authority for that.
 func fillSitePersonFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID, sourceRef, by string, in SitePersonFields) ([]string, error) {
-	wsID := workspaceID(ctx)
 	var applied []string
 	write := func(field, value string) error {
 		value = strings.TrimSpace(value)
@@ -198,10 +197,10 @@ func fillSitePersonFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		// same rule the signature pass writes under, so a site read can never
 		// overwrite what a signature (or a human) already answered.
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO person_profile_field (workspace_id, person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, source, captured_by)
+			VALUES ( $1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (person_id, field) DO NOTHING`,
-			wsID, personID, field, value, in.EvidenceSnippet, sourceRef, siteFieldSource, by)
+			personID, field, value, in.EvidenceSnippet, sourceRef, siteFieldSource, by)
 		if err != nil {
 			return fmt.Errorf("people: site person evidence row (%s): %w", field, err)
 		}

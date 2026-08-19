@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { Button } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
@@ -79,7 +79,10 @@ export function LeadBulkBar({
   const assign = () =>
     run.mutate(async (lead) => {
       const { error } = await api.PATCH("/leads/{id}", {
-        params: { path: { id: lead.id }, ...ifMatch(lead.version) },
+        params: {
+          path: { id: lead.id },
+          ...ifMatch(requireVersion(lead.version)),
+        },
         body: { owner_id: ownerId },
       });
       if (error) {

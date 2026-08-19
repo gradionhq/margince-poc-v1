@@ -46,6 +46,21 @@ for (const artifact of [
 const backendPort = process.env.BACKEND_PORT ?? "18080";
 const proxyTarget = `http://localhost:${backendPort}`;
 
+// Hostnames a tunnel (cloudflared, ngrok, a reverse proxy) puts in front of
+// this dev server. Vite rejects a request whose Host header it does not
+// recognise, so exposing `pnpm dev` publicly needs the tunnel's hostname
+// listed. That hostname is minted fresh per tunnel and dies with it, which is
+// why it comes from the environment and is never committed:
+//
+//   VITE_ALLOWED_HOSTS=abc-def.trycloudflare.com pnpm dev
+//
+// Comma-separated for more than one. Unset (the normal case) leaves the list
+// empty, so the dev server keeps refusing every host but localhost.
+const allowedHosts = (process.env.VITE_ALLOWED_HOSTS ?? "")
+  .split(",")
+  .map((host) => host.trim())
+  .filter((host) => host.length > 0);
+
 export default defineConfig({
   // serveMcpApps is `apply: "serve"` — a dev-only middleware that adds nothing
   // to the SPA build. It has to live HERE rather than in vite.mcp-apps.config.ts
@@ -104,6 +119,7 @@ export default defineConfig({
     dedupe: ["react", "react-dom", "@tanstack/react-query"],
   },
   server: {
+    allowedHosts,
     // build/composition/ sits OUTSIDE the Vite root (frontend/), and Vite's
     // dev server refuses to serve a file it cannot prove is inside the
     // workspace. Listing the resolved directory keeps `pnpm dev` working in

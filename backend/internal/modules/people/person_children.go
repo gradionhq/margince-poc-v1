@@ -59,8 +59,8 @@ func replacePersonSocial(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, p
 			continue
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_social (workspace_id, person_id, platform, handle) VALUES ($1, $2, $3, $4)`,
-			wsID, personID, platform, text); err != nil {
+			`INSERT INTO person_social (person_id, platform, handle) VALUES ( $1, $2, $3)`,
+			personID, platform, text); err != nil {
 			return fmt.Errorf("insert person social row: %w", err)
 		}
 	}
@@ -98,9 +98,9 @@ func parsePersonContacts(emails []PersonEmailInput, phones []PersonPhoneInput) e
 func insertPersonEmails(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, personID ids.PersonID, source, by string, emails []PersonEmailInput) error {
 	for _, e := range emails {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_email (workspace_id, person_id, email, email_type, is_primary, position, source, captured_by, from_correspondence)
-			 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8, $9)`,
-			wsID, personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by,
+			`INSERT INTO person_email (person_id, email, email_type, is_primary, position, source, captured_by, from_correspondence)
+			 VALUES ( $1, lower($2), $3, $4, $5, $6, $7, $8)`,
+			personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by,
 			!e.VouchedNotCorresponded); err != nil {
 			if name, ok := storekit.UniqueViolation(err); ok {
 				if name == "uq_person_email_dedupe" {
@@ -118,9 +118,9 @@ func insertPersonEmails(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, pe
 func insertPersonPhones(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, personID ids.PersonID, source, by string, phones []PersonPhoneInput) error {
 	for _, p := range phones {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_phone (workspace_id, person_id, phone, phone_type, is_primary, position, source, captured_by)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			wsID, personID, p.Phone, p.PhoneType, p.IsPrimary, p.Position, source, by); err != nil {
+			`INSERT INTO person_phone (person_id, phone, phone_type, is_primary, position, source, captured_by)
+			 VALUES ( $1, $2, $3, $4, $5, $6, $7)`,
+			personID, p.Phone, p.PhoneType, p.IsPrimary, p.Position, source, by); err != nil {
 			return fmt.Errorf("insert person phone: %w", err)
 		}
 	}
@@ -137,8 +137,7 @@ func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []Person
 		var existing ids.PersonID
 		err := tx.QueryRow(ctx,
 			`SELECT person_id FROM person_email
-			  WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			    AND email = lower($1) AND archived_at IS NULL`,
+			  WHERE email = lower($1) AND archived_at IS NULL`,
 			e.Email).Scan(&existing)
 		if errors.Is(err, pgx.ErrNoRows) {
 			continue
@@ -159,7 +158,7 @@ func ensurePersonEmailsUnclaimed(ctx context.Context, tx pgx.Tx, emails []Person
 	return nil
 }
 
-const personColumns = `id, workspace_id, full_name, first_name, last_name, title, owner_id,
+const personColumns = `id, full_name, first_name, last_name, title, owner_id,
 	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
 	merged_into_id, converted_from_lead_id, source, captured_by,
 	version, created_at, updated_at, archived_at, last_activity_at`
@@ -193,13 +192,13 @@ func readPerson(ctx context.Context, tx pgx.Tx, id ids.PersonID, archived storek
 // cursor key).
 func scanPerson(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Person, error) {
 	var p crmcontracts.Person
-	var id, wsID ids.UUID
+	var id ids.UUID
 	var ownerID, mergedInto, fromLead *ids.UUID
 	var addr crmcontracts.Address
 	var version int64
 
 	dests := []any{
-		&id, &wsID, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
+		&id, &p.FullName, &p.FirstName, &p.LastName, &p.Title, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
 		&mergedInto, &fromLead, &p.Source, &p.CapturedBy,
 		&version, &p.CreatedAt, &p.UpdatedAt, &p.ArchivedAt, &p.LastActivityAt,

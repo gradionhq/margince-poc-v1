@@ -1,6 +1,6 @@
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { useCanWrite } from "../app/capability";
 import { Badge } from "../design-system/atoms";
 import type { ListColumn } from "../design-system/listtable";
@@ -150,7 +150,10 @@ export function ProductsAdmin() {
   const updateProduct =
     (product: Product) => async (values: Record<string, unknown>) => {
       const { data, error } = await api.PATCH("/products/{id}", {
-        params: { path: { id: product.id }, ...ifMatch(product.version) },
+        params: {
+          path: { id: product.id },
+          ...ifMatch(requireVersion(product.version)),
+        },
         body: {
           name: String(values.name).trim(),
           sku: (values.sku as string)?.trim() || null,

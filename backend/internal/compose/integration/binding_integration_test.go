@@ -60,7 +60,7 @@ func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	personID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Stale Row Person', 'manual', 'human:x')`)
+	personID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Stale Row Person', 'manual', 'human:x')`)
 	// A row stamped under a DIFFERENT identity than currentIdentity — the
 	// entity has an embedding row, just not a current one, so it must
 	// still count as pending (the swap case, distinct from "no row at all").
@@ -321,13 +321,13 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	const nameOrg = "Pending Org"
 	const nameTwo = "Pending Two"
 
-	e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, '`+nameOne+`', 'manual', 'human:x')`)
-	e.Seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, '`+nameOrg+`', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, '`+nameOne+`', 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, '`+nameOrg+`', 'manual', 'human:x')`)
 	// A lead with every text-bearing column NULL: concat_ws collapses to
 	// '', so it must NOT count as pending — the non-empty qualifier.
-	e.Seed(t, `INSERT INTO lead (id, workspace_id, source, captured_by) VALUES ($1, $2, 'manual', 'human:x')`)
+	e.SeedID(t, `INSERT INTO lead (id, source, captured_by) VALUES ($1, 'manual', 'human:x')`)
 	// Already covered at the current identity: must not count as pending.
-	coveredID := e.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Already Covered', 'manual', 'human:x')`)
+	coveredID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Already Covered', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
 		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
 		VALUES ($1, 'person', $2, 0, 'covered-hash', $3, '[1,2,3]'::vector)`,
@@ -335,11 +335,7 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 		t.Fatalf("seeding the already-covered row: %v", err)
 	}
 
-	ws2PersonID := ids.NewV7()
-	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, $3, 'manual', 'human:x')`,
-		ws2PersonID, ws2, nameTwo); err != nil {
-		t.Fatalf("seeding the sibling workspace's person: %v", err)
-	}
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, '`+nameTwo+`', 'manual', 'human:x')`)
 
 	counts, err := e.Store.PendingByWorkspace(ctx, identity)
 	if err != nil {
@@ -357,30 +353,46 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	wsKey := ids.From[ids.WorkspaceKind](e.WS)
 	ws2Key := ids.From[ids.WorkspaceKind](ws2)
 
-	if counts[wsKey] != 2 {
-		t.Fatalf("counts[e.WS] = %d, want 2 (person + organization; the null lead and the already-covered person must be excluded)", counts[wsKey])
+	// Both people and the organization count under BOTH workspaces, and that is
+	// the honest answer rather than a leak: ADR-0091 §8 phase D took the tenant
+	// column off person and organization alike, so they belong to the
+	// installation and every workspace this rollup enumerates sees them. The
+	// covered person is excluded from both for the same reason — one embedding
+	// at this identity covers an installation-wide row wherever it is counted.
+	// The two numbers converge on one when the re-embed fan-out itself collapses
+	// and there is a single pass to report.
+	const wantPerWorkspace = 3 // two people + the organization
+	if counts[wsKey] != wantPerWorkspace {
+		t.Fatalf("counts[e.WS] = %d, want %d (both people + the organization; the null lead and the already-covered person must be excluded)", counts[wsKey], wantPerWorkspace)
 	}
-	if counts[ws2Key] != 1 {
-		t.Fatalf("counts[ws2] = %d, want 1", counts[ws2Key])
+	if counts[ws2Key] != wantPerWorkspace {
+		t.Fatalf("counts[ws2] = %d, want %d (the same installation-wide rows)", counts[ws2Key], wantPerWorkspace)
 	}
 
+	// EntitiesPending is the installation's backlog, NOT the sum of the rollup.
+	// Every pending row is installation-wide, so each workspace's entry is the
+	// same set of rows; summing would report an installation with two of them as
+	// having twice the work, and that figure prices the re-embed. Asserting the
+	// sum here rather than only the total is the point — it is the arithmetic
+	// that must NOT hold.
 	sum := 0
 	for _, c := range counts {
 		sum += c
 	}
-	if sum != total {
-		t.Fatalf("sum of PendingByWorkspace = %d, EntitiesPending = %d — must agree", sum, total)
+	if total != wantPerWorkspace {
+		t.Fatalf("EntitiesPending = %d, want %d (the installation's backlog, counted once)", total, wantPerWorkspace)
 	}
-	if total != 3 {
-		t.Fatalf("EntitiesPending = %d, want 3", total)
+	if sum == total {
+		t.Fatalf("sum of PendingByWorkspace = EntitiesPending = %d across %d workspaces — the total is summing a rollup whose entries are the same rows", total, len(counts))
 	}
 
-	wantWSTokens := int64((len(nameOne) + len(nameOrg)) / 4)
-	if tokens[wsKey] != wantWSTokens {
-		t.Fatalf("tokens[e.WS] = %d, want %d (SUM(length)/4 over the pending set)", tokens[wsKey], wantWSTokens)
+	// The same text is in both sums, for the same reason the same rows are in
+	// both counts: they belong to the installation, not to either workspace.
+	wantTokens := int64((len(nameOne) + len(nameTwo) + len(nameOrg)) / 4)
+	if tokens[wsKey] != wantTokens {
+		t.Fatalf("tokens[e.WS] = %d, want %d (SUM(length)/4 over the pending set)", tokens[wsKey], wantTokens)
 	}
-	wantWS2Tokens := int64(len(nameTwo) / 4)
-	if tokens[ws2Key] != wantWS2Tokens {
-		t.Fatalf("tokens[ws2] = %d, want %d", tokens[ws2Key], wantWS2Tokens)
+	if tokens[ws2Key] != wantTokens {
+		t.Fatalf("tokens[ws2] = %d, want %d", tokens[ws2Key], wantTokens)
 	}
 }

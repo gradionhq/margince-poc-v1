@@ -77,8 +77,8 @@ func hideIncumbent(ctx context.Context, t *testing.T, db *database.DB, sourceID 
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person (id, workspace_id, full_name, owner_id, source, captured_by)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'Stranger', $2, 'manual', 'human:test')`,
+			INSERT INTO person (id, full_name, owner_id, source, captured_by)
+			VALUES ($1, 'Stranger', $2, 'manual', 'human:test')`,
 			personID, stranger); err != nil {
 			return err
 		}

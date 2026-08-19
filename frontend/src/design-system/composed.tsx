@@ -10,7 +10,11 @@ import {
 import type { ReactNode } from "react";
 import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { splitEmailBody } from "../format/emailtext";
-import { formatDate, formatDuration, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDuration,
+  formatMoneyOrAbsent,
+} from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { Avatar, Badge, Button, Card } from "./atoms";
@@ -75,15 +79,29 @@ export function MorningBriefItem({
 
 // ----- Pipeline board -----
 
-export type BoardDeal = {
+export type BoardRecord = {
   id: string;
   name: string;
+};
+
+export type BoardDeal = BoardRecord & {
   org: string;
   /** The company's resolved mark. Absent leaves the monogram, which is the
    *  floor rather than a fallback. */
   orgLogoUrl?: string | null;
-  valueMinor: number;
-  currency: string;
+  /**
+   * The deal's money, as the two halves it actually has: an integer minor
+   * amount and its ISO currency, either of which can be missing on a deal
+   * nobody has priced. Required and nullable rather than optional, because a
+   * caller owes the card an answer about the money — `null` is that answer
+   * where there is no figure, and the card draws it as absent.
+   *
+   * Definite types here are what made every caller invent a currency: a prop
+   * demanding a `string` leaves `?? "EUR"` as the only way to satisfy it, and
+   * a euro sign on a figure that might be dong is worse than no figure.
+   */
+  valueMinor: number | null;
+  currency: string | null;
   ageMs: number;
   stalled?: boolean;
   singleThreaded?: boolean;
@@ -91,10 +109,10 @@ export type BoardDeal = {
   archived?: boolean;
 };
 
-export type BoardColumn = {
+export type BoardColumn<Record extends BoardRecord = BoardDeal> = {
   stage: string;
   label: string;
-  deals: BoardDeal[];
+  deals: Record[];
   /**
    * The stage's true deal count, independent of how many `deals` (cards)
    * loaded — a caller with a capped/paginated card fetch (the Kanban board)
@@ -119,12 +137,18 @@ export type BoardColumn = {
  * optional is not what these are — a deal column without them renders
  * `undefined%` in its header, which is worse than failing to compile. The
  * variant that reads them is the variant that requires them.
+ *
+ * The three money fields are nullable, which is not the same as optional: the
+ * caller still owes every column an answer, and `null` is the answer where the
+ * server stated no figure — an aggregate over unpriced deals, or a stage whose
+ * rows name no currency. Drawn as absent, never as a zero: a stage total of
+ * `€0.00` beside a real deal count reads as an empty stage.
  */
-export type BoardMoneyColumn = BoardColumn & {
+export type BoardMoneyColumn = BoardColumn<BoardDeal> & {
   probabilityPct: number;
-  rawMinor: number;
-  weightedMinor: number;
-  currency: string;
+  rawMinor: number | null;
+  weightedMinor: number | null;
+  currency: string | null;
 };
 
 export function DealCard({
@@ -169,7 +193,7 @@ export function DealCard({
       )}
       <span className="deal-meta">
         <span className="deal-value">
-          {formatMoney(deal.valueMinor, deal.currency, locale)}
+          {formatMoneyOrAbsent(deal.valueMinor, deal.currency, locale)}
         </span>
         <span>{formatDuration(deal.ageMs, locale)}</span>
         {deal.archived && <Badge>{t("deal.archived")}</Badge>}
@@ -183,66 +207,55 @@ export function DealCard({
   );
 }
 
-export function PipelineBoard({
+type BoardHandlers<Record extends BoardRecord> = {
+  countLabel?: (count: number) => string;
+  columnExtras?: (column: BoardColumn<Record>) => ReactNode;
+  cardDragHandlers?: (
+    record: Record,
+    column: BoardColumn<Record>,
+  ) => {
+    draggable: true;
+    onDragStart: (event: React.DragEvent) => void;
+  };
+  columnDropHandlers?: (column: BoardColumn<Record>) => {
+    onDragOver: (event: React.DragEvent) => void;
+    onDrop: (event: React.DragEvent) => void;
+    onDragLeave: (event: React.DragEvent) => void;
+  };
+};
+
+type PlainBoardProps<Record extends BoardRecord> = BoardHandlers<Record> & {
+  variant: "plain";
+  columns: BoardColumn<Record>[];
+  renderCard: (record: Record, column: BoardColumn<Record>) => ReactNode;
+};
+
+type DealBoardProps = BoardHandlers<BoardDeal> & {
+  variant?: "deal";
+  columns: BoardMoneyColumn[];
+  onOpen?: (deal: BoardDeal) => void;
+};
+
+type BoardLayoutProps<Record extends BoardRecord> = BoardHandlers<Record> & {
+  columns: BoardColumn<Record>[];
+  renderCard: (record: Record, column: BoardColumn<Record>) => ReactNode;
+  moneyFor: (column: BoardColumn<Record>) => BoardMoneyColumn | undefined;
+};
+
+function BoardLayout<Record extends BoardRecord>({
   columns,
-  onOpen,
-  columnExtras,
-  cardDragHandlers,
-  columnDropHandlers,
-  variant = "deal",
   renderCard,
-}: Readonly<
-  /**
-   * The variant decides what the header states AND what a column must carry,
-   * as one union rather than two independent props.
-   *
-   * "deal" reads the money — the stage total, its probability and the weighted
-   * figure — so its columns REQUIRE those four. "plain" states the count
-   * alone, for a board whose columns are not worth an amount (leads by status,
-   * where a zero total would read as an empty stage rather than an absent
-   * question), so its columns cannot carry them at all.
-   *
-   * A variant rather than a second board, because the columns, the drop
-   * targets and the CSS are the same board — two copies of a drop target is
-   * how one of them stops working. But optional money fields would let a deal
-   * board omit its probability and render `undefined%`, so the two column
-   * shapes are distinct types and the compiler holds the line.
-   */
-  (
-    | { variant?: "deal"; columns: BoardMoneyColumn[] }
-    | { variant: "plain"; columns: BoardColumn[] }
-  ) & {
-    /**
-     * The card, when the caller's rows are not deals. Absent renders `DealCard`,
-     * which is what every existing caller wants and gets without changing.
-     */
-    renderCard?: (deal: BoardDeal, column: BoardColumn) => ReactNode;
-    onOpen?: (deal: BoardDeal) => void;
-    columnExtras?: (column: BoardColumn) => ReactNode;
-    cardDragHandlers?: (
-      deal: BoardDeal,
-      column: BoardColumn,
-    ) => {
-      draggable: true;
-      onDragStart: (event: React.DragEvent) => void;
-    };
-    columnDropHandlers?: (column: BoardColumn) => {
-      onDragOver: (event: React.DragEvent) => void;
-      onDrop: (event: React.DragEvent) => void;
-      onDragLeave: (event: React.DragEvent) => void;
-    };
-  }
->) {
+  countLabel,
+  columnExtras,
+  columnDropHandlers,
+  moneyFor,
+}: Readonly<BoardLayoutProps<Record>>) {
   const t = useT();
   const { locale } = useLocale();
   return (
     <div className="board">
       {columns.map((column) => {
-        // Narrowed once per column rather than at each of the three reads: the
-        // variant decides whether these figures exist, and a header that asked
-        // three times could answer differently in each.
-        const money =
-          variant === "deal" ? (column as BoardMoneyColumn) : undefined;
+        const money = moneyFor(column);
         return (
           <section
             key={column.stage}
@@ -263,19 +276,25 @@ export function PipelineBoard({
               <span className="board-col-total">
                 {money && !column.sumHidden && (
                   <span className="board-col-money">
-                    {formatMoney(money.rawMinor, money.currency, locale)}
+                    {formatMoneyOrAbsent(
+                      money.rawMinor,
+                      money.currency,
+                      locale,
+                    )}
                   </span>
                 )}
                 <span>
-                  {t("board.count", {
-                    count: column.count ?? column.deals.length,
-                  })}
+                  {countLabel
+                    ? countLabel(column.count ?? column.deals.length)
+                    : t("board.count", {
+                        count: column.count ?? column.deals.length,
+                      })}
                 </span>
               </span>
               {money && !column.sumHidden && (
                 <span className="board-col-weighted">
                   {t("board.weighted", {
-                    value: formatMoney(
+                    value: formatMoneyOrAbsent(
                       money.weightedMinor,
                       money.currency,
                       locale,
@@ -283,24 +302,60 @@ export function PipelineBoard({
                   })}
                 </span>
               )}
+              {/* A refused sum SAYS it was refused. Omitting the figure and
+                  leaving the count alone is a blank where a total belongs, and a
+                  blank cannot distinguish "these are in two currencies, so no
+                  one total means anything" from "nobody has priced these" — a
+                  column that has both a real reason and no words for it reads as
+                  a column that failed to load. On a board whose stages hold
+                  euros, dollars and dong, five of six columns are this state. */}
+              {money && column.sumHidden && (
+                <span className="board-col-weighted">
+                  {t("board.mixedCurrencies")}
+                </span>
+              )}
             </div>
-            {column.deals.map((deal) =>
-              renderCard ? (
-                <Fragment key={deal.id}>{renderCard(deal, column)}</Fragment>
-              ) : (
-                <DealCard
-                  key={deal.id}
-                  deal={deal}
-                  onOpen={onOpen}
-                  dragHandlers={cardDragHandlers?.(deal, column)}
-                />
-              ),
-            )}
+            {column.deals.map((record) => (
+              <Fragment key={record.id}>{renderCard(record, column)}</Fragment>
+            ))}
             {columnExtras?.(column)}
           </section>
         );
       })}
     </div>
+  );
+}
+
+/**
+ * The variant decides what a board column must carry. Deal boards require
+ * money and probability; plain boards accept any identified record and make
+ * their card renderer explicit, so a lead never pretends to be a deal.
+ */
+export function PipelineBoard<Record extends BoardRecord>(
+  props: Readonly<PlainBoardProps<Record>>,
+): ReactNode;
+export function PipelineBoard(props: Readonly<DealBoardProps>): ReactNode;
+export function PipelineBoard<Record extends BoardRecord>(
+  props: Readonly<PlainBoardProps<Record> | DealBoardProps>,
+): ReactNode {
+  if (props.variant === "plain") {
+    return <BoardLayout {...props} moneyFor={() => undefined} />;
+  }
+  return (
+    <BoardLayout
+      {...props}
+      renderCard={(deal, column) => (
+        <DealCard
+          deal={deal}
+          onOpen={props.onOpen}
+          dragHandlers={props.cardDragHandlers?.(deal, column)}
+        />
+      )}
+      moneyFor={(column) =>
+        props.columns.find((candidate) => candidate.stage === column.stage)
+      }
+      cardDragHandlers={undefined}
+    />
   );
 }
 

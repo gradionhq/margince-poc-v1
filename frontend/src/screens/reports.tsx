@@ -12,8 +12,9 @@ import {
   StatCard,
 } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
+import { Eyebrow } from "../design-system/eyebrow";
 import { StatStrip } from "../design-system/statstrip";
-import { formatMoney } from "../format/format";
+import { formatMoneyOrAbsent, MONEY_ABSENT } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import {
@@ -38,12 +39,17 @@ import { QuotasView } from "./quotas";
 // .card-actions row carries the explain toggle. The segment picked changes what
 // the card holds, never what kind of thing the page is.
 
+// One row of the deals-by-stage table: a stage AND a currency, because a stage
+// holding deals in two currencies has two totals and no third one that means
+// anything. The money measures are nullable for the same reason the currency is
+// — a SUM over deals nobody priced is absent, not zero.
 type StageAgg = {
   stageId: string;
   stageName: string;
+  stagePosition: number;
   count: number;
-  rawMinor: number;
-  weightedMinor: number;
+  rawMinor: number | null;
+  weightedMinor: number | null;
   currency: string | null;
 };
 
@@ -58,11 +64,63 @@ type ReportRow = components["schemas"]["ReportResult"]["rows"][number];
 type Derivation = components["schemas"]["ReportDerivation"];
 type Stage = components["schemas"]["Stage"];
 
-const REPORT_GROUP_BY: Record<ReportKey, string> = {
-  "deals-by-stage": "stage_id",
-  forecast: "forecast_category",
-  "open-deals-per-company": "organization_id",
+// The report engine's own name for the currency dimension. Spelled once: it
+// reaches the request, every row read and the column header, and a typo in any
+// one of them is a cross-currency sum that looks right.
+const FIELD_CURRENCY = "currency";
+
+// The group key a row with NO forecast category arrives under. The wire allows
+// the field to be null — nobody has said which way the deal is going — and the
+// five named categories match none of it.
+const UNCATEGORISED = "";
+
+// Every plan here sums money, so every plan groups by currency as well as by its
+// own dimension. amount_minor is a minor-unit integer in the deal's own
+// currency, so a total spanning currencies is a number with no unit — the sum
+// data-semantics §1 r4 forbids and AC-DS-FX1 fails by construction. Grouping is
+// the honest answer available today; converting to one base currency is the
+// frozen-FX roll-up, a larger capability.
+const REPORT_GROUP_BY: Record<ReportKey, string[]> = {
+  "deals-by-stage": ["stage_id", FIELD_CURRENCY],
+  forecast: ["forecast_category", FIELD_CURRENCY],
+  "open-deals-per-company": ["organization_id", FIELD_CURRENCY],
 };
+
+// A report row arrives as `{ [key: string]: unknown }`, so every read narrows.
+// These keep the narrowing in one place, and keep the distinction the cells
+// depend on: an absent measure is not a zero, and an absent currency is not EUR.
+function rowCurrency(row: ReportRow): string | null {
+  // An empty code is not a currency. Left as "" it renders a blank cell where a
+  // code belongs, and it groups apart from null while meaning the same thing —
+  // which would give the forecast two bands with the same key.
+  return typeof row.currency === "string" && row.currency !== ""
+    ? row.currency
+    : null;
+}
+
+function rowMoney(row: ReportRow, key: string): number | null {
+  const value = row[key];
+  return value == null ? null : Number(value);
+}
+
+function rowCount(row: ReportRow, key: string): number {
+  return Number(row[key] ?? 0);
+}
+
+// Rows gathered by the currency they are denominated in, in code order so two
+// bands do not swap places between runs on the server's row order.
+function byCurrency(
+  rows: readonly ReportRow[],
+): [string | null, ReportRow[]][] {
+  const bands = new Map<string | null, ReportRow[]>();
+  for (const row of rows) {
+    const currency = rowCurrency(row);
+    bands.set(currency, [...(bands.get(currency) ?? []), row]);
+  }
+  return [...bands.entries()].sort(([left], [right]) =>
+    (left ?? "").localeCompare(right ?? ""),
+  );
+}
 
 // A report's own name, spelled once: the segment picker and the heading of the
 // card that segment opens read the same key, so the tab and the surface behind
@@ -155,20 +213,25 @@ export function ForecastTile({
   locale,
 }: Readonly<{
   label: string;
-  amountMinor: number;
-  weightedMinor?: number;
-  currency: string;
+  // Both halves are nullable and neither absence has a substitute. A category
+  // the report returned no row for has no total in any currency — not a zero,
+  // because nothing was measured for it to be zero of — and a figure with no
+  // currency cannot be rendered as money at all.
+  amountMinor: number | null;
+  weightedMinor?: number | null;
+  currency: string | null;
   locale: Locale;
 }>) {
   const t = useT();
   return (
     <StatCard
       label={label}
-      value={formatMoney(amountMinor, currency, locale)}
+      numeric
+      value={formatMoneyOrAbsent(amountMinor, currency, locale)}
       detail={
         weightedMinor == null
           ? undefined
-          : `${t("reports.weighted")}: ${formatMoney(weightedMinor, currency, locale)}`
+          : `${t("reports.weighted")}: ${formatMoneyOrAbsent(weightedMinor, currency, locale)}`
       }
     />
   );
@@ -178,6 +241,20 @@ export function ForecastTile({
 // ruled slots rather than five free-standing cards. The banner above them is
 // what the surface says about itself — how to read the second figure in every
 // slot — which is a Callout, not a paragraph tinted by hand.
+// The wire allows a deal to carry no forecast category, and the five named ones
+// match none of it — so a slot set built from the enum alone drops those deals
+// off the screen entirely: the money is not moved to another slot, it leaves. On
+// the demo dataset that was 22 of 27 open deals. The slot appears only where such
+// deals exist, so an installation that categorises everything is not asked about
+// a state it never reaches.
+function uncategorisedSlot(
+  band: readonly ReportRow[],
+): { key: string; labelKey: MessageKey }[] {
+  return band.some((row) => row.forecast_category == null)
+    ? [{ key: UNCATEGORISED, labelKey: "deal.fcUncategorised" }]
+    : [];
+}
+
 function ForecastStrip({
   rows,
   locale,
@@ -186,27 +263,52 @@ function ForecastStrip({
   return (
     <>
       <Callout tone="info">{t("reports.forecastBanner")}</Callout>
-      <div style={{ marginTop: "var(--space-4)" }}>
-        <StatStrip>
-          {FORECAST_CATEGORIES.map((category) => {
-            const row = rows.find(
-              (candidate) => candidate.forecast_category === category.key,
-            );
-            return (
-              <ForecastTile
-                key={category.key}
-                label={t(category.labelKey)}
-                amountMinor={Number(row?.raw_minor ?? 0)}
-                weightedMinor={Number(row?.weighted_minor ?? 0)}
-                currency={
-                  typeof row?.currency === "string" ? row.currency : "EUR"
-                }
-                locale={locale}
-              />
-            );
-          })}
-        </StatStrip>
-      </div>
+      {/* ONE STRIP PER CURRENCY. A slot carries a single figure, so a category
+          holding euros and dong cannot state one — and adding them would be the
+          unit-less total data-semantics §1 r4 forbids. Banding by currency keeps
+          the five categories reading across as one comparison, which is what the
+          strip is for, and makes every figure in a band mean the same thing.
+
+          The band is labelled with the currency code itself rather than a
+          translated name: it is what the figures beneath it are denominated in,
+          and it is already the word every one of them carries. */}
+      {/* No rows at all is not "nothing to draw": it means no open deal reached
+          any category, and five slots each saying so is the honest report. A
+          blank area under the banner would read as a screen that failed to
+          load. The band carries no currency because there are no figures for one
+          to belong to. */}
+      {(byCurrency(rows).length > 0
+        ? byCurrency(rows)
+        : ([[null, []]] as [string | null, ReportRow[]][])
+      ).map(([currency, band]) => (
+        <div
+          key={currency ?? UNCATEGORISED}
+          style={{ marginTop: "var(--space-4)" }}
+        >
+          <Eyebrow as="h3">{currency ?? MONEY_ABSENT}</Eyebrow>
+          <StatStrip>
+            {[...FORECAST_CATEGORIES, ...uncategorisedSlot(band)].map(
+              (category) => {
+                const row = band.find(
+                  (candidate) =>
+                    String(candidate.forecast_category ?? UNCATEGORISED) ===
+                    category.key,
+                );
+                return (
+                  <ForecastTile
+                    key={category.key}
+                    label={t(category.labelKey)}
+                    amountMinor={row ? rowMoney(row, "raw_minor") : null}
+                    weightedMinor={row ? rowMoney(row, "weighted_minor") : null}
+                    currency={currency}
+                    locale={locale}
+                  />
+                );
+              },
+            )}
+          </StatStrip>
+        </div>
+      ))}
     </>
   );
 }
@@ -236,18 +338,25 @@ function CompanyTable({
             ),
         },
         {
+          key: FIELD_CURRENCY,
+          header: t("reports.currency"),
+          render: (row: ReportRow) => (
+            <span className="t-mono">{rowCurrency(row) ?? MONEY_ABSENT}</span>
+          ),
+        },
+        {
           key: "count",
           header: t("reports.openDeals"),
-          render: (row: ReportRow) => String(row.deal_count ?? 0),
+          render: (row: ReportRow) => String(rowCount(row, "deal_count")),
         },
         {
           key: "raw",
           header: t("reports.unweighted"),
           render: (row: ReportRow) => (
             <span className="t-mono">
-              {formatMoney(
-                Number(row.raw_minor ?? 0),
-                typeof row.currency === "string" ? row.currency : "EUR",
+              {formatMoneyOrAbsent(
+                rowMoney(row, "raw_minor"),
+                rowCurrency(row),
                 locale,
               )}
             </span>
@@ -255,13 +364,51 @@ function CompanyTable({
         },
       ]}
       rows={rows}
+      // A company with deals in two currencies is two rows now, so the
+      // organization id alone no longer identifies one.
       rowKey={(row) =>
         row.organization_id != null
-          ? String(row.organization_id)
+          ? `${String(row.organization_id)}:${rowCurrency(row) ?? ""}`
           : String(rows.indexOf(row))
       }
     />
   );
+}
+
+// The grouped rows as table rows, in pipeline order and then by currency code.
+// The report answers in its own row order, which puts a stage's two currency rows
+// anywhere relative to each other — a table a reader scans down has to follow the
+// board.
+export function buildStageAggregates(
+  rows: readonly ReportRow[],
+  stages: readonly Stage[],
+): StageAgg[] {
+  const byId = new Map(stages.map((stage) => [stage.id, stage]));
+  return rows
+    .map((row) => {
+      const stageId = String(row.stage_id ?? "");
+      const stage = byId.get(stageId);
+      return {
+        stageId,
+        stageName: stage?.name ?? stageId,
+        // A stage the pipeline no longer carries sorts last rather than first:
+        // its rows are still real deals, but they are not part of the ladder the
+        // reader is reading down.
+        stagePosition: stage?.position ?? Number.MAX_SAFE_INTEGER,
+        count: rowCount(row, "deal_count"),
+        rawMinor: rowMoney(row, "raw_minor"),
+        // AC-F1: the server's own per-deal-rounded weighted sum
+        // (weighted_amount_minor), never round(rawMinor × p / 100)
+        // — that rounds the column sum once instead of every deal.
+        weightedMinor: rowMoney(row, "weighted_minor"),
+        currency: rowCurrency(row),
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.stagePosition - right.stagePosition ||
+        (left.currency ?? "").localeCompare(right.currency ?? ""),
+    );
 }
 
 function StageTable({
@@ -270,21 +417,7 @@ function StageTable({
   locale,
 }: Readonly<{ rows: ReportRow[]; stages: Stage[]; locale: Locale }>) {
   const t = useT();
-  const aggregates: StageAgg[] = rows.map((row) => {
-    const stageId = String(row.stage_id ?? "");
-    const stage = stages.find((candidate) => candidate.id === stageId);
-    return {
-      stageId,
-      stageName: stage?.name ?? stageId,
-      count: Number(row.deal_count ?? 0),
-      rawMinor: Number(row.raw_minor ?? 0),
-      // AC-F1: the server's own per-deal-rounded weighted sum
-      // (weighted_amount_minor), never round(rawMinor × p / 100)
-      // — that rounds the column sum once instead of every deal.
-      weightedMinor: Number(row.weighted_minor ?? 0),
-      currency: typeof row.currency === "string" ? row.currency : "EUR",
-    };
-  });
+  const aggregates = buildStageAggregates(rows, stages);
   return (
     <DataTable
       columns={[
@@ -292,6 +425,13 @@ function StageTable({
           key: "stage",
           header: t("deals.stage"),
           render: (row: StageAgg) => row.stageName,
+        },
+        {
+          key: FIELD_CURRENCY,
+          header: t("reports.currency"),
+          render: (row: StageAgg) => (
+            <span className="t-mono">{row.currency ?? MONEY_ABSENT}</span>
+          ),
         },
         {
           key: "count",
@@ -303,7 +443,7 @@ function StageTable({
           header: t("reports.unweighted"),
           render: (row: StageAgg) => (
             <span className="t-mono">
-              {formatMoney(row.rawMinor, row.currency ?? "EUR", locale)}
+              {formatMoneyOrAbsent(row.rawMinor, row.currency, locale)}
             </span>
           ),
         },
@@ -312,13 +452,15 @@ function StageTable({
           header: t("reports.weighted"),
           render: (row: StageAgg) => (
             <span className="t-mono">
-              {formatMoney(row.weightedMinor, row.currency ?? "EUR", locale)}
+              {formatMoneyOrAbsent(row.weightedMinor, row.currency, locale)}
             </span>
           ),
         },
       ]}
       rows={aggregates}
-      rowKey={(row) => row.stageId}
+      // A stage holding deals in two currencies is two rows, so the stage id
+      // alone no longer identifies one.
+      rowKey={(row) => `${row.stageId}:${row.currency ?? ""}`}
     />
   );
 }
@@ -434,7 +576,7 @@ export function ReportsScreen() {
       const { data, error } = await api.POST("/reports/{report}", {
         params: { path: { report } },
         body: {
-          group_by: [REPORT_GROUP_BY[report]],
+          group_by: REPORT_GROUP_BY[report],
           aggregates: REPORT_AGGREGATES[report],
         },
       });

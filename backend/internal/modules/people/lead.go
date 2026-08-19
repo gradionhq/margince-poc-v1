@@ -171,13 +171,13 @@ func insertLeadRow(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []
 	// behavioral history yet; signal recompute moves it later.
 	fit := ScoreLeadDetail(deref(in.Title), in.Source, nil, time.Now().UTC())
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
-		id, workspaceID(ctx), in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
+		id, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
 		in.LinkedInURL, in.Status, fit.Score, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
 	})
 	_, err := tx.Exec(ctx,
-		`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
+		`INSERT INTO lead (id, full_name, email, title, company_name, candidate_org_key,
 		                   linkedin_url, status, score, owner_id, project_id, source_system, source_id, source, captured_by`+cfCols+`)
-		 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
+		 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15`+cfHolders+`)`,
 		args...)
 	if err != nil {
 		// Race behind the pre-checks: the constraint name tells an
@@ -240,8 +240,7 @@ func replayedLead(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []f
 	var existing ids.LeadID
 	err := tx.QueryRow(ctx,
 		`SELECT id FROM lead
-			  WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			    AND source_system = $1 AND source_id = $2`,
+			  WHERE source_system = $1 AND source_id = $2`,
 		*in.SourceSystem, *in.SourceID).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

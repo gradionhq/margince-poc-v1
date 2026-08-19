@@ -124,7 +124,7 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 			FROM person_email pe
 			JOIN person p ON p.id = pe.person_id AND p.archived_at IS NULL
 			WHERE lower(pe.email) = $1
-			  AND p.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			  
 			LIMIT 1`, email).Scan(&personID)
 		if errors.Is(lookup, pgx.ErrNoRows) {
 			return nil // not a known recipient in this workspace: no token, no header

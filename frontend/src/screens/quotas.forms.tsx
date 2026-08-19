@@ -3,7 +3,7 @@ import { Plus } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { Button, Field, Modal, Radio, TextInput } from "../design-system/atoms";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
@@ -365,7 +365,10 @@ export function EditTargetAction({
       }}
       update={async (values) => {
         const { data, error } = await api.PATCH("/quotas/{id}", {
-          params: { path: { id: quota.id }, ...ifMatch(quota.version) },
+          params: {
+            path: { id: quota.id },
+            ...ifMatch(requireVersion(quota.version)),
+          },
           body: {
             period_start: String(values.period_start),
             period_end: String(values.period_end),

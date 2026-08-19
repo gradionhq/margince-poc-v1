@@ -276,8 +276,8 @@ func plantDomainEmployment(ctx context.Context, tx pgx.Tx, domain string, orgID 
 		return 0, err
 	}
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO relationship (workspace_id, kind, person_id, organization_id, is_current_primary, source, captured_by)
-		SELECT $1, 'employment', p.id, $2, true, $3, $4
+		INSERT INTO relationship (kind, person_id, organization_id, is_current_primary, source, captured_by)
+		SELECT 'employment', p.id, $1, true, $2, $3
 		FROM person p
 		WHERE p.archived_at IS NULL
 		  AND p.merged_into_id IS NULL
@@ -288,15 +288,15 @@ func plantDomainEmployment(ctx context.Context, tx pgx.Tx, domain string, orgID 
 			  -- new employer: a former colleague would be re-hired by a domain
 			  -- they left.
 			  AND pe.archived_at IS NULL
-			  AND (split_part(pe.email, '@', 2) = $5
+			  AND (split_part(pe.email, '@', 2) = $4
 			       -- A literal suffix compare, never LIKE — see PersonsOnDomain.
-			       OR right(split_part(pe.email, '@', 2), length($5) + 1) = '.' || $5))
+			       OR right(split_part(pe.email, '@', 2), length($4) + 1) = '.' || $4))
 		  AND NOT EXISTS (
 			SELECT 1 FROM relationship r
 			WHERE r.kind = 'employment' AND r.person_id = p.id
 			  AND r.is_current_primary AND r.archived_at IS NULL)
 		ON CONFLICT DO NOTHING`,
-		workspaceID(ctx), orgID, domainTriageSource(domain), by, domain)
+		orgID, domainTriageSource(domain), by, domain)
 	if err != nil {
 		return 0, fmt.Errorf("people: planting the employment edges for %s: %w", domain, err)
 	}

@@ -53,17 +53,17 @@ func insertOrg(t *testing.T, e *integration.Env, owner ids.UUID, domain, industr
 	orgID := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(context.Background(), `
-			INSERT INTO organization (id, workspace_id, owner_id, display_name, industry, source, captured_by)
-			VALUES ($1, $2, $3, 'Acme', NULLIF($4,''), 'manual', 'human:owner')`,
-			orgID, e.WS, owner, industry); err != nil {
+			INSERT INTO organization (id, owner_id, display_name, industry, source, captured_by)
+			VALUES ($1, $2, 'Acme', NULLIF($3,''), 'manual', 'human:owner')`,
+			orgID, owner, industry); err != nil {
 			return err
 		}
 		if domain == "" {
 			return nil
 		}
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_domain (workspace_id, organization_id, domain, is_primary, source, captured_by)
-			VALUES ($1, $2, $3, true, 'manual', 'human:owner')`, e.WS, orgID, domain)
+			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
+			VALUES ( $1, $2, true, 'manual', 'human:owner')`, orgID, domain)
 		return err
 	})
 	if err != nil {

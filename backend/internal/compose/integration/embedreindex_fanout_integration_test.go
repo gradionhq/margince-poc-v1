@@ -57,30 +57,31 @@ func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 	return &reembedFleetEnv{SearchEnv: e, embedder: embedder, identity: identity, run: run}
 }
 
-// TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant is
-// the converted shape: the dispatcher enqueues one row per LIVE workspace —
-// archived ones excluded, because an archived tenant's records are not searched
-// and re-embedding them spends model budget building an index nobody queries —
-// each row names its own tenant on the wire, and the tenant whose writes fail is
-// the only row that fails. The marker is still handed back, because the run has
-// reached every workspace it is ever going to.
-func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t *testing.T) {
+// TestEmbedReindexFansOutOneJobPerLiveWorkspace is the converted shape: the
+// dispatcher enqueues one row per LIVE workspace — archived ones excluded,
+// because an archived tenant's records are not searched and re-embedding them
+// spends model budget building an index nobody queries — each row names its own
+// tenant on the wire, and the corpus is rebuilt at the run's identity.
+//
+// It does NOT assert that a tenant whose writes fail is the only child to fail,
+// which is what this test used to be named for. That property no longer holds
+// and cannot be made to: an embedding row is keyed on
+// (entity_type, entity_id, chunk_ix) alone (phase B) over records that carry no
+// tenant at all (phase D), so the corpus is the installation's and whichever
+// child runs first rebuilds ALL of it. The second child finds every row already
+// fresh at the run's identity, writes nothing, and therefore cannot meet a
+// write fault however permanently it is armed. The fan-out itself is what has
+// gone redundant; collapsing it is ADR-0091's own next step, and the isolation
+// question disappears with it rather than being answered.
+func TestEmbedReindexFansOutOneJobPerLiveWorkspace(t *testing.T) {
 	re := setupReembedFleet(t)
 	healthy := SeedExtraWorkspace(t, re.Owner, "reindex-healthy", false)
 	archived := SeedExtraWorkspace(t, re.Owner, "reindex-archived", true)
 
-	// Both live tenants get an entity to embed, so each child has real work and
-	// the victim's write actually reaches the fault.
-	re.Seed(t, `INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Faulted Fanout Person', 'manual', 'human:x')`)
-	healthyPersonID := ids.NewV7()
-	if _, err := re.Owner.Exec(context.Background(),
-		`INSERT INTO person (id, workspace_id, full_name, source, captured_by) VALUES ($1, $2, 'Healthy Fanout Person', 'manual', 'human:x')`,
-		healthyPersonID, healthy); err != nil {
-		t.Fatalf("seeding the healthy tenant's person: %v", err)
-	}
-	// Permanent, not transient: a fault that healed would let the tenant
-	// complete on a later attempt and read as green — the outcome this denies.
-	failEmbeddingWritesFor(t, re.Owner, re.WS)
+	// ONE entity, and it belongs to the installation rather than to either
+	// tenant: seeding a row "per tenant" would be seeding the same corpus twice
+	// under two names.
+	leadID := re.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'Fanout Lead', 'manual', 'human:x')`)
 
 	runner, completed, failed := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -97,24 +98,25 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspaceAndFailsOnlyTheFailedTenant(t 
 	kind := compose.EmbedReindexWorkspaceArgs{}.Kind()
 	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
 
-	if _, fannedOut := outcomes[healthy.String()]; !fannedOut {
-		t.Errorf("no re-embed ran for workspace %s — a tenant the fan-out skipped keeps a stale index, and no row records that it did not", healthy)
+	for _, ws := range []ids.UUID{re.WS, healthy} {
+		ran, fannedOut := outcomes[ws.String()]
+		if !fannedOut {
+			t.Errorf("no re-embed ran for workspace %s — a tenant the fan-out skipped keeps a stale index, and no row records that it did not", ws)
+			continue
+		}
+		if !ran {
+			t.Errorf("the re-embed for workspace %s failed", ws)
+		}
 	}
-	if !outcomes[healthy.String()] {
-		t.Error("the healthy tenant's re-embed failed")
-	}
-	if outcomes[re.WS.String()] {
-		t.Error("the tenant whose embedding writes could not land reported a completed job — the failure the per-workspace row exists to record was swallowed")
-	}
-	// The pass is only worth a row if it did the work.
+	// The fan-out is only worth its rows if the corpus actually got rebuilt.
 	var model string
 	if err := re.Owner.QueryRow(context.Background(),
-		`SELECT model FROM embedding WHERE workspace_id = $1 AND entity_type = 'person' AND entity_id = $2 AND chunk_ix = 0`,
-		healthy, healthyPersonID).Scan(&model); err != nil {
-		t.Fatalf("reading the healthy tenant's embedding: %v", err)
+		`SELECT model FROM embedding WHERE entity_type = 'lead' AND entity_id = $1 AND chunk_ix = 0`,
+		leadID).Scan(&model); err != nil {
+		t.Fatalf("reading the rebuilt embedding: %v", err)
 	}
 	if model != re.identity {
-		t.Errorf("the healthy tenant's person is embedded under %q, want %q", model, re.identity)
+		t.Errorf("the lead is embedded under %q, want %q", model, re.identity)
 	}
 
 	// The archived tenant must have no row at all. This count is fenced on the

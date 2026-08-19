@@ -162,8 +162,8 @@ func TestDealsByStageGroupsByCurrencySeparately(t *testing.T) {
 
 func TestDealsByStageFiltersByOrganizationID(t *testing.T) {
 	e := setupForecast(t)
-	orgA := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'A', 'manual', 'human:x')`)
-	orgB := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'B', 'manual', 'human:x')`)
+	orgA := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'A', 'manual', 'human:x')`)
+	orgB := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'B', 'manual', 'human:x')`)
 	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
 		VALUES ($1, 'Deal A', $2, $3, $4, 10000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], orgA)
 	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, organization_id, amount_minor, currency, source, captured_by)
@@ -183,7 +183,7 @@ func TestDealsByStageFiltersByOrganizationID(t *testing.T) {
 
 func TestDealsByStageFiltersByPartnerSourced(t *testing.T) {
 	e := setupForecast(t)
-	partner := e.seed(t, `INSERT INTO organization (id, workspace_id, display_name, source, captured_by) VALUES ($1, $2, 'Partner', 'manual', 'human:x')`)
+	partner := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by) VALUES ($1, 'Partner', 'manual', 'human:x')`)
 	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, partner_org_id, amount_minor, currency, source, captured_by)
 		VALUES ($1, 'Sourced', $2, $3, $4, 10000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], partner)
 	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, amount_minor, currency, source, captured_by)

@@ -217,8 +217,8 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 	var doomed ids.UUID
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO person (workspace_id, full_name, owner_id, source, captured_by, visibility)
-			VALUES (`+ws+`, 'Departing Contact', $1, 'manual', 'human:test', 'workspace')
+			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
+			VALUES ( 'Departing Contact', $1, 'manual', 'human:test', 'workspace')
 			RETURNING id`, e.Rep1).Scan(&contact); err != nil {
 			return err
 		}

@@ -49,6 +49,13 @@ test.skip(
 
 const SHOTS = process.env.E2E_SHOT_DIR ?? "/tmp/e2e-company";
 
+// The readings row, by the test id StateStrip hands its StatStrip. Not by class:
+// the plate is the shared primitive's (design-system/statstrip.tsx), so a class
+// selector here would either name the primitive — and match the person record's
+// row too — or name a screen class that only exists to be selected. The test id
+// names THIS row on THIS page, which is what these assertions are about.
+const STRIP = '[data-testid="company-strip"]';
+
 /**
  * Sign in as the dev bootstrap admin, unless the session is already up.
  *
@@ -113,7 +120,7 @@ test.describe("company record — the mockup's page shape", () => {
   // the assertion that fails until the topology is fixed.
   test("the KPI strip sits above the tab strip", async ({ page }) => {
     await openCompany(page, POPULATED_ORG as string);
-    expect(await topOf(page.locator(".co-strip"))).toBeLessThan(
+    expect(await topOf(page.locator(STRIP))).toBeLessThan(
       await topOf(page.locator(".co-tabs")),
     );
   });
@@ -122,28 +129,29 @@ test.describe("company record — the mockup's page shape", () => {
   // something changes it. What is true TODAY is the daily brief's, so the
   // whose-move and worth-knowing readings are not here to be counted.
   //
-  // How MANY slots is the fixture's business, not this test's. The strip has
-  // always been variable-width — StateStrip's own comment puts a customer's
-  // row at six and a non-customer with no open signal at five, and a slot
-  // whose reading the account cannot supply (a close date with no open deal)
-  // renders nothing at all rather than an empty card. Pinning a number only
-  // records which fixture ran. What must hold on every account is that the row
-  // reads
-  // as ONE row — the regression this strip actually had was two slots drawn
-  // at a different font size than the rest — so every slot is checked for a
-  // label AND a value, and every value against the SAME computed size. A row
-  // of readings is a scale the eye sweeps; a slot that sizes itself to its
-  // own content breaks the sweep.
+  // FIVE slots on every account, whatever the fixture holds: the lifecycle
+  // decides which fifth reading it is (a close date or the money) and never how
+  // many there are, and a slot with no reading says so rather than vanishing.
+  // The count is asserted because StatStrip derives the row's fold from it — a
+  // row that sometimes carried six would fold at a different width on two
+  // accounts of the same product.
+  //
+  // Then the row must READ as one row — the regression this strip actually had
+  // was two slots drawn at a different font size than the rest — so every slot
+  // is checked for a label AND a value, and every value against the SAME
+  // computed size. A row of readings is a scale the eye sweeps; a slot that
+  // sizes itself to its own content breaks the sweep.
   test("every KPI slot carries a label and a value, all at one size", async ({
     page,
   }) => {
     await openCompany(page, POPULATED_ORG as string);
-    const slots = page.locator(".co-strip > *");
+    const slots = page.locator(`${STRIP} > *`);
     // Waited for, not counted straight away: a bare count() resolves against
     // whatever is mounted at that instant, which on a composite read is an
     // empty strip. The floor is the stage and relationship readings, which no
     // account lacks.
     await expect(slots.nth(1)).toBeVisible();
+    await expect(slots).toHaveCount(5);
     const count = await slots.count();
     const sizes = new Set<string>();
     for (let index = 0; index < count; index++) {
@@ -262,11 +270,15 @@ test.describe("company record — the mockup's page shape", () => {
   // second way this page stops looking like the mockup.
   test("an imported company keeps the page's shape", async ({ page }) => {
     await openCompany(page, SPARSE_ORG as string);
-    await expect(page.locator(".co-strip")).toBeVisible();
+    await expect(page.locator(STRIP)).toBeVisible();
     await expect(page.locator(".co-tabs")).toBeVisible();
-    expect(await topOf(page.locator(".co-strip"))).toBeLessThan(
+    expect(await topOf(page.locator(STRIP))).toBeLessThan(
       await topOf(page.locator(".co-tabs")),
     );
+    // Five readings here too, on an account that can answer almost none of
+    // them: each slot says which reading it has none of. A shorter row would be
+    // the sparse account quietly dropping part of the page again.
+    await expect(page.locator(`${STRIP} > *`)).toHaveCount(5);
   });
 
   // Not an assertion — the artifact a human compares against the PNGs. It is
@@ -290,7 +302,7 @@ test.describe("company record — the mockup's page shape", () => {
       // outage shows. A capture whose whole purpose is eyeball comparison must
       // wait for the page it is comparing. The strip's second slot comes from
       // that same composite read, so its arrival is the proxy for it.
-      await expect(page.locator(".co-strip > *").nth(1)).toBeVisible();
+      await expect(page.locator(`${STRIP} > *`).nth(1)).toBeVisible();
       await page.screenshot({
         path: `${SHOTS}/company-${name}.png`,
         fullPage: true,
@@ -353,23 +365,24 @@ test.describe("company record — the mockup's visual weight", () => {
   test("the KPI figures read as the headline numbers they are", async ({
     page,
   }) => {
-    // ONE size for every slot (company360.css `.co-strip .stat-card-value`):
-    // some slots carry a figure and some a sentence ("typically 4 days
-    // early"), and a slot sized to its own content would stop the row reading
-    // as one comparison. The shared clamp floors at 14px, and at 1280px (this
-    // suite's pinned viewport) it sits AT that floor: the bar is "clearly
-    // bigger than a label", not "exactly what the clamp happens to compute".
+    // ONE size for every slot, and it belongs to the primitive now
+    // (design-system/statstrip.css `.stat-strip .stat-card-value`): some slots
+    // carry a figure and some a sentence ("typically 4 days early"), and a slot
+    // sized to its own content would stop the row reading as one comparison.
+    // The shared clamp floors at 13px, and at 1280px (this suite's pinned
+    // viewport) it sits AT that floor: the bar is "clearly bigger than a label",
+    // not "exactly what the clamp happens to compute".
     const size = await px(
-      page.locator(".co-strip .stat-card-value").first(),
+      page.locator(`${STRIP} .stat-card-value`).first(),
       "font-size",
     );
-    expect(size).toBeGreaterThanOrEqual(14);
+    expect(size).toBeGreaterThanOrEqual(13);
     // And it must still LEAD its label — the stronger claim, that every
     // slot's value shares this exact size with every other slot, is what the
-    // strip's "the KPI strip has six slots…" test above pins; a fixed ratio
-    // here cannot also express that.
+    // strip's "every KPI slot carries a label and a value, all at one size"
+    // test above pins; a fixed ratio here cannot also express that.
     const label = await px(
-      page.locator(".co-strip .stat-card-label").first(),
+      page.locator(`${STRIP} .stat-card-label`).first(),
       "font-size",
     );
     expect(size).toBeGreaterThan(label);

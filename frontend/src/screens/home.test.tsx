@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { MONEY_ABSENT } from "../format/format";
 import { LocaleProvider } from "../i18n";
 import { HomeScreen } from "./home";
 
@@ -125,11 +126,30 @@ describe("HomeScreen (Morning Brief on the /brief spine)", () => {
     expect(screen.getByText("Winnability")).toBeTruthy();
     expect(screen.getByText("Warmth")).toBeTruthy();
     expect(screen.getByText("2 evidence rows")).toBeTruthy();
+    expect(screen.getByText("€48,000.00")).toBeTruthy();
     expect(
       screen.getByText(
         "Only 1 deals cleared the bar — the queue is never padded.",
       ),
     ).toBeTruthy();
+  });
+
+  // A money figure is an amount AND its currency. The amount on its own is not
+  // one: naming a currency for it puts a euro sign on money that might be dong,
+  // and the reader cannot tell that apart from a real EUR figure.
+  it("a brief deal with an amount but no currency states no figure", async () => {
+    stubApi({
+      "GET /brief": () => jsonResponse(run),
+      "GET /deals/d-1": () => jsonResponse({ ...fleetDeal, currency: null }),
+    });
+    render(<HomeScreen />);
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(MONEY_ABSENT, { selector: ".brief-deal-amount" }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/48,000/)).toBeNull();
   });
 
   it("a 404 (no run yet) renders the generate card, and generating renders the fresh run", async () => {

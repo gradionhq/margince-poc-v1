@@ -197,6 +197,7 @@ export function ListTable<Row>({
   showArchivedToggle = true,
   tools,
   body,
+  bodyOwnsPaging = false,
   selection,
 }: Readonly<{
   state: ListState<Row>;
@@ -210,6 +211,8 @@ export function ListTable<Row>({
    * design-system ListTable's own `body`.
    */
   body?: ReactNode;
+  /** The alternate body renders its own complete-count/load-more contract. */
+  bodyOwnsPaging?: boolean;
   /**
    * Where a row's record lives. One declaration drives both ways in: clicking
    * the row navigates, and the identity cell becomes a real link that opens in
@@ -438,6 +441,7 @@ export function ListTable<Row>({
       // The unit key names the table for the widths it remembers.
       widthsKey={unit}
       body={body}
+      bodyOwnsPaging={bodyOwnsPaging}
       selection={selection}
       pending={isPending}
       problem={problem}
