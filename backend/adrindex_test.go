@@ -30,11 +30,38 @@ const adrDir = "../docs/adr"
 // supersededBy captures the record a superseded decision points at.
 var supersededBy = regexp.MustCompile(`Superseded by \[?(ADR-\d{4})`)
 
+// statusHeading matches the metadata line itself, anchored, so the marker
+// appearing in ordinary prose is not mistaken for a declaration.
+var statusHeading = regexp.MustCompile(`(?m)^\*\*Status:\*\*[ \t]*(.*)$`)
+
+// statusValue is the taxonomy. A qualifier after the word is allowed and is how
+// a record says which half of it is built; the word itself is not open.
+var statusValue = regexp.MustCompile(`^(Active|Retired|Superseded by)\b`)
+
+// statusLine returns the declared status value and whether the record declares
+// one at all. The two are separate answers: a missing line and a line with an
+// empty value both yield "", and only the second is a record that tried.
+func statusLine(body string) (string, bool) {
+	m := statusHeading.FindStringSubmatch(body)
+	if m == nil {
+		return "", false
+	}
+	return strings.TrimSpace(m[1]), true
+}
+
 func TestEveryDecisionRecordStatesItsStatus(t *testing.T) {
 	for _, rec := range decisionRecords(t) {
-		body := readRecord(t, rec)
-		if !strings.Contains(body, "**Status:**") {
-			t.Errorf("%s has no `**Status:**` line — a reader cannot tell whether this decision is live", rec)
+		line, declared := statusLine(readRecord(t, rec))
+		switch {
+		case !declared:
+			t.Errorf("%s has no `**Status:**` line at the start of a line — a reader "+
+				"cannot tell whether this decision is live", rec)
+		case !statusValue.MatchString(line):
+			// The value may carry a qualifier ("Active — the contract half is not
+			// built"), which is the shape a record with a known gap uses. What it
+			// may not be is empty, or a word outside the taxonomy.
+			t.Errorf("%s states a status this repository does not use: %q\n"+
+				"\tuse Active, Superseded by [ADR-NNNN](...), or Retired", rec, line)
 		}
 	}
 }

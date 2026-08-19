@@ -18,9 +18,17 @@ reopened, and relinking an activity deletes the link it replaces — so asking t
 question at erasure time asks it of a record whose evidence may have moved.
 
 When an erasure meets a stamped record, the record is **restricted** rather than
-destroyed. It leaves every ordinary read path: lists, timelines, search,
-exports, embeddings, agent grounding and agent tools. It becomes immutable in
-the database, below every role including admin. It carries the deadline at which
+destroyed. It is removed from every ordinary read path — lists, timelines,
+search, ordinary exports, embeddings, agent grounding and agent tools. Two
+reads still reach it on purpose: the subject's own access export, because a
+person is entitled to know what is held about them, and the controller's
+restricted-records list, because somebody has to be able to answer what is held
+and until when. Every ordinary write to it is refused
+in the database, below every role including admin — the refusal is a trigger, not
+a permission check, so no role can be granted past it. The only writes that pass
+are the two audited ones described below: an authorised release, which erases the
+record, and the expiry sweep completing the suspended erasure when the deadline
+arrives. It carries the deadline at which
 its obligation ends, pinned from the floor in force at that moment, so a later
 configuration change never shortens an obligation already recorded. When the
 deadline passes, the suspended erasure completes without anybody asking again.

@@ -8,7 +8,7 @@
 Every model call writes one row to `ai_call`: the task, the tier, the token
 counts, whether the response was cached, and the run that produced it. That row
 is telemetry, so it carries no audit or outbox ride-along and no provenance
-columns — a meter reading is not a claim about a customer record. It is long-
+columns — a meter reading makes no claim about a customer record. It does carry `agent_run_id`, which links the call to the run that made it — operational linkage, not provenance about a person or a record. It is long-
 lived, because there is no content in it to age out.
 
 The request and response text goes to a separate table, `ai_call_payload`, and

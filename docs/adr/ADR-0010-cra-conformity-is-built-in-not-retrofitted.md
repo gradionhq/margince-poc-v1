@@ -6,7 +6,7 @@
 ## The decision
 
 Margince produces the conformity artifacts the EU Cyber Resilience Act asks of a
-software product, starting now rather than near the 2027 deadline. Every release
+software product, starting now rather than near the December 2027 deadline. Every release
 publishes a machine-readable Software Bill of Materials in CycloneDX form. The
 repository carries a public vulnerability-disclosure policy, and CI runs
 dependency, secret and static scans as blocking gates rather than as advice. The
@@ -20,8 +20,12 @@ becomes the manufacturer of their version and owes their own attestation.
 
 The Cyber Resilience Act regulates products with digital elements sold in the
 EU.
-CE marking is enforceable from December 2027, and the duty to report actively
-exploited vulnerabilities starts earlier. Dependency hygiene and a disclosure
+The bulk of it, including
+the essential requirements and CE marking, applies from 11 December 2027. The
+duty to report an actively exploited vulnerability to the EU agency and the
+national response teams within 24 hours applies from **11 September 2026** — so
+that half is already live, and it reaches products placed on the market before
+either date. Dependency hygiene and a disclosure
 process are cheap to start and expensive to bolt onto a grown product. Without
 this, a release ships with no record of what is inside it, and nobody can answer
 which version of which library a reported vulnerability touches.
