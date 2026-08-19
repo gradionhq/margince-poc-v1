@@ -547,6 +547,7 @@ export const vi = {
   "list.viewProspects": "Khách tiềm năng",
   "org.filterLifecycleAll": "Mọi giai đoạn",
   "org.filterRelTypeAll": "Mọi loại",
+  "org.filterSizeBandAll": "Mọi quy mô",
   "person.consent": "Chấp thuận",
   "consent.grant": "Cấp chấp thuận",
   "consent.withdraw": "Rút lại",
@@ -583,6 +584,7 @@ export const vi = {
   // questions the retired classification answered with one value.
   "org.lifecycle": "Trạng thái tài khoản",
   "org.relationshipTypes": "Quan hệ với chúng ta",
+  "org.sizeBand": "Quy mô công ty",
   "org.lifecycle.unknown": "Chưa đánh giá",
   "org.lifecycle.target": "Mục tiêu",
   "org.lifecycle.prospect": "Tiềm năng",

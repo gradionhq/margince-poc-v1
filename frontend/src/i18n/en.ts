@@ -572,6 +572,7 @@ export const en = {
   "list.viewProspects": "Prospects",
   "org.filterLifecycleAll": "Any stage",
   "org.filterRelTypeAll": "Any type",
+  "org.filterSizeBandAll": "Any size",
   "person.consent": "Consent",
   "consent.grant": "Grant",
   "consent.withdraw": "Withdraw",
@@ -608,6 +609,7 @@ export const en = {
   // questions the retired classification answered with one value.
   "org.lifecycle": "Account lifecycle",
   "org.relationshipTypes": "Relationship to us",
+  "org.sizeBand": "Company size",
   "org.lifecycle.unknown": "Not assessed",
   "org.lifecycle.target": "Target",
   "org.lifecycle.prospect": "Prospect",
