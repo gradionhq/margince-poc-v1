@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -389,5 +391,39 @@ func TestASaveWhoseFloorCannotBeWrittenIsRefused(t *testing.T) {
 
 	if _, err := saveAllowlist(context.Background(), rt, args); err == nil {
 		t.Fatal("a save that could not record the lifted exclusion answered success; the excluded period would land on the next tick")
+	}
+}
+
+// NOTHING IN THIS UNIT EVER DELETES A FLOOR, and this is where that is kept.
+//
+// It used to be kept by withholding the DELETE grant, which put a fact about
+// what this code DOES into a statement about what the runtime role MAY do — two
+// different questions, and the migration gate rightly requires the uniform grant
+// so that no tenant table can answer `permission denied` to the role that runs
+// its handlers. A floor is the record of a period a member excluded: removing
+// one hands over conversation they had deliberately hidden, so the statement
+// that would do it must not exist.
+//
+// Derived from the source rather than from a list of paths, so a DELETE added to
+// a file this test has never heard of is still caught.
+func TestNothingInThisUnitEverDeletesAFloor(t *testing.T) {
+	t.Parallel()
+	sources, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("reading this unit's sources: %v", err)
+	}
+	for _, source := range sources {
+		if strings.HasSuffix(source, "_test.go") {
+			continue
+		}
+		body, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatalf("reading %s: %v", source, err)
+		}
+		for _, statement := range strings.Split(string(body), "DELETE FROM ")[1:] {
+			if strings.HasPrefix(statement, "`+floorTable") || strings.HasPrefix(statement, floorTable) {
+				t.Errorf("%s deletes from the floor table — a floor is the record of a period a member excluded, and removing one hands over conversation they hid", source)
+			}
+		}
 	}
 }

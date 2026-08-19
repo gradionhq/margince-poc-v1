@@ -123,7 +123,13 @@ CREATE POLICY ext_zalo_personal_conversation_floor_isolation
 
 -- The app role runs the unit's handlers, under the policy above. TRUNCATE is
 -- deliberately absent: it empties every tenant's rows without consulting the
--- policy's USING clause. DELETE is absent too, and that absence is the point — a
--- floor is the record of a period a member excluded, and nothing in this unit has
--- any business removing one.
-GRANT SELECT, INSERT, UPDATE ON ext.ext_zalo_personal_conversation_floor TO margince_app;
+-- policy's USING clause.
+--
+-- DELETE IS PRESENT, and it is the uniform grant every tenant table in this
+-- schema carries — the migration gate requires exactly it, so that a table can
+-- never answer `permission denied` to the runtime role that owns it. That a
+-- floor is never removed is true and load-bearing (it is the record of a period
+-- a member excluded), but it is a fact about what this unit DOES, not about what
+-- the role MAY do, and it is kept where it can be read and enforced:
+-- TestNothingInThisUnitEverDeletesAFloor.
+GRANT SELECT, INSERT, UPDATE, DELETE ON ext.ext_zalo_personal_conversation_floor TO margince_app;
