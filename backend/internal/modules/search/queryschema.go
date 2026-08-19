@@ -172,7 +172,11 @@ func querySchemaTargetOf(target TargetVocabulary) querySchemaTarget {
 		out.Fields = append(out.Fields, querySchemaField{Name: f.Name, Kind: string(f.Kind), Ops: f.Ops})
 	}
 	for _, r := range target.Relations {
-		out.Relations = append(out.Relations, querySchemaRelation(r))
+		// Named member by member rather than converted from Relation, so what
+		// this document publishes stays a decision. A conversion tracked the
+		// internal struct silently, which is how the join edge's execution
+		// detail would have been published the moment it was added.
+		out.Relations = append(out.Relations, querySchemaRelation{Name: r.Name, Target: r.Target, Via: r.Via})
 	}
 	return out
 }

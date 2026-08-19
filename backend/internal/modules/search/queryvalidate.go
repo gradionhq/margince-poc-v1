@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"slices"
 	"strconv"
@@ -166,7 +167,7 @@ func (v *PlanValidator) checkTraversal(vocab Vocabulary, hop *Traversal, into *V
 	}
 	relation, ok := into.Target.Relation(hop.Relation)
 	if !ok {
-		return unknownRelation(into.Target.Target, hop.Relation)
+		return unknownRelation(into.Target, hop.Relation)
 	}
 	hopVocab, ok := vocab.Target(relation.Target)
 	if !ok {
@@ -177,7 +178,7 @@ func (v *PlanValidator) checkTraversal(vocab Vocabulary, hop *Traversal, into *V
 		// TestEveryDerivedRelationNameIsResolvableByTheValidatorsNarrowing
 		// asserts; rename one without the other and that test fails rather
 		// than a valid hop quietly refusing.
-		return unknownRelation(into.Target.Target, hop.Relation)
+		return unknownRelation(into.Target, hop.Relation)
 	}
 	into.Hop = &relation
 	into.HopVocabulary = hopVocab
@@ -187,12 +188,43 @@ func (v *PlanValidator) checkTraversal(vocab Vocabulary, hop *Traversal, into *V
 // unknownRelation is the ONE refusal a hop this caller may not take gets —
 // whether the relation never existed, or exists and lands on a record type
 // they cannot read. One spelling, because two would be a discovery channel.
-func unknownRelation(target, name string) []apperrors.FieldRefusal {
+//
+// The hops it names are THIS caller's own resolved vocabulary, already narrowed
+// by admittedRelations, so the list is the same in both cases and discloses
+// nothing the schema resource would not hand over anyway. Naming them is what
+// turns a refusal into an answer: the alternative is a second round trip to
+// read a document, and a caller that guesses instead of taking it.
+func unknownRelation(target TargetVocabulary, name string) []apperrors.FieldRefusal {
+	available := "it has none"
+	if names := relationNames(target); len(names) > 0 {
+		available = "it has " + strings.Join(names, ", ")
+	}
 	return []apperrors.FieldRefusal{{
 		Field: "traverse.relation", Code: classify(name, CodeUnknownRelation),
-		Message: quote(target) + " has no relationship named " + quote(name) +
-			"; read margince://schema/query for the hops available to you",
+		Message: quote(target.Target) + " has no relationship named " + quote(name) +
+			"; " + available + " (margince://schema/query carries what each one lands on)",
 	}}
+}
+
+// relationNames quotes this target's hops for the refusal, bounded.
+//
+// The bound is not decoration. A hop count is a product of the record types and
+// the join tables a workspace's schema declares, which is small today and is
+// not a number this refusal controls — and a refusal that grows with the schema
+// is the defect #1787 describes, where the sentence saying what to fix is what
+// gets cut. Naming the overflow keeps the truncation honest rather than making
+// a short list look complete.
+func relationNames(target TargetVocabulary) []string {
+	const shown = 12
+	names := make([]string, 0, len(target.Relations))
+	for _, relation := range target.Relations {
+		if len(names) == shown {
+			names = append(names, fmt.Sprintf("and %d more", len(target.Relations)-shown))
+			break
+		}
+		names = append(names, quote(relation.Name))
+	}
+	return names
 }
 
 // maxPredicates bounds how many clauses ONE where-list may carry.
