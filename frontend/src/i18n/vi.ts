@@ -801,7 +801,6 @@ export const vi = {
   "finance.unmapped":
     "Đã kết nối, nhưng công ty này chưa được khớp với khách hàng nào trong hệ thống kế toán",
   "finance.netInvoiced": "Đã xuất hóa đơn ròng · 12 tháng",
-  "finance.openBalance": "Còn nợ",
   "finance.overdue": "Quá hạn",
   "finance.behaviour": "Hành vi thanh toán",
   "finance.behaviourShape":

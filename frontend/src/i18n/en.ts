@@ -827,7 +827,6 @@ export const en = {
   "finance.unmapped":
     "Connected, but this company is not matched to a customer in the accounting system yet",
   "finance.netInvoiced": "Net invoiced · 12 months",
-  "finance.openBalance": "Open",
   "finance.overdue": "Overdue",
   "finance.behaviour": "Payment behaviour",
   "finance.behaviourShape": "Days late per settled invoice, oldest first",

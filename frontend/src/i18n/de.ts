@@ -809,7 +809,6 @@ export const de = {
   "finance.unmapped":
     "Verbunden, aber dieses Unternehmen ist noch keinem Kunden im Buchhaltungssystem zugeordnet",
   "finance.netInvoiced": "Netto fakturiert · 12 Monate",
-  "finance.openBalance": "Offen",
   "finance.overdue": "Überfällig",
   "finance.behaviour": "Zahlungsverhalten",
   "finance.behaviourShape":
