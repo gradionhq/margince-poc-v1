@@ -41,8 +41,10 @@ import (
 var (
 	// ErrUserOutsideWorkspace refuses a user-scoped operation naming somebody
 	// who is not a member of the calling workspace. The composite FK on
-	// extension_secret refuses such a row too, but as a constraint violation
-	// nobody can read; the store asks first and answers by name.
+	// extension_secret used to refuse such a row too — as a constraint violation
+	// nobody could read — and since ADR-0091 §8 phase D took the tenant column
+	// off that table, this check is the ONLY thing refusing it. It was always
+	// the one that answered by name; it is now also the one that answers.
 	ErrUserOutsideWorkspace = errors.New("extsecrets: that user is not a member of this workspace")
 
 	// ErrInvalidUserID refuses a UserID that is not a canonical UUID. The

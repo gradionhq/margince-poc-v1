@@ -307,9 +307,9 @@ func (s *OnboardingStore) createOnboardingState(
 	completed := in.Step == OnboardingStepComplete
 	var storedDraft []byte
 	row := tx.QueryRow(ctx, `INSERT INTO onboarding_wizard_state
-		(workspace_id, user_id, path, step, source_mode, website_url, site_read_id,
+		(user_id, path, step, source_mode, website_url, site_read_id,
 		 company_draft, selected_fact_keys, voice_skipped, connect_skipped, completed_at)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4,
+		VALUES ($1, $2, $3, $4,
 		        $5, $6, $7, $8, $9, $10, CASE WHEN $11 THEN now() ELSE NULL END)
 		RETURNING id, path, step, source_mode, website_url, site_read_id, company_draft,
 		 selected_fact_keys, voice_skipped, connect_skipped, version, completed_at, created_at, updated_at`,

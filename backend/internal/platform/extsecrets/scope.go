@@ -21,13 +21,15 @@ import (
 )
 
 // whereScope is the prefix every row-addressing statement shares: this unit,
-// this tenant. The workspace predicate is the statement's OWN — core 0217
-// (ADR-0091) retired every tenant-isolation policy, so nothing behind this
-// query scopes it — and it is also what lets the planner reach the partial
-// unique indexes, which are keyed (extension_name, workspace_id, …).
+// this key. There is no tenant term because extension_secret carries no tenant
+// since ADR-0091 §8 phase D, and the partial unique indexes it has to reach are
+// keyed (extension_name, user_id, key) and (extension_name, key) — neither
+// names a workspace, so naming one here would only cost the index.
+//
+// What still refuses a user from another installation is requireMember, on
+// app_user, which is where the tenant lives now.
 const whereScope = `
 	WHERE extension_name = $1
-	  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND key = $2
 	  `
 
@@ -132,13 +134,13 @@ func (s *store) lockKey(ctx context.Context, tx pgx.Tx, user *ids.UserID, key st
 // Postgres infers a partial unique index.
 func (s *store) upsert(ctx context.Context, tx pgx.Tx, user *ids.UserID, key string, ref keyvault.Ref) error {
 	const workspaceScoped = `
-		INSERT INTO extension_secret (extension_name, workspace_id, user_id, key, vault_ref)
-		VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, NULL, $2, $3)
+		INSERT INTO extension_secret (extension_name, user_id, key, vault_ref)
+		VALUES ($1, NULL, $2, $3)
 		ON CONFLICT (extension_name, key) WHERE user_id IS NULL
 		DO UPDATE SET vault_ref = EXCLUDED.vault_ref, updated_at = now()`
 	const userScoped = `
-		INSERT INTO extension_secret (extension_name, workspace_id, user_id, key, vault_ref)
-		VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, $3, $4)
+		INSERT INTO extension_secret (extension_name, user_id, key, vault_ref)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (extension_name, user_id, key) WHERE user_id IS NOT NULL
 		DO UPDATE SET vault_ref = EXCLUDED.vault_ref, updated_at = now()`
 

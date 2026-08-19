@@ -64,7 +64,7 @@ func seedQuotaTeam(t *testing.T, e *apptest.AppEnv, name string) string {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO team (workspace_id, name) VALUES ($1, $2) RETURNING id`, wsID, name).Scan(&teamID); err != nil {
+		`INSERT INTO team (name) VALUES ($1) RETURNING id`, name).Scan(&teamID); err != nil {
 		t.Fatalf("insert team: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
