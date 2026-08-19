@@ -16,13 +16,11 @@ package mailmap
 
 import (
 	"io"
-	"mime"
-	"net/http"
-	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/emersion/go-message/mail"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // The inbound bounds (DOC-PARAM-3/4/5). They exist so one message cannot
@@ -36,10 +34,6 @@ const (
 	maxPartBytes     = 25 << 20
 	maxMessageBytes  = 50 << 20
 )
-
-// sniffLen is what http.DetectContentType actually reads. Reading exactly that
-// much keeps the sniff off the whole file.
-const sniffLen = 512
 
 // Part is one file a message carried, already bounded and named safely.
 type Part struct {
@@ -167,8 +161,9 @@ func (c *collector) take(header *mail.AttachmentHeader, body io.Reader) {
 	}
 	filename, err := header.Filename()
 	if err != nil {
-		// An undecodable name is no name. SafeFilename supplies one from the
-		// ordinal, which is the only thing about this file we can vouch for.
+		// An undecodable name is no name. extension.SafeFilename supplies one
+		// from the ordinal, which is the only thing about this file we can
+		// vouch for.
 		filename = ""
 	}
 	c.admit(filename, declared, body)
@@ -212,89 +207,12 @@ func (c *collector) admit(filename, declared string, body io.Reader) {
 	}
 	c.budget -= len(content)
 
-	sniffed := sniff(content)
+	sniffed := extension.SniffContentType(content)
 	c.parts = append(c.parts, Part{
 		Ordinal:      ordinal,
-		Filename:     SafeFilename(filename, ordinal),
+		Filename:     extension.SafeFilename(filename, ordinal),
 		ContentType:  sniffed,
-		DeclaredType: disagreement(declared, sniffed),
+		DeclaredType: extension.DeclaredTypeDisagreement(declared, sniffed),
 		Body:         content,
 	})
 }
-
-// sniff resolves what a file actually is. The sender's declaration is a hint
-// from an untrusted party; the bytes are the fact (DOC-PARAM-9).
-func sniff(content []byte) string {
-	head := content
-	if len(head) > sniffLen {
-		head = head[:sniffLen]
-	}
-	full := http.DetectContentType(head)
-	// DetectContentType appends a charset for text types. The column stores the
-	// media type, and the charset is not something a receipt reports on.
-	if base, _, err := mime.ParseMediaType(full); err == nil {
-		return base
-	}
-	return full
-}
-
-// disagreement returns the declared type only when it differs from what the
-// bytes say. Storing an agreeing claim would fill the column on every row and
-// make the interesting case invisible.
-func disagreement(declared, sniffed string) string {
-	base := strings.TrimSpace(strings.ToLower(declared))
-	if base == "" {
-		return ""
-	}
-	if parsed, _, err := mime.ParseMediaType(base); err == nil {
-		base = parsed
-	}
-	if base == sniffed {
-		return ""
-	}
-	return base
-}
-
-// SafeFilename makes a sender-supplied name safe to store and show
-// (DOC-PARAM-8). It is presentational only: nothing opens a file by this name,
-// and the object key is generated elsewhere.
-//
-// Three classes go, and each is a real attack rather than tidiness. Path
-// separators stop a name from ever reading as a path. Control characters stop a
-// name from rewriting a log line it appears in. Bidirectional overrides stop a
-// name from rendering as an extension it does not have — the name a person
-// reads and the extension the file has must be the same string. (A name ending
-// "gpj.exe" with a RIGHT-TO-LEFT OVERRIDE before it renders as "...jpg".)
-func SafeFilename(name string, ordinal int) string {
-	cleaned := strings.Map(func(r rune) rune {
-		switch {
-		case r == '/' || r == '\\' || r == 0:
-			return -1
-		case unicode.IsControl(r):
-			return -1
-		case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200F, r == 0x200E:
-			return -1
-		}
-		return r
-	}, name)
-	// A name that is only dots would still read as a path component.
-	cleaned = strings.TrimSpace(cleaned)
-	if strings.Trim(cleaned, ".") == "" {
-		cleaned = ""
-	}
-	if cleaned == "" {
-		// Named by position rather than left blank: a reader needs something to
-		// point at, and the ordinal is the one true thing we know about it.
-		return "attachment-" + strconv.Itoa(ordinal)
-	}
-	if len(cleaned) > maxFilenameLen {
-		// truncate appends an ellipsis, so it is given room for one: the stated
-		// ceiling is what the column and every list that renders it must hold.
-		cleaned = truncate(cleaned, maxFilenameLen-len("…"))
-	}
-	return cleaned
-}
-
-// maxFilenameLen keeps a pathological name out of the column and out of every
-// list that renders it. It is generous enough that no real filename hits it.
-const maxFilenameLen = 200

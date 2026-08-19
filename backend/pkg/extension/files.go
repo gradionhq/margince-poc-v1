@@ -14,6 +14,15 @@ package extension
 // same type". A second spelling of a file is a second set of bounds that can
 // disagree about how large a file may be.
 
+import (
+	"mime"
+	"net/http"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
 // InboundFile is one file a captured record carried.
 //
 // Body is held in memory because every bound that decides whether it may be held
@@ -63,4 +72,105 @@ type OutboundFile struct {
 	ByteSize     int64
 	Checksum     string
 	Body         []byte
+}
+
+// sniffLen is what http.DetectContentType actually reads. Reading exactly that
+// much keeps the sniff off the whole file.
+const sniffLen = 512
+
+// maxFilenameLen keeps a pathological name out of the column and out of every
+// list that renders it. Generous enough that no real filename hits it.
+const maxFilenameLen = 200
+
+// SniffContentType resolves what a file actually is. The sender's declaration is
+// a hint from an untrusted party; the bytes are the fact.
+//
+// PUBLISHED because every producer of an InboundFile must answer this question
+// the same way. A unit that self-reported ContentType would be certifying the
+// one field whose entire purpose is to distrust the sender.
+func SniffContentType(content []byte) string {
+	head := content
+	if len(head) > sniffLen {
+		head = head[:sniffLen]
+	}
+	full := http.DetectContentType(head)
+	// DetectContentType appends a charset for text types. The column stores the
+	// media type, and the charset is not something a receipt reports on.
+	if base, _, err := mime.ParseMediaType(full); err == nil {
+		return base
+	}
+	return full
+}
+
+// DeclaredTypeDisagreement returns the declared type only when it differs from
+// what the bytes say. Storing an agreeing claim would fill the column on every
+// row and make the interesting case invisible.
+func DeclaredTypeDisagreement(declared, sniffed string) string {
+	base := strings.TrimSpace(strings.ToLower(declared))
+	if base == "" {
+		return ""
+	}
+	if parsed, _, err := mime.ParseMediaType(base); err == nil {
+		base = parsed
+	}
+	if base == sniffed {
+		return ""
+	}
+	return base
+}
+
+// SafeFilename makes a sender-supplied name safe to store and show. It is
+// presentational only: nothing opens a file by this name, and the object key is
+// generated elsewhere.
+//
+// Three classes go, and each is a real attack rather than tidiness. Path
+// separators stop a name from ever reading as a path. Control characters stop a
+// name from rewriting a log line it appears in. Bidirectional overrides stop a
+// name from rendering as an extension it does not have — the name a person reads
+// and the extension the file has must be the same string. (A name ending
+// "gpj.exe" with a RIGHT-TO-LEFT OVERRIDE before it renders as "...jpg".)
+func SafeFilename(name string, ordinal int) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r == '/' || r == '\\' || r == 0:
+			return -1
+		case unicode.IsControl(r):
+			return -1
+		case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200F, r == 0x200E:
+			return -1
+		}
+		return r
+	}, name)
+	// A name that is only dots would still read as a path component.
+	cleaned = strings.TrimSpace(cleaned)
+	if strings.Trim(cleaned, ".") == "" {
+		cleaned = ""
+	}
+	if cleaned == "" {
+		// Named by position rather than left blank: a reader needs something to
+		// point at, and the ordinal is the one true thing we know about it.
+		return "attachment-" + strconv.Itoa(ordinal)
+	}
+	if len(cleaned) > maxFilenameLen {
+		// truncateFilename appends an ellipsis, so it is given room for one: the
+		// stated ceiling is what the column and every list that renders it must
+		// hold.
+		cleaned = truncateFilename(cleaned, maxFilenameLen-len("…"))
+	}
+	return cleaned
+}
+
+// truncateFilename cuts to a byte ceiling and marks the cut, so a shortened name
+// is visibly shortened rather than silently different. The ceiling is in BYTES
+// because it is the column's ceiling; the cut backs off to a rune boundary so
+// what is stored is never a broken UTF-8 sequence.
+func truncateFilename(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
 }
