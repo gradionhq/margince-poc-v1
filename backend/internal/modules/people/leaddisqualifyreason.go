@@ -42,7 +42,7 @@ type UpdateLeadDisqualifyReasonInput struct {
 // the caller's row scope, like every other lead read.
 func leadDisqualifyReasonColumns(ctx context.Context, args *[]any) (string, error) {
 	arg := func(v any) int { *args = append(*args, v); return len(*args) }
-	scope, err := scopeOrAllRows(ctx, "lead", "", arg)
+	scope, err := visibleLeadScope(ctx, arg)
 	if err != nil {
 		return "", err
 	}

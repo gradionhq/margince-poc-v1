@@ -96,6 +96,7 @@ const (
 
 	objectOffer         = "offer"
 	objectPipeline      = "pipeline"
+	objectCustomField   = "custom_field"
 	objectSignal        = "signal"
 	objectQuota         = "quota"
 	objectOfferTemplate = "offer_template"
@@ -249,12 +250,13 @@ var replayableOperations = map[string]replayTarget{
 
 	// Surfaces whose module gates on something other than a coreObject, so
 	// there is no object grant for this middleware to re-check.
-	// The two administered lead vocabularies share the field catalog's gate
-	// and its shape: workspace-shared config rows with no owner column.
-	"POST /v1/lead-sources":                  {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
-	"PATCH /v1/lead-sources/{id}":            {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
-	"POST /v1/lead-disqualify-reasons":       {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
-	"PATCH /v1/lead-disqualify-reasons/{id}": {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
+	// The two administered lead vocabularies are gated like the field catalog
+	// they extend — auth.Require on "custom_field" in every store entry point —
+	// and their rows are workspace-shared config with no owner column.
+	"POST /v1/lead-sources":                  {object: objectCustomField, rowNote: noOwnerCatalog},
+	"PATCH /v1/lead-sources/{id}":            {object: objectCustomField, rowNote: noOwnerCatalog},
+	"POST /v1/lead-disqualify-reasons":       {object: objectCustomField, rowNote: noOwnerCatalog},
+	"PATCH /v1/lead-disqualify-reasons/{id}": {object: objectCustomField, rowNote: noOwnerCatalog},
 	"POST /v1/custom-fields":                 {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	"PATCH /v1/custom-fields/{id}":           {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	"PATCH /v1/custom-fields/{id}/options":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
