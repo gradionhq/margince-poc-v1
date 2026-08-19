@@ -7,6 +7,7 @@ import { Badge, Button, Card, Radio } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
 import { EntityRef } from "./entityref";
 import "./dedupe.css";
@@ -18,6 +19,25 @@ import "./dedupe.css";
 // number and every evidence line on this screen is a persisted row.
 
 type Candidate = components["schemas"]["DedupeCandidate"];
+
+// The three signals the detector records (agree | collide | one_sided), in the
+// reader's own language.
+//
+// A MAP rather than an object literal, for two reasons that are the same reason:
+// `get` answers `MessageKey | undefined` with no cast, and a Map has no
+// prototype keys to confuse a lookup — an object would answer `true` to
+// "toString" or "constructor", and the wire types this field as a plain string
+// rather than a closed enum, so those are values a server can actually send.
+const SIGNAL_KEYS = new Map<string, MessageKey>([
+  ["agree", "dedupe.signalAgree"],
+  ["collide", "dedupe.signalCollide"],
+  ["one_sided", "dedupe.signalOneSided"],
+]);
+
+function signalWord(signal: string, t: ReturnType<typeof useT>): string {
+  const key = SIGNAL_KEYS.get(signal);
+  return key === undefined ? signal : t(key);
+}
 
 const queueKey = ["dedupe-candidates"];
 
@@ -265,6 +285,7 @@ function CandidateCard({
           <thead>
             <tr>
               <th>{t("dedupe.field")}</th>
+              <th>{t("dedupe.signal")}</th>
               <th>
                 <Radio
                   name={`winner-${candidate.id}`}
@@ -287,6 +308,16 @@ function CandidateCard({
             {candidate.evidence.map((e) => (
               <tr key={e.field} data-signal={e.signal}>
                 <td>{e.field}</td>
+                {/* The signal in WORDS. Colour alone told `collide` apart, which
+                    reaches nobody who cannot see the difference and nothing at
+                    all in print — and it left the other two signals told apart
+                    by nothing, so a reader could not tell "these agree" from
+                    "only one side has it". The wire types this field as a plain
+                    string rather than a closed enum, so a value this release has
+                    no word for renders as itself: a signal we cannot name is
+                    still one the detector acted on, and a blank cell would read
+                    as no signal. */}
+                <td className="dedupe-signal">{signalWord(e.signal, t)}</td>
                 <td>{e.left_value ?? "—"}</td>
                 <td>{e.right_value ?? "—"}</td>
               </tr>

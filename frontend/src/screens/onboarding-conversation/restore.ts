@@ -185,7 +185,20 @@ function recapEntries(
 
 export function restorePlan(inputs: RestoreInputs): RestorePlan {
   const { state, profile, read, routeConnect } = inputs;
-  if (state?.step === "complete") {
+  // "complete" is the wizard row's own word, and it can outrun the record it
+  // claims: the state row and the company profile are separate writes, and the
+  // connect act persists completion without requiring a saved profile. An
+  // installation whose profile read comes back absent is not finished, whatever
+  // the row says.
+  //
+  // Reporting it finished anyway does not merely show the wrong screen. The
+  // app's onboarding gate sends every route back here while the profile is
+  // absent, so a "complete" verdict answers by leaving — and the two rewrite
+  // the hash at each other until React trips its nested-update limit and the
+  // whole shell unmounts. The disagreement is already modelled a few lines
+  // below as the "company unsaved" recap; this is the same fact, decided
+  // earlier.
+  if (state?.step === "complete" && profile !== null) {
     return { kind: "complete" };
   }
   const memberPath =

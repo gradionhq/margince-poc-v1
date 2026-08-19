@@ -21,6 +21,112 @@
 > [CHANGELOG.md](CHANGELOG.md) and [README.md → *What works
 > today*](README.md#what-works-today).
 
+## 2026-08-18 — a surface may not state what the data does not carry (PR #1714, draft)
+
+Nine invariants, all the same rule from different sides. Written up for the
+reasoning rather than the fixes, because **six of the findings this session was
+handed were wrong, and checking them first was worth more than building them.**
+
+**What the premises got wrong.** The handoff ranked "Reports and the pipeline
+board sum across currencies" first. The board does not: `buildStageTotals`
+already groups by `["stage_id","currency"]` and hides a mixed sum. It also said
+the fix needed a contract change for a currency dimension — which had shipped
+already in `7f8f14c1`. So the most damaging item on the list was a
+frontend-only fix, and cheaper than believed. #1499's "six sites" was sixteen,
+one of them a render crash. #1088's stated blocker (needs a TS predicate, needs
+new i18n keys) was stale on both halves. Home's "Nothing sent yet" was not an
+empty-state contradiction at all — the same key sits beside an `AutonomyDot
+tier="confirm"` elsewhere, so it means nothing has gone out; withdrawn. And the
+`.co-strip` → `StatStrip` conversion was not the mechanical swap it looked
+like: `StatStrip` counts slots with `Children.toArray`, which counts ELEMENTS,
+and the company row's slots were wrapper components that returned `null` —
+which is precisely why that row measured the DOM with a ref.
+
+**The money rule reached further than the UI.** `run_report`'s default plan for
+two prebuilt reports summed `amount_minor` across currencies, and the default
+plan is what an agent calls first. That is a normative violation
+(`data-semantics §1 r4`, `AC-DS-FX1`), not a cosmetic one, and it was invisible
+because no screen requested the defaults. Held now as two fitness tests over
+the catalog rather than as a fix to three reports.
+
+**Optionality was the defect twice.** `ifMatch(version?)` returned an empty
+precondition when the version was absent, so forgetting was the default;
+requiring it exposed nineteen writes that could have shipped unpinned, because
+`version` is not `required` on any mutable entity schema. And `StatCard`'s
+`value: string` plus `BoardDeal.currency: string` were what *forced* callers to
+coalesce `?? "EUR"` upstream — a fix confined to screens would have left the
+next caller to reinvent it. Both are the same lesson as the report catalog: the
+type or the seam is where the invariant lives, not the call site.
+
+**Two in-tree statements disagreed and one was false.** `FINANCE_READINGS`'
+comment said the Finance tab does not carry the lifetime figure; a test excluded
+lifetime from the strip *because* it is "a Finance-tab headline reading".
+`companyfinance.tsx` renders the open balance and overdue and does not render
+lifetime anywhere — so the comment was right, the test's premise was false, and
+the founder's instruction to put lifetime in the detail line was implemented
+while the overdue half of it was declined on that evidence: the tab already
+headlines overdue one click away, and a second answer to the same question
+drifts.
+
+**Three things were failing silently and none had a gate.** `#/dedupe` imported
+no stylesheet — its namespace lived in `onboarding.css`, so the screen drew
+correctly only while another screen had pulled that sheet into the bundle, and
+drew as a wireframe anywhere it was mounted alone. An `e2e` assertion required
+a KPI figure at ≥14px while the shared clamp computes to exactly 13px at the
+suite's pinned viewport, byte-identical before and after the change — so that
+test cannot have been passing. And the three webhooks stories that `fe-uat`
+reported were reproduced on a clean detached `origin/main`, which is #476,
+whose own stated cause is also stale.
+
+**One verification I proposed would have proven nothing, and checking that was the last
+finding.** The rail's withheld readings had never rendered in a live session, so I offered to
+exercise them as a Member seat before merging. They cannot be reached that way. A Person360
+section is named in `sections_omitted` only when its read returns `ErrPermissionDenied`
+(`compose/person360/assemble.go:118`) — an OBJECT denial — and the seeded `rep` role grants
+`read: true` on every object the rail reads, with `row_scope: team`. Row scope decides which
+RECORDS a seat may open, not which SECTIONS come back inside one it may. So none of the three
+seeded roles can produce a non-empty `sections_omitted`, and a Member login would have drawn the
+same fully-granted rail as Management while I reported it verified. Reaching that branch live
+needs a custom role with a read denied, which is a settings change rather than a sign-in. The
+unit tests reach it because they set the omission directly — which is the only thing that can.
+
+**Looking at it beat reading it, four times.** Every gate was green and every fix
+mutation-tested before the seeded dataset went behind the screens; pointing the app at 65 real
+deals in three currencies then found four defects no test had reason to catch. The forecast
+dropped every deal whose `forecast_category` is null — 22 of 27 open deals, over €2M plus
+US$608,200 and ₫262,000,000,000, in no tile at all, beneath a screen showing four dashes and one
+figure. A board column that correctly refuses a cross-currency sum said nothing about refusing
+it, so five of six columns showed a deal count and a blank, indistinguishable from unpriced. The
+account slot printed its lifecycle word twice. The duplicates queue let every card size its own
+columns, so four stacked cards read as four tables. Each was invisible in fixtures for the same
+reason: a fixture has one row, one currency, one card.
+
+**The ground-truth habit is what made the money check worth anything.** Before opening Reports I
+queried the database for deals by stage and currency, so the screen was compared against fourteen
+known figures rather than against whether it looked reasonable — and they matched to the cent,
+including the €5,397,942,900.00 cross-currency sum that had to be absent and was. A money screen
+that "looks right" is precisely the failure the invariant exists to prevent.
+
+**And one of my own conclusions was wrong, found by testing it on a live stack.** The fresh-org
+crash (#1250) had a mechanism that explained every symptom — two effects rewriting the hash at
+each other, with `Shell` blamed only for being the deepest `useRoute` subscriber. It needed one
+precondition: the onboarding state row saying `complete` while `GET /company` 404s. Driving
+`PUT /v1/onboarding/state` directly against a live unseeded org showed the server refuses exactly
+that, and has since PR #131 — `confirm → voice` is a 409 while the company 404s and a 200 the
+moment a profile exists. So the mechanism cannot fire, the fix shipped for it is defence in depth
+rather than a crash fix, and #1250's cause is still unfound. **A mechanism that explains every
+symptom is not evidence that it happened.** The reachability of its precondition is the part worth
+testing first, and it is the part a code-reading audit cannot answer.
+
+**Process, learned the hard way.** A subagent's shell starts in the SESSION
+working directory, not in the worktree its file scope names. Two sessions lost
+uncommitted work to agents running `git stash` from there — "stash only file X"
+is wrong twice over, wrong tree and wrong breadth. Giving agents a disjoint file
+scope is not sufficient; they need a cwd discipline and an outright ban on
+git commands that write, because the tool that reverts a file does not respect a
+file scope. Mutation-checking by hand-editing (or `cp` to a scratchpad) is the
+only safe way.
+
 ## 2026-08-18 — Leads V2 review closure (foundation#1352)
 
 The product review found that strong backend mechanics had been surfaced as a generic record list instead of a daily sales queue. This session closed that delivery gap contract-first: the default list is now an SLA-band/score/age composite keyset, and the list response carries the next task plus its deadline and the leading score reason. A new human-only manual-signal read returns the exact stored evidence rather than forcing the client to reconstruct a lossy approximation.
@@ -30,7 +136,6 @@ The screen waits for the session and opens on My records; rows show score contex
 The pre-push red-team pass added composite-cursor continuation coverage, malformed-cursor rejection, row-scope denial for the evidence read, exact email/LinkedIn quick-find coverage and alternate-board paging/count tests. It also caught a moving-clock pagination hole: a lead could cross an SLA band between pages and disappear, so the opaque cursor now freezes the queue's `as_of` instant and the regression advances the clock by two hours between requests. The PR review then caught two retained-score hard cases: equal history timestamps now use the same id tie-breaker as the explanation read, and malformed legacy factor JSON can no longer break the entire lead read. The exact product commit passed `make check`, 2,754 real-Postgres integration tests with zero skips, the 30-story visual gate, and all 91 local end-to-end scenarios (with 14 explicitly live-only scenarios skipped). Desktop and 390 px mobile browser checks covered Mine, All, board, creation, detail evidence and horizontal overflow.
 
 The final quality-gate pass exposed a configuration omission: copy/paste detection already excluded the English and German translation catalogs because their parity-enforced key structure is data rather than duplicated logic, but not the Vietnamese catalog. Sonar consequently ignored the translated literals and classified 29 new catalog rows as duplication. The exclusion now names all three catalogs; hand-written product code remains measured.
-
 ## 2026-08-17 — the filter vocabulary's own follow-ups, and what two review rounds found in the fixes for them (PRs #1476, #1477, #1485, #1490, #1473; foundation#1327)
 
 The four issues #1286's review filed against itself, plus #920. What is worth

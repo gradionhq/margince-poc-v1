@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { navigate } from "../app/router";
 import { activityTimeline } from "../design-system/activitytimeline";
 import { Badge, SegmentedControl } from "../design-system/atoms";
@@ -515,7 +515,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                           {
                             params: {
                               path: { id },
-                              ...ifMatch(person.version),
+                              ...ifMatch(requireVersion(person.version)),
                             },
                             body: {
                               ...mapPersonUpdate(values),
@@ -547,7 +547,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                             {
                               params: {
                                 path: { id: person.id },
-                                ...ifMatch(person.version),
+                                ...ifMatch(requireVersion(person.version)),
                               },
                               body: { target_id: targetId },
                             },

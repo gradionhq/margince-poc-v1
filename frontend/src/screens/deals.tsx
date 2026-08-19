@@ -14,9 +14,10 @@ import {
 } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { ifMatch } from "../api/version";
+import { ifMatch, requireVersion } from "../api/version";
 import { approvalDotTier, useAgentTierMap, verbTier } from "../app/autonomy";
 import { navigate } from "../app/router";
+import { useInstallationSettings } from "../app/uploadlimit";
 import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Badge,
@@ -39,7 +40,12 @@ import { type ListChip, ListSurface } from "../design-system/listsurface";
 import type { ListColumn } from "../design-system/listtable";
 import { Select } from "../design-system/select";
 import { AutonomyDot, ProvenanceTag } from "../design-system/trust";
-import { formatDate, formatDuration, formatMoney } from "../format/format";
+import {
+  formatDate,
+  formatDuration,
+  formatMoney,
+  formatMoneyOrAbsent,
+} from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { approvalKindLabel } from "./approvalkind";
@@ -312,8 +318,11 @@ function toBoardDeal(deal: Deal, orgs?: OrgMarks): BoardDeal {
     // then shows the deal alone rather than a blank chip beside it.
     org: org?.name ?? "",
     orgLogoUrl: org?.logoUrl,
-    valueMinor: deal.amount_minor ?? 0,
-    currency: deal.currency ?? "EUR",
+    // Both halves as the wire sent them. Nobody has priced every deal, and a
+    // card that filled in either half would state a figure this deal does not
+    // have — a zero amount, or a euro sign over an unknown currency.
+    valueMinor: deal.amount_minor ?? null,
+    currency: deal.currency ?? null,
     ageMs: Math.max(0, Date.now() - new Date(since).getTime()),
     stalled: deal.stalled ?? false,
     archived: deal.archived_at != null,
@@ -439,11 +448,25 @@ export function dealEditFields(
 // showing a confidently wrong sum.
 export type StageTotals = {
   count: number;
-  rawMinor: number;
-  weightedMinor: number;
-  currency: string;
+  // Null where the report stated no figure. A stage can hold a real count of
+  // deals nobody has priced, and its `SUM` then arrives as null with no
+  // currency beside it — which is not the zero a naive read makes of it.
+  rawMinor: number | null;
+  weightedMinor: number | null;
+  currency: string | null;
   sumHidden: boolean;
 };
+
+// A report cell as a figure, or nothing. An absent or non-numeric cell is the
+// report declining to state an amount, and `Number(null)` turns that into a 0
+// the server never sent.
+function reportMinor(value: unknown): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
 
 // buildStageTotals shapes a deals-by-stage report grouped by
 // `["stage_id","currency"]` into one entry per stage. More than one
@@ -468,12 +491,20 @@ export function buildStageTotals(
     );
     const mixed = stageRows.length > 1;
     const single = stageRows[0];
+    // ONE row is not the same fact as one CURRENCY. A stage whose deals are all
+    // unpriced groups into a single row whose `currency` is null, so the
+    // cross-currency test says nothing about it — and its figures belong to no
+    // currency at all. Naming EUR there is indistinguishable from a real EUR
+    // total, which is the reading a rep would act on.
+    const currency =
+      !mixed && typeof single.currency === "string" && single.currency !== ""
+        ? single.currency
+        : null;
     totals.set(stageId, {
       count,
-      rawMinor: mixed ? 0 : Number(single.raw_minor ?? 0),
-      weightedMinor: mixed ? 0 : Number(single.weighted_minor ?? 0),
-      currency:
-        !mixed && typeof single.currency === "string" ? single.currency : "EUR",
+      rawMinor: currency ? reportMinor(single.raw_minor) : null,
+      weightedMinor: currency ? reportMinor(single.weighted_minor) : null,
+      currency,
       sumHidden: mixed,
     });
   }
@@ -495,9 +526,12 @@ export function buildColumns(
         stage: stage.id,
         label: stage.name,
         probabilityPct: stage.win_probability,
-        rawMinor: stageTotals?.rawMinor ?? 0,
-        weightedMinor: stageTotals?.weightedMinor ?? 0,
-        currency: stageTotals?.currency ?? "EUR",
+        // No totals row yet — the report is still in flight, or this stage was
+        // not in it. Either way the figure is unknown rather than zero, and the
+        // column draws it as absent while still stating the count below.
+        rawMinor: stageTotals?.rawMinor ?? null,
+        weightedMinor: stageTotals?.weightedMinor ?? null,
+        currency: stageTotals?.currency ?? null,
         deals: stageDeals.map((deal) => toBoardDeal(deal, orgs)),
         // The true count, not the loaded page's — falls back to the page
         // count while totals are still loading, so the column shows SOME
@@ -593,6 +627,10 @@ function dealColumns(
 
 type PendingAdvance = {
   dealId: string;
+  // Carried through the confirm rather than looked up when it closes: the write
+  // pins the deal as it stood on the board the reader dropped it on, so a stage
+  // change made while the dialog was open fails loud instead of being erased.
+  version: number | undefined;
   toStage: Stage;
 };
 
@@ -781,14 +819,23 @@ export function DealsScreen({
   const lastDragEnd = useRef(0);
 
   const advance = useMutation({
+    // An advance is a write like any other, so it is pinned like any other: the
+    // version the reader's own card was drawn from rides the variables, and two
+    // people moving one deal at the same moment no longer both succeed — the
+    // second reads the version the first replaced and fails 409 version_skew
+    // instead of quietly undoing a stage change nobody saw.
     mutationFn: async (input: {
       dealId: string;
+      version: number | undefined;
       toStage: Stage;
       lostReason?: string;
     }) => {
       const terminal = input.toStage.semantic !== "open";
       const { data, error } = await api.POST("/deals/{id}/advance", {
-        params: { path: { id: input.dealId } },
+        params: {
+          path: { id: input.dealId },
+          ...ifMatch(requireVersion(input.version)),
+        },
         body: {
           to_stage_id: input.toStage.id,
           ...(terminal ? { status: input.toStage.semantic } : {}),
@@ -877,12 +924,19 @@ export function DealsScreen({
     if (!toStage) {
       return;
     }
+    // The version the reader saw. The cards and this lookup read the one deal
+    // array this render was handed, so the precondition names the row as it was
+    // drawn on the board rather than whatever it has become since — which is the
+    // whole claim optimistic concurrency makes.
+    const version = dealsQuery.data?.data.find(
+      (deal) => deal.id === dealId,
+    )?.version;
     if (toStage.semantic === "open") {
-      advance.mutate({ dealId, toStage });
+      advance.mutate({ dealId, version, toStage });
     } else {
       // Terminal-stage advance is a 🟡 confirm (AC-deal-6).
       setLostReason("");
-      setPending({ dealId, toStage });
+      setPending({ dealId, version, toStage });
     }
   };
 
@@ -1177,6 +1231,7 @@ export function DealsScreen({
                 onClick={() => {
                   advance.mutate({
                     dealId: pending.dealId,
+                    version: pending.version,
                     toStage: pending.toStage,
                     lostReason: lostReason.trim() || undefined,
                   });
@@ -1325,21 +1380,30 @@ function DealTable({
 // exported so a later Storybook task can render it without a live fetch.
 export function FxLine({
   amountMinor,
+  baseCurrency,
   fxRateToBase,
   fxRateDate,
   locale,
 }: Readonly<{
-  amountMinor: number;
+  amountMinor: number | null;
+  // The installation's own base currency, from its settings. Not a constant:
+  // an installation whose base is not the euro was reading a euro sign over a
+  // figure converted into something else, which is the one error a converted
+  // figure must not make. Null while the settings read is in flight or refused
+  // — an unnamed base is not a euro base.
+  baseCurrency: string | null;
   fxRateToBase: string;
   fxRateDate: string | null;
   locale: Locale;
 }>) {
   const t = useT();
-  const baseMinor = Math.round(amountMinor * Number(fxRateToBase));
+  // A deal carrying a rate but no amount converts to nothing, not to zero.
+  const baseMinor =
+    amountMinor == null ? null : Math.round(amountMinor * Number(fxRateToBase));
   return (
     <p className="t-caption">
       {t("deal.fxBase", {
-        value: formatMoney(baseMinor, "EUR", locale),
+        value: formatMoneyOrAbsent(baseMinor, baseCurrency, locale),
         rate: fxRateToBase,
         date: fxRateDate
           ? formatDate(fxRateDate, locale, "Europe/Berlin")
@@ -1354,17 +1418,36 @@ export function FxLine({
 // of DealBadges for the same readability reason as the other header actions.
 function ReopenAction({
   dealId,
+  dealVersion,
   openStages,
-}: Readonly<{ dealId: string; openStages: Stage[] }>) {
+}: Readonly<{
+  dealId: string;
+  // The version the header this button sits in was rendered from, so the reopen
+  // pins the deal the reader was looking at. Stated by the caller rather than
+  // read here: this action holds no query of its own to read a fresh one from,
+  // and a fresh one would be the wrong answer anyway.
+  dealVersion: number | undefined;
+  openStages: Stage[];
+}>) {
   const t = useT();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [stageId, setStageId] = useState<string | null>(null);
   const reopen = useMutation({
-    mutationFn: async (toStageId: string) => {
+    // Stage and version both ride the variables: a version read out of the
+    // closure would be the one from the render before this dialog opened, and a
+    // reopen that pins the wrong version either fails for no reason the reader
+    // can see or lands on a deal somebody else has since moved.
+    mutationFn: async (input: {
+      toStageId: string;
+      version: number | undefined;
+    }) => {
       const { data, error } = await api.POST("/deals/{id}/advance", {
-        params: { path: { id: dealId } },
-        body: { to_stage_id: toStageId, status: "open" },
+        params: {
+          path: { id: dealId },
+          ...ifMatch(requireVersion(input.version)),
+        },
+        body: { to_stage_id: input.toStageId, status: "open" },
       });
       if (error) {
         throwProblem(error, t);
@@ -1426,7 +1509,7 @@ function ReopenAction({
             disabled={!stageId || reopen.isPending}
             onClick={() => {
               if (stageId) {
-                reopen.mutate(stageId);
+                reopen.mutate({ toStageId: stageId, version: dealVersion });
               }
             }}
           >
@@ -1478,7 +1561,10 @@ function DealBadges({
             orgs,
             me: meId,
             currentOwner: deal.owner_id ?? null,
-            currency: deal.currency ?? "EUR",
+            // EMPTY, not a default. `dealEditFields` only uses this to put the
+            // record's own currency at the head of the option list, and a deal
+            // nobody has priced has none to put there.
+            currency: deal.currency ?? "",
           }),
           ...cf.formFields,
         ]}
@@ -1488,7 +1574,13 @@ function DealBadges({
           name: deal.name,
           amount:
             deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
-          currency: deal.currency ?? "EUR",
+          // A currency the FORM chose is a currency the SAVE writes: mapDealUpdate
+          // sends whatever this holds, so seeding it with a default made an
+          // unpriced deal acquire one the moment a reader edited its name. The
+          // amount is already sent as null in that case, and the two columns are
+          // paired by CHECK, so the invented currency did not merely mislabel the
+          // record — it made an innocent rename fail.
+          currency: deal.currency ?? "",
           owner_id: deal.owner_id ?? "",
           organization_id: deal.organization_id ?? "",
           partner_org_id: deal.partner_org_id ?? "",
@@ -1499,7 +1591,10 @@ function DealBadges({
         }}
         update={async (values) => {
           const { data, error } = await api.PATCH("/deals/{id}", {
-            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+            params: {
+              path: { id: deal.id },
+              ...ifMatch(requireVersion(deal.version)),
+            },
             body: { ...mapDealUpdate(values), ...cf.toBody(values) },
           });
           if (error) {
@@ -1528,7 +1623,11 @@ function DealBadges({
       />
       {!overlay && <ShareAction recordType="deal" recordId={deal.id} />}
       {!overlay && (deal.status === "won" || deal.status === "lost") && (
-        <ReopenAction dealId={deal.id} openStages={openStages} />
+        <ReopenAction
+          dealId={deal.id}
+          dealVersion={deal.version}
+          openStages={openStages}
+        />
       )}
     </>
   );
@@ -1603,16 +1702,25 @@ function DealApprovals({
   );
 }
 
-function OffersPanel({
+// Exported so a render test can reach the refusal state directly. It is not as
+// self-contained as FxLine — it reads the system-of-record mode, so it needs a
+// query client around it — but whether the New-offer control is refused depends
+// on its props alone.
+export function OffersPanel({
   offers,
   creating,
   locale,
+  dealCurrency,
   onCreate,
 }: Readonly<{
   offers: Offer[] | undefined;
   creating: boolean;
   locale: Locale;
-  onCreate: () => void;
+  // An offer is written in the DEAL's currency, so a deal nobody has priced
+  // has nothing to write one in. Null refuses the control and says why rather
+  // than creating an offer denominated in a currency the code chose.
+  dealCurrency: string | null;
+  onCreate: (currency: string) => void;
 }>) {
   const t = useT();
   // Offers are read (and created) against a mirrored deal — the list read 404s
@@ -1630,7 +1738,21 @@ function OffersPanel({
     <Card
       title={t("deal.offers")}
       actions={
-        <Button small disabled={creating} onClick={onCreate}>
+        <Button
+          small
+          // `reason` disables the control AND points at the explanation. Passing
+          // `disabled` beside it would cancel the refusal it sets, so the
+          // in-flight case stays on `disabled` and the state case on `reason`.
+          // An empty code is as absent as a null one — `formatMoneyOrAbsent`
+          // already treats it that way, and Intl throws on it.
+          disabled={Boolean(dealCurrency) && creating}
+          reason={dealCurrency ? undefined : t("deal.offerNeedsCurrency")}
+          onClick={() => {
+            if (dealCurrency) {
+              onCreate(dealCurrency);
+            }
+          }}
+        >
           {t("deal.newOffer")}
         </Button>
       }
@@ -1694,6 +1816,7 @@ function DealOverviewPane({
   offers,
   creatingOffer,
   locale,
+  baseCurrency,
   onCreateOffer,
   overlay,
 }: Readonly<{
@@ -1708,7 +1831,8 @@ function DealOverviewPane({
   offers: Offer[] | undefined;
   creatingOffer: boolean;
   locale: Locale;
-  onCreateOffer: () => void;
+  baseCurrency: string | null;
+  onCreateOffer: (currency: string) => void;
   overlay: boolean;
 }>) {
   const t = useT();
@@ -1716,7 +1840,8 @@ function DealOverviewPane({
     <>
       {deal.fx_rate_to_base != null && (
         <FxLine
-          amountMinor={deal.amount_minor ?? 0}
+          amountMinor={deal.amount_minor ?? null}
+          baseCurrency={baseCurrency}
           fxRateToBase={deal.fx_rate_to_base}
           fxRateDate={deal.fx_rate_date ?? null}
           locale={locale}
@@ -1773,6 +1898,7 @@ function DealOverviewPane({
         offers={offers}
         creating={creatingOffer}
         locale={locale}
+        dealCurrency={deal.currency ?? null}
         onCreate={onCreateOffer}
       />
       <CustomFieldsCard object="deal" record={deal} />
@@ -1800,6 +1926,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
     },
   });
   const pipelineQuery = usePipeline();
+  // One shared singleton read (the ["installation-settings"] key), not a
+  // per-deal request: the FX line has to name the base currency it converted
+  // into, and nothing on the deal itself carries it.
+  const baseCurrency = useInstallationSettings().data?.base_currency ?? null;
   const me = useMe();
   const viewerId = useViewerId();
   // Overlay serves a read-only mirror: entity-scoped activity reads (timeline)
@@ -1966,9 +2096,8 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   offers={offersQuery.data?.data}
                   creatingOffer={createOffer.isPending}
                   locale={locale}
-                  onCreateOffer={() =>
-                    createOffer.mutate(deal.currency ?? "EUR")
-                  }
+                  baseCurrency={baseCurrency}
+                  onCreateOffer={(currency) => createOffer.mutate(currency)}
                   overlay={overlay}
                 />
               )}

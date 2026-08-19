@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { contractBody, draftProblem } from "./contractform";
+import { contractBody, draftProblem, pricedIn } from "./contractform";
 
 const DRAFT = {
   title: "MSA 2026",
@@ -27,9 +27,9 @@ describe("contractBody", () => {
     expect(body.title).toBe("MSA 2026");
   });
 
-  it("sends value and currency together or not at all", () => {
-    // Half a money pair cannot be converted, and the server refuses it. The
-    // form must not manufacture the refusal by sending one side.
+  it("sends value and currency together when it holds both", () => {
+    // Half a money pair cannot be converted, and the record's own CHECK refuses
+    // one, so an agreement with no amount states neither half.
     const unpriced = contractBody("org-1", DRAFT);
     expect(unpriced).not.toHaveProperty("value_minor");
     expect(unpriced).not.toHaveProperty("currency");
@@ -37,6 +37,22 @@ describe("contractBody", () => {
     const priced = contractBody("org-1", { ...DRAFT, valueMinor: 12_000_000 });
     expect(priced.value_minor).toBe(12_000_000);
     expect(priced.currency).toBe("EUR");
+  });
+
+  it("never completes the pair with a currency nobody stated", () => {
+    // The form carries no currency control, so whatever it puts here reaches the
+    // record unseen. Holding no currency it sends the amount alone and takes the
+    // server's refusal: an invented unit would be believed forever, while
+    // dropping the amount would report a saved agreement whose value quietly
+    // went nowhere.
+    const body = contractBody("org-1", {
+      ...DRAFT,
+      valueMinor: 12_000_000,
+      currency: "",
+    });
+
+    expect(body.value_minor).toBe(12_000_000);
+    expect(body).not.toHaveProperty("currency");
   });
 
   it("never invents a signed date", () => {
@@ -52,6 +68,29 @@ describe("contractBody", () => {
       valueBasis: "annualized_12m",
     });
     expect(annual.value_basis).toBe("annualized_12m");
+  });
+});
+
+describe("pricedIn", () => {
+  it("prices a blank draft in the installation's own currency", () => {
+    // The installation declares one currency and every roll-up converts to it,
+    // so it is the only unit this form can supply for an amount typed on a
+    // record that has none — a literal here would label one deployment's
+    // agreements in another country's money.
+    expect(pricedIn({ ...DRAFT, currency: "" }, "VND").currency).toBe("VND");
+  });
+
+  it("leaves an agreement's recorded currency exactly as recorded", () => {
+    // A contract in dollars stays in dollars on an installation that reports in
+    // euro: re-labelling a recorded figure would restate the agreement.
+    expect(pricedIn({ ...DRAFT, currency: "USD" }, "EUR").currency).toBe("USD");
+  });
+
+  it("invents nothing while the installation read has not answered", () => {
+    // Undefined is not a currency, and guessing one is the failure this pairing
+    // exists to prevent — the blank travels on and the save is refused in the
+    // open rather than a unit being chosen on the reader's behalf.
+    expect(pricedIn({ ...DRAFT, currency: "" }, undefined).currency).toBe("");
   });
 });
 

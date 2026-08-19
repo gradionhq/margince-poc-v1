@@ -2,6 +2,7 @@ import { extensionCopy } from "@composition/copy";
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -84,6 +85,51 @@ export function detectLocale(
   return DEFAULT_LOCALE;
 }
 
+// Where an EXPLICIT locale choice is kept so it survives a reload. The reader
+// picks a language on the sign-in screen, and until /v1/me carries a locale
+// this is the only place the choice can live — without it the next load falls
+// back to the browser's preference and silently undoes the pick, which reads as
+// the switcher not working.
+const LOCALE_STORAGE_KEY = "margince.locale";
+
+/**
+ * The locale a reader has chosen, if they have chosen one.
+ *
+ * Only an explicit pick is stored, never the detected default. Persisting what
+ * the browser asked for would freeze it: a reader who later changes their
+ * browser's language would keep getting the old one from a value they never set.
+ *
+ * The stored string is validated rather than trusted. It outlives the release
+ * that wrote it, so a locale we have since stopped shipping — or a hand-edited
+ * value — must fall back to detection instead of reaching the catalogs as a key
+ * they have no entry for.
+ *
+ * Storage is unavailable in some browser modes and throws on ACCESS rather than
+ * returning null. That is not an error to report: this value is a preference
+ * whose absence already has a defined meaning, and detection is exactly what
+ * absence means. A reader in private mode gets the browser's language, which is
+ * the same answer they got before this existed.
+ */
+export function storedLocale(): Locale | null {
+  try {
+    const stored = globalThis.localStorage?.getItem(LOCALE_STORAGE_KEY);
+    return stored !== null && stored !== undefined && isLocale(stored)
+      ? stored
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberLocale(locale: Locale): void {
+  try {
+    globalThis.localStorage?.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // Same reasoning as the read: a preference that cannot be kept is a
+    // preference that holds for this session only, not a failure to surface.
+  }
+}
+
 export function translate(
   locale: Locale,
   key: MessageKey | ExtensionMessageKey,
@@ -126,9 +172,22 @@ export function LocaleProvider({
   initial?: Locale;
   children: ReactNode;
 }>) {
-  // An explicit initial (a server-provided locale, once /v1/me carries one)
-  // is authoritative; otherwise fall to the browser's own preference.
-  const [locale, setLocale] = useState<Locale>(() => initial ?? detectLocale());
+  // Three sources, in falling order of authority: an explicit initial (a
+  // server-provided locale, once /v1/me carries one), then the reader's own
+  // stored pick, then the browser's preference. The stored pick outranks
+  // detection because it is the more specific statement of the same intent —
+  // this reader, on this machine, asked for this language.
+  const [locale, setLocaleState] = useState<Locale>(
+    () => initial ?? storedLocale() ?? detectLocale(),
+  );
+  // A pick is remembered where a detected default is not, so the two cannot be
+  // confused later. Wrapped rather than persisted in an effect: an effect would
+  // also fire for the detected value on first render and store a choice nobody
+  // made.
+  const setLocale = useCallback((next: Locale) => {
+    rememberLocale(next);
+    setLocaleState(next);
+  }, []);
   /*
    * The document's own language follows the catalog. index.html can only ship a
    * static `lang`, so without this every German reader gets German text inside a
@@ -143,7 +202,7 @@ export function LocaleProvider({
   useEffect(() => {
     document.documentElement.lang = locale;
   }, [locale]);
-  const value = useMemo(() => ({ locale, setLocale }), [locale]);
+  const value = useMemo(() => ({ locale, setLocale }), [locale, setLocale]);
   return (
     <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>
   );

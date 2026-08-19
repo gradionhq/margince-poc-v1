@@ -36,9 +36,20 @@ const hits = () =>
         type: "lead",
         id: "l1",
         title: "Bettina Krause",
-        snippet: "…mirrored via HubSpot…",
+        snippet: "…mirrored from the connected system…",
         score: 0.61,
         trust_tier: "external",
+      },
+      // All three tiers in one list, because the badges only do their work by
+      // contrast: an unverified row beside a verified one and a mirrored one is
+      // the comparison a reader actually makes.
+      {
+        type: "person",
+        id: "p2",
+        title: "Sam Unknown",
+        snippet: "…no source has vouched for this…",
+        score: 0.44,
+        trust_tier: "unverified",
       },
     ],
     page: { next_cursor: null, has_more: false },

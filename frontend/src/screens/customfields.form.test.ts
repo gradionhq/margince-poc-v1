@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MONEY_ABSENT } from "../format/format";
 import type { CustomField } from "./customfields.form";
 import {
   customFieldDisplay,
@@ -164,6 +165,15 @@ describe("customFieldDisplay", () => {
   it("formats currency minor units with the field's currency code", () => {
     const field = cf({ type: "currency", currency: "EUR" });
     expect(customFieldDisplay(field, 500000, opts)).toBe("€5,000.00");
+  });
+
+  it("refuses to label an amount whose currency the catalog does not carry", () => {
+    // The catalog is supposed to carry a code for every currency field, so this
+    // row is broken — and a reader cannot tell a euro sign the product invented
+    // from one an admin configured. The absence is the honest answer, and it is
+    // also the only one Intl can render: an empty currency code throws.
+    const unlabelled = cf({ type: "currency", currency: null });
+    expect(customFieldDisplay(unlabelled, 500000, opts)).toBe(MONEY_ABSENT);
   });
 
   it("shows a boolean as its Yes/No label", () => {
