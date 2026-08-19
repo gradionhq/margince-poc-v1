@@ -37,19 +37,36 @@ var joinSchema = map[string][]StoredColumn{
 		"project_id:uuid"),
 }
 
+// derivingCtx is the context every DERIVATION test uses: a principal holding
+// the edge object, so the RBAC gate admits and the test exercises the rule it
+// is about.
+//
+// A bare context.Background() carries no actor, so auth.Require refuses and
+// joinRelations skips `relationship` entirely — which does not fail a test
+// asserting that some relationship hop is ABSENT. It makes it pass for the
+// wrong reason. The gate that closed a real authz hole silently emptied three
+// tests of their subject; this is what keeps the two questions apart, with
+// TestAJoinEdgeIsGatedOnTheObjectThatGovernsTheEdge owning the authorization
+// one on its own.
+func derivingCtx() context.Context {
+	return readerFor(append(recordNames(), objectRelationship)...)
+}
+
+// recordNames lists the searchable record types.
+func recordNames() []string {
+	names := make([]string, 0, len(contractRecords))
+	for record := range contractRecords {
+		names = append(names, record)
+	}
+	return names
+}
+
 // relationsOf resolves one record type's vocabulary against joinSchema and
 // answers its hops by name.
 func relationsOf(t *testing.T, entity string) map[string]Relation {
 	t.Helper()
 	resolver := NewVocabularyResolver().WithColumnReader(stubColumns{tables: joinSchema})
-	readable := make([]string, 0, len(contractRecords)+1)
-	for record := range contractRecords {
-		readable = append(readable, record)
-	}
-	// The edge's own object, which the employment and stakeholder hops are
-	// gated on — see TestAJoinEdgeIsGatedOnTheObjectThatGovernsTheEdge.
-	readable = append(readable, objectRelationship)
-	vocab, err := resolver.Resolve(readerFor(readable...), entity)
+	vocab, err := resolver.Resolve(derivingCtx(), entity)
 	if err != nil {
 		t.Fatalf("resolving %s: %v", entity, err)
 	}
@@ -288,7 +305,7 @@ func TestAReferenceNamedForItsRoleYieldsNoHop(t *testing.T) {
 		"activity_link": columnsOf("id:uuid", "activity_id:uuid", "person_id:uuid"),
 	}
 	schema := newSchemaReads(stubColumns{tables: roleNamed})
-	relations, err := joinRelations(context.Background(), schema, entityPerson)
+	relations, err := joinRelations(derivingCtx(), schema, entityPerson)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +388,7 @@ func joinSchemaHolds(table, column string) bool {
 func mustJoinRelations(t *testing.T, record string) []Relation {
 	t.Helper()
 	schema := newSchemaReads(stubColumns{tables: joinSchema})
-	relations, err := joinRelations(context.Background(), schema, record)
+	relations, err := joinRelations(derivingCtx(), schema, record)
 	if err != nil {
 		t.Fatalf("deriving %s join relations: %v", record, err)
 	}
@@ -589,14 +606,14 @@ func TestTheRefusalsListOfHopsIsBoundedAndSaysWhenItTruncates(t *testing.T) {
 // record type no join table reaches — and the two must not look alike.
 func TestJoinRelationsRefusesARecordTypeThisModuleDoesNotSearch(t *testing.T) {
 	schema := newSchemaReads(stubColumns{tables: joinSchema})
-	if _, err := joinRelations(context.Background(), schema, "workspace"); err == nil {
+	if _, err := joinRelations(derivingCtx(), schema, "workspace"); err == nil {
 		t.Fatal("a record type this module does not search derived relations instead of failing")
 	}
 	// The honest empty: lead is searchable and is an arm of activity_link, so
 	// it has a hop; project is an arm of relationship only. Neither is empty
 	// today, so the state is asserted where it exists — a table this record has
 	// no column in contributes nothing rather than erroring.
-	relations, err := joinRelations(context.Background(), schema, entityLead)
+	relations, err := joinRelations(derivingCtx(), schema, entityLead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -619,11 +636,7 @@ func TestAJoinEdgeIsGatedOnTheObjectThatGovernsTheEdge(t *testing.T) {
 	resolver := NewVocabularyResolver().WithColumnReader(stubColumns{tables: joinSchema})
 	// Every record readable, and the edge object withheld — the exact shape a
 	// `setRoleObjectGrant` call zeroing `relationship` produces.
-	records := make([]string, 0, len(contractRecords))
-	for record := range contractRecords {
-		records = append(records, record)
-	}
-	vocab, err := resolver.Resolve(readerFor(records...), entityPerson, entityActivity)
+	vocab, err := resolver.Resolve(readerFor(recordNames()...), entityPerson, entityActivity)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,6 +682,22 @@ func TestEveryJoinTableThatIsAnRBACObjectDeclaresIt(t *testing.T) {
 	if !objects[objectRelationship] {
 		t.Fatalf("%q is not in identity's object list, so this gate is reading the wrong thing",
 			objectRelationship)
+	}
+	// The list is cross-checked against a SECOND derivation from the same file:
+	// policy's `objects(...)` takes one parameter per object. A literal read
+	// alone would go on passing if a later object were appended somewhere other
+	// than the literal — an init, a helper, a second slice — and this module
+	// would then leave a governed join table ungated while the gate reported
+	// green. Two readings that must agree is what makes the omission loud.
+	signature := regexp.MustCompile(`func objects\(([^)]*)\) map\[string\]grant`).FindSubmatch(body)
+	if signature == nil {
+		t.Fatal("identity no longer declares objects() in the shape this gate cross-checks")
+	}
+	params := strings.Split(strings.ReplaceAll(string(signature[1]), " grant", ""), ",")
+	if len(params) != len(objects) {
+		t.Errorf("identity's object literal names %d objects and its objects() takes %d parameters — "+
+			"the two disagree, so the literal is no longer the whole list and a join table could be "+
+			"governed by an object this gate cannot see", len(objects), len(params))
 	}
 	for _, join := range joinTables {
 		switch {
