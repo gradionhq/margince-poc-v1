@@ -25,18 +25,33 @@ likewise advisory.
 - `push` to `main`
 - `workflow_dispatch` (manual)
 
-One live run per PR ref (`concurrency` group): a new push cancels the stale run.
-A merge to `main` gets a group of its **own**, keyed by commit, so every merge is
-gated.
+One live run per ref, `main` included (`concurrency` group keyed on
+`github.ref`, `cancel-in-progress: true`): a new push cancels the stale lane, so
+the commit under gate is always the ref's tip. `release.yml` and `sbom.yml`
+carry the same rule. `scheduled.yml` is the exception — nothing supersedes a
+daily run, so it groups without cancelling.
 
-That last part is what `cancel-in-progress: false` alone does not buy, and
-assuming it did cost three ungated merges in one afternoon. The flag protects a
-run that is already *running*; a group holds at most one *queued* run, so while
-every `main` push shared one group, each merge evicted the one queued behind the
-current lane — reported `cancelled`, zero jobs, indistinguishable from a green
-skip on any dashboard. The daily scheduled `backend lane (main)` exists to catch
-exactly that mask and leaves a window up to a day wide. The deliberate cost is
-that several full lanes can now run on `main` at once.
+Gating every `main` commit — a group keyed by commit — is what this replaced,
+and the slot budget is the reason, not a smaller appetite for coverage. A
+full-stack merge schedules 28 jobs against an org-wide ceiling of 20 concurrent
+jobs, so two overlapping merges stretched a 9-minute gate past two hours and
+starved every PR lane behind them. A verdict that lands hours after the merge
+gates nothing.
+
+`cancel-in-progress: false` is not the conservative choice here, which is the
+trap worth remembering: it protects a run that is already *running*, and a group
+holds at most one *queued* run, so while every `main` push shared one group each
+merge evicted the run queued behind the current lane — reported `cancelled`,
+zero jobs, indistinguishable from a green skip on any dashboard, and the evicted
+run was the newest. Cancelling makes the survivor the tip by construction.
+
+What tip-only gating gives up is per-commit attribution. `main` is a linear
+history of squash merges, so the tip's tree contains every merge below it and
+"`main` is green" stays a true statement about all of them — but a bisect cannot
+assume every commit was gated, and a red lane can be superseded before anyone
+reads it. A `workflow_dispatch` on that commit brings the verdict back, and the
+daily `backend lane (main)` in `scheduled.yml` stays the backstop for a tree
+nothing is being merged into.
 
 ## Run only the checks a change can affect
 
@@ -295,7 +310,7 @@ Wiring details:
   the `license gate` job in `ci.yml` (above), so each event path runs the policy
   exactly once. Not itself a required check; the mechanics are in
   [docs/reference/supply-chain.md](../docs/reference/supply-chain.md).
-- **`release.yml`** — on every push to `main`, cuts a margince-constellation
+- **`release.yml`** — on a push to `main`, cuts a margince-constellation
   release versioned `1970.<build>` (the year pinned to the epoch while the
   flow is a PoC, so these releases order below any real dated release; the
   build is the workflow run number) in the dist service of the constellation
@@ -329,5 +344,11 @@ Wiring details:
   has no ancestor to diff from, so the release drafts **without a patch** and
   **stays an unpublished draft** (the dist completeness gate requires the
   patch), while a **manual dispatch** carries no push range at all and falls
-  back to the parent commit (`HEAD~1..HEAD`). Not a gate — it never blocks a
-  merge.
+  back to the parent commit (`HEAD~1..HEAD`). Merges that land close together
+  release only the tip, and the patch range is what makes that consequential:
+  each push's range starts at the ref's previous tip, so when commit *N*'s lane
+  is cancelled the next release's patch runs *N..N+1* and the files *N* changed
+  appear in no published patch at all. A consumer applying patches in order is
+  therefore one increment short. Deriving the base from the last **published**
+  release instead of the push's `before` is what closes that, and is tracked as
+  an issue. Not a gate — it never blocks a merge.

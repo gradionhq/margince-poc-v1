@@ -36,9 +36,19 @@ on:
 permissions:
   contents: read
 
+# ONE live release per ref: a newer merge cancels the lane still working on an
+# older commit, so what gets drafted and published is always main's tip rather
+# than whatever the queue happened to reach. The alternative — letting the lane
+# run to completion — is what put a full docker bake between a merge and its own
+# release.
+#
+# A release therefore describes the push that triggered it, not every commit
+# below it: the patch range is that push's before..after, and the commits whose
+# lane was superseded have no release of their own. The version is this
+# workflow's run number, so the surviving lane always carries the highest one.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   # The release-management CLI image, published :latest from constellation's
