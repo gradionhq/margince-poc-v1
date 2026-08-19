@@ -40,14 +40,9 @@
   gap: var(--space-1);
 }
 
-.lead-ladder-step + .lead-ladder-step::before {
-  content: "›";
+.lead-ladder-sep {
   color: var(--color-text-muted, inherit);
   margin-right: var(--space-1);
-}
-
-.lead-ladder-step.is-terminal:first-of-type::before {
-  content: "";
 }
 
 .lead-ladder-step.is-filled > button:not(:disabled) {

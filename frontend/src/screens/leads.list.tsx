@@ -171,7 +171,8 @@ export function LeadsScreen() {
           // An admin or manager opens on every lead — they run the queue; a
           // rep opens on their own.
           opensOnAll={session.roles.some(
-            (role) => role === "admin" || role === "manager",
+            (role) =>
+              role === "admin" || role === "manager" || role === "management",
           )}
         />
       )}
@@ -453,6 +454,9 @@ function LeadsWorkbench({
                 setSelected(
                   new Set(outcomes.filter((o) => o.error).map((o) => o.id)),
                 );
+                // Each run says its own thing; a sentence about the last one
+                // must not stand beside this one's rows.
+                setToast(null);
                 const moved = outcomes.filter((o) => !o.error);
                 if (
                   action.kind === "assign" &&

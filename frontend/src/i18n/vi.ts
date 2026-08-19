@@ -1433,6 +1433,8 @@ export const vi = {
   "lead.viewEngaged": "Đang trao đổi",
   "lead.ladder": "Trạng thái khách hàng tiềm năng",
   "lead.ladder.new": "Mới — chưa ai liên hệ.",
+  "lead.ladder.overlay":
+    "Bản sao không đổi trạng thái khách hàng tiềm năng; hãy đổi trong hệ thống nguồn.",
   "lead.ladder.automatic": "{label} · tự động đặt từ hoạt động đã ghi nhận",
   "lead.ladder.automaticWith": "{label} · tự động đặt — {what} vào {at}",
   "lead.ladder.byHand": "{label} · đặt thủ công",
@@ -1455,6 +1457,8 @@ export const vi = {
   "lead.qualify.amountHint":
     "Tùy chọn. Đơn vị nguyên; theo tiền tệ cơ sở của cài đặt.",
   "lead.qualify.amountInvalid": "Nhập một số hoặc để trống.",
+  "lead.qualify.amountNoCurrency":
+    "Đang chờ tiền tệ cơ sở của cài đặt — thử lại sau giây lát hoặc để trống số tiền.",
   "lead.qualify.why": "Lý do",
   "lead.qualify.reasonReplied": "Lý do: họ đã trả lời vào {at}.",
   "lead.qualify.reasonMeetingBooked": "Lý do: đã đặt lịch họp vào {at}.",

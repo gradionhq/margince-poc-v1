@@ -1441,6 +1441,8 @@ export const de = {
   "lead.viewEngaged": "Im Gespräch",
   "lead.ladder": "Lead-Status",
   "lead.ladder.new": "Neu — noch niemand hat Kontakt aufgenommen.",
+  "lead.ladder.overlay":
+    "Der Spiegel ändert den Lead-Status nicht; im Quellsystem ändern.",
   "lead.ladder.automatic":
     "{label} · automatisch aus erfasster Aktivität gesetzt",
   "lead.ladder.automaticWith": "{label} · automatisch gesetzt — {what} am {at}",
@@ -1463,6 +1465,8 @@ export const de = {
   "lead.qualify.amountHint":
     "Optional. Ganze Einheiten in der Basiswährung der Installation.",
   "lead.qualify.amountInvalid": "Eine Zahl eingeben oder leer lassen.",
+  "lead.qualify.amountNoCurrency":
+    "Die Basiswährung der Installation ist noch nicht geladen — gleich noch einmal versuchen oder den Betrag leer lassen.",
   "lead.qualify.why": "Warum",
   "lead.qualify.reasonReplied": "Grund: Antwort am {at}.",
   "lead.qualify.reasonMeetingBooked": "Grund: Termin gebucht für {at}.",

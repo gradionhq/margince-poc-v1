@@ -117,6 +117,18 @@ function dealBlock(input: {
   };
 }
 
+// amountState is what the typed amount does to the confirm: an unreadable
+// number is refused, and a number with no currency to carry it waits — sent
+// as-is it would be dropped on the way to the server, which is worse than a
+// wait.
+function amountState(amount: string, currency: string | undefined) {
+  const typed = amount.trim() !== "";
+  return {
+    amountInvalid: typed && !Number.isFinite(Number(amount)),
+    amountWaitsForCurrency: typed && !currency,
+  };
+}
+
 function openStagesOf(pipeline: Pipeline | undefined) {
   return [...(pipeline?.stages ?? [])]
     .filter((stage) => stage.semantic === "open")
@@ -190,7 +202,11 @@ export function QualifyDialog({
     },
   });
 
+  // A promotion in flight is not something to walk away from: the dialog
+  // stays until the server has answered, then closes on success or shows
+  // the refusal.
   const close = () => {
+    if (qualify.isPending) return;
     qualify.reset();
     onClose();
   };
@@ -215,8 +231,10 @@ export function QualifyDialog({
     });
   };
 
-  const amountInvalid =
-    amount.trim() !== "" && !Number.isFinite(Number(amount));
+  const { amountInvalid, amountWaitsForCurrency } = amountState(
+    amount,
+    currency,
+  );
   const name = lead.full_name ?? lead.email ?? "";
 
   return (
@@ -287,7 +305,11 @@ export function QualifyDialog({
                 label={t("lead.qualify.amount", { currency: currency ?? "" })}
                 hint={t("lead.qualify.amountHint")}
                 error={
-                  amountInvalid ? t("lead.qualify.amountInvalid") : undefined
+                  amountInvalid
+                    ? t("lead.qualify.amountInvalid")
+                    : amountWaitsForCurrency
+                      ? t("lead.qualify.amountNoCurrency")
+                      : undefined
                 }
               >
                 {(control) => (
@@ -336,7 +358,9 @@ export function QualifyDialog({
             small
             variant="primary"
             data-testid="lead-qualify-confirm"
-            disabled={qualify.isPending || amountInvalid}
+            disabled={
+              qualify.isPending || amountInvalid || amountWaitsForCurrency
+            }
             onClick={submit}
           >
             {withDeal

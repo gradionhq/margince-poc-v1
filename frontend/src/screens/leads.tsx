@@ -784,7 +784,7 @@ function LeadLifecycle({
           readOnly
             ? t("lead.terminalReadOnly")
             : overlay
-              ? t("overlay.partialWriteBack")
+              ? t("lead.ladder.overlay")
               : undefined
         }
         onStep={(status) => {
@@ -1431,6 +1431,13 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   // when one was opened, the deal. The page stays (ADR-0119): a promoted
   // lead keeps its page, and the outcome card below carries the links on.
   const [toast, setToast] = useState<ReactNode>(null);
+  // This screen stays mounted from one lead to the next: an open dialog or a
+  // sentence about the previous lead must not carry over to this one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the reset runs when the lead changes, and the lead is the only input
+  useEffect(() => {
+    setDialog(null);
+    setToast(null);
+  }, [id]);
 
   // A promoted lead keeps its page (ADR-0119/A170). It no longer redirects to
   // the person: the redirect said the lead had ceased to exist, which is untrue

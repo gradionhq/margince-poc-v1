@@ -1448,6 +1448,8 @@ export const en = {
   "lead.viewEngaged": "Engaged",
   "lead.ladder": "Lead status",
   "lead.ladder.new": "New — nobody has reached out yet.",
+  "lead.ladder.overlay":
+    "The mirror does not move a lead's status; change it in the source system.",
   "lead.ladder.automatic": "{label} · set automatically from captured activity",
   "lead.ladder.automaticWith": "{label} · set automatically — {what} on {at}",
   "lead.ladder.byHand": "{label} · set by hand",
@@ -1468,6 +1470,8 @@ export const en = {
   "lead.qualify.amountHint":
     "Optional. Whole units; the installation's base currency.",
   "lead.qualify.amountInvalid": "Enter a number, or leave it empty.",
+  "lead.qualify.amountNoCurrency":
+    "Waiting for the installation's base currency — try again in a moment, or leave the amount empty.",
   "lead.qualify.why": "Why",
   "lead.qualify.reasonReplied": "Reason: they replied on {at}.",
   "lead.qualify.reasonMeetingBooked": "Reason: a meeting was booked for {at}.",

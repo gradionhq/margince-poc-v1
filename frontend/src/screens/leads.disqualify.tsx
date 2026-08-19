@@ -55,7 +55,10 @@ export function DisqualifyDialog({
     },
   });
 
+  // A close in flight is not something to walk away from: the dialog stays
+  // until the server has answered.
   const close = () => {
+    if (disqualify.isPending) return;
     disqualify.reset();
     onClose();
   };

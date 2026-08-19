@@ -60,7 +60,6 @@ export function LeadStepper({
   const { locale } = useLocale();
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const current = rungOf(lead.status);
-  const terminal = lead.status === "promoted" || lead.status === "disqualified";
   const steps: {
     key: Lead["status"];
     rung: number;
@@ -93,7 +92,7 @@ export function LeadStepper({
   return (
     <nav aria-label={t("lead.ladder")} className="lead-ladder">
       <ol className="lead-ladder-steps">
-        {steps.map((step) => (
+        {steps.map((step, index) => (
           <li
             key={step.key}
             className={[
@@ -106,14 +105,19 @@ export function LeadStepper({
               .join(" ")}
             aria-current={step.current ? "step" : undefined}
           >
+            {index > 0 && (
+              <span aria-hidden="true" className="lead-ladder-sep">
+                ›
+              </span>
+            )}
             <Button
               small
               variant={step.current ? "primary" : "ghost"}
               data-testid={`lead-step-${step.key}`}
-              // The current step is a fact, not an action; a terminal lead
-              // takes no step at all and says why.
+              // The current step is a fact, not an action; a lead that takes
+              // no step — terminal, or a mirror — says why on every other one.
               disabled={step.current || pending}
-              reason={terminal && !step.current ? readOnlyReason : undefined}
+              reason={!step.current ? readOnlyReason : undefined}
               onClick={step.onPick}
             >
               {t(STEP_LABEL[step.key])}
@@ -157,7 +161,11 @@ function ladderExplanation(
   if (lead.status_set_by === "system") {
     return systemExplanation(lead, label, t, locale, zone);
   }
-  return t("lead.ladder.byHand", { label });
+  if (lead.status_set_by === "human") {
+    return t("lead.ladder.byHand", { label });
+  }
+  // Nobody is recorded: a lead carried over from before the ladder existed.
+  return label;
 }
 
 // What the system read when it moved the lead: the engagement signal behind
