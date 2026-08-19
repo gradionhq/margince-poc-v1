@@ -91,7 +91,7 @@ var coverageMatrix = []coverageCell{
 
 	// Leads. The funnel above the pipeline.
 	{axisLead, "new", 4, "untouched inbound"},
-	{axisLead, "working", 4, "an SDR has it"},
+	{axisLead, "contacted", 4, "an SDR has it"},
 	{axisLead, "promoted", 3, "became a person and a company — the path that proves promotion"},
 	{axisLead, "disqualified", 2, "archived, and only visible with include_archived — a state easy to seed wrong"},
 

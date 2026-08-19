@@ -134,7 +134,7 @@ func leadPreviewDefs() map[string]previewDef {
 			// owner is set — so the blast radius now is the open, unrouted
 			// lead pool.
 			match: storekit.Predicate{And: []storekit.Predicate{
-				{Field: "status", Op: storekit.OpIn, Value: []any{"new", "working"}},
+				{Field: "status", Op: storekit.OpIn, Value: []any{"new", "contacted", "engaged"}},
 				{Field: keyOwnerID, Op: storekit.OpExists, Value: false},
 			}},
 			firedCount: func(ctx context.Context, tx pgx.Tx, since time.Time) (int, error) {

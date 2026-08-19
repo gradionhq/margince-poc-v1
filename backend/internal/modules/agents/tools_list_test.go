@@ -148,7 +148,7 @@ func TestAnEnumerationIsChargedPerRecord(t *testing.T) {
 }
 
 // The description says which filters each type takes, because the schema
-// cannot: `status` is open|won|lost on a deal and new|working on a lead, so one
+// cannot: `status` is open|won|lost on a deal and new|contacted|engaged on a lead, so one
 // union of properties would have to publish one type's enum for both.
 func TestTheDescriptionCarriesThePerTypeVocabulary(t *testing.T) {
 	described := listRecords{filters: bindableFilters(probeVocabulary{})}.describeFilters()

@@ -35,6 +35,16 @@ func (e *promoteConsentEnv) seedLeadCreatedAt(t *testing.T, email string, create
 	return ids.From[ids.LeadKind](id)
 }
 
+// enableFirstResponseSLA switches the opt-in target on through the real
+// settings write, with the default target.
+func (e *promoteConsentEnv) enableFirstResponseSLA(t *testing.T) {
+	t.Helper()
+	on := true
+	if _, err := e.store.UpdateLeadSettings(e.ctx, UpdateLeadSettingsInput{FirstResponseEnabled: &on}); err != nil {
+		t.Fatalf("enable first-response SLA: %v", err)
+	}
+}
+
 func (e *promoteConsentEnv) countEvents(t *testing.T, eventType string, entity ids.UUID) int {
 	t.Helper()
 	var n int
@@ -52,11 +62,12 @@ func (e *promoteConsentEnv) countEvents(t *testing.T, eventType string, entity i
 // and a lead answered before its deadline is never a breach.
 func TestSLAScanEscalatesEachBreachOnce(t *testing.T) {
 	e := setupPromoteConsent(t)
+	e.enableFirstResponseSLA(t)
 	now := time.Now().UTC()
-	overdue := e.seedLeadCreatedAt(t, "overdue@example.test", now.Add(-FirstResponseTarget-time.Hour))
+	overdue := e.seedLeadCreatedAt(t, "overdue@example.test", now.Add(-DefaultFirstResponseTarget-time.Hour))
 	fresh := e.seedLeadCreatedAt(t, "fresh@example.test", now.Add(-time.Hour))
-	answered := e.seedLeadCreatedAt(t, "answered@example.test", now.Add(-FirstResponseTarget-time.Hour))
-	if _, err := e.store.RecordLeadFirstResponse(e.ctx, answered, now.Add(-FirstResponseTarget-30*time.Minute)); err != nil {
+	answered := e.seedLeadCreatedAt(t, "answered@example.test", now.Add(-DefaultFirstResponseTarget-time.Hour))
+	if _, err := e.store.RecordLeadFirstResponse(e.ctx, answered, now.Add(-DefaultFirstResponseTarget-30*time.Minute)); err != nil {
 		t.Fatalf("record first response: %v", err)
 	}
 
@@ -90,8 +101,9 @@ func TestSLAScanEscalatesEachBreachOnce(t *testing.T) {
 // breached on its own row AND is what sla_state=breached lists.
 func TestSLAStateReadsAndFiltersAlike(t *testing.T) {
 	e := setupPromoteConsent(t)
+	e.enableFirstResponseSLA(t)
 	now := time.Now().UTC()
-	overdue := e.seedLeadCreatedAt(t, "overdue@example.test", now.Add(-FirstResponseTarget-time.Hour))
+	overdue := e.seedLeadCreatedAt(t, "overdue@example.test", now.Add(-DefaultFirstResponseTarget-time.Hour))
 	e.seedLeadCreatedAt(t, "fresh@example.test", now.Add(-time.Hour))
 
 	lead, err := e.store.GetLead(e.ctx, overdue, storekit.LiveOnly)
@@ -121,14 +133,15 @@ func TestSLAStateReadsAndFiltersAlike(t *testing.T) {
 
 func TestDefaultLeadQueueOrdersSLAThenScoreDeterministically(t *testing.T) {
 	e := setupPromoteConsent(t)
+	e.enableFirstResponseSLA(t)
 	now := time.Now().UTC().Truncate(time.Second)
 	previousClock := leadSLAClock
 	leadSLAClock = func() time.Time { return now }
 	t.Cleanup(func() { leadSLAClock = previousClock })
 
-	breachedLow := e.seedLeadCreatedAt(t, "breached-low@example.test", now.Add(-FirstResponseTarget-time.Hour))
-	breachedHigh := e.seedLeadCreatedAt(t, "breached-high@example.test", now.Add(-FirstResponseTarget-2*time.Hour))
-	atRisk := e.seedLeadCreatedAt(t, "at-risk@example.test", now.Add(-FirstResponseTarget+30*time.Minute))
+	breachedLow := e.seedLeadCreatedAt(t, "breached-low@example.test", now.Add(-DefaultFirstResponseTarget-time.Hour))
+	breachedHigh := e.seedLeadCreatedAt(t, "breached-high@example.test", now.Add(-DefaultFirstResponseTarget-2*time.Hour))
+	atRisk := e.seedLeadCreatedAt(t, "at-risk@example.test", now.Add(-DefaultFirstResponseTarget+30*time.Minute))
 	within := e.seedLeadCreatedAt(t, "within@example.test", now.Add(-time.Hour))
 	if _, err := e.owner.Exec(context.Background(),
 		`UPDATE lead SET score = CASE id WHEN $1 THEN 10 WHEN $2 THEN 80 WHEN $3 THEN 100 ELSE 100 END
@@ -200,7 +213,7 @@ func TestFirstResponseFromHumanStatusChangeAndDisposition(t *testing.T) {
 	e := setupPromoteConsent(t)
 	now := time.Now().UTC()
 	worked := e.seedLeadCreatedAt(t, "worked@example.test", now.Add(-time.Hour))
-	status := "working"
+	status := "contacted"
 	after, err := e.store.UpdateLead(e.ctx, worked, UpdateLeadInput{Status: &status})
 	if err != nil {
 		t.Fatalf("update: %v", err)

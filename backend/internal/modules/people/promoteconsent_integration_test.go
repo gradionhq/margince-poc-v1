@@ -23,6 +23,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -92,7 +93,8 @@ func setupPromoteConsent(t *testing.T) *promoteConsentEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws)))
+	e.store = NewStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](e.ws))).
+		WithSettings(settings.New(pool, settings.NewRegistry(Definitions()...)))
 
 	opCtx := principal.WithWorkspaceID(context.Background(), e.ws)
 	opCtx = principal.WithCorrelationID(opCtx, ids.NewV7())
@@ -117,7 +119,7 @@ func (e *promoteConsentEnv) seedLead(t *testing.T, email string) ids.LeadID {
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
 		`INSERT INTO lead (id, full_name, email, status, source, captured_by)
-		 VALUES ($1, 'Lena Lead', lower($2), 'working', 'inbound', 'human:x')`,
+		 VALUES ($1, 'Lena Lead', lower($2), 'contacted', 'inbound', 'human:x')`,
 		id, email); err != nil {
 		t.Fatal(err)
 	}

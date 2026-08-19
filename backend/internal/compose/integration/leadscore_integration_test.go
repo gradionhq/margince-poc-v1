@@ -35,7 +35,7 @@ func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	// source: fit = 15 + 8 = 23 (§3.1). Inserted with score 0 so the
 	// recompute demonstrably rebuilds fit AND behavior.
 	leadID := e.SeedID(t, `INSERT INTO lead (id, full_name, title, status, source, score, captured_by)
-	                     VALUES ($1, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
+	                     VALUES ($1, 'Vera VP', 'VP Sales', 'contacted', 'inbound', 0, 'human:x')`)
 
 	// An inbound email linked to the lead = one fresh reply (+25).
 	subject := "Re: your offer"
@@ -143,8 +143,10 @@ func assertRecomputeRanExactlyOnce(t *testing.T, e *SearchEnv) {
 			`SELECT count(*) FROM workflow_run WHERE handler = 'recompute_lead_score'`).Scan(&runs); err != nil {
 			return err
 		}
+		// Only the SCORE audits: the status ladder's own handler also reads
+		// this reply (contacted → engaged) and audits that move.
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM audit_log WHERE entity_type = 'lead' AND action = 'update'`).Scan(&audits)
+			`SELECT count(*) FROM audit_log WHERE entity_type = 'lead' AND action = 'update' AND after ? 'score'`).Scan(&audits)
 	})
 	if err != nil {
 		t.Fatal(err)

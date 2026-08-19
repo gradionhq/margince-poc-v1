@@ -675,6 +675,14 @@ func (stubs) CreateLead(w nethttp.ResponseWriter, r *nethttp.Request, params crm
 	httperr.NotImplemented(w, r, "CreateLead")
 }
 
+func (stubs) GetLeadSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetLeadSettings")
+}
+
+func (stubs) UpdateLeadSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "UpdateLeadSettings")
+}
+
 func (stubs) DisqualifyLead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "DisqualifyLead")
 }

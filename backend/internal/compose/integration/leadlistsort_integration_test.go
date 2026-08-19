@@ -34,11 +34,11 @@ func TestLeadListSortsByScoreAndPagesUnderIt(t *testing.T) {
 	// Seeded out of score order, so a list that ignored the sort would
 	// return them in the creation order below and fail the first check.
 	e.SeedID(t, `INSERT INTO lead (id, full_name, status, source, score, captured_by)
-	           VALUES ($1, 'Middle', 'working', 'inbound', 50, 'human:x')`)
+	           VALUES ($1, 'Middle', 'contacted', 'inbound', 50, 'human:x')`)
 	e.SeedID(t, `INSERT INTO lead (id, full_name, status, source, score, captured_by)
-	           VALUES ($1, 'Warmest', 'working', 'inbound', 90, 'human:x')`)
+	           VALUES ($1, 'Warmest', 'contacted', 'inbound', 90, 'human:x')`)
 	e.SeedID(t, `INSERT INTO lead (id, full_name, status, source, score, captured_by)
-	           VALUES ($1, 'Coldest', 'working', 'inbound', 10, 'human:x')`)
+	           VALUES ($1, 'Coldest', 'contacted', 'inbound', 10, 'human:x')`)
 
 	store := people.NewStore(e.DB())
 	sortField := "-score"
@@ -81,11 +81,11 @@ func TestLeadListNarrowsToTheRequestedMinimumScore(t *testing.T) {
 	ctx := e.AsFullUser()
 
 	e.SeedID(t, `INSERT INTO lead (id, full_name, status, source, score, captured_by)
-	           VALUES ($1, 'Warmest', 'working', 'inbound', 90, 'human:x')`)
+	           VALUES ($1, 'Warmest', 'contacted', 'inbound', 90, 'human:x')`)
 	e.SeedID(t, `INSERT INTO lead (id, full_name, status, source, score, captured_by)
-	           VALUES ($1, 'AtTheFloor', 'working', 'inbound', 50, 'human:x')`)
+	           VALUES ($1, 'AtTheFloor', 'contacted', 'inbound', 50, 'human:x')`)
 	e.SeedID(t, `INSERT INTO lead (id, full_name, status, source, score, captured_by)
-	           VALUES ($1, 'Coldest', 'working', 'inbound', 10, 'human:x')`)
+	           VALUES ($1, 'Coldest', 'contacted', 'inbound', 10, 'human:x')`)
 
 	store := people.NewStore(e.DB())
 	sortField := "-score"

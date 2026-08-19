@@ -15,7 +15,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/events"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
@@ -54,6 +53,8 @@ type PromoteLeadInput struct {
 	Trigger            string
 	EvidenceActivityID *ids.ActivityID
 	EvidenceNote       *string
+	// Deal, when set, opens a deal in the same transaction (qualify-to-deal).
+	Deal *QualifyDealInput
 }
 
 // AlreadyPromotedError maps to 409: promotion happened once; the pointer
@@ -87,29 +88,35 @@ func (e *PromoteNeedsIdentityError) MessageFault() (code, message string) {
 // the lead, recording trigger + evidence + the resulting person) and the
 // first-class lead.promoted event alongside the person.* it caused.
 func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadInput) (crmcontracts.Person, bool, error) {
+	out, err := s.QualifyLead(ctx, id, in)
+	return out.Person, out.Merged, err
+}
+
+// QualifyLead is PromoteLead with the whole outcome: the person, whether it
+// merged, and the deal opened alongside when the call asked for one.
+func (s *Store) QualifyLead(ctx context.Context, id ids.LeadID, in PromoteLeadInput) (PromoteOutcome, error) {
 	// Promotion mutates the lead AND writes the person side, so it needs
 	// both grants — a rep who may work leads but not create contacts
 	// cannot mint contacts through this door.
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	if _, err := ParsePromoteTrigger(in.Trigger); err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	active, err := s.activeColumns(ctx, "person")
 	if err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 
-	var person crmcontracts.Person
-	merged := false
+	var out PromoteOutcome
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The lead lock comes BEFORE the promotability read: two
 		// concurrent promotes of one lead must serialize here, so the
@@ -124,7 +131,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		personID, mergeFields, err := s.promoteTarget(ctx, tx, lead, by, &merged)
+		personID, mergeFields, err := s.promoteTarget(ctx, tx, lead, by, &out.Merged)
 		if err != nil {
 			return err
 		}
@@ -135,10 +142,14 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged, mergeFields, active)
+		out.DealID, err = s.openQualifiedDeal(ctx, tx, id, lead, personID, in.Deal)
+		if err != nil {
+			return err
+		}
+		out.Person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, out.Merged, mergeFields, active, out.DealID)
 		return err
 	})
-	return person, merged, err
+	return out, err
 }
 
 // carryLeadConsent re-points the lead's consent state to the promoted
@@ -227,12 +238,17 @@ func carryLeadActivities(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, pers
 // recording trigger + evidence + the resulting person), and the paired
 // lead.promoted + person.* events — all inside the caller's transaction,
 // still under the lead row lock taken by PromoteLead.
-func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, mergeFields map[string]any, active []fieldcatalog.Column) (crmcontracts.Person, error) {
+func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in PromoteLeadInput, lead crmcontracts.Lead, personID ids.PersonID, merged bool, mergeFields map[string]any, active []fieldcatalog.Column, dealID *ids.UUID) (crmcontracts.Person, error) {
 	now := time.Now().UTC()
+	setBy, err := statusSetByFor(ctx)
+	if err != nil {
+		return crmcontracts.Person{}, err
+	}
 	tag, err := tx.Exec(ctx,
-		`UPDATE lead SET status = 'promoted', promoted_person_id = $2, promoted_at = $3, archived_at = $3, `+firstResponseSet+`
+		`UPDATE lead SET status = 'promoted', status_set_by = $4, promoted_person_id = $2, promoted_at = $3, archived_at = $3,
+		        qualified_deal_id = $5, `+firstResponseSet+`
 		 WHERE id = $1 AND archived_at IS NULL`,
-		id, personID, now)
+		id, personID, now, setBy, dealID)
 	if err != nil {
 		return crmcontracts.Person{}, fmt.Errorf("mark lead promoted: %w", err)
 	}
@@ -256,6 +272,9 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 	}
 	if in.EvidenceNote != nil {
 		after["evidence_note"] = *in.EvidenceNote
+	}
+	if dealID != nil {
+		after["qualified_deal_id"] = *dealID
 	}
 	auditID, err := storekit.Audit(ctx, tx, "promote", "lead", id.UUID,
 		map[string]any{leadStatusColumn: lead.Status}, after)
@@ -283,44 +302,6 @@ func finalizeLeadPromotion(ctx context.Context, tx pgx.Tx, id ids.LeadID, in Pro
 		}
 	}
 	return person, nil
-}
-
-// promotedPersonPayload builds the person-side event a lead promotion
-// emits — its own verb (person.created) on a fresh person, or a
-// person.updated changed_fields note carrying the fields the merge ACTUALLY
-// applied when the promotion instead merged into an existing person
-// (merged=true, PO-F-1). changed_fields is the real merge delta (mergeFields),
-// so it reports a filled title and omits converted_from_lead_id when that was
-// already set — not a fixed map that could misstate the change. A merge that
-// applied nothing returns nil (no person.updated to emit). The two shapes are
-// different published events, not variants of one, so the return type is the
-// shared events.Payload seam rather than a single struct.
-//
-//nolint:ireturn // dispatches to PublicEventPersonCreated vs Updated by the merged condition; tested directly via the interface in person_organization_payload_test.go
-func promotedPersonPayload(person crmcontracts.Person, merged bool, mergeFields map[string]any) events.Payload {
-	if merged {
-		if len(mergeFields) == 0 {
-			return nil
-		}
-		return crmcontracts.PublicEventPersonUpdated{ChangedFields: mergeFields}
-	}
-	return crmcontracts.PublicEventPersonCreated{FullName: person.FullName}
-}
-
-// leadPromotedPayload builds the lead-side event a promotion emits —
-// its own verb (events.md §5.5), never a lead.updated. evidenceActivityID
-// is nil for a human_qualify with no linked activity; the wire field is
-// then omitted rather than marshaled as null.
-func leadPromotedPayload(personID ids.PersonID, outcome, trigger string, evidenceActivityID *ids.ActivityID) crmcontracts.PublicEventLeadPromoted {
-	p := crmcontracts.PublicEventLeadPromoted{
-		PromotedPersonId: openapi_types.UUID(personID.UUID),
-		DedupeOutcome:    outcome,
-		Trigger:          trigger,
-	}
-	if evidenceActivityID != nil {
-		p.EvidenceRef = uuidPtr(&evidenceActivityID.UUID)
-	}
-	return p
 }
 
 // promotableLead loads the lead and enforces every promotion guard:

@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
@@ -66,6 +67,19 @@ func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
 // modules/customfields' Service here.
 func (h Handlers) WithFieldCatalog(catalog fieldcatalog.Reader) Handlers {
 	h.store = h.store.WithFieldCatalog(catalog)
+	return h
+}
+
+// WithSettings wires the installation settings store the lead-settings
+// endpoints write through.
+func (h Handlers) WithSettings(store *settings.Store) Handlers {
+	h.store = h.store.WithSettings(store)
+	return h
+}
+
+// WithDealOpener wires the deals-side seam a qualify call opens its deal on.
+func (h Handlers) WithDealOpener(opener LeadDealOpener) Handlers {
+	h.store = h.store.WithDealOpener(opener)
 	return h
 }
 

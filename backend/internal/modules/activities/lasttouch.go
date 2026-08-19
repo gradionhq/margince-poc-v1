@@ -87,7 +87,7 @@ type LastTouchCandidate struct {
 //     duplicate of the single organization reminder that account already
 //     earns.
 //   - lead — still in the working part of its lifecycle ('new' or
-//     'working'); a promoted or disqualified lead is finished business.
+//     'contacted'); a promoted or disqualified lead is finished business.
 //
 // Every other entity type activity_link can carry (project today) is
 // outside this trigger's vocabulary and never becomes a candidate.
@@ -149,7 +149,7 @@ func (s *Store) LastTouchBefore(ctx context.Context, cutoff time.Time, limit int
 			   OR (q.entity_type = '%[5]s' AND EXISTS (
 			         SELECT 1 FROM lead l
 			         WHERE l.id = q.entity_id
-			           AND l.status IN ('new','working') AND l.archived_at IS NULL
+			           AND l.status IN ('new','contacted','engaged') AND l.archived_at IS NULL
 			           AND l.created_at < $2))
 			ORDER BY q.last_touch, q.entity_id
 			LIMIT $3`,

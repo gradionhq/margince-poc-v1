@@ -133,7 +133,7 @@ func TestPreviewDraftOverrideAndValidation(t *testing.T) {
 
 	fx.exec(t, `INSERT INTO lead (full_name, source, captured_by) VALUES ('Unrouted A', 'manual', 'human:test')`)
 	fx.exec(t, `INSERT INTO lead (full_name, source, captured_by) VALUES ('Unrouted B', 'manual', 'human:test')`)
-	fx.exec(t, `INSERT INTO lead (full_name, owner_id, status, source, captured_by) VALUES ('Routed', $1, 'working', 'manual', 'human:test')`, fx.rep2)
+	fx.exec(t, `INSERT INTO lead (full_name, owner_id, status, source, captured_by) VALUES ('Routed', $1, 'contacted', 'manual', 'human:test')`, fx.rep2)
 	fx.exec(t, `INSERT INTO lead (full_name, status, source, captured_by) VALUES ('Dead', 'disqualified', 'manual', 'human:test')`)
 
 	// A draft override previews another recipe under the same stored

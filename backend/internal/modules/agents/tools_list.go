@@ -124,7 +124,7 @@ func (t listRecords) Spec() mcp.ToolSpec {
 //
 // It is prose rather than JSON Schema `properties` because the names are not
 // type-independent: `status` is one of open|won|lost on a deal and
-// new|working|promoted|disqualified on a lead, so a single union of properties
+// new|contacted|engaged|promoted|disqualified on a lead, so a single union of properties
 // would have to publish one of those two enums for both — advertising a
 // vocabulary the handler then refuses, which is the specific dishonesty A139
 // objects to.

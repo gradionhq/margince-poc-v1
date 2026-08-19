@@ -97,15 +97,20 @@ func (s *Store) DemoteLead(ctx context.Context, id ids.LeadID, reason string) (c
 		if err != nil {
 			return err
 		}
+		setBy, err := statusSetByFor(ctx)
+		if err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'working', archived_at = NULL, promoted_person_id = NULL, promoted_at = NULL
-			 WHERE id = $1`, id); err != nil {
+			`UPDATE lead SET status = 'engaged', status_set_by = $2, archived_at = NULL,
+			        promoted_person_id = NULL, promoted_at = NULL, qualified_deal_id = NULL
+			 WHERE id = $1`, id, setBy); err != nil {
 			return fmt.Errorf("restore lead: %w", err)
 		}
 
 		auditID, err := storekit.Audit(ctx, tx, "demote", "lead", id.UUID,
 			map[string]any{leadStatusColumn: lead.Status, fieldKeyPromotedPerson: personID},
-			map[string]any{leadStatusColumn: "working", "unwind": unwind, fieldKeyReason: reason})
+			map[string]any{leadStatusColumn: string(LeadStatusEngaged), "unwind": unwind, fieldKeyReason: reason})
 		if err != nil {
 			return fmt.Errorf("audit lead demote: %w", err)
 		}

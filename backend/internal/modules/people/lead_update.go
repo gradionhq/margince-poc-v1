@@ -164,6 +164,9 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	if err := stampHumanFirstResponse(ctx, p, current, in); err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	if err := stampStatusSetBy(ctx, p, current, in); err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 	if p.Empty() {
 		return current, nil
@@ -354,4 +357,37 @@ func stampHumanFirstResponse(ctx context.Context, p *storekit.Patch, current crm
 		p.Set(firstResponseColumn, nil, time.Now().UTC())
 	}
 	return nil
+}
+
+// leadStatusSetByColumn records who placed the lead on its current step.
+const leadStatusSetByColumn = "status_set_by"
+
+// stampStatusSetBy records that a status written through this path was a
+// hand's doing — a human, or an agent acting for one — as opposed to the
+// system's own climb from captured activity (advanceLeadStatusTx).
+func stampStatusSetBy(ctx context.Context, p *storekit.Patch, current crmcontracts.Lead, in UpdateLeadInput) error {
+	if in.Status == nil || LeadStatus(*in.Status) == LeadStatus(current.Status) {
+		return nil
+	}
+	setBy, err := statusSetByFor(ctx)
+	if err != nil {
+		return err
+	}
+	p.Set(leadStatusSetByColumn, current.StatusSetBy, setBy)
+	return nil
+}
+
+// statusSetByFor names who is placing the lead on its status: the system
+// when the actor is the system principal (a workflow, a migration-time
+// repair), a human otherwise — an agent acting for a human counts as the
+// human's hand, because the human's seat is what admitted it.
+func statusSetByFor(ctx context.Context) (string, error) {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if actor.Type == principal.PrincipalSystem {
+		return string(crmcontracts.LeadStatusSetBySystem), nil
+	}
+	return string(crmcontracts.LeadStatusSetByHuman), nil
 }

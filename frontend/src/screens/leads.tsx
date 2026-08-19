@@ -85,9 +85,7 @@ type PromoteTrigger = PromoteLeadRequest["trigger"];
 export { scoreTone } from "./leadpresentation";
 
 export function promoteEligible(lead: Lead): boolean {
-  return (
-    (lead.status === "new" || lead.status === "working") && Boolean(lead.email)
-  );
+  return isOpenStatus(lead.status) && Boolean(lead.email);
 }
 
 // The terminal badge a lead status earns (null = live/open, no badge). A lead
@@ -104,7 +102,8 @@ export function terminalBadge(
     case "promoted":
       return { label: "record.archived", tone: "warn" };
     case "new":
-    case "working":
+    case "contacted":
+    case "engaged":
       return null;
   }
 }
@@ -552,11 +551,11 @@ function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
   );
 }
 
-const LEAD_OPEN_STATUSES = ["new", "working"] as const;
+const LEAD_OPEN_STATUSES = ["new", "contacted", "engaged"] as const;
 type LeadOpenStatus = (typeof LEAD_OPEN_STATUSES)[number];
 
 function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
-  return status === "new" || status === "working";
+  return status === "new" || status === "contacted" || status === "engaged";
 }
 
 // "Explain This Score" (AC-S7): the weighted factors behind the number,
@@ -1214,7 +1213,8 @@ function LeadLifecycle({
             value={lead.status}
             labels={{
               new: t("lead.status.new"),
-              working: t("lead.status.working"),
+              contacted: t("lead.status.contacted"),
+              engaged: t("lead.status.engaged"),
             }}
             onChange={(status) => {
               // Same one-write-at-a-time rule as the inline rows: a status

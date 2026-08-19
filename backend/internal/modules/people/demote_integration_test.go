@@ -48,8 +48,8 @@ func TestDemoteReversesAPromotionThatCreatedThePerson(t *testing.T) {
 	if out.Unwind != crmcontracts.DemoteUnwindReversed {
 		t.Errorf("unwind = %q, want reversed: the promotion created this person", out.Unwind)
 	}
-	if out.Lead.Status != crmcontracts.LeadStatusWorking || out.Lead.ArchivedAt != nil || out.Lead.PromotedPersonId != nil {
-		t.Errorf("restored lead = status %q archived=%v promoted_person=%v; want working, live, unlinked",
+	if out.Lead.Status != crmcontracts.LeadStatusEngaged || out.Lead.ArchivedAt != nil || out.Lead.PromotedPersonId != nil {
+		t.Errorf("restored lead = status %q archived=%v promoted_person=%v; want engaged, live, unlinked",
 			out.Lead.Status, out.Lead.ArchivedAt, out.Lead.PromotedPersonId)
 	}
 	archived, from := e.personState(t, ids.UUID(person.Id))
@@ -96,8 +96,8 @@ func TestDemoteOfAMergeTouchesOnlyTheLineage(t *testing.T) {
 	if archived || from != nil {
 		t.Errorf("incumbent archived=%t converted_from=%v; want live and unlinked — a merge is never un-merged", archived, from)
 	}
-	if out.Lead.Status != crmcontracts.LeadStatusWorking || out.Lead.ArchivedAt != nil {
-		t.Errorf("restored lead = %q archived=%v; want working and live", out.Lead.Status, out.Lead.ArchivedAt)
+	if out.Lead.Status != crmcontracts.LeadStatusEngaged || out.Lead.ArchivedAt != nil {
+		t.Errorf("restored lead = %q archived=%v; want engaged and live", out.Lead.Status, out.Lead.ArchivedAt)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestPromotePreviewNamesTheOutcomeWithoutWriting(t *testing.T) {
 		`SELECT status, promoted_person_id FROM lead WHERE id = $1`, known).Scan(&status, &promotedPerson); err != nil {
 		t.Fatal(err)
 	}
-	if status != "working" || promotedPerson != nil {
+	if status != "contacted" || promotedPerson != nil {
 		t.Errorf("preview wrote to the lead: status=%q promoted_person=%v", status, promotedPerson)
 	}
 	// After the real promotion the preview has nothing to say.
