@@ -40,7 +40,7 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	personID := ids.From[ids.PersonKind](staff)
 	orgID := ids.From[ids.OrganizationKind](acme)
 	if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
-		Kind: "employment", PersonID: &personID, OrganizationID: &orgID, IsCurrentPrimary: true, Source: "manual",
+		Kind: "employment", PersonID: &personID, OrganizationID: &orgID, IsCurrentPrimary: boolPtr(true), Source: "manual",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestLastActivity_MovesThePersonAndEveryAccountItReaches(t *testing.T) {
 	// the new account: the reach set moved without any activity being written.
 	lateID := ids.From[ids.OrganizationKind](late)
 	if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
-		Kind: "employment", PersonID: &personID, OrganizationID: &lateID, IsCurrentPrimary: false, Source: "manual",
+		Kind: "employment", PersonID: &personID, OrganizationID: &lateID, IsCurrentPrimary: boolPtr(false), Source: "manual",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestLastActivity_TheAccountClockSeeksInsteadOfScanningTheTimeline(t *testin
 	personID := ids.From[ids.PersonKind](staff)
 	orgID := ids.From[ids.OrganizationKind](acme)
 	if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
-		Kind: "employment", PersonID: &personID, OrganizationID: &orgID, IsCurrentPrimary: true, Source: "manual",
+		Kind: "employment", PersonID: &personID, OrganizationID: &orgID, IsCurrentPrimary: boolPtr(true), Source: "manual",
 	}); err != nil {
 		t.Fatal(err)
 	}
