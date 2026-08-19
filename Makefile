@@ -482,6 +482,7 @@ craft-static:
 	go run -C cli/craft . static --strict --root ../../backend
 	go run -C cli/craft . static --strict --root ../../extensions
 	go run -C cli/craft . static --strict --root ../../fixtures
+	go run -C cli/craft . static --strict --root ../../desktop
 
 ## craft-test — cli/craft's own suite, including the `wiring` package that
 ## asserts the repo-level obligations no Go package can express: the CI job

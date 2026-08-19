@@ -420,15 +420,15 @@ legibility is the product, not polish.
 **The gate runs before every push (diff-scoped), and it is STRICT.**
 `.githooks/pre-push` runs the deterministic arm — `craft static --strict` (the repo's
 `cli/craft` tool, ADR-0045) — over the Go files **this push changes vs
-`origin/main`** in `backend/`, `extensions/` and `fixtures/` alike (a first-party
-extension unit ships the same product). New/touched
+`origin/main`** in `backend/`, `extensions/`, `fixtures/` and `desktop/` alike (a
+first-party extension unit and the desktop launcher both ship the same product). New/touched
 code must be clean. There is no pre-existing backlog to exempt: the whole tree was
 cleared to zero findings before this bar was armed. So write it right the first time
 — a swallowed error, a sleep in a test, a bare `any` in a signature, or an 81-line
 function you add will block your push.
 - Install the hook once after cloning: **`make hooks`** (sets `core.hooksPath=.githooks`).
 - Full manual sweep of every hand-written Go tree (`backend/`, `extensions/`,
-  `fixtures/`): **`make craft-static`** — green, and the CI
+  `fixtures/`, `desktop/`): **`make craft-static`** — green, and the CI
   `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
   80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.

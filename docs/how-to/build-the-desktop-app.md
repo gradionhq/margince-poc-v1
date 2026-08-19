@@ -18,7 +18,7 @@ What a **user** needs. Building it needs more — see the next section.
 | **Architecture** | Whatever the build machine was — **not** universal. An Apple-silicon build does not run on an Intel Mac at all; an Intel build runs on Apple silicon under Rosetta 2. `make desktop-dist` prints which one it produced | x64 only. Windows on ARM has x64 emulation, but no ARM build is produced and none is tested |
 | **Must already be installed** | Nothing | The [Microsoft Visual C++ x64 redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). Present on most machines, **not** bundled |
 | **Admin rights** | Not needed | Not needed. Running as an administrator also works — `pg_ctl` drops the privileges Postgres refuses to start with |
-| **First-launch warning** | Ad-hoc signed, so a copy downloaded through a browser is quarantined and Gatekeeper refuses it. Right-click → **Open**, or `xattr -dr com.apple.quarantine <folder>`. Copying by `cp`, USB or AirDrop sets no quarantine and needs none of this | Unsigned, so SmartScreen blocks it: **More info** → **Run anyway** |
+| **First-launch warning** | Ad-hoc signed, so a copy downloaded through a browser is quarantined and Gatekeeper refuses it — **once**: right-click → **Open**, and the bundle clears the rest itself (see below). Copying by `cp`, USB or AirDrop sets no quarantine and needs none of this | Unsigned, so SmartScreen blocks it: **More info** → **Run anyway** |
 | **Where it is put** | Path must be short: the database socket path has a 103-byte system limit, and the launcher measures it and says so | Anywhere. There is no socket, so no limit |
 | **Browser** | Chrome/Edge 111+, Firefox 114+, or Safari 16.4+ (Safari 16.4 is available back to macOS 11, so it is reachable on every supported version) | Chrome/Edge 111+ or Firefox 114+ |
 
@@ -137,6 +137,27 @@ cd ~/Margince && ./margince
 
 Or double-click **Start Margince.command** in Finder, which is what a
 non-technical user does.
+
+**A copy that arrived through a browser warns once.** The build is ad-hoc
+signed — Developer ID signing and notarization need a paid Apple account — so
+Gatekeeper refuses it: right-click → **Open** → **Open**, or approve it in
+System Settings → Privacy & Security.
+
+Once, though, not once per program. The browser marks the download and the
+unarchiver copies that mark onto everything it extracts, and Gatekeeper asks at
+the moment a program is *executed* — so an untreated bundle puts a separate
+dialog in front of `initdb`, `postgres`, `valkey-server`, `migrate`, `api` and
+`worker` as the stack comes up, each one blocking the boot. The starter clears
+the mark from the launcher and the launcher clears it from `runtime/` before it
+spawns anything, which is what reduces that queue to the single dialog above.
+Neither touches `data/`: those are your records, not ours to relabel.
+
+A copy that never went through a browser — `cp`, a USB stick, AirDrop — is not
+marked and shows nothing. To clear an already-downloaded folder yourself:
+
+```
+xattr -dr com.apple.quarantine ~/Margince/runtime
+```
 
 ### Windows
 

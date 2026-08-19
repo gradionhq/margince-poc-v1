@@ -48,6 +48,17 @@ write_starter() {
 #!/bin/bash
 # Double-click this file to start Margince.
 cd "$(dirname "$0")"
+
+# Gatekeeper has already asked about THIS file by the time it runs, so clearing
+# the launcher's own quarantine here is what stops the identical question being
+# asked again about ./margince a moment later. The launcher clears runtime/ for
+# the programs it spawns; between the two, a downloaded bundle costs exactly one
+# dialog however it is started.
+#
+# This one file and no more: the folder also holds the user's records, which are
+# not ours to relabel, and a live Postgres socket, which the call fails against.
+/usr/bin/xattr -d com.apple.quarantine ./margince 2>/dev/null || true
+
 ./margince
 STARTER
   chmod +x "$DIST/Start Margince.command"

@@ -58,6 +58,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Before anything is spawned: on macOS a downloaded bundle otherwise puts a
+	// Gatekeeper dialog in front of every one of the six programs below.
+	clearQuarantine(layout)
 	if err := ensureEnvFile(layout.envPath()); err != nil {
 		return err
 	}

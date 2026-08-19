@@ -255,6 +255,7 @@ func httpOK(url string) error {
 	defer func() {
 		// The body is drained by Close here; a failure to close leaks a
 		// connection but must not mask a successful probe.
+		//craft:ignore swallowed-errors readiness is decided by the status line above — a close failure cannot unmake a 200
 		_ = resp.Body.Close()
 	}()
 	if resp.StatusCode != http.StatusOK {

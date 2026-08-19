@@ -2,8 +2,9 @@
 # Diff-scoped code-craftsmanship gate (ADR-0045, `craft static`).
 #
 # Runs the deterministic craftsmanship linter on the Go files that THIS push
-# changes vs origin/main — backend/, extensions/ and fixtures/ alike, since a
-# first-party unit ships the same product — not the whole tree, so a push pays only
+# changes vs origin/main — backend/, extensions/, fixtures/ and desktop/ alike,
+# since a first-party unit ships the same product — not the whole tree, so a push
+# pays only
 # for what it touches. BLOCKER and MAJOR findings both fail the push (--strict);
 # MINOR stays advisory. There is no pre-existing backlog to exempt: the tree was
 # cleared to zero before this bar was armed, and `make craft-static` is green.
@@ -30,10 +31,11 @@ if [ -n "$(git diff --name-only "$base"...HEAD -- backend/migrations)" ]; then
 	"$root/scripts/check-migration-versions.sh"
 fi
 
-# Changed-and-still-present Go files, excluding generated code. extensions/
-# and fixtures/ are each their own module and would otherwise escape the bar
-# entirely — a first-party unit ships the same product as backend/.
-files="$(git diff --name-only --diff-filter=d "$base"...HEAD -- backend extensions fixtures \
+# Changed-and-still-present Go files, excluding generated code. extensions/,
+# fixtures/ and desktop/ are each their own module and would otherwise escape the
+# bar entirely — a first-party unit ships the same product as backend/, and the
+# desktop launcher is a binary that users run.
+files="$(git diff --name-only --diff-filter=d "$base"...HEAD -- backend extensions fixtures desktop \
 	| grep -E '\.go$' | grep -v '_gen\.go$' || true)"
 if [ -z "$files" ]; then
 	echo "craft static: no changed Go files — ok"

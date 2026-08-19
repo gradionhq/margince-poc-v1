@@ -322,6 +322,21 @@ this properly and is not something the stdlib does; see the known limits.
 - **Neither build is signed for distribution.** macOS is ad-hoc signed and
   needs a Developer ID plus notarization, without which a downloaded copy is
   quarantined; Windows is unsigned and warns through SmartScreen.
+
+  The quarantine mark costs one dialog, not one per binary, and only because
+  the bundle removes it deliberately. A browser stamps the archive, the
+  unarchiver copies the stamp onto everything it extracts, and Gatekeeper
+  assesses at *exec* time — so the untreated bundle interrupts its own boot six
+  times over, once per program the launcher spawns, with no dialog explaining
+  why answering the previous one did not count. `Start Margince.command` clears
+  the mark from the launcher, whose own dialog the user has just answered, and
+  the launcher clears `runtime/` before spawning anything. `data/` is never
+  touched: the user's records keep their provenance, and a live socket there
+  would fail the call anyway.
+
+  This is a workaround for the missing signature, and it is one the signature
+  would delete rather than improve — a notarized build reaches none of this
+  code, because Gatekeeper never asks.
 - **Windows file permissions are the folder's, not the file's.** The `0600`
   the launcher asks for sets no DACL there, so the secrets are only as private
   as the directory the user chose. An installation under the user's own
