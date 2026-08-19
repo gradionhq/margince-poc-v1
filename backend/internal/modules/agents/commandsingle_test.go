@@ -590,3 +590,53 @@ func TestBookingAnotherHostStagesOnlyForAnAdmin(t *testing.T) {
 		})
 	}
 }
+
+// A decision names no target record, and the reason is not that it has none: it
+// acts on the approval, which is the authority object itself. A staged row
+// pointing at one would be an authority object pointing at an authority object,
+// with nothing to row-scope or version-pin it by.
+//
+// Both verdicts, and both subjects, because the verdict is read off the
+// OPERATION rather than the body — a table lookup that cannot fail to compile if
+// it is wrong, only decide the other way.
+func TestADecisionStagesNoTargetAndSaysWhichWayItGoes(t *testing.T) {
+	approval, bundle := ids.NewV7(), ids.NewV7()
+	cases := []struct {
+		name    string
+		call    GovernedCall
+		wants   string
+		mustSay string
+	}{
+		{"approve one", NewDecideApprovalCall(DecideApprovalCommand{ApprovalID: approval, Approve: true}),
+			"Approve", approval.String()},
+		{"reject one", NewDecideApprovalCall(DecideApprovalCommand{ApprovalID: approval}),
+			"Reject", approval.String()},
+		{"approve an act", NewDecideBundleCall(DecideBundleCommand{BundleID: bundle, Approve: true}),
+			"Approve", bundle.String()},
+		{"reject an act", NewDecideBundleCall(DecideBundleCommand{BundleID: bundle}),
+			"Reject", bundle.String()},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			subject, err := StageSubject(context.Background(), tc.call)
+			if err != nil {
+				t.Fatalf("staging a decision answered %v", err)
+			}
+			if subject.TargetType != "" || !subject.TargetID.IsZero() {
+				t.Errorf("a decision staged target (%q,%s); the row it acts on is the approval itself",
+					subject.TargetType, subject.TargetID)
+			}
+			if !strings.HasPrefix(subject.Summary, tc.wants) {
+				t.Errorf("summary %q does not open with the verdict %q — a human reading it in an inbox "+
+					"would not know which way they are being asked to go", subject.Summary, tc.wants)
+			}
+			if !strings.Contains(subject.Summary, tc.mustSay) {
+				t.Errorf("summary %q does not say what is being decided", subject.Summary)
+			}
+			if err := tc.call.Guards(context.Background()); err != nil {
+				t.Errorf("a decision's guards refused it: %v — what may be decided is the approvals "+
+					"engine's own question, answered against the deciding person", err)
+			}
+		})
+	}
+}
