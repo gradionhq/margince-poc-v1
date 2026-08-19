@@ -43,6 +43,145 @@ func TestEveryTaggableTypeCanBeFilteredByTag(t *testing.T) {
 	}
 }
 
+// The ownership dial is ONE dial, so an engine that offers half of it offers a
+// broken one: a saved view can say "owned by this person" and a manager's view
+// — "owned by my team" — is the form that actually gets saved.
+//
+// Derived from the engines themselves rather than from a written-out list of
+// resources, so a sixth engine that carries `owner_id` cannot quietly ship
+// without the team half.
+func TestEveryEngineWithAnOwnerAlsoFiltersByTeam(t *testing.T) {
+	checked := 0
+	for resource, engine := range segmentEngines {
+		_, owned := engine.Fields[ownerIDField]
+		team, teamed := engine.Fields[ownerTeamIDField]
+		// Both directions. An engine offering the team half without the person
+		// half is equally half a dial, and asserting only the one direction would
+		// let that ship.
+		if owned && !teamed {
+			t.Errorf("%s filters by owner and not by owner's team: half an ownership dial", resource)
+			continue
+		}
+		if teamed && !owned {
+			t.Errorf("%s filters by owner's team and not by owner: half an ownership dial", resource)
+			continue
+		}
+		if !owned {
+			continue
+		}
+		checked++
+		// Definitionally identical to the shared leaf, which is the enforceable
+		// invariant: whatever the join is, every engine runs the same one. This
+		// cannot tell a copy from the original — storekit.Field is a comparable
+		// struct of three strings, so an identical literal passes — and catching
+		// the copy itself would be a lint job, not an assertion.
+		if team != ownerTeamField {
+			t.Errorf("%s's team leaf differs from the shared one: %+v", resource, team)
+		}
+	}
+	// Without this the loop asserts nothing the day ownerIDField stops matching
+	// any engine's key, and the test keeps passing over an empty sweep.
+	if checked == 0 {
+		t.Fatal("no engine carries an owner leaf, so this gate checked nothing")
+	}
+}
+
+// Every link template takes exactly one comparison. A template with any other
+// number of verbs formats wrong — fmt writes %!(EXTRA …) or a bare %!s(MISSING)
+// straight into the query text — so this is a syntax error waiting on whichever
+// leaf a filter happens to name.
+//
+// Swept over every engine's every field rather than asserted per leaf, so a new
+// link field is covered the day it is added.
+func TestEveryLinkTemplateTakesExactlyOneComparison(t *testing.T) {
+	swept := 0
+	for resource, engine := range segmentEngines {
+		for name, field := range engine.Fields {
+			if field.Link == "" {
+				continue
+			}
+			swept++
+			if count := strings.Count(field.Link, "%s"); count != 1 {
+				t.Errorf("%s.%s has %d %%s verbs in its link template, want exactly 1: %q",
+					resource, name, count, field.Link)
+			}
+			if field.Expr == "" {
+				t.Errorf("%s.%s is a link leaf with no column to compare inside it", resource, name)
+			}
+		}
+	}
+	if swept == 0 {
+		t.Fatal("no link fields found, so this gate checked nothing")
+	}
+}
+
+// The team leaf reaches the same rows the record lists already answer for
+// `owner_team_id`, and reaches them the way the link mechanism can carry.
+func TestTheTeamLeafJoinsMembershipOnTheOwnerColumn(t *testing.T) {
+	if ownerTeamField.Link == "" {
+		t.Fatal("the team leaf is not a link leaf, so it cannot reach team_membership")
+	}
+	for _, want := range []string{"team_membership", "tm.user_id = " + colOwnerID} {
+		if !strings.Contains(ownerTeamField.Link, want) {
+			t.Errorf("the team leaf does not carry %q: %q", want, ownerTeamField.Link)
+		}
+	}
+	if count := strings.Count(ownerTeamField.Link, "%s"); count != 1 {
+		t.Errorf("the team leaf has %d %%s verbs, want exactly 1: %q", count, ownerTeamField.Link)
+	}
+	// An id, so a malformed team fails validation (422) rather than execution.
+	if ownerTeamField.Type != storekit.FieldID {
+		t.Errorf("the team leaf is typed %s, want id", ownerTeamField.Type)
+	}
+}
+
+// A picklist leaf compares text, so a value outside the contract's enum compiles
+// and selects nothing. The list parameter for the same fact 422s a typo instead,
+// and that divergence is deliberate rather than overlooked: the engine holds no
+// per-field enum, and every picklist leaf here behaves this way — status,
+// lifecycle, size_band, forecast_category, phase and the custom ones alike.
+//
+// Gated rather than explained, because a comment claiming it cannot notice the
+// day someone adds validation to one leaf and leaves the rest.
+func TestAPicklistLeafComparesAnUnrecognisedValueRatherThanRefusingIt(t *testing.T) {
+	engine, ok, err := (&Store{}).SegmentEngine(context.Background(), "organization")
+	if err != nil || !ok {
+		t.Fatalf("segmentEngine: ok=%v err=%v", ok, err)
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sql, err := storekit.CompilePredicate(
+		storekit.Predicate{Field: "relationship_type", Op: storekit.OpEq, Value: "custmer"},
+		engine.Fields, arg,
+	)
+	if err != nil {
+		t.Fatalf("an unrecognised picklist value was refused: %v", err)
+	}
+	if len(args) != 1 || args[0] != "custmer" {
+		t.Errorf("the value did not travel as a bind parameter: %#v", args)
+	}
+	// The typo reaches SQL as a parameter, never as text — which is what makes
+	// "selects nothing" safe rather than merely unhelpful.
+	if strings.Contains(sql, "custmer") {
+		t.Errorf("the operand was inlined into the query text: %q", sql)
+	}
+}
+
+// An account's relationship to us is multi-valued, and a withdrawn one is a fact
+// it no longer carries.
+func TestTheRelationshipLeafExcludesWithdrawnRows(t *testing.T) {
+	field, ok := segmentEngines["organization"].Fields["relationship_type"]
+	if !ok {
+		t.Fatal("organizations cannot be filtered by relationship type")
+	}
+	if !strings.Contains(field.Link, "rt.archived_at IS NULL") {
+		t.Errorf("the relationship leaf keeps selecting on withdrawn rows: %q", field.Link)
+	}
+	if !strings.Contains(field.Link, "rt.organization_id = t.id") {
+		t.Errorf("the relationship leaf does not correlate to the account: %q", field.Link)
+	}
+}
+
 // A project is a taggable record (taggable's own CHECK admits it) and its
 // list membership must offer the same filter every other taggable type does.
 func TestProjectIsFilterableByTag(t *testing.T) {
