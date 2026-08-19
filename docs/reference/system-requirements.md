@@ -1,10 +1,10 @@
 # System requirements
 
-This page tells you what an installation needs. Two deployment shapes are
-possible: **single node** and **separate nodes**. On a single node, all
+This document tells you what an installation needs. Two deployment shapes
+are possible: **single node** and **separate nodes**. On a single node, all
 services run on one host. With separate nodes, the api, the worker, the web
-server and the database each run on their own host. The two shapes use the
-same images and the same configuration.
+server and the database each run on their own node. The two shapes use the
+same installation mechanism and the same configuration.
 
 The sizes below apply when the AI lanes use a cloud provider. A model on the
 installation's own hardware needs much more memory and possibly a GPU. This
