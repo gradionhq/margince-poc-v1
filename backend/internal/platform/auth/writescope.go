@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -173,7 +174,14 @@ func ensureWriteAuthority(ctx context.Context, tx pgx.Tx, table string, id ids.U
 // the subject-rights path must not do, since it lifts capture privacy
 // deliberately and for a reason Art. 17 states.
 func writeAuthorityPredicate(p principal.Principal, table string, arg func(any) int) string {
-	owner := OwnerPredicate(p, arg)("")
+	return writeAuthorityPredicateAs(p, table, table, arg)
+}
+
+// writeAuthorityPredicateAs renders the write arm against an aliased row —
+// the spelling the activity link walk needs, where the record sits under a
+// probe alias rather than its own table name.
+func writeAuthorityPredicateAs(p principal.Principal, table, alias string, arg func(any) int) string {
+	owner := OwnerPredicate(p, arg)(alias)
 	me, teams := arg(p.UserID), arg(p.TeamIDs)
 	return fmt.Sprintf(`(%s OR EXISTS (
 		   SELECT 1 FROM record_grant rg
@@ -182,5 +190,71 @@ func writeAuthorityPredicate(p principal.Principal, table string, arg func(any) 
 		     AND (rg.expires_at IS NULL OR rg.expires_at > now())
 		     AND ((rg.subject_type = 'user' AND rg.subject_id = $%d)
 		       OR (rg.subject_type = 'team' AND rg.subject_id = ANY($%d)))))`,
-		owner, table, table, grantAccessWrite, me, teams)
+		owner, table, alias, grantAccessWrite, me, teams)
+}
+
+// EnsureActivityWritable is EnsureWritable for an activity, which has no
+// owner_id of its own. The caller must READ it (the content gate — a limited
+// conversation is nobody else's to edit), and their authority to CHANGE it is
+// any of:
+//
+//   - they authored or captured it (captured_by names their user id);
+//   - it is their task or their meeting (assignee_id / host_user_id);
+//   - it is a link-less, workspace-shared note;
+//   - at least one linked record is theirs to change — the same own/team
+//     scope or `write` grant EnsureWritable takes on that record.
+//
+// Reads of customer identity are shared across the workspace, so the read
+// gate alone would let every seat rewrite every colleague's correspondence;
+// this is the arm that keeps activity writes team-shaped. An unbounded human
+// edits every activity they can read, as they edit every record.
+func EnsureActivityWritable(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	if err := EnsureActivityContentVisibleLive(ctx, tx, id); err != nil {
+		return err
+	}
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return err
+	}
+	if Unbounded(p) {
+		return nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos, me, author := arg(id), arg(p.UserID), arg("%:"+p.UserID.String())
+
+	var permitted bool
+	if err := tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (SELECT 1 FROM activity a WHERE a.id = $%[1]d AND (
+		   a.captured_by LIKE $%[3]d
+		   OR a.assignee_id = $%[2]d
+		   OR a.host_user_id = $%[2]d
+		   OR NOT EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = a.id)
+		   OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = a.id AND %[4]s)))`,
+		idPos, me, author, linkTargetWritable(p, "l", arg)), args...).Scan(&permitted); err != nil {
+		return err
+	}
+	if !permitted {
+		return apperrors.ErrPermissionDenied
+	}
+	return nil
+}
+
+// linkTargetWritable is linkTargetVisible's write twin: one arm per
+// activity_link column, each asking whether the record it points at is the
+// caller's to change.
+func linkTargetWritable(p principal.Principal, alias string, arg func(any) int) string {
+	arms := make([]string, 0, len(linkTargetTables))
+	for _, t := range []struct{ column, table, probe string }{
+		{"person_id", tablePerson, "wp"},
+		{"organization_id", tableOrganization, "wo"},
+		{"deal_id", tableDeal, "wd"},
+		{"lead_id", tableLead, "wl"},
+		{"project_id", tableProject, "wpr"},
+	} {
+		arms = append(arms, fmt.Sprintf(
+			`(%[1]s.%[2]s IS NOT NULL AND EXISTS (SELECT 1 FROM %[3]s %[4]s WHERE %[4]s.id = %[1]s.%[2]s AND %[5]s))`,
+			alias, t.column, t.table, t.probe, writeAuthorityPredicateAs(p, t.table, t.probe, arg)))
+	}
+	return "(" + strings.Join(arms, " OR ") + ")"
 }

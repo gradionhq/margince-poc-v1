@@ -85,6 +85,58 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)
 }
 
+// A readable activity is not thereby an editable one. Customer identity is
+// workspace-readable, so another team's mail filed against a plain contact is
+// OPEN to a team-scoped rep — and still theirs alone to change: the write arm
+// is own/team scope or a write grant on a linked record, the author, the
+// assignee or the host. Refusal is 403, because the row is visibly readable
+// and a 404 would have nothing left to hide.
+func TestAReadableActivityOfAnotherTeamIsNotEditable(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+
+	theirPerson := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	theirActivity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Q3 renewal terms', 'body', now(), 'manual', 'human:x')`)
+	LinkActivity(t, owner, theirActivity, "person", theirPerson)
+	theirID := ids.From[ids.ActivityKind](theirActivity)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLifecyclePerms)
+	myPerson := e.SeedPerson(t, "My Contact", &e.Rep1)
+
+	if _, err := e.Activities.GetActivity(rep, theirID, storekit.LiveOnly); err != nil {
+		t.Fatalf("GetActivity of another team's mail on a plain contact → %v, want it readable", err)
+	}
+	subject := "rewritten"
+	if _, err := e.Activities.UpdateActivity(rep, theirID, activities.UpdateActivityInput{Subject: &subject}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("UpdateActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.Activities.RelinkActivity(rep, theirID, activities.RelinkActivityInput{
+		EntityType: "person", EntityID: myPerson, ReplaceExistingOfType: true,
+	}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("RelinkActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.Activities.ArchiveActivity(rep, theirID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("ArchiveActivity on a readable but foreign activity → %v, want ErrPermissionDenied", err)
+	}
+	var got string
+	if err := owner.QueryRow(context.Background(), `SELECT subject FROM activity WHERE id = $1`, theirActivity).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "Q3 renewal terms" {
+		t.Errorf("subject after refused edits = %q, want unchanged", got)
+	}
+
+	// A write grant on the linked contact is the licence the scope withheld.
+	e.WsExec(t, `INSERT INTO record_grant (record_type, record_id, subject_type, subject_id, access, granted_by)
+		VALUES ('person', $1, 'user', $2, 'write', $3)`, theirPerson, e.Rep1, e.Rep3)
+	if _, err := e.Activities.UpdateActivity(rep, theirID, activities.UpdateActivityInput{Subject: &subject}); err != nil {
+		t.Errorf("UpdateActivity with a write grant on the linked contact → %v, want allowed", err)
+	}
+
+	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)
+}
+
 // TestRelinkActivityBumpsVersion pins the invariant: a relink that actually
 // changes who the activity reaches must move activity.version, the same as
 // UpdateActivity and ArchiveActivity already do. A staged approval pins this

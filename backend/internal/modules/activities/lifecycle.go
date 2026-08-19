@@ -50,6 +50,12 @@ func (s *Store) UpdateActivity(ctx context.Context, id ids.ActivityID, in Update
 		if _, err := storekit.LockRow(ctx, tx, "activity", id.UUID, storekit.LiveOnly); err != nil {
 			return err
 		}
+		// Reading the row is not the licence to change it: customer identity
+		// is workspace-readable, so the write arm is what keeps a colleague's
+		// correspondence theirs.
+		if err := auth.EnsureActivityWritable(ctx, tx, id.UUID); err != nil {
+			return err
+		}
 		current, err := readActivity(ctx, tx, id, storekit.LiveOnly)
 		if err != nil {
 			return err
@@ -141,7 +147,7 @@ func (s *Store) ArchiveActivity(ctx context.Context, id ids.ActivityID) (crmcont
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := readActivity(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if err := auth.EnsureActivityWritable(ctx, tx, id.UUID); err != nil {
 			return err
 		}
 		tag, err := tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1 AND archived_at IS NULL`, id)
@@ -189,7 +195,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := readActivity(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if err := auth.EnsureActivityWritable(ctx, tx, id.UUID); err != nil {
 			return err
 		}
 		// The relink target is a client-supplied reference (H1).

@@ -83,7 +83,7 @@ func (s *Store) UploadAttachment(ctx context.Context, in AttachmentInput) (crmco
 		return crmcontracts.Attachment{}, err
 	}
 	if err := s.tx(ctx, func(tx pgx.Tx) error {
-		if err := ensureAttachmentParentVisible(ctx, tx, in.EntityType, in.EntityID); err != nil {
+		if err := ensureAttachmentParentWritable(ctx, tx, in.EntityType, in.EntityID); err != nil {
 			return err
 		}
 		return ensureContractFileable(ctx, tx, in.ContractID)

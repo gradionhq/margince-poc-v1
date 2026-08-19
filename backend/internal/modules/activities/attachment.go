@@ -60,6 +60,17 @@ func ensureAttachmentParentVisible(ctx context.Context, tx pgx.Tx, entityType st
 	return auth.EnsureVisible(ctx, tx, entityType, id)
 }
 
+// ensureAttachmentParentWritable is the upload's gate: hanging a file on a
+// record changes that record, so the parent must be the caller's to change,
+// not merely theirs to read. Out of scope still reads as ErrNotFound; a
+// readable parent the caller may not change answers ErrPermissionDenied.
+func ensureAttachmentParentWritable(ctx context.Context, tx pgx.Tx, entityType string, id ids.UUID) error {
+	if entityType == "activity" {
+		return auth.EnsureActivityWritable(ctx, tx, id)
+	}
+	return auth.EnsureWritable(ctx, tx, entityType, id)
+}
+
 // requireParentOrHide checks the parent object grant AFTER the attachment row
 // was found (so it exists in this workspace). A caller lacking the grant must
 // not learn the attachment exists, so object denial reads as not-found — the
