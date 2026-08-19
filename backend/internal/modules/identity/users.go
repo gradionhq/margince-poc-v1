@@ -83,6 +83,11 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 	if !ok {
 		return ids.UserID{}, "", apperrors.ErrNotFound
 	}
+	teams, err := validTeamIDs(in.TeamIDs)
+	if err != nil {
+		return ids.UserID{}, "", err
+	}
+	in.TeamIDs = teams
 	raw, tokenHash, err := mintSessionToken()
 	if err != nil {
 		return ids.UserID{}, "", err

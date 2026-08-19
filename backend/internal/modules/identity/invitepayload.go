@@ -5,6 +5,7 @@ package identity
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -35,7 +36,7 @@ func userInvitedPayload(userID ids.UserID, role string, by ids.UserID, teams []i
 // must exist and be live — an invite naming a team that is not there is a
 // mistake to surface, not a membership to drop silently.
 func joinTeamsTx(ctx context.Context, tx pgx.Tx, userID ids.UUID, teams []ids.UUID) error {
-	for _, teamID := range teams {
+	for _, teamID := range uniqueTeams(teams) {
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO team_membership (team_id, user_id)
 			SELECT id, $2 FROM team WHERE id = $1 AND archived_at IS NULL
@@ -49,4 +50,31 @@ func joinTeamsTx(ctx context.Context, tx pgx.Tx, userID ids.UUID, teams []ids.UU
 		}
 	}
 	return nil
+}
+
+// maxInviteTeams mirrors the contract's maxItems on team_ids.
+const maxInviteTeams = 20
+
+// uniqueTeams drops repeats so a team named twice is joined once and the
+// second mention is not mistaken for a team that is not there.
+func uniqueTeams(teams []ids.UUID) []ids.UUID {
+	seen := make(map[ids.UUID]bool, len(teams))
+	out := make([]ids.UUID, 0, len(teams))
+	for _, t := range teams {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// validTeamIDs bounds a client-supplied team list to the contract's ceiling.
+func validTeamIDs(teams []ids.UUID) ([]ids.UUID, error) {
+	teams = uniqueTeams(teams)
+	if len(teams) > maxInviteTeams {
+		return nil, &values.ParseError{Field: "team_ids", Code: "too_many_teams",
+			Message: fmt.Sprintf("at most %d teams", maxInviteTeams)}
+	}
+	return teams, nil
 }

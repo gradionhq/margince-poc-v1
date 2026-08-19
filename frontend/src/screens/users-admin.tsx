@@ -209,14 +209,18 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   );
   const passwordLink = usePasswordLink();
 
+  // The team set rides as the mutation's variable rather than through the
+  // closure: react-query re-arms a mutation's options in a passive effect,
+  // so a click in that window would otherwise invite with the PREVIOUS
+  // selection — granting or omitting authority the admin did not choose.
   const invite = useMutation({
-    mutationFn: async (): Promise<string> => {
+    mutationFn: async (teams: string[]): Promise<string> => {
       const { data, error: err } = await api.POST("/users", {
         body: {
           email: email.trim(),
           display_name: name.trim(),
           role,
-          team_ids: teamIds,
+          team_ids: teams,
         },
       });
       if (err) {
@@ -255,7 +259,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
           onSubmit={(e) => {
             e.preventDefault();
             if (canInvite) {
-              invite.mutate();
+              invite.mutate(teamIds);
             }
           }}
         >

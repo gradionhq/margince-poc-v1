@@ -527,6 +527,18 @@ func TestTeamsAreAdministeredAndTheAccessPreviewTellsTheTruth(t *testing.T) {
 	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); err != nil {
 		t.Errorf("adding an existing member again → %v, want a no-op", err)
 	}
+	if err := e.svc.SetTeamMember(e.wsCtx(e.member), e.member, team.ID, e.member.UserID.UUID, false); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a non-admin changing membership → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.svc.PreviewAccess(e.wsCtx(e.member), e.member, "admin", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a non-admin previewing access → %v, want ErrPermissionDenied", err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, false); err != nil {
+		t.Errorf("removing a member → %v", err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); err != nil {
+		t.Fatalf("re-adding the member: %v", err)
+	}
 	var members int
 	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM team_membership WHERE team_id = $1`, team.ID).Scan(&members); err != nil || members != 1 {
 		t.Errorf("memberships = %d (%v), want 1", members, err)
@@ -535,8 +547,8 @@ func TestTeamsAreAdministeredAndTheAccessPreviewTellsTheTruth(t *testing.T) {
 	if err != nil || renamed.Name != "DACH" {
 		t.Errorf("rename → %+v %v", renamed, err)
 	}
-	if n := len(e.identityEvents(t, "team.changed", team.ID)); n != 3 {
-		t.Errorf("%d team.changed events, want 3 (created, member_added, renamed)", n)
+	if n := len(e.identityEvents(t, "team.changed", team.ID)); n != 5 {
+		t.Errorf("%d team.changed events, want 5 (created, member_added, member_removed, member_added, renamed)", n)
 	}
 
 	// Preview for a seat that does not exist yet.

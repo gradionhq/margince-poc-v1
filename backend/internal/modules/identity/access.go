@@ -34,8 +34,12 @@ func (s *Service) PreviewAccess(ctx context.Context, actor Identity, role string
 	if !actor.hasRole(roleAdmin) {
 		return Access{}, apperrors.ErrPermissionDenied
 	}
+	teamIDs, err := validTeamIDs(teamIDs)
+	if err != nil {
+		return Access{}, err
+	}
 	var out Access
-	err := s.db.Tx(ctx, func(tx pgx.Tx) (err error) {
+	err = s.db.Tx(ctx, func(tx pgx.Tx) (err error) {
 		out, err = accessFor(ctx, tx, []string{role}, teamIDs)
 		return err
 	})

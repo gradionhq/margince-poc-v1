@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -138,15 +139,22 @@ func (s *Service) SetTeamMember(ctx context.Context, actor Identity, teamID, use
 	}
 	ctx = actorCtx(ctx, actor)
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
-		var exists bool
-		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM team WHERE id = $1 AND archived_at IS NULL)`, teamID).Scan(&exists); err != nil {
+		// The team is locked for the write: an archive committing between
+		// this check and the insert would otherwise leave a member on a
+		// team nobody can see, holding authority the moment it is restored.
+		var teamExists bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM team WHERE id = $1 AND archived_at IS NULL FOR UPDATE)`, teamID).Scan(&teamExists); err != nil {
 			return err
 		}
-		if !exists {
+		if !teamExists {
 			return apperrors.ErrNotFound
 		}
+		// Only a live, active human seat joins a team: an agent holds no
+		// team, and a suspended or deactivated member would carry the
+		// authority home the day they are reactivated.
 		var isAgent bool
-		err := tx.QueryRow(ctx, `SELECT is_agent FROM app_user WHERE id = $1 AND archived_at IS NULL`, userID).Scan(&isAgent)
+		var status string
+		err := tx.QueryRow(ctx, `SELECT is_agent, status FROM app_user WHERE id = $1 AND archived_at IS NULL`, userID).Scan(&isAgent, &status)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}
@@ -155,6 +163,9 @@ func (s *Service) SetTeamMember(ctx context.Context, actor Identity, teamID, use
 		}
 		if isAgent {
 			return errAgentSeatHoldsNoRole
+		}
+		if on && status != userStatusActive {
+			return fmt.Errorf("%w: only an active member joins a team; reactivate them first", apperrors.ErrConflict)
 		}
 		var tag pgconn.CommandTag
 		change := "member_removed"
@@ -207,7 +218,7 @@ func (s *Service) recordTeamChange(ctx context.Context, tx pgx.Tx, actor Identit
 // validTeamName trims and bounds a team name.
 func validTeamName(raw string) (string, error) {
 	name := strings.TrimSpace(raw)
-	if name == "" || len(name) > maxTeamName {
+	if name == "" || utf8.RuneCountInString(name) > maxTeamName {
 		return "", &values.ParseError{Field: "name", Code: "invalid_team_name",
 			Message: fmt.Sprintf("a team name is 1 to %d characters", maxTeamName)}
 	}
