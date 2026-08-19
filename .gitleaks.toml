@@ -79,15 +79,19 @@ regexes = ['''OpenAPIOp:\s''']
 # flags, and a real credential pasted into one must still fail the gate.
 #
 # Both spellings, because the lane is two languages: bash writes
-# PG_SHA256="..." and PowerShell $PG_SHA256 = '...'. The quote and the spacing
-# are the only thing that varies — the suffix is what identifies the value.
+# PG_SHA256="..." and PowerShell $PG_SHA256 = '...'. Only the quote and the
+# spacing vary, so the quote is matched as any single character rather than as
+# a class naming both: a literal " on this line is refused by the shape gate in
+# scripts/test-secret-scan.sh, and \x22 would read as RE2 intends but as three
+# literal characters to the grep -E the same suite matches with. The suffix is
+# what identifies the value either way.
 [[allowlists]]
 description = "Pinned upstream tarball checksums in the desktop build"
 targetRules = ["generic-api-key"]
 condition = "AND"
 regexTarget = "line"
 paths = ['''desktop/build/''']
-regexes = ['''_SHA256\s*=\s*["'][a-f0-9]{64}["']''']
+regexes = ['''_SHA256\s*=\s*.?[a-f0-9]{64}''']
 
 # `linkedinStatus: LinkedinStatus` — a TypeScript prop and its type. The
 # linkedin-client-id rule matches the type name, not a client id.
