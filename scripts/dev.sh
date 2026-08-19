@@ -18,8 +18,10 @@
 # the real model; otherwise the offline fake (--ai-fake) drives it.
 #
 # Credentials are NOT hardcoded: the connection URLs derive from OWNER_DSN /
-# APP_DSN (this repo's dev role DSNs; overridable), so this script carries no
-# secret literal beyond the shared dev defaults.
+# APP_DSN, which fall back to the MARGINCE_OWNER_DSN / MARGINCE_DSN the binaries
+# themselves read before reaching the compose defaults — so this script carries
+# no secret literal beyond the shared dev defaults, and there is one set of names
+# rather than two.
 #
 #   scripts/dev.sh up   [slug] [--fresh]  # spin infra + db + api + FE
 #   scripts/dev.sh stop [slug] [--drop]   # stop servers; --drop also drops the db
@@ -47,10 +49,25 @@ cd "$(git rev-parse --show-toplevel)"
 export MARGINCE_BUILD_REVISION="${MARGINCE_BUILD_REVISION:-$(git rev-parse HEAD 2>/dev/null || echo dev)}"
 repo_root="$PWD"
 
-# This repo's dev connection surface (overridable). OWNER_DSN runs migrations;
-# APP_DSN is the non-superuser role the api connects as (RLS binds it).
-OWNER_DSN="${OWNER_DSN:-postgres://margince_owner:dev@localhost:15432/margince}"
-APP_DSN="${APP_DSN:-postgres://margince_app:margince_app_dev@localhost:15432/margince}"
+# The compose stack's own roles, spelled once. Named because the --fresh
+# interlock below compares the effective owner DSN against this exact value, and
+# a default that drifted from the thing it is compared to would disable that
+# check without anyone noticing it had stopped running.
+COMPOSE_OWNER_DSN="postgres://margince_owner:dev@localhost:15432/margince"
+COMPOSE_APP_DSN="postgres://margince_app:margince_app_dev@localhost:15432/margince"
+
+# This stack's connection surface, resolved the way the product resolves it:
+# an explicit argument, else the environment the binaries themselves read, else
+# the compose default. OWNER_DSN runs migrations; APP_DSN is the non-superuser
+# role the api connects as (RLS binds it).
+#
+# MARGINCE_OWNER_DSN / MARGINCE_DSN are consulted because they are what cmd/api,
+# cmd/worker and cmd/migrate read, and this script passes --dsn explicitly, which
+# OUTRANKS that environment. A value set in .env.local — which this script
+# sources — was therefore inert for the entire dev stack while looking like it
+# meant something. Two names for one setting, and only one of them worked.
+OWNER_DSN="${OWNER_DSN:-${MARGINCE_OWNER_DSN:-$COMPOSE_OWNER_DSN}}"
+APP_DSN="${APP_DSN:-${MARGINCE_DSN:-$COMPOSE_APP_DSN}}"
 REDIS_PORT="${REDIS_PORT:-16379}"
 # The compose MinIO backs the blobstore seam (attachments); minioadmin is the
 # well-known throwaway dev credential the compose stack already ships, never a
@@ -84,11 +101,41 @@ fi
 fe_port=$(( 8080 + hash ))
 api_port=$(( 18080 + hash ))
 
-# Swap the database segment of each base DSN — no credential literal here.
-owner_prefix="${OWNER_DSN%/*}"          # scheme://user:pass@host:port
-app_prefix="${APP_DSN%/*}"
-dev_owner_url="${owner_prefix}/${db}"
-dev_app_url="${app_prefix}/${db}"
+# with_database DSN NAME — the same connection, pointed at a different database.
+#
+# The database segment is REPLACED, never inherited. DEV_SLUG owns the name
+# ($db above), and a stack that took the name from a supplied DSN would sit on
+# slug-derived ports in front of the BASE database — two stacks that look
+# isolated quietly sharing one.
+#
+# A query string is carried over rather than dropped with the rest of the
+# suffix. That was harmless while these were dev-only variables nobody wrote
+# that way; MARGINCE_DSN is what a DEPLOYMENT fills in, where `?sslmode=require`
+# is ordinary, and silently dropping it would quietly downgrade the connection.
+#
+# A DSN that is not a URL is refused rather than rewritten. libpq also accepts
+# `host=… dbname=…`, and there is no correct way to swap a database segment that
+# is not there — building something malformed from it would fail later, further
+# from the cause. Nothing here echoes the DSN: it carries a password.
+with_database() { # dsn name
+  local dsn="$1" name="$2" query="" scheme rest
+  case "$dsn" in
+    *\?*) query="?${dsn#*\?}"; dsn="${dsn%%\?*}" ;;
+  esac
+  case "$dsn" in
+    *://*) scheme="${dsn%%://*}://"; rest="${dsn#*://}" ;;
+    *)
+      echo "FAIL: the DSN must be a postgres:// URL so this stack can point it at ${name}; libpq's 'host=… dbname=…' form cannot be redirected here. Set OWNER_DSN/APP_DSN (or MARGINCE_OWNER_DSN/MARGINCE_DSN) to a URL." >&2
+      return 1 ;;
+  esac
+  # Everything from the first slash on is whatever database that DSN named; the
+  # authority (credentials, host, port) is the part this stack reuses.
+  rest="${rest%%/*}"
+  printf '%s%s/%s%s' "$scheme" "$rest" "$name" "$query"
+}
+
+dev_owner_url="$(with_database "$OWNER_DSN" "$db")"
+dev_app_url="$(with_database "$APP_DSN" "$db")"
 
 # The owner DSN reaches cmd/migrate through the environment rather than argv (it
 # carries a password, and argv is world-readable), but it is assigned PER COMMAND
@@ -329,7 +376,7 @@ up)
       # below connects through OWNER_DSN. Point that elsewhere and --fresh
       # would erase one database and migrate another; refuse rather than
       # rebuild something the caller never named.
-      if [[ "$OWNER_DSN" != "postgres://margince_owner:dev@localhost:15432/margince" ]]; then
+      if [[ "$OWNER_DSN" != "$COMPOSE_OWNER_DSN" ]]; then
         # The DSN itself is never echoed: it carries a password, and this
         # branch exists precisely because the caller supplied a real one.
         echo "FAIL: --fresh rebuilds the compose Postgres, but OWNER_DSN points somewhere else — drop that database yourself, then run make dev" >&2
