@@ -98,7 +98,8 @@ func NewEmbedReindexEstimator(pending PendingReader, rates RateResolver, model E
 // EstimateEmbedReindex prices what starting a fleet-wide reindex now would
 // touch: one Row per live tenant workspace carrying its pending entities,
 // pending tokens, priced cost (nil when unrated), and budget-impact
-// disclosure, plus the fleet total folding every workspace's figures.
+// disclosure, plus the installation's own total — which is NOT the sum of the
+// rows; see installationTotal.
 // currentIdentity is the live embed binding's provider/model@dims (Task 9) —
 // the same string PendingByWorkspace/TokenSumByWorkspace key their pending
 // set on. Every port read propagates its error (never swallowed).
@@ -119,43 +120,68 @@ func (e *EmbedReindexEstimator) EstimateEmbedReindex(ctx context.Context, curren
 	today := e.clock.Now()
 
 	perWorkspace = make([]Row, 0, len(counts))
-	var totalEntities int
-	var totalTokens, totalCostMinor int64
-	pricedRows := 0
-	anyPendingUnrated := false
-
 	for _, wsID := range sortedWorkspaceIDs(counts) {
 		row, err := e.priceWorkspaceRow(ctx, wsID, counts[wsID], tokens[wsID], ref, bound, today)
 		if err != nil {
 			return nil, Row{}, err
 		}
 		perWorkspace = append(perWorkspace, row)
-
-		totalEntities += row.Entities
-		totalTokens += row.Tokens
-		if row.CostMinor != nil {
-			totalCostMinor += *row.CostMinor
-			pricedRows++
-		} else if row.Entities > 0 {
-			// A workspace with real pending work but no resolvable rate means
-			// the fleet total would be a PARTIAL cost — presenting it as the
-			// whole understates the spend. Suppress the total cost rather than
-			// fabricate completeness (the same never-fabricated-0 honesty the
-			// per-row field already keeps).
-			anyPendingUnrated = true
-		}
 	}
+	return perWorkspace, installationTotal(perWorkspace), nil
+}
 
-	total = Row{
-		Entities: totalEntities,
-		Tokens:   totalTokens,
+// installationTotal is the estimate for the whole installation, and it is
+// deliberately NOT the sum of the rows.
+//
+// Since ADR-0091 §8 phase D no embeddable entity carries a tenant, so every row
+// counts and prices the SAME corpus — one pass rebuilds it and the rest find
+// every row already fresh. Summing reported an installation with two workspaces
+// as having twice the work at twice the cost, and this figure is what an
+// operator reads before confirming the spend.
+//
+// The COST is the one part that can legitimately differ between rows:
+// ai_model_rate is workspace-scoped under RLS, so each row prices the shared
+// corpus against its own sheet. When the priced rows agree there is one price
+// and it is reported; when they disagree the installation has no single price
+// to state, and suppressing it is the same never-fabricate honesty the per-row
+// field already keeps for an unresolvable rate.
+func installationTotal(rows []Row) Row {
+	if len(rows) == 0 {
+		return Row{Currency: currencyUSD, Quality: QualityHeuristic}
+	}
+	// Entities and tokens come from the first row rather than any aggregate:
+	// the rows are the same corpus, so they hold the same numbers.
+	total := Row{
+		Entities: rows[0].Entities,
+		Tokens:   rows[0].Tokens,
 		Currency: currencyUSD,
 		Quality:  QualityHeuristic,
 	}
-	if pricedRows > 0 && !anyPendingUnrated {
-		total.CostMinor = &totalCostMinor
+	for _, row := range rows {
+		if row.CostMinor == nil {
+			// A row with real pending work and no resolvable rate: no price to
+			// agree on, so none is stated — including any a priced row before
+			// it had already set, which would otherwise report one sheet's
+			// figure as the installation's.
+			if row.Entities > 0 {
+				total.CostMinor = nil
+				return total
+			}
+			continue
+		}
+		if total.CostMinor == nil {
+			cost := *row.CostMinor
+			total.CostMinor = &cost
+			continue
+		}
+		if *row.CostMinor != *total.CostMinor {
+			// Two sheets price the same corpus differently. There is no single
+			// installation cost to report.
+			total.CostMinor = nil
+			return total
+		}
 	}
-	return perWorkspace, total, nil
+	return total
 }
 
 // priceWorkspaceRow prices one workspace's share of the estimate: its pending
