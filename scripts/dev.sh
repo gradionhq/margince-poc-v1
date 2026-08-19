@@ -122,10 +122,14 @@ with_database() { # dsn name
   case "$dsn" in
     *\?*) query="?${dsn#*\?}"; dsn="${dsn%%\?*}" ;;
   esac
+  # Both spellings libpq itself accepts, and only those. A `mysql://` DSN would
+  # otherwise be rewritten to point at this stack's database and then fail at the
+  # client, which is the same "fails later, further from the cause" this function
+  # refuses the key/value form to avoid.
   case "$dsn" in
-    *://*) scheme="${dsn%%://*}://"; rest="${dsn#*://}" ;;
+    postgres://*|postgresql://*) scheme="${dsn%%://*}://"; rest="${dsn#*://}" ;;
     *)
-      echo "FAIL: the DSN must be a postgres:// URL so this stack can point it at ${name}; libpq's 'host=… dbname=…' form cannot be redirected here. Set OWNER_DSN/APP_DSN (or MARGINCE_OWNER_DSN/MARGINCE_DSN) to a URL." >&2
+      echo "FAIL: the DSN must be a postgres:// or postgresql:// URL so this stack can point it at ${name}; neither another scheme nor libpq's 'host=… dbname=…' form can be redirected here. Set OWNER_DSN/APP_DSN (or MARGINCE_OWNER_DSN/MARGINCE_DSN) to one." >&2
       return 1 ;;
   esac
   # Everything from the first slash on is whatever database that DSN named; the

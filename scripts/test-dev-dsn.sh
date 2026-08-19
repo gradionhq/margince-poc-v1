@@ -51,15 +51,22 @@ check "postgres://u:p@h:5432/margince" \
       "$(with_database "postgres://u:p@h:5432" margince)" \
       "a DSN naming no database still gets one"
 
-# libpq's key/value form cannot be redirected, and there is no correct rewrite
-# of a database segment that is not there. Refusing beats building something
-# malformed that fails later, further from the cause.
-status=0
-out="$(with_database "host=h port=5432 dbname=prod user=u" margince_dev_x 2>&1)" || status=$?
-check nonzero "$([ "$status" -ne 0 ] && echo nonzero || echo zero)" \
-      "a non-URL DSN is refused rather than rewritten"
-check yes "$(grep -q "must be a postgres:// URL" <<<"$out" && echo yes || echo no)" \
-      "and says what shape it needs"
+check "postgresql://u:p@h:5432/margince_dev_x" \
+      "$(with_database "postgresql://u:p@h:5432/prod" margince_dev_x)" \
+      "postgresql:// works too — libpq accepts both spellings, so refusing one would be this script's own rule"
+
+# Anything that cannot be redirected is refused rather than rewritten: libpq's
+# key/value form has no database segment to replace, and another scheme would be
+# pointed at this stack's database only to fail at the client. Both are the same
+# "fails later, further from the cause" this function exists to avoid.
+for bad in "host=h port=5432 dbname=prod user=u" "mysql://u:p@h:3306/prod"; do
+    status=0
+    out="$(with_database "$bad" margince_dev_x 2>&1)" || status=$?
+    check nonzero "$([ "$status" -ne 0 ] && echo nonzero || echo zero)" \
+          "refused rather than rewritten: ${bad%%:*}…"
+    check yes "$(grep -q "must be a postgres:// or postgresql:// URL" <<<"$out" && echo yes || echo no)" \
+          "and says what shape it needs: ${bad%%:*}…"
+done
 
 echo "dev.sh: resolution order, and what it must not leak"
 
