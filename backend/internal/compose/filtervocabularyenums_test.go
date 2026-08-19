@@ -72,7 +72,10 @@ func vocabularyFieldEnum(t *testing.T, property string, itemsLevel bool) map[str
 func TestTheVocabularysOperatorEnumIsExactlyWhatTheEngineAdmits(t *testing.T) {
 	engine := map[string]bool{}
 	for _, fieldType := range everyFilterableFieldType() {
-		for _, op := range storekit.OperatorsFor(fieldType) {
+		// Base-table fields: the contract enum has to carry every operator ANY
+		// field can report, and a linked field only ever reports a subset of
+		// what its own type admits.
+		for _, op := range storekit.OperatorsFor(storekit.Field{Type: fieldType}) {
 			engine[op] = true
 		}
 	}

@@ -364,7 +364,9 @@ func operatorsByTypeForTest() [][]string {
 	}
 	out := make([][]string, 0, len(types))
 	for _, t := range types {
-		out = append(out, storekit.OperatorsFor(t))
+		// A base-table field: this gate is about the type matrix, and a linked
+		// field answers a deliberately narrower set of its own.
+		out = append(out, storekit.OperatorsFor(storekit.Field{Type: t}))
 	}
 	return out
 }
