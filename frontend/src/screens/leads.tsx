@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
-import { isOption } from "../app/options";
-import { navigate } from "../app/router";
 import { activityTimeline } from "../design-system/activitytimeline";
 import {
   Badge,
   Button,
   Card,
+  Disclosure,
   Modal,
   SegmentedControl,
   Textarea,
@@ -24,10 +23,8 @@ import { Select } from "../design-system/select";
 import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { ArchiveAction } from "./archive";
 import {
   OverlayUnavailable,
-  ProblemError,
   problemMessageOf,
   QueryGate,
   throwProblem,
@@ -35,32 +32,25 @@ import {
   useSorMode,
   useViewerId,
 } from "./common";
-import { CreateAction, type CreateField } from "./create";
+import type { CreateField } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef, useRoster } from "./entityref";
 import { RecordHistoryTab, useRecordHistory } from "./history";
-import { LeadBulkBar } from "./leadbulk";
 import {
   FirstResponseLine,
-  LEAD_STATUS_FILTER_OPTIONS,
-  LeadBoard,
-  SlaBadge,
+  promoteEligible,
   StatusBadge,
+  scoreFactorLabel,
   scoreTone,
+  terminalBadge,
 } from "./leadpresentation";
+import { DisqualifyDialog } from "./leads.disqualify";
+import { QualifyDialog } from "./leads.qualify";
+import { LeadStepper } from "./leads.stepper";
 import { LeadManualSignals } from "./leadsignals";
-import {
-  type ListPage,
-  type ListQuery,
-  ListTable,
-  listFetchLimit,
-  useListQuery,
-  useOwnerChips,
-} from "./listquery";
 import { LogActivity } from "./logactivity";
-import { lastActivityColumn, ownerColumn, standardViews } from "./recordlist";
 import { ShareAction } from "./share";
 import "./leads.css";
 
@@ -75,120 +65,38 @@ import "./leads.css";
 // were. Status-change and score-override are Phase 4, not surfaced here.
 
 type Lead = components["schemas"]["Lead"];
-type CreateLeadRequest = components["schemas"]["CreateLeadRequest"];
 type UpdateLeadRequest = components["schemas"]["UpdateLeadRequest"];
-type PromoteLeadRequest = components["schemas"]["PromoteLeadRequest"];
-type PromoteTrigger = PromoteLeadRequest["trigger"];
 
 import {
-  sourceFilterOptions,
   sourceLabelFor,
   sourcePickOptions,
   useLeadSources,
 } from "./leadsources";
 
-export { scoreTone } from "./leadpresentation";
+export {
+  promoteEligible,
+  scoreTone,
+  terminalBadge,
+} from "./leadpresentation";
+export { LeadsScreen } from "./leads.list";
 
-export function promoteEligible(lead: Lead): boolean {
-  return isOpenStatus(lead.status) && Boolean(lead.email);
-}
-
-// The terminal badge a lead status earns (null = live/open, no badge). A lead
-// is archived iff it is promoted or disqualified; keying the label off the
-// status — not a bare archived_at — is what stops a promoted lead reading
-// "Disqualified". Exhaustive over the four statuses: a new value is a compile
-// error here, not a silently-unlabelled row.
-export function terminalBadge(
-  status: Lead["status"],
-): { label: MessageKey; tone: "warn" } | null {
-  switch (status) {
-    case "disqualified":
-      return { label: "lead.disqualified", tone: "warn" };
-    case "promoted":
-      return { label: "record.archived", tone: "warn" };
-    case "new":
-    case "contacted":
-    case "engaged":
+// The recorded trigger, as the outcome card names it — the wire token never
+// reaches the reader.
+function promotionTriggerLabel(
+  trigger: string | null | undefined,
+): MessageKey | null {
+  switch (trigger) {
+    case "inbound_reply":
+      return "lead.trigger.inboundReply";
+    case "meeting_booked":
+      return "lead.trigger.meetingBooked";
+    case "meeting_held":
+      return "lead.trigger.meetingHeld";
+    case "human_qualify":
+      return "lead.trigger.humanQualify";
+    default:
       return null;
   }
-}
-
-// The 4 genuine-engagement triggers the server accepts (PromoteLeadRequest).
-// cold_outbound_no_reply is deliberately absent — promotion is engagement,
-// not an outbound touch, and the server rejects it with 422.
-const PROMOTE_TRIGGERS: readonly {
-  value: PromoteTrigger;
-  label: MessageKey;
-}[] = [
-  { value: "human_qualify", label: "lead.trigger.humanQualify" },
-  { value: "inbound_reply", label: "lead.trigger.inboundReply" },
-  { value: "meeting_booked", label: "lead.trigger.meetingBooked" },
-  { value: "meeting_held", label: "lead.trigger.meetingHeld" },
-];
-
-// Pulls the collided person's id out of a 409 already_promoted problem body —
-// the promote dialog navigates there instead of showing an error, mirroring
-// the create/update dedupe "view existing" pattern (problemExistingId).
-function alreadyPromotedPersonId(error: unknown): string | null {
-  if (!(error instanceof ProblemError)) {
-    return null;
-  }
-  const problem = error.problem;
-  if (!problem || typeof problem !== "object") {
-    return null;
-  }
-  const details = (problem as Record<string, unknown>).details;
-  if (!details || typeof details !== "object") {
-    return null;
-  }
-  const promotedId = (details as Record<string, unknown>).promoted_person_id;
-  return typeof promotedId === "string" ? promotedId : null;
-}
-
-async function fetchLeadsPage(
-  query: ListQuery,
-  cursor: string | null,
-): Promise<ListPage<Lead>> {
-  const { data, error } = await api.GET("/leads", {
-    params: {
-      query: {
-        q: query.q || undefined,
-        sort: query.sort || undefined,
-        include_archived: query.includeArchived || undefined,
-        cursor: cursor || undefined,
-        limit: listFetchLimit(query.perPage),
-        ...query.filters,
-      },
-    },
-  });
-  if (error) {
-    // A LIST read's honest-error path only needs a message to render — the
-    // dedupe "view existing" link is a create/update-only concern.
-    throwProblem(error);
-  }
-  return {
-    data: data.data,
-    page: {
-      next_cursor: data.page.next_cursor ?? null,
-      has_more: data.page.has_more,
-    },
-  };
-}
-
-// Builds the create-lead request body: scalar fields trim to undefined when
-// blank (never sent rather than sent empty). Lead email is a single string —
-// not a repeatable list — so no rows channel is used here.
-export function mapLeadBody(values: Record<string, string>): CreateLeadRequest {
-  return {
-    full_name: values.full_name?.trim() || undefined,
-    email: values.email?.trim() || undefined,
-    linkedin_url: values.linkedin_url?.trim() || undefined,
-    title: values.title?.trim() || undefined,
-    company_name: values.company_name?.trim() || undefined,
-    owner_id: values.owner_id?.trim() || undefined,
-    status: "new",
-    source: values.source?.trim() || "manual",
-  };
 }
 
 function stringField(value: unknown): string {
@@ -208,14 +116,6 @@ export function mapLeadUpdate(
   };
 }
 
-const leadCreateFields: CreateField[] = [
-  { key: "full_name", label: "create.fullName", required: true },
-  { key: "email", label: "create.email", type: "email" },
-  { key: "linkedin_url", label: "create.linkedinUrl" },
-  { key: "title", label: "create.personTitle" },
-  { key: "company_name", label: "create.companyName" },
-];
-
 const leadEditFields: CreateField[] = [
   { key: "full_name", label: "create.fullName", required: true },
   { key: "email", label: "create.email", type: "email" },
@@ -223,352 +123,6 @@ const leadEditFields: CreateField[] = [
   { key: "company_name", label: "create.companyName" },
 ];
 
-const leadStatusFilterOptions = LEAD_STATUS_FILTER_OPTIONS;
-
-// The score bands a reader triages by. `min_score` is a floor, so each band
-// names the bottom of a range rather than a bucket — "60+" and "80+" overlap
-// on purpose, because that is what the parameter means.
-const LEAD_SCORE_BANDS = [
-  { value: "80", label: "lead.filterScoreHot" },
-  { value: "60", label: "lead.filterScoreWarm" },
-  { value: "40", label: "lead.filterScoreCool" },
-] as const;
-
-const LEAD_SLA_STATES = [
-  { value: "breached", label: "lead.sla.breached" },
-  { value: "at_risk", label: "lead.sla.atRisk" },
-  { value: "within_target", label: "lead.sla.withinTarget" },
-] as const;
-
-async function createLead(
-  values: Record<string, string>,
-  customFields: Record<string, unknown>,
-  t: (key: MessageKey) => string,
-): Promise<Lead> {
-  const body = mapLeadBody(values);
-  const probes = [body.email, body.linkedin_url].filter(
-    (value): value is string => Boolean(value),
-  );
-  for (const probe of probes) {
-    const { data: matches, error: probeError } = await api.GET("/leads", {
-      params: { query: { q: probe, limit: 10 } },
-    });
-    if (probeError) throwProblem(probeError, t);
-    const normalized = probe.toLowerCase().replace(/\/$/, "");
-    const existing = matches.data.find(
-      (lead) =>
-        lead.email?.toLowerCase() === normalized ||
-        lead.linkedin_url?.toLowerCase().replace(/\/$/, "") === normalized,
-    );
-    if (existing) {
-      throw new ProblemError(
-        {
-          code: "duplicate_lead",
-          detail: t("lead.duplicateFound"),
-          details: { existing_id: existing.id },
-        },
-        t,
-      );
-    }
-  }
-  const { data, error } = await api.POST("/leads", {
-    body: { ...body, ...customFields },
-  });
-  if (error) {
-    throwProblem(error, t);
-  }
-  return data;
-}
-
-export function LeadsScreen() {
-  const me = useMe();
-  return (
-    <QueryGate query={me}>
-      {(session) => <LeadsWorkbench viewerId={session.user.id} />}
-    </QueryGate>
-  );
-}
-
-function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
-  const ownerChips = useOwnerChips();
-  const roster = useRoster("user", true);
-  const t = useT();
-  const { locale } = useLocale();
-  const overlay = useSorMode() === "overlay";
-  // Bulk selection, by lead id; cleared after any bulk run, since the rows
-  // and their versions have moved.
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-  const cf = useObjectCustomFields("lead");
-  const state = useListQuery<Lead>({
-    key: "leads",
-    initialSort: "",
-    initialFilters: { owner_id: viewerId },
-    fetchPage: fetchLeadsPage,
-  });
-  // Only ids the list currently holds count as selected: a row that left the
-  // result set (refetched away, paged out, filtered out) must not linger as
-  // an invisible selection nobody can clear.
-  const selectedRows = state.rows.filter((lead) => selected.has(lead.id));
-  const liveSelection = new Set(selectedRows.map((lead) => lead.id));
-  // The board writes status, which the mirror refuses (a lead's lifecycle is
-  // not a field write-back), so overlay gets the table and no toggle.
-  const [view, setView] = useState<"table" | "board">("table");
-  const sources = useLeadSources();
-  const ownerOptions = [
-    { value: viewerId, label: t("lead.assignToMe") },
-    ...(roster.data ?? [])
-      .filter((entry) => !("is_agent" in entry && entry.is_agent))
-      .filter((entry) => entry.id !== viewerId)
-      .map((entry) => ({
-        value: entry.id,
-        label:
-          ("display_name" in entry ? entry.display_name : null) ?? entry.id,
-      })),
-  ];
-
-  return (
-    <div className="wrap lead-surface">
-      {!overlay && (
-        <div style={{ marginBottom: "var(--space-3)" }}>
-          <SegmentedControl
-            options={["table", "board"] as const}
-            value={view}
-            onChange={setView}
-            labels={{
-              table: t("deals.viewTable"),
-              board: t("deals.viewBoard"),
-            }}
-          />
-        </div>
-      )}
-      <ListTable
-        // The board renders INSIDE the surface, so the search, the chips and
-        // the saved views stay above it. A board that replaced the surface
-        // took the filter bar with it, leaving the reader looking at a
-        // narrowed answer with no way to see or change what narrowed it.
-        body={
-          view === "board" && !overlay ? (
-            <LeadBoard
-              rows={state.rows}
-              onMoved={() => state.refetch()}
-              hasMore={state.hasMore}
-              loadMore={state.loadMore}
-            />
-          ) : undefined
-        }
-        bodyOwnsPaging={view === "board" && !overlay}
-        state={state}
-        unit="unit.leads"
-        caption="lead.segregated"
-        action={
-          <CreateAction
-            label={t("create.lead")}
-            invalidate="leads"
-            screen="leads"
-            create={(values) => createLead(values, cf.toBody(values), t)}
-            resolveExisting={(_code, id) => ({ screen: "leads", id })}
-            fields={[
-              ...leadCreateFields,
-              {
-                key: "owner_id",
-                label: "lead.ownerLabel",
-                type: "select",
-                required: true,
-                options: ownerOptions,
-              },
-              {
-                key: "source",
-                label: "lead.source",
-                type: "select",
-                required: true,
-                // The active administered list, in the administrator's order;
-                // "Created manually" is the default because it is first.
-                options: sourcePickOptions(sources.data?.data, null, t),
-              },
-              ...cf.formFields,
-            ]}
-          />
-        }
-        columns={[
-          {
-            key: "name",
-            header: t("people.name"),
-            cell: (lead: Lead) => {
-              const terminal = terminalBadge(lead.status);
-              return (
-                <span>
-                  <strong>{lead.full_name ?? lead.email ?? ""}</strong>
-                  {lead.company_name && (
-                    <span className="t-caption"> · {lead.company_name}</span>
-                  )}
-                  {terminal && (
-                    <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>
-                  )}
-                </span>
-              );
-            },
-            fixed: true,
-          },
-          {
-            key: "score",
-            header: t("lead.score"),
-            cell: (lead: Lead) => (
-              <span
-                style={{
-                  display: "flex",
-                  gap: "var(--space-1)",
-                  flexWrap: "wrap",
-                }}
-              >
-                <Badge tone={scoreTone(lead.score)}>{lead.score}</Badge>
-                <span className="t-caption">
-                  {lead.score_reason
-                    ? scoreFactorLabel(lead.score_reason, t)
-                    : t("lead.scoreNoSignals")}
-                </span>
-              </span>
-            ),
-            sort: "score",
-            numeric: true,
-          },
-          {
-            key: "status",
-            header: t("lead.status"),
-            cell: (lead: Lead) => (
-              <span
-                style={{
-                  display: "inline-flex",
-                  gap: "var(--space-1)",
-                  alignItems: "center",
-                }}
-              >
-                <StatusBadge status={lead.status} />
-                <SlaBadge state={lead.sla_state} />
-              </span>
-            ),
-          },
-          {
-            key: "nextTask",
-            header: t("lead.nextTask"),
-            cell: (lead: Lead) => (
-              <span className="t-caption">
-                {lead.next_task_subject ?? t("lead.noNextTask")}
-                {lead.open_task_count
-                  ? ` · ${t("lead.openTaskCount", { count: lead.open_task_count })}`
-                  : ""}
-                {lead.next_task_due_at
-                  ? ` · ${formatDateAbbrev(lead.next_task_due_at, locale, Intl.DateTimeFormat().resolvedOptions().timeZone)}`
-                  : ""}
-              </span>
-            ),
-          },
-          lastActivityColumn<Lead>(t, locale),
-          {
-            key: "source",
-            header: t("lead.source"),
-            cell: (lead: Lead) => (
-              <span className="t-caption">
-                {sourceLabelFor(lead, sources.data?.data, t)}
-              </span>
-            ),
-          },
-          ownerColumn<Lead>(t),
-        ]}
-        rowKey={(lead) => lead.id}
-        selection={{
-          selected: liveSelection,
-          // A closed lead takes no writes (STATE-4a): no checkbox, no verb.
-          selectable: (lead) => !lead.archived_at,
-          onToggle: (lead) =>
-            setSelected((prev) => {
-              const next = new Set(prev);
-              if (next.has(lead.id)) {
-                next.delete(lead.id);
-              } else {
-                next.add(lead.id);
-              }
-              return next;
-            }),
-          label: (lead) =>
-            t("lead.bulkSelectRow", {
-              name: lead.full_name ?? lead.email ?? lead.id,
-            }),
-          bar: (
-            <LeadBulkBar
-              leads={selectedRows}
-              // The rows that went through leave the selection; the ones that
-              // refused stay in it, named, so the reader can retry them once
-              // the list has refetched their versions.
-              onDone={(outcomes) =>
-                setSelected(
-                  new Set(outcomes.filter((o) => o.error).map((o) => o.id)),
-                )
-              }
-            />
-          ),
-        }}
-        rowRoute={(lead) => ({ screen: "leads", id: lead.id })}
-        chips={[
-          {
-            key: "status",
-            label: "lead.filterStatus",
-            allLabel: "lead.filterStatusAll",
-            options: leadStatusFilterOptions.map((option) => ({ ...option })),
-          },
-          {
-            key: "min_score",
-            label: "lead.filterScore",
-            allLabel: "lead.filterScoreAll",
-            options: LEAD_SCORE_BANDS.map((band) => ({ ...band })),
-          },
-          {
-            key: "sla_state",
-            label: "lead.filterSla",
-            allLabel: "lead.filterSlaAll",
-            options: LEAD_SLA_STATES.map((state) => ({ ...state })),
-          },
-          {
-            key: "source",
-            label: "lead.filterSource",
-            allLabel: "lead.filterSourceAll",
-            options: sourceFilterOptions(sources.data, t),
-          },
-        ]}
-        // The one ownership dial every record list carries (DM-VOCAB-OWN-1):
-        // mine, my team's, the unowned queue.
-        dataChips={ownerChips}
-        views={[
-          ...standardViews(viewerId, { sort: "", mineFirst: true }),
-          // The overdue queue (formulas §18.1): breached first-response
-          // deadlines, warmest first — what a rep opens before anything else.
-          {
-            label: "list.viewOverdue",
-            sort: "-score",
-            filters: { sla_state: "breached" },
-          },
-          { label: "list.viewHighestScore", sort: "-score" },
-          {
-            label: "list.viewHot",
-            sort: "-score",
-            filters: { min_score: "80" },
-          },
-        ]}
-      />
-    </div>
-  );
-}
-
-const LEAD_OPEN_STATUSES = ["new", "contacted", "engaged"] as const;
-type LeadOpenStatus = (typeof LEAD_OPEN_STATUSES)[number];
-
-function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
-  return status === "new" || status === "contacted" || status === "engaged";
-}
-
-// "Explain This Score" (AC-S7): the weighted factors behind the number,
-// with the decay shown as arithmetic rather than asserted.
-//
-// The read serves what was STORED with the score, so a lead scored before
 // The decision-maker title pattern the score uses (formulas §3.1). Mirrored
 // here ONLY to say why a title earned nothing; the score itself is computed
 // server-side and this never adds to it.
@@ -745,12 +299,6 @@ function ScoreBreakdown({ id, lead }: Readonly<{ id: string; lead: Lead }>) {
 // A factor's name in the reader's language, falling back to the raw key so
 // a factor the UI has no wording for yet still appears with its points —
 // an unnamed contribution is better than a silently missing one.
-function scoreFactorLabel(factor: string, t: ReturnType<typeof useT>): string {
-  const key = `lead.factor.${factor}` as MessageKey;
-  const label = t(key);
-  return label === key ? factor : label;
-}
-
 // Ownership: who holds the lead, and reassignment to any workspace user.
 // The owner reads as a NAME — EntityRef resolves it off the shared `/users`
 // roster and falls back to the id only while that load is in flight or when
@@ -1153,11 +701,17 @@ function LeadLifecycle({
   id,
   onChanged,
   terminalReasonId,
+  onQualify,
+  onDisqualify,
+  overlay,
 }: Readonly<{
   lead: Lead;
   id: string;
   onChanged: () => void;
   terminalReasonId: string;
+  onQualify: () => void;
+  onDisqualify: () => void;
+  overlay: boolean;
 }>) {
   const t = useT();
   const me = useMe();
@@ -1219,57 +773,38 @@ function LeadLifecycle({
         gap: "var(--space-3)",
       }}
     >
+      {/* The ladder leads: where this lead stands and how it got there is
+          the first thing a rep needs, and the step they take next is one
+          click on it (the terminal steps open their own dialogs). The mirror
+          refuses a lifecycle write, so in overlay the ladder only reads. */}
+      <LeadStepper
+        lead={lead}
+        pending={patch.isPending}
+        readOnlyReason={
+          readOnly
+            ? t("lead.terminalReadOnly")
+            : overlay
+              ? t("lead.ladder.overlay")
+              : undefined
+        }
+        onStep={(status) => {
+          // Same one-write-at-a-time rule as the inline rows: a status
+          // sent while another save is in flight races it for If-Match.
+          if (!patch.isPending && !readOnly && !overlay) {
+            patch.mutate({ status });
+          }
+        }}
+        onQualify={onQualify}
+        onDisqualify={onDisqualify}
+      />
+      {/* The first-response line only exists while the target is on: the
+          server derives sla_state from the setting, so an installation that
+          never opted in sees nothing here. */}
       <FirstResponseLine lead={lead} />
       <LeadIdentityFields
         lead={lead}
         save={saveField}
         saving={patch.isPending}
-        readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
-      />
-
-      {isOpenStatus(lead.status) && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          <span className="t-caption">{t("lead.setStatus")}</span>
-          <SegmentedControl
-            options={LEAD_OPEN_STATUSES}
-            value={lead.status}
-            labels={{
-              new: t("lead.status.new"),
-              contacted: t("lead.status.contacted"),
-              engaged: t("lead.status.engaged"),
-            }}
-            onChange={(status) => {
-              // Same one-write-at-a-time rule as the inline rows: a status
-              // sent while another save is in flight races it for If-Match.
-              if (!patch.isPending) {
-                patch.mutate({ status });
-              }
-            }}
-          />
-        </div>
-      )}
-
-      <LeadScorePanel
-        lead={lead}
-        id={id}
-        readOnly={readOnly}
-        terminalReasonId={terminalReasonId}
-        overriding={overriding}
-        setOverriding={setOverriding}
-        scoreValue={scoreValue}
-        setScoreValue={setScoreValue}
-        reasonValue={reasonValue}
-        setReasonValue={setReasonValue}
-        scoreFieldId={scoreFieldId}
-        reasonFieldId={reasonFieldId}
-        patch={patch}
-      />
-
-      <LeadManualSignals
-        // Keyed by lead: a half-typed input for one lead must not be
-        // submitted against the next one the reader navigates to.
-        key={id}
-        id={id}
         readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
       />
 
@@ -1280,6 +815,47 @@ function LeadLifecycle({
         pending={patch.isPending || readOnly}
         onAssign={(ownerId) => patch.mutate({ owner_id: ownerId })}
       />
+
+      {/* The score is a reading, not the work: it folds to one line with
+          its top factor, and opens for the breakdown, the override and the
+          rep's own inputs. */}
+      <Disclosure
+        summary={
+          <span className="lead-score-summary">
+            <Badge tone={scoreTone(lead.score)}>
+              {t("lead.score")}: {lead.score}
+            </Badge>{" "}
+            <span className="t-caption">
+              {lead.score_reason
+                ? scoreFactorLabel(lead.score_reason, t)
+                : t("lead.scoreNoSignals")}
+            </span>
+          </span>
+        }
+      >
+        <LeadScorePanel
+          lead={lead}
+          id={id}
+          readOnly={readOnly}
+          terminalReasonId={terminalReasonId}
+          overriding={overriding}
+          setOverriding={setOverriding}
+          scoreValue={scoreValue}
+          setScoreValue={setScoreValue}
+          reasonValue={reasonValue}
+          setReasonValue={setReasonValue}
+          scoreFieldId={scoreFieldId}
+          reasonFieldId={reasonFieldId}
+          patch={patch}
+        />
+        <LeadManualSignals
+          // Keyed by lead: a half-typed input for one lead must not be
+          // submitted against the next one the reader navigates to.
+          key={id}
+          id={id}
+          readOnlyReason={readOnly ? t("lead.terminalReadOnly") : undefined}
+        />
+      </Disclosure>
 
       {patch.isError && (
         <span className="t-caption" style={{ color: "var(--danger)" }}>
@@ -1419,49 +995,6 @@ function usePromotionRecord(id: string, promoted: boolean): PromotionRecord {
  * contact is outside the reader's row scope, and the line says so rather than
  * promising a new contact the server will not create.
  */
-function PromotePreviewLine({
-  id,
-  open,
-}: Readonly<{ id: string; open: boolean }>) {
-  const t = useT();
-  const preview = useQuery({
-    queryKey: ["lead-promote-preview", id],
-    enabled: open,
-    // Always fresh: the answer is about the workspace as it stands the moment
-    // the dialog opens, and a 30s-old "create" can be a merge by now.
-    staleTime: 0,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/leads/{id}/promote-preview", {
-        params: { path: { id } },
-      });
-      if (error) {
-        throwProblem(error, t);
-      }
-      return data;
-    },
-  });
-  if (preview.isPending) {
-    return <p className="t-caption">{t("lead.previewPending")}</p>;
-  }
-  // A failed preview does not block the promotion; the confirm still runs
-  // the same ladder. It just cannot be described in advance.
-  if (preview.isError || !preview.data) {
-    return null;
-  }
-  if (preview.data.outcome === "create") {
-    return <p className="t-caption">{t("lead.previewCreate")}</p>;
-  }
-  if (!preview.data.person) {
-    return <p className="t-caption">{t("lead.previewMergeWithheld")}</p>;
-  }
-  return (
-    <p className="t-caption">
-      {t("lead.previewMerge")}{" "}
-      <EntityRef kind="person" id={preview.data.person.id} />
-    </p>
-  );
-}
-
 /**
  * DemoteAction is the reversal ADR-0008 §4 promises, from the one page that
  * can honestly host it. A reason is required and recorded: an undo nobody
@@ -1575,9 +1108,7 @@ function PromotedLeadPanel({
   const overlay = useSorMode() === "overlay";
   const t = useT();
   const { locale } = useLocale();
-  const triggerLabel = PROMOTE_TRIGGERS.find(
-    (option) => option.value === promotion.trigger,
-  )?.label;
+  const triggerLabel = promotionTriggerLabel(promotion.trigger);
   // Four states, not two. The person link below is a fact the LEAD row carries,
   // so it renders either way; only the outcome waits on the audit read.
   const outcomeLine = () => {
@@ -1655,121 +1186,24 @@ function LeadOverviewPane({
   lead,
   id,
   promotion,
-  headingId,
   terminalReasonId,
-  promoteOpen,
-  closePromote,
-  trigger,
-  setTrigger,
-  note,
-  setNote,
-  promotePending,
-  promoteErrorMessage,
-  onSubmitPromote,
+  onQualify,
+  onDisqualify,
   onLifecycleChanged,
 }: Readonly<{
   lead: Lead;
   id: string;
   promotion: PromotionRecord;
-  headingId: string;
   terminalReasonId: string;
-  promoteOpen: boolean;
-  closePromote: () => void;
-  trigger: PromoteTrigger;
-  setTrigger: (trigger: PromoteTrigger) => void;
-  note: string;
-  setNote: (note: string) => void;
-  promotePending: boolean;
-  promoteErrorMessage: string | null;
-  onSubmitPromote: () => void;
+  onQualify: () => void;
+  onDisqualify: () => void;
   onLifecycleChanged: () => void;
 }>) {
-  const t = useT();
-  // Promote turns a mirrored lead into a person — a write the incumbent mirror
-  // refuses (unsupported_by_sor), so the button is hidden in overlay.
+  // Qualify turns a mirrored lead into a person — a write the incumbent mirror
+  // refuses (unsupported_by_sor), so the verbs are hidden in overlay.
   const overlay = useSorMode() === "overlay";
   return (
     <>
-      {!lead.archived_at && !overlay && (
-        <>
-          {/* The button moved to the header (ADR-0108 §6); the dialog it
-              opens stays here, where the promote state lives. */}
-          <div>
-            <Modal
-              open={promoteOpen}
-              onClose={closePromote}
-              labelledBy={headingId}
-            >
-              <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
-                {t("lead.promoteDialog")}
-              </h2>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 12,
-                  marginBottom: 16,
-                }}
-              >
-                <label className="t-caption field">
-                  {t("lead.trigger")}
-                  <Select
-                    aria-label={t("lead.trigger")}
-                    value={trigger}
-                    onChange={(value) => {
-                      const triggers = PROMOTE_TRIGGERS.map((o) => o.value);
-                      if (isOption(value, triggers)) setTrigger(value);
-                    }}
-                    options={PROMOTE_TRIGGERS.map((option) => ({
-                      value: option.value,
-                      label: t(option.label),
-                    }))}
-                  />
-                </label>
-                <label className="t-caption field">
-                  {t("lead.evidenceNote")}
-                  <Textarea
-                    aria-label={t("lead.evidenceNote")}
-                    value={note}
-                    onChange={(event) => setNote(event.target.value)}
-                  />
-                </label>
-              </div>
-              <div style={{ marginBottom: "var(--space-3)" }}>
-                <PromotePreviewLine id={id} open={promoteOpen} />
-              </div>
-              {promoteErrorMessage && (
-                <p
-                  className="t-caption"
-                  style={{ color: "var(--danger)", marginBottom: 12 }}
-                >
-                  {promoteErrorMessage}
-                </p>
-              )}
-              <div
-                style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
-              >
-                <Button small onClick={closePromote} disabled={promotePending}>
-                  {t("create.cancel")}
-                </Button>
-                <Button
-                  small
-                  variant="primary"
-                  disabled={promotePending}
-                  onClick={onSubmitPromote}
-                >
-                  {t("lead.promoteConfirm")}
-                </Button>
-              </div>
-            </Modal>
-          </div>
-        </>
-      )}
-      {/* Outside the terminal gate: a disqualified lead still has a score,
-          a status and an owner, and a reader who opens it came to see them.
-          Hiding the whole body left the page blank below the tab bar, which
-          reads as a broken render rather than a closed lead. The controls
-          inside it are individually disabled by their own state. */}
       {/* A promoted lead's page leads with what the promotion did — the
           reader arrived asking whether this became a contact, and which one. */}
       {lead.promoted_person_id && (
@@ -1780,9 +1214,12 @@ function LeadOverviewPane({
         id={id}
         onChanged={onLifecycleChanged}
         terminalReasonId={terminalReasonId}
+        onQualify={onQualify}
+        onDisqualify={onDisqualify}
+        overlay={overlay}
       />
-      {/* The qualification facts lead; the composer follows them so opening a
-          lead answers "what should I do" before asking the rep to type. */}
+      {/* The composer follows the facts so opening a lead answers "what
+          should I do" before asking the rep to type. */}
       {!lead.archived_at && !overlay && (
         <LogActivity entityType="lead" entityId={id} />
       )}
@@ -1800,14 +1237,16 @@ function LeadActions({
   id,
   cf,
   overlay,
-  onPromote,
+  onQualify,
+  onDisqualify,
   terminalReasonId,
 }: Readonly<{
   lead: Lead;
   id: string;
   cf: ReturnType<typeof useObjectCustomFields>;
   overlay: boolean;
-  onPromote: () => void;
+  onQualify: () => void;
+  onDisqualify: () => void;
   // The id of the ONE sentence this page prints about being closed. Every
   // refused control points at it rather than repeating it, which is what
   // stops a terminal lead printing the same line five times.
@@ -1820,13 +1259,14 @@ function LeadActions({
           where a reader looks for the verb (ADR-0108 §6). Ineligibility is
           stated on the control itself rather than as a sentence beside it —
           a disabled button whose reason is elsewhere is a dead button. */}
-      {!lead.archived_at && (
+      {!lead.archived_at && !overlay && (
         <Button
           variant="primary"
+          data-testid="lead-qualify"
           reason={
             promoteEligible(lead) ? undefined : t("lead.promoteIneligible")
           }
-          onClick={onPromote}
+          onClick={onQualify}
         >
           {t("lead.promote")}
         </Button>
@@ -1877,23 +1317,17 @@ function LeadActions({
           answer for that one is absence. */}
       {!overlay && (
         <>
-          <ArchiveAction
-            disabledReasonId={lead.archived_at ? terminalReasonId : undefined}
-            label={t("record.disqualify")}
-            confirmText={t("record.disqualifyConfirm")}
-            archive={async () => {
-              const { data, error } = await api.DELETE("/leads/{id}", {
-                params: { path: { id } },
-              });
-              if (error) {
-                throwProblem(error, t);
-              }
-              return data;
-            }}
-            invalidate="leads"
-            recordKey="lead"
-            onArchived={() => navigate({ screen: "leads" })}
-          />
+          {/* Disqualify asks why, in its own dialog — and is a secondary
+              verb, not a red one: closing a lead is routine work. A terminal
+              lead keeps the control, disabled with the page's one reason. */}
+          <Button
+            data-testid="lead-disqualify"
+            reasonId={lead.archived_at ? terminalReasonId : undefined}
+            reason={lead.archived_at ? t("lead.terminalReadOnly") : undefined}
+            onClick={onDisqualify}
+          >
+            {t("record.disqualify")}
+          </Button>
           <ShareAction
             recordType="lead"
             recordId={lead.id}
@@ -1905,11 +1339,65 @@ function LeadActions({
   );
 }
 
+// The two governed-transition dialogs, mounted only while open and keyed by
+// the lead so a half-filled deal block for one lead never carries to the
+// next. The qualify outcome comes back as the sentence the page shows.
+function LeadDialogs({
+  lead,
+  dialog,
+  onClose,
+  onQualified,
+}: Readonly<{
+  lead: Lead;
+  dialog: "qualify" | "disqualify" | null;
+  onClose: () => void;
+  onQualified: (done: ReactNode) => void;
+}>) {
+  const t = useT();
+  if (dialog === "qualify") {
+    return (
+      <QualifyDialog
+        key={`qualify-${lead.id}`}
+        lead={lead}
+        open
+        onClose={onClose}
+        onQualified={(result) =>
+          onQualified(
+            <span>
+              {t("lead.qualify.done", {
+                name: lead.full_name ?? lead.email ?? "",
+              })}{" "}
+              <EntityRef kind="person" id={result.person.id} />
+              {result.deal_id && (
+                <>
+                  {" · "}
+                  <EntityRef kind="deal" id={result.deal_id} />
+                </>
+              )}
+            </span>,
+          )
+        }
+      />
+    );
+  }
+  if (dialog === "disqualify") {
+    return (
+      <DisqualifyDialog
+        key={`disqualify-${lead.id}`}
+        lead={lead}
+        open
+        onClose={onClose}
+        onDisqualified={onClose}
+      />
+    );
+  }
+  return null;
+}
+
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const cf = useObjectCustomFields("lead");
   const queryClient = useQueryClient();
-  const headingId = useId();
   // ONE sentence about this lead being closed, minted here and pointed at by
   // every control the closure refuses (ADR-0108 §6).
   const terminalReasonId = useId();
@@ -1938,57 +1426,18 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
   // 0038; only the screen was missing.
   const timelineQuery = useRecordTimeline("lead", id);
   const viewerId = useViewerId();
-  const [promoteOpen, setPromoteOpen] = useState(false);
-  const [trigger, setTrigger] = useState<PromoteTrigger>("human_qualify");
-  const [note, setNote] = useState("");
-
-  const closePromote = () => {
-    setPromoteOpen(false);
-    setTrigger("human_qualify");
-    setNote("");
-    promote.reset();
-  };
-
-  const promote = useMutation({
-    mutationFn: async (body: PromoteLeadRequest) => {
-      const { data, error } = await api.POST("/leads/{id}/promote", {
-        params: { path: { id } },
-        body,
-      });
-      if (error) {
-        throwProblem(error, t);
-      }
-      return data;
-    },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["leads"] });
-      queryClient.invalidateQueries({ queryKey: ["lead", id] });
-      // The promotion WROTE the audit row this page reads its outcome from. A
-      // reader who opened the History tab before promoting holds a cached last
-      // page saying there is nothing more to fetch, so without this the panel
-      // walks no further and reports the outcome unavailable while the row
-      // sits one page away.
-      queryClient.invalidateQueries({
-        queryKey: ["record-history", "lead", id],
-      });
-      setPromoteOpen(false);
-      navigate({ screen: "contacts", id: result.person.id });
-    },
-    onError: (error) => {
-      const existingPersonId = alreadyPromotedPersonId(error);
-      if (existingPersonId) {
-        setPromoteOpen(false);
-        navigate({ screen: "contacts", id: existingPersonId });
-      }
-    },
-  });
-
-  // already_promoted is handled by navigating away (onError above), so it
-  // never renders as an error — anything else surfaces verbatim.
-  const promoteErrorMessage =
-    promote.isError && !alreadyPromotedPersonId(promote.error)
-      ? problemMessageOf(promote.error, t)
-      : null;
+  const [dialog, setDialog] = useState<"qualify" | "disqualify" | null>(null);
+  // What the last qualify did, said once under the header: the contact and,
+  // when one was opened, the deal. The page stays (ADR-0119): a promoted
+  // lead keeps its page, and the outcome card below carries the links on.
+  const [toast, setToast] = useState<ReactNode>(null);
+  // This screen stays mounted from one lead to the next: an open dialog or a
+  // sentence about the previous lead must not carry over to this one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the reset runs when the lead changes, and the lead is the only input
+  useEffect(() => {
+    setDialog(null);
+    setToast(null);
+  }, [id]);
 
   // A promoted lead keeps its page (ADR-0119/A170). It no longer redirects to
   // the person: the redirect said the lead had ceased to exist, which is untrue
@@ -2023,7 +1472,8 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 cf={cf}
                 overlay={overlay}
                 terminalReasonId={terminalReasonId}
-                onPromote={() => setPromoteOpen(true)}
+                onQualify={() => setDialog("qualify")}
+                onDisqualify={() => setDialog("disqualify")}
               />
             }
             actionsInline
@@ -2074,34 +1524,37 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                 }}
               />
             </div>
+            {toast && (
+              <div className="toast-region">
+                <output className="toast">
+                  <span className="dot dot-auto" />
+                  {toast}
+                </output>
+              </div>
+            )}
             {tab === "overview" && (
               <LeadOverviewPane
                 lead={lead}
                 id={id}
                 promotion={promotion}
-                headingId={headingId}
                 terminalReasonId={terminalReasonId}
-                promoteOpen={promoteOpen}
-                closePromote={closePromote}
-                trigger={trigger}
-                setTrigger={setTrigger}
-                note={note}
-                setNote={setNote}
-                promotePending={promote.isPending}
-                promoteErrorMessage={promoteErrorMessage}
-                onSubmitPromote={() => {
-                  const trimmedNote = note.trim();
-                  promote.mutate({
-                    trigger,
-                    evidence: trimmedNote ? { note: trimmedNote } : undefined,
-                  });
-                }}
+                onQualify={() => setDialog("qualify")}
+                onDisqualify={() => setDialog("disqualify")}
                 onLifecycleChanged={() => {
                   queryClient.invalidateQueries({ queryKey: ["leads"] });
                   queryClient.invalidateQueries({ queryKey: ["lead", id] });
                 }}
               />
             )}
+            <LeadDialogs
+              lead={lead}
+              dialog={dialog}
+              onClose={() => setDialog(null)}
+              onQualified={(done) => {
+                setDialog(null);
+                setToast(done);
+              }}
+            />
             {tab === "history" && !overlay && (
               <RecordHistoryTab kind="lead" id={lead.id} />
             )}

@@ -205,6 +205,7 @@ export function ListTable<Row>({
   searchable = true,
   showArchivedToggle = true,
   tools,
+  emptyNote,
   body,
   bodyOwnsPaging = false,
   selection,
@@ -255,6 +256,12 @@ export function ListTable<Row>({
    * Columns and Compact buttons — for the one screen (deals) whose board and
    * table views share a pipeline picker that lives beside them. */
   tools?: ReactNode;
+  /**
+   * What the empty table says under its generic line when THIS screen knows
+   * why it is empty — a "Mine" view for a reader who owns nothing, with the
+   * way back to everything. Overlay's own note wins when both apply.
+   */
+  emptyNote?: ReactNode;
 }>): ReactNode {
   const t = useT();
   // Overlay reads a mirror that cannot sort or filter (the server 422s those
@@ -397,7 +404,7 @@ export function ListTable<Row>({
       // grants it to anyone) than a genuinely empty HubSpot portal — name that
       // cause rather than letting the generic empty copy imply "there is
       // nothing here".
-      emptyNote={overlay ? t("overlay.emptyOwnerHint") : undefined}
+      emptyNote={overlay ? t("overlay.emptyOwnerHint") : emptyNote}
       action={action}
       caption={caption ? t(caption) : undefined}
       footer={footer}

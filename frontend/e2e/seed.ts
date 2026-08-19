@@ -1062,6 +1062,54 @@ export async function mockApi(
     if (path === "/leads/l-1" && method === "GET") {
       return json(seededLead);
     }
+    // The administered lead vocabularies and the lead-handling posture, as a
+    // fresh installation ships them.
+    if (path === "/lead-sources" && method === "GET") {
+      return json({
+        data: [
+          ["manual", "Created manually", "neutral"],
+          ["inbound", "Inbound", "high"],
+          ["webform", "Web form", "high"],
+          ["referral", "Referral", "high"],
+          ["import", "Import", "low"],
+          ["crawl", "Web research", "low"],
+        ].map(([key, label, intent], i) => ({
+          id: `src-${key}`,
+          key,
+          label,
+          intent,
+          sort_order: (i + 1) * 10,
+          active: true,
+          system: true,
+          lead_count: 0,
+          version: 1,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        })),
+        discovered: [],
+      });
+    }
+    if (path === "/lead-disqualify-reasons" && method === "GET") {
+      return json({
+        data: ["Not a good fit", "Bad timing", "No budget"].map((label, i) => ({
+          id: `reason-${i + 1}`,
+          label,
+          sort_order: (i + 1) * 10,
+          active: true,
+          system: true,
+          lead_count: 0,
+          version: 1,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        })),
+      });
+    }
+    if (path === "/leads/settings" && method === "GET") {
+      return json({
+        first_response_enabled: false,
+        first_response_target_minutes: 240,
+      });
+    }
     if (path === "/leads/l-1" && method === "PATCH") {
       const body = route.request().postDataJSON();
       return json({ ...seededLead, ...body, version: seededLead.version + 1 });

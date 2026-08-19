@@ -8,7 +8,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 // The record lists that share the Owner/Created columns and the standard
 // views. A fourth owner-scoped list joins this array, not the copy-paste.
-const RECORD_LISTS = ["people.tsx", "organizations.tsx", "leads.tsx"];
+const RECORD_LISTS = ["people.tsx", "organizations.tsx", "leads.list.tsx"];
 
 describe("one record list, three record types", () => {
   it("every record list takes Owner and Created from recordlist.tsx, never its own copy", () => {

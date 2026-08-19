@@ -51,14 +51,20 @@ test("AC-leaddetail-work: a note is logged against the lead itself", async ({
   expect(body.links).toEqual([{ entity_type: "lead", entity_id: "l-1" }]);
 });
 
-test("AC-leaddetail-promote: the confirm step says what promotion will do, then lands on the contact", async ({
+test("AC-leaddetail-qualify: the dialog says what qualifying will do and why, then the page stays and names the contact", async ({
   page,
 }) => {
   await page.goto("/#/leads/l-1");
-  await page.getByRole("button", { name: "Zum Kontakt machen" }).click();
+  await page
+    .getByRole("button", { name: "Qualifizieren…", exact: true })
+    .click();
   await expect(
     page.getByText("Die Übernahme legt einen neuen Kontakt an."),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Übernehmen" }).click();
-  await expect(page).toHaveURL(/#\/contacts\/p-new$/);
+  // The reason is derived, not asked for: the seeded lead has no captured
+  // engagement, so it is the rep's own call.
+  await expect(page.getByText("Grund: von dir qualifiziert.")).toBeVisible();
+  await page.getByTestId("lead-qualify-confirm").click();
+  await expect(page).toHaveURL(/#\/leads\/l-1$/);
+  await expect(page.getByText(/ist jetzt ein Kontakt:/)).toBeVisible();
 });

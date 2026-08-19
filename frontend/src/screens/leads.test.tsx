@@ -196,28 +196,52 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     ).toBeTruthy();
   });
 
-  it("opening the promote dialog defaults the trigger to human_qualify", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (request: Request) =>
-        new URL(request.url).pathname.endsWith("/context")
-          ? jsonResponse({ anchor: { type: "lead", id: "l-1" }, sections: [] })
-          : jsonResponse(lead),
-      ),
-    );
+  it("the qualify dialog derives the reason from what was captured, and asks for no trigger", async () => {
+    stubFetch(async () => jsonResponse(lead));
     render(<LeadScreen id="l-1" />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Promote to contact" }),
+      await screen.findByRole("button", { name: "Qualify…" }),
     );
-    // The control is a button whose face IS the selected option's label, so
-    // the default choice is read the way the user reads it — human_qualify's
-    // label — rather than off a `value` property no button carries.
-    expect(screen.getByLabelText("Promotion trigger").textContent).toBe(
-      "Human qualified",
-    );
+    // A lead with no captured engagement is qualified by the rep's own
+    // judgement — said as a sentence, not picked from a technical list.
+    expect(await screen.findByText("Reason: qualified by you.")).toBeTruthy();
+    expect(screen.queryByLabelText("Promotion trigger")).toBeNull();
   });
 
-  it("promote posts the picked trigger + note and lands on the resulting person 360", async () => {
+  it("the qualify dialog names the captured reply as the reason and sends that trigger with its activity", async () => {
+    let promoteBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/leads/l-1/promote")) {
+        promoteBody = JSON.parse(await request.text());
+        return jsonResponse({ person: anna, merged: false, lead_id: "l-1" });
+      }
+      return jsonResponse({
+        ...lead,
+        status: "engaged",
+        qualification_evidence: {
+          trigger: "inbound_reply",
+          activity_id: "a-77",
+          occurred_at: "2026-08-14T09:00:00Z",
+        },
+      });
+    });
+    render(<LeadScreen id="l-1" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Qualify…" }),
+    );
+    expect(await screen.findByText(/Reason: they replied on/)).toBeTruthy();
+    // Engaged leads start with the deal block ticked; untick it here so the
+    // request is the bare promotion.
+    await userEvent.click(screen.getByTestId("lead-qualify-with-deal"));
+    await userEvent.click(screen.getByTestId("lead-qualify-confirm"));
+    await waitFor(() => expect(promoteBody).toBeTruthy());
+    expect(promoteBody).toMatchObject({
+      trigger: "inbound_reply",
+      evidence: { activity_id: "a-77" },
+    });
+  });
+
+  it("qualify posts the note, stays on the lead page and says who the lead became", async () => {
     const user = userEvent.setup();
     let promoteBody: unknown = null;
     stubFetch(async (url, method, request) => {
@@ -225,30 +249,119 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
         promoteBody = JSON.parse(await request.text());
         return jsonResponse({ person: anna, merged: false, lead_id: "l-1" });
       }
+      if (url.includes("/people/")) {
+        return jsonResponse(anna);
+      }
       return jsonResponse(lead);
     });
+    window.location.hash = "#/leads/l-1";
     render(<LeadScreen id="l-1" />);
-    await user.click(
-      await screen.findByRole("button", { name: "Promote to contact" }),
-    );
-    await pickOption(
-      user,
-      screen.getByLabelText("Promotion trigger"),
-      "Meeting booked",
-    );
+    await user.click(await screen.findByRole("button", { name: "Qualify…" }));
     await user.type(
       screen.getByLabelText("Evidence note (optional)"),
       "Booked via calendly",
     );
-    await user.click(screen.getByRole("button", { name: "Promote" }));
-    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-1"));
-    expect(promoteBody).toEqual({
-      trigger: "meeting_booked",
+    await user.click(screen.getByTestId("lead-qualify-confirm"));
+    await waitFor(() => expect(promoteBody).toBeTruthy());
+    expect(promoteBody).toMatchObject({
+      trigger: "human_qualify",
       evidence: { note: "Booked via calendly" },
+    });
+    // The page stays (ADR-0119): the outcome is said here, with the contact.
+    expect(window.location.hash).toBe("#/leads/l-1");
+    expect(
+      await screen.findByText(/Jonas Petersen is now a contact:/),
+    ).toBeTruthy();
+  });
+
+  it("qualify with a deal sends the deal block with the chosen stage and the base currency", async () => {
+    const user = userEvent.setup();
+    let promoteBody: unknown = null;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.includes("/leads/l-1/promote")) {
+        promoteBody = JSON.parse(await request.text());
+        return jsonResponse({
+          person: anna,
+          merged: false,
+          lead_id: "l-1",
+          deal_id: "d-1",
+        });
+      }
+      if (url.endsWith("/v1/pipelines")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "pl-1",
+              name: "Sales",
+              is_default: true,
+              position: 0,
+              stages: [
+                {
+                  id: "st-1",
+                  pipeline_id: "pl-1",
+                  name: "Qualified",
+                  position: 1,
+                  semantic: "open",
+                  win_probability: 10,
+                },
+                {
+                  id: "st-2",
+                  pipeline_id: "pl-1",
+                  name: "Discovery",
+                  position: 2,
+                  semantic: "open",
+                  win_probability: 25,
+                },
+                {
+                  id: "st-9",
+                  pipeline_id: "pl-1",
+                  name: "Won",
+                  position: 9,
+                  semantic: "won",
+                  win_probability: 100,
+                },
+              ],
+            },
+          ],
+          page: { has_more: false },
+        });
+      }
+      if (url.endsWith("/v1/installation/settings")) {
+        return jsonResponse({
+          name: "Nordwind",
+          timezone: "Europe/Berlin",
+          base_currency: "EUR",
+          base_currency_locked: false,
+          max_upload_bytes: 1,
+        });
+      }
+      return jsonResponse(lead);
+    });
+    render(<LeadScreen id="l-1" />);
+    await user.click(await screen.findByRole("button", { name: "Qualify…" }));
+    await user.click(screen.getByTestId("lead-qualify-with-deal"));
+    await user.type(
+      await screen.findByTestId("lead-qualify-deal-name"),
+      "Nordwind — Pilot",
+    );
+    await user.type(screen.getByLabelText("Amount (EUR)"), "1200");
+    await user.click(
+      screen.getByRole("button", { name: "Qualify and open deal" }),
+    );
+    await waitFor(() => expect(promoteBody).toBeTruthy());
+    expect(promoteBody).toMatchObject({
+      trigger: "human_qualify",
+      deal: {
+        pipeline_id: "pl-1",
+        stage_id: "st-1",
+        name: "Nordwind — Pilot",
+        amount_minor: 120000,
+        currency: "EUR",
+      },
     });
   });
 
-  it("a 409 already_promoted navigates to the existing person instead of erroring", async () => {
+  it("a 409 already_promoted is shown in the dialog rather than swallowed", async () => {
     const fetchMock = vi.fn(
       async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input instanceof Request ? input.url : input);
@@ -276,10 +389,12 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<LeadScreen id="l-1" />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Promote to contact" }),
+      await screen.findByRole("button", { name: "Qualify…" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
-    await waitFor(() => expect(window.location.hash).toBe("#/contacts/p-9"));
+    await userEvent.click(screen.getByTestId("lead-qualify-confirm"));
+    // The refusal is shown where the reader is; the page re-reads the lead
+    // and its outcome card then says what it became.
+    expect(await screen.findByRole("alert")).toBeTruthy();
   });
 
   it("the board moves a lead between the two live statuses, with If-Match", async () => {
@@ -478,7 +593,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     });
     render(<LeadScreen id="l-1" />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Promote to contact" }),
+      await screen.findByRole("button", { name: "Qualify…" }),
     );
     expect(
       await screen.findByText(/Promoting will merge into the existing contact/),
@@ -499,7 +614,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     });
     render(<LeadScreen id="l-1" />);
     await userEvent.click(
-      await screen.findByRole("button", { name: "Promote to contact" }),
+      await screen.findByRole("button", { name: "Qualify…" }),
     );
     expect(
       await screen.findByText(
@@ -725,9 +840,9 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "Promote to contact" }),
+      await screen.findByRole("button", { name: "Qualify…" }),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Promote" }));
+    await userEvent.click(screen.getByTestId("lead-qualify-confirm"));
 
     await waitFor(() =>
       expect(
@@ -785,9 +900,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     // stand in for "ineligible" (ADR-0119/A170).
     stubFetch(async () => jsonResponse({ ...lead, email: null }));
     render(<LeadScreen id="l-1" />);
-    const button = await screen.findByRole("button", {
-      name: "Promote to contact",
-    });
+    const button = await screen.findByRole("button", { name: "Qualify…" });
     await waitFor(() =>
       expect((button as HTMLButtonElement).disabled).toBe(true),
     );
@@ -796,7 +909,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     const describedBy = button.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
     expect(document.getElementById(describedBy as string)?.textContent).toBe(
-      "needs an email and an open status",
+      "needs an email address and an open status",
     );
   });
 });
@@ -1172,14 +1285,13 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
     expect(patchBody).not.toHaveProperty("score");
   });
 
-  it("preserves the Promote button and score/status/company badges", async () => {
+  it("preserves the Qualify button and score/status/company badges", async () => {
     stubFetch(async () => jsonResponse(lead));
     render(<LeadScreen id="l-1" />);
     await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    expect(
-      screen.getByRole("button", { name: "Promote to contact" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Score: 72")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Qualify…" })).toBeTruthy();
+    // The score reads in the band AND on the folded score section's summary.
+    expect(screen.getAllByText("Score: 72").length).toBeGreaterThan(0);
     // The badge and the status control now read the SAME word, which is the
     // point: a German reader saw "In Bearbeitung" on the chip and the raw
     // enum "contacted" in the cell. The badge is the one asserted here.
@@ -1197,35 +1309,80 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
 });
 
 describe("LeadScreen — disqualify (P-3)", () => {
-  it("labels the action Disqualify, DELETEs /leads/{id} on confirm, and navigates to the list", async () => {
-    let deleted = false;
-    stubFetch(async (url, method) => {
+  it("disqualify asks for a reason from the administered list, DELETEs with it, and keeps the page", async () => {
+    const user = userEvent.setup();
+    let deleteBody: unknown = null;
+    stubFetch(async (url, method, request) => {
       if (method === "DELETE" && url.includes("/leads/l-1")) {
-        deleted = true;
+        deleteBody = JSON.parse(await request.text());
         return jsonResponse({
           ...lead,
           status: "disqualified",
           archived_at: "2026-07-13T00:00:00Z",
+          disqualify_reason: "Bad timing",
+        });
+      }
+      if (url.endsWith("/v1/lead-disqualify-reasons")) {
+        return jsonResponse({
+          data: [
+            {
+              id: "r-1",
+              label: "Not a good fit",
+              sort_order: 10,
+              active: true,
+              system: true,
+              lead_count: 0,
+              version: 1,
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+            {
+              id: "r-2",
+              label: "Bad timing",
+              sort_order: 20,
+              active: true,
+              system: true,
+              lead_count: 0,
+              version: 1,
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+            {
+              id: "r-3",
+              label: "Retired",
+              sort_order: 30,
+              active: false,
+              system: false,
+              lead_count: 0,
+              version: 1,
+              created_at: "2026-01-01T00:00:00Z",
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          ],
         });
       }
       return jsonResponse(lead);
     });
+    window.location.hash = "#/leads/l-1";
     render(<LeadScreen id="l-1" />);
 
-    await waitFor(() =>
-      expect(screen.getByTestId("archive-record")).toBeTruthy(),
+    await user.click(await screen.findByTestId("lead-disqualify"));
+    // Nothing is sent without a reason, and the button says so.
+    const confirm = screen.getByTestId(
+      "lead-disqualify-confirm",
+    ) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    await pickOption(user, screen.getByLabelText("Reason *"), "Bad timing");
+    expect(screen.queryByRole("option", { name: "Retired" })).toBeNull();
+    await user.type(
+      screen.getByLabelText("Note (optional)"),
+      "Call back in Q4",
     );
-    expect(screen.getByTestId("archive-record").textContent).toBe("Disqualify");
-    await userEvent.click(screen.getByTestId("archive-record"));
-    expect(
-      screen.getByText(
-        "Are you sure? This disqualifies and archives the lead — there is no undo control.",
-      ),
-    ).toBeTruthy();
-    await userEvent.click(screen.getByTestId("archive-confirm"));
+    await user.click(screen.getByTestId("lead-disqualify-confirm"));
 
-    await waitFor(() => expect(deleted).toBe(true));
-    expect(window.location.hash).toBe("#/leads");
+    await waitFor(() => expect(deleteBody).toBeTruthy());
+    expect(deleteBody).toEqual({ reason_id: "r-2", note: "Call back in Q4" });
+    expect(window.location.hash).toBe("#/leads/l-1");
   });
 });
 
@@ -1256,7 +1413,7 @@ describe("LeadScreen — overlay mode write affordances", () => {
     render(<LeadScreen id="l-1" />);
 
     await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    expect(screen.queryByTestId("archive-record")).toBeNull();
+    expect(screen.queryByTestId("lead-disqualify")).toBeNull();
   });
 
   it("Edit's real click path PATCHes and the 360 shows the saved name", async () => {
@@ -1508,7 +1665,7 @@ function stubFetchWithMe(
 }
 
 describe("LeadScreen — status control (P-12)", () => {
-  it("shows the status control for a new/working lead and PATCHes status with If-Match", async () => {
+  it("the ladder PATCHes the step the rep clicks, with If-Match", async () => {
     let patchHeader: string | null = null;
     let patchBody: unknown = null;
     stubFetchWithMe(async (url, method, request) => {
@@ -1521,23 +1678,40 @@ describe("LeadScreen — status control (P-12)", () => {
     });
     render(<LeadScreen id="l-1" />);
 
+    // The fixture lead is already contacted; the next rung up is the click.
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Contacted" })).toBeTruthy(),
+      expect(screen.getByTestId("lead-step-engaged")).toBeTruthy(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Contacted" }));
+    expect(
+      (screen.getByTestId("lead-step-contacted") as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await userEvent.click(screen.getByTestId("lead-step-engaged"));
 
     await waitFor(() => expect(patchBody).toBeTruthy());
     expect(patchHeader).toBe("1");
-    expect(patchBody).toMatchObject({ status: "contacted" });
+    expect(patchBody).toMatchObject({ status: "engaged" });
   });
 
-  it("hides the status control for a promoted/disqualified lead", async () => {
-    stubFetchWithMe(async () => jsonResponse({ ...lead, status: "promoted" }));
+  it("freezes the ladder on a promoted/disqualified lead, with the reason", async () => {
+    stubFetchWithMe(async () =>
+      jsonResponse({
+        ...lead,
+        status: "promoted",
+        archived_at: "2026-07-13T00:00:00Z",
+      }),
+    );
     render(<LeadScreen id="l-1" />);
 
     await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "Contacted" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "New" })).toBeNull();
+    for (const step of ["new", "contacted", "engaged", "disqualified"]) {
+      const control = screen.getByTestId(
+        `lead-step-${step}`,
+      ) as HTMLButtonElement;
+      expect(control.disabled).toBe(true);
+    }
+    expect(
+      (screen.getByTestId("lead-step-promoted") as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 });
 
@@ -1828,7 +2002,7 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
       expect(screen.getAllByText("Disqualified").length).toBeGreaterThan(0),
     );
     const reason = "Disqualified — this lead is now read-only.";
-    for (const testId of ["edit-record", "archive-record"]) {
+    for (const testId of ["edit-record", "lead-disqualify"]) {
       const control = screen.getByTestId(testId) as HTMLButtonElement;
       expect(control.disabled).toBe(true);
       const describedBy = control.getAttribute("aria-describedby");
@@ -1837,11 +2011,9 @@ describe("LeadScreen — archived/terminal is read-only (P-3)", () => {
         reason,
       );
     }
-    // Promote is gone rather than disabled: a disqualified lead is not a
-    // promotable one, and the header's primary action is for live leads.
-    expect(
-      screen.queryByRole("button", { name: "Promote to contact" }),
-    ).toBeNull();
+    // Qualify is gone rather than disabled: a disqualified lead is not a
+    // qualifiable one, and the header's primary action is for live leads.
+    expect(screen.queryByRole("button", { name: "Qualify…" })).toBeNull();
   });
 
   it("shows an 'overridden' badge when the score is human-overridden", async () => {
