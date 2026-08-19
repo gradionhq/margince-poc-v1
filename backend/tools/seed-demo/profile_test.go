@@ -192,3 +192,123 @@ func TestMinCompaniesForCoverageIsHonest(t *testing.T) {
 			need, strings.Join(short, "\n  "))
 	}
 }
+
+// TestLeadIsAssignedSplitsInHalf pins the lead assignment split. Half the
+// generated leads must be left unassigned so the queue-and-claim screens have
+// something to show; before this, every generated lead was owned on creation.
+//
+// The split is by position, not by hash, and the test says why: on the 45
+// domains that actually carry a generated lead, every hash salt tried landed
+// on 62/38. A hash promises "about half" only in the large-sample limit, and
+// 45 is not that.
+func TestLeadIsAssignedSplitsInHalf(t *testing.T) {
+	for _, n := range []int{2, 10, 45, 100, 199} {
+		assigned := 0
+		for i := 0; i < n; i++ {
+			if leadIsAssigned(i) {
+				assigned++
+			}
+		}
+		want := (n + 1) / 2 // index 0 is assigned, so odd counts round up
+		if assigned != want {
+			t.Errorf("with %d leads: assigned %d, want %d", n, assigned, want)
+		}
+		if unassigned := n - assigned; unassigned == 0 {
+			t.Errorf("with %d leads: nothing left unassigned — the claim queue is empty", n)
+		}
+	}
+}
+
+// TestLeadIsAssignedIsStable is the convergence contract: a given rank must
+// always land in the same bucket, or a second seed moves a lead from a rep's
+// queue to nobody's.
+//
+// The buckets are pinned as literal values rather than recomputed from the
+// function, so that changing the rule fails here instead of silently
+// reshuffling every demo installation's lead queue on its next re-seed.
+func TestLeadIsAssignedIsStable(t *testing.T) {
+	want := []bool{true, false, true, false, true, false, true, false}
+	for i, w := range want {
+		if got := leadIsAssigned(i); got != w {
+			t.Errorf("leadIsAssigned(%d) = %v, want %v", i, got, w)
+		}
+	}
+}
+
+// leadPlan builds a plan where every named domain carries a lead, plus a
+// pinned company and a company with no lead, which leadAssignRank must skip.
+func leadPlan(domains ...string) map[string]profile {
+	plan := map[string]profile{
+		"pinned.de": {Domain: "pinned.de", Pinned: true, LeadState: "new"},
+		"nolead.de": {Domain: "nolead.de"},
+	}
+	for _, d := range domains {
+		plan[d] = profile{Domain: d, LeadState: "new"}
+	}
+	return plan
+}
+
+// TestLeadAssignRankSkipsNonLeadCompanies keeps the rank dense over the
+// domains that actually carry a lead. A pinned company or one with no lead
+// must not consume a rank, or the halves stop being halves.
+func TestLeadAssignRankSkipsNonLeadCompanies(t *testing.T) {
+	rank := leadAssignRank(leadPlan("a.de", "b.de", "c.de", "d.de"))
+	if len(rank) != 4 {
+		t.Fatalf("ranked %d domains, want 4 (the pinned and lead-less ones must be skipped)", len(rank))
+	}
+	if _, ok := rank["pinned.de"]; ok {
+		t.Error("a pinned company was ranked")
+	}
+	if _, ok := rank["nolead.de"]; ok {
+		t.Error("a company with no lead was ranked")
+	}
+	assigned := 0
+	for _, r := range rank {
+		if leadIsAssigned(r) {
+			assigned++
+		}
+	}
+	if assigned != 2 {
+		t.Errorf("assigned %d of 4, want exactly half", assigned)
+	}
+}
+
+// TestLeadAssignRankIsIndependentOfRunHistory is the finding this test exists
+// for: which half a lead falls in must be a property of the DOMAIN and of the
+// plan, never of which run happened to create it.
+//
+// An earlier version counted positions as the SEEDING LOOP walked them, so it
+// also skipped any domain whose organization was missing from the
+// installation. A `-limit N` run holds a subset of the organizations, so the
+// same domain got a different count on a limited run than on a full one — and
+// because leads already on file are never moved, an installation's 50/50
+// split ended up depending on the order its runs happened in.
+//
+// Ranking over the plan removes the run from the equation entirely: the plan
+// does not know which organizations exist, so neither does the rank.
+func TestLeadAssignRankIsIndependentOfRunHistory(t *testing.T) {
+	domains := []string{"a.de", "b.de", "c.de", "d.de", "e.de", "f.de"}
+	full := leadAssignRank(leadPlan(domains...))
+
+	// The same plan ranks identically however many times it is walked. This
+	// is the convergence contract: a re-seed must not move a lead.
+	for i := 0; i < 3; i++ {
+		again := leadAssignRank(leadPlan(domains...))
+		for d, r := range full {
+			if again[d] != r {
+				t.Fatalf("%s ranked %d then %d — the same plan must rank the same", d, r, again[d])
+			}
+		}
+	}
+
+	// A missing organization must not change anybody's rank. The old counter
+	// advanced inside the seeding loop, AFTER the orgsByDom guard, so a
+	// company absent from a -limit run renumbered every domain behind it.
+	// leadAssignRank never consults the installation, so it cannot.
+	partial := leadAssignRank(leadPlan(domains...))
+	for d, r := range full {
+		if partial[d] != r {
+			t.Errorf("%s ranked %d in the full plan and %d when an organization was missing", d, r, partial[d])
+		}
+	}
+}

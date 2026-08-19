@@ -178,6 +178,8 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 		return 0, err
 	}
 
+	leadRank := leadAssignRank(plan)
+
 	for _, domain := range sortedDomains(plan) {
 		p := plan[domain]
 		if p.Pinned || p.LeadState == "" {
@@ -202,7 +204,20 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 				"company_name":  refs.orgNameByID[orgID],
 				"title":         title,
 			}
-			if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
+			// Half the generated leads are filed unassigned, which is what an
+			// inbound funnel actually looks like: a lead arrives before
+			// anybody picks it up. Seeding every one of them owned left the
+			// queue-and-claim screens with nothing to show — there was no
+			// unassigned lead to claim.
+			//
+			// Which half a lead falls in is a property of the DOMAIN, fixed
+			// by leadAssignRank over the whole plan. See leadIsAssigned.
+			//
+			// The owner is looked up FIRST: a domain in the assigned half
+			// whose owner cannot be resolved would otherwise be filed with no
+			// owner_id and never repaired, because the existing-lead guard
+			// above skips it on every later run.
+			if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok && leadIsAssigned(leadRank[domain]) {
 				body["owner_id"] = owner
 			}
 			var out struct {
@@ -299,6 +314,42 @@ func generatedLeadEmail(first, last, domain string) string {
 
 func generatedLeadTitle(domain string) string {
 	return leadTitles[hashIndex("leadtitle:"+domain, len(leadTitles))]
+}
+
+// leadIsAssigned splits the generated leads in half: the assigned ones get
+// the company's owner, the rest are left unassigned for somebody to claim.
+//
+// The split is by RANK, not by hash. A hash only promises "about half", and
+// on the 45 domains that actually carry a generated lead every salt tried
+// landed on 62/38 — a sample this small scatters. Taking every other domain
+// gives exactly half.
+func leadIsAssigned(rank int) bool {
+	return rank%2 == 0
+}
+
+// leadAssignRank ranks every lead-bearing domain in the plan, so which half a
+// lead falls in is a property of the DOMAIN rather than of the run.
+//
+// Ranking over the WHOLE plan is the point. An earlier version counted
+// positions as the seeding loop walked them, which made the split depend on
+// run history: `-limit N` plans a truncated company set, and a domain whose
+// organization happens to be missing is skipped, so adding or removing an odd
+// number of lead-bearing domains ahead of D flipped D into the other half.
+// Leads already on file are never moved, so that left an installation's split
+// depending on the order its runs happened in. The plan is the same on every
+// run, so a rank taken from it is too.
+func leadAssignRank(plan map[string]profile) map[string]int {
+	rank := make(map[string]int, len(plan))
+	n := 0
+	for _, domain := range sortedDomains(plan) {
+		p := plan[domain]
+		if p.Pinned || p.LeadState == "" {
+			continue
+		}
+		rank[domain] = n
+		n++
+	}
+	return rank
 }
 
 // sortedDomains gives the plan a stable iteration order. Map order is random
