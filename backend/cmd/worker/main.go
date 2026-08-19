@@ -117,7 +117,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	defer observe.Stop()
 
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context (cmd/api resolves the same path under the same waiver)
-	modelPath, boundModels, err := selectModelPath(workerModelPathSpec(cfg, deployCfg), pool, logger)
+	modelPath, boundModels, err := selectModelPath(ctx, workerModelPathSpec(cfg, deployCfg), pool, logger)
 	if err != nil {
 		return err
 	}

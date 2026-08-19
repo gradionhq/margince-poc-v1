@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/installseam"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -44,6 +45,7 @@ var settingsDefinitions = sync.OnceValue(func() []settings.Definition {
 	identity.BaseCurrency.WithFreeze(deals.BaseCurrencyFreeze(identity.BaseCurrency.Key()))
 
 	var defs []settings.Definition
+	defs = append(defs, ai.Definitions()...)
 	defs = append(defs, capture.Definitions()...)
 	defs = append(defs, identity.Definitions()...)
 	defs = append(defs, people.Definitions()...)

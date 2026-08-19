@@ -20,7 +20,7 @@ import (
 // touches the store construction wraps. The router itself does no I/O
 // until a call is served.
 func TestNewModelPathExposesCacheInvalidation(t *testing.T) {
-	path, err := NewModelPath(ai.FakeRoutingConfig(), nil, false, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	path, err := NewModelPath(context.Background(), ai.FakeRoutingConfig(), nil, false, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewModelPath: %v", err)
 	}

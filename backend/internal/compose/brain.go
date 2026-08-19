@@ -139,12 +139,12 @@ func (m ModelPath) WithAgentTokenSpend(spend ai.AgentTokenSpender) ModelPath {
 // routing config. capturePayloads and log ride straight into the
 // router's ai_call tracing (ai.NewRouter) — the deployment's
 // AI.CapturePayloads posture and the process logger, never a stand-in.
-func NewModelPath(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (ModelPath, error) {
+func NewModelPath(ctx context.Context, cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (ModelPath, error) {
 	router, err := ai.NewRouter(cfg, ai.NewMeter(InstallationDB(pool)), NewSeatBudget(pool), ai.NewCallMeter(InstallationDB(pool)), capturePayloads, log)
 	if err != nil {
 		return ModelPath{}, err
 	}
-	if err := seedEmbedBinding(context.Background(), search.NewStore(InstallationDB(pool)), router, log); err != nil {
+	if err := seedEmbedBinding(ctx, search.NewStore(InstallationDB(pool)), router, log); err != nil {
 		return ModelPath{}, err
 	}
 	return modelPathForRouter(router, newCompanyContextProvider(people.NewStore(InstallationDB(pool)))), nil

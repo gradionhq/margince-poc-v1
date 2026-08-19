@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -25,13 +26,17 @@ type modelPathSpec struct {
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without
 // a declared model; nothing is picked silently.
-func selectModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
+func selectModelPath(ctx context.Context, spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
+	// The stored binding, seeded from the routing file when this installation
+	// has none yet. Resolved before the switch rather than inside an arm,
+	// because "is a model bound" is now a question about the installation and
+	// not about whether this process was handed a --ai-routing path.
+	cfg, err := compose.ResolveRouting(ctx, pool, spec.routingPath, config.FromOS, log)
+	if err != nil {
+		return compose.ModelPath{}, nil, err
+	}
 	switch {
-	case spec.routingPath != "":
-		cfg, err := ai.LoadRoutingFile(spec.routingPath, config.FromOS)
-		if err != nil {
-			return compose.ModelPath{}, nil, err
-		}
+	case !cfg.Unconfigured():
 		// A task whose whole fallback ladder has no bound tier is not a
 		// boot error (a deployment may legitimately not run every
 		// workload), but it must be loud: log it now, not discover it
@@ -42,7 +47,7 @@ func selectModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (
 		// The bound model ids travel with the path because they describe the
 		// SAME binding: the cost refresh narrows a provider catalog to the
 		// models this deployment actually calls.
-		return modelPathWithBoundModels(cfg, pool, spec.capturePayloads, log)
+		return modelPathWithBoundModels(ctx, cfg, pool, spec.capturePayloads, log)
 	case spec.fake:
 		// A real ModelPath over ai.FakeRoutingConfig() rather than
 		// FakeModelPath's direct client wiring: the worker always has a
@@ -52,7 +57,7 @@ func selectModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (
 		// still names the deployment's own posture — cmd/api's
 		// resolveModelPath honors it on this same arm, and two process
 		// roles must never disagree on whether content capture is on.
-		return modelPathWithBoundModels(ai.FakeRoutingConfig(), pool, spec.capturePayloads, log)
+		return modelPathWithBoundModels(ctx, ai.FakeRoutingConfig(), pool, spec.capturePayloads, log)
 	default:
 		return compose.ModelPath{}, nil, nil
 	}
@@ -60,7 +65,7 @@ func selectModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (
 
 // modelPathWithBoundModels assembles the path and reports which models the SAME
 // binding names, so the two can never describe different routing configs.
-func modelPathWithBoundModels(cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
-	path, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
+func modelPathWithBoundModels(ctx context.Context, cfg ai.RoutingConfig, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (compose.ModelPath, map[string]map[string]bool, error) {
+	path, err := compose.NewModelPath(ctx, cfg, pool, capturePayloads, log)
 	return path, cfg.BoundModelIDsByProvider(), err
 }

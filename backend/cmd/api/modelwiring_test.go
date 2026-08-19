@@ -15,6 +15,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
 func discardLogger() *slog.Logger {
@@ -32,7 +34,7 @@ func discardLogger() *slog.Logger {
 // case: no declared routing file and no --ai-fake resolves to a nil
 // path and the unconfigured state, never a silent default provider.
 func TestResolveModelPathNeitherFlagIsUnconfigured(t *testing.T) {
-	modelPath, state, profile, _, err := resolveModelPath(modelPathSpec{}, nil, discardLogger())
+	modelPath, state, profile, _, err := modelPathFor(context.Background(), ai.RoutingConfig{}, modelPathSpec{}, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +55,7 @@ func TestResolveModelPathNeitherFlagIsUnconfigured(t *testing.T) {
 // uses) rather than bypassing the Router — every lane must be non-nil,
 // or a consumer wired against it would nil-panic on first use.
 func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
-	modelPath, state, profile, _, err := resolveModelPath(modelPathSpec{fakeBrain: true}, nil, discardLogger())
+	modelPath, state, profile, _, err := modelPathFor(context.Background(), ai.RoutingConfig{}, modelPathSpec{fakeBrain: true}, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -94,8 +96,11 @@ func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
 // lanes bound — over an offline (provider: fake) routing file, so the
 // test needs no external credential or network access.
 func TestResolveModelPathRoutingFileArmBindsEveryLane(t *testing.T) {
-	path := writeFakeRoutingFile(t)
-	modelPath, state, profile, _, err := resolveModelPath(modelPathSpec{routingPath: path}, nil, discardLogger())
+	cfg, err := ai.LoadRoutingFile(writeFakeRoutingFile(t), nil)
+	if err != nil {
+		t.Fatalf("loading the offline routing file: %v", err)
+	}
+	modelPath, state, profile, _, err := modelPathFor(context.Background(), cfg, modelPathSpec{}, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -113,11 +118,15 @@ func TestResolveModelPathRoutingFileArmBindsEveryLane(t *testing.T) {
 	}
 }
 
-// TestResolveModelPathRoutingFileArmSurfacesLoadError proves a bad
-// --ai-routing path fails the boot rather than silently falling back to
-// unconfigured or fake.
-func TestResolveModelPathRoutingFileArmSurfacesLoadError(t *testing.T) {
-	_, _, _, _, err := resolveModelPath(modelPathSpec{routingPath: filepath.Join(t.TempDir(), "does-not-exist.yaml")}, nil, discardLogger())
+// TestSeedingRoutingFileSurfacesLoadError proves a bad --ai-routing path is an
+// error rather than a silent fall back to unconfigured or fake.
+//
+// The file is now read in ONE place — compose.ResolveRouting, when an
+// installation has no stored binding yet — so this pins the load itself, and
+// the boot-level consequence (that the error reaches the caller and stops the
+// boot) is proved against a real database in the compose integration suite.
+func TestSeedingRoutingFileSurfacesLoadError(t *testing.T) {
+	_, err := ai.LoadRoutingFile(filepath.Join(t.TempDir(), "does-not-exist.yaml"), nil)
 	if err == nil {
 		t.Fatal("expected an error for a missing routing file, got nil")
 	}
@@ -131,7 +140,7 @@ func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
 	if got := coldStartOptions(nil, ""); got != nil {
 		t.Fatalf("coldStartOptions(nil) = %d options, want 0", len(got))
 	}
-	modelPath, _, _, _, err := resolveModelPath(modelPathSpec{fakeBrain: true}, nil, discardLogger())
+	modelPath, _, _, _, err := modelPathFor(context.Background(), ai.RoutingConfig{}, modelPathSpec{fakeBrain: true}, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}
@@ -149,7 +158,7 @@ func TestOfferDraftOptionsRespectsResolvedPath(t *testing.T) {
 	if got := offerDraftOptions(nil, nil); got != nil {
 		t.Fatalf("offerDraftOptions(nil) = %d options, want 0", len(got))
 	}
-	modelPath, _, _, _, err := resolveModelPath(modelPathSpec{fakeBrain: true}, nil, discardLogger())
+	modelPath, _, _, _, err := modelPathFor(context.Background(), ai.RoutingConfig{}, modelPathSpec{fakeBrain: true}, nil, discardLogger())
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}

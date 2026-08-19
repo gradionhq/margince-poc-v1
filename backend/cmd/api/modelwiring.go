@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -58,13 +59,25 @@ func modelPathSpecFrom(cfg apiConfig, deployCfg deployconfig.Config) modelPathSp
 	}
 }
 
-func resolveModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
+func resolveModelPath(ctx context.Context, spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
+	// WHERE the binding comes from is a question about the installation, and
+	// answering it needs the database. Which surfaces that binding lights up is
+	// a question about this process. They are separated so the second stays
+	// answerable without a database — the wiring switch is what a unit test can
+	// pin, and it is where a silently-picked default would hide.
+	cfg, err := compose.ResolveRouting(ctx, pool, spec.routingPath, config.FromOS, log)
+	if err != nil {
+		return nil, "", ai.PublicProfile{}, "", err
+	}
+	return modelPathFor(ctx, cfg, spec, pool, log)
+}
+
+// modelPathFor wires the surfaces a resolved binding lights up: the declared
+// path for a bound installation, the offline fake behind an explicit dev flag,
+// or the honest-absent posture. Nothing is picked silently.
+func modelPathFor(ctx context.Context, cfg ai.RoutingConfig, spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
 	switch {
-	case spec.routingPath != "":
-		cfg, err := ai.LoadRoutingFile(spec.routingPath, config.FromOS)
-		if err != nil {
-			return nil, "", ai.PublicProfile{}, "", err
-		}
+	case !cfg.Unconfigured():
 		// A task whose whole fallback ladder has no bound tier is not a
 		// boot error (a deployment may legitimately not run every
 		// workload), but it must be loud: log it now, not discover it
@@ -72,15 +85,15 @@ func resolveModelPath(spec modelPathSpec, pool *pgxpool.Pool, log *slog.Logger) 
 		for _, w := range cfg.UnboundLadderWarnings() {
 			log.Warn(w)
 		}
-		modelPath, err := compose.NewModelPath(cfg, pool, spec.capturePayloads, log)
+		modelPath, err := compose.NewModelPath(ctx, cfg, pool, spec.capturePayloads, log)
 		if err != nil {
 			return nil, "", ai.PublicProfile{}, "", err
 		}
 		return &modelPath, compose.AIStateConfigured,
 			ai.NewPublicProfile(compose.AIStateConfigured, cfg), routingVersionOf(cfg), nil
 	case spec.fakeBrain:
-		cfg := ai.FakeRoutingConfig()
-		modelPath, err := compose.NewModelPath(cfg, pool, spec.capturePayloads, log)
+		cfg = ai.FakeRoutingConfig()
+		modelPath, err := compose.NewModelPath(ctx, cfg, pool, spec.capturePayloads, log)
 		if err != nil {
 			return nil, "", ai.PublicProfile{}, "", err
 		}

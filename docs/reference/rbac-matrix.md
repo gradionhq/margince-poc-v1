@@ -62,6 +62,7 @@ the workspace but changes none of them.
 |---|---|---|---|---|---|---|
 | `activity` | CRUD | CRUD | CRUD | CRU- | -R-- | CRUD |
 | `ai_model_rate` | CRU- | ---- | ---- | ---- | ---- | CRU- |
+| `ai_routing` | -RU- | ---- | ---- | ---- | ---- | -RU- |
 | `automation` | CRUD | -R-- | -R-- | -R-- | -R-- | CRUD |
 | `capture_settings` | CRU- | CR-- | CR-- | CR-- | -R-- | CRU- |
 | `capture_trace` | -R-- | -R-- | -R-- | ---- | ---- | -R-- |
