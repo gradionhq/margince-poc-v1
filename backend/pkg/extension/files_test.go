@@ -78,7 +78,7 @@ func TestSafeFilenameRemovesPathControlAndBidiCharacters(t *testing.T) {
 		{"a name that is only dots is named by position", "...", "attachment-3"},
 		{"empty is named by position", "", "attachment-3"},
 		{"whitespace only is named by position", "   ", "attachment-3"},
-		{"right-to-left override that fakes an extension", "invoice‮gpj.exe", "invoicegpj.exe"},
+		{"right-to-left override that fakes an extension", "invoice\u202egpj.exe", "invoicegpj.exe"},
 		{"a newline cannot rewrite a log line", "note\ninjected", "noteinjected"},
 		{"a header injection attempt", "invoice\r\nX-Injected: yes.pdf", "invoiceX-Injected: yes.pdf"},
 		{"separators only is named by position", "/////", "attachment-3"},

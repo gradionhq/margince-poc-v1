@@ -53,9 +53,14 @@ var waivedEnvelopeFields = gatekit.Waive(map[string]string{
 	"Links": "deliberately absent — a record naming the core rows it attaches to would make the link-visibility probe a per-row existence oracle over the scope the ingest runs under. " +
 		"What a message is about is decided by the core's counterparty resolution",
 	"Participants": "the further parties beyond the two ends. Addresses already carries every party the internal-only gate needs, and a unit reporting attendee structure has no consumer today",
-	"Parts":        "attachments. A unit's provider bytes never reach the file keeper: the bounded, renamed, content-typed parser is mail capture's, and there is no published path to it",
-	"PartDrops":    "the breadcrumb for refused attachments, which cannot exist while Parts does not",
-	"Fields":       "the envelope's `any`. The published surface is typed instead — Record.Activity — so a unit cannot hand the sink a shape it does not switch on",
+	"Parts": "attachments. The published path EXISTS now (extension.InboundFile plus the " +
+		"published sniff/sanitize pair and the four published inbound bounds), so this is no " +
+		"longer a capability gap — it is a deliberate hold: the field lands in the PR of the " +
+		"first unit that fills it, because a published frozen field with no caller freezes a " +
+		"shape no unit has exercised (#1195)",
+	"PartDrops": "the breadcrumb for refused attachments, held with Parts for the same reason " +
+		"and landing in the same PR — a drop cannot exist while what it accounts for does not",
+	"Fields": "the envelope's `any`. The published surface is typed instead — Record.Activity — so a unit cannot hand the sink a shape it does not switch on",
 })
 
 // TestThePublishedRecordMirrorsTheCaptureEnvelope walks the core envelope and
