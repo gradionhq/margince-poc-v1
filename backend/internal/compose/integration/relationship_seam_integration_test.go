@@ -188,6 +188,44 @@ func TestAnEmploymentEdgeLivesItsWholeLifeThroughTheToolSurface(t *testing.T) {
 	}
 }
 
+// The tri-state reaches the tool surface, or it is a rule only REST has. An
+// agent calling create_record sends `fields` as JSON, and an omitted key has to
+// survive StrictDecode into a nil *bool — a seam that defaulted it to false
+// would make a person's only employer unmarked over MCP while REST marked it,
+// and both halves would look correct in isolation.
+//
+// Sending it explicitly is the other half: the store decides only for a caller
+// who said nothing, and a tool that could not say false would have no way to
+// record a job somebody holds without claiming it is their main one.
+func TestTheToolSurfaceCanBothOmitAndStateTheCurrentPrimaryFlag(t *testing.T) {
+	e := Setup(t)
+	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
+	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
+	person, org := seedEndpointPair(ctx, t, e, "Ida Omitted", "Only Employer GmbH")
+
+	_, derived := createEmployment(ctx, t, registry, person, org, "")
+	if !primaryFlag(t, derived) {
+		t.Error("is_current_primary came back false with the key omitted — their only employment is their primary one")
+	}
+
+	other, secondOrg := seedEndpointPair(ctx, t, e, "Ida Stated", "Side Job GmbH")
+	_, stated := createEmployment(ctx, t, registry, other, secondOrg, `,"is_current_primary":false`)
+	if primaryFlag(t, stated) {
+		t.Error("is_current_primary came back true with false sent explicitly — the store overrode what the caller stated")
+	}
+}
+
+// primaryFlag reads the flag the surface answered with. Absent is a failure of
+// its own: the contract declares the field on every relationship, so a missing
+// one is a wire-mapping fault, not a false.
+func primaryFlag(t *testing.T, fields edgeFields) bool {
+	t.Helper()
+	if fields.IsCurrentPrimary == nil {
+		t.Fatalf("the edge answered without is_current_primary at all: %+v", fields)
+	}
+	return *fields.IsCurrentPrimary
+}
+
 func TestAnEdgeIsInvisibleWhenEitherEndpointIsOutOfTheCallersRowScope(t *testing.T) {
 	e := Setup(t)
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
