@@ -246,7 +246,13 @@ func (w *extJobWorkspaceWorker) Work(ctx context.Context, job *river.Job[extJobW
 	// class. A class is honoured only when it is exactly one this installation
 	// registered for this kind; see jobs.FaultForKind for why the write path
 	// verifies rather than trusts.
-	return jobs.FaultForKind(ctx, w.decl.ChildKind(), w.tick(wsCtx))
+	//
+	// On wsCtx rather than ctx, and that matters more now than it did: the
+	// substitute sentences send an operator to the process log, and the log line
+	// is written from this context. wsCtx carries the workspace and the
+	// correlation id minted above; ctx carries neither, so the one line naming
+	// what actually failed would be the one line nobody could tie to the tick.
+	return jobs.FaultForKind(wsCtx, w.decl.ChildKind(), w.tick(wsCtx))
 }
 
 // deriveAuthority re-reads the recorded principal AT EXECUTION and refuses when

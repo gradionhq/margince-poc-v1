@@ -83,13 +83,21 @@ func TestTheDeclaredSetIsExactlyWhatThePollCanReturn(t *testing.T) {
 	for _, class := range failureClasses {
 		declared[class] = true
 	}
+	produced := make(map[extension.FailureClass]bool, len(returnable))
 	for _, class := range returnable {
+		produced[class] = true
 		if !declared[class] {
-			t.Fatalf("the poll can return %q, which is not in the declared set", class.Class)
+			t.Errorf("failureClass can produce %q, which is not in the declared set", class.Class)
 		}
 	}
-	if len(returnable) != len(failureClasses) {
-		t.Fatalf("the poll returns %d classes and the unit declares %d — one of them is a class no operator will ever be shown or a promise nothing keeps", len(returnable), len(failureClasses))
+	// BOTH DIRECTIONS, because equal lengths prove neither on their own: two
+	// causes collapsing onto one class would leave a declared class nothing can
+	// produce while every count still matched, and that class is a remedy shown
+	// to nobody.
+	for _, class := range failureClasses {
+		if !produced[class] {
+			t.Errorf("%q is declared and nothing produces it — a class no failure can reach is a promise to an operator that nothing keeps", class.Class)
+		}
 	}
 }
 

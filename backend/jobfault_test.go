@@ -58,7 +58,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 						continue
 					}
 					pos := fset.Position(result.Pos())
-					t.Errorf("%s:%d: a worker return must be nil, jobs.Fault(...), or a river control return — a raw cause is written verbatim into river_job.errors",
+					t.Errorf("%s:%d: a worker return must be nil, jobs.Fault/FaultContext/FaultForKind(...), or a river control return — a raw cause is written verbatim into river_job.errors",
 						pos.Filename, pos.Line)
 				}
 			}
@@ -73,7 +73,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 					continue
 				}
 				pos := fset.Position(assigned.Pos())
-				t.Errorf("%s:%d: an assignment to a worker's named error result must be nil, jobs.Fault(...), or a river control return — it reaches river_job.errors exactly as a return does",
+				t.Errorf("%s:%d: an assignment to a worker's named error result must be nil, jobs.Fault/FaultContext/FaultForKind(...), or a river control return — it reaches river_job.errors exactly as a return does",
 					pos.Filename, pos.Line)
 			}
 			// The log-and-return-nil shape is the defect this phase removes,

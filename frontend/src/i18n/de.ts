@@ -2301,7 +2301,7 @@ export const de = {
   "jobs.jobId": "Job {id}",
   "jobs.failingSince": "fehlerhaft seit {when}",
   "jobs.reasonVetted":
-    "Grund, Klasse und Abhilfe sind jeweils die Formulierung der Job-Schicht selbst, nie die Rohursache des Workers. Ein Fehler, den sie nicht formulieren kann, meldet einen festen Ersatztext und trägt gar keine Klasse — eine für ungeprüften Text erfundene Klasse würde deine Alarme auf eine Vermutung stützen.",
+    "Grund, Klasse und Abhilfe werden jeweils von der Job-Schicht selbst formuliert, nie aus der Rohursache des Workers. Kann sie einen Fehler nicht formulieren, meldet sie einen festen Ersatztext und gar keine Klasse. Eine für ungeprüften Text erfundene Klasse würde deine Alarme auf eine Vermutung stützen.",
   "jobs.generatedAt": "Gelesen um {time}",
 
   "audit.you": "Du",

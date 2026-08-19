@@ -33,10 +33,16 @@ func TestADeclaredVocabularyIsRegisteredForBothTheDispatcherAndTheChildKind(t *t
 	unit := unitWithJob("refresh", noopTick)
 	unit.FailureClasses = []extension.FailureClass{providerUnavailable}
 
+	// The restore is registered BEFORE the call, not after it. RegisterExtensions
+	// applies the jurisdiction packs, the RBAC objects and the composed kind table
+	// before it reaches the failure vocabulary, so an error return is not a no-op
+	// — the process tables are already dirty. Registering the cleanup after a
+	// t.Fatalf that never runs would leave every later test in this binary reading
+	// an installation it did not compose.
+	restoreVanillaComposedTables(t)
 	if err := RegisterExtensions([]extension.Extension{unit}, nil, []extension.JobDeclaration{decl}); err != nil {
 		t.Fatalf("RegisterExtensions: %v", err)
 	}
-	restoreVanillaComposedTables(t)
 
 	for _, kind := range []string{decl.DispatcherKind(), decl.ChildKind()} {
 		declared := jobs.ComposedFailureClasses(kind)
@@ -56,12 +62,13 @@ func TestADeclaredVocabularyIsRegisteredForBothTheDispatcherAndTheChildKind(t *t
 // not.
 func TestADeclaredClassRendersItsSentenceClassAndRemedyForItsOwnKindOnly(t *testing.T) {
 	const mine, theirs = "ext_demo_refresh_workspace", "ext_other_sweep_workspace"
+	// Registered before the call, for the reason the test above states.
+	restoreVanillaComposedTables(t)
 	if err := jobs.RegisterComposedFailureClasses(map[string][]extension.FailureClass{
 		mine: {providerUnavailable},
 	}); err != nil {
 		t.Fatalf("RegisterComposedFailureClasses: %v", err)
 	}
-	restoreVanillaComposedTables(t)
 
 	rendered := renderFailure(jobs.Failure{Kind: mine, StoredReason: providerUnavailable.Sentence})
 	if rendered.Reason != providerUnavailable.Sentence {

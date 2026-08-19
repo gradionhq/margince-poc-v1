@@ -198,7 +198,12 @@ describe("JobHealthCard", () => {
     expect(note.textContent).toContain("job 4711");
     // Failing SINCE, which the attempt counter cannot say: rung 2 of 5 is the
     // same reading whether the first failure was a minute or a day ago.
-    expect(note.textContent).toMatch(/failing since/);
+    //
+    // The formatted VALUE, not just the label. Matching the label alone passes
+    // when the renderer interpolates nothing, which is the same dangling
+    // "failing since" this screen is careful everywhere else not to draw. The
+    // year is the stable part across locales; the fixture's is 2026-08-13.
+    expect(note.textContent).toMatch(/failing since .*2026/);
   });
 
   it("asserts no class, no remedy and no span for a failure nobody could vet", async () => {
@@ -264,7 +269,9 @@ describe("JobHealthCard", () => {
     // must lose the label with the value rather than print a bare "job".
     const note = await screen.findByText(/attempt 2 of 5/);
     expect(note.textContent).not.toMatch(/job\b/);
-    expect(note.textContent).toMatch(/failing since/);
+    // The span still renders with its value: dropping the id must cost the id
+    // and nothing standing next to it.
+    expect(note.textContent).toMatch(/failing since .*2026/);
   });
 
   it("gives a dead job the danger treatment and says what it means", async () => {
