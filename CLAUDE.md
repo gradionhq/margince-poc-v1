@@ -284,7 +284,7 @@ a working note, or a screenshot, and leave it out:
 `/scratchpad/`), but the rule is yours to keep — a new debris path it doesn't
 yet list must still stay out, and be added to `.gitignore` when you spot it.
 
-## Layout (spec ADR-0054/A69 as amended: four `cmd/<role>` binaries + the §9 single-tx exception)
+## Layout (ADR-0054: the modules/platform/shared triad, three `cmd/<role>` binaries)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is
 `shared → platform → modules → compose → cmd`, enforced three ways
@@ -442,8 +442,8 @@ your push.
   — a long scenario test that sets up, acts and asserts once is not the
   god-function smell, but a suite still splits when it stops being navigable.
   A comment-only line is not length: the ceiling asks how much a reader must hold
-  at once and an explanation reduces that, which is also what keeps this check
-  agreeing with golangci's `funlen` (configured here `ignore-comments`).
+  at once, and an explanation reduces that. The whole-tree file-length check in
+  `scripts/check-go-file-length.sh` counts the same way.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 

@@ -234,7 +234,7 @@ a working note, or a screenshot, and leave it out:
 `/scratchpad/`), but the rule is yours to keep — a new debris path it doesn't
 yet list must still stay out, and be added to `.gitignore` when you spot it.
 
-## Layout (spec ADR-0054/A69 as amended: four `cmd/<role>` binaries + the §9 single-tx exception)
+## Layout (ADR-0054: the modules/platform/shared triad, three `cmd/<role>` binaries)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is
 `shared → platform → modules → compose → cmd`, enforced three ways
@@ -422,9 +422,9 @@ function you add will block your push.
   `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
   80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
-  A comment-only line is not length: the ceiling asks how much a reader must
-  hold at once, and an explanation reduces that. This is also what keeps the
-  check agreeing with golangci's `funlen`, configured here `ignore-comments`.
+  A comment-only line is not length: the ceiling asks how much a reader must hold
+  at once, and an explanation reduces that. The whole-tree file-length check in
+  `scripts/check-go-file-length.sh` counts the same way.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 
