@@ -89,8 +89,8 @@ func TestSelectablePassportsExcludesEveryUnlendableShape(t *testing.T) {
 	bound := o.mintPassport(t, "bound", []string{"read"})
 	if _, err := o.Owner.Exec(ctx,
 		`WITH new_grant AS (
-		   INSERT INTO oauth_grant (workspace_id, client_id, user_id, scopes, refresh_allowed)
-		   SELECT workspace_id, $2, on_behalf_of, ARRAY['read']::text[], false
+		   INSERT INTO oauth_grant (client_id, user_id, scopes, refresh_allowed)
+		   SELECT $2, on_behalf_of, ARRAY['read']::text[], false
 		   FROM passport WHERE id = $1 RETURNING id)
 		 UPDATE passport SET oauth_grant_id = new_grant.id
 		 FROM new_grant WHERE passport.id = $1`, bound, o.clientID); err != nil {
@@ -184,8 +184,8 @@ func TestSelectablePassportsExcludesAnotherUsersPassport(t *testing.T) {
 		t.Fatalf("inviting a second user → %d", status)
 	}
 	if _, err := o.Owner.Exec(ctx,
-		`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
-		 SELECT workspace_id, id, id, 'not mine', ARRAY['read']::text[], 'other-user-'||id, now() + interval '1 day'
+		`INSERT INTO passport (on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+		 SELECT id, id, 'not mine', ARRAY['read']::text[], 'other-user-'||id, now() + interval '1 day'
 		 FROM app_user WHERE id = $1`, other.ID); err != nil {
 		t.Fatalf("minting a passport for the second user: %v", err)
 	}
@@ -209,9 +209,8 @@ func registerClientDirectly(t *testing.T, e *apptest.AppEnv, clientID string) {
 		t.Fatalf("looking up the workspace: %v", err)
 	}
 	if _, err := e.Owner.Exec(ctx,
-		`INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-		 VALUES ($1, $2, 'directly registered', ARRAY['https://client.example/cb']::text[])`,
-		wsID, clientID); err != nil {
+		`INSERT INTO oauth_client (client_id, client_name, redirect_uris)
+		 VALUES ($1, 'directly registered', ARRAY['https://client.example/cb']::text[])`, clientID); err != nil {
 		t.Fatalf("inserting a live oauth_client row: %v", err)
 	}
 }

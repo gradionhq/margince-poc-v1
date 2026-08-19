@@ -321,7 +321,7 @@ func passwordResetOptions(deployCfg deployconfig.Config, publicBaseURL string, s
 	if publicBaseURL == "" {
 		return nil, errors.New("api: email.enabled requires --public-base-url/MARGINCE_PUBLIC_BASE_URL (the reset link's canonical base)")
 	}
-	smtpPassword, err := deployCfg.Email.SMTPPassword()
+	smtpPassword, err := deployCfg.Email.SMTPPassword(config.FromOS)
 	if err != nil {
 		return nil, err
 	}

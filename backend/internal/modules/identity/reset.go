@@ -229,9 +229,9 @@ func (s *Service) CreatePasswordReset(ctx context.Context, email string) (string
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO auth_token (workspace_id, user_id, purpose, token_hash, expires_at)
-			 VALUES ($1, $2, 'password_reset', $3, now() + $4::interval)`,
-			wsID, userID, tokenHash, resetTokenTTL.String()); err != nil {
+			`INSERT INTO auth_token (user_id, purpose, token_hash, expires_at)
+			 VALUES ($1, 'password_reset', $2, now() + $3::interval)`,
+			userID, tokenHash, resetTokenTTL.String()); err != nil {
 			return err
 		}
 		minted = true

@@ -231,15 +231,14 @@ func grantOfPresentedToken(ctx context.Context, tx pgx.Tx, tokenHash string) (id
 func lockPresentedRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string) (lockedGrant, error) {
 	var l lockedGrant
 	err := tx.QueryRow(ctx, `
-		SELECT r.id, r.consumed_at, r.expires_at, r.replaced_by, r.workspace_id,
+		SELECT r.id, r.consumed_at, r.expires_at, r.replaced_by, u.workspace_id,
 		       g.id, g.user_id, g.client_id, g.scopes, g.resource, g.revoked_at, g.refresh_allowed,
 		       c.disabled_at, c.deleted_at, u.status, u.archived_at
 		  FROM oauth_refresh_token r
-		  JOIN oauth_grant  g ON (g.workspace_id, g.id)        = (r.workspace_id, r.grant_id)
-		  JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)
-		  JOIN app_user     u ON (u.workspace_id, u.id)        = (g.workspace_id, g.user_id)
-		 WHERE r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND r.token_hash = $1
+		  JOIN oauth_grant  g ON g.id        = r.grant_id
+		  JOIN oauth_client c ON c.client_id = g.client_id
+		  JOIN app_user     u ON u.id        = g.user_id
+		 WHERE r.token_hash = $1
 		   FOR UPDATE OF r, g`,
 		tokenHash).Scan(&l.tokenID, &l.consumedAt, &l.expiresAt, &l.replacedBy, &l.workspaceID,
 		&l.grantID, &l.userID, &l.clientID, &l.scopes, &l.resource, &l.grantRevokedAt, &l.refreshAllowed,
@@ -356,10 +355,10 @@ func spendAndReissue(ctx context.Context, tx pgx.Tx, l lockedGrant, scopes []str
 	// The renewal window slides: a connection that keeps renewing never has
 	// to bring the human back, which is what the human approved.
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO oauth_refresh_token (workspace_id, grant_id, token_hash, expires_at)
-		VALUES ($1, $2, $3, now() + $4::interval)
+		INSERT INTO oauth_refresh_token (grant_id, token_hash, expires_at)
+		VALUES ($1, $2, now() + $3::interval)
 		RETURNING id`,
-		l.workspaceID, l.grantID, hashToken(refresh), refreshTokenTTL.String()).Scan(&successorID); err != nil {
+		l.grantID, hashToken(refresh), refreshTokenTTL.String()).Scan(&successorID); err != nil {
 		return IssuedPassport{}, "", err
 	}
 	// The forward link is application-maintained (replaced_by carries no FK)

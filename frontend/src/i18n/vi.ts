@@ -2157,8 +2157,11 @@ export const vi = {
   "jobs.state.discarded": "đã loại bỏ",
   "jobs.state.cancelled": "đã huỷ",
   "jobs.attempt": "lần thử {attempt} trên {max} · {when}",
+  "jobs.remedy": "Cần làm: {remedy}",
+  "jobs.jobId": "mã tác vụ {id}",
+  "jobs.failingSince": "lỗi từ {when}",
   "jobs.reasonVetted":
-    "Mỗi lý do là câu chữ của chính tầng tác vụ. Nguyên nhân thô từ worker không bao giờ được gửi tới đây, nên một lỗi mà tầng đó không diễn đạt được sẽ báo bằng một câu thay thế cố định.",
+    "Lý do, lớp lỗi và cách xử lý đều là câu chữ của chính tầng tác vụ, không bao giờ là nguyên nhân thô từ worker. Một lỗi mà tầng đó không diễn đạt được sẽ báo bằng câu thay thế cố định và không mang lớp lỗi nào. Một lớp lỗi được đặt ra cho văn bản chưa kiểm chứng sẽ khiến cảnh báo của bạn dựa trên phỏng đoán.",
   "jobs.generatedAt": "Đọc lúc {time}",
 
   "audit.you": "Bạn",
@@ -5066,4 +5069,42 @@ export const vi = {
   "provider.profile.seniorities": "Cấp bậc",
   "provider.profile.notRequested":
     "Không hỏi tới: {categories}. Chỗ trống ở đây nghĩa là không ai mua, chứ không phải nhà cung cấp không có.",
+
+  // Tr\u00ecnh d\u1ee5ng b\u1ed9 l\u1ecdc (AC-filters-and-views-3/4).
+  "filters.joinAll": "T\u1ea4T C\u1ea2 \u00b7 AND",
+  "filters.joinAny": "B\u1ea4T K\u1ef2 \u00b7 OR",
+  "filters.joinLabel":
+    "C\u00e1ch nh\u00f3m n\u00e0y k\u1ebft h\u1ee3p c\u00e1c \u0111i\u1ec1u ki\u1ec7n",
+  "filters.removeGroup": "X\u00f3a nh\u00f3m",
+  "filters.addGroup": "Th\u00eam nh\u00f3m",
+  "filters.addClause": "Th\u00eam \u0111i\u1ec1u ki\u1ec7n",
+  "filters.emptyGroup":
+    "Ch\u01b0a c\u00f3 \u0111i\u1ec1u ki\u1ec7n \u2014 nh\u00f3m tr\u1ed1ng kh\u00f4ng kh\u1edbp v\u1edbi g\u00ec, h\u00e3y th\u00eam m\u1ed9t \u0111i\u1ec1u ki\u1ec7n.",
+  "filters.field": "Tr\u01b0\u1eddng",
+  "filters.choosePlaceholder": "Ch\u1ecdn m\u1ed9t tr\u01b0\u1eddng",
+  "filters.customBadge": "tr\u01b0\u1eddng t\u00f9y ch\u1ec9nh",
+  "filters.operator": "To\u00e1n t\u1eed",
+  "filters.value": "Gi\u00e1 tr\u1ecb",
+  "filters.values": "C\u00e1c gi\u00e1 tr\u1ecb",
+  "filters.addValue": "Th\u00eam gi\u00e1 tr\u1ecb",
+  "filters.removeClause": "X\u00f3a \u0111i\u1ec1u ki\u1ec7n {field}",
+  "filters.existsLabel":
+    "Tr\u01b0\u1eddng n\u00e0y c\u00f3 gi\u00e1 tr\u1ecb hay kh\u00f4ng",
+  "filters.hasValue": "c\u00f3 gi\u00e1 tr\u1ecb",
+  "filters.isEmpty": "\u0111ang tr\u1ed1ng",
+  "filters.yes": "c\u00f3",
+  "filters.no": "kh\u00f4ng",
+  "filters.op.eq": "l\u00e0",
+  "filters.op.neq": "kh\u00f4ng l\u00e0",
+  "filters.op.in": "l\u00e0 m\u1ed9t trong",
+  "filters.op.contains": "ch\u1ee9a",
+  "filters.op.exists": "c\u00f3 gi\u00e1 tr\u1ecb",
+  "filters.op.afterDate": "sau ng\u00e0y",
+  "filters.op.onOrAfterDate": "v\u00e0o ho\u1eb7c sau ng\u00e0y",
+  "filters.op.beforeDate": "tr\u01b0\u1edbc ng\u00e0y",
+  "filters.op.onOrBeforeDate": "v\u00e0o ho\u1eb7c tr\u01b0\u1edbc ng\u00e0y",
+  "filters.op.moreThan": "l\u1edbn h\u01a1n",
+  "filters.op.atLeast": "\u00edt nh\u1ea5t l\u00e0",
+  "filters.op.lessThan": "nh\u1ecf h\u01a1n",
+  "filters.op.atMost": "nhi\u1ec1u nh\u1ea5t l\u00e0",
 } as const satisfies Record<MessageKey, string>;

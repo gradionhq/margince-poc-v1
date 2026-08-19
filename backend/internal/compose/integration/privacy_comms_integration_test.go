@@ -71,7 +71,7 @@ func seedMailRecipient(t *testing.T, e *Env) ids.UUID {
 		}
 		_, err := tx.Exec(ctx,
 			`INSERT INTO person_email (person_id, email, source, captured_by)
-			 VALUES ( $1, $2, 'manual', 'human:x')`, personID, mailRecipientEmail)
+			 VALUES ($1, $2, 'manual', 'human:x')`, personID, mailRecipientEmail)
 		return err
 	})
 	if err != nil {
@@ -125,7 +125,7 @@ func seedAddressedDelivery(t *testing.T, e *Env, age, subject, body, status stri
 		if !linkTo.IsZero() {
 			if _, err := tx.Exec(ctx,
 				`INSERT INTO activity_link (activity_id, entity_type, person_id)
-				 VALUES ( $1, 'person', $2)`, out.activity, linkTo); err != nil {
+				 VALUES ($1, 'person', $2)`, out.activity, linkTo); err != nil {
 				return err
 			}
 		}
@@ -386,7 +386,7 @@ func linkToHeldDeal(t *testing.T, e *Env, activityID ids.UUID) {
 	e.WsExec(t, `UPDATE deal SET legal_hold = true WHERE id = $1`, dealID)
 	e.WsExec(t,
 		`INSERT INTO activity_link (activity_id, entity_type, deal_id)
-		 VALUES ( $1, 'deal', $2)`,
+		 VALUES ($1, 'deal', $2)`,
 		activityID, dealID)
 }
 

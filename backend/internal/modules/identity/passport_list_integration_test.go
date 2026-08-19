@@ -141,23 +141,23 @@ func TestAPassportAndAGrantSharingAnIDAreStillTwoRows(t *testing.T) {
 
 	clientID := "client-" + ids.NewV7().String()
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-		VALUES ($1, $2, 'collision', ARRAY['https://client.example/cb'])`,
-		e.admin.WorkspaceID, clientID); err != nil {
+		INSERT INTO oauth_client (client_id, client_name, redirect_uris)
+		VALUES ($1, 'collision', ARRAY['https://client.example/cb'])`,
+		clientID); err != nil {
 		t.Fatalf("registering the client: %v", err)
 	}
 	// The grant takes the minted passport's id as its OWN id: the collision the
 	// grouping key has to survive.
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO oauth_grant (id, workspace_id, client_id, user_id, scopes, refresh_allowed)
-		VALUES ($1, $2, $3, $4, ARRAY['read']::text[], false)`,
-		minted, e.admin.WorkspaceID, clientID, e.admin.UserID); err != nil {
+		INSERT INTO oauth_grant (id, client_id, user_id, scopes, refresh_allowed)
+		VALUES ($1, $2, $3, ARRAY['read']::text[], false)`,
+		minted, clientID, e.admin.UserID); err != nil {
 		t.Fatalf("issuing the colliding grant: %v", err)
 	}
 	if _, err := e.owner.Exec(ctx, `
-		INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
-		VALUES ($1, $2, $2, 'oauth:collision', ARRAY['read']::text[], $3, now() + interval '30 days', $4)`,
-		e.admin.WorkspaceID, e.admin.UserID, "collision-hash-"+minted.String(), minted); err != nil {
+		INSERT INTO passport (on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		VALUES ($1, $1, 'oauth:collision', ARRAY['read']::text[], $2, now() + interval '30 days', $3)`,
+		e.admin.UserID, "collision-hash-"+minted.String(), minted); err != nil {
 		t.Fatalf("minting the connection's credential: %v", err)
 	}
 

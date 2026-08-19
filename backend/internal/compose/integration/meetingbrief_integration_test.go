@@ -173,7 +173,7 @@ func seatInRoom(t *testing.T, owner *pgx.Conn, ws, activity, person ids.UUID) {
 	t.Helper()
 	if _, err := owner.Exec(context.Background(),
 		`INSERT INTO activity_participant (activity_id, role, person_id)
-		 VALUES ( $1, 'attendee', $2)`, activity, person); err != nil {
+		 VALUES ($1, 'attendee', $2)`, activity, person); err != nil {
 		t.Fatalf("seating a participant: %v", err)
 	}
 }

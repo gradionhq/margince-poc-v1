@@ -287,10 +287,10 @@ func (p *preflightEnv) issuePassport(t *testing.T) ids.UUID {
 	id := ids.NewV7()
 	if err := apptest.InWorkspace(p.AppEnv, t, p.Slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
-			`INSERT INTO passport (id, workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
-			 VALUES ($1, (SELECT id FROM workspace WHERE slug = $2), $3, $3, 'scheduled-send probe',
-			         ARRAY['read','write'], $4, now() + interval '30 days')`,
-			id, p.Slug, uuidOf(t, p.user), "probe-"+id.String())
+			`INSERT INTO passport (id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+			 VALUES ($1, $2, $2, 'scheduled-send probe',
+			         ARRAY['read','write'], $3, now() + interval '30 days')`,
+			id, uuidOf(t, p.user), "probe-"+id.String())
 		return err
 	}); err != nil {
 		t.Fatalf("issuing a passport: %v", err)

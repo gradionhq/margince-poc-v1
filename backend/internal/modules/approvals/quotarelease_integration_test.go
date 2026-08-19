@@ -33,9 +33,9 @@ func (e *stagingEnv) asAgent(t *testing.T) context.Context {
 	// fabricated id would exercise a shape the database refuses.
 	passport := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO passport (id, workspace_id, on_behalf_of, granted_by, token_hash, scopes, expires_at)
-		VALUES ($1, $2, $3, $3, $4, ARRAY['read'], now() + interval '30 days')`,
-		passport, e.ws, e.rep, "hash-"+passport.String()); err != nil {
+		INSERT INTO passport (id, on_behalf_of, granted_by, token_hash, scopes, expires_at)
+		VALUES ($1, $2, $2, $3, ARRAY['read'], now() + interval '30 days')`,
+		passport, e.rep, "hash-"+passport.String()); err != nil {
 		t.Fatalf("seeding the lent passport: %v", err)
 	}
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)

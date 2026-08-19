@@ -59,7 +59,7 @@ func replacePersonSocial(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, p
 			continue
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO person_social (person_id, platform, handle) VALUES ( $1, $2, $3)`,
+			`INSERT INTO person_social (person_id, platform, handle) VALUES ($1, $2, $3)`,
 			personID, platform, text); err != nil {
 			return fmt.Errorf("insert person social row: %w", err)
 		}
@@ -99,7 +99,7 @@ func insertPersonEmails(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, pe
 	for _, e := range emails {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_email (person_id, email, email_type, is_primary, position, source, captured_by, from_correspondence)
-			 VALUES ( $1, lower($2), $3, $4, $5, $6, $7, $8)`,
+			 VALUES ($1, lower($2), $3, $4, $5, $6, $7, $8)`,
 			personID, e.Email, e.EmailType, e.IsPrimary, e.Position, source, by,
 			!e.VouchedNotCorresponded); err != nil {
 			if name, ok := storekit.UniqueViolation(err); ok {
@@ -119,7 +119,7 @@ func insertPersonPhones(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, pe
 	for _, p := range phones {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person_phone (person_id, phone, phone_type, is_primary, position, source, captured_by)
-			 VALUES ( $1, $2, $3, $4, $5, $6, $7)`,
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 			personID, p.Phone, p.PhoneType, p.IsPrimary, p.Position, source, by); err != nil {
 			return fmt.Errorf("insert person phone: %w", err)
 		}

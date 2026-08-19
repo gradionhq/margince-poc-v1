@@ -99,9 +99,31 @@ const HEALTH = {
       attempt: 2,
       max_attempts: 5,
       failed_at: "2026-08-13T09:20:00Z",
+      job_id: 4711,
+      first_failed_at: "2026-08-13T09:08:00Z",
+      failure_class: "provider_unavailable",
+      remedy:
+        "check the provider status page; the retry ladder rides out a brief outage",
       reason: "the model provider refused the request",
     },
   ],
+};
+
+// A failure whose stored text the job layer could not vet: it keeps the fixed
+// substitute sentence and asserts NO class, so neither a class nor a remedy is
+// on the wire. The endpoint nulls the pair together, which is why the tests
+// below drop both at once rather than one at a time.
+const UNCLASSIFIED = {
+  kind: "capture_classify",
+  state: "retryable",
+  attempt: 2,
+  max_attempts: 5,
+  failed_at: "2026-08-13T09:20:00Z",
+  job_id: 4711,
+  first_failed_at: null,
+  failure_class: null,
+  remedy: null,
+  reason: "the job failed for a reason it could not classify",
 };
 
 afterEach(() => {
@@ -155,6 +177,101 @@ describe("JobHealthCard", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/attempt 2 of 5/)).toBeInTheDocument();
     expect(screen.getByText(/job layer's own wording/i)).toBeInTheDocument();
+  });
+
+  it("names the class, the remedy, the row and how long it has been failing", async () => {
+    stubRoutes();
+    render(<JobHealthCard />);
+    // The class is the token an alert is keyed on and the log is grepped by, so
+    // it is rendered verbatim and mono — the same treatment as the kind — and
+    // never as a second status pill beside the state badge.
+    const shownClass = await screen.findByText("provider_unavailable");
+    expect(shownClass).toHaveClass("t-mono");
+    expect(shownClass).not.toHaveClass("badge");
+    // What to do about it, which is the half a failure list is useless without.
+    expect(
+      screen.getByText(/check the provider status page/),
+    ).toBeInTheDocument();
+    // River's own row id, ungrouped: "4,711" would not find the log line that
+    // carries job_id=4711.
+    const note = screen.getByText(/attempt 2 of 5/);
+    expect(note.textContent).toContain("job 4711");
+    // Failing SINCE, which the attempt counter cannot say: rung 2 of 5 is the
+    // same reading whether the first failure was a minute or a day ago.
+    //
+    // The formatted VALUE, not just the label. Matching the label alone passes
+    // when the renderer interpolates nothing, which is the same dangling
+    // "failing since" this screen is careful everywhere else not to draw. The
+    // year is the stable part across locales; the fixture's is 2026-08-13.
+    expect(note.textContent).toMatch(/failing since .*2026/);
+  });
+
+  it("asserts no class, no remedy and no span for a failure nobody could vet", async () => {
+    stubRoutes({
+      "GET /admin/job-health": () =>
+        jsonResponse({ ...HEALTH, recent_failures: [UNCLASSIFIED] }),
+    });
+    render(<JobHealthCard />);
+    // The vetted substitute still reports what little is known.
+    const note = await screen.findByText(/attempt 2 of 5/);
+    expect(
+      screen.getByText("the job failed for a reason it could not classify"),
+    ).toBeInTheDocument();
+    // Absent stays absent. An unclassified failure has no class token and no
+    // remedy line, and first_failed_at is null here — which the endpoint sends
+    // only for a job that recorded NO attempt error at all. A single recorded
+    // error does produce a first_failed_at, so null is absence and not "one".
+    expect(screen.queryByText("provider_unavailable")).not.toBeInTheDocument();
+    expect(screen.queryByText(/What to do/)).not.toBeInTheDocument();
+    expect(note.textContent).not.toMatch(/failing since/);
+    // And nothing is drawn as an empty shell: no leading, doubled or trailing
+    // separator, which is what a dropped part leaves behind when it is rendered
+    // as a blank rather than omitted.
+    expect(note.textContent).not.toMatch(/^\s*·/);
+    expect(note.textContent).not.toMatch(/·\s*·/);
+    expect(note.textContent).not.toMatch(/·\s*$/);
+  });
+
+  it("reports the class without a span when only the first failure is missing", async () => {
+    stubRoutes({
+      "GET /admin/job-health": () =>
+        jsonResponse({
+          ...HEALTH,
+          recent_failures: [
+            { ...HEALTH.recent_failures[0], first_failed_at: null },
+          ],
+        }),
+    });
+    render(<JobHealthCard />);
+    // The class and remedy do not depend on the span: a job cancelled before it
+    // ran records no attempt error, and it is still a classified failure.
+    expect(await screen.findByText("provider_unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByText(/check the provider status page/),
+    ).toBeInTheDocument();
+    const note = screen.getByText(/attempt 2 of 5/);
+    expect(note.textContent).not.toMatch(/failing since/);
+    expect(note.textContent).not.toMatch(/·\s*$/);
+  });
+
+  it("omits the job id rather than inventing one when the row carries none", async () => {
+    stubRoutes({
+      "GET /admin/job-health": () =>
+        jsonResponse({
+          ...HEALTH,
+          recent_failures: [
+            { ...HEALTH.recent_failures[0], job_id: undefined },
+          ],
+        }),
+    });
+    render(<JobHealthCard />);
+    // job_id is optional on the wire, so a report from a build that predates it
+    // must lose the label with the value rather than print a bare "job".
+    const note = await screen.findByText(/attempt 2 of 5/);
+    expect(note.textContent).not.toMatch(/job\b/);
+    // The span still renders with its value: dropping the id must cost the id
+    // and nothing standing next to it.
+    expect(note.textContent).toMatch(/failing since .*2026/);
   });
 
   it("gives a dead job the danger treatment and says what it means", async () => {

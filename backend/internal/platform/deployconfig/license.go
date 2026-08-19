@@ -25,6 +25,12 @@ const LicenseTokenEnvVar = "MARGINCE_LICENSE"
 // An installation with no license section runs unlicensed — every development
 // and CI process in this repository does.
 type License struct {
+	// TokenRef is the reference form: ${file:...} or ${env:...}. Named for the
+	// reference rather than the value, because Token() below is what hands a
+	// caller the value and the two must not read alike.
+	TokenRef Secret `yaml:"token"`
+	// TokenFile is the original spelling, still honoured so an existing
+	// deployment boots unchanged. Prefer `token`.
 	TokenFile string `yaml:"token_file"`
 }
 
@@ -47,6 +53,28 @@ const TokenLimit = 64 << 10
 // (an unknown key is a boot error) exists to prevent everywhere else.
 func (l License) Token(lookup config.Lookup) (string, error) {
 	if token := strings.TrimSpace(lookup(LicenseTokenEnvVar)); token != "" {
+		return token, nil
+	}
+	// The reference form, where a deployment used it. It outranks token_file
+	// for the same reason the environment outranks both: it is the newer,
+	// deliberate spelling, and an operator who wrote one did not also mean the
+	// other.
+	if l.TokenRef.Configured() {
+		ref := l.TokenRef.withField("license.token")
+		token, err := ref.Resolve(lookup)
+		if err != nil {
+			return "", err
+		}
+		// A named source that yielded nothing is a mistake, not an unlicensed
+		// installation — the same rule token_file has enforced below all along.
+		// Without this the newer spelling would be the WEAKER one: an operator
+		// whose mounted secret failed to project would be told their
+		// installation has no license rather than that the file they named is
+		// empty, and in production those two produce the same refusal with the
+		// wrong remedy attached.
+		if token == "" {
+			return "", ref.Missing()
+		}
 		return token, nil
 	}
 	if l.TokenFile == "" {
@@ -93,6 +121,9 @@ func (l License) TokenSource(lookup config.Lookup) func() (string, error) {
 func (l License) TokenOrigin(lookup config.Lookup) string {
 	if strings.TrimSpace(lookup(LicenseTokenEnvVar)) != "" {
 		return LicenseTokenEnvVar
+	}
+	if l.TokenRef.Configured() {
+		return "license.token"
 	}
 	if l.TokenFile != "" {
 		return "license.token_file"

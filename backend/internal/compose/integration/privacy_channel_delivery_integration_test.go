@@ -57,7 +57,7 @@ func seedChannelSubject(t *testing.T, e *Env) ids.UUID {
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO person_channel_identity (person_id, provider, channel_user_id, username, source, captured_by)
-			VALUES ( $1, 'telegram', $2, 'tilda', 'connector:telegram', 'connector:telegram')`,
+			VALUES ($1, 'telegram', $2, 'tilda', 'connector:telegram', 'connector:telegram')`,
 			personID, channelSubjectAccount)
 		return err
 	})
@@ -85,7 +85,7 @@ func seedChannelDelivery(t *testing.T, e *Env, age, body, status string, person 
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (activity_id, entity_type, person_id)
-			 VALUES ( $1, 'person', $2)`, out.activity, person); err != nil {
+			 VALUES ($1, 'person', $2)`, out.activity, person); err != nil {
 			return err
 		}
 		// cc and references_chain are named as NULL for the reason

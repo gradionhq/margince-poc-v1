@@ -36,6 +36,19 @@ bootstrap_admin:
   # the operator password means changing it in one place (or deleting the file
   # and letting dev.sh reseed it). The password seed-dev then chooses is its own
   # ADMIN_PASSWORD default.
+  # Either spelling works. The reference form is preferred and is the only one
+  # that can name the environment:
+  #
+  #   password: ${file:/run/secrets/admin-password}   the mounted secret store
+  #   password: ${env:MARGINCE_ADMIN_PASSWORD}        the environment
+  #
+  # A secret field REFUSES a literal — writing the password here fails the boot
+  # and names the line, because this file is the most-pasted artefact an
+  # installation has and a value that can be written here eventually is.
+  #
+  # The two are not equally compliant: ${file:} keeps the value in the secret
+  # store, while ${env:} only keeps it out of THIS file. OPS-CFG-3 names the
+  # environment alongside files, so ${env:} is a deliberate transitional form.
   password_file: config/margince-admin-password
 
 # Retention posture at first boot (optional). Consumed ONCE, when the api

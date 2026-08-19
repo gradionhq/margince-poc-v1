@@ -53,7 +53,7 @@ func seedStampFixture(t *testing.T, e *Env) stampFixture {
 		VALUES ($1, 'email', 'Order confirmation', 'the agreed price was 4200 EUR', now(), 'manual', 'human:x')`,
 		email)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
-		VALUES ( $1, 'deal', $2)`, email, deal)
+		VALUES ($1, 'deal', $2)`, email, deal)
 
 	return stampFixture{deal: deal, wonStage: ids.StageID{UUID: wonStage}, email: email}
 }

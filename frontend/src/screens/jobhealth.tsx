@@ -50,6 +50,12 @@ const PILL_ROW: CSSProperties = {
 // (SectionHeader owns it), so this is the only gap left to state.
 const NOTE: CSSProperties = { marginTop: "var(--space-4)" };
 
+// The remedy on its own line under the reason. What happened and what to do
+// are two readings, and a second sentence run on after the first is read as
+// more of the first — which is how the one line an operator at 2am is here for
+// disappears into the one they have already understood.
+const REMEDY: CSSProperties = { display: "block", marginTop: "var(--space-1)" };
+
 // The closed failure-state enum with the tone each state earns. `cancelled`
 // earns none: it was stopped deliberately, so it records a decision somebody
 // made rather than a fault the reader has to chase. Keying the map on the union
@@ -161,6 +167,65 @@ function KindSection({
   );
 }
 
+// The meta line under one failure: which row it is, how far up the retry ladder
+// it got, and how long it has been there.
+//
+// Every part but the attempt counter is optional on the wire, and an absent one
+// is DROPPED rather than drawn — a "failing since" with nothing after it, or a
+// bare job label, states a value this report never sent and sends the reader
+// looking for a row that does not exist.
+function failureNote(
+  failure: JobFailure,
+  t: Translator,
+  locale: Locale,
+  zone: string,
+): ReactNode {
+  const { failure_class: failureClass, job_id: jobID } = failure;
+  const since = failure.first_failed_at;
+  return (
+    <>
+      {/* The class reads as an identifier, not a `Badge`. A Badge is a status
+          and this row already carries the one status it has, so a second pill
+          beside it reads as a second state; and the class vocabulary grows with
+          every unit that declares one, so no closed tone could be honest about
+          a token this build has never seen. Mono, like the kind above it,
+          because both are strings the operator greps the worker log with and
+          keys an alert on, and dressing either up costs them the exact text. */}
+      {failureClass !== null && failureClass !== undefined && (
+        <>
+          <span className="t-mono">{failureClass}</span>
+          {" · "}
+        </>
+      )}
+      {t("jobs.attempt", {
+        attempt: failure.attempt,
+        max: failure.max_attempts,
+        when: formatDateTime(failure.failed_at, locale, zone),
+      })}
+      {/* Interpolated as-is, never through formatNumber: this is the id River
+          prints in its own log lines, and a grouped "4,711" is not a string
+          that finds them. */}
+      {jobID !== undefined && (
+        <>
+          {" · "}
+          {t("jobs.jobId", { id: jobID })}
+        </>
+      )}
+      {/* Only when an attempt error was actually recorded. A job cancelled
+          before it ever ran has no first failure, and falling back to failed_at
+          would report a single failure as a span of them. */}
+      {since !== null && since !== undefined && (
+        <>
+          {" · "}
+          {t("jobs.failingSince", {
+            when: formatDateTime(since, locale, zone),
+          })}
+        </>
+      )}
+    </>
+  );
+}
+
 function failureFacts(
   failures: readonly JobFailure[],
   t: Translator,
@@ -183,12 +248,20 @@ function failureFacts(
       // The job layer's own vetted sentence, shown as it arrived. The worker's
       // raw cause never travels on this endpoint, so there is nothing here to
       // second-guess or trim.
-      value: failure.reason,
-      note: t("jobs.attempt", {
-        attempt: failure.attempt,
-        max: failure.max_attempts,
-        when: formatDateTime(failure.failed_at, locale, zone),
-      }),
+      value: (
+        <>
+          {failure.reason}
+          {/* Checked on its own rather than off the class: the endpoint nulls
+              the two together, but a screen that inferred one from the other
+              would draw an empty action line the day that coupling changes. */}
+          {failure.remedy !== null && failure.remedy !== undefined && (
+            <span className="t-small" style={REMEDY}>
+              {t("jobs.remedy", { remedy: failure.remedy })}
+            </span>
+          )}
+        </>
+      ),
+      note: failureNote(failure, t, locale, zone),
     };
   });
 }

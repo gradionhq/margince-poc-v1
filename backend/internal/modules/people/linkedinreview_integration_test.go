@@ -124,7 +124,7 @@ func TestApplyingAMatchNeverOverwritesAHandleTheContactAlreadyHad(t *testing.T) 
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO person_social (person_id, platform, handle)
-			VALUES ( $1, 'linkedin', $2)`,
+			VALUES ($1, 'linkedin', $2)`,
 			andreas.UUID, existing)
 		return err
 	}); err != nil {

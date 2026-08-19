@@ -112,9 +112,9 @@ func seedTaskPassport(t *testing.T, e *integration.Env, label string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.Pool.Exec(context.Background(), `
-		INSERT INTO passport (id, workspace_id, label, on_behalf_of, granted_by, token_hash, scopes, expires_at)
-		VALUES ($1, $2, $3, $4, $4, $5, $6, now() + interval '30 days')`,
-		id, e.WS, label, e.Rep1, "hash-"+id.String(), []string{"read", "write"}); err != nil {
+		INSERT INTO passport (id, label, on_behalf_of, granted_by, token_hash, scopes, expires_at)
+		VALUES ($1, $2, $3, $3, $4, $5, now() + interval '30 days')`,
+		id, label, e.Rep1, "hash-"+id.String(), []string{"read", "write"}); err != nil {
 		t.Fatalf("seeding the %s passport: %v", label, err)
 	}
 	return id

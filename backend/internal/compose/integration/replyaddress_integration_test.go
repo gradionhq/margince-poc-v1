@@ -101,10 +101,10 @@ func TestAParticipantWithNoAddressFallsBackToThePrimaryEmail(t *testing.T) {
 	// returns this one on insertion order and the test fails loudly.
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, position, source, captured_by)
-		VALUES ( $1, 'anna.private@example.com', false, 0, 'test', 'human:seed')`, person)
+		VALUES ($1, 'anna.private@example.com', false, 0, 'test', 'human:seed')`, person)
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, position, source, captured_by)
-		VALUES ( $1, 'anna@work.example.com', true, 1, 'test', 'human:seed')`, person)
+		VALUES ($1, 'anna@work.example.com', true, 1, 'test', 'human:seed')`, person)
 
 	anchor := seedReplyThread(t, e, "inbound",
 		replyParty{role: "from", person: &person},

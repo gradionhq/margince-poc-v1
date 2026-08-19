@@ -92,8 +92,8 @@ func (h Handlers) oauthRegister(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	err = h.svc.db.Tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
-			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+			INSERT INTO oauth_client (client_id, client_name, redirect_uris)
+			VALUES ($1, $2, $3)`,
 			clientID, req.ClientName, req.RedirectURIs)
 		return err
 	})

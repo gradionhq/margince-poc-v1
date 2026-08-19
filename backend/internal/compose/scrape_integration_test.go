@@ -63,7 +63,7 @@ func insertOrg(t *testing.T, e *integration.Env, owner ids.UUID, domain, industr
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
-			VALUES ( $1, $2, true, 'manual', 'human:owner')`, orgID, domain)
+			VALUES ($1, $2, true, 'manual', 'human:owner')`, orgID, domain)
 		return err
 	})
 	if err != nil {

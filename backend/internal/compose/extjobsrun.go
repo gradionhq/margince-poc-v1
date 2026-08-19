@@ -165,6 +165,10 @@ func (w *extJobDispatcherWorker) Work(ctx context.Context, _ *river.Job[extJobDi
 	// of one kind collapse to a single row and every workspace but one is
 	// silently dropped. workspaceSweepOpts adds ByArgs, which makes the
 	// workspace part of the unique key.
+	// FaultContext, not FaultForKind, because a dispatcher runs NO unit code: it
+	// holds a pool and a declaration and never the unit's handler, so every error
+	// below is compose's own and no declared failure class can reach here. Asking
+	// for kind-verification would be asking about a value that cannot arrive.
 	return jobs.FaultContext(ctx, dispatchWith(ctx, workspaces, clientInsertMany(ctx), workspaceSweepOpts(child),
 		func(ws ids.UUID) river.JobArgs {
 			return extJobWorkspaceArgs{JobKind: child, Workspace: ws, Principal: actors[ws]}
@@ -238,7 +242,15 @@ func (w *extJobWorkspaceWorker) Work(ctx context.Context, job *river.Job[extJobW
 	}
 	wsCtx = principal.WithActor(wsCtx, actor)
 	wsCtx = principal.WithCorrelationID(wsCtx, ids.NewV7())
-	return jobs.FaultContext(ctx, w.tick(wsCtx))
+	// FaultForKind, on the CHILD's kind, because w.tick is the one call here that
+	// runs the UNIT's code and so the one that can return a declared failure
+	// class. A class is honoured only when it is exactly one this installation
+	// registered for this kind; see jobs.FaultForKind for why the write path
+	// verifies rather than trusts.
+	//
+	// On wsCtx: the log line is written from this context, and jobs.FaultForKind
+	// reads the correlation id and the workspace off it. ctx carries neither.
+	return jobs.FaultForKind(wsCtx, w.decl.ChildKind(), w.tick(wsCtx))
 }
 
 // deriveAuthority re-reads the recorded principal AT EXECUTION and refuses when

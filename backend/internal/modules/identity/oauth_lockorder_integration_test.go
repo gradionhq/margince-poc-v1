@@ -61,9 +61,9 @@ func (e *revocationEnv) connectOAuthLent(
 	// client.
 	clientID := "client-" + ids.NewV7().String()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
-		VALUES ($1, $2, $3, ARRAY['https://client.example/cb'])`,
-		consenter.WorkspaceID, clientID, clientName); err != nil {
+		INSERT INTO oauth_client (client_id, client_name, redirect_uris)
+		VALUES ($1, $2, ARRAY['https://client.example/cb'])`,
+		clientID, clientName); err != nil {
 		t.Fatalf("registering the client: %v", err)
 	}
 

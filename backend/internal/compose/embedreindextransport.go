@@ -331,18 +331,15 @@ func (e *embedReindexEngine) statusBody(ctx context.Context) (crmcontracts.Embed
 	if err != nil {
 		return crmcontracts.EmbedReindexStatus{}, err
 	}
-	counts, err := e.store.PendingByWorkspace(ctx, configured)
+	// The store's own total, NOT the sum of PendingByWorkspace. Since ADR-0091
+	// §8 phase D no embeddable entity carries a tenant, so that rollup holds the
+	// same rows under every workspace it enumerates — summing it reported an
+	// installation with two of them as having twice the backlog. The previous
+	// comment here had the premise exactly right ("a per-workspace breakdown of
+	// it is the total repeated") and drew the opposite conclusion from it.
+	total, err := e.store.EntitiesPending(ctx, configured)
 	if err != nil {
 		return crmcontracts.EmbedReindexStatus{}, err
-	}
-
-	// The counts arrive keyed by workspace and are summed straight to the fleet
-	// total: an installation serves one organization (ADR-0061/A107), so a
-	// per-workspace breakdown of it is the total repeated, and the wire no
-	// longer carries one (ADR-0091 §6).
-	total := 0
-	for _, c := range counts {
-		total += c
 	}
 
 	return crmcontracts.EmbedReindexStatus{

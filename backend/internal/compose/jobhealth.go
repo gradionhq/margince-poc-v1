@@ -50,45 +50,71 @@ func dispatcherKinds() []string {
 	return kinds
 }
 
-// unvettedFailureReason is what an unrecognised stored error becomes.
+// The two substitute sentences this surface renders are jobs.UnvettedFailureReason
+// and jobs.NoRecordedCause, and they live in that package rather than here.
 //
-// It does NOT promise the diagnosis is in the process log. River writes its
-// own strings into this column too, and the rescuer's ("Stuck job rescued
-// by JobRescuer") means the worker's process died mid-job — so for that
-// case, one of the most common to reach here, a log pointer would be an
-// instruction to go read something that was never written. It says what is
-// known and where to look, and no more.
-const unvettedFailureReason = "the job failed for a reason this surface cannot vet; check the worker logs and the job row directly"
+// They were constants of this file, which put them out of reach of the check that
+// refuses a composed failure class for claiming one of them — a class declaring
+// this file's exact text would have rendered as the substitute WITH a class
+// attached, indistinguishable from the real thing except for the class nobody
+// should have been able to attach. The sentences a failure may not claim are one
+// set, and the set belongs where the refusal can see it.
 
-// noRecordedCause is what a row with no stored error at all becomes.
+// renderedFailure is everything this surface is willing to SAY about one
+// stored failure: always a sentence, and a class plus a remedy only when the
+// stored text vetted.
 //
-// It is NOT the unvetted substitute. A cancelled job that never ran records
-// no attempt error, and telling its operator the job "failed for a reason
-// this surface cannot vet" asserts a failure that did not happen and points
-// at a log line nobody wrote. Nothing recorded is a different fact from
-// something unreadable, and the two must not render alike.
-const noRecordedCause = "this job recorded no cause; a job cancelled before it ran records none"
+// Class and Remedy are pointers and move together, because a class with no
+// remedy is a label an operator cannot act on and a remedy with no class is
+// advice about nothing. They are nil for the same failures — the ones this
+// surface could not recognise — and the contract says so.
+type renderedFailure struct {
+	Reason string
+	Class  *string
+	Remedy *string
+}
 
-// reasonFor renders a stored failure for a human.
+// renderFailure renders a stored failure for a human.
 //
 // river_job.errors holds whatever the worker returned. jobs.Fault exists so
 // that is a vetted sentence — but a worker that bypassed it stored its raw
 // cause, which routinely names the address or record a provider refused. So
 // the column is checked, never trusted, and anything unrecognised becomes
-// the same fixed substitute.
-func reasonFor(stored string) string {
-	if stored == "" {
-		return noRecordedCause
+// the same fixed substitute with NO class: a class invented for text nobody
+// could vet would key an operator's alert on a guess, which is worse than
+// telling them plainly that the failure is unclassified.
+//
+// The KIND is what makes the class resolvable at all. A composed vocabulary
+// belongs to one unit's kinds, and two units may name a failure with the same
+// token — so the sentence alone is ambiguous and the kind is what disambiguates
+// it. Reading one kind's vocabulary for another's row would report a failure as
+// something it is not.
+func renderFailure(f jobs.Failure) renderedFailure {
+	// Nothing recorded is a different fact from something unreadable, and the
+	// two must not render alike — see jobs.NoRecordedCause. It is checked here
+	// rather than left to the vetting, which cannot tell them apart either.
+	if f.StoredReason == "" {
+		return renderedFailure{Reason: jobs.NoRecordedCause}
 	}
-	if jobs.VettedSentence(stored) {
-		return stored
+	if detail, ok := jobs.VettedFailure(f.Kind, f.StoredReason); ok {
+		return renderedFailure{Reason: detail.Sentence, Class: &detail.Class, Remedy: &detail.Remedy}
 	}
-	return unvettedFailureReason
+	// The fault seam's OWN unclassified sentence is vetted text that carries no
+	// class, and it survives on its own terms. Fault wrote it, and it wrote the
+	// log line it points at — so substituting it for the text below would trade
+	// a true pointer for a vaguer one. There is still no class to assert: an
+	// unclassified failure is precisely the one nobody has named yet.
+	if jobs.VettedSentence(f.StoredReason) {
+		return renderedFailure{Reason: f.StoredReason}
+	}
+	return renderedFailure{Reason: jobs.UnvettedFailureReason}
 }
 
-// jobHealthReadTimeout bounds the scoped job read. river_job has no index
-// over args->>'workspace_id', so both statements scan; a read that cannot
-// finish inside this is a signal, not something to wait out.
+// jobHealthReadTimeout bounds the scoped job read. cmd/migrate creates
+// river_job_workspace_arg over args->>'workspace_id', so the tenant arm is
+// indexed — the bound stays because the untenanted arm is not, and because a
+// read that cannot finish inside this is a signal rather than something to wait
+// out.
 const jobHealthReadTimeout = 5 * time.Second
 
 // jobHealthHandlers serves the admin job-health read. The pool is the only
@@ -142,9 +168,9 @@ func (h jobHealthHandlers) GetJobHealth(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Bounded, for the same reason the exposition endpoint bounds its own
-	// job read: this is two sequential scans of a table no index covers, and
-	// an unbounded one holds a request thread and a pool connection for as
-	// long as the scan takes. The budget is larger than the scrape's 2s
+	// job read: an unbounded one holds a request thread and a pool connection for
+	// as long as the read takes, and the untenanted arm of the scope is covered by
+	// no index. The budget is larger than the scrape's 2s
 	// because an operator waiting on a page tolerates more latency than a
 	// scrape interval does — but it is a budget, not the absence of one.
 	ctx, cancel := context.WithTimeout(ctx, jobHealthReadTimeout)
@@ -183,14 +209,23 @@ func jobHealthResponse(health jobs.Health) crmcontracts.JobHealth {
 
 	failures := make([]crmcontracts.JobFailure, 0, len(health.Failures))
 	for _, f := range health.Failures {
+		rendered := renderFailure(f)
 		failures = append(failures, crmcontracts.JobFailure{
 			Kind:        f.Kind,
 			State:       crmcontracts.JobFailureState(f.State),
 			Attempt:     f.Attempt,
 			MaxAttempts: f.MaxAttempts,
 			FailedAt:    f.FailedAt,
+			// The row's own id, so the process log this surface points at has a
+			// line an operator can actually find: River logs job_id.
+			JobId: &f.ID,
+			// Absent stays absent. A row with no recorded attempt error has no
+			// first failure, and a zero time would read as 1970.
+			FirstFailedAt: f.FirstFailedAt,
 			// The stored text is vetted, never forwarded.
-			Reason: reasonFor(f.StoredReason),
+			Reason:       rendered.Reason,
+			FailureClass: rendered.Class,
+			Remedy:       rendered.Remedy,
 		})
 	}
 

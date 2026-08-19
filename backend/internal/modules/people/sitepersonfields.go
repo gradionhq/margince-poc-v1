@@ -198,7 +198,7 @@ func fillSitePersonFields(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		// overwrite what a signature (or a human) already answered.
 		tag, err := tx.Exec(ctx, `
 			INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, source, captured_by)
-			VALUES ( $1, $2, $3, $4, $5, $6, $7)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
 			ON CONFLICT (person_id, field) DO NOTHING`,
 			personID, field, value, in.EvidenceSnippet, sourceRef, siteFieldSource, by)
 		if err != nil {

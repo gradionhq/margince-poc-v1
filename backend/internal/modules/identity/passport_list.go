@@ -95,9 +95,9 @@ const listPassportsSQL = `
 		       g.created_at AS connected_at, g.refresh_allowed AS renewable,
 		       g.lent_passport_id, lent.label AS lent_passport_label
 		FROM passport p
-		LEFT JOIN oauth_grant g ON (g.workspace_id, g.id) = (p.workspace_id, p.oauth_grant_id)
-		LEFT JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)
-		LEFT JOIN passport lent ON (lent.workspace_id, lent.id) = (g.workspace_id, g.lent_passport_id)
+		LEFT JOIN oauth_grant g ON g.id = p.oauth_grant_id
+		LEFT JOIN oauth_client c ON c.client_id = g.client_id
+		LEFT JOIN passport lent ON lent.id = g.lent_passport_id
 		WHERE %s
 		ORDER BY p.oauth_grant_id IS NULL, COALESCE(p.oauth_grant_id, p.id), p.created_at DESC, p.id DESC
 	) newest_per_connection
