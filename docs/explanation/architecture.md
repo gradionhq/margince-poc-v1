@@ -110,5 +110,7 @@ The 🟢/🟡 autonomy tier of an action is declared once in the contract
 (`x-mcp-tool`) and enforced **below the transport**: an agent mutation
 over MCP or REST resolves the same tier, stages the same approval when
 🟡, and default-denies any mutating operation carrying no tier.
-Approving is human-only, and an agent never exceeds the granting
-human's live RBAC.
+Approving takes the authority the effect itself takes; a passport may
+answer on the authority of the human who lent it, bounded by the caps
+they lent and never on the proposal it made itself. An agent never
+exceeds the granting human's live RBAC.

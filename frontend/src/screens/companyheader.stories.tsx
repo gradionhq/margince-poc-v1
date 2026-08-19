@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { screen, userEvent } from "storybook/test";
 import type { components } from "../api/schema";
 import {
   CompanyActionBadges,
@@ -164,4 +165,25 @@ export const AuthorNamed: Story = {
   render: () => (
     <Header view={withWayIn} record={{ ...org, captured_by: "human:u-2" }} />
   ),
+};
+
+// An archived account. Its verbs stay in the menu, refused, over the one
+// sentence that says why — a control blocked by the record's STATE is disabled
+// with its reason, never dropped (STATE-4a), because a missing button reads as
+// a build without the feature. The play() opens the menu, since the refusal is
+// the thing worth seeing here.
+export const ArchivedAccount: Story = {
+  render: () => (
+    <Header
+      view={withWayIn}
+      record={{ ...org, archived_at: "2026-07-13T00:00:00Z" }}
+    />
+  ),
+  play: async () => {
+    // The panel portals to document.body, so it is reached through `screen`
+    // rather than a canvas-scoped query that would find nothing.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+  },
 };

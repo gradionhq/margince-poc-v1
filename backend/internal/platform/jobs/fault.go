@@ -6,6 +6,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -200,33 +201,81 @@ func rescheduleFor(ctx context.Context, kind, class string, in time.Duration, er
 // faultLogAttrs is what every fault log line carries, spelled once so the three
 // branches cannot describe the same failure three different ways.
 //
-// The correlation id and the workspace are read off the context and attached
-// EXPLICITLY rather than left to the handler. slog.ErrorContext only enriches a
-// record if the DEFAULT handler happens to be correlation-aware, and no process
-// role installs one: cmd/worker builds a correlation-aware logger and passes it
-// around, while slog.Default() keeps the bare handler. So a line that relied on
-// the handler carried neither value, whichever context it was given — which is
-// the whole reason a caller is asked to pass the tick's own context.
+// THE CORRELATION ID IS THE HANDLER'S, and it is not attached here. It used to
+// be, because no process role installed its own handler as the default and a
+// package-level slog call therefore reached a bare one that enriched nothing —
+// so the id had to be attached by hand or it appeared on no fault line at all.
+// Every serving role now installs a correlation-aware default
+// (httpserver.InstallProcessLogger), which makes the hand-attachment not merely
+// redundant but wrong: both halves would stamp the same key and a JSON line
+// would carry correlation_id twice. One thing stamps it, and it is the handler
+// that stamps it for every other package-level call in the tree.
+//
+// THE WORKSPACE STILL IS attached here, because nothing else knows it. The
+// handler reads the correlation id off the context and only that; a job's
+// workspace is this seam's to say.
 //
 // An absent value is OMITTED rather than logged empty. A dispatcher has no
 // workspace and the two kindless entry points have no kind; an empty attr would
 // assert a value the failure does not have, and a reader filtering on it would
 // match every one of them.
 func faultLogAttrs(ctx context.Context, kind, class string, err error) []any {
-	attrs := make([]any, 0, 8)
+	attrs := make([]any, 0, 6)
 	if kind != "" {
 		attrs = append(attrs, "kind", kind)
 	}
 	if class != "" {
 		attrs = append(attrs, "class", class)
 	}
-	if id, ok := principal.CorrelationID(ctx); ok {
-		attrs = append(attrs, "correlation_id", id.String())
-	}
 	if ws, ok := principal.WorkspaceID(ctx); ok {
 		attrs = append(attrs, "workspace_id", ws.String())
 	}
-	return append(attrs, "err", err)
+	return append(attrs, errorAttr(err))
+}
+
+// errorAttr renders the cause as a STRUCTURED GROUP rather than one formatted
+// string, because this log line is the only place the cause is allowed to be
+// detailed and a collector should not have to parse prose to use it.
+//
+// WHY THE DETAIL IS SAFE HERE and nowhere else: river_job.errors is unscoped and
+// fleet-visible, which is the whole reason Fault substitutes a fixed sentence
+// before the queue sees the error. The process log is the other side of that
+// trade — its audience and its retention are the operator's own — so this is
+// where the cause is supposed to be legible.
+//
+// THE TYPE CHAIN IS THE FIELD THAT EARNS ITS PLACE, and it is not in the
+// message. The branch that most needs this line is the unclassified one, whose
+// stored sentence says only that the diagnosis is in the process log — and what
+// the reader of that line needs is which error a unit returned, so it can be
+// given a class. err.Error() answers what the provider said; the chain answers
+// which code said it. The same holds for a postponement, which River records no
+// attempt error for at all, so this line is the entire trail.
+//
+// Outermost first, matching the order errors.As resolves in, and bounded by the
+// wrapping depth an error actually has — a chain is walked with Unwrap and stops
+// where the wrapping stops.
+func errorAttr(err error) slog.Attr {
+	return slog.Group("error",
+		slog.String("message", err.Error()),
+		slog.String("type", fmt.Sprintf("%T", err)),
+		slog.Any("chain", causeTypes(err)),
+	)
+}
+
+// causeTypes names the Go type of every layer of a wrapped error, outermost
+// first, so an operator reading a fault line can find the code that produced it.
+//
+// It follows single-cause Unwrap only. An errors.Join tree has no single next
+// layer, and a reader that flattened one would present siblings as a chain of
+// causes — a claim about which failure produced which that the tree does not
+// make. Such an error stops the walk at itself, where its own type and its
+// message (which carries every joined cause's text) are already recorded.
+func causeTypes(err error) []string {
+	types := make([]string, 0, 4)
+	for at := err; at != nil; at = errors.Unwrap(at) {
+		types = append(types, fmt.Sprintf("%T", at))
+	}
+	return types
 }
 
 // VettedSentence reports whether s is a sentence Fault itself would have

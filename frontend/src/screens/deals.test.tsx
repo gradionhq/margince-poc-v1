@@ -879,6 +879,38 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
   });
 });
 
+describe("DealScreen — an archived deal keeps its verbs, refused", () => {
+  beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
+
+  it("shows Edit, Archive, Share and Reopen disabled, each reachable from the one sentence naming the archive", async () => {
+    const d = deal({
+      id: "x",
+      status: "won",
+      stage_id: "s3",
+      archived_at: "2026-07-13T00:00:00Z",
+    });
+    vi.stubGlobal("fetch", stubBackend([d], { single: d }));
+    render(<DealScreen id="x" />);
+
+    const refused = [
+      await screen.findByTestId("edit-record"),
+      screen.getByTestId("archive-record"),
+      screen.getByTestId("share-record"),
+      screen.getByTestId("reopen-open"),
+    ];
+    for (const control of refused) {
+      expect(control.hasAttribute("disabled")).toBe(true);
+      // The reason has to be reachable FROM the control: a disabled button
+      // cannot be focused and a `title` on it is announced by nobody, so a
+      // sentence the control does not point at reaches no reader who needed it.
+      const describedBy = control.getAttribute("aria-describedby");
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+        "This deal is archived and takes no changes.",
+      );
+    }
+  });
+});
+
 describe("DealScreen — overlay mode write affordances", () => {
   beforeEach(() => localStorage.setItem("margince.workspaceSlug", "acme"));
 

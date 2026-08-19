@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
@@ -1975,6 +1975,7 @@ function CompanyPage({
   onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
+  const archivedReasonId = useId();
   // ONE composer, opened two ways. Anchored on a timeline message it answers
   // that message; anchored on a person it starts a new one and grounds on the
   // account instead of a thread (ADR-0087 §1). Two pieces of state would let
@@ -2057,16 +2058,27 @@ function CompanyPage({
       // own story below the fold before a word of it was read.
       actions={
         <>
+          {/* One sentence for the whole strip. Both action groups below refuse
+              for the same reason, so the reason belongs to the page rather than
+              to whichever group is drawing — stated in each, an archived
+              account said the same thing twice as soon as the menu opened. */}
+          {org.archived_at && (
+            <p className="t-caption" id={archivedReasonId}>
+              {t("record.archivedReadOnly")}
+            </p>
+          )}
           <CompanyPrimaryActions
             org={org}
             composerOpen={writingEmail}
             onComposerOpen={setWritingEmail}
+            archivedReasonId={archivedReasonId}
           />
           {/* Last in the row, after the verbs it holds the remainder of: a
               menu of everything-else read as the first thing to press when it
               led them. */}
           <CompanyActionBadges
             org={org}
+            archivedReasonId={archivedReasonId}
             view={view}
             onOpenHistory={() => setAuditOpen(true)}
             onSetUpPartner={() => onTab("partner")}

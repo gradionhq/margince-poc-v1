@@ -569,6 +569,38 @@
   margin-block-start: auto;
 }
 
+/*
+ * The refusal a confirm earned, at the head of the pane whose own Continue
+ * earned it.
+ *
+ * Pinned, because the failure this exists to end had no on-screen life at all:
+ * the sentence used to render in the conversation rail, a scroller the reader
+ * who just pressed a button on THIS pane is not looking at, and two rejections
+ * thirteen seconds apart therefore read as a button that had quietly stopped
+ * working. A notice the board can scroll away from is the same defect one pane
+ * over.
+ *
+ * Pinned at the pane's HEAD rather than beside the foot bar the button sits in:
+ * that bar is sticky too, and two strips claiming the same bottom edge can only
+ * be stacked by asserting the bar's own height — which changes with its wrap,
+ * its container query and the length of its status line. An assertion that
+ * wrong covers the action it is explaining.
+ *
+ * `top: 0` rests it on the pane's own top inset rather than against the border:
+ * sticky offsets measure from the scroller's CONTENT box, the same finding
+ * .ob-triage-continue's negative offsets are built on. `flex: none` keeps it out
+ * of the scene's `flex: 1` bargaining — a refusal is not the thing that gives
+ * up room. The layer puts it over the review board's section map (z-index 1),
+ * whose first rows pass under it while a refusal stands: the map is a
+ * convenience a reader can scroll back to, the refusal is the reason they
+ * cannot get on. */
+.ob-conv-artifact > .ob-conv-refusal {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+}
+
 /* A one-line artifact is a real state, not a half-drawn one — before a read
    there is nothing sourced, and that has to look deliberate in a pane sized
    for a sixteen-row review. Given the pane's width, a stated recess and room

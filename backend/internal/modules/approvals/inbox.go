@@ -137,7 +137,7 @@ func (in ListInput) targeted() bool { return in.TargetType != nil && in.TargetID
 // from a complete answer, AND to ask for the rest. has_more without a cursor
 // would only tell them rows are missing.
 func (s *Service) List(ctx context.Context, in ListInput) ([]row, storekit.Page, error) {
-	if err := humanOnly(ctx); err != nil {
+	if err := actingForAHuman(ctx); err != nil {
 		return nil, storekit.Page{}, err
 	}
 	p, _ := principal.Actor(ctx)
@@ -354,7 +354,7 @@ func collect(ctx context.Context, tx pgx.Tx, q string, args []any) ([]row, error
 // a full result as "this many or more"; limit bounds the RETURNED rows, so
 // pass PendingScanCap to mean "everything the scan found".
 func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID, limit int) ([]crmcontracts.Approval, error) {
-	if err := humanOnly(ctx); err != nil {
+	if err := actingForAHuman(ctx); err != nil {
 		return nil, err
 	}
 	p, _ := principal.Actor(ctx)
@@ -401,7 +401,7 @@ func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType st
 }
 
 func (s *Service) Get(ctx context.Context, id ids.ApprovalID) (row, error) {
-	if err := humanOnly(ctx); err != nil {
+	if err := actingForAHuman(ctx); err != nil {
 		return row{}, err
 	}
 	p, _ := principal.Actor(ctx)

@@ -16,12 +16,14 @@ import {
   Badge,
   Button,
   Card,
+  Disclosure,
   Field,
   Modal,
   SegmentedControl,
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Select } from "../design-system/select";
 import {
@@ -32,8 +34,9 @@ import {
   ProvenanceTag,
 } from "../design-system/trust";
 import { formatDateTime } from "../format/format";
-import { formatCountdown, useNow } from "../format/now";
+import { formatCountdown, type Translator, useNow } from "../format/now";
 import { useLocale, useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import {
   approvalKindLabel,
   EDITABLE_FIELDS,
@@ -52,9 +55,12 @@ import {
 } from "./common";
 import {
   type Approval,
+  type BundleDecision,
+  type BundleOutcome,
   useDecidedApprovals,
   usePendingApprovals,
 } from "./inbox.queries";
+import "./inbox.css";
 
 // Re-exported so existing consumers (home.tsx) keep importing from "./inbox".
 export { useDecidedApprovals, usePendingApprovals } from "./inbox.queries";
@@ -247,6 +253,37 @@ function ApprovalDetailModal({
   );
 }
 
+// When a staged proposal lapses, in wall-clock ms — null for one that never
+// does. Read by a row and by the bundle card above it, which needs the same
+// answer for every member it holds.
+function expiryMsOf(approval: Approval): number | null {
+  return approval.expires_at ? new Date(approval.expires_at).getTime() : null;
+}
+
+// Lapsed either because the wire already stamped it (the server expires lazily
+// at read time) or because the live clock crossed expires_at since the list was
+// fetched. Both mean the same thing to a reader: it is no longer approvable.
+function hasLapsed(approval: Approval, now: number): boolean {
+  const expiresAtMs = expiryMsOf(approval);
+  return (
+    approval.status === "expired" || (expiresAtMs != null && now >= expiresAtMs)
+  );
+}
+
+// TTL as a chip that escalates as expiry nears (mockup's amber→red): warn under
+// 6h, danger under 1h, neutral beyond — never inert gray text. Shared by a
+// row's countdown and a bundle's, so one deadline cannot read as urgent in the
+// group header and calm in the member row under it.
+function expiryTone(msRemaining: number): "danger" | "warn" | undefined {
+  if (msRemaining < 60 * 60 * 1000) {
+    return "danger";
+  }
+  if (msRemaining < 6 * 60 * 60 * 1000) {
+    return "warn";
+  }
+  return undefined;
+}
+
 // The header chip: a status badge in the read-only Decided view, else the
 // live countdown that flips to the Expired badge at/after expires_at.
 function RowStatusChip({
@@ -276,17 +313,9 @@ function RowStatusChip({
   if (isExpired) {
     return <Badge tone="danger">{t("inbox.expired")}</Badge>;
   }
-  // TTL as a chip that escalates as expiry nears (mockup's amber→red): warn
-  // under 6h, danger under 1h, neutral beyond — never inert gray text.
   const remaining = expiresAtMs - now;
-  const urgency =
-    remaining < 60 * 60 * 1000
-      ? "danger"
-      : remaining < 6 * 60 * 60 * 1000
-        ? "warn"
-        : undefined;
   return (
-    <Badge tone={urgency}>
+    <Badge tone={expiryTone(remaining)}>
       {t("inbox.expiresIn", { countdown: formatCountdown(remaining, t) })}
     </Badge>
   );
@@ -617,14 +646,8 @@ export function ApprovalRow({
     decide.reset();
   };
 
-  const expiresAtMs = approval.expires_at
-    ? new Date(approval.expires_at).getTime()
-    : null;
-  // Expired either because the wire already stamped it (lazy server expiry)
-  // or the live clock crossed expires_at since this row was fetched.
-  const isExpired =
-    approval.status === "expired" ||
-    (expiresAtMs != null && now >= expiresAtMs);
+  const expiresAtMs = expiryMsOf(approval);
+  const isExpired = hasLapsed(approval, now);
 
   return (
     <article
@@ -829,6 +852,456 @@ export function ApprovalRow({
   );
 }
 
+// One act's proposals, or one proposal on its own — what the pending queue is
+// actually a list of.
+//
+// The server stamps every proposal ONE act staged with a shared `bundle_id` (a
+// site read publishes the company's facts plus a lead per person it found), so a
+// read of a ten-person team page arrives as eleven rows. Rendered flat that is
+// eleven questions for one act, which is the whole defect: the reader cannot see
+// that answering them is one decision.
+//
+// A bundle of ONE is deliberately not a group. A group holding a single child
+// hides the very question it exists to present, and the reader gains nothing for
+// the click — so it reads as the plain row it is.
+type InboxItem =
+  | { readonly kind: "single"; readonly approval: Approval }
+  | {
+      readonly kind: "bundle";
+      readonly bundleId: string;
+      readonly members: readonly Approval[];
+    };
+
+// Groups the queue by act WITHOUT reordering it: each bundle is emitted at the
+// position of its first member, so the order the caller sorted (oldest staged
+// first) still decides where a group sits.
+function groupByBundle(approvals: readonly Approval[]): InboxItem[] {
+  const byBundle = new Map<string, Approval[]>();
+  for (const approval of approvals) {
+    if (approval.bundle_id) {
+      const held = byBundle.get(approval.bundle_id);
+      if (held) {
+        held.push(approval);
+      } else {
+        byBundle.set(approval.bundle_id, [approval]);
+      }
+    }
+  }
+  const items: InboxItem[] = [];
+  const emitted = new Set<string>();
+  for (const approval of approvals) {
+    const bundleId = approval.bundle_id;
+    const members = bundleId ? byBundle.get(bundleId) : undefined;
+    if (!bundleId || !members || members.length < 2) {
+      items.push({ kind: "single", approval });
+    } else if (!emitted.has(bundleId)) {
+      emitted.add(bundleId);
+      items.push({ kind: "bundle", bundleId, members });
+    }
+  }
+  return items;
+}
+
+// What the group HOLDS, which is the only thing that makes it one thing: "4
+// proposals" is a count nobody can answer, while "Read the company site · Add a
+// person found on the site" says what saying yes would do. Kinds in the order
+// the act staged them, each named once — how many there are is the line under
+// it, and which ones they are is the list inside.
+function bundleSubject(members: readonly Approval[], t: Translator): string {
+  return [...new Set(members.map((member) => member.kind))]
+    .map((kind) => approvalKindLabel(kind, t))
+    .join(" · ");
+}
+
+// Who staged the act, shown only where every member agrees. One act has one
+// author, so a disagreement means the grouping is not what it claims — and
+// naming one member's proposer for all of them would be the wrong half of an
+// honest answer.
+function sharedProposer(members: readonly Approval[]): string | null {
+  const first = members[0]?.proposed_by;
+  return first && members.every((member) => member.proposed_by === first)
+    ? first
+    : null;
+}
+
+// The group's countdown: the SOONEST live member expiry, because that is when
+// this act starts losing proposals. The copy says "first" — a bare countdown in
+// a group header reads as one deadline shared by every member, and members keep
+// their own expiries (the bundle is a grouping, never a second authority).
+//
+// `live` is the members that have not lapsed, so an empty list means this act
+// has run out of time rather than that it never had a member.
+function BundleExpiryChip({
+  live,
+  now,
+}: Readonly<{ live: readonly Approval[]; now: number }>) {
+  const t = useT();
+  if (live.length === 0) {
+    return <Badge tone="danger">{t("inbox.expired")}</Badge>;
+  }
+  const expiries = live
+    .map(expiryMsOf)
+    .filter((expiresAtMs): expiresAtMs is number => expiresAtMs != null);
+  if (expiries.length === 0) {
+    return null;
+  }
+  const remaining = Math.min(...expiries) - now;
+  return (
+    <Badge tone={expiryTone(remaining)}>
+      {t("inbox.bundle.expiresIn", {
+        countdown: formatCountdown(remaining, t),
+      })}
+    </Badge>
+  );
+}
+
+type BundleVerdict = "approve" | "reject";
+
+// One act, as one question — with every member still reachable underneath it.
+//
+// The two bundle routes decide every still-pending member in one call and answer
+// per member, so the collapsed card can carry the whole decision. What it must
+// NOT carry is an edit: an edit re-hashes one diff and re-pins one entity, so
+// there is no such thing as one edit spanning several proposals (the request
+// body has no arm for it). That is why the members open as full rows rather than
+// as a read-only manifest — a reader who wants to change one goes to it, decides
+// it there, and answers the rest here.
+function BundleCard({
+  bundleId,
+  members,
+  onApproved,
+  onAlreadyDecided,
+  onDecided,
+}: Readonly<{
+  bundleId: string;
+  members: readonly Approval[];
+  onApproved?: (approvalId: string, token: string) => void;
+  onAlreadyDecided?: () => void;
+  // Lifts the per-member report to a surface that survives this card's unmount:
+  // the decision invalidates the pending list, which takes the card with it.
+  onDecided: (verdict: BundleVerdict, decision: BundleDecision) => void;
+}>) {
+  const t = useT();
+  const viewerId = useViewerId();
+  const queryClient = useQueryClient();
+  const tierMap = useAgentTierMap();
+  const [confirming, setConfirming] = useState<BundleVerdict | null>(null);
+  const [reason, setReason] = useState("");
+  // Only a group holding an expiry needs the per-second clock (interval 0 ⇒
+  // useNow does not tick).
+  const needsCountdown = members.some((member) => member.expires_at != null);
+  const now = useNow(needsCountdown ? 1000 : 0);
+
+  const decide = useMutation({
+    mutationFn: async (input: {
+      bundleId: string;
+      verdict: BundleVerdict;
+      reason: string;
+    }) => {
+      const path =
+        input.verdict === "approve"
+          ? "/approval-bundles/{bundle_id}/approve"
+          : "/approval-bundles/{bundle_id}/reject";
+      const { data, error } = await api.POST(path, {
+        params: { path: { bundle_id: input.bundleId } },
+        // One stated reason for one decision, recorded on every member it
+        // decides. An unstated one is omitted rather than sent empty: the
+        // request body is closed, and a blank string would be recorded as
+        // though somebody had written it.
+        ...(input.reason ? { body: { reason: input.reason } } : {}),
+      });
+      if (error) {
+        throwProblem(error);
+      }
+      return data;
+    },
+    onSuccess: (data, input) => {
+      // Report FIRST — the invalidation below unmounts this card, so the
+      // screen-level surface has to have the outcomes before it goes.
+      onDecided(input.verdict, data);
+      queryClient.invalidateQueries({ queryKey: ["approvals"] });
+    },
+    onError: (error) => {
+      const problem = error instanceof ProblemError ? error.problem : null;
+      if (problem && isAlreadyDecided(problem)) {
+        onAlreadyDecided?.();
+        queryClient.invalidateQueries({ queryKey: ["approvals", "pending"] });
+      }
+    },
+  });
+
+  const subject = bundleSubject(members, t);
+  const live = members.filter((member) => !hasLapsed(member, now));
+  const proposedBy = sharedProposer(members);
+  // The autonomy dot every row carries, raised to the group only where the
+  // members agree on it: one dot over a mix would claim a tier half of them do
+  // not have, and the rows inside say it for themselves either way.
+  const tiers = new Set(
+    members.map((member) => approvalDotTier(member.kind, tierMap)),
+  );
+  const sharedTier = tiers.size === 1 ? [...tiers][0] : null;
+
+  const send = (verdict: BundleVerdict, stated: string) => {
+    decide.mutate({ bundleId, verdict, reason: stated });
+    setConfirming(null);
+    setReason("");
+  };
+
+  return (
+    <Card as="article" className="approval-bundle" ariaLabel={subject}>
+      <div className="approval-bundle-meta">
+        {sharedTier && <AutonomyDot tier={sharedTier} />}
+        {proposedBy && (
+          <ProvenanceTag provenance={provenanceOf(proposedBy, viewerId)} />
+        )}
+        <BundleExpiryChip live={live} now={now} />
+      </div>
+      <p className="t-h2">{subject}</p>
+      <p className="t-small approval-bundle-why">
+        {t("inbox.bundle.why", { count: members.length })}
+      </p>
+      {live.length > 0 && (
+        <div className="approval-gate">
+          {/* Approve-all is what STARTED the write, so it is the control that
+              goes busy; Reject-all is merely unavailable while a verdict is out
+              and stays `disabled`. Both count the LIVE members: a lapsed one is
+              not something this press can decide. */}
+          <Button
+            variant="primary"
+            small
+            pending={decide.isPending}
+            onClick={() => setConfirming("approve")}
+          >
+            {t("inbox.bundle.approveAll", { count: live.length })}
+          </Button>
+          <Button
+            small
+            disabled={decide.isPending}
+            onClick={() => setConfirming("reject")}
+          >
+            {t("inbox.bundle.rejectAll", { count: live.length })}
+          </Button>
+        </div>
+      )}
+      {decide.isError && (
+        <p className="t-caption approval-bundle-error">
+          {problemMessageOf(decide.error, t)}
+        </p>
+      )}
+      <Disclosure
+        className="approval-bundle-open"
+        summary={t("inbox.bundle.members", { count: members.length })}
+      >
+        {/* A list, not an indent: the count and the boundaries of the group have
+            to reach a reader who is hearing this page rather than seeing it. */}
+        <ul className="approval-bundle-members">
+          {members.map((member) => (
+            <li key={member.id}>
+              <ApprovalRow
+                approval={member}
+                onApproved={onApproved}
+                onAlreadyDecided={onAlreadyDecided}
+              />
+            </li>
+          ))}
+        </ul>
+      </Disclosure>
+      <ConfirmModal
+        open={confirming === "approve"}
+        onClose={() => setConfirming(null)}
+        title={t("inbox.bundle.approveAll", { count: live.length })}
+        confirmLabel={t("trust.accept")}
+        pending={decide.isPending}
+        onConfirm={() => send("approve", "")}
+      >
+        <p className="t-small">{t("inbox.bundle.approveAllConfirm")}</p>
+      </ConfirmModal>
+      <ConfirmModal
+        open={confirming === "reject"}
+        onClose={() => setConfirming(null)}
+        title={t("inbox.bundle.rejectAll", { count: live.length })}
+        confirmLabel={t("inbox.reject")}
+        confirmVariant="danger"
+        pending={decide.isPending}
+        onConfirm={() => send("reject", reason)}
+      >
+        <Field
+          label={t("inbox.rejectReason")}
+          hint={t("inbox.bundle.rejectReasonHint")}
+        >
+          {(control) => (
+            <Textarea
+              {...control}
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          )}
+        </Field>
+      </ConfirmModal>
+    </Card>
+  );
+}
+
+type BundleResult = {
+  readonly verdict: BundleVerdict;
+  readonly decision: BundleDecision;
+};
+
+// The outcomes that are NOT a verdict this call recorded, each in the two number
+// forms its sentence needs. Keyed off the wire enum minus `decided`, so an
+// outcome the contract adds fails the type here rather than dropping silently
+// out of a report whose whole job is to be complete.
+const OUTCOME_KEYS: Readonly<
+  Record<
+    Exclude<BundleOutcome, "decided">,
+    { readonly one: MessageKey; readonly other: MessageKey }
+  >
+> = {
+  already_decided: {
+    one: "inbox.bundle.result.alreadyDecided.one",
+    other: "inbox.bundle.result.alreadyDecided.other",
+  },
+  expired: {
+    one: "inbox.bundle.result.expired.one",
+    other: "inbox.bundle.result.expired.other",
+  },
+  effect_failed: {
+    one: "inbox.bundle.result.effectFailed.one",
+    other: "inbox.bundle.result.effectFailed.other",
+  },
+};
+
+// The order the report reads in: what somebody else settled, what ran out of
+// time, and last the one that needs somebody to look at a record.
+const REPORTED_OUTCOMES = [
+  "already_decided",
+  "expired",
+  "effect_failed",
+] as const satisfies readonly (keyof typeof OUTCOME_KEYS)[];
+
+// How many members came back in each outcome.
+function outcomeCounts(decision: BundleDecision): Map<BundleOutcome, number> {
+  const counts = new Map<BundleOutcome, number>();
+  for (const member of decision.data) {
+    counts.set(member.outcome, (counts.get(member.outcome) ?? 0) + 1);
+  }
+  return counts;
+}
+
+// One sentence per outcome the response reported, verdict first.
+//
+// Deciding a bundle is not all-or-nothing, so "approved" on its own would be a
+// claim the response does not make: a member that had lapsed, one somebody else
+// had already answered, and one whose follow-on change failed to land each came
+// back saying so, and each is a different thing for the reader to do next.
+function outcomeLines(result: BundleResult, t: Translator): string[] {
+  const counts = outcomeCounts(result.decision);
+  const lines: string[] = [];
+  const decided = counts.get("decided") ?? 0;
+  if (decided > 0) {
+    lines.push(
+      t(
+        result.verdict === "approve"
+          ? "inbox.bundle.result.approved"
+          : "inbox.bundle.result.rejected",
+        { count: decided },
+      ),
+    );
+  }
+  for (const outcome of REPORTED_OUTCOMES) {
+    const count = counts.get(outcome) ?? 0;
+    if (count > 0) {
+      const keys = OUTCOME_KEYS[outcome];
+      lines.push(t(count === 1 ? keys.one : keys.other, { count }));
+    }
+  }
+  return lines;
+}
+
+// The worst thing that happened, which is what the notice's tone has to say: an
+// approved member whose change did not land leaves a record that did NOT change
+// while its approval stands, and that outranks anything else in the report.
+function outcomeTone(decision: BundleDecision): "danger" | "warn" | "success" {
+  const outcomes = new Set(decision.data.map((member) => member.outcome));
+  if (outcomes.has("effect_failed")) {
+    return "danger";
+  }
+  return outcomes.has("already_decided") || outcomes.has("expired")
+    ? "warn"
+    : "success";
+}
+
+// What the decision actually did, member by member.
+//
+// Screen-level, like the minted token, because the decision invalidates the
+// pending list and unmounts the card that made it.
+function BundleOutcomeNote({
+  result,
+  onDismiss,
+}: Readonly<{ result: BundleResult; onDismiss: () => void }>) {
+  const t = useT();
+  const lines = outcomeLines(result, t);
+  // A report with nothing in it says nothing: a call that decided no member
+  // answers 404, so there is no honest sentence to put in an empty box here.
+  if (lines.length === 0) {
+    return null;
+  }
+  const tone = outcomeTone(result.decision);
+  return (
+    <Callout
+      tone={tone}
+      live="status"
+      className="approval-bundle-result"
+      actions={
+        <Button small onClick={onDismiss}>
+          {t("inbox.dismiss")}
+        </Button>
+      }
+    >
+      {lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </Callout>
+  );
+}
+
+// The pending queue: one card per act, one row per proposal staged alone.
+function PendingList({
+  approvals,
+  onApproved,
+  onAlreadyDecided,
+  onBundleDecided,
+}: Readonly<{
+  approvals: readonly Approval[];
+  onApproved: (approvalId: string, token: string) => void;
+  onAlreadyDecided: () => void;
+  onBundleDecided: (verdict: BundleVerdict, decision: BundleDecision) => void;
+}>) {
+  return (
+    <>
+      {groupByBundle(approvals).map((item) =>
+        item.kind === "bundle" ? (
+          <BundleCard
+            key={item.bundleId}
+            bundleId={item.bundleId}
+            members={item.members}
+            onApproved={onApproved}
+            onAlreadyDecided={onAlreadyDecided}
+            onDecided={onBundleDecided}
+          />
+        ) : (
+          <ApprovalRow
+            key={item.approval.id}
+            approval={item.approval}
+            onApproved={onApproved}
+            onAlreadyDecided={onAlreadyDecided}
+          />
+        ),
+      )}
+    </>
+  );
+}
+
 export function InboxScreen() {
   const t = useT();
   const [tab, setTab] = useState<"pending" | "decided">("pending");
@@ -838,6 +1311,9 @@ export function InboxScreen() {
   // someone else" note (AC-6).
   const { onApproved, onAlreadyDecided, tokenModal, decidedNote } =
     useApprovalTokenSink();
+  // The per-member report of a bundle decision, held here for the same reason:
+  // the decision unmounts the card that made it.
+  const [bundleResult, setBundleResult] = useState<BundleResult | null>(null);
   const pendingQuery = usePendingApprovals();
   const decidedQuery = useDecidedApprovals(tab === "decided");
   const query = tab === "pending" ? pendingQuery : decidedQuery;
@@ -857,20 +1333,43 @@ export function InboxScreen() {
         />
       </div>
       {decidedNote}
+      {bundleResult && (
+        <BundleOutcomeNote
+          result={bundleResult}
+          onDismiss={() => setBundleResult(null)}
+        />
+      )}
       <QueryGate query={query} empty={(page) => page.data.length === 0}>
-        {(page) => (
-          <div style={{ marginTop: 12 }}>
-            {page.data.map((approval) => (
-              <ApprovalRow
-                key={approval.id}
-                approval={approval}
-                decided={tab === "decided"}
+        {(page) =>
+          tab === "pending" ? (
+            <div className="approval-queue">
+              <PendingList
+                approvals={page.data}
                 onApproved={onApproved}
                 onAlreadyDecided={onAlreadyDecided}
+                onBundleDecided={(verdict, decision) =>
+                  setBundleResult({ verdict, decision })
+                }
               />
-            ))}
-          </div>
-        )}
+            </div>
+          ) : (
+            // Decided stays ungrouped on purpose: it is history in the order the
+            // verdicts were recorded, and each member carries its OWN verdict —
+            // a group header over it would have to state a status the group does
+            // not have (three approved, one rejected, one lapsed).
+            <div className="approval-queue">
+              {page.data.map((approval) => (
+                <ApprovalRow
+                  key={approval.id}
+                  approval={approval}
+                  decided
+                  onApproved={onApproved}
+                  onAlreadyDecided={onAlreadyDecided}
+                />
+              ))}
+            </div>
+          )
+        }
       </QueryGate>
       {tokenModal}
     </div>

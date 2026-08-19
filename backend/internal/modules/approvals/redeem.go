@@ -216,7 +216,7 @@ var contextTargetKinds = map[string]string{
 		"Pinning would bind the answer to a row that relinking the meeting to a deal, or " +
 		"correcting its subject, bumps — ordinary work on the very meeting the question is " +
 		"about, and all of it done while the proposal sits in the inbox waiting to be read.",
-	"held_draft": "An automation-composed reply is filed under the ACTIVITY it answers, " +
+	kindHeldDraft: "An automation-composed reply is filed under the ACTIVITY it answers, " +
 		"because that message is the thread a human reads the draft against. The effect " +
 		"CREATES a new outbound activity and never writes the anchor — the send only READS " +
 		"it, for threading. Pinning bound the release to a row that relinking, a participant " +

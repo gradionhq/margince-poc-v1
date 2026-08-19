@@ -95,9 +95,17 @@ func TestOrganization360DoesNotAdvanceTheVisitBaseline(t *testing.T) {
 	}
 }
 
-// An agent acting through a passport is not a visitor: it must not consume
-// the human's unread marker, and it cannot triage approvals either.
-func TestOrganization360RefusesTheVisitBaselineToAnAgent(t *testing.T) {
+// An agent acting through a passport is not a VISITOR: acknowledging a visit
+// consumes the human's own unread marker, and nobody but that human may spend
+// it — a briefing read on their behalf must not tell them they have already
+// seen what changed.
+//
+// What it may do is READ, and the staged proposals are part of that. They are
+// filtered by the same decidability rule the inbox applies for whoever is
+// asking (ADR-0055), so an agent sees exactly what the person it acts for could
+// answer, and the section is present rather than omitted — which is the whole
+// point of a briefing that says what is waiting.
+func TestOrganization360RefusesTheVisitBaselineToAnAgentAndStillShowsWhatIsWaiting(t *testing.T) {
 	e := integration.Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
@@ -109,11 +117,12 @@ func TestOrganization360RefusesTheVisitBaselineToAnAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble as an agent: %v", err)
 	}
-	if view.PendingApprovals != nil {
-		t.Error("pending_approvals present for an agent — triage is human work, so the section must be omitted")
+	if view.PendingApprovals == nil {
+		t.Error("pending_approvals omitted for an agent — the person it acts for can answer these, so the " +
+			"briefing that leaves them out is the one that reads as nothing waiting")
 	}
-	if !slices.Contains(view.SectionsOmitted, "pending_approvals") {
-		t.Errorf("sections_omitted = %v, want it to name pending_approvals for an agent", view.SectionsOmitted)
+	if slices.Contains(view.SectionsOmitted, "pending_approvals") {
+		t.Errorf("sections_omitted = %v, and it names a section this caller was served", view.SectionsOmitted)
 	}
 }
 

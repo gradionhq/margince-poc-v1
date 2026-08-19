@@ -218,15 +218,18 @@ func configureWorker(args []string, stdout io.Writer) (workerBoot, error) {
 }
 
 // newWorkerLogger builds this role's correlation-aware logger from the
-// operator's --log-level and --log-format. Every process role shares the one
-// level/format vocabulary, and a typo in either is a boot error rather than a
-// silent fallback to a level nobody asked for.
+// operator's --log-level and --log-format, and installs it as the process
+// default. Every process role shares the one level/format vocabulary, and a
+// typo in either is a boot error rather than a silent fallback to a level
+// nobody asked for.
+//
+// THE DEFAULT MATTERS MOST IN THIS ROLE. Every job runs here, and a job's
+// failure reaches an operator through jobs.faultFor, which logs through the
+// package-level slog functions — so before this role installed its handler,
+// the one line a postponed tick leaves anywhere went to the stdlib default
+// while everything else went to the operator's configured sink.
 func newWorkerLogger(cfg workerConfig, stdout io.Writer) (*slog.Logger, error) {
-	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
-	if err != nil {
-		return nil, err
-	}
-	return slog.New(httpserver.WithCorrelation(handler)), nil
+	return httpserver.InstallProcessLogger(stdout, cfg.logLevel, cfg.logFormat)
 }
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions

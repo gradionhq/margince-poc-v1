@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 39 |
+| Tools | 43 |
 | Resources | 8 |
-| Tool catalog | 110.0 KB |
+| Tool catalog | 121.5 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 28940 |
+| Approx. wire tokens | 31876 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 46.1 KB | 41% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 29.1 KB | 26% | Yes, every step |
-| Input schemas | 26.5 KB | 24% | Yes, every step |
-| _Names, annotations, punctuation_ | 8.3 KB | 7% | Partly |
-| **Description + input schema** | **55.6 KB** | **50%** | **the recurring cost** |
+| Output schemas | 52.5 KB | 43% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 31.6 KB | 26% | Yes, every step |
+| Input schemas | 28.1 KB | 23% | Yes, every step |
+| _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
+| **Description + input schema** | **59.8 KB** | **49%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,7 +55,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (39)
+### Tools (43)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
@@ -68,11 +68,14 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.6 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.3 KB |
 | [`create_record`](#create_record) | Create a record |  |  | 2.7 KB |
+| [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
+| [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
 | [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 2.0 KB |
 | [`draft_email`](#draft_email) | Draft an email reply |  |  | 2.4 KB |
 | [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
 | [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.6 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
+| [`list_approvals`](#list_approvals) | List what is waiting for a decision | yes |  | 2.9 KB |
 | [`list_channel_providers`](#list_channel_providers) | List messaging transports | yes |  | 2.0 KB |
 | [`list_pipelines`](#list_pipelines) | List pipelines and their stages | yes |  | 2.3 KB |
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
@@ -84,6 +87,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.6 KB |
 | [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.5 KB |
 | [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.6 KB |
+| [`read_approval`](#read_approval) | Read one staged action in full | yes |  | 2.4 KB |
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
@@ -1847,6 +1851,440 @@ Create a person, organization, deal, lead, project, activity or relationship tha
 
 </details>
 
+### decide_approval
+
+**Approve or reject one staged action**
+
+Answer one staged action for the person asking you: approve it, which lets it happen, or reject it, which discards it. The verdict is theirs — take an explicit approve or reject rather than deciding what they would have wanted. Approving is what makes the change real, including sending a message that was only drafted; a rejection cannot be taken back. An item already answered, or lapsed, is reported as such and nothing is written. read_approval when they have not seen what it holds; decide_approval_bundle for every proposal one act staged. If the proposal is your OWN refused call, approving does not perform it — re-issue that same call with approval_id set. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "enum": [
+        "approve",
+        "reject"
+      ],
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "reason": {
+      "description": "Why, in the deciding person's words. Recorded with the decision.",
+      "type": "string"
+    },
+    "staged_action_id": {
+      "description": "From list_approvals.",
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "staged_action_id",
+    "decision"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "bundle_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "decided_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "diff_hash": {
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "properties": {
+              "evidence_snippet": {
+                "type": "string"
+              },
+              "source_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "source_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "evidence_snippet"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "proposed_by": {
+          "type": "string"
+        },
+        "proposed_change": {
+          "type": "object"
+        },
+        "staged_action_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "target_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created_at",
+        "kind",
+        "proposed_by",
+        "staged_action_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### decide_approval_bundle
+
+**Approve or reject one act's proposals together**
+
+Answer every still-waiting proposal that one act staged together — the overnight run that proposed six corrections is six proposals under one bundle_id. Each member is answered on its own terms and reported on its own; one already decided, or lapsed, is left as it is. Members the person could not decide alone are not decided here, and a bundle holding none of theirs reads as not found. decide_approval answers a single item; list_approvals is where a bundle_id comes from. Each member carries its own outcome — decided here, already decided, or expired. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "bundle_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approve",
+        "reject"
+      ],
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "reason": {
+      "description": "Why, in the deciding person's words. Recorded against every member.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "bundle_id",
+    "decision"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "members": {
+          "items": {
+            "properties": {
+              "bundle_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "decided_at": {
+                "type": "string"
+              },
+              "decided_by": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "diff_hash": {
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "properties": {
+                    "evidence_snippet": {
+                      "type": "string"
+                    },
+                    "source_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "source_type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "evidence_snippet"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "expires_at": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "outcome": {
+                "type": "string"
+              },
+              "proposed_by": {
+                "type": "string"
+              },
+              "proposed_change": {
+                "type": "object"
+              },
+              "staged_action_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "target_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "target_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_at",
+              "kind",
+              "outcome",
+              "proposed_by",
+              "staged_action_id",
+              "status"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "members"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
 ### disqualify_lead
 
 **Disqualify a lead**
@@ -2534,6 +2972,227 @@ Find a warm route into a company: who we already know there, and which colleague
         "candidates_truncated",
         "organization_id",
         "routes"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### list_approvals
+
+**List what is waiting for a decision**
+
+The staged actions waiting for a person's decision: what was proposed and what each would do. It is where a proposal that is already waiting turns up — a message staged and unsent is not one that needs writing again. It lists what the person you act for could decide themselves; anything else is absent rather than refused. A proposal past its expiry reads as expired and can no longer be answered. Each item carries its one-line summary, not the change itself. read_approval opens one and shows what it holds; decide_approval answers it. Keep the staged_action_id you mean to act on, the bundle_id when one act staged several, and next_cursor. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "description": "next_cursor from a previous page.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "One staged action, e.g. send_email or advance_deal.",
+      "type": "string"
+    },
+    "limit": {
+      "maximum": 50,
+      "minimum": 1,
+      "type": "integer"
+    },
+    "status": {
+      "description": "Defaults to pending — what is still waiting.",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "approvals": {
+          "items": {
+            "properties": {
+              "bundle_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "created_at": {
+                "type": "string"
+              },
+              "decided_at": {
+                "type": "string"
+              },
+              "decided_by": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "diff_hash": {
+                "type": "string"
+              },
+              "evidence": {
+                "items": {
+                  "properties": {
+                    "evidence_snippet": {
+                      "type": "string"
+                    },
+                    "source_id": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "source_type": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "evidence_snippet"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "expires_at": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "proposed_by": {
+                "type": "string"
+              },
+              "proposed_change": {
+                "type": "object"
+              },
+              "staged_action_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "target_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "target_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "created_at",
+              "kind",
+              "proposed_by",
+              "staged_action_id",
+              "status"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvals"
       ],
       "type": "object"
     },
@@ -4680,6 +5339,199 @@ Answer a question that has STRUCTURE — a record type, conditions on its fields
         "limit",
         "notes",
         "rows"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### read_approval
+
+**Read one staged action in full**
+
+Read one staged action in full: the exact change proposed, the record it acts on, and the evidence it was formed on — enough to answer it without opening the app. Reading performs nothing. An id the person you act for could not decide answers as not found, exactly as an id naming nothing does. list_approvals yields the id; decide_approval answers it. Keep the staged_action_id, and the bundle_id if the item names one. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "staged_action_id": {
+      "description": "From list_approvals.",
+      "format": "uuid",
+      "type": "string"
+    }
+  },
+  "required": [
+    "staged_action_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "bundle_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string"
+        },
+        "decided_at": {
+          "type": "string"
+        },
+        "decided_by": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "diff_hash": {
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "properties": {
+              "evidence_snippet": {
+                "type": "string"
+              },
+              "source_id": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "source_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "evidence_snippet"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "expires_at": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "proposed_by": {
+          "type": "string"
+        },
+        "proposed_change": {
+          "type": "object"
+        },
+        "staged_action_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "target_type": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created_at",
+        "kind",
+        "proposed_by",
+        "staged_action_id",
+        "status"
       ],
       "type": "object"
     },

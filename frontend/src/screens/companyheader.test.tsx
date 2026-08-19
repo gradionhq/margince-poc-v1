@@ -254,3 +254,45 @@ describe("the owner the edit form prefills", () => {
     ).toBeNull();
   });
 });
+
+// STATE-4a decides absent-vs-disabled by CAUSE, and an archive is state: the
+// menu used to drop every verb on an archived account, leaving a reader unable
+// to tell a record that is closed from a build without an edit button.
+describe("an archived account's verbs", () => {
+  it("stay in the menu, refused, each reachable from the one sentence naming the archive", async () => {
+    stub([{ id: "u-owner", display_name: "Mira Voss" }]);
+    const user = userEvent.setup();
+    renderInApp(
+      <CompanyActionBadges
+        org={{ ...ORG, archived_at: "2026-07-13T00:00:00Z" }}
+        onOpenHistory={() => undefined}
+        onSetUpPartner={() => undefined}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    const refused = [
+      await screen.findByTestId("edit-record"),
+      screen.getByTestId("merge-record"),
+      screen.getByTestId("archive-record"),
+      screen.getByTestId("share-record"),
+    ];
+    for (const control of refused) {
+      expect(control.hasAttribute("disabled")).toBe(true);
+      // The reason has to be reachable FROM the control: a disabled button
+      // cannot be focused and a `title` on it is announced by nobody, so a
+      // sentence the control does not point at reaches no reader who needed it.
+      const describedBy = control.getAttribute("aria-describedby");
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+        "This company is archived. Restore it to change anything on it.",
+      );
+    }
+    // The reads next to them are untouched: what happened to a record is
+    // exactly what a reader wants after it has been put away.
+    expect(
+      screen.getByTestId("company-full-history").hasAttribute("disabled"),
+    ).toBe(false);
+  });
+});

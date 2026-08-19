@@ -154,7 +154,10 @@ func TestEndToEnd_agentWritesGovernedOnREST(t *testing.T) {
 	}
 	approvalID := ExtractStagedApprovalID(t, problem.Detail)
 
-	// The agent may STAGE but never APPROVE — including its own staging.
+	// The agent may STAGE but never release ITS OWN proposal: the confirm-first
+	// tier exists so somebody other than the caller sees the call first, and a
+	// credential that could approve the row it just staged would have performed
+	// that confirmation on itself.
 	var denyBody struct {
 		Code string `json:"code"`
 	}

@@ -76,12 +76,24 @@ func (s *Dispatcher) explain(tool string, err error) string {
 			"and tell the user what is blocking it; the same call can succeed after the window rolls. (" +
 			overQuota.Error() + ")"
 	case errors.Is(err, apperrors.ErrRequiresApproval):
-		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +
-			"Ask the user to perform it in the CRM, or wait for the approval flow. Nothing was changed. (" + err.Error() + ")"
+		// Where the answer comes from, because the alternative is a caller that
+		// waits for something nobody knows to do. It is not this credential's to
+		// give — the one that proposed an action does not release it — but the
+		// proposal is now readable from here, so an agent can show the person
+		// what it is waiting on instead of describing it from memory.
+		return "This is a confirm-first (🟡) action: a person answers it before it runs, and not the " +
+			"credential that proposed it. Nothing was changed. Tell the user it is waiting — list_approvals " +
+			"shows it, read_approval shows what it would do, and they release it in the CRM. (" + err.Error() + ")"
 	case errors.Is(err, apperrors.ErrScopeExceeded):
 		return "The passport this session runs under does not grant the scope this tool needs. (" + err.Error() + ")"
 	case errors.Is(err, apperrors.ErrPermissionDenied):
-		return "The human this passport acts for is not permitted to do this — the agent inherits exactly their access. (" + err.Error() + ")"
+		// Whose bound it was is in the detail, and the summary must not guess:
+		// an agent has the access of the human it acts for AND no more of it than
+		// they lent, so a refusal here is one of those two and a sentence naming
+		// only the first would send a caller to ask for permissions they already
+		// hold.
+		return "Refused on authority: an agent has exactly the access of the human it acts for, and never " +
+			"more of it than they lent this credential. (" + err.Error() + ")"
 	case errors.Is(err, apperrors.ErrNotFound):
 		return "No such record in this workspace (or it is outside the acting user's row scope). (" + err.Error() + ")"
 	case errors.Is(err, apperrors.ErrVersionSkew):

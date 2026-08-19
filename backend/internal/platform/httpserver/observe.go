@@ -52,6 +52,41 @@ func LogHandler(w io.Writer, level, format string) (slog.Handler, error) {
 	}
 }
 
+// InstallProcessLogger builds this role's logger from the operator's
+// --log-level and --log-format AND makes it the process default, answering it
+// for everything that takes a logger explicitly.
+//
+// THE SetDefault IS THE POINT, and it is what a role that only built a logger
+// was missing. Plenty of code in this tree logs through the PACKAGE-LEVEL
+// slog functions — slog.ErrorContext, slog.WarnContext — which reach
+// slog.Default() and nothing else. jobs.faultFor is the case that matters
+// most: a postponed tick records no attempt error anywhere, so its log line
+// and the unit's own row are the entire trail an outage leaves in the process.
+// Until a role installed its handler here, that line went to the stdlib
+// default — text, on stderr — while every explicitly-logged line went to the
+// operator's configured sink and format. A collector parsing the worker's JSON
+// got an unstructured line for exactly the events it most wants, and nothing
+// anywhere said so.
+//
+// It is also what makes the CORRELATION handler reach those call sites. The
+// wrapper below enriches a record only when it is the handler doing the
+// logging, so a package-level call against a bare default carried no
+// correlation_id whichever context it was given — which is why fault.go used
+// to attach the id by hand, and why it no longer has to.
+//
+// A role builds its logger ONCE, at boot, before anything serves. Nothing here
+// guards against a second call: the process default is a single value by
+// construction, and a role that installed two logs through whichever won.
+func InstallProcessLogger(w io.Writer, level, format string) (*slog.Logger, error) {
+	handler, err := LogHandler(w, level, format)
+	if err != nil {
+		return nil, err
+	}
+	logger := slog.New(WithCorrelation(handler))
+	slog.SetDefault(logger)
+	return logger, nil
+}
+
 // WithCorrelation wraps a slog.Handler so every record logged through a
 // *Context method carries the request's correlation_id — the same id the
 // Correlate middleware minted and every emitted event's trace links, so

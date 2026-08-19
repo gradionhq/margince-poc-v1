@@ -1386,6 +1386,7 @@ export const vi = {
   "deal.archive": "Lưu trữ deal",
   "deal.archiveConfirm":
     "Lưu trữ sẽ đưa deal này ra khỏi pipeline đang hoạt động. Không thể hoàn tác từ giao diện.",
+  "deal.archivedReadOnly": "Deal này đã lưu trữ và không nhận thay đổi.",
   "deal.reopen": "Mở lại",
   "deal.reopenPick": "Chuyển deal này về một giai đoạn đang mở",
   "deal.reopenConfirm": "Mở lại",
@@ -1493,6 +1494,31 @@ export const vi = {
   "inbox.status.approved": "Đã duyệt",
   "inbox.status.rejected": "Đã từ chối",
   "inbox.status.expired": "Đã hết hạn",
+
+  "inbox.bundle.why":
+    "Một hành động đã xếp {count} đề xuất này chờ duyệt cùng lúc. Hãy trả lời tất cả một lần, hoặc mở ra và quyết định từng đề xuất.",
+  "inbox.bundle.members": "{count} đề xuất trong hành động này",
+  "inbox.bundle.approveAll": "Duyệt cả {count}",
+  "inbox.bundle.rejectAll": "Từ chối cả {count}",
+  "inbox.bundle.approveAllConfirm":
+    "Mỗi đề xuất vẫn được quyết định riêng: đề xuất đã hết hạn hoặc đã có người trả lời sẽ được báo lại chứ không bị ghi đè, những đề xuất còn lại sẽ được thực hiện.",
+  "inbox.bundle.rejectReasonHint":
+    "Lý do được ghi vào mọi đề xuất bị từ chối, và những người mà các đề xuất được xếp chờ duyệt cho sẽ thấy.",
+  "inbox.bundle.expiresIn": "đề xuất đầu tiên hết hạn sau {countdown}",
+  "inbox.bundle.result.approved": "Đã duyệt {count}",
+  "inbox.bundle.result.rejected": "Đã từ chối {count}",
+  "inbox.bundle.result.alreadyDecided.one":
+    "{count} đề xuất đã có quyết định trước đó và được giữ nguyên.",
+  "inbox.bundle.result.alreadyDecided.other":
+    "{count} đề xuất đã có quyết định trước đó và đều được giữ nguyên.",
+  "inbox.bundle.result.expired.one":
+    "{count} đề xuất đã hết hạn — hãy xếp lại để quyết định.",
+  "inbox.bundle.result.expired.other":
+    "{count} đề xuất đã hết hạn — hãy xếp lại để quyết định chúng.",
+  "inbox.bundle.result.effectFailed.one":
+    "{count} đề xuất đã được duyệt nhưng thay đổi không được áp dụng — bản ghi đó không đổi.",
+  "inbox.bundle.result.effectFailed.other":
+    "{count} đề xuất đã được duyệt nhưng các thay đổi không được áp dụng — những bản ghi đó không đổi.",
 
   "home.brief": "Tóm tắt buổi sáng",
   "home.sub": "xếp hạng từ tín hiệu trực tiếp — việc chờ xác nhận lên trước",
@@ -1755,6 +1781,10 @@ export const vi = {
   "docs.add.aboutHint":
     "Tài liệu gắn với một thương vụ có thể được đọc để lấy các trường của thương vụ; gắn với công ty thì không.",
   "docs.add.thisCompany": "Công ty này",
+  "docs.add.aDeal": "Một thương vụ",
+  "docs.add.dealSearch": "Tìm trong các thương vụ của tài khoản này",
+  "docs.add.dealSearchReach":
+    "Tìm kiếm chỉ quét {deals} thương vụ mới nhất của tài khoản này và hiển thị {matches} kết quả đầu tiên. Thương vụ cũ hơn thế thì không chọn được ở đây.",
   "docs.add.category": "Phân loại",
   "docs.add.name": "Tiêu đề",
   "docs.add.nameHint": "Không bắt buộc. Để trống thì dòng hiển thị tên tệp.",
@@ -1765,6 +1795,7 @@ export const vi = {
   "docs.add.submit": "Tải lên",
   "docs.add.uploading": "Đang tải lên…",
   "docs.add.errNoFile": "Hãy chọn một tệp để tải lên.",
+  "docs.add.errNoDeal": "Hãy chọn thương vụ để gắn tài liệu này vào.",
   "docs.add.errRefused": "Bạn không được thêm tài liệu vào bản ghi này.",
   "docs.add.errInFlight": "Tài liệu này vẫn đang được tải lên.",
   "docs.add.errTooLarge":
@@ -1774,8 +1805,6 @@ export const vi = {
   "docs.add.partialTitle": "Đã tải lên, nhưng chưa xếp loại",
   "docs.add.partial":
     "Tệp đã nằm trên bản ghi và có trong danh sách bên dưới. Chỉ phân loại và tiêu đề là chưa lưu được, nên tệp đang xếp ở mục Khác.",
-  "docs.add.dealsFailed":
-    "Không tải được danh sách thương vụ của tài khoản này, nên tài liệu chỉ có thể gắn với công ty.",
 
   // Bảng đọc tài liệu đã lưu (RD-AC-N-2/-3). Ba trạng thái phải tách bạch cả
   // trong câu chữ: chưa trả lời, đã đọc và không nêu trường nào, và không đọc
@@ -2844,6 +2873,39 @@ export const vi = {
   "consumerMail.baselineNone": "Không có tên miền có sẵn nào khớp.",
   "consumerMail.baselineMore":
     "Hiển thị {shown} đầu tiên trong {matched} kết quả.",
+
+  "blockedDomains.title": "Tên miền bị từ chối",
+  "blockedDomains.sub":
+    "Những tên miền mà bản cài đặt này không cho thành công ty, và điều gì đã quyết định từng trường hợp — một phán định của mô hình, một quy tắc suy đoán, hay một con người. Cho một tên miền vào lại sẽ mở lại câu hỏi về công ty, chứ không chỉ xoá một dấu hiệu.",
+  "blockedDomains.domainLabel": "Tên miền",
+  "blockedDomains.domainPlaceholder": "nhacungcap.example",
+  "blockedDomains.admissionLabel": "Quyết định",
+  "blockedDomains.admission.suppressed": "Không bao giờ là công ty",
+  "blockedDomains.admission.admitted": "Được cho vào, và giữ nguyên",
+  "blockedDomains.reasonLabel": "Lý do",
+  "blockedDomains.reasonHint":
+    "Một câu mà người xem lại sau này có thể dựa vào.",
+  "blockedDomains.reasonPlaceholder":
+    "một công cụ chúng ta dùng, không phải khách hàng",
+  "blockedDomains.save": "Lưu quyết định",
+  "blockedDomains.stored": "Đã lưu: {domain} — {admission}.",
+  "blockedDomains.adminOnly":
+    "Chỉ ghế admin hoặc ops mới được đổi quyết định về tên miền. Bạn vẫn đọc được danh sách.",
+  "blockedDomains.none":
+    "Chưa có tên miền nào bị từ chối làm công ty. Phán định về người gửi hàng loạt sẽ tự xuất hiện ở đây, cùng với mọi thứ bạn tự tay từ chối.",
+  "blockedDomains.unit": "quyết định tên miền",
+  "blockedDomains.openCompany": "công ty",
+  "blockedDomains.col.domain": "Tên miền",
+  "blockedDomains.col.admission": "Quyết định",
+  "blockedDomains.col.source": "Ai quyết định",
+  "blockedDomains.col.reason": "Lý do",
+  "blockedDomains.col.decided": "Khi nào",
+  "blockedDomains.col.revise": "Đổi",
+  "blockedDomains.source.verdict": "Phán định của mô hình",
+  "blockedDomains.source.heuristic": "Quy tắc suy đoán",
+  "blockedDomains.source.human": "Một con người",
+  "blockedDomains.rowAdmit": "Cho tên miền này vào",
+  "blockedDomains.rowRefuse": "Từ chối tên miền này",
 
   "ob.s4.googleFailed": "Kết nối Google chưa hoàn tất",
   "ob.s4.imapHost": "Máy chủ IMAP",
@@ -4777,7 +4839,7 @@ export const vi = {
   "person.research.capturedBy": "Ghi nhận bởi",
   "person.action.email": "Email",
   "person.action.call": "Gọi",
-  "person.action.book": "Đặt lịch",
+  "person.action.meetings": "Xem lịch hẹn",
   "person.action.addTask": "Thêm việc",
   "person.action.research": "Nghiên cứu",
   "person.action.more": "Thao tác khác",

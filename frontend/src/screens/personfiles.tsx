@@ -1,12 +1,14 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge } from "../design-system/atoms";
+import { Badge, Button } from "../design-system/atoms";
 import { Panel, PanelRow } from "../design-system/panel";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDateAbbrev } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { AddDocumentDialog } from "./adddocument";
 import { LoadMoreButton, throwProblem } from "./common";
 import { RECORD_ZONE } from "./company360";
 import "./person360.css";
@@ -16,6 +18,11 @@ import "./person360.css";
 // so it fetches its own page and classifies its own state rather than reusing
 // `sectionState`, which exists for a section of a payload this tab never
 // receives.
+//
+// It is also the one tab here that WRITES. The upload is the account library's
+// own dialog (adddocument.tsx), anchored on this contact rather than on a
+// company — a second upload form for the same endpoint would be a second set of
+// answers about size limits, partial failures and what a category means.
 
 type Attachment = components["schemas"]["Attachment"];
 type Category = NonNullable<Attachment["category"]>;
@@ -35,6 +42,7 @@ const CATEGORY_LABELS: Record<Category, MessageKey> = {
 export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
   const t = useT();
   const { locale } = useLocale();
+  const [adding, setAdding] = useState(false);
 
   const query = useInfiniteQuery({
     queryKey: ["attachments", "person", personId],
@@ -90,6 +98,18 @@ export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
   return (
     <Panel
       title={t("tab.documents")}
+      // The verb sits in the header band, where the ACCOUNT's document panel
+      // keeps the same one, and it is offered in every state for the reason
+      // recorded there: an empty library is what the upload exists to leave, so
+      // withholding it on an empty or failed read hides the control exactly
+      // when it is wanted. That is also why it is not `Panel`'s `actions` band,
+      // which the primitive documents as a place for verbs a caller renders
+      // only once the panel's content is real.
+      titleAction={
+        <Button small onClick={() => setAdding(true)}>
+          {t("docs.add.action")}
+        </Button>
+      }
       // The walk's control belongs to the SECTION, not to any file in it, so it
       // takes the panel's own foot band rather than trailing the rows as one
       // more of them. Passed only where another page exists: the band draws
@@ -97,6 +117,11 @@ export function PersonFilesTab({ personId }: Readonly<{ personId: string }>) {
       // chrome a reader can see and cannot use.
       footer={query.hasNextPage ? <LoadMoreButton query={query} /> : undefined}
     >
+      <AddDocumentDialog
+        anchor={{ record: "person", id: personId }}
+        open={adding}
+        onClose={() => setAdding(false)}
+      />
       <SurfaceState
         state={state}
         emptyLabel={t("person.documents.empty")}

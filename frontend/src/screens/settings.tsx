@@ -74,6 +74,7 @@ import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import { AutomationsAdmin } from "./automations";
+import { BlockedDomainsCard } from "./blocked-domains";
 import { CaptureActivityTab } from "./capture-activity";
 import { CaptureSettingsCard } from "./capture-settings";
 import {
@@ -255,6 +256,11 @@ function tabContent(id: SettingsTabId): ReactNode {
           <OwnDomainsCard />
           <CaptureSettingsCard />
           <ConsumerMailDomainsCard />
+          {/* Last, because it is the OUTCOME of the three above rather than a
+              fourth rule: which domains ended up refused a company, and whether
+              a machine or a person decided it. An operator hunting a company
+              that never arrived reads down the page and finishes here. */}
+          <BlockedDomainsCard />
         </>
       );
     case "data-model":

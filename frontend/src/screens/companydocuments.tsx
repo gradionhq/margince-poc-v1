@@ -217,7 +217,7 @@ export function CompanyDocumentsCard({ orgId }: Readonly<{ orgId: string }>) {
       }
     >
       <AddDocumentDialog
-        orgId={orgId}
+        anchor={{ record: "organization", id: orgId }}
         open={adding}
         onClose={() => setAdding(false)}
       />

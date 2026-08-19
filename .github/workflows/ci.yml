@@ -510,6 +510,12 @@ jobs:
       - name: the entrypoint writes no credential onto a live installation
         working-directory: .
         run: make test-api-entrypoint
+      # Same class of silent failure: a dev stack that ignored MARGINCE_DSN
+      # looked exactly like one that honoured it, and a slugged stack that took
+      # its database name from a supplied DSN looks isolated while sharing one.
+      - name: the dev stack resolves DSNs the way the product does
+        working-directory: .
+        run: make test-dev-dsn
       # The pin gate rides along here, and only here, because it reads the WHOLE
       # workflow directory while the backend scope names one file: sbom.yml and
       # patch.yml match no scope, so gated on the classifier this check would

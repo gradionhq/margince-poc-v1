@@ -84,6 +84,30 @@ func tagLinkFor(entity string) storekit.Field {
 	}
 }
 
+// customerLink is the EXISTS template a deal's filter reaches its customer
+// through: one correlated subquery per leaf, on the organization the deal
+// already points at.
+//
+// It does NOT re-apply the organization engine's own base clause (archived and
+// is_anchor), and that is the substantive choice here. Those two exclusions
+// answer "which of our accounts are segment MEMBERS"; this leaf answers a fact
+// about the company a deal belongs to, which archiving does not change. Carrying
+// them over would move deals out of "the manufacturing pipeline" the moment
+// somebody archived a company — a pipeline figure shifting for a reason nobody
+// filtering could see.
+//
+// The organization table is read inside the caller's own transaction, so the RLS
+// GUC contract binds it exactly as it binds the base table: there is no path
+// here that reaches another workspace's rows.
+const customerLink = "EXISTS (SELECT 1 FROM organization o WHERE o.id = t.organization_id AND %s)"
+
+// customerField types one organization column as a deal-side filter leaf. The
+// operators it advertises narrow themselves — OperatorsFor reads Link — so an
+// industry reached this way offers everything text does except `contains`.
+func customerField(column string, fieldType storekit.FieldType) storekit.Field {
+	return storekit.Field{Expr: "o." + column, Type: fieldType, Link: customerLink}
+}
+
 var segmentEngines = map[string]storekit.Query{
 	"person": {
 		Table:     "person",
@@ -129,6 +153,18 @@ var segmentEngines = map[string]storekit.Query{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist},
 			tagFilterField:      tagLinkFor("deal"),
+			// The customer's own attributes, so "the pipeline for manufacturing"
+			// is a filter rather than a spreadsheet. Same columns and same types
+			// as the organization engine offers directly, reached through the
+			// deal's organization_id.
+			//
+			// classification is deliberately absent. It is retired (ADR-0079/A124)
+			// and survives on the organization engine only so segments already
+			// written against it keep evaluating — a NEW way to name it would be
+			// a fresh dependency on a column that is going away.
+			"organization_industry":  customerField("industry", storekit.FieldText),
+			"organization_size_band": customerField("size_band", storekit.FieldPicklist),
+			"organization_lifecycle": customerField("lifecycle", storekit.FieldPicklist),
 		},
 	},
 	"lead": {
