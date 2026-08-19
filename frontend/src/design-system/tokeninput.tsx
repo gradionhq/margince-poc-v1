@@ -177,8 +177,11 @@ export function TokenList({
   return (
     // A list, because it IS one: a reader on a screen reader is told how many
     // people are on it before walking them, which a row of loose spans cannot
-    // say.
-    <ul className="token-list">
+    // say. The explicit `role` is what keeps that promise — `list-style: none` is
+    // how this reads as tokens, and Safari drops list semantics from the
+    // accessibility tree the moment it is applied.
+    // biome-ignore lint/a11y/noRedundantRoles: the role is what keeps the list a list in Safari/VoiceOver once the marker is styled off.
+    <ul className="token-list" role="list">
       {items.map((item) => (
         <li key={item.id} className="token token-standalone">
           {item.label}

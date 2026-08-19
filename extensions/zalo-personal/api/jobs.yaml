@@ -80,7 +80,7 @@ actions:
       queue: default
       timeout: 300s
       # Small on purpose, like every other fan-out child's: the real retry
-      # cadence is the dispatcher's next tick, five minutes away, and a turn that
+      # cadence is the dispatcher's next tick, one minute away, and a turn that
       # failed because a member's session is dead gains nothing from three fast
       # retries — that one is fixed by a human with a phone.
       max_attempts: 3

@@ -186,6 +186,13 @@ func TestPaddingThatCouldNotHaveBeenWrittenIsRejected(t *testing.T) {
 	if _, err := pkcs7Unpad(block); err == nil {
 		t.Error("a padding byte larger than the block was accepted")
 	}
+	// A suffix that only LOOKS like padding: the last byte says two, and the byte
+	// before it is not two. Trusting the length byte alone would hand back a
+	// plaintext one byte short of the truth rather than report a corrupt frame.
+	block[14], block[15] = 1, 2
+	if _, err := pkcs7Unpad(block); err == nil {
+		t.Error("a padding run whose bytes disagree with its declared length was accepted")
+	}
 }
 
 // TestPaddingIsAlwaysAWholeBlockAndNamesItsOwnLength pins the invariant the pad

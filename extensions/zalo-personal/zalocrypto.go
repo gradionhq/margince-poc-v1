@@ -77,6 +77,15 @@ func pkcs7Unpad(data []byte) ([]byte, error) {
 	if n == 0 || n > aes.BlockSize || n > len(data) {
 		return nil, fmt.Errorf("bad PKCS#7 padding byte %d", n)
 	}
+	// EVERY padding byte, not just the last one: a suffix of 0x01 0x02 declares two
+	// bytes of padding while carrying one byte that is not padding, and trusting the
+	// length byte alone would silently truncate a plaintext by one byte instead of
+	// reporting the frame as corrupt.
+	for _, b := range data[len(data)-n:] {
+		if b != byte(n) {
+			return nil, fmt.Errorf("PKCS#7 padding declares %d bytes and one of them is %d", n, b)
+		}
+	}
 	return data[:len(data)-n], nil
 }
 

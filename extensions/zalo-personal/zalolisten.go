@@ -300,6 +300,16 @@ func (d *inboxDrain) collectMessages(f zaloFrame) error {
 	}
 
 	for _, raw := range envelope.Data.Msgs {
+		// THE CEILING BINDS INSIDE THE FRAME, not after it. One frame is bounded
+		// only by the inflated-payload cap, which at the message sizes this
+		// provider sends is thousands of messages — so a check that ran once per
+		// frame would let a single hostile reply carry the drain far past the
+		// bound that exists to keep this tick's memory and duration predictable.
+		// Stopping early costs nothing: reading does not consume the queue, and
+		// the rest is still there on the next tick.
+		if len(d.messages) >= maxInboundPerDrain {
+			return nil
+		}
 		message, err := zaloInboundFrom(raw)
 		if err != nil {
 			return err

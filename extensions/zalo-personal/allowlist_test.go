@@ -215,6 +215,27 @@ func TestTheFirstSaveIsWhatArmsCapture(t *testing.T) {
 	}
 }
 
+// A padded id is the same person as the unpadded one, and the table has to hold
+// it that way: the stored id is compared literally against what the provider
+// reports as a frame's counterparty, so a stored " u-9 " would exclude nobody
+// under everyone_except and include nobody under only_chosen.
+func TestAnAccountIDIsStoredWithoutTheWhitespaceAroundIt(t *testing.T) {
+	t.Parallel()
+	rt := savingRuntime(t,
+		connectionRow(statusConnected, memberZaloUID, true),
+		connectionRow(statusConnected, memberZaloUID, true))
+	padded := `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"  ` +
+		counterpartyZaloUID + `  ","mode":"allow","display_name":"Chosen"}]}`
+
+	if _, err := saveAllowlist(context.Background(), rt, json.RawMessage(padded)); err != nil {
+		t.Fatalf("saving a padded account id: %v", err)
+	}
+	_, entryArgs := rt.tx.statementMentioning(t, "ON CONFLICT (workspace_id, user_id, channel_user_id)")
+	if entryArgs[1] != counterpartyZaloUID {
+		t.Fatalf("the verdict was written against %q, which matches no frame this provider reports", entryArgs[1])
+	}
+}
+
 func publishedVerbs(rt *fakeRuntime) map[string]bool {
 	verbs := map[string]bool{}
 	for _, event := range rt.tx.published {
@@ -387,11 +408,15 @@ func TestADocumentTheVerdictTableCannotHoldIsRefused(t *testing.T) {
 	t.Parallel()
 	long := strings.Repeat("x", extension.MaxChannelUserIDLength+1)
 	for name, args := range map[string]string{
-		"no entries at all":                `{"entries":[]}`,
-		"a person named twice":             `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow"},{"channel_user_id":"a","mode":"block"}]}`,
-		"an entry verdict nobody declared": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"maybe"}]}`,
-		"an entry naming nobody":           `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"  ","mode":"allow"}]}`,
-		"an account id past the cap":       `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"` + long + `","mode":"allow"}]}`,
+		"no entries at all":    `{"entries":[]}`,
+		"a person named twice": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow"},{"channel_user_id":"a","mode":"block"}]}`,
+		// The same person twice, one of them padded: the id routes nothing but a
+		// literal match, so a save that reads as two decisions about one human is
+		// still two decisions about one human.
+		"a person named twice, once padded": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow"},{"channel_user_id":" a ","mode":"block"}]}`,
+		"an entry verdict nobody declared":  `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"maybe"}]}`,
+		"an entry naming nobody":            `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"  ","mode":"allow"}]}`,
+		"an account id past the cap":        `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"` + long + `","mode":"allow"}]}`,
 		"a display name past the cap": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow","display_name":"` +
 			strings.Repeat("n", extension.MaxDisplayNameRunes+1) + `"}]}`,
 		"a field the contract does not declare": `{"capture_mode":"only_chosen","entries":[{"channel_user_id":"a","mode":"allow","capture":true}]}`,

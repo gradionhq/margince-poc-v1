@@ -15,7 +15,7 @@ package zalopersonal
 //      it starts EMPTY.
 //   2. A COLUMN ON THE VERDICT ROW fixes that and ties the bookmark's existence to a
 //      row the MEMBER owns. It survived only as long as the allowlist was the only
-//      model: under all_but_blocked most conversations have no verdict at all, so
+//      model: under everyone_except most conversations have no verdict at all, so
 //      there is nowhere to put their bookmark.
 //
 // The invariant both misses is that a bookmark is a fact about ONE CONVERSATION and

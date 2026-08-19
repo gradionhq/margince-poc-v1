@@ -269,8 +269,13 @@ func TestTheDrainStopsWhenTheQueueHasBeenQuietForTheGivenPeriod(t *testing.T) {
 func TestADrainStopsAtItsCeilingRatherThanLettingTheProviderDecideItsLength(t *testing.T) {
 	message := onlyMessage(t, capturedInbound)
 	frames := [][]byte{cipherKeyFrame()}
-	for delivered := 0; delivered <= maxInboundPerDrain; delivered += 100 {
-		batch := make([]json.RawMessage, 100)
+	// A BATCH THAT DOES NOT DIVIDE THE CEILING, deliberately: with a divisor the
+	// assertion below is satisfied by arithmetic even if the bound were only
+	// checked between frames. 300 makes the last frame straddle the ceiling, so
+	// the test proves the drain stops inside a frame.
+	const perFrame = 300
+	for delivered := 0; delivered <= maxInboundPerDrain; delivered += perFrame {
+		batch := make([]json.RawMessage, perFrame)
 		for i := range batch {
 			batch[i] = withField(t, message, "msgId", fmt.Sprint(8161098001435+delivered+i))
 		}

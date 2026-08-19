@@ -92,6 +92,7 @@ describe("ChoiceList", () => {
   });
 
   it("reads the description as part of the answer, so the help line is clickable", async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
     render(
       <ChoiceList
@@ -109,7 +110,7 @@ describe("ChoiceList", () => {
     });
     // And the words are the other half of the click target: pressing the help
     // line chooses the option it belongs to.
-    await userEvent.click(
+    await user.click(
       screen.getByText("Every conversation goes in until you name somebody."),
     );
     expect(onChange).toHaveBeenCalledWith("everyone_except");
@@ -117,6 +118,7 @@ describe("ChoiceList", () => {
   });
 
   it("refuses every answer when the group is disabled", async () => {
+    const user = userEvent.setup();
     const onChange = vi.fn();
     render(
       <ChoiceList
@@ -131,7 +133,7 @@ describe("ChoiceList", () => {
     for (const radio of screen.getAllByRole("radio")) {
       expect(radio.hasAttribute("disabled")).toBe(true);
     }
-    await userEvent.click(screen.getByText(/Everyone I talk to/));
+    await user.click(screen.getByText(/Everyone I talk to/));
     expect(onChange).not.toHaveBeenCalled();
   });
 

@@ -462,7 +462,7 @@ func TestDisconnectDeletesBothCredentialsBeforeTouchingTheRow(t *testing.T) {
 	if !strings.Contains(sql, "capture_enabled = false") {
 		t.Fatal("disconnecting left capture armed, so re-connecting would resume reading a list nobody re-approved")
 	}
-	if len(rt.tx.audited) != 1 || rt.tx.published[0].Verb != eventDisconnected {
+	if len(rt.tx.audited) != 1 || len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventDisconnected {
 		t.Fatalf("a withdrawal recorded %d ledger rows and published %v", len(rt.tx.audited), rt.tx.published)
 	}
 }
@@ -558,8 +558,8 @@ func TestReconnectingRecordsAnUpdateAndKeepsTheChoiceForTheSameAccount(t *testin
 	if len(rt.tx.audited) != 1 || rt.tx.audited[0].Action != extension.AuditUpdate {
 		t.Fatalf("a reconnect recorded %+v", rt.tx.audited)
 	}
-	if rt.tx.published[0].Verb != eventConnected {
-		t.Fatalf("a reconnect published %q", rt.tx.published[0].Verb)
+	if len(rt.tx.published) != 1 || rt.tx.published[0].Verb != eventConnected {
+		t.Fatalf("a reconnect published %v", rt.tx.published)
 	}
 	if len(rt.tx.audited[0].Before) == 0 {
 		t.Fatal("the ledger row has no before-image for a row that already existed")

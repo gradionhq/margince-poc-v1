@@ -507,6 +507,19 @@ function CaptureChoice({
   const unsaved =
     entries.length > 0 || (pickedMode !== null && pickedMode !== savedMode);
 
+  // A PLACEMENT BELONGS TO THE SHAPE IT WAS MADE UNDER: the list on screen is the
+  // leave-outs under one shape and the picks under the other, so a pending
+  // placement the new shape does not draw is one the rep can no longer see. Left
+  // in `changes` it would still travel with the save, and a consent surface must
+  // not record a per-person verdict nobody can read back.
+  const chooseShape = (next: CaptureMode) => {
+    if (next === mode) {
+      return;
+    }
+    setPickedMode(next);
+    setChanges({});
+  };
+
   // The search reads the roster ALREADY HELD — no request per keystroke, and
   // nothing new to ask for: `GET /contacts` returned the whole roster, so
   // finding somebody in it is a filter and not a round trip. Memoised because
@@ -530,7 +543,7 @@ function CaptureChoice({
       <ShapeChoice
         mode={mode}
         canChoose={canChoose && !save.isPending}
-        onChoose={setPickedMode}
+        onChoose={chooseShape}
       />
       {mode === undefined ? null : (
         <PeopleSection

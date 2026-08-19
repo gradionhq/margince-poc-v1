@@ -236,10 +236,7 @@ func TestNothingIsEverIngestedFromInsideThisUnitsOwnTransaction(t *testing.T) {
 	err := pollFleet(context.Background(), rt,
 		newProvider(map[string]*fakeInbox{memberIMEI: theInbox(t)}).open())
 	if err != nil {
-		t.Fatalf("the tick failed: %v", err)
-	}
-	if errors.Is(err, extension.ErrNestedIngest) {
-		t.Fatal("a record was ingested from inside a transaction this unit was holding")
+		t.Fatalf("the tick failed, and an ingest taken inside our own transaction reads as %v: %v", extension.ErrNestedIngest, err)
 	}
 	if len(rt.ingested) != 2 {
 		t.Fatalf("capture was handed %d record(s)", len(rt.ingested))

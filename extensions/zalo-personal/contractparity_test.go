@@ -212,7 +212,11 @@ func TestTheSaveShapeTheHandlerRequiresIsTheShapeTheContractPublishes(t *testing
 
 	// The save's own required list, taken from the block that follows its operationId
 	// so a `required:` belonging to another operation cannot answer for it.
-	save := document[strings.Index(document, "operationId: zaloPersonalSaveAllowlist"):]
+	at := strings.Index(document, "operationId: zaloPersonalSaveAllowlist")
+	if at < 0 {
+		t.Fatal("the fragment declares no zaloPersonalSaveAllowlist operation at all, so the save the screen makes reaches nothing")
+	}
+	save := document[at:]
 	required := regexp.MustCompile(`required: \[([^\]]*)\]`).FindStringSubmatch(save)
 	if required == nil || !strings.Contains(required[1], "capture_mode") {
 		t.Fatalf("the save does not require capture_mode: %v — there is no default mode, so a save without one is not a call this unit can honour", required)

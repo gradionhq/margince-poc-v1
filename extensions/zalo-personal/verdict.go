@@ -10,12 +10,12 @@ package zalopersonal
 // screen, because this is the STORE and that is the surface.
 //
 // TWO MODES, ONE TABLE: the `block` rows are the exclusion list read under
-// all_but_blocked, and the `allow` rows are the inclusion list read under
-// only_allowed. A row is inert in the other mode rather than wrong in it, which is
+// everyone_except, and the `allow` rows are the inclusion list read under
+// only_chosen. A row is inert in the other mode rather than wrong in it, which is
 // why switching modes rewrites nothing here.
 //
 // NO READING POSITION LIVES HERE. One used to be a column on these rows, and the
-// two-mode model is what exposed it as a defect: under all_but_blocked most
+// two-mode model is what exposed it as a defect: under everyone_except most
 // conversations have no verdict at all, so a bookmark on the verdict row has nowhere
 // to go. Positions live in cursor.go, whose header carries the full argument.
 

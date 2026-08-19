@@ -203,6 +203,7 @@ func saveAllowlist(ctx context.Context, rt extension.Runtime, in json.RawMessage
 	if err := checkSavedMode(args.CaptureMode); err != nil {
 		return nil, err
 	}
+	normalizeSavedEntries(args.Entries)
 	if err := checkSavedEntries(args.Entries); err != nil {
 		return nil, err
 	}
@@ -237,6 +238,21 @@ func checkSavedMode(mode string) error {
 	return nil
 }
 
+// normalizeSavedEntries trims the whitespace around every account id, in place and
+// BEFORE anything validates or stores one.
+//
+// The id is matched literally — against what the provider reports as a frame's
+// counterparty, and against the other entries in this same document. So " 123"
+// and "123" are one person to the member and two decisions to this unit: the
+// duplicate check would pass both, and the padded row would then match no frame
+// at all, leaving a `block` that excludes nobody and an `allow` that includes
+// nobody.
+func normalizeSavedEntries(entries []savedEntry) {
+	for at := range entries {
+		entries[at].ChannelUserID = strings.TrimSpace(entries[at].ChannelUserID)
+	}
+}
+
 // checkSavedEntries refuses a document the contract's schema describes but a
 // verdict table cannot hold, and it refuses a REPEATED counterparty rather than
 // letting the last one win: two verdicts for one person in one document is a
@@ -264,7 +280,7 @@ func checkSavedEntries(entries []savedEntry) error {
 
 func checkSavedEntry(entry savedEntry) error {
 	switch {
-	case strings.TrimSpace(entry.ChannelUserID) == "":
+	case entry.ChannelUserID == "":
 		return fmt.Errorf("%w: an entry names no Zalo account, so there is nobody it decides about", extension.ErrInvalid)
 	case len(entry.ChannelUserID) > extension.MaxChannelUserIDLength:
 		return fmt.Errorf("%w: a Zalo account id is %d bytes, over the %d capture will bind", extension.ErrInvalid, len(entry.ChannelUserID), extension.MaxChannelUserIDLength)

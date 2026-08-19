@@ -251,6 +251,19 @@ func TestAHandshakeToAHostZaloDoesNotOwnIsNeverAttempted(t *testing.T) {
 	}
 }
 
+// The allowlist answers for the NAME. A service map that named a real Zalo host
+// on an arbitrary port would still send the member's session cookies to whatever
+// listens there, so the port is refused before the handshake, not after it.
+func TestAHandshakeToAZaloHostOnAnUnexpectedPortIsNeverAttempted(t *testing.T) {
+	_, err := dialZaloSocket(context.Background(), "wss://chat.zalo.me:8443/", defaultUserAgent, "zpw_sek=x")
+	if err == nil {
+		t.Fatal("a socket was opened to a Zalo host on a port this connector does not speak")
+	}
+	if !strings.Contains(err.Error(), "8443") {
+		t.Errorf("the refusal reads %q, and it has to name the port it refused", err)
+	}
+}
+
 func TestAnEndpointThatIsNotAWebsocketURLIsReportedRatherThanDialled(t *testing.T) {
 	if _, err := dialZaloSocket(context.Background(), "https://chat.zalo.me/", defaultUserAgent, ""); err == nil {
 		t.Fatal("an https endpoint was accepted as a websocket one")

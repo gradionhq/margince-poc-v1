@@ -92,7 +92,7 @@ type connection struct {
 	CaptureMode string `json:"capture_mode,omitempty"`
 	// CaptureModeSince is when that mode was chosen, and it is rendered because it
 	// is what the member's own screen needs to say "capturing everything since
-	// Tuesday" honestly. Under all_but_blocked it is also the floor a conversation
+	// Tuesday" honestly. Under everyone_except it is also the floor a conversation
 	// nobody has mentioned is captured from — see admitsUnderMode.
 	CaptureModeSince string `json:"capture_mode_since,omitempty"`
 	// THE READING POSITIONS ARE NOT HERE. They are one row per conversation in
@@ -315,8 +315,8 @@ func upsertConnection(ctx context.Context, rt extension.Runtime, member extensio
 		}
 		// A DIFFERENT ACCOUNT INVALIDATES EVERYTHING SCOPED TO THE OLD ONE, and
 		// this is the one place that says what that is: the statement above has
-		// already dropped the chosen-conversations flag and the cursor, and the
-		// send markers go with them. An id minted by the account just replaced
+		// already disarmed capture, and the send markers and the reading
+		// positions are dropped here. An id minted by the account just replaced
 		// would otherwise suppress a real message in the new one.
 		if before != nil && before.ZaloUID != after.ZaloUID {
 			if err := forgetSentMarkersOf(ctx, tx, string(member)); err != nil {

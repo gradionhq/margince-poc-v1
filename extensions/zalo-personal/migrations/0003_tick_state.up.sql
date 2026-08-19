@@ -154,7 +154,7 @@ CREATE INDEX ext_zalo_personal_connection_due
 --     an excluded one. The member then includes that conversation and it starts
 --     EMPTY.
 --   * A COLUMN ON THE VERDICT ties the bookmark's existence to a row the MEMBER
---     controls. Under all_but_blocked most conversations have no verdict at all, so
+--     controls. Under everyone_except most conversations have no verdict at all, so
 --     there is nowhere to put their bookmark; and deleting a verdict would silently
 --     reset a bookmark, re-offering a whole conversation.
 --
@@ -183,7 +183,7 @@ CREATE TABLE ext.ext_zalo_personal_conversation_cursor (
     -- WHICH conversation, as the counterparty's own Zalo account id — the same value
     -- a verdict is keyed on, and deliberately NOT a foreign key to one: a bookmark
     -- exists for conversations that have no verdict at all, which is the ordinary
-    -- case under all_but_blocked.
+    -- case under everyone_except.
     channel_user_id text        NOT NULL CHECK (length(channel_user_id) > 0),
 
     -- The highest provider message id already ingested for this conversation. It

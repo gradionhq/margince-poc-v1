@@ -208,7 +208,7 @@ type pollOutcome struct {
 }
 
 // refused marks the turn. The cursors it already earned are written by
-// advanceVerdictCursors before this is ever reached, so a systemic failure halfway
+// advanceCursors before this is ever reached, so a systemic failure halfway
 // through a drain does not un-land the messages before it.
 func (o pollOutcome) refused(status string, cause error) pollOutcome {
 	o.status, o.errorClass, o.failed = status, failureClass(cause), true
@@ -231,7 +231,7 @@ func pollMember(ctx context.Context, rt extension.Runtime, conn connection, open
 	// nothing could come from. A floor narrows WHEN a conversation is captured from,
 	// never WHETHER, so it cannot change this answer.
 	if !consentOf(conn, entries, nil).captures() {
-		// Armed with a mode that admits nothing — only_allowed whose inclusion list
+		// Armed with a mode that admits nothing — only_chosen whose inclusion list
 		// is empty, or a mode this unit does not recognise. Nothing this drain
 		// returned could be kept, so no socket is opened for the same reason an
 		// unarmed member's is not.

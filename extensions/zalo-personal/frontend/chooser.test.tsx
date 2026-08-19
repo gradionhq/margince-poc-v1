@@ -593,6 +593,40 @@ describe("choosing which Zalo conversations go into the CRM", () => {
     });
   });
 
+  // A placement belongs to the shape it was made under. Switching shape redraws
+  // the list from the other verdict, so a placement the new shape does not draw
+  // is one the rep can no longer see — and a consent surface must never save a
+  // per-person verdict nobody can read back.
+  it("drops the placements the rep can no longer see when the shape changes", async () => {
+    const modes = new Map([[CONTACT_IDS.tuan, "none"]]);
+    const { calls, fetchStub } = stubTransport(
+      FULL_GRANT,
+      rosterServer(modes, { mode: "everyone_except" }),
+    );
+    vi.stubGlobal("fetch", vi.fn(fetchStub));
+
+    await openChooser();
+    await addPerson("Anh", "Anh Tuan");
+    await flush();
+    expect(takeOffButton("Anh Tuan")).toBeTruthy();
+
+    chooseShape(/Only the people I choose/);
+    await flush();
+    // The leave-out is gone from the screen, so it must be gone from the save.
+    expect(takeOffQuery("Anh Tuan")).toBeNull();
+
+    fireEvent.click(saveButton());
+    await flush();
+    await flush();
+
+    expect(
+      savedDocument(
+        calls.find((call) => call.path === "/ext/zalo-personal/allowlist")
+          ?.body,
+      ),
+    ).toEqual({ capture_mode: "only_chosen" });
+  });
+
   // NOTHING IS SAVED BEFORE A SAVE, and the search does not reach the server
   // either: the roster is already held, so finding somebody in it is a filter.
   it("saves nothing until the save, and searches without asking the server", async () => {

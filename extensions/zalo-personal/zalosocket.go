@@ -64,6 +64,9 @@ const zaloWebOrigin = "https://chat.zalo.me"
 // memory.
 const maxSocketPayloadBytes = 32 << 20
 
+// socketPort is the only port this connector opens a message socket on.
+const socketPort = "443"
+
 // dialZaloSocket opens the message socket for one session.
 func dialZaloSocket(ctx context.Context, wsURL, userAgent, cookies string) (zaloSocket, error) {
 	config, err := websocket.NewConfig(wsURL, zaloWebOrigin)
@@ -79,13 +82,18 @@ func dialZaloSocket(ctx context.Context, wsURL, userAgent, cookies string) (zalo
 	if !isZaloHost(host) {
 		return nil, fmt.Errorf("refusing to open a message socket to %s: it is not a Zalo host, and the handshake would carry the member's session", host)
 	}
+	// THE PORT IS PART OF THE ENDPOINT, and it is provider-chosen too. The
+	// allowlist above answers for the name only, so a service map that named an
+	// allowed host on an arbitrary port would still hand the member's session to
+	// whatever answers there. Zalo's message socket is TLS on the default port;
+	// anything else is not the endpoint this connector speaks to.
+	if port := config.Location.Port(); port != "" && port != socketPort {
+		return nil, fmt.Errorf("refusing to open a message socket to %s on port %s: the message socket is TLS on %s, and the handshake would carry the member's session", host, port, socketPort)
+	}
 	config.Header.Set("Cookie", cookies)
 	config.Header.Set("User-Agent", userAgent)
 
-	addr := config.Location.Host
-	if config.Location.Port() == "" {
-		addr = net.JoinHostPort(host, "443")
-	}
+	addr := net.JoinHostPort(host, socketPort)
 	raw, err := (&tls.Dialer{Config: &tls.Config{
 		ServerName: host,
 		MinVersion: tls.VersionTLS12,

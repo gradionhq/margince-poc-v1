@@ -29,7 +29,7 @@ import (
 // cannot drift into two tables.
 const connectionEntity = "ext_zalo_personal_connection"
 
-// allowlistEntity's ledger name is declared beside the table in allowlist.go,
+// allowlistEntity's ledger name is declared beside the table in verdict.go,
 // for the same reason connectionEntity is declared here: one spelling, derived
 // into the schema-qualified one, so the two cannot drift into two tables.
 
