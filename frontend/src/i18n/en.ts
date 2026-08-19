@@ -2,9 +2,6 @@
 // (compile-time via satisfies, runtime via i18n.test.ts). Placeholders use
 // {name} and are filled by t(key, params).
 export const en = {
-  "app.title": "Margince design tokens",
-  "app.subtitle":
-    "Ledger Green (ADR-0040) — canonical values mirror the spec mockups; tests pin them.",
   "theme.toDark": "Dark theme",
   "theme.toLight": "Light theme",
   // The two themes as the options of a choice — Settings → Account offers both at
@@ -13,17 +10,6 @@ export const en = {
   // onboarding, where one button stands for the theme it switches to.
   "theme.light": "Light",
   "theme.dark": "Dark",
-
-  "section.surfaces": "Surfaces",
-  "section.accentAi": "Accent & AI",
-  "section.text": "Text",
-  "section.status": "Status",
-  "section.typeRamp": "Type ramp",
-  "section.trust": "Trust primitives (B-EP09.3a)",
-
-  "type.display": "Display — Outfit 600",
-  "type.body": "Body — DM Sans 400, the default reading face.",
-  "type.mono": "Mono — JetBrains Mono, evidence snippets and IDs.",
 
   "trust.accept": "Accept",
   "trust.edit": "Edit",
@@ -97,7 +83,6 @@ export const en = {
   "shell.accountAria": "Account",
   "shell.account": "Account",
   "shell.theme": "Theme",
-  "shell.views": "Views",
   "shell.more": "More",
   "shell.unknownPage": "Not found",
   "shell.closeMenu": "Close",
@@ -247,7 +232,6 @@ export const en = {
     "Revoke this grant? The subject loses this record's access at the next request — there is no undo control.",
   "share.approvalRequired":
     "This share needs approval before it takes effect — it's been queued to the approval inbox, not applied yet.",
-  "share.empty": "No manual grants on this record yet.",
   "share.teamMembers.one": "Team · {count} member",
   "share.teamMembers.other": "Team · {count} members",
   "share.rosterLoading": "Loading people and teams…",
@@ -382,11 +366,9 @@ export const en = {
   "state.partialCount": "{count} more not shown",
 
   "list.search": "Search",
-  "list.sort": "Sort",
   "list.showArchived": "Show archived",
   "list.loadMore": "Load more",
   "list.sortNewest": "Newest",
-  "list.sortScore": "Score",
   "list.viewAll": "All",
   "list.viewAZ": "A–Z",
   "list.viewHighestScore": "Highest score",
@@ -409,7 +391,6 @@ export const en = {
   "table.shownColumns": "Shown columns",
   "table.compact": "Compact",
   "table.sortBy": "Sort by {column}",
-  "table.clearFilter": "Clear the {filter} filter",
   "table.noMatches": "No {unit} match these filters.",
   "table.clearFilters": "Clear filters",
   "table.none": "No {unit} yet.",
@@ -443,13 +424,13 @@ export const en = {
   "overlay.filterUnsupported":
     "This filter or sort isn't available while reading from HubSpot — remove it and try again.",
   "overlay.emptyOwnerHint":
-    "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
+    "An empty list here usually means the owner's HubSpot email doesn't match a user in this organization, not an empty HubSpot portal.",
   "overlay.partialWriteBack":
     "Only the fields HubSpot accepts are written back — anything else here, including custom fields and owner, is not applied at all; HubSpot's current value is kept.",
 
   "overlay.title": "HubSpot mirror",
   "overlay.sub":
-    "Connect the workspace's incumbent CRM so records read from its mirror instead of native tables.",
+    "Connect the organization's incumbent CRM so records read from its mirror instead of native tables.",
   "overlay.loading": "Loading the incumbent connection…",
   "overlay.notConfigured": "Overlay mode isn't configured in this deployment.",
   "overlay.loadFailed": "Couldn't load the incumbent connection.",
@@ -464,8 +445,9 @@ export const en = {
   "overlay.tokenHint": "Sealed into the vault; never shown again.",
   "overlay.connect": "Connect HubSpot",
   "overlay.reconnect": "Reconnect",
-  "overlay.connectConfirmTitle": "Connect HubSpot for the whole workspace?",
-  "overlay.reconnectConfirmTitle": "Reconnect HubSpot for the whole workspace?",
+  "overlay.connectConfirmTitle": "Connect HubSpot for the whole organization?",
+  "overlay.reconnectConfirmTitle":
+    "Reconnect HubSpot for the whole organization?",
   "overlay.connectConfirmBody":
     "This switches every seat's reads to HubSpot's mirror immediately, and records become read-only wherever the mirror can't serve a write. This affects the whole installation, not just your own session.",
   "overlay.statusActive": "Connected",
@@ -473,7 +455,6 @@ export const en = {
   "overlay.statusError": "Sync error",
   "overlay.connectedAt": "Connected {at}",
   "overlay.syncTitle": "Mirror sync",
-  "overlay.syncLoading": "Loading sync status…",
   "overlay.syncLoadFailed": "Couldn't load sync status.",
   "overlay.syncEmpty": "Nothing has synced yet.",
   "overlay.syncStateFresh": "Fresh",
@@ -484,7 +465,6 @@ export const en = {
   "overlay.lastSynced": "Last synced {at}",
   "overlay.neverSynced": "Never synced",
   "overlay.budgetTitle": "API budget",
-  "overlay.budgetLoading": "Loading the budget window…",
   "overlay.budgetLoadFailed": "Couldn't load the budget window.",
   "overlay.budgetHeadroom": "Headroom: {headroom}",
   "overlay.budgetEmpty":
@@ -501,11 +481,11 @@ export const en = {
   "overlay.disconnect": "Disconnect",
   "overlay.disconnectTitle": "Disconnect HubSpot?",
   "overlay.disconnectBody":
-    "This purges the mirrored data and switches the workspace back to native records. The audit trail is kept.",
+    "This purges the mirrored data and switches the organization back to native records. The audit trail is kept.",
 
   "overlay.userMap.title": "Mirror user mapping",
   "overlay.userMap.sub":
-    "Who each workspace user is as a {principal} user. This mapping is the whole of their mirror visibility.",
+    "Who each user in this organization is as a {principal} user. This mapping is the whole of their mirror visibility.",
   "overlay.userMap.cost":
     "A user with no mapping sees no mirrored records at all — their lists come back empty.",
   "overlay.userMap.loading": "Loading the user mapping…",
@@ -513,10 +493,10 @@ export const en = {
   "overlay.userMap.adminOnly":
     "You do not have permission to review who is mapped.",
   "overlay.userMap.notOverlay":
-    "This workspace reads from native tables, so there is nothing to map.",
+    "This organization reads from native tables, so there is nothing to map.",
   "overlay.userMap.notConfigured":
     "Overlay mode isn't configured in this deployment.",
-  "overlay.userMap.empty": "This workspace has no users to map.",
+  "overlay.userMap.empty": "This organization has no users to map.",
   "overlay.userMap.view": "Grouping",
   "overlay.userMap.viewByUser": "By user",
   "overlay.userMap.viewByOwner": "By {principal} user",
@@ -570,31 +550,22 @@ export const en = {
 
   "people.name": "Name",
   "people.email": "Email",
-  "people.capturedBy": "Captured by",
   "list.owner": "Owner",
   "list.unowned": "Unassigned",
   "list.created": "Created",
-  "list.updated": "Updated",
   "list.lastActivity": "Last activity",
   "list.filterOwnerMe": "My records",
   "list.filterOwnerAll": "Any owner",
   "list.filterOwnerUnassigned": "Unassigned",
-  "list.filterOwnerTeam": "My team",
-  "list.viewTeam": "My team",
-  "list.viewUnassigned": "Unassigned",
   "views.save": "Save view",
   "views.saveConfirm": "Save",
   "views.saveTitle": "Save this view",
   "views.name": "Name",
-  "views.delete": "Delete view",
-  "views.deleteConfirm":
-    "Delete the view \u201c{name}\u201d? The records stay; only the saved filter goes.",
   "list.viewMine": "Mine",
   "list.viewCustomers": "Customers",
   "list.viewProspects": "Prospects",
   "org.filterLifecycleAll": "Any stage",
   "org.filterRelTypeAll": "Any type",
-  "list.scopeTeam": "You see your team's records.",
   "person.consent": "Consent",
   "consent.grant": "Grant",
   "consent.withdraw": "Withdraw",
@@ -602,7 +573,7 @@ export const en = {
   "consent.doiIssued": "One-time token (shown once):",
   "consent.doiExpires": "Expires",
   "consent.noRecord": "no record",
-  "consent.noPurposes": "This workspace tracks no consent purposes yet.",
+  "consent.noPurposes": "This organization tracks no consent purposes yet.",
   "consent.defaultDeny":
     "Outbound is default-deny per purpose: a send is blocked unless an active, proven grant exists for that purpose. A grant for one purpose never authorizes another.",
   "consent.proofLog": "Proof log",
@@ -625,9 +596,6 @@ export const en = {
   "org.website": "Website",
   "org.contactCount": "Contacts",
   "org.openDealCount": "Open deals",
-  "org.industry": "Industry",
-  "org.size": "Size",
-  "org.classification": "Type",
   // Offered only where there is no partner programme yet: the tab that holds
   // the form appears once one exists, so this is how the first one is made.
   // Where the account stands with us, and what it is to us — the two
@@ -664,12 +632,9 @@ export const en = {
   "co.strip.pipeline": "Open pipeline",
   "co.description.label": "Description",
   "co.description.placeholder": "Add description",
-  "co.chip.linkedin": "LinkedIn",
-  "co.strip.netInvoicedLifetime": "Net invoiced · lifetime",
   "co.strip.netInvoiced": "Net invoiced · 12 mo",
   "co.strip.notAssessed": "Not assessed",
   "co.strip.lifetimeOf": "{amount} lifetime",
-  "co.strip.overdue": "Overdue",
   // The collapsed slot's label, shown once in place of the strip's money
   // readings when the connection cannot answer any of them. Generic on
   // purpose: it stands for all of them at once.
@@ -695,8 +660,6 @@ export const en = {
   "co.strip.healthQuiet": "Gone quiet",
   "co.strip.noInboundEver": "They have never written",
   "co.strip.account": "Stage",
-  "co.strip.engagement": "Whose move",
-  "co.strip.commercial": "Open work",
   "co.strip.engagement.never_contacted": "Never contacted",
   "co.strip.engagement.active": "In conversation",
   "co.strip.engagement.waiting_on_them": "Waiting on them",
@@ -738,14 +701,11 @@ export const en = {
   // The rail's own details grid: the account's own fields, at a glance above
   // the collapsible sections.
   "co.details.title": "Details",
-  "co.details.address": "Address",
   "co.health.title": "How it stands",
   "co.health.empty": "No health reading on this account yet.",
   "co.health.dim.relationship": "Relationship",
   "co.health.dim.commercial": "Commercial",
   "co.health.dim.payment": "Payment",
-  "co.health.overall": "Overall",
-  "co.health.ratedOf": "from {rated} of 3",
   "co.health.rating.atRisk": "At risk",
   "co.health.rating.good": "Good",
   "co.health.rating.strong": "Strong",
@@ -760,20 +720,6 @@ export const en = {
   "co.health.openCommitments.other": "{count} open commitments",
   "co.health.singleThreaded": "One contact carries this account",
   "org.partnerSetUp": "Set up partner programme",
-  // The classification values a reader sees. The column stores the enum;
-  // rendering the enum itself ("prospect") told a German reader nothing and
-  // an English one only slightly more.
-  "org.class.prospect": "Prospect",
-  "org.class.customer": "Customer",
-  "org.class.agency": "Agency",
-  "org.class.reseller": "Reseller",
-  "org.class.tech_vendor": "Tech vendor",
-  "org.class.platform": "Platform",
-  "org.class.partner": "Partner",
-  "org.class.competitor": "Competitor",
-  "org.class.other": "Other",
-  "org.class.explain":
-    "How this company relates to you — not a stage in a deal.",
   "signal.kind.stalled_deal": "Deal stalled",
   "signal.kind.champion_left": "Champion left",
   "signal.kind.reengagement": "Worth re-engaging",
@@ -784,7 +730,6 @@ export const en = {
   "signal.kind.new_opportunity": "New opportunity",
   "signal.kind.commitment_made": "Something was promised",
   "signal.kind.ghosted_thread": "No answer",
-  "co.strip.signal": "Worth knowing",
   "co.routeIn.open": "Route in",
   "co.routeIn.title": "Who here talks to {name}",
   "co.routeIn.none": "Nobody here has written to them yet.",
@@ -798,7 +743,6 @@ export const en = {
   "co.routeIn.band.unknown": "contact on file, no pattern yet",
   "record.profile": "Profile",
   "record.context": "Context",
-  "record.accountContext": "Account context",
   "co.pulse.created": "Created {when}",
   // The later of the two directions \u2014 which side wrote last moved to the
   // daily brief's own detail line, so the header states only that the
@@ -929,21 +873,11 @@ export const en = {
   "co.coverage.untried": "{count} never written to",
   "co.coverage.gaps": "{count} role gaps",
   "co.section.restricted": "Hidden \u2014 your role cannot read this",
-  "co.section.unsupported":
-    "Not available in this mode \u2014 the connected system does not hold it",
-  "co.section.failed": "This section did not load.",
-  "co.section.retry": "Try again",
-  "co.section.stale": "Last known values \u2014 not refreshed since",
-  "co.section.staleAsOf": "Last known values, as of {when}",
-  "co.section.partial": "Showing part of the list",
-  "co.section.partialCount": "{count} more not shown",
   "co.next.title": "Next steps",
   "co.next.empty": "No open task on this account.",
   "co.next.overdue": "Overdue",
   "co.next.due": "Due {when}",
   "co.next.undated": "No date",
-  "co.next.done": "Mark done",
-  "co.next.assignee": "Assignee",
   "co.people.title": "People",
   "co.people.empty": "No contact linked to this account yet.",
   "co.people.singleThread":
@@ -1128,7 +1062,7 @@ export const en = {
     "The file you want is Connections.csv \u2014 the export archive holds a dozen others.",
   "linkedinImport.choose": "Choose Connections.csv",
   "linkedinImport.noMatchesYet":
-    "No matches yet, which is normal on a new workspace: your connections are matched against contacts the CRM knows, and those arrive as your mail is read. This runs again every hour, so matches appear as the CRM fills up.",
+    "No matches yet, which is normal in a new organization: your connections are matched against contacts the CRM knows, and those arrive as your mail is read. This runs again every hour, so matches appear as the CRM fills up.",
   "linkedinImport.working": "Reading your export…",
   "linkedinImport.imported": "Connections imported",
   "linkedinImport.confirmed": "Matched to a contact",
@@ -1214,36 +1148,10 @@ export const en = {
   "co.evidence.title": "Where this came from",
   "co.relationships.title": "Linked people and companies",
   "co.tools.title": "Data & tools",
-  "co.prep.title": "Before you talk to them",
-  "co.prep.sparse":
-    "There is barely any history on this account yet, so there is nothing to prepare from.",
   "co.prep.withheld":
     "Parts of this account are hidden from you, so this reading is incomplete.",
-  "co.read.lastTouch": "Last contact was {days} days ago.",
-  "co.read.lastTouchOne": "Last contact was yesterday.",
-  "co.read.neverTouched":
-    "Nobody has ever been in contact with anyone at this account.",
   "co.read.newActivityOne": "One new item since your last visit.",
   "co.read.newActivityMany": "{count} new items since your last visit.",
-  "co.read.dealMovedOne": "One deal moved stage since your last visit.",
-  "co.read.dealMovedMany": "{count} deals moved stage since your last visit.",
-  "co.read.unansweredOne":
-    "You have written to one contact here in the last {days} days and had no reply.",
-  "co.read.unansweredMany":
-    "You have written to {count} contacts here in the last {days} days and none has replied.",
-  "co.read.noContacts": "You do not know anyone at this account yet.",
-  "co.read.singleThread":
-    "Only {name} has email, calls or meetings recorded in the last {days} days.",
-  "co.read.oneContact": "{name} is your only way into this account.",
-  "co.read.noChampion.one": "No champion is named on the open deal.",
-  "co.read.noChampion.other": "No champion is named on any of the open deals.",
-  "co.read.stalled": "{name} has stalled.",
-  "co.read.noOpenDeal": "No open deal, and nothing won here yet.",
-  "co.read.noOpenDealCustomer":
-    "No open deal right now, though this account has bought before.",
-  "co.read.overdueOne": "Overdue: {subject}",
-  "co.read.overdueMany": "{count} commitments here are overdue.",
-  "co.read.noNextStep": "Nothing is scheduled next on this account.",
   "co.factField.founded_year": "Founded",
   "co.factField.employee_range": "Employees",
   "co.factField.phone": "Phone",
@@ -1263,7 +1171,6 @@ export const en = {
   "co.factField.quantified_outcome": "Result",
   "co.facts.showAll": "Show all {count}",
   "co.facts.showLess": "Show fewer",
-  "co.facts.title": "Quick facts",
   "co.tags.lists": "Lists",
   "co.tags.tags": "Tags",
   "co.tags.noLists": "Not on any list.",
@@ -1277,16 +1184,9 @@ export const en = {
   "co.recent.empty": "Nothing logged with them yet.",
   "co.recent.viewHistory": "View history",
   "co.tags.title": "Lists & tags",
-  "co.tags.empty": "Not on any list, and no tags applied.",
-  "co.timeline.filterKind": "Filter by type",
-  "co.timeline.filterAll": "All types",
-  "co.timeline.filterPerson": "Filter by person",
-  "co.timeline.allPeople": "Everyone",
-  "co.timeline.via": "About",
   "co.timeline.empty": "Nothing logged on this account yet.",
   "co.overlayFallback":
     "This account is served from the connected system of record, so the company view is not assembled here. Open it in that system to see the full picture.",
-  "org.firmographics": "Firmographics",
   "org.domains": "Domains",
   "org.firmographicsEmpty":
     "Nothing read yet — grounded profile fields appear here once a site read confirms them.",
@@ -1415,8 +1315,6 @@ export const en = {
   "lead.factor.meeting_held": "Meeting held",
   "lead.factor.meeting_booked": "Meeting booked",
   "lead.signalsTitle": "What you know about this lead",
-  "lead.signalsNotStoredYet":
-    "No breakdown stored yet — your inputs still count once the score is next computed.",
   "lead.signalUnset": "Not entered",
   "lead.signalClear": "Withdraw",
   "lead.signalFactor": "Factor",
@@ -1520,8 +1418,6 @@ export const en = {
   "deals.filterOwnerAll": "All owners",
   "deals.filterPartnerAll": "All sources",
   "deals.sortNewest": "Newest",
-  "deals.sortClose": "Close date",
-  "deals.sortAmount": "Largest",
   "deals.unit": "deals",
   "deals.capped":
     "Showing the deals loaded so far. Narrow the list to reach the rest.",
@@ -1583,7 +1479,6 @@ export const en = {
 
   "inbox.sub":
     "everything staged, waiting on your call — nothing runs without it",
-  "inbox.expires": "expires {at}",
   "inbox.viaTool": "via {verb}",
   "inbox.approveEdited": "Approve edited",
   "inbox.reject": "Reject",
@@ -1752,7 +1647,6 @@ export const en = {
   "create.region": "State / region",
   "create.postalCode": "Postal code",
   "create.country": "Country (ISO-3166, e.g. DE)",
-  "create.domain": "Primary domain",
   "create.companyName": "Company",
   "create.dealName": "Deal name",
   "create.amount": "Value",
@@ -1797,7 +1691,6 @@ export const en = {
   "dedupe.viewExisting": "View existing record",
 
   "today.title": "Today on this account",
-  "today.loading": "Reading the account…",
   "today.failed":
     "This could not be assembled. The rest of the page still shows what it could read.",
   "today.quiet": "Nothing here needs you today.",
@@ -1806,19 +1699,11 @@ export const en = {
   "today.source.nextSteps": "open tasks",
   "today.source.nextMeeting": "the calendar",
   "today.source.deals": "deals",
-  "today.task.overdue": "Was due {when}",
-  "today.task.due": "Due {when}",
-  "today.task.undated": "No date set",
-  "today.task.open": "Open task",
-  "today.meeting.headline": "{subject} — {when}",
   "today.meeting.prepare": "Prepare meeting",
   "today.source.people": "the contacts",
   "today.source.standing": "whose move it is and the signals",
   "today.source.activities": "what was said",
-  "today.commitment.overdueAtLeast": "{count}+ overdue",
-  "today.commitment.openAtLeast": "{count}+ open",
   "today.route.ofThoseShown": "of the contacts shown",
-  "today.tile.commitment": "Next commitment",
   "today.tile.meeting": "Next meeting",
   "today.tile.route": "Best route",
   "today.tile.lastInteraction": "Last exchange",
@@ -1826,11 +1711,6 @@ export const en = {
   "today.tile.risk": "Risk",
   "today.tile.signal": "Worth knowing",
   "today.silence.days": "no answer in {count} days",
-  "today.commitment.overdueCount": "{count} overdue",
-  "today.commitment.openCount": "{count} open",
-  "today.commitment.due": "Due {when}",
-  "today.commitment.overdue": "Overdue since {when}",
-  "today.commitment.undated": "No due date",
   "today.route.headline": "{colleague} → {contact}",
   "today.draft.to": "Draft follow-up to {name}",
   "today.draft.act": "Draft",
@@ -1874,7 +1754,6 @@ export const en = {
   "docs.superseded.shownMany": "{count} superseded documents are listed below.",
   "docs.reading.show": "Read this document",
   "docs.reading.hide": "Hide the reading",
-  "docs.pinned": "Pinned",
 
   // Adding one. The "About" wording is doing real work: it decides whether the
   // file becomes evidence in a deal or a paper about the account, and only the
@@ -2010,7 +1889,6 @@ export const en = {
   "compose.sendLaterLabel": "Send later (optional)",
   "compose.sendLaterHint":
     "Leave empty to send now. A scheduled message stays off the timeline until it goes out, and the consent and mailbox checks run again at that moment — if one refuses, the message is held for you instead of sent.",
-  "compose.scheduledToast": "Scheduled. It will go out at the time you picked.",
   "compose.send": "Send",
   "compose.sendConfirmTitle": "Send this email?",
   "compose.sendBody":
@@ -2076,7 +1954,6 @@ export const en = {
   "reports.company": "Company",
   "reports.openDeals": "Open deals",
   "explain.sources": "Source rows",
-  "explain.definition": "How this number is derived",
 
   "ai.sub": "bring your own agent — governed by the two-tier contract",
   "ai.fromPalette": "From the palette",
@@ -2089,7 +1966,7 @@ export const en = {
     "External sends and record changes stage into the inbox first.",
   "ai.connect": "Connect an agent",
   "ai.connectDetail":
-    "Mint a passport in Settings and point any MCP-capable agent at your workspace. It reads only what you can see.",
+    "Mint a passport in Settings and point any MCP-capable agent at your organization. It reads only what you can see.",
   "ai.paletteHint": "Ask from anywhere with",
 
   "settings.identity": "Profile",
@@ -2111,10 +1988,7 @@ export const en = {
   "role.readOnly": "Read-only",
   "role.ops": "Ops",
   "inlineChoice.change": "Change {field}",
-  "inlineText.save": "Save",
-  "inlineText.cancel": "Cancel",
   "rbac.masked": "Masked value",
-  "settings.saved": "Saved.",
   "settings.passports": "Agent passports",
   "settings.passportsSub":
     "an agent acts as you, never above you — every call re-checks your RBAC",
@@ -2252,7 +2126,7 @@ export const en = {
   "settings.dangerZoneSub":
     "Non-production only — irreversible on this installation.",
   "settings.resetDataDesc":
-    "Reset this installation to its first-boot state. Domain and workspace config data is wiped; the organization and its users are preserved and stay signed in.",
+    "Reset this installation to its first-boot state. Domain and configuration data is wiped; the organization and its users are preserved and stay signed in.",
   "settings.resetDataButton": "Reset data…",
   "settings.resetDataConfirmTitle": "Reset all data?",
   "settings.resetDataConfirmBody":
@@ -2270,11 +2144,12 @@ export const en = {
     "Only an admin can see background-job health. It reports work across the whole installation, so it is not shown more widely.",
   "jobs.empty":
     "Nothing in the background queue — no work waiting, running, retrying or dead.",
-  "jobs.workspaceKinds": "This workspace",
-  "jobs.workspaceEmpty": "No background work of any kind for this workspace.",
+  "jobs.workspaceKinds": "This organization",
+  "jobs.workspaceEmpty":
+    "No background work of any kind for this organization.",
   "jobs.dispatcherKinds": "Fleet dispatchers",
   "jobs.dispatcherSub":
-    "Rows that carry no workspace: a dispatcher fans work out to every workspace and does none of its own. Their counts belong to the installation, not to you.",
+    "Rows that carry no organization: a dispatcher fans work out to every organization and does none of its own. Their counts belong to the installation, not to you.",
   "jobs.dispatcherEmpty":
     "No dispatcher rows. The periodic ticks re-insert them, so an empty list means none is scheduled right now.",
   "jobs.count.waiting": "{count} waiting",
@@ -2360,7 +2235,7 @@ export const en = {
   "privacy.dueAt": "Due",
   "privacy.openRequest": "Open request",
   "privacy.erasureNeedsPerson":
-    "An erasure request must name a person in this workspace — fulfilling it erases that record. A free-text subject cannot be erased.",
+    "An erasure request must name a person in this organization — fulfilling it erases that record. A free-text subject cannot be erased.",
   "privacy.accessManual":
     "An access request is fulfilled by hand: record what you sent in the resolution. This system does not assemble or export the data for you.",
   "privacy.fulfilErasureTitle": "Fulfil erasure request",
@@ -2486,23 +2361,11 @@ export const en = {
   "stage.removeBody":
     "“{name}” leaves the pipeline and the stages after it move up. Past stage changes stay readable. Deals still sitting on it have to move first.",
 
-  "ob.read": "Read",
-  "ob.confirm": "Confirm",
   "ob.url": "Website",
   "ob.urlScheme": "https://",
   "ob.back": "Back",
-  "ob.finish": "Into the workspace",
   "ob.restoring": "Restoring your setup…",
-  "ob.readKick": "Step 1 of 4 · company context",
-  "ob.readTitle": "Your company",
-  "ob.readSub": "Read it from your website, or type it in.",
-  "ob.readChoice": "Choose how to describe your company",
-  "ob.readWebsite": "Read my website",
-  "ob.readWebsiteSub": "I'll research it; you approve every detail.",
   "ob.readManual": "Tell me yourself",
-  "ob.readManualSub": "I'll ask one question at a time.",
-  "ob.readTrustTitle": "I read public pages only. ",
-  "ob.readTrustBody": "I save nothing until you confirm it.",
   "ob.coreIntroTitle": "First, I need to know your legal company.",
   "ob.coreIntroBody":
     "I need its legal name, address and VAT or register number. Then I learn what you sell and to whom.",
@@ -2596,9 +2459,6 @@ export const en = {
   "ob.ai.finding": "cited finding",
   "ob.ai.findings": "cited findings",
   "ob.continueManual": "Tell me instead",
-  "ob.reviewFindings": "Review what I found",
-  "ob.live": "Live",
-  "ob.readingHost": "I'm understanding {host}",
   "ob.readStatus.queued": "I'm getting ready",
   "ob.readStatus.deferred": "I'm waiting for AI budget",
   "ob.readStatus.reading": "I'm reading now",
@@ -2607,13 +2467,8 @@ export const en = {
   "ob.readStatus.failed": "I need your help",
   "ob.readStatus.confirmed": "I've saved your choices",
   "ob.readStatus.abandoned": "I've stopped",
-  "ob.phaseDiscover": "I'm discovering pages",
-  "ob.phaseExtract": "I'm extracting cited facts",
-  "ob.phaseReady": "I'm preparing your review",
   "ob.pagesRead": "pages I've read",
   "ob.legalEntitiesFound": "legal entities I've found",
-  "ob.profileFindings": "profile details I've found",
-  "ob.usefulFacts": "other facts I've found",
   "ob.coverageDetails": "What I covered and couldn't read",
   "ob.legalFoundTitle": "Legal entities I found",
   "ob.legalFoundBody":
@@ -2634,7 +2489,10 @@ export const en = {
   "ob.contextReady":
     "I can use this context for drafts, search, agents and Voice DNA, with sources attached.",
 
-  "ob.s1.kick": "Step 2 of 5 · confirm",
+  // No step number: the rail decides how many stops a reader gets, so the
+  // count belongs to ob.conv.scene.step, which reads it off the rail. A total
+  // written into a string here can only ever disagree with the real one.
+  "ob.s1.kick": "Confirm",
   "ob.s1.title": "Review what I learned about your company",
   "ob.s1.sub":
     "I filled only what I could support from your website. Please correct anything that is wrong.",
@@ -2648,16 +2506,11 @@ export const en = {
   "ob.s1.saving": "Saving…",
   "ob.s1.saveFailed": "Couldn't save your company",
   "ob.s1.savedNote":
-    "Saved to your workspace. Change anything here and continue to save it again.",
-  "ob.s1.omitLabel": "I didn't invent anything",
-  "ob.s1.omitBody":
-    "I filled only what I could quote from your site. You can add anything I couldn't verify.",
+    "Saved to your organization. Change anything here and continue to save it again.",
   "ob.readGo": "Read my website",
-  "ob.trustPublic": "I only read your public website. No login required.",
   "ob.urlWillRead": "I'll read {host}",
   "ob.readFromSite": "read from site",
   "ob.failTitle": "I couldn't read enough from this website",
-  "ob.tryAnother": "Try another URL",
 
   "ob.manualChapterLegal": "Your legal organization",
   "ob.manualChapterOffer": "Products and offer",
@@ -2737,9 +2590,9 @@ export const en = {
   "ob.s3.title": "Look what you've built —",
   "ob.s3.titleEm": "with nothing connected.",
   "ob.s3.sub":
-    "Your workspace knows your business and your voice. Connect your inbox and it fills itself.",
+    "Your organization knows your business and your voice. Connect your inbox and it fills itself.",
   "ob.s3.subNoVoice":
-    "Your workspace knows your business. Connect your inbox and it fills itself.",
+    "Your organization knows your business. Connect your inbox and it fills itself.",
   "ob.s3.cardProfile": "Business profile",
   "ob.s3.cardProfileBody":
     "Confirmed and saved to your company page. Fields read from your site keep their source.",
@@ -2756,18 +2609,12 @@ export const en = {
   "ob.s3.cardDraft": "A sample draft, in your voice",
   "ob.s3.cardDraftExample": "A sample draft",
   "ob.s3.cardDraftBody": "See it below.",
-  "ob.s3.exampleTag": "Illustrative example — not written from your data yet",
-  "ob.s3.exampleProspect": "Nordwind Robotics",
-  "ob.s3.draftSample":
-    "Subject: Quick question on your assembly line\n\nHi {{name}} — saw {company} runs discrete assembly at scale. We help teams like yours get a working robotic cell running in 6 weeks without ripping out your existing PLCs. Worth a 15-minute look? Best, Lars",
   "ob.s3.originLabel": "Where this pipeline comes from",
   "ob.s3.originBody":
     "The standard B2B stage template, tuned to your industry from the read. Empty until you connect. You approve what becomes a deal.",
   "ob.s3.stillNothing":
     "Still nothing connected. You're in control of when that changes.",
 
-  "ob.s4.sub":
-    "You've built the brain. Connect your inbox and your CRM fills itself — people, companies, and deals captured automatically, so you never type them.",
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
@@ -2787,15 +2634,10 @@ export const en = {
     "Head to Settings → Connections to try connecting again.",
   "ob.s4.connectDenied": "You declined access — nothing was connected.",
   "ob.s4.googleBtn": "Allow access to my Gmail",
-  "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
     "Reads your mail, and sends only what you approve. You grant it on Google's own screen, and can disconnect any time.",
   "ob.s4.googleUnverified":
     "If Google warns about an “unverified app”, choose Advanced → Continue. Nothing sends without your approval.",
-  "ob.s4.googleOkTitle": "Gmail connected",
-  "ob.s4.googleOkBody":
-    "Capture is running in the background — new mail lands on your timeline within about a minute, and it keeps itself in sync from here on.",
-  "ob.s4.googleLive": "Connection verified — background capture is on",
   "dedupe.intro":
     "Pairs the capture pipeline flagged as likely the same person or company. Merging keeps both records' history; dismissing tells the system to never ask about this pair again.",
   "dedupe.loading": "Loading the review queue…",
@@ -2826,7 +2668,6 @@ export const en = {
   "backfill.window12m": "12 months",
   "backfill.window24m": "2 years",
   "backfill.window60m": "5 years",
-  "backfill.previewCta": "Show me the scope first",
   "backfill.previewLoading": "Counting your mailbox…",
   "backfill.estimateMessages": "Messages in this window:",
   "backfill.estimateCost": "Estimated AI cost:",
@@ -2847,7 +2688,6 @@ export const en = {
   "backfill.cancelledTitle": "Import cancelled",
   "backfill.progressLabel": "Import progress",
   "backfill.countScanned": "Messages scanned",
-  "backfill.countCaptured": "Captured",
   "backfill.statEmails": "Emails captured",
   "backfill.statPeople": "People",
   // The count is domains this run raised a company question for, not
@@ -2882,7 +2722,6 @@ export const en = {
   "connectors.loading": "Loading your connections…",
   "connectors.loadFailed": "Couldn't load your connections.",
   "connectors.empty": "No inbox is connected yet.",
-  "connectors.connectCta": "Connect an inbox",
   "connectors.provGmail": "Gmail",
   "connectors.provGcal": "Google Calendar",
   "connectors.provGraph": "Microsoft",
@@ -2952,7 +2791,6 @@ export const en = {
   // The inline IMAP connect form (Task 6): first-connect and reconnect for
   // the one credential provider, done in Settings instead of bouncing to
   // onboarding.
-  "connectors.imapConnectCta": "Connect an IMAP mailbox",
   "connectors.imapModalTitle": "Connect an IMAP mailbox",
   "connectors.imapHost": "IMAP server",
   "connectors.imapPort": "Port",
@@ -2975,7 +2813,7 @@ export const en = {
   "connectors.provTelegram": "Telegram",
   "connectors.telegramTitle": "Telegram bot",
   "connectors.telegramSub":
-    "One bot receives and sends messages for the whole workspace.",
+    "One bot receives and sends messages for the whole organization.",
   "connectors.telegramNotConfigured":
     "Messaging channels aren't configured in this deployment.",
   "connectors.telegramConnectCta": "Connect a Telegram bot",
@@ -3018,11 +2856,7 @@ export const en = {
   "consumerMail.baselineMore":
     "Showing the first {shown} of {matched} matches.",
 
-  "ob.s4.googleVerifying": "Verifying the connection…",
-  "ob.s4.googleDenied": "You declined the Google consent",
   "ob.s4.googleFailed": "The Google connection didn't complete",
-  "ob.s4.googleRetry":
-    "Nothing was stored. You can try again whenever you like — or connect over IMAP instead.",
   "ob.s4.imapHost": "IMAP host",
   "ob.s4.imapHostPlaceholder": "imap.gmail.com",
   "ob.s4.imapPort": "Port",
@@ -3040,7 +2874,7 @@ export const en = {
     "Your mail becomes contacts, companies and activities, captured automatically.",
   "ob.s4.scope2Lead": "We never send anything without your approval.",
   "ob.s4.scope2Rest": "Drafts wait in your approval inbox.",
-  "ob.s4.scope3Lead": "Your data stays in your workspace.",
+  "ob.s4.scope3Lead": "Your data stays in your organization.",
   "ob.s4.scope3Rest": "Own-your-data — export or delete everything anytime.",
   "ob.s4.scope4Lead": "Disconnect in one click.",
   "ob.s4.scope4Rest": "The CRM keeps working; it just stops capturing.",
@@ -3068,12 +2902,8 @@ export const en = {
     "The read is paused for now. I will pick it up again automatically.",
   "ob.conv.read.pollFailed":
     "I lost the connection while reading. What I already found is kept.",
-  "ob.conv.clarify.intro":
-    "One thing I need you to decide. The site is ambiguous here.",
   "ob.conv.clarify.entity":
     "The site names more than one legal entity. Which one is this installation for?",
-  "ob.conv.review.ready":
-    "I prepared the mapping. Review it and confirm what is right.",
   "ob.conv.company.confirmed":
     "Company profile confirmed. Everything I stored carries its source.",
   "ob.conv.manual.chosen": "I will type it in myself.",
@@ -3159,7 +2989,6 @@ export const en = {
   "ob.conv.consent":
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
-  "ob.conv.composer": "Ask me, or paste your website",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Skip this - I will set it myself",
@@ -3173,7 +3002,6 @@ export const en = {
   "ob.conv.retry": "Try again",
   "ob.conv.connect.persistFailed": "I could not record the finish. Try again.",
   "ob.conv.review.title": "Here is everything I found. Correct me.",
-  "ob.conv.review.showMore": "Show full text",
   "ob.conv.review.showLess": "Show less",
   "ob.conv.review.continue": "Continue",
   "ob.conv.review.progressLabel": "Required fields completed",
@@ -3417,11 +3245,6 @@ export const en = {
     "LinkedIn authorized. Your connections will sync as soon as the app is approved.",
   "ob.conv.linkedin.skipped":
     "Skipped LinkedIn. You can connect it any time in Settings.",
-  "ob.conv.connect.artifactTitle": "Inbox connection",
-  "ob.conv.connect.artifactEmpty":
-    "Pick a provider in the conversation and its connection panel opens here.",
-  "ob.conv.next.decisionOne": "1 decision open",
-  "ob.conv.next.build": "Ready to build your voice",
 
   // The setup rail: five stops, one word each. Long enough to name the step,
   // short enough that five of them fit a column at 10px.
@@ -3500,40 +3323,14 @@ export const en = {
   "ob.scan.costPending": "no model calls billed yet",
   "ob.scan.costUnpriced": " · unpriced usage exists",
 
-  // --- the live panel: the sourced record building itself ----------------
-  "ob.live.headReading": "Reading {host}",
-  "ob.live.headDone": "Read {host}",
-  "ob.live.nothingSaved":
-    "Nothing is saved yet. I will show you everything when I am done.",
-  "ob.live.summaryHeading": "Here is what I understood",
-  "ob.live.summaryYouAre": "You are",
-  "ob.live.summaryYouSell": "You sell",
-  "ob.live.summaryYouSellTo": "You sell to",
-  "ob.live.summaryVolume":
-    "{facts} facts from {pages} pages, already filled in. Open any section to check it.",
-  "ob.live.stepWebsite": "From reading your website",
-  "ob.live.stepVoice": "Your writing voice",
-  "ob.live.stepConnect": "Inbox and calendar",
+  // --- the live panel: what the read covered, and what it left ----------
   "ob.live.stateDone": "done",
   "ob.live.stateNow": "in progress",
   "ob.live.stateWaiting": "waiting",
   "ob.live.review": "Review",
   "ob.live.hide": "Hide",
-  "ob.live.countFields": "{count} fields",
-  "ob.live.countFacts": "{count} facts",
-  "ob.live.countPeople": "{count} lead proposals",
   "ob.live.countPages": "{read} read · {skipped} skipped",
-  "ob.live.cardIdentity": "Company identity",
-  "ob.live.cardPositioning": "Positioning and sales angle",
-  "ob.live.cardPeople": "People found",
   "ob.live.cardCoverage": "What I read, and what I skipped",
-  "ob.live.cardVoice": "Voice profile",
-  "ob.live.cardConnect": "Connected",
-  "ob.live.voiceNotBuilt": "not built yet",
-  "ob.live.connectNone": "nothing connected",
-  "ob.live.noValue": "—",
-  "ob.live.peopleEmpty":
-    "Nobody yet. I only propose a person when the page gives a name and a role.",
   "ob.live.coverageWarning": "Warning",
   // A bounded read has to say it was bounded: the page counts beside it
   // otherwise read as the whole site.
@@ -3551,35 +3348,8 @@ export const en = {
   "ob.live.coverageClean":
     "Every page I tried came back. Nothing was skipped and nothing failed.",
 
-  // --- facts: preview card and the full table ----------------------------
-  "ob.facts.title": "Facts",
-  "ob.facts.catCompany": "Company",
-  "ob.facts.catOffering": "Offering",
-  "ob.facts.catMarket": "Market",
-  "ob.facts.catSignal": "Signal",
-  "ob.facts.catAll": "All",
-  "ob.facts.mixLabel": "Facts by category",
-  "ob.facts.selected": "{selected} of {total} will be saved",
-  "ob.facts.selectAll": "Select all",
-  "ob.facts.clearAll": "Clear all",
-  "ob.facts.previewNote": "Showing the {count} highest-confidence facts.",
-  "ob.facts.openTable": "Open the full table",
-  "ob.facts.tableTitle": "All facts I read",
-  "ob.facts.search": "Search facts",
-  "ob.facts.hits": "{hits} of {total}",
-  "ob.facts.colSave": "Save",
-  "ob.facts.colCategory": "Category",
-  "ob.facts.colFact": "Fact",
-  "ob.facts.colSource": "Source",
-  "ob.facts.colConfidence": "Confidence",
+  // --- facts: saving one, and the ceiling on how many -------------------
   "ob.facts.rowSave": "Save the fact: {fact}",
-  "ob.facts.noMatch": "Nothing matches that search.",
-  // The card only mounts once the read has settled, so its empty state reports a
-  // finished search that found nothing — not one still in progress.
-  "ob.facts.empty":
-    "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.",
-  "ob.facts.close": "Done",
-  "ob.facts.closeTable": "Close the table",
   "ob.facts.capReached":
     "You can save up to {max} facts. Clear one to make room for another.",
 
@@ -3608,7 +3378,7 @@ export const en = {
 
   // --- the handoff into the app -----------------------------------------
   "ob.enter.cta": "Enter Margince",
-  "ob.enter.assembling": "Assembling your workspace",
+  "ob.enter.assembling": "Assembling your organization",
 
   // --- the mailbox backread ---------------------------------------------
   // A separate operation from connecting, and the copy has to keep them
@@ -3850,11 +3620,11 @@ export const en = {
   "client.sender": "Sender",
   "client.lookup": "Look up",
   "client.open360": "Open the 360",
-  "client.unknown": "Not in your workspace yet.",
+  "client.unknown": "Not in your organization yet.",
   "client.unknownDetail":
     "This sender matches no contact you can see. Nothing was fetched from anywhere else.",
   "client.createLead": "Capture as lead",
-  "client.isolation": "talks only to YOUR workspace",
+  "client.isolation": "talks only to YOUR organization",
   "client.attribution": "Every capture is attributed and auditable.",
 
   "book.title": "Book a meeting",
@@ -3917,8 +3687,6 @@ export const en = {
   "auto.name": "Name",
   "auto.create": "Create",
   "auto.createdPaused": "Created paused — nothing runs until you enable it.",
-  "auto.enable": "Enable",
-  "auto.pause": "Pause",
   "auto.delete": "Delete",
   "auto.statusEnabled": "enabled",
   "auto.statusPaused": "paused",
@@ -3929,7 +3697,6 @@ export const en = {
   "auto.dateField.loadError":
     "Couldn't load this object's date fields. Try again.",
   "auto.enabledFor": "{name} is enabled",
-  "auto.enabledLabel": "Enabled",
   "auto.rowActions": "Actions for {name}",
   "auto.withheld":
     "The configured automations are hidden — your role cannot read them.",
@@ -4016,8 +3783,6 @@ export const en = {
   "cf.obj.organization": "Company",
   "cf.obj.person": "Contact",
   "cf.obj.lead": "Lead",
-  "cf.onObject": "Custom fields on {object}",
-  "cf.coreExcluded": "Core fields are not shown — they aren't editable here",
   "cf.col.field": "Field",
   "cf.col.type": "Type",
   "cf.col.addedBy": "Added by",
@@ -4075,21 +3840,11 @@ export const en = {
   "cf.renamed": 'Renamed to "{label}"',
   "cf.audit.title": "Recent field changes",
   "cf.audit.empty": "No custom-field changes yet.",
-  "cf.audit.loading": "Loading recent changes…",
-  "cf.audit.error": "Could not load recent changes — retry shortly.",
-  "cf.audit.adminOnly":
-    "Only an admin can read the change trail. Your field changes are still recorded — they are just not shown here.",
   "cf.audit.footer":
     "Every add / edit / archive is recorded permanently in the audit log.",
   "cf.noPermission":
     "You have read-only access to custom fields — adding, editing and archiving are not yours to do here.",
   "cf.retired": "Retired",
-  "cf.propagate.title": "Where a new field shows up",
-  "cf.propagate.360": "On the record 360 view",
-  "cf.propagate.filters": "In search & filters",
-  "cf.propagate.list": "As a list / report column",
-  "cf.propagate.export": "In CSV export",
-  "cf.propagate.api": "On the public REST / MCP API",
   // The settings level, in the order the sidebar prints it. "General" rather
   // than "Organization" for the first org entry: the group heading above it
   // already says that word, and a row repeating its own heading names nothing.
@@ -4164,7 +3919,6 @@ export const en = {
   "pipeline.payloadsOff":
     "No sender or subject is stored for any step: this deployment did not turn payload capture on.",
   "pipeline.transport": "Carried by",
-  "pipeline.close": "Close",
   "pipeline.unavailable": "this message's pipeline steps could not be read",
   "pipeline.status.done": "Done",
   "pipeline.status.skipped": "Skipped",
@@ -4452,8 +4206,6 @@ export const en = {
   "extAccess.systemRole": "Built-in role",
   "extAccess.nobodyReads":
     "No role holds read on {object}, so every member sees an empty screen where this extension should be. Grant read to at least one role below.",
-  "users.title": "Users & roles",
-  "users.sub": "Invite members, set roles, and deactivate access. Admin-only.",
   "users.empty": "No members yet.",
   "users.adminOnly": "Managing members is available to admins only.",
   "users.inviteTitle": "Invite a member",
@@ -4472,7 +4224,7 @@ export const en = {
   "users.deactivateConfirmBody":
     "They'll be signed out everywhere and their agent passports revoked immediately. You can reactivate them later, but they'll need to sign in again.",
   "users.deactivateAgentConfirmBody":
-    "This is the workspace's agent identity. Deactivating it stops every job that runs with nobody behind it, extensions included, until you reactivate it. No person loses access — it signs in nowhere.",
+    "This is the organization's agent identity. Deactivating it stops every job that runs with nobody behind it, extensions included, until you reactivate it. No person loses access — it signs in nowhere.",
   "users.agentSeat": "Agent",
   "users.agentSeatRole": "Acts under a passport, not a role",
   "users.roleLabel": "Role for the new member",
@@ -4539,8 +4291,6 @@ export const en = {
     "Choose an outcome for every human-held conflict.",
   "settings.companyApplyRefresh": "Apply selected changes",
   "settings.companySelectChange": "Select the {field} change",
-  "settings.companyCurrent": "Current confirmed value",
-  "settings.companyWebsiteProposal": "Website proposal",
   "settings.companyClass.new": "New",
   "settings.companyClass.machine_change": "Website changed",
   "settings.companyClass.human_conflict": "Needs your decision",
@@ -4574,9 +4324,6 @@ export const en = {
   "product.activeFilterAll": "All",
   "product.inactive": "Inactive",
   "product.archived": "Archived",
-  "product.sortName": "Name",
-  "product.sortCreated": "Newest",
-  "product.empty": "No products yet.",
 
   "template.title": "Offer templates",
   "template.settingsSub": "Branded DE/EN PDF layouts for offers.",
@@ -4595,17 +4342,10 @@ export const en = {
   "template.localeFilterAll": "All locales",
   "template.localeDE": "German (DE)",
   "template.localeEN": "English (US)",
-  "template.sortName": "Name",
-  "template.empty": "No offer templates yet.",
 
   "tools.title": "Agent tools",
   "tools.sub":
     "The governed surface a passport can call — same inventory an MCP client sees.",
-  "tools.col.tool": "Tool",
-  "tools.col.verb": "Verb",
-  "tools.col.scope": "Scope",
-  "tools.col.tier": "Tier",
-  "tools.col.egress": "Egress",
   "tools.egress": "reaches out",
   "tools.scopeAll": "All passports",
   "tools.scopedTo": "Reachable by {label}",
@@ -4711,7 +4451,7 @@ export const en = {
   "quotas.target": "Target",
   "quotas.gap": "Gap to target",
   "quotas.baseCurrencyNote":
-    "Figures in the workspace base currency ({currency}).",
+    "Figures in the organization's base currency ({currency}).",
   "quotas.pace.ahead":
     "Ahead of pace — {pct}% attained vs {pace}% of period elapsed.",
   "quotas.pace.behind":
@@ -4870,8 +4610,6 @@ export const en = {
     "The embedding store's reindex status — admin/ops only, including viewing it.",
   "embedreindex.withheld":
     "Only an admin or ops can see the search index. Rebuilding it spends tokens for the whole installation, so its status is not shown more widely.",
-  "embedreindex.loading": "Checking index status…",
-  "embedreindex.statusUnavailable": "Index status is not available right now.",
   "embedreindex.statusIdle": "Up to date",
   "embedreindex.statusNeeded": "Reindex needed",
   "embedreindex.statusReembedding": "Reindexing…",
@@ -4984,15 +4722,6 @@ export const en = {
     "Counts only — the messages themselves stay on the timeline.",
   "person.graph.untitledMessage": "Message with no subject",
   "person.graph.dropped": "{count} more not shown.",
-  "person.moment.dismiss": "Not now",
-  "person.moment.recommended": "Next:",
-  "person.moment.willConfirm": "will ask you to confirm",
-  "person.moment.blocked": "Not available on this record.",
-  "person.moment.kind.replied_after_gap": "They came back",
-  "person.moment.kind.unanswered_inbound": "You owe a reply",
-  "person.moment.kind.meeting_ahead": "Coming up",
-  "person.moment.kind.task_overdue": "Overdue",
-  "person.moment.kind.went_quiet": "Gone quiet",
   "person.change.repliedAfterGap": "They replied after {days} quiet days.",
   "person.change.wentQuiet": "Nothing has happened for {days} days.",
   "person.change.warmed": "The relationship moved from {from} to {to}.",
@@ -5163,7 +4892,6 @@ export const en = {
   "person.memory.replied": "Replied",
   "person.memory.unanswered": "Unanswered",
 
-  "person.rail.nextActions": "Next best actions",
   "person.rail.reviewFirst": "Review first",
   "person.rail.blocked": "Blocked",
   "person.rail.ready": "Ready",
@@ -5325,7 +5053,6 @@ export const en = {
   "provider.autoEnrichHint":
     "When somebody adds a contact by hand, buy their details straight away.",
   "provider.credits": "Credits left with the provider",
-  "provider.credits.pool": "{pool}",
   "provider.credits.none": "The provider has not told us a balance yet.",
   "provider.credits.notConnected":
     "Connect a key to see what credit you have with the provider.",
@@ -5344,9 +5071,6 @@ export const en = {
   "provider.spend.runsHead": "Lookups",
   "provider.spend.none": "Nothing has been bought yet.",
   "provider.mode": "When to enrich",
-  "provider.mode.automatic_on_create": "As contacts are added",
-  "provider.mode.on_demand": "Only when asked",
-  "provider.preset": "What to buy",
 
   // The person page's section. The three "nothing here" states are three
   // different sentences on purpose: only one of them is something the
@@ -5389,8 +5113,6 @@ export const en = {
   "provider.profile.seniorities": "Seniority",
   "provider.profile.notRequested":
     "Not asked for: {categories}. A blank here means nobody bought it, not that the provider had nothing.",
-  "provider.profile.retrievedAt": "Bought {date}",
-  "provider.profile.source": "Provided by {provider}",
 } as const;
 
 export type MessageKey = keyof typeof en;
