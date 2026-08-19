@@ -3255,6 +3255,7 @@ const (
 	CreateRecordGrantRequestRecordTypeLead         CreateRecordGrantRequestRecordType = "lead"
 	CreateRecordGrantRequestRecordTypeOrganization CreateRecordGrantRequestRecordType = "organization"
 	CreateRecordGrantRequestRecordTypePerson       CreateRecordGrantRequestRecordType = "person"
+	CreateRecordGrantRequestRecordTypeProject      CreateRecordGrantRequestRecordType = "project"
 )
 
 // Valid indicates whether the value is a known member of the CreateRecordGrantRequestRecordType enum.
@@ -3267,6 +3268,8 @@ func (e CreateRecordGrantRequestRecordType) Valid() bool {
 	case CreateRecordGrantRequestRecordTypeOrganization:
 		return true
 	case CreateRecordGrantRequestRecordTypePerson:
+		return true
+	case CreateRecordGrantRequestRecordTypeProject:
 		return true
 	default:
 		return false
@@ -7545,6 +7548,7 @@ const (
 	RecordGrantRecordTypeLead         RecordGrantRecordType = "lead"
 	RecordGrantRecordTypeOrganization RecordGrantRecordType = "organization"
 	RecordGrantRecordTypePerson       RecordGrantRecordType = "person"
+	RecordGrantRecordTypeProject      RecordGrantRecordType = "project"
 )
 
 // Valid indicates whether the value is a known member of the RecordGrantRecordType enum.
@@ -7557,6 +7561,8 @@ func (e RecordGrantRecordType) Valid() bool {
 	case RecordGrantRecordTypeOrganization:
 		return true
 	case RecordGrantRecordTypePerson:
+		return true
+	case RecordGrantRecordTypeProject:
 		return true
 	default:
 		return false
@@ -10719,6 +10725,7 @@ const (
 	ListRecordGrantsParamsRecordTypeLead         ListRecordGrantsParamsRecordType = "lead"
 	ListRecordGrantsParamsRecordTypeOrganization ListRecordGrantsParamsRecordType = "organization"
 	ListRecordGrantsParamsRecordTypePerson       ListRecordGrantsParamsRecordType = "person"
+	ListRecordGrantsParamsRecordTypeProject      ListRecordGrantsParamsRecordType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListRecordGrantsParamsRecordType enum.
@@ -10731,6 +10738,8 @@ func (e ListRecordGrantsParamsRecordType) Valid() bool {
 	case ListRecordGrantsParamsRecordTypeOrganization:
 		return true
 	case ListRecordGrantsParamsRecordTypePerson:
+		return true
+	case ListRecordGrantsParamsRecordTypeProject:
 		return true
 	default:
 		return false

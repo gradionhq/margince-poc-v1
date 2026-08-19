@@ -192,9 +192,9 @@ func TestLeadSourceGovernsHumanWritesAndTheScore(t *testing.T) {
 		}
 	}
 
-	// The counts are a lead read: an actor scoped to their own rows counts
-	// only leads they may see. Unowned rows are visible at every scope, so
-	// the leads get an owner first.
+	// The counts are a lead read, and a lead is customer identity: an actor
+	// scoped to their own rows still reads every lead in the workspace, so
+	// owning the leads elsewhere changes nothing about what they count.
 	owner := ids.From[ids.UserKind](e.user)
 	for _, id := range []ids.LeadID{leadID, ids.From[ids.LeadKind](ids.UUID(connectorLead.Id))} {
 		if _, err := e.store.UpdateLead(e.ctx, id, UpdateLeadInput{OwnerID: &owner}); err != nil {
@@ -214,13 +214,32 @@ func TestLeadSourceGovernsHumanWritesAndTheScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scoped list: %v", err)
 	}
-	for _, s := range scoped.Data {
-		if s.LeadCount != nil && *s.LeadCount != 0 {
-			t.Errorf("own-scoped actor counts %d leads under %q, want 0 — lead_count is a lead read", *s.LeadCount, s.Key)
+	counts := map[string]int{}
+	for _, s := range list.Data {
+		if s.LeadCount != nil {
+			counts[s.Key] = *s.LeadCount
 		}
 	}
-	if len(scoped.Discovered) != 0 {
-		t.Errorf("own-scoped actor sees discovered sources %+v, want none", scoped.Discovered)
+	for _, s := range scoped.Data {
+		got := 0
+		if s.LeadCount != nil {
+			got = *s.LeadCount
+		}
+		if got != counts[s.Key] {
+			t.Errorf("own-scoped actor counts %d leads under %q, want %d — a lead is workspace-readable", got, s.Key, counts[s.Key])
+		}
+	}
+	discovered := map[string]int{}
+	for _, d := range list.Discovered {
+		discovered[d.Key] = d.LeadCount
+	}
+	if len(scoped.Discovered) != len(discovered) {
+		t.Errorf("own-scoped actor sees discovered sources %+v, want the same %d every seat sees", scoped.Discovered, len(discovered))
+	}
+	for _, d := range scoped.Discovered {
+		if want, ok := discovered[d.Key]; !ok || want != d.LeadCount {
+			t.Errorf("own-scoped actor discovers %q with %d leads, want %d — a lead is workspace-readable", d.Key, d.LeadCount, want)
+		}
 	}
 }
 

@@ -235,7 +235,7 @@ func (s *Store) adoptOrCreateTriagedOrg(ctx context.Context, tx pgx.Tx, in Resol
 		DisplayName: displayName,
 		NameSource:  nameSource,
 		OwnerID:     ownerFromUUID(prior.OwnerID),
-		Visibility:  visibilityOwner,
+		Visibility:  visibilityWorkspace,
 		Domains:     []OrgDomainInput{{Domain: in.Domain, IsPrimary: true}},
 		Source:      domainTriageSource(in.Domain),
 		CapturedBy:  by,

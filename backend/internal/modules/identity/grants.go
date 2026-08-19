@@ -28,7 +28,7 @@ import (
 )
 
 var shareableRecordTypes = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true,
+	"person": true, "organization": true, "deal": true, "lead": true, "project": true,
 }
 
 const grantColumns = `id, record_type, record_id, subject_type, subject_id, access, granted_by, reason, expires_at, created_at`

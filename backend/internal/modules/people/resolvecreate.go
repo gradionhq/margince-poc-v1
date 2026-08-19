@@ -39,13 +39,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
-// The row-visibility values the create paths choose between. A connector-
-// minted row starts owner-private until a human promotes it; the channel bot
-// serves the whole workspace and mints shared rows.
-const (
-	visibilityOwner     = "owner"
-	visibilityWorkspace = "workspace"
-)
+// visibilityWorkspace is the row visibility every create path writes: a
+// captured contact belongs to the workspace the moment it exists. The column
+// still admits 'owner' (capture privacy, read by platform/auth) for rows
+// minted before this was the rule; no create path writes it any more.
+const visibilityWorkspace = "workspace"
 
 // ownerFromUUID adapts the storage-level owner id the capture and triage paths
 // carry to the typed one the specs take.

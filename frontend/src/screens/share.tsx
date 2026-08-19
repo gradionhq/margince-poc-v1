@@ -11,6 +11,7 @@ import {
 import { useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import type { EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
 import {
   Button,
@@ -42,7 +43,10 @@ type RecordGrant = components["schemas"]["RecordGrant"];
 type CreateRecordGrantRequest =
   components["schemas"]["CreateRecordGrantRequest"];
 type Access = CreateRecordGrantRequest["access"];
-type RecordType = CreateRecordGrantRequest["record_type"];
+// The share screen serves the record kinds the app has a page for; the
+// contract also admits `project`, which is shareable through the API and has
+// no screen of its own yet.
+type RecordType = Extract<CreateRecordGrantRequest["record_type"], EntityKind>;
 type User = components["schemas"]["User"];
 type Team = components["schemas"]["Team"];
 
