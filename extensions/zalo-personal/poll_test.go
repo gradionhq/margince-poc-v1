@@ -715,12 +715,12 @@ func TestAFailureClassIsThisUnitsOwnWordForWhatWentWrong(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if got := failureClass(tc.cause); got != tc.class {
+			if got := failureClass(tc.cause).Class; got != tc.class {
 				t.Fatalf("%s was classed %q, want %q", name, got, tc.class)
 			}
 		})
 	}
-	if strings.Contains(failureClass(errors.New("Zalo says: mật khẩu sai")), "mật khẩu") {
+	if strings.Contains(failureClass(errors.New("Zalo says: mật khẩu sai")).Class, "mật khẩu") {
 		t.Fatal("the provider's own message reached a class this unit renders")
 	}
 }
