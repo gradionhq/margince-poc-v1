@@ -5,7 +5,10 @@ import type { Locale } from "../i18n";
 // aggregates. No FX math, no live rate calls, no calendar arithmetic, and
 // locale never flows back into storage. format.test.ts pins each rule.
 
-const INTL_LOCALE: Record<Locale, string> = {
+// Exported because a relative-time formatter needs the same mapping, and two
+// tables from one locale set is how a page ends up formatting one date German
+// and the one under it English.
+export const INTL_LOCALE: Record<Locale, string> = {
   de: "de-DE",
   en: "en-GB", // A100: unconfigured English is en-GB, not en-US
   vi: "vi-VN",

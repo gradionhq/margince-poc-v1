@@ -41,10 +41,15 @@ function signalWord(signal: string, t: ReturnType<typeof useT>): string {
 
 const queueKey = ["dedupe-candidates"];
 
-export function DedupeScreen() {
-  const t = useT();
-  const qc = useQueryClient();
-  const queue = useQuery({
+/**
+ * The open duplicate queue, in one spelling.
+ *
+ * Exported because the screen is no longer the only reader: chrome that reports
+ * what is waiting on a person reads the same queue, and two queries against one
+ * path are two answers that can disagree on screen.
+ */
+export function useDedupeQueue() {
+  return useQuery({
     queryKey: queueKey,
     queryFn: async () => {
       const { data, error } = await api.GET("/dedupe/candidates", {
@@ -56,6 +61,12 @@ export function DedupeScreen() {
       return data;
     },
   });
+}
+
+export function DedupeScreen() {
+  const t = useT();
+  const qc = useQueryClient();
+  const queue = useDedupeQueue();
 
   const dispose = useMutation({
     mutationFn: async (input: {

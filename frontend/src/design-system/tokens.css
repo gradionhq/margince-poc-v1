@@ -102,6 +102,31 @@
   --aiMed: rgba(91, 97, 214, 0.3);
   --aiText: #3f45b0;
 
+  /* The Core's palette — the eight states of the agent orb, and nothing else in
+   * the product. Read only through the Core's own --coreC1/2/3 triples
+   * (margince-core.css); a button in --orbLime is a second accent.
+   *
+   * Its own family for the reason §2 gives AI its own hue: the Core is the one
+   * surface that shows the agent AS ITSELF, and a lit glass body needs tones a
+   * primary-action colour cannot supply — a light end to glow, a dark to be seen
+   * against. The greens sit around --accent (which IS the body tone for every
+   * working state, so a re-themed brand still moves the orb), and the three
+   * non-greens are the states that are not work: amber asks a person for
+   * something, grey cannot reach a source, red failed.
+   *
+   * --orbRed is deliberately not --danger. --danger is UI chrome — a destructive
+   * button, an error notice — and the orb's red has to survive being a 34px
+   * glowing ball, where the chrome red goes muddy. Two reds is one more than
+   * anyone wants; the alternative was a failed run that looks like a busy one. */
+  --orbMint: #7fd6b0;
+  --orbJade: #2fbe8f;
+  --orbLime: #a3e635;
+  --orbAmber: #d9a23b;
+  --orbRed: #d93b2b;
+  --orbGrey: #a5aba9;
+  --orbInk: #33403a;
+  --orbDeep: #1b2e26;
+
   --success: #15803d;
   --successBg: rgba(34, 197, 94, 0.12);
   --warn: #92400e;
