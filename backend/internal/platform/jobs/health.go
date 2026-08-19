@@ -12,6 +12,7 @@ package jobs
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -72,6 +73,13 @@ type KindHealth struct {
 
 // Failure is one recent failed or failing job.
 type Failure struct {
+	// ID is river_job.id, and it is the ONE key that makes the rest of this
+	// row actionable. River's own log lines carry job_id=<id>, and every
+	// psql question an operator then asks — what were the args, what does
+	// the full errors array say, is it still retrying — is keyed by it. A
+	// failure list that pointed at the process log while naming no id was
+	// pointing at a log nobody could search.
+	ID   int64
 	Kind string
 	// WorkspaceID is nil for a dispatcher.
 	WorkspaceID *string
@@ -79,11 +87,30 @@ type Failure struct {
 	Attempt     int
 	MaxAttempts int
 	FailedAt    time.Time
+	// FirstFailedAt is when the FIRST recorded attempt STARTED, which is what
+	// River stores on an attempt error (AttemptError.At is the attempt's start,
+	// not the moment it failed — the same trap FailedAt above reads columns to
+	// avoid). It is named for what an operator asks rather than for the column:
+	// the question is "how long has this been going wrong", and the first
+	// attempt's start is the honest answer to it. A job that failed on a wall-clock
+	// timeout began failing at that start, whatever second the timeout fired.
+	//
+	// It answers what the attempt counter cannot: "failing since 21:08" and
+	// "failed once at 21:08" are different operator situations, and an attempt
+	// count of 3 says which ladder rung the job is on, never how long it has been
+	// on the ladder.
+	//
+	// Nil when no attempt error was recorded at all — a cancelled job that never
+	// ran records none, and a zero time would read on a screen as 1970 rather than
+	// as absence. The absence is carried for the same reason
+	// OldestWaitingAgeSeconds carries its own: nil and a value are different
+	// claims, and flattening one into the other invents a fact.
+	FirstFailedAt *time.Time
 	// StoredReason is river_job.errors' text VERBATIM, and the caller must
 	// not put it on a wire without vetting it: the column holds whatever a
 	// worker returned, and a worker that bypassed Fault stored a raw cause
 	// that routinely names the address or record a provider refused. Ask
-	// VettedSentence.
+	// VettedFailure.
 	StoredReason string
 }
 
@@ -190,14 +217,28 @@ func healthByKind(ctx context.Context, pool *pgxpool.Pool, workspaceID string, d
 // app-written text in SQL:
 // that column is app-written, and one malformed value would turn the whole
 // endpoint into a 500 rather than one row into an approximation.
+//
+// first_failed_at is the one value that has no column to read, so errors[1]
+// — the OLDEST attempt, the array being append-ordered — is read as TEXT and
+// parsed in Go rather than cast in SQL. What that element carries is the
+// attempt's START (see Failure.FirstFailedAt), which is why the field is not
+// named for the moment of failure. A `::timestamptz` in the statement
+// would put the same app-written column back in the query's critical path
+// that the paragraph above keeps out of it: one unparseable value would fail
+// the whole read instead of leaving one row's "failing since" unanswered.
+// errors is a jsonb[], not a jsonb, so it is subscripted 1-based; the
+// jsonb path operators (errors->-1 and friends) do not apply to it at all
+// and would not compile against this column.
 func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string, dispatcherKinds []string) ([]Failure, error) {
 	q := `
-		SELECT kind,
+		SELECT id,
+		       kind,
 		       args->>'workspace_id',
 		       state::text,
 		       attempt::int,
 		       max_attempts::int,
 		       coalesce(finalized_at, attempted_at, created_at),
+		       errors[1]->>'at',
 		       errors[cardinality(errors)]->>'error'
 		FROM river_job
 		WHERE state::text IN ('retryable','discarded','cancelled')
@@ -216,16 +257,18 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 		var (
 			f          Failure
 			fallbackAt time.Time
+			firstAt    *string
 			stored     *string
 		)
-		if err := rows.Scan(&f.Kind, &f.WorkspaceID, &f.State, &f.Attempt,
-			&f.MaxAttempts, &fallbackAt, &stored); err != nil {
+		if err := rows.Scan(&f.ID, &f.Kind, &f.WorkspaceID, &f.State, &f.Attempt,
+			&f.MaxAttempts, &fallbackAt, &firstAt, &stored); err != nil {
 			return nil, fmt.Errorf("jobs: scanning recent job failures: %w", err)
 		}
 		// UTC because pgx returns a timestamptz in the session's zone, and
 		// two offsets inside one array is needlessly hostile to whoever
 		// reads the list.
 		f.FailedAt = fallbackAt.UTC()
+		f.FirstFailedAt = parseFirstFailedAt(ctx, f.Kind, firstAt)
 		if stored != nil {
 			f.StoredReason = *stored
 		}
@@ -241,4 +284,32 @@ func recentFailures(ctx context.Context, pool *pgxpool.Pool, workspaceID string,
 	// two ever drift apart.
 	slices.SortStableFunc(out, func(a, b Failure) int { return b.FailedAt.Compare(a.FailedAt) })
 	return out, nil
+}
+
+// parseFirstFailedAt reads the oldest attempt error's own timestamp, and
+// answers nil for every row that has none to read.
+//
+// Two absences arrive here and both are honest: a row with an empty errors
+// array (River's causeless cancel path appends nothing) and a row whose
+// element carries no `at` key. Neither is a failure of this read, and
+// neither may become a zero time — the field is a pointer precisely so
+// absence stays absence instead of rendering as 1970 in a failure list.
+//
+// A value that is PRESENT and unparseable is a third thing, and it is
+// logged rather than dropped in silence. River writes RFC 3339 here, so
+// text this cannot parse means something other than River wrote the row —
+// worth an operator knowing about, and not worth failing the whole read
+// for, because the rest of the row still tells them what died.
+func parseFirstFailedAt(ctx context.Context, kind string, raw *string) *time.Time {
+	if raw == nil {
+		return nil
+	}
+	at, err := time.Parse(time.RFC3339Nano, *raw)
+	if err != nil {
+		slog.WarnContext(ctx, "jobs: a job failure carries an unparseable first-attempt timestamp",
+			"kind", kind, "err", err)
+		return nil
+	}
+	utc := at.UTC()
+	return &utc
 }

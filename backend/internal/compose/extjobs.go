@@ -207,6 +207,36 @@ func composedJobSpecs(set []composedJob) []jobs.Spec {
 	return specs
 }
 
+// composedFailureClasses is the failure vocabulary the composed set
+// contributes, keyed by River kind — the shape jobs.RegisterComposedFailureClasses
+// takes, because the READ starts from a row and a row carries a kind, not a unit.
+//
+// The CHILD kind only, not the dispatcher's. A dispatcher runs no unit code —
+// it holds a pool and a declaration, never the unit's handler — so no declared
+// class can ever reach a dispatcher row, and a vocabulary registered for that
+// kind would be a table entry nothing could ever read.
+//
+// A unit that declared no classes contributes no entry rather than an empty
+// one, which is what keeps ComposedFailureKinds a list of kinds that actually
+// have a vocabulary.
+func composedFailureClasses(exts []extension.Extension, set []composedJob) map[string][]extension.FailureClass {
+	byUnit := make(map[extension.Name][]extension.FailureClass, len(exts))
+	for _, e := range exts {
+		if len(e.FailureClasses) > 0 {
+			byUnit[e.Name] = e.FailureClasses
+		}
+	}
+	byKind := make(map[string][]extension.FailureClass, len(set))
+	for _, j := range set {
+		classes, declared := byUnit[j.decl.Unit]
+		if !declared {
+			continue
+		}
+		byKind[j.decl.ChildKind()] = classes
+	}
+	return byKind
+}
+
 // addExtensionJobs registers this boot's served extension jobs into the runner
 // and hands back the schedules that drive them — the same shape every other
 // self-registering group in wireJobs takes.

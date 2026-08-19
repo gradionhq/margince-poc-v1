@@ -58,7 +58,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 						continue
 					}
 					pos := fset.Position(result.Pos())
-					t.Errorf("%s:%d: a worker return must be nil, jobs.Fault(...), or a river control return — a raw cause is written verbatim into river_job.errors",
+					t.Errorf("%s:%d: a worker return must be nil, jobs.Fault/FaultContext/FaultForKind(...), or a river control return — a raw cause is written verbatim into river_job.errors",
 						pos.Filename, pos.Line)
 				}
 			}
@@ -73,7 +73,7 @@ func TestEveryWorkerReturnsThroughJobsFault(t *testing.T) {
 					continue
 				}
 				pos := fset.Position(assigned.Pos())
-				t.Errorf("%s:%d: an assignment to a worker's named error result must be nil, jobs.Fault(...), or a river control return — it reaches river_job.errors exactly as a return does",
+				t.Errorf("%s:%d: an assignment to a worker's named error result must be nil, jobs.Fault/FaultContext/FaultForKind(...), or a river control return — it reaches river_job.errors exactly as a return does",
 					pos.Filename, pos.Line)
 			}
 			// The log-and-return-nil shape is the defect this phase removes,
@@ -220,7 +220,12 @@ func sanctionedWorkerReturn(expr ast.Expr) bool {
 	if !ok {
 		return false
 	}
-	if pkg.Name == "jobs" && (sel.Sel.Name == "Fault" || sel.Sel.Name == "FaultContext") {
+	// Every spelling of the substitution seam, and no more. FaultForKind is the
+	// composed-job spelling: it takes the River kind as well, which is what lets
+	// it verify an extension's declared failure class before publishing its
+	// sentence. All three replace the cause's text; a fourth entry here has to
+	// do the same, or this gate stops meaning what it says.
+	if pkg.Name == "jobs" && (sel.Sel.Name == "Fault" || sel.Sel.Name == "FaultContext" || sel.Sel.Name == "FaultForKind") {
 		return true
 	}
 	// River's own control returns are not failures: a snooze reschedules and

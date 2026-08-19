@@ -14792,13 +14792,25 @@ type IssuePasswordLinkResponse struct {
 
 // JobFailure defines model for JobFailure.
 type JobFailure struct {
-	Attempt     int       `json:"attempt"`
-	FailedAt    time.Time `json:"failed_at"`
-	Kind        string    `json:"kind"`
-	MaxAttempts int       `json:"max_attempts"`
+	Attempt  int       `json:"attempt"`
+	FailedAt time.Time `json:"failed_at"`
+
+	// FailureClass The vocabulary token this failure was classified as (e.g. `provider_unavailable`, `version_skew`), from the same closed vocabulary as `reason` — core for a job the platform ships, declared by the extension unit for one it composes. It is what an alert matches and what a screen filters on, which is why it is a token and not prose. Null when the stored text could not be vetted: no class is asserted for a failure this surface could not recognise, and inventing one would key an alert on a guess.
+	FailureClass *string `json:"failure_class,omitempty"`
+
+	// FirstFailedAt When this job's first recorded attempt STARTED, so "failing since" is answerable. River stamps an attempt error with the attempt's start rather than the moment it failed, and the field is named for the question an operator asks — how long has this been going wrong — which the start is the honest answer to. The attempt counter says which rung of the retry ladder the job is on, never how long it has been on it, and one failure at 21:08 is a different situation from an hour of them. Null when no attempt error was recorded — a job cancelled before it ran records none.
+	FirstFailedAt *time.Time `json:"first_failed_at,omitempty"`
+
+	// JobId River's own row id. It is the key an operator greps the worker log with — River's log lines carry job_id — and the key every follow-up psql question about this row is asked by. Without it, pointing at the process log names no line.
+	JobId       *int64 `json:"job_id,omitempty"`
+	Kind        string `json:"kind"`
+	MaxAttempts int    `json:"max_attempts"`
 
 	// Reason The job layer's vetted operator sentence. A failure whose stored text did not come from that closed vocabulary reports a fixed substitute instead — the raw cause never travels here.
-	Reason string          `json:"reason"`
+	Reason string `json:"reason"`
+
+	// Remedy What the operator does about it, from the same closed vocabulary as `reason` — the half a failure list is useless without, because "a provider was unreachable" and "nothing to do, the poll catches up" are different pieces of information at 2am. Null exactly when `failure_class` is null.
+	Remedy *string         `json:"remedy,omitempty"`
 	State  JobFailureState `json:"state"`
 }
 

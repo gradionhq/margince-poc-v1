@@ -88,8 +88,8 @@ func TestTheJobHealthHandlerIsConstructedWithAPoolNotJustEmbedded(t *testing.T) 
 // stops that text travelling.
 func TestOnlyAVettedSentenceReachesTheWire(t *testing.T) {
 	vetted := "the record this job names no longer exists"
-	if got := reasonFor(vetted); got != vetted {
-		t.Errorf("reasonFor(vetted) = %q, want it passed through", got)
+	if got := renderFailure(jobs.Failure{Kind: "any_kind", StoredReason: vetted}).Reason; got != vetted {
+		t.Errorf("the vetted sentence rendered as %q, want it passed through", got)
 	}
 
 	for _, raw := range []string{
@@ -100,12 +100,18 @@ func TestOnlyAVettedSentenceReachesTheWire(t *testing.T) {
 		// read a process log that died before writing one.
 		"Stuck job rescued by JobRescuer",
 	} {
-		got := reasonFor(raw)
+		rendered := renderFailure(jobs.Failure{Kind: "any_kind", StoredReason: raw})
+		got := rendered.Reason
 		if got == raw {
 			t.Errorf("a worker's raw cause reached the wire: %q", raw)
 		}
-		if got != unvettedFailureReason {
-			t.Errorf("reasonFor(%q) = %q, want the one fixed substitute", raw, got)
+		if got != jobs.UnvettedFailureReason {
+			t.Errorf("rendering %q gave %q, want the one fixed substitute", raw, got)
+		}
+		// A class invented for text nobody could vet would key an operator's
+		// alert on a guess.
+		if rendered.Class != nil || rendered.Remedy != nil {
+			t.Errorf("unvettable text %q was given class %v / remedy %v", raw, rendered.Class, rendered.Remedy)
 		}
 		if strings.Contains(got, "process log") {
 			t.Errorf("the substitute promises a process log: a rescued job's process died "+
@@ -120,19 +126,23 @@ func TestOnlyAVettedSentenceReachesTheWire(t *testing.T) {
 // and points an operator at a log line nobody wrote. Nothing recorded and
 // something unreadable are different facts.
 func TestARowThatRecordedNoCauseDoesNotClaimItFailed(t *testing.T) {
-	got := reasonFor("")
+	rendered := renderFailure(jobs.Failure{Kind: "cancelled_pass"})
+	got := rendered.Reason
 
+	if rendered.Class != nil || rendered.Remedy != nil {
+		t.Errorf("a row with no recorded cause was classified: %v / %v", rendered.Class, rendered.Remedy)
+	}
 	if got == "" {
 		t.Fatal("an empty stored error must still produce a sentence")
 	}
-	if got == unvettedFailureReason {
+	if got == jobs.UnvettedFailureReason {
 		t.Error("a row with no recorded cause was reported as an unvettable failure")
 	}
 	if strings.Contains(got, "failed") {
-		t.Errorf("reasonFor(\"\") = %q: it claims a failure that was never recorded", got)
+		t.Errorf("the no-cause row rendered as %q: it claims a failure that was never recorded", got)
 	}
-	if got != noRecordedCause {
-		t.Errorf("reasonFor(\"\") = %q, want the one fixed no-cause sentence", got)
+	if got != jobs.NoRecordedCause {
+		t.Errorf("the no-cause row rendered as %q, want the one fixed no-cause sentence", got)
 	}
 }
 

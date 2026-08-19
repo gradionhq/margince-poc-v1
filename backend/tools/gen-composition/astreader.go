@@ -320,6 +320,25 @@ func (r *unitReader) readExtensionField(elt ast.Expr, file *ast.File, m *unitMan
 		// Recognized and deliberately skipped: a jurisdiction pack is
 		// passive policy the core consults, never a governed operation an
 		// operator resolves, so it contributes no manifest entry.
+	case "FailureClasses":
+		// Recognized and deliberately skipped, for the reason a jurisdiction
+		// pack is: a failure vocabulary is inert operator-facing text — the
+		// names a unit gives the ways its own jobs fail — and not a capability
+		// anybody grants or resolves. There is no tier to set and no secret to
+		// provision, so a manifest entry would record a request nobody answers.
+		//
+		// SKIPPED HERE IS NOT UNCHECKED, and the distinction matters because
+		// these strings are published into river_job.errors, which has no
+		// workspace and which every workspace's admin reads. What holds them is
+		// nearer the use: extension.ValidateFailureClasses refuses a malformed
+		// set at boot before a single class is registered, and the composed
+		// registration additionally refuses one that would impersonate a core
+		// class. Both see the VALUES, which a static reader of this declaration
+		// cannot — the field conventionally names a package-level slice so the
+		// declared set and the set the unit's code returns stay one list.
+		//
+		// Nothing needs emitting either way: the generated composition calls the
+		// unit's New(), so the runtime value carries this field already.
 	case "Migrations":
 		// It contributes no MANIFEST entry, for the same reason a jurisdiction
 		// pack does not: what an operator resolves are risk tiers and secret

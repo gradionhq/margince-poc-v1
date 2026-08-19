@@ -373,7 +373,11 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 		status = statusTierLapse
 	}
 	if status != statusConnected {
-		if _, err := park(ctx, rt, conn, class, status); err != nil {
+		// The TOKEN, not the sentence: the row's column is what the connector
+		// screen filters and greps on, and the sentence is what the job surface
+		// renders. They are two halves of one declared class, so neither surface
+		// can drift into a vocabulary of its own.
+		if _, err := park(ctx, rt, conn, class.Class, status); err != nil {
 			return errors.Join(cause, err)
 		}
 		return nil
@@ -387,7 +391,7 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 			    SET last_error_class = $2, last_polled_at = now(),
 			        version = version + 1, updated_at = now()
 			  WHERE id = $1::uuid AND version = $3
-			 RETURNING `+connectionColumns, conn.ID, class, conn.Version).Scan)
+			 RETURNING `+connectionColumns, conn.ID, class.Class, conn.Version).Scan)
 		if err != nil {
 			if isNoRows(err) {
 				// The row moved on without this tick. What it learned is about a
@@ -410,29 +414,38 @@ func noteFailure(ctx context.Context, rt extension.Runtime, conn connection, cau
 	// The failure is on the row for the screen to render; the tick's own outcome
 	// is the failure, because this installation has exactly one connection and a
 	// tick that could not poll it did not do its job.
-	return fmt.Errorf("zalo-oa: the poll failed (%s): %w", class, cause)
+	//
+	// CLASSIFIED on the way out, so the class the row already carries survives the
+	// trip to the job surface too. The job layer refuses to persist a cause's own
+	// text — river_job.errors has no workspace and every admin reads it — and
+	// without the wrapper it had nothing left to report but that the failure could
+	// not be classified. The cause still travels underneath, so errors.Is keeps
+	// working for everything that classifies on the sentinels, and the unit name
+	// stays on the log line the wrapper prints.
+	return extension.Failure(class, fmt.Errorf("zalo-oa: the poll failed: %w", cause))
 }
 
-// failureClass names what went wrong in this unit's own vocabulary. The
-// provider's text is deliberately not carried: it is rendered on a screen, and a
-// remote party's prose is not this installation's to display.
-func failureClass(cause error) string {
+// failureClass names what went wrong in this unit's own vocabulary — the token a
+// screen filters on and the two sentences an operator reads, as one declared
+// value (failureclasses.go). The provider's text is deliberately not carried: a
+// remote party's prose is not this installation's to display or to publish.
+func failureClass(cause error) extension.FailureClass {
 	switch {
 	case errors.Is(cause, errUnauthorized):
-		return "token_rejected"
+		return classTokenRejected
 	case errors.Is(cause, errTierTooLow):
-		return "package_too_low"
+		return classPackageTooLow
 	case errors.Is(cause, errAPINotRegistered):
-		return "api_not_registered"
+		return classAPINotRegistered
 	case errors.Is(cause, errTransient):
-		return "provider_unavailable"
+		return classProviderUnavailable
 	case errors.Is(cause, errProvider):
-		return "provider_answer_unusable"
+		return classProviderAnswerUnusable
 	case errors.Is(cause, extension.ErrForbidden):
-		return "member_not_permitted"
+		return classMemberNotPermitted
 	case errors.Is(cause, extension.ErrInvalid):
-		return "connection_unusable"
+		return classConnectionUnusable
 	default:
-		return "poll_failed"
+		return classPollFailed
 	}
 }
