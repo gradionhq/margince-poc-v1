@@ -8,10 +8,10 @@ package backendarch
 //
 //  1. every MARGINCE_* var the Go code reads is named in
 //     docs/reference/configuration.md — the table of record for the binaries;
-//  2. every MARGINCE_* var .env.template names is still part of the product;
+//  2. every MARGINCE_* var .env.example names is still part of the product;
 //  3. every MARGINCE_* var configuration.md names is still part of the product;
 //  4. every MARGINCE_* var a deploy entrypoint hard-requires is named in
-//     .env.template — that file is the annotated template docs/deployment.md
+//     .env.example — that file is the annotated template docs/deployment.md
 //     hands an operator, so a var the container refuses to boot without must
 //     not be discoverable only by reading the entrypoint script.
 //
@@ -43,7 +43,7 @@ package backendarch
 //     process consults. Its own comment records the reason. Every backquoted
 //     occurrence remains prose in a comment or an error message.
 //   - Presence, not truth. A var being named in a document does not make the
-//     prose around it accurate, and .env.template now carries denser
+//     prose around it accurate, and .env.example now carries denser
 //     behavioural claims than the reference doc does. These gates stop a var
 //     disappearing; they cannot stop a description going stale.
 
@@ -60,7 +60,7 @@ import (
 
 // envVarName matches one MARGINCE_* name in prose — the reference doc and the
 // template, where names appear unquoted. Applied to those files it is why
-// .env.template may not write a `MARGINCE_FOO_*` glob: the glob yields the name
+// .env.example may not write a `MARGINCE_FOO_*` glob: the glob yields the name
 // `MARGINCE_FOO_`, which nothing reads.
 var envVarName = regexp.MustCompile(`MARGINCE_[A-Z0-9_]+`)
 
@@ -73,7 +73,7 @@ var quotedEnvVarName = regexp.MustCompile(`"(MARGINCE_[A-Z0-9_]+)"`)
 
 const (
 	configurationDoc = "../docs/reference/configuration.md"
-	envTemplate      = "../.env.template"
+	envExample       = "../.env.example"
 )
 
 // deploySurfaceRoots are the non-Go trees that configure a deployment: the
@@ -231,7 +231,7 @@ func TestEveryEnvVarIsDocumented(t *testing.T) {
 // worse than no entry at all, because it invites an operator to supply a value
 // that cannot take effect.
 func TestEnvTemplateNamesOnlyLiveVars(t *testing.T) {
-	assertNamesOnlyLiveVars(t, envTemplate)
+	assertNamesOnlyLiveVars(t, envExample)
 }
 
 // TestConfigurationDocNamesOnlyLiveVars holds the table of record to the same
@@ -257,10 +257,10 @@ var entrypointRequired = regexp.MustCompile(`\$\{(MARGINCE_[A-Z0-9_]+):?\?`)
 
 // TestEntrypointRequiredVarsAreInTheTemplate: a var the container refuses to
 // boot without belongs in the file an operator is handed, not only in the
-// script that rejects them. docs/deployment.md names .env.template as that
+// script that rejects them. docs/deployment.md names .env.example as that
 // file, which is what makes this an obligation rather than a nicety.
 func TestEntrypointRequiredVarsAreInTheTemplate(t *testing.T) {
-	offered := namesIn(t, envTemplate)
+	offered := namesIn(t, envExample)
 
 	required := map[string]string{}
 	walkTextFiles(t, "../scripts/deploy", func(path, text string) {
@@ -282,7 +282,7 @@ func TestEntrypointRequiredVarsAreInTheTemplate(t *testing.T) {
 	}
 	if len(missing) > 0 {
 		t.Errorf("%d var(s) a deploy entrypoint refuses to boot without, absent from %s — add them, commented, with the value shape an operator must replace:\n\t%s",
-			len(missing), envTemplate, strings.Join(missing, "\n\t"))
+			len(missing), envExample, strings.Join(missing, "\n\t"))
 	}
 }
 
