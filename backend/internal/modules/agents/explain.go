@@ -16,6 +16,7 @@ package agents
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -167,39 +168,111 @@ func (s *Dispatcher) explainClassified(tool string, err error) string {
 		s.log.Warn("mcp: tool call refused", "tool", tool, "code", fault.Code, "err", err)
 	}
 
-	// The detail can be the caller's own text (a decode error quotes the field
-	// name it refused), so it gets the same treatment as every other echo on
-	// this surface rather than relying on the classes that produce it to be
-	// short and well-behaved.
-	detail := echoSafe(fault.Detail, maxBadArgsDetail)
+	explained := faultExplanation(fault)
 	if fault.Transient() {
-		return "This tool is temporarily unavailable — nothing was changed. (" + faultCodes(fault) + ": " + detail + ") " +
+		return "This tool is temporarily unavailable — nothing was changed. (" + explained + ") " +
 			"The same call can succeed later; wait before retrying, and tell the user if they are waiting on it."
 	}
 	return "This call was refused as issued and nothing was changed; repeating it unchanged will be refused the same way. (" +
-		faultCodes(fault) + ": " + detail + ") Correct the arguments and call again — or, if this is a governed refusal " +
+		explained + ") Correct the arguments and call again — or, if this is a governed refusal " +
 		"rather than a mistake, do not retry: tell the user what is blocking it."
 }
 
-// faultCodes renders the machine codes an agent can branch on. A validation
-// fault's outer code is the same word for every bad input ("validation_error");
-// the per-field codes underneath are the ones that say WHICH argument and why,
-// so they are what the agent gets — the same breakdown the REST body carries,
-// rather than the flattened summary the outer code alone would give.
+// faultExplanation renders what the agent is told inside the parentheses: the
+// machine codes it can branch on, and — per field — what to do about each one.
 //
-// Escaped like every other echo on this surface, not because a field name is
-// caller text today — every agent-reachable FieldFault names a fixed argument —
-// but because nothing in the taxonomy PROMISES that. A field slot fed from a
-// caller-chosen key is one new fault type away, and a newline in it forges a
-// frame in the transcript exactly as one in Detail would. The bound belongs to
-// the position, not to the current occupants.
-func faultCodes(fault httperr.Fault) string {
+// A validation fault's outer code is the same word for every bad input
+// ("validation_error"); the per-field codes underneath are the ones that say
+// WHICH argument and why, so they are what the agent gets — the same breakdown
+// the REST body carries, rather than the flattened summary the outer code
+// alone would give. The per-field MESSAGE is the half that says what to change,
+// and it travels with them: a refusal naming an argument the agent cannot then
+// fix is a refusal it will re-issue.
+//
+// The summary detail is not rendered beside those entries, because where they
+// carry prose it is never a second fact. A Fields-bearing fault is built in
+// exactly two places, and Detail is the same message again in one
+// (httperr.Validation) and the flattened field:code list in the other (the
+// FieldFaults branch, whose implementers write Error() for a log line). It is
+// kept only when no entry carried prose, so the caller is never left holding
+// names alone.
+//
+// Everything echoed is escaped and bounded HERE, rather than on a reliance on
+// the classes that produce it being short and well-behaved: Classify bounds a
+// message only on the module-declared path, so one from a direct Validation
+// call reaches this point unbounded. The message needs both outright — it
+// quotes the caller's own token back, since a refused plan names the target it
+// could not resolve, into a transcript later prompts of this run read — and it
+// borrows httperr.MaxFaultText as its figure so the two bounds are one number
+// rather than two that agree by coincidence.
+//
+// The field and the code get the same treatment because nothing in the taxonomy
+// PROMISES they are ours either. A field slot fed from a caller-chosen key is
+// one new fault type away, and a newline in it forges a frame exactly as one in
+// a message would; the bound belongs to the position, not to the current
+// occupants.
+func faultExplanation(fault httperr.Fault) string {
 	if len(fault.Fields) == 0 {
-		return echoSafe(fault.Code, maxBadArgsDetail)
+		return echoSafe(fault.Code, maxBadArgsDetail) + ": " + echoSafe(fault.Detail, maxBadArgsDetail)
 	}
+
 	parts := make([]string, 0, len(fault.Fields))
+	spent, unexplained, remedied, exhausted := 0, 0, false, false
 	for _, f := range fault.Fields {
-		parts = append(parts, echoSafe(f.Field, maxBadArgsDetail)+"="+echoSafe(f.Code, maxBadArgsDetail))
+		part := echoSafe(f.Field, maxBadArgsDetail) + "=" + echoSafe(f.Code, maxBadArgsDetail)
+		switch {
+		case f.Message == "":
+		case exhausted:
+			unexplained++
+		default:
+			// Measured before it is admitted, so the budget is a ceiling and
+			// not an average: checking only what has been spent lets the last
+			// remedy through whole and overshoots by its whole length.
+			//
+			// And once one does not fit, none after it is tried. Taking a later
+			// SHORTER one instead would leave a gap the reader cannot account
+			// for — an unexplained field between two explained ones reads as a
+			// field with nothing to say, which is the one thing it does not
+			// mean.
+			remedy := echoSafe(f.Message, httperr.MaxFaultText)
+			if spent+len(remedy) > maxRemedyBudget {
+				exhausted = true
+				unexplained++
+				break
+			}
+			spent += len(remedy)
+			part += ": " + remedy
+			remedied = true
+		}
+		parts = append(parts, part)
 	}
-	return echoSafe(fault.Code, maxBadArgsDetail) + " " + strings.Join(parts, ", ")
+
+	named := echoSafe(fault.Code, maxBadArgsDetail) + " " + strings.Join(parts, "; ")
+	if unexplained > 0 {
+		named += " (" + strconv.Itoa(unexplained) + " further field(s) above are named without their guidance, " +
+			"because one answer may not fill the transcript: fix what is explained here, or re-read the tool's " +
+			"schema if this many inputs are wrong)"
+	}
+	if remedied {
+		return named
+	}
+	return named + ": " + echoSafe(fault.Detail, maxBadArgsDetail)
 }
+
+// maxRemedyBudget bounds the TOTAL guidance one refusal contributes, across
+// every field it names.
+//
+// A per-entry bound is not enough on its own. How many entries there are is the
+// CALLER's choice — a query plan may be refused once for every predicate its
+// grammar admits, which is dozens — so a refusal whose entries are each bounded
+// still writes tens of kilobytes into a transcript whose later prompts the same
+// model reads. The budget is what keeps the answer's size a property of the
+// answer rather than of how wrong the caller's document was; it is the same
+// reason maxBadArgsDetail exists, applied to the axis that scales.
+//
+// Sized so the first few faults arrive with their guidance whole — fixing three
+// or four inputs in one edit is the round trip this breakdown exists to save —
+// while every field is still NAMED, however many there are. A caller with
+// dozens wrong has not made dozens of mistakes; they have the grammar wrong,
+// and the answer says so rather than proving it at length.
+const maxRemedyBudget = 4 * httperr.MaxFaultText
