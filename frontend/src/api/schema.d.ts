@@ -3211,7 +3211,9 @@ export interface paths {
         /**
          * Create a relationship edge (employment or deal stakeholder).
          * @description `employment` requires person_id + organization_id; `deal_stakeholder` requires
-         *     deal_id + person_id. At most one current-primary employer per person.
+         *     deal_id + person_id. At most one current-primary employer per person, and a
+         *     person's only current employment is that one. An employment they already
+         *     hold is refused 409: end the existing one before recording a new one.
          */
         post: operations["createRelationship"];
         delete?: never;

@@ -100,15 +100,22 @@ func (e *RelationshipDatesError) FieldFault() (field, code, message string) {
 // its transcript, which would put SQLSTATE text in a model prompt.
 type RelationshipConflictError struct{ Constraint string }
 
+// employmentUnique is the index that makes a second employment at the same
+// company detectable rather than duplicated (migration 1787111736). Named here
+// because the mapper below and its client-facing detail must not drift apart.
+const employmentUnique = "uq_rel_employment"
+
 // relationshipConflictDetails says what each rule actually refused, in the
-// caller's terms. One shared sentence cannot serve all three: the primary-
+// caller's terms. One shared sentence cannot serve all four: the primary-
 // employer index is keyed on the PERSON alone, so its conflict is with a
 // different company entirely — telling that caller "this already exists
 // between these records" would name the wrong pair and send them looking for
-// a row that is not there.
+// a row that is not there. Its neighbour employmentUnique, keyed on the PAIR,
+// is the one that sentence would have fitted.
 var relationshipConflictDetails = map[string]string{
 	"uq_rel_current_primary_employer": "this person already has a current primary employer — end that employment, or add this one without the primary flag",
 	"uq_rel_deal_person_role":         "this person already holds that role on the deal",
+	employmentUnique:                  "this person already works at that company — end the employment they have there before recording a new one",
 	projectStakeholderUnique:          "this person is already a stakeholder on the project",
 }
 
@@ -145,7 +152,7 @@ func mapRelationshipConstraint(err error, kind string) error {
 	}
 	if constraint, ok := storekit.UniqueViolation(err); ok {
 		switch constraint {
-		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", projectStakeholderUnique:
+		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", employmentUnique, projectStakeholderUnique:
 			return &RelationshipConflictError{Constraint: constraint}
 		}
 	}
