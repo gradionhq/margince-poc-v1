@@ -341,8 +341,19 @@ func TestTheSchemaIsReadOnEveryResolve(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if reader.reads != 3 {
-		t.Errorf("the schema was read %d times over 3 resolves; a cached schema keeps answering as it was", reader.reads)
+	// Counted per TABLE, not in total: one resolve consults the target's table
+	// and every join table besides, so a total would re-state how many join
+	// tables happen to be declared and would move whenever one was. What the
+	// memo promises is once per table per resolve, and that is what is asserted.
+	if reader.perTable["deal"] != 3 {
+		t.Errorf("the deal table was read %d times over 3 resolves; a cached schema keeps answering as it was",
+			reader.perTable["deal"])
+	}
+	for table, reads := range reader.perTable {
+		if reads != 3 {
+			t.Errorf("%s was read %d times over 3 resolves, not once each; the per-resolve memo is not holding",
+				table, reads)
+		}
 	}
 }
 

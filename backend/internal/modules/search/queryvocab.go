@@ -109,10 +109,19 @@ type Relation struct {
 	// whose vocabulary the hop's predicates are checked against.
 	Name   string
 	Target string
-	// Via names the contract reference the edge is derived from. It is
-	// published so a caller can see WHY a hop exists, and it is what E2
-	// executes the join on.
+	// Via names the reference the edge is derived from. It is published so a
+	// caller can see WHY a hop exists.
+	//
+	// For a SCALAR edge it is also what E2 executes the join on, in two
+	// spellings newHopBinding reads apart: bare (`organization_id`, the
+	// target's own column) or qualified (`deal.organization_id`, the referring
+	// record's). For a join edge it is prose only — Join below carries what
+	// executes.
 	Via string
+	// Join is set when the edge lives in a table between the two records
+	// rather than on either of them, which no member of either contract type
+	// can spell. Nil is the ordinary scalar edge.
+	Join *JoinEdge
 }
 
 // TargetVocabulary is everything askable about one record type.
@@ -255,7 +264,12 @@ func (r *VocabularyResolver) resolveTarget(ctx context.Context, schema *schemaRe
 	if err != nil {
 		return TargetVocabulary{}, err
 	}
-	relations := append(contractRelations(entity, fields), inverse...)
+	joined, err := joinRelations(ctx, schema, entity)
+	if err != nil {
+		return TargetVocabulary{}, err
+	}
+	direct := append(contractRelations(entity, fields), inverse...)
+	relations := mergeRelations(direct, joined)
 	relations = r.admittedRelations(ctx, relations)
 	slices.SortFunc(relations, func(a, b Relation) int { return strings.Compare(a.Name, b.Name) })
 

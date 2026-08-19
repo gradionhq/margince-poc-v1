@@ -125,17 +125,32 @@ func TestEveryDerivedRelationNameIsResolvableByTheValidatorsNarrowing(t *testing
 	for entity := range contractRecords {
 		everything = append(everything, entity)
 	}
-	vocab, err := NewVocabularyResolver().Resolve(readerFor(everything...))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, target := range vocab.Targets {
-		for _, relation := range target.Relations {
-			narrowed := hopTargets(Plan{Traverse: &Traversal{Relation: relation.Name}})
-			if !slices.Contains(narrowed, relation.Target) {
-				t.Errorf("%s declares hop %q onto %q, but the validator's narrowing resolves it to %v",
-					target.Target, relation.Name, relation.Target, narrowed)
+	// Both postures, because they publish different relation sets and only one
+	// of them publishes a join edge. Unwired, the vocabulary is the contract's
+	// and carries scalar edges alone — so a resolver with no column reader
+	// cannot exercise the plural rule on a record type no contract member
+	// references, which is every join hop.
+	for _, resolver := range map[string]*VocabularyResolver{
+		"contract only": NewVocabularyResolver(),
+		"with a schema": NewVocabularyResolver().WithColumnReader(stubColumns{tables: joinSchema}),
+	} {
+		vocab, err := resolver.Resolve(readerFor(everything...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		hops := 0
+		for _, target := range vocab.Targets {
+			for _, relation := range target.Relations {
+				hops++
+				narrowed := hopTargets(Plan{Traverse: &Traversal{Relation: relation.Name}})
+				if !slices.Contains(narrowed, relation.Target) {
+					t.Errorf("%s declares hop %q onto %q, but the validator's narrowing resolves it to %v",
+						target.Target, relation.Name, relation.Target, narrowed)
+				}
 			}
+		}
+		if hops == 0 {
+			t.Error("no hops were checked, so the two rules were never compared")
 		}
 	}
 }

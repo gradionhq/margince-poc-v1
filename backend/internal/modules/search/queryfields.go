@@ -232,7 +232,7 @@ func inverseRelations(entity string) []Relation {
 		}
 		for _, r := range contractRelations(other, contractFields(t)) {
 			if r.Target == entity {
-				relations = append(relations, Relation{Name: other + "s", Target: other, Via: other + "." + r.Via})
+				relations = append(relations, Relation{Name: pluralRelationName(other), Target: other, Via: other + "." + r.Via})
 			}
 		}
 	}
