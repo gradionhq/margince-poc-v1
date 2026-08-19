@@ -277,18 +277,30 @@ func TestAReferenceNamedForItsRoleYieldsNoHop(t *testing.T) {
 	roleNamed := map[string][]StoredColumn{
 		"person":       joinSchema["person"],
 		"organization": joinSchema["organization"],
+		"activity":     joinSchema["activity"],
 		"relationship": columnsOf("id:uuid", "kind", "person_id:uuid", "counterparty_org_id:uuid",
 			"archived_at:timestamp with time zone", "ended_at:date"),
-		"activity_link": columnsOf("id:uuid", "activity_id:uuid"),
+		// The positive control, on the OTHER table: a properly named arm that
+		// MUST yield a hop. Without it this test passes when the derivation
+		// stops working for any reason at all — a renamed hub, a broken
+		// fixture — and an absence proves nothing about the role-named column
+		// it is supposed to be about.
+		"activity_link": columnsOf("id:uuid", "activity_id:uuid", "person_id:uuid"),
 	}
 	schema := newSchemaReads(stubColumns{tables: roleNamed})
 	relations, err := joinRelations(context.Background(), schema, entityPerson)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(relations) != 1 || relations[0].Join.Table != "activity_link" {
+		t.Fatalf("the control hop was not derived, so an absent relationship hop proves nothing: %+v",
+			relations)
+	}
 	for _, relation := range relations {
-		t.Errorf("person → %s was derived from %q, whose stripped name is not a record type",
-			relation.Name, relation.Join.To)
+		if relation.Join.Table == objectRelationship {
+			t.Errorf("person → %s was derived from %q, whose stripped name is not a record type",
+				relation.Name, relation.Join.To)
+		}
 	}
 }
 
@@ -473,9 +485,12 @@ func TestAPlanTraversesAJoinEdgeAndTheHopKeepsItsOwnGuards(t *testing.T) {
 		             "where": [{"field": "address.city", "op": "eq", "value": "Stuttgart"}]}}`)
 	for _, want := range []string{
 		`h.id IN (SELECT j."organization_id" FROM "relationship" j WHERE j."person_id" = t.id`,
-		// The employment itself must be live: an archived one is a job the
-		// person no longer holds, and it must not carry the hop.
+		// The employment itself must be live. Both guards, because the fixture
+		// this compiles against now carries both columns — an archived edge was
+		// recorded in error, an ended one is a job the person left, and the SQL
+		// that filtered only the first read a former employer as current.
 		`j.archived_at IS NULL`,
+		`j.ended_at IS NULL OR j.ended_at > current_date`,
 		// Everything a hop already carried, unchanged by the new edge form.
 		"JOIN LATERAL", "hop_id", "hop_title", "h.archived_at IS NULL",
 		"NOT h.is_anchor", `h."address_city" =`, "ORDER BY h.id LIMIT 1",

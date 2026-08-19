@@ -32,7 +32,7 @@ var planTables = map[string][]StoredColumn{
 	// 0008/0038), including the archived_at only one of them has.
 	"relationship": columnsOf("id:uuid", "kind", "person_id:uuid", "organization_id:uuid",
 		"counterparty_org_id:uuid", "deal_id:uuid", "project_id:uuid",
-		"archived_at:timestamp with time zone"),
+		"archived_at:timestamp with time zone", "started_at:date", "ended_at:date"),
 	"activity_link": columnsOf("id:uuid", "activity_id:uuid", "entity_type",
 		"person_id:uuid", "organization_id:uuid", "deal_id:uuid", "lead_id:uuid"),
 }
