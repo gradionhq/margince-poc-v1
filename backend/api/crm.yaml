@@ -18430,6 +18430,15 @@ components:
         name: { type: string }
         amount_minor: { type: [integer, 'null'], format: int64 }
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
+        masked_fields:
+          type: array
+          readOnly: true
+          items: { type: string }
+          description: >-
+            The fields of THIS row the caller's role withholds (a field mask — e.g. `amount_minor`
+            for a rep on a deal they may read but not change). A named field is null because it is
+            withheld, not because it is empty; absent or empty means nothing is withheld. Sorting or
+            filtering the list by a masked field is refused (422).
         fx_rate_to_base: { type: [string, 'null'], description: 'Native→base, frozen at close (null while open). Decimal-as-string to avoid float rounding of the 10-dp rate.' }
         fx_rate_date: { type: [string, 'null'], format: date }
         pipeline_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent''s own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).' }

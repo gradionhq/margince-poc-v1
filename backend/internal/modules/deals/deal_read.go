@@ -37,7 +37,15 @@ func (s *Store) GetDeal(ctx context.Context, id ids.DealID, archived storekit.Ar
 			return err
 		}
 		out, err = readDeal(ctx, tx, id, archived, active)
-		return err
+		if err != nil {
+			return err
+		}
+		one := []crmcontracts.Deal{out}
+		if err := maskDeals(ctx, tx, one); err != nil {
+			return err
+		}
+		out = one[0]
+		return nil
 	})
 	return out, err
 }
@@ -88,6 +96,9 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
+	if err := refuseMaskedSort(ctx, in.Sort); err != nil {
+		return nil, storekit.Page{}, err
+	}
 	pre, err := buildListPrelude(ctx, "deal", dealListFields, active,
 		in.Sort, in.Limit, in.Cursor, in.CustomFilters)
 	if err != nil {
@@ -96,7 +107,8 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	where := appendDealFilters(pre.where, in, pre.arg)
 
 	return runListPage(ctx, s, pre, "deal", dealColumns, active, where, scanDealPage,
-		func(d crmcontracts.Deal) (time.Time, ids.UUID) { return d.CreatedAt, ids.UUID(d.Id) })
+		func(d crmcontracts.Deal) (time.Time, ids.UUID) { return d.CreatedAt, ids.UUID(d.Id) },
+		func(tx pgx.Tx, page []crmcontracts.Deal) error { return maskDeals(ctx, tx, page) })
 }
 
 // scanDealPage drains one list query's rows: each deal plus, under a

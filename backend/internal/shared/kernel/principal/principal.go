@@ -168,7 +168,28 @@ type Permissions struct {
 	RoleKeys []string
 	Objects  map[string]ObjectGrant
 	RowScope RowScope
+	// FieldMasks are the columns this principal reads as withheld, the union
+	// over its roles (a mask any role carries, the principal carries).
+	FieldMasks []FieldMask
 }
+
+// FieldMask names one column a role reads as withheld, and when.
+type FieldMask struct {
+	Object    string
+	Field     string
+	Condition MaskCondition
+}
+
+// MaskCondition says when a field mask holds.
+type MaskCondition string
+
+const (
+	// MaskAlways withholds the field on every row.
+	MaskAlways MaskCondition = "always"
+	// MaskOutsideWriteAuthority withholds the field on a row the caller may
+	// read but not change — the amount of another team's deal.
+	MaskOutsideWriteAuthority MaskCondition = "outside_write_authority"
+)
 
 // Allows answers the object-level RBAC question (B-EP03.2). Unknown
 // objects and the zero value deny.

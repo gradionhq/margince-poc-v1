@@ -66,7 +66,8 @@ var (
 // once stated as an invariant — "no migration seeds reference data a test
 // depends on" — and migration 0240 was the first to break that assumption
 // (activity_kind, channel_provider: DESIGN-SP4 §4; the lead_source and
-// lead_disqualify_reason vocabularies since). A reset that DELETEd them
+// lead_disqualify_reason vocabularies and the field_mask seed since). A reset
+// that DELETEd them
 // would silently un-seed every test's fixed activity kinds and telegram's
 // channel-provider row, and the failure would surface somewhere else entirely
 // — a foreign-key violation on an activity insert with no visible connection
@@ -89,7 +90,7 @@ const resetTables = `
 	WHERE n.nspname IN ('public', 'ext')
 	  AND c.relkind = 'r'
 	  AND c.relname NOT LIKE 'schema_migrations_%'
-	  AND c.relname NOT IN ('activity_kind', 'channel_provider', 'lead_source', 'lead_disqualify_reason')`
+	  AND c.relname NOT IN ('activity_kind', 'channel_provider', 'lead_source', 'lead_disqualify_reason', 'field_mask')`
 
 // reclaimSlack is how much a table may grow past its empty size before a reset
 // TRUNCATEs it instead of DELETEing it. Growth, not absolute size, is the

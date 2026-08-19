@@ -54,16 +54,19 @@ const extSecretsStoreDir = "internal/platform/extsecrets"
 // against — expected data, not a cost anyone is paying.
 var tableOwners = map[string]string{
 	// identity
-	"workspace":                "internal/modules/identity",
-	"app_user":                 "internal/modules/identity",
-	"team":                     "internal/modules/identity",
-	"team_membership":          "internal/modules/identity",
-	"session":                  "internal/modules/identity",
-	"passport":                 "internal/modules/identity",
-	"setup_token":              "internal/modules/identity",
-	"auth_token":               "internal/modules/identity",
-	"role":                     "internal/modules/identity",
-	"role_assignment":          "internal/modules/identity",
+	"workspace":       "internal/modules/identity",
+	"app_user":        "internal/modules/identity",
+	"team":            "internal/modules/identity",
+	"team_membership": "internal/modules/identity",
+	"session":         "internal/modules/identity",
+	"passport":        "internal/modules/identity",
+	"setup_token":     "internal/modules/identity",
+	"auth_token":      "internal/modules/identity",
+	"role":            "internal/modules/identity",
+	"role_assignment": "internal/modules/identity",
+	// The columns a role reads as withheld; written by administration, read
+	// by the grant loader into the principal.
+	"field_mask":               "internal/modules/identity",
 	"record_grant":             "internal/modules/identity",
 	"oauth_client":             "internal/modules/identity",
 	"oauth_authorization_code": "internal/modules/identity",

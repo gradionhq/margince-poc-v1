@@ -14176,7 +14176,10 @@ type Deal struct {
 
 	// LostReason Required when status=lost.
 	LostReason *string `json:"lost_reason,omitempty"`
-	Name       string  `json:"name"`
+
+	// MaskedFields The fields of THIS row the caller's role withholds (a field mask — e.g. `amount_minor` for a rep on a deal they may read but not change). A named field is null because it is withheld, not because it is empty; absent or empty means nothing is withheld. Sorting or filtering the list by a masked field is refused (422).
+	MaskedFields *[]string `json:"masked_fields,omitempty"`
+	Name         string    `json:"name"`
 
 	// OrganizationId Primary org; never a raw lead.
 	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
@@ -27258,6 +27261,14 @@ func (a *Deal) UnmarshalJSON(b []byte) error {
 		delete(object, "lost_reason")
 	}
 
+	if raw, found := object["masked_fields"]; found {
+		err = json.Unmarshal(raw, &a.MaskedFields)
+		if err != nil {
+			return fmt.Errorf("error reading 'masked_fields': %w", err)
+		}
+		delete(object, "masked_fields")
+	}
+
 	if raw, found := object["name"]; found {
 		err = json.Unmarshal(raw, &a.Name)
 		if err != nil {
@@ -27494,6 +27505,13 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 		object["lost_reason"], err = json.Marshal(a.LostReason)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'lost_reason': %w", err)
+		}
+	}
+
+	if a.MaskedFields != nil {
+		object["masked_fields"], err = json.Marshal(a.MaskedFields)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'masked_fields': %w", err)
 		}
 	}
 
