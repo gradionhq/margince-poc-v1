@@ -105,7 +105,7 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 		fields = append(fields, VocabularyField{
 			Name:      name,
 			Type:      string(field.Type),
-			Operators: storekit.OperatorsFor(field.Type),
+			Operators: storekit.OperatorsFor(field),
 			Custom:    !isCore,
 		})
 	}

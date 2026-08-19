@@ -18,21 +18,17 @@ package storekit
 // It lives in storekit because modules (people, deals, …) and compose
 // both consume it, and the DAG only lets platform sit under both.
 //
-// Compile is scope-neutral by design: it renders the caller's filter
-// and NOTHING else. Callers MUST AND the result with their row-scope
-// clause (auth.ScopeClauseFor) — the bundled Query executor does that
-// composition itself, so surface code cannot forget it.
+// This file COMPILES a filter and nothing else, which is why it reaches
+// for neither the database nor auth. Compilation is scope-neutral by
+// design: it renders the caller's filter and NOTHING more, so a caller
+// MUST AND the result with their row-scope clause
+// (auth.ScopeClauseFor). Nobody does that by hand — the Query executor
+// in query.go composes it, along with the object-RBAC admission and the
+// row bound, so surface code cannot forget any of the three.
 
 import (
-	"context"
 	"fmt"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
-
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // Grammar bounds (B-E15.10 "bounded" acceptance): a filter is a UI
@@ -137,7 +133,22 @@ var operatorOrder = []string{
 	OpEq, OpNeq, OpGt, OpGte, OpLt, OpLte, OpIn, OpContains, OpExists,
 }
 
-// OperatorsFor answers the operators this field type admits, in operatorOrder.
+// linkOperators are the operators a correlated-link leaf can express, and the
+// authority compileLinkLeaf's own switch is held to.
+//
+// The comparison for a linked field builds INSIDE an EXISTS subquery, where the
+// question is whether a matching row is there. Equality, membership and presence
+// all say something about that; substring match and ordering do not have a
+// spelling the wrapper can carry, so they are not offered rather than offered
+// and refused.
+//
+// TestALinkedFieldAdvertisesExactlyWhatItCanCompile holds this set and that
+// switch together, so neither can gain an operator the other lacks.
+var linkOperators = map[string]bool{
+	OpEq: true, OpNeq: true, OpIn: true, OpExists: true,
+}
+
+// OperatorsFor answers the operators this field admits, in operatorOrder.
 //
 // It exists so a surface that has to TELL a caller what a field accepts —
 // the filter-vocabulary read — derives the answer from the same matrix
@@ -146,16 +157,26 @@ var operatorOrder = []string{
 // once: a vocabulary restated beside the engine offers a field the engine
 // rejects, and the caller learns the difference as a 422 it could not predict.
 //
+// It takes the FIELD and not merely its type, because the type is not the whole
+// answer: a correlated-link leaf compiles through a narrower set than its type
+// admits, so a text field reached through a link accepts everything text does
+// EXCEPT `contains`. Typing alone would advertise that operator and the engine
+// would then refuse it — the same drift, one layer down.
+//
 // An unknown type answers an empty slice, not every operator: a field the
 // matrix does not describe is one compileLeaf refuses outright, so promising
 // operators for it would be the exact drift this function prevents.
-func OperatorsFor(t FieldType) []string {
-	admitted := operatorsByType[t]
+func OperatorsFor(f Field) []string {
+	admitted := operatorsByType[f.Type]
 	ops := make([]string, 0, len(admitted))
 	for _, op := range operatorOrder {
-		if admitted[op] {
-			ops = append(ops, op)
+		if !admitted[op] {
+			continue
 		}
+		if f.Link != "" && !linkOperators[op] {
+			continue
+		}
+		ops = append(ops, op)
 	}
 	return ops
 }
@@ -326,13 +347,23 @@ func compileLeaf(p Predicate, fields map[string]Field, arg func(any) int, leaves
 	}
 }
 
-// compileLinkLeaf compiles a leaf whose fact is a link row. The comparison is
-// built against the column inside the subquery and then wrapped, and a negation
-// applies to the WRAPPER: "does not carry this tag" is NOT EXISTS(… = …), where
-// EXISTS(… <> …) would answer "carries some other tag" — a different question,
-// and true for almost every record. `exists` needs no operand at all: presence
-// of any link row is the whole question, so it binds nothing and the wrapper's
-// own correlation carries it.
+// compileLinkLeaf compiles a leaf whose fact lives on a linked row. The
+// comparison is built against the column inside the subquery and then wrapped,
+// and a negation applies to the WRAPPER: "does not carry this tag" is
+// NOT EXISTS(… = …), where EXISTS(… <> …) would answer "carries some other tag"
+// — a different question, and true for almost every record. The same reading
+// governs a column reached through a join: `neq` answers "has no linked row
+// matching this", which for a deal with no organization at all is true.
+//
+// `exists` binds nothing and asks about the COLUMN, not the row:
+// EXISTS(… AND <expr> IS NOT NULL). The distinction only shows up once a link
+// carries a nullable column. For a tag it makes no difference — taggable.tag_id
+// is NOT NULL, so the added test cannot change which rows the wrapper finds —
+// but for organization.industry the two readings differ, and the row reading is
+// the wrong one: "which deals is the customer's industry unknown for" would
+// answer "the ones with no customer", silently excluding every deal whose
+// company simply has no industry recorded. Asking about the column gives one
+// meaning to `exists` on every linked field.
 func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error) {
 	var inner string
 	negate := false
@@ -342,7 +373,7 @@ func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error
 		if err != nil {
 			return "", err
 		}
-		inner, negate = "TRUE", !present
+		inner, negate = field.Expr+" IS NOT NULL", !present
 	case OpIn:
 		values, err := inOperand(p, field)
 		if err != nil {
@@ -356,10 +387,13 @@ func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error
 		}
 		inner, negate = fmt.Sprintf("%s = $%d", field.Expr, arg(value)), p.Op == OpNeq
 	default:
-		// An operator that the link shape cannot express: the comparison
-		// builds inside an EXISTS subquery where only certain operators make
-		// sense. Reachable only if the field's operator set includes operators
-		// beyond {eq,neq,in,exists}, which the link template cannot support.
+		// An operator that the link shape cannot express: the comparison builds
+		// inside an EXISTS subquery where only certain operators make sense.
+		// linkOperators names exactly the cases above, and no surface OFFERS an
+		// operator this branch would refuse — OperatorsFor narrows a linked
+		// field's advertised set to that same map. So this is the guard for a
+		// filter that NAMES one anyway (a saved segment, a hand-written body),
+		// not a state a picker can put a reader in.
 		return "", &PredicateError{
 			Field: p.Field, Code: CodeFilterOpNotAllowed,
 			Message: fmt.Sprintf("operator %q does not apply to the linked field %q", p.Op, p.Field),
@@ -370,129 +404,4 @@ func compileLinkLeaf(p Predicate, field Field, arg func(any) int) (string, error
 		return "NOT " + sql, nil
 	}
 	return sql, nil
-}
-
-// Query is the one-engine executor (B-E15.10b): one resource's closed
-// vocabulary plus its fixed base clause, executing any Predicate as
-// bounded, indexable SQL over the real columns. Lists, saved views, and
-// filtered export all run their filters through here — never through a
-// per-surface variant.
-type Query struct {
-	// Table is the base table, aliased t in every Fields expression.
-	Table string
-	// Fields is the resource's §13.5 filter allow-list.
-	Fields map[string]Field
-	// BaseWhere is the resource's fixed visibility clause (e.g.
-	// "t.archived_at IS NULL"); empty means none.
-	BaseWhere string
-	// ActivityWalk selects the activity link-walk scope clause instead
-	// of the direct ownership clause (the timeline's visibility rule).
-	ActivityWalk bool
-}
-
-// predicateWhere is the admission point AND the clause composer for every
-// execution of a predicate: it takes the object read gate, then joins the
-// resource's base clause, the compiled predicate, and the caller's row scope.
-//
-// Both live here so a second executor cannot take two of the three, or the
-// clauses without the gate. The row scope is the one that matters most: it is
-// what makes a predicate able only to NARROW what the caller may already see,
-// and an executor that forgot it would still return plausible rows, just other
-// people's. One point of composition means "is this scoped?" has one answer for
-// every caller.
-func (q Query) predicateWhere(ctx context.Context, p Predicate) (string, []any, error) {
-	if err := auth.Require(ctx, q.Table, principal.ActionRead); err != nil {
-		return "", nil, err
-	}
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	where := make([]string, 0, 3)
-	if q.BaseWhere != "" {
-		where = append(where, q.BaseWhere)
-	}
-	compiled, err := CompilePredicate(p, q.Fields, arg)
-	if err != nil {
-		return "", nil, err
-	}
-	where = append(where, compiled)
-
-	var scope string
-	if q.ActivityWalk {
-		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
-	} else {
-		scope, err = auth.ScopeClauseFor(ctx, q.Table, "t", arg)
-	}
-	if err != nil {
-		return "", nil, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-	return strings.Join(where, " AND "), args, nil
-}
-
-// CountMatching answers how many rows the predicate selects for this caller.
-//
-// It is a COUNT rather than len(SelectIDs): SelectIDs is capped at
-// PredicateRowLimit, so counting its result would silently report 1000 for every
-// larger set — a number that looks exact and is not. The filter builder shows
-// this figure to a human deciding whether their filter is right, which is
-// precisely the situation where a plausible wrong number is worse than a slow
-// one.
-//
-// Unbounded on purpose, and it is the same WHERE SelectIDs runs: same base
-// clause, same predicate, same row scope, so the count and the page it labels
-// cannot disagree about what MATCHING MEANS. Whether they saw the same rows is a
-// question about the snapshot, not the clause, and the caller decides that by
-// choosing which transaction to run both in.
-func (q Query) CountMatching(ctx context.Context, tx pgx.Tx, p Predicate) (int, error) {
-	where, args, err := q.predicateWhere(ctx, p)
-	if err != nil {
-		return 0, err
-	}
-	var n int
-	sql := fmt.Sprintf("SELECT count(*) FROM %s t WHERE %s", q.Table, where)
-	if err := tx.QueryRow(ctx, sql, args...).Scan(&n); err != nil {
-		return 0, fmt.Errorf("predicate count on %s: %w", q.Table, err)
-	}
-	return n, nil
-}
-
-// SelectIDs runs the predicate inside the caller's workspace-bound
-// transaction and returns matching row ids, deterministically ordered
-// by id (the keyset tie-breaker) and hard-capped at PredicateRowLimit.
-//
-// The read gate and the row-scope clause both come from predicateWhere — see
-// there for why they live together — so a predicate can only ever narrow what
-// the caller is already allowed to see. The cap stays here rather than in the
-// helper: it bounds a PAGE, and a count must not inherit it.
-func (q Query) SelectIDs(ctx context.Context, tx pgx.Tx, p Predicate, limit int) ([]ids.UUID, error) {
-	if limit <= 0 || limit > PredicateRowLimit {
-		limit = PredicateRowLimit
-	}
-	where, args, err := q.predicateWhere(ctx, p)
-	if err != nil {
-		return nil, err
-	}
-	sql := fmt.Sprintf("SELECT t.id FROM %s t WHERE %s ORDER BY t.id LIMIT %d",
-		q.Table, where, limit)
-	rows, err := tx.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, fmt.Errorf("predicate query on %s: %w", q.Table, err)
-	}
-	defer rows.Close()
-
-	var matched []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
-			return nil, fmt.Errorf("predicate query on %s: %w", q.Table, err)
-		}
-		matched = append(matched, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("predicate query on %s: %w", q.Table, err)
-	}
-	return matched, nil
 }
