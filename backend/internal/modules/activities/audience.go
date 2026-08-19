@@ -41,8 +41,6 @@ type SetAudienceInput struct {
 // maxAudienceMembers bounds one `selected` audience — the contract's maxItems.
 const maxAudienceMembers = 200
 
-const audienceParticipants = "participants"
-
 // SetAudience limits (or re-opens) who may read the activity's content.
 // Human-only: an agent acting for a human never narrows or widens what the
 // human's colleagues read. The caller needs write authority over the row,

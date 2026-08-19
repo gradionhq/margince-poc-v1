@@ -54,11 +54,14 @@ var singlePurposeTools = []string{
 //
 // gatekit:fixture the request body crm.yaml declares for each route — expected input the walk decodes, not a waived cost
 var contractBodies = map[string]string{
-	"sendEmail":           `{"to":["buyer@example.test"],"subject":"Q3","body":"hi","consent_purpose":"sales"}`,
-	"sendMessage":         `{"body":"hi","consent_purpose":"support"}`,
-	"sendAccountEmail":    `{"to":["buyer@example.test"],"subject":"Q3","body":"hi","consent_purpose":"sales","links":[{"entity_type":"organization","entity_id":"019ff000-0000-7000-8000-000000000001"}]}`,
-	"bookMeeting":         `{"start":"2026-08-10T09:00:00Z","end":"2026-08-10T09:30:00Z","links":[{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000002"}]}`,
-	"promoteLead":         `{"trigger":"inbound_reply"}`,
+	"sendEmail":        `{"to":["buyer@example.test"],"subject":"Q3","body":"hi","consent_purpose":"sales"}`,
+	"sendMessage":      `{"body":"hi","consent_purpose":"support"}`,
+	"sendAccountEmail": `{"to":["buyer@example.test"],"subject":"Q3","body":"hi","consent_purpose":"sales","links":[{"entity_type":"organization","entity_id":"019ff000-0000-7000-8000-000000000001"}]}`,
+	"bookMeeting":      `{"start":"2026-08-10T09:00:00Z","end":"2026-08-10T09:30:00Z","links":[{"entity_type":"deal","entity_id":"019ff000-0000-7000-8000-000000000002"}]}`,
+	"promoteLead":      `{"trigger":"inbound_reply"}`,
+	// Optional on the wire so a governed agent disqualify works bare; the
+	// decode is proven against the body the UI really sends.
+	"disqualifyLead":      `{"reason_id":"019ff000-0000-7000-8000-000000000007","note":"went with a competitor"}`,
 	"advanceProjectPhase": `{"to_phase":"pursuing"}`,
 	"advanceDeal":         `{"to_stage_id":"019ff000-0000-7000-8000-000000000003"}`,
 	"mergePerson":         `{"target_id":"019ff000-0000-7000-8000-000000000004"}`,

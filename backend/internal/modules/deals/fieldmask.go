@@ -52,7 +52,8 @@ func maskDeals(ctx context.Context, tx pgx.Tx, deals []crmcontracts.Deal) error 
 		return err
 	}
 	for i := range deals {
-		masked := auth.MaskedFields(p, "deal", writable[ids.UUID(deals[i].Id)])
+		deal := &deals[i]
+		masked := auth.MaskedFields(p, "deal", writable[ids.UUID(deal.Id)])
 		if len(masked) == 0 {
 			continue
 		}
@@ -62,11 +63,11 @@ func maskDeals(ctx context.Context, tx pgx.Tx, deals []crmcontracts.Deal) error 
 			if !known {
 				continue
 			}
-			withhold(&deals[i])
+			withhold(deal)
 			named = append(named, field)
 		}
 		if len(named) > 0 {
-			deals[i].MaskedFields = &named
+			deal.MaskedFields = &named
 		}
 	}
 	return nil
