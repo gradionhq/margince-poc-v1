@@ -38,7 +38,11 @@ state is in Postgres, Redis and the object store.
 Pick the tier by contact count. The second question is whether AI-powered
 search and retrieval is enabled: the embedding store is roughly twenty times
 the size of the CRM data itself, so it moves the numbers more than the tier
-does.
+does. That ratio assumes the default 1536-dimension embedding width; the store
+scales linearly with the configured `dimensions`. Switching the embedding
+model or width rewrites the store in place through a fleet-wide re-embed
+([configuration.md](configuration.md#embedding-binding-changes--reindex)) —
+it costs provider calls, not extra disk.
 
 ## Single node
 
