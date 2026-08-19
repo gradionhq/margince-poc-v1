@@ -129,6 +129,10 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	// produced no rows, and returning ErrSkip from inside the callback would
 	// roll that proof back along with everything else (ADR-0082 §1).
 	var internalOnly bool
+	// dropped says why, when a gate above the raw store kept the message out;
+	// it is the skip's sentence to the connector, so it names the rule, never
+	// an address.
+	dropped := "all participants are on the workspace's own domains"
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
@@ -158,6 +162,22 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 			// deliberate.
 			return s.traceTx(ctx, tx, rec, pipelinetrace.StageInternalDrop, TraceInternal, reasonInternalOnly)
 		}
+		// The exclusion lists, on the same footing and for the same reason: a
+		// message the workspace or this mailbox's owner ruled out is not the
+		// CRM's to hold, and the breadcrumb and trace name the kind of rule,
+		// never the address it matched.
+		excluded, err := excludedTx(ctx, tx, rec)
+		if err != nil {
+			return err
+		}
+		if excluded != "" {
+			internalOnly = true
+			dropped = "a capture exclusion rule keeps this message out (" + excluded + ")"
+			if err := s.logBreadcrumbTx(ctx, tx, actionCaptureExcluded, rec, excluded); err != nil {
+				return err
+			}
+			return s.traceTx(ctx, tx, rec, pipelinetrace.StageInternalDrop, TraceSuppressed, excluded)
+		}
 
 		if err := storeRawCapture(ctx, tx, rec); err != nil {
 			return err
@@ -186,7 +206,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// none of them, so the watermark advances past the message exactly as it
 		// does for any other skip — which is what makes the classification
 		// irreversible, and why the own-domain set is admin-visible (ADR-0082 §4).
-		return datasource.EntityRef{}, fmt.Errorf("%w: all participants are on the workspace's own domains", connector.ErrSkip)
+		return datasource.EntityRef{}, fmt.Errorf("%w: %s", connector.ErrSkip, dropped)
 	}
 	if activityCreated {
 		// The tier ladder already decided, and recorded its decision, inside

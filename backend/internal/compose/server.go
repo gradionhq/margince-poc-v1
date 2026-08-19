@@ -86,6 +86,7 @@ type Server struct {
 	licenseHandlers
 	consumerMailDomainHandlers
 	blockedDomainHandlers
+	captureExclusionHandlers
 	claimHandlers
 	importHandlers
 	channelHandlers

@@ -4701,6 +4701,23 @@ export const vi = {
     "Chỉ quản trị viên hoặc vận hành mới đổi được mục này.",
 
   "ownDomains.companyTitle": "Tên miền từ hồ sơ công ty",
+  "captureExclusions.title": "Không thu thập",
+  "captureExclusions.sub":
+    "Địa chỉ và tên miền có tin nhắn không bao giờ vào CRM. Quy tắc của riêng bạn chỉ áp dụng cho hộp thư bạn đã kết nối; quy tắc của tổ chức áp dụng cho mọi người.",
+  "captureExclusions.notRetroactive":
+    "Có hiệu lực từ tin nhắn tiếp theo. Tin nhắn đã thu thập vẫn giữ nguyên.",
+  "captureExclusions.empty": "Không có loại trừ.",
+  "captureExclusions.scope.user": "Chỉ tôi",
+  "captureExclusions.scope.workspace": "Toàn tổ chức",
+  "captureExclusions.kind.address": "Địa chỉ",
+  "captureExclusions.kind.domain": "Tên miền",
+  "captureExclusions.scopeLabel": "Áp dụng cho",
+  "captureExclusions.kindLabel": "Loại",
+  "captureExclusions.addLabel": "Loại trừ một địa chỉ hoặc tên miền",
+  "captureExclusions.placeholder.address": "ten@vidu.com",
+  "captureExclusions.placeholder.domain": "vidu.com",
+  "captureExclusions.add": "Loại trừ",
+  "captureExclusions.remove": "Thu thập {value} trở lại",
   "ownDomains.title": "Tên miền email của công ty",
   "ownDomains.sub":
     "Những tên miền thuộc về công ty này. Khi đồng nghiệp viết thư cho nhau, thư đó không được lưu. Kể cả với bạn.",

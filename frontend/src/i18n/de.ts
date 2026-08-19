@@ -4736,6 +4736,23 @@ export const de = {
     "Nur ein Administrator oder Ops kann dies ändern.",
 
   "ownDomains.companyTitle": "Unternehmens-Domains",
+  "captureExclusions.title": "Nicht erfassen",
+  "captureExclusions.sub":
+    "Adressen und Domains, deren Nachrichten gar nicht erst ins CRM gelangen. Eigene Regeln gelten nur für die Postfächer, die Sie selbst verbunden haben; Regeln der Organisation gelten für alle.",
+  "captureExclusions.notRetroactive":
+    "Wirkt ab der nächsten Nachricht. Bereits erfasste Nachrichten bleiben.",
+  "captureExclusions.empty": "Keine Ausschlüsse.",
+  "captureExclusions.scope.user": "Nur ich",
+  "captureExclusions.scope.workspace": "Ganze Organisation",
+  "captureExclusions.kind.address": "Adresse",
+  "captureExclusions.kind.domain": "Domain",
+  "captureExclusions.scopeLabel": "Gilt für",
+  "captureExclusions.kindLabel": "Art",
+  "captureExclusions.addLabel": "Adresse oder Domain ausschließen",
+  "captureExclusions.placeholder.address": "name@beispiel.de",
+  "captureExclusions.placeholder.domain": "beispiel.de",
+  "captureExclusions.add": "Ausschließen",
+  "captureExclusions.remove": "{value} wieder erfassen",
   "ownDomains.title": "Eigene E-Mail-Domains",
   "ownDomains.sub":
     "Die Domains, die zu diesem Unternehmen gehören. Schreiben sich Kolleg:innen untereinander, wird diese Nachricht nicht gespeichert. Auch nicht für dich.",
