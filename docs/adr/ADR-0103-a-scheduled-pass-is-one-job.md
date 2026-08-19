@@ -25,12 +25,10 @@ A connector connection and a voice build are real plural work, their children
 keep their own retry and failure isolation, and one connector's failed sync
 must not stop the next connector's.
 
-The role vocabulary is `dispatcher` and `worker`. A worker is named by the
-subject in its arguments, not by a tenant.
-
-The tenant leaves every argument list. Where it was the only argument, the
-block goes empty; where it sat beside a subject, the subject becomes the whole
-identity of the job.
+The role vocabulary is `dispatcher` and `worker`, where a worker is named by
+the subject in its arguments rather than by a tenant. The tenant leaves every
+argument list: where it was the only argument the block goes empty, and where
+it sat beside a subject the subject becomes the job's whole identity.
 
 ## Why
 
@@ -61,9 +59,9 @@ declaration to express one pass.
   `EmbedReindexStatus` and `EmbedReindexPreview` lost their per-tenant
   breakdown arrays.
 - `utilization_impact` survives that removal, hoisted to the root of
-  `EmbedReindexPreview` where it names the installation's budget band. It is an
-  operator disclosure before a spend, and deleting the array around it would
-  have taken it silently.
+  `EmbedReindexPreview`, where it names the installation's budget band — an
+  operator disclosure before a spend that deleting the array around it would
+  have taken silently.
 - `backend/internal/compose/jobmetrics.go` renders a job's workspace as a
   metric label, admitted by ADR-0080. That label goes when the fan-out does.
 
@@ -83,11 +81,11 @@ So the vocabulary changed but the shape did not: the pairs that were called
 dispatcher that enumerates one row.
 
 What is owed is the collapse itself, and it has a visible cost. An operator
-loses roughly 23 job kinds. Anything bookmarked or alerted on by one of those
-names breaks at that release, and a release note has to say so. A failed pass
-will then report once rather than twice, losing the distinction between "the
-enumeration broke" and "the work broke" — a distinction that no longer has two
-sides once the enumeration reads a single row.
+loses roughly 23 job kinds, so anything bookmarked or alerted on by one of
+those names breaks at that release and a release note has to say so. A failed
+pass will then report once rather than twice, losing the distinction between
+"the enumeration broke" and "the work broke" — a distinction that no longer
+has two sides once the enumeration reads a single row.
 
 The integration suites in four modules — outbound webhooks, the agent
 scheduler, privacy retention, search re-embedding — still prove isolation
@@ -99,15 +97,13 @@ so the columns and the fan-out have to move together.
 Adopted from the retired specification, decided 2026-08-14. Rewritten in plain
 language 2026-08-19. The source is marked proposed and awaiting ratification.
 
-The source records that the build reached the two-schema shape first, before
-the specification did, and says so plainly rather than quietly. The
-specification adopting a shape whose merit is independent of who wrote it
-first is the direction of travel; ratifying whatever the build happens to do
-is not.
+The source records that the code reached the two-schema shape before the
+specification did, and adopts it on its merits rather than because the code
+got there first.
 
 The source rejects three alternatives. Keeping the dispatchers as no-op
 passthroughs leaves every pass costing two rows and a vocabulary naming a
 boundary that does not exist. Collapsing the connection fan-outs too would
-serialize every connector sync into one pass, so one hung mailbox delays every
-other. One role value for everything cannot express that one job enqueues the
-other, which is exactly what the census gate checks.
+serialize every connector sync, so one hung mailbox delays every other. One
+role value for everything cannot express that one job enqueues the other,
+which is what the census gate checks.

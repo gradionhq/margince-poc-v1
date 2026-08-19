@@ -16,11 +16,9 @@ consults.
 
 Both axes must permit an action. The seat is a hard ceiling below role-based
 access control, clamped on the HTTP method before any grant is read, and a
-client that collapses them into one predicate is wrong in both directions.
-
-An absent grant denies, and an absent `authorization` object denies
-everything: read seat, zero grants. A payload that lost the field must never
-become permissive.
+client that collapses them into one predicate is wrong in both directions. An
+absent grant denies, and an absent `authorization` object denies everything:
+read seat, zero grants.
 
 Authority some routes carry is answered by no object grant at all — it is
 gated on the admin role, on row scope, or on whether the caller is a human. For
@@ -84,9 +82,9 @@ starts optional so a client fails closed against an older server, then becomes
 required once every deployment sends it. That second step is owed.
 
 There is no `capabilities` map on the `Authorization` schema and no
-`may_read_full_audit` flag anywhere in the tree. The route it would describe
-has already been narrowed to admin-plus-human, so the server is correct; the
-client still reads a role string for it.
+`may_read_full_audit` flag in the tree. The route it would describe has already
+been narrowed to admin-plus-human, so the server is correct; the client still
+reads a role string for it.
 
 `frontend/src/app/capability.ts` keeps two role-string predicates as named
 interim exceptions. `useHoldsAdminRole` gates the member roster and the audit
