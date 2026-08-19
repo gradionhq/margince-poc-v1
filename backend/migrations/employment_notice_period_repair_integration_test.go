@@ -100,6 +100,12 @@ func TestTheNoticePeriodRepairGivesBackOnlyTheFlagsItShould(t *testing.T) {
 		// Already gone. 1787111736 was RIGHT about this one.
 		{label: "actually left", person: "alum", org: "employer", endsInDays: -30, endsPrimary: false},
 
+		// The boundary, both sides, which is where the wrong comparison passes
+		// every other case in this table. A last day that has ARRIVED is a
+		// departure; one still ahead is a notice period.
+		{label: "last day is today", person: "leaving today", org: "employer", endsInDays: 0, endsPrimary: false},
+		{label: "last day is tomorrow", person: "leaving tomorrow", org: "employer", endsInDays: 1, endsPrimary: true},
+
 		// Never touched by 1787111736 — no end date, so no flag was taken. The
 		// repair must not invent one where nothing was lost.
 		{label: "no end date", person: "staying", org: "employer", endsPrimary: false},

@@ -58,9 +58,25 @@ LOCK TABLE relationship IN SHARE ROW EXCLUSIVE MODE;
 -- Leaving these rows would therefore leave the person the report is about with
 -- an employer they left and no current one, which is the defect wearing a
 -- different face.
+--
+-- `ended_at <= current_date` AMENDED AFTER THIS MIGRATION SHIPPED. It read
+-- `ended_at IS NOT NULL`, which cleared the flag from people who had not left:
+-- a last day in the FUTURE is a notice period, not a departure. The amendment is
+-- authorized by the same rule that authorized the 2026-08 tenant sweep — it
+-- ships WITH the additive repair (core 1787121028) that reaches every database
+-- which already applied the old predicate, so the two land in the same state
+-- rather than diverging.
+--
+-- Amending rather than repairing alone, because the old predicate ALSO caused a
+-- second-order fault this file must not hand to a database that is more than one
+-- version behind: clearing a future-dated primary let the promotion at the
+-- bottom hand the flag to a DIFFERENT employer, and no later migration can tell
+-- an inherited flag from a chosen one. Fixing it here means that never happens;
+-- 1787121028 then has only the already-applied case to repair.
 UPDATE relationship SET is_current_primary = false
  WHERE kind = 'employment' AND is_current_primary
-   AND ended_at IS NOT NULL AND archived_at IS NULL;
+   AND ended_at IS NOT NULL AND ended_at <= current_date
+   AND archived_at IS NULL;
 
 -- The repair half. CREATE UNIQUE INDEX fails outright on a database that
 -- already holds duplicates, and at least one live installation does — so the

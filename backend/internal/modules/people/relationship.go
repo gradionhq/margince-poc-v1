@@ -100,22 +100,46 @@ type CreateRelationshipInput struct {
 	Source           string
 }
 
-// employmentIsOver is the ONE spelling of "this job is behind them", and the
-// only thing that may strip a person's current-primary flag. `date` is the
-// effective end date at the call site — the incoming one on a create, the
-// patched-or-existing one on an update.
+// EmploymentIsCurrentSQL is the ONE spelling of "this job is still theirs", and
+// the only definition of a current employment in this product. `date` is the
+// end-date expression at the call site: a column on a read, the incoming value
+// on a create, the patched-or-existing one on an update.
 //
-// It is a date COMPARISON, not a null check. An `ended_at` in the future is a
-// NOTICE PERIOD, and somebody serving one still works there: reading the
-// column's mere presence as "gone" took them off their employer's contact list
-// on the day their last day was recorded, months before it arrived, with no way
-// back — `ended_at` cannot be cleared through the API.
+// A DATE COMPARISON, not a null check: somebody serving three months' notice
+// still works there. Reading the column's mere presence as "gone" took a person
+// off their employer's contact list the day their notice was filed, with no way
+// back, because `ended_at` cannot be cleared through the API.
 //
-// current_date, evaluated by Postgres. A Go clock would answer a different
-// question on a server in a different timezone from the database, and every
-// reader of the flag this decides is SQL that knows only the database's own day.
-func employmentIsOver(date string) string {
-	return storekit.SQLf("(%s IS NOT NULL AND %s <= current_date)", date, date)
+// `> current_date`, so an employment dated TODAY is already over. That is what
+// `ended_at` means in this schema — 0007 documents NULL as "current/ongoing", so
+// a date that has arrived is a date that has happened — and it is what keeps the
+// rail's "End employment" button doing something the moment it is pressed. A
+// future date is the only case that is not yet a departure, which is exactly the
+// notice period this predicate exists for.
+//
+// current_date, evaluated by Postgres. A Go-side comparison would answer a
+// different question on a server in a different timezone from the database, and
+// every reader of this predicate is SQL that knows only the database's own day.
+//
+// EXPORTED because currency is not decided once and stored. The flag records
+// which employer represents the person; whether that employment is still current
+// is a function of today's date, so every READER derives it instead of trusting
+// a value written months ago. compose reaches this for the same reason the
+// readers in this package do — one definition, or the copies drift.
+func EmploymentIsCurrentSQL(date string) string {
+	return storekit.SQLf("(%s IS NULL OR %s > current_date)", date, date)
+}
+
+// CurrentPrimaryEmploymentSQL is what every reader of `is_current_primary`
+// actually means: the flag AND the employment still being theirs. Spelled once
+// so a new reader cannot trust the flag alone, which is what let somebody go on
+// counting at a company after their last day had passed.
+func CurrentPrimaryEmploymentSQL(alias string) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	return storekit.SQLf("%sis_current_primary AND %s", prefix, EmploymentIsCurrentSQL(prefix+"ended_at"))
 }
 
 func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInput) (relationshipRow, error) {
@@ -174,7 +198,7 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
 				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL
-				  AND NOT `+employmentIsOver("$2::date"),
+				  AND `+EmploymentIsCurrentSQL("$2::date"),
 				*in.PersonID, in.EndedAt); err != nil {
 				return err
 			}
@@ -204,8 +228,8 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 			        coalesce($8, $1 = 'employment' AND NOT EXISTS (
 			          SELECT 1 FROM relationship
 			           WHERE kind = 'employment' AND person_id = $2 AND archived_at IS NULL
-			             AND (ended_at IS NULL OR is_current_primary)))
-			          AND ($1 <> 'employment' OR NOT `+employmentIsOver("$10::date")+`),
+			             AND (`+EmploymentIsCurrentSQL("ended_at")+` OR is_current_primary)))
+			          AND ($1 <> 'employment' OR `+EmploymentIsCurrentSQL("$10::date")+`),
 			        $9, $10, $11, $12)
 			RETURNING `+relationshipColumns,
 			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID, in.ProjectID,
@@ -304,9 +328,9 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 			  -- clears the flag, and setting the flag on a job already over
 			  -- does not take. Written against the row rather than as a Go
 			  -- condition, so the two halves cannot drift apart. LEFT, not
-			  -- "has a date" — see employmentIsOver.
+			  -- "has a date" — see EmploymentIsCurrentSQL.
 			  is_current_primary = coalesce($3, is_current_primary)
-			    AND (kind <> 'employment' OR NOT `+employmentIsOver("coalesce($5, ended_at)")+`),
+			    AND (kind <> 'employment' OR `+EmploymentIsCurrentSQL("coalesce($5, ended_at)")+`),
 			  started_at = coalesce($4, started_at),
 			  ended_at = coalesce($5, ended_at)
 			WHERE id = $1

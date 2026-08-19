@@ -120,7 +120,7 @@ func personEmployerClause(orgID *ids.OrganizationID, arg func(any) int) string {
 		SELECT 1 FROM relationship rel
 		WHERE rel.person_id = person.id
 		  AND rel.kind = 'employment'
-		  AND rel.is_current_primary
+		  AND `+CurrentPrimaryEmploymentSQL("rel")+`
 		  AND rel.archived_at IS NULL
 		  AND rel.organization_id = $%d)`, arg(*orgID))
 }

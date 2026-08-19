@@ -399,6 +399,18 @@ async function searchOrganizationCandidates(
   return data.data.map((org) => ({ id: org.id, name: org.display_name }));
 }
 
+// stillHeld mirrors people.EmploymentIsCurrentSQL: a job is theirs while its end
+// date is still ahead, so a recorded notice period counts and a date that has
+// arrived does not. Compared as DATES — the projection carries a timestamp and
+// the server compares against `current_date` — because comparing instants would
+// disagree with the server for the hours either side of midnight.
+function stillHeld(employment: Employment): boolean {
+  if (!employment.ended_at) {
+    return true;
+  }
+  return employment.ended_at.slice(0, 10) > todayDate();
+}
+
 // Person360Employment is the 360's own projection of an employment edge — it
 // carries `relationship_id` but not the relationship row's own `version`, and
 // there is no `GET /relationships/{id}` in the contract to re-read one by id
@@ -607,6 +619,7 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
         personId={person.id}
         create={actions.create}
         excludedOrgIds={connectedOrgIds}
+        hasCurrentEmployment={employments.some(stillHeld)}
       />
       {/* Remove is the irreversible verb — the connection and its history are
           gone, not merely dated — so it is the one that sits behind a
@@ -757,6 +770,7 @@ function AddEmploymentModal({
   personId,
   create,
   excludedOrgIds,
+  hasCurrentEmployment,
 }: Readonly<{
   open: boolean;
   onClose: () => void;
@@ -766,21 +780,28 @@ function AddEmploymentModal({
   // picker refuses to offer a second edge to the same company, since only
   // a duplicated current-primary is refused server-side.
   excludedOrgIds: ReadonlyArray<string>;
+  // Whether this person already holds a job that has not ended. It is the exact
+  // fact the server's own rule turns on, read off the same rows, so the box can
+  // START in the state the save will produce instead of showing the reader one
+  // answer and writing the other.
+  hasCurrentEmployment: boolean;
 }>) {
   const t = useT();
   const headingId = useId();
   const [org, setOrg] = useState<RecordPickerCandidate | null>(null);
   const [role, setRole] = useState("");
-  // null means the reader never touched the box, and that is not the same as
-  // unticking it. An untouched box sends NOTHING, and the server decides — a
-  // person's only current employment becomes their current primary one. Sending
-  // `false` for an untouched box made this modal, the surface the whole defect
-  // was reported from, the one place that rule could never fire.
+  // Ticked by default for somebody with no current job, because that is what
+  // the save will do either way: the server marks a person's only current
+  // employment as their primary one. A box that started unticked and then
+  // produced the opposite was worse than sending the wrong value — it showed
+  // the reader a state the record never took, and left "no" expressible only by
+  // ticking and unticking again.
   //
-  // Deliberately not "tick it by default when they have no employer": that
-  // would be a second copy of the server's rule, in a language that cannot see
-  // the rows it depends on, free to drift from it.
-  const [isCurrent, setIsCurrent] = useState<boolean | null>(null);
+  // So the box always STATES an answer and the reader can change it. The
+  // server's rule still exists for callers who send nothing — MCP and the API —
+  // and `hasCurrentEmployment` is read off the same rows that rule reads, so the
+  // two agree by construction rather than by being maintained in step.
+  const [isCurrent, setIsCurrent] = useState(!hasCurrentEmployment);
   const [allConnected, setAllConnected] = useState(false);
 
   // Wraps the shared org search with this person's own already-connected
@@ -805,7 +826,7 @@ function AddEmploymentModal({
   function close() {
     setOrg(null);
     setRole("");
-    setIsCurrent(null);
+    setIsCurrent(!hasCurrentEmployment);
     setAllConnected(false);
     create.reset();
     onClose();
@@ -846,7 +867,7 @@ function AddEmploymentModal({
         </Field>
         <Checkbox
           label={t("person.rail.isCurrentEmployer")}
-          checked={isCurrent ?? false}
+          checked={isCurrent}
           disabled={create.isPending}
           onChange={(event) => setIsCurrent(event.target.checked)}
         />
@@ -877,8 +898,7 @@ function AddEmploymentModal({
                 person_id: personId,
                 organization_id: org.id,
                 role: role.trim() || undefined,
-                // Omitted when untouched — see the state above.
-                is_current_primary: isCurrent ?? undefined,
+                is_current_primary: isCurrent,
                 source: "ui",
               },
               { onSuccess: close },

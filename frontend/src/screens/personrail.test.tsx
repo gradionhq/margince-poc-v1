@@ -508,17 +508,26 @@ describe("the sibling sections governed by their own grants", () => {
   });
 });
 
-// The employment modal's contract with the server is the SHAPE of one request,
-// and nothing rendered afterwards reveals it. An omitted `is_current_primary`
-// is what lets the server apply its own rule — a person's only current
-// employment is their current primary one — and this modal sending `false` for
-// an untouched checkbox is what made the surface the defect was reported from
-// the one place that rule could never fire.
+// What the modal SENDS, and whether the box the reader looked at agreed with it.
+// The first attempt at this omitted the field for an untouched box, which fixed
+// the server-side rule and broke something worse: the reader saw "not their
+// current employer" unticked, saved, and got the opposite — with no way to say
+// "no" except ticking and unticking again. So the box states an answer from the
+// start, and the answer it states is the one the record takes.
 describe("adding a company", () => {
   async function openAndPickEmployer() {
     await userEvent.click(screen.getByRole("button", { name: "Add company" }));
     await userEvent.type(screen.getByRole("searchbox"), "emp");
     await userEvent.click(await screen.findByText("Employer GmbH"));
+  }
+
+  // `.checked` directly rather than a jest-dom matcher: this suite does not
+  // install them, and the assertion is about the box's own state.
+  function currentEmployerTicked(): boolean {
+    const box = screen.getByRole("checkbox", {
+      name: "This is their current employer",
+    });
+    return (box as HTMLInputElement).checked;
   }
 
   async function employmentBody(): Promise<Record<string, unknown>> {
@@ -538,31 +547,48 @@ describe("adding a company", () => {
     return (post?.body ?? {}) as Record<string, unknown>;
   }
 
-  it("omits is_current_primary when the reader never touched the checkbox", async () => {
-    mount(granted);
+  it("starts ticked for somebody with no current job, and sends that", async () => {
+    mount(emptyButGranted);
     await screen.findByRole("button", { name: "Add company" });
-    await openAndPickEmployer();
+    await userEvent.click(screen.getByRole("button", { name: "Add company" }));
+
+    // The state the reader sees BEFORE touching anything. This is the assertion
+    // the omit-when-untouched version could not make: it showed unticked and
+    // wrote primary.
+    expect(currentEmployerTicked()).toBe(true);
+
+    await userEvent.type(screen.getByRole("searchbox"), "emp");
+    await userEvent.click(await screen.findByText("Employer GmbH"));
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    const body = await employmentBody();
-    expect(body.organization_id).toBe("o-9");
-    // `in`, not a falsy check: sending `false` and omitting the key are the two
-    // different requests this whole change turns on, and `body.x === false`
-    // cannot tell them apart from `undefined`.
-    expect("is_current_primary" in body).toBe(false);
+    expect((await employmentBody()).is_current_primary).toBe(true);
   });
 
-  it("sends is_current_primary when the reader ticks it", async () => {
-    mount(granted);
+  it("lets the reader say no, and sends that", async () => {
+    mount(emptyButGranted);
     await screen.findByRole("button", { name: "Add company" });
     await openAndPickEmployer();
     await userEvent.click(
       screen.getByRole("checkbox", { name: "This is their current employer" }),
     );
+    expect(currentEmployerTicked()).toBe(false);
     await userEvent.click(screen.getByRole("button", { name: "Create" }));
 
-    // The other direction, because a modal that could only omit the field would
-    // give a reader no way to say which of two employers is the main one.
-    expect((await employmentBody()).is_current_primary).toBe(true);
+    // `false`, not absent. A reader who unticks a box has decided, and the
+    // server must not derive over them.
+    const body = await employmentBody();
+    expect("is_current_primary" in body).toBe(true);
+    expect(body.is_current_primary).toBe(false);
+  });
+
+  it("starts unticked for somebody who already has a current job", async () => {
+    // The other half of the default, and the reason it is read off the rows
+    // rather than hardcoded: which of two employers is the main one is not
+    // this modal's to assume.
+    mount(granted);
+    await screen.findByRole("button", { name: "Add company" });
+    await userEvent.click(screen.getByRole("button", { name: "Add company" }));
+
+    expect(currentEmployerTicked()).toBe(false);
   });
 });
