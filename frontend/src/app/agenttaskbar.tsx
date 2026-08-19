@@ -12,7 +12,7 @@ import {
 } from "../design-system/margince-core";
 import { INTL_LOCALE } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
-import type { MessageKey } from "../i18n/en";
+import { en, type MessageKey } from "../i18n/en";
 import { useOrganization360 } from "../screens/company360";
 import { useConnectors } from "../screens/connectors";
 import { useDedupeQueue } from "../screens/dedupe";
@@ -280,15 +280,22 @@ function PageFindings({
  * have you been doing", and five answers it — a sixth turns the panel into a log
  * viewer, which already exists and is better at it.
  */
+/**
+ * Whether the catalog carries this key.
+ *
+ * `task` arrives off the wire, so the key built from it is a guess until the
+ * catalog answers for it. Asking `en` — the catalog every locale mirrors — keeps
+ * the question about a key that exists rather than about a string that looks
+ * like one.
+ */
+function isMessageKey(key: string): key is MessageKey {
+  return Object.hasOwn(en, key);
+}
+
 /** The task in the reader's words, or the token opened up if it is a new one. */
 function saidFor(t: ReturnType<typeof useT>, task: string): string {
-  // The lookup key is namespaced (`taskbar.task.<token>`), so a task named
-  // `constructor` cannot land on `Object.prototype`'s own member the way a
-  // bare `TASK_SAID[task]` lookup once could — `translate` falls back to
-  // returning the key itself when the catalog has no entry for it.
-  const key = `taskbar.task.${task}` as MessageKey;
-  const said = t(key);
-  return said === key ? task.replaceAll("_", " ") : said;
+  const key = `taskbar.task.${task}`;
+  return isMessageKey(key) ? t(key) : task.replaceAll("_", " ");
 }
 
 /**

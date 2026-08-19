@@ -149,7 +149,6 @@ export const de = {
   "taskbar.reconnect": "Neu verbinden",
   "taskbar.configure": "Einrichten",
   "taskbar.noModel": "Kein KI-Modell konfiguriert",
-  "taskbar.devLine": "Läuft mit dem Offline-Modell",
   "taskbar.duplicatesRow": "Offene Duplikat-Paare",
   "taskbar.nothingHere": "Nichts auf diesem Bildschirm",
   "taskbar.expand": "Agenten-Panel ausklappen",

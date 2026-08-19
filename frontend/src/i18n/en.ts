@@ -152,7 +152,6 @@ export const en = {
   "taskbar.reconnect": "Reconnect",
   "taskbar.configure": "Set up",
   "taskbar.noModel": "No AI model is configured",
-  "taskbar.devLine": "Running on the offline model",
   "taskbar.duplicatesRow": "Duplicate pairs open",
   "taskbar.nothingHere": "Nothing on this screen",
   "taskbar.expand": "Expand the agent panel",

@@ -158,7 +158,6 @@ export const vi = {
   "taskbar.reconnect": "Kết nối lại",
   "taskbar.configure": "Thiết lập",
   "taskbar.noModel": "Chưa có mô hình AI nào được cấu hình",
-  "taskbar.devLine": "Đang chạy trên mô hình ngoại tuyến",
   "taskbar.duplicatesRow": "Cặp trùng lặp đang mở",
   "taskbar.nothingHere": "Không có gì trên màn hình này",
   "taskbar.expand": "Mở rộng bảng agent",
