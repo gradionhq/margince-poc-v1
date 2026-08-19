@@ -1,21 +1,31 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useRef, useState } from "react";
-import { api } from "../api/client";
+import {
+  type QueryKey,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { api, FIRST_PAGE } from "../api/client";
 import type { components } from "../api/schema";
 import { useCanWrite } from "../app/capability";
 import { formatUploadLimit, useMaxUploadBytes } from "../app/uploadlimit";
 import { Button, Field, Modal, TextInput } from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
+import { ChoiceList } from "../design-system/choicelist";
 import { FileDropzone } from "../design-system/filedropzone";
+import {
+  RecordPicker,
+  type RecordPickerCandidate,
+} from "../design-system/recordpicker";
 import { Select } from "../design-system/select";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
 
-// Adding a document to an account, from the account.
+// Adding a document to the record the dialog was opened from — an account's
+// document library, or a contact's.
 //
 // WHY THE PARENT IS A QUESTION AND NOT A DEFAULT. A document filed against the
 // company is a document about the company; one filed against a deal is evidence
@@ -31,9 +41,17 @@ import { problemMessageOf, throwProblem } from "./common";
 // `PATCH /attachments/{id}/metadata`. So the second call can fail on its own
 // with the file already stored, and this dialog says exactly that rather than
 // reporting a failure the reader would answer by uploading the same file twice.
+//
+// WHY THE QUESTION IS ONLY ASKED ON AN ACCOUNT. Deals hang off a company, so
+// the account's library can offer its own deals as filing targets and a
+// contact's cannot: nothing on a contact's page names a deal, and a contact is
+// seated on deals at companies they may not even work for. The contact's
+// library therefore files against the contact, with no choice to make, rather
+// than growing a control whose one option is the record you are already on.
 
 type Attachment = components["schemas"]["Attachment"];
 type Category = NonNullable<Attachment["category"]>;
+type DealPage = components["schemas"]["DealListResponse"];
 
 const CATEGORY_KEYS: Record<Category, MessageKey> = {
   contract: "docs.category.contract",
@@ -43,17 +61,47 @@ const CATEGORY_KEYS: Record<Category, MessageKey> = {
   other: "docs.category.other",
 };
 
-// The parent the file hangs off, as one string the Select can carry. "org" is
-// the account itself; anything else is a deal id behind this prefix.
-const DEAL_PREFIX = "deal:";
-const THIS_COMPANY = "org";
+/**
+ * The record whose document library this dialog was opened from.
+ *
+ * `record` is also the wire's own `entity_type`, which is why it is one string
+ * rather than two shapes: the upload takes the parent as an (entity_type,
+ * entity_id) pair, and the RBAC object the server checks IS that same string
+ * (`auth.Require(ctx, entityType, update)`), so a second vocabulary here would
+ * be a mapping table with nothing to map.
+ */
+export type DocumentAnchor = Readonly<{
+  record: "organization" | "person";
+  id: string;
+}>;
 
-type Parent = { entityType: "organization" | "deal"; entityId: string };
+type Parent = Readonly<{
+  entityType: DocumentAnchor["record"] | "deal";
+  entityId: string;
+}>;
 
-function parseParent(choice: string, orgId: string): Parent {
-  return choice.startsWith(DEAL_PREFIX)
-    ? { entityType: "deal", entityId: choice.slice(DEAL_PREFIX.length) }
-    : { entityType: "organization", entityId: orgId };
+// Which record the file hangs off: the one this dialog was opened from, or one
+// of that account's deals. Two named answers rather than a Select carrying a
+// sentinel value beside a list of deal ids — filing against the account is a
+// different KIND of decision from picking one deal out of hundreds, and the two
+// spent a release smuggled into one dropdown where the account read as the
+// zeroth deal.
+type Filing = "anchor" | "deal";
+
+/**
+ * The parent the bytes will be filed against, or null when the reader has
+ * chosen "a deal" and not yet picked one — which is a refusal to state, not a
+ * parent to guess.
+ */
+function parentOf(
+  anchor: DocumentAnchor,
+  filing: Filing,
+  deal: RecordPickerCandidate | null,
+): Parent | null {
+  if (filing === "deal") {
+    return deal ? { entityType: "deal", entityId: deal.id } : null;
+  }
+  return { entityType: anchor.record, entityId: anchor.id };
 }
 
 type Submission = {
@@ -109,43 +157,86 @@ function metadataFor(submitted: Submission) {
   return patch;
 }
 
-// How many deals the picker offers. A Select is a list, not a search, and one
-// carrying every deal an old account ever had is not a control anybody can use.
-// The cap is therefore deliberate — and it is a real limit: an account past it
-// cannot file a document against its oldest deals from here. Issue 1536 tracks
-// giving this a searchable picker, which is the shape that removes the cap
-// rather than raising it.
-const DEAL_CHOICES = 50;
+// HOW THE DEAL SEARCH WORKS, AND WHERE IT STOPS.
+//
+// `GET /deals` is cursor-paginated and takes no text query — the contract
+// offers a cursor, a limit, a sort and a set of id filters, and nothing
+// textual. So the words the reader types are matched HERE, over pages this
+// dialog walks, and a client-side match has to stop somewhere or one settled
+// keystroke walks every deal an old account ever had.
+//
+// The bound is pages, not results: DEAL_SEARCH_PAGES pages of the contract's
+// maximum page size, in the list endpoint's own default order, which is
+// newest-created first. What the search therefore covers is this account's
+// DEAL_SEARCH_REACH newest deals, and what it cannot reach is anything older —
+// which the picker STATES, under the field, before the reader goes looking. An
+// unfound deal and a deal that does not exist read identically otherwise, and
+// that silence is the whole of what issue 1536 was about.
+const DEAL_PAGE_SIZE = 200;
+const DEAL_SEARCH_PAGES = 10;
+const DEAL_SEARCH_REACH = DEAL_PAGE_SIZE * DEAL_SEARCH_PAGES;
 
-/** The deals this document could be filed against, in the API's own order. */
-function useAccountDeals(orgId: string, open: boolean) {
-  return useQuery({
-    queryKey: ["dealsForOrg", orgId],
-    // A closed dialog asks nothing: the parent card renders on every company
-    // page, and this list is only a question once somebody opens the form.
-    enabled: open,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/deals", {
-        params: { query: { organization_id: orgId, limit: DEAL_CHOICES } },
-      });
-      if (error) {
-        throwProblem(error);
+// How many matches are worth offering at once. Past this the walk stops: a
+// list of a hundred pickable buttons is not a pick, and the reader has a
+// cheaper way to shorten it, which is one more word.
+const DEAL_MATCH_LIMIT = 25;
+
+// How long a walked page is reused. The reader re-runs the whole walk every
+// time they change a word, so the pages are cached under their own cursor;
+// a minute outlasts a dialog and is far shorter than the age of the deals a
+// walk this deep is reaching.
+const DEAL_PAGE_FRESH_MS = 60_000;
+
+/**
+ * Walk the account's deals, newest first, keeping the ones whose name contains
+ * what the reader typed.
+ *
+ * `fetchPage` is injected rather than called directly so the walk reads pages
+ * through the caller's cache: the second search over one account re-reads what
+ * the first already fetched instead of spending the whole page budget again.
+ */
+async function walkAccountDeals(
+  fetchPage: (cursor: string | null) => Promise<DealPage>,
+  needle: string,
+): Promise<RecordPickerCandidate[]> {
+  const matches: RecordPickerCandidate[] = [];
+  let cursor = FIRST_PAGE;
+  for (let page = 0; page < DEAL_SEARCH_PAGES; page += 1) {
+    const answered = await fetchPage(cursor);
+    for (const deal of answered.data) {
+      if (deal.name.toLocaleLowerCase().includes(needle)) {
+        matches.push({ id: deal.id, name: deal.name });
       }
-      return data?.data ?? [];
-    },
-  });
+    }
+    if (matches.length >= DEAL_MATCH_LIMIT) {
+      return matches.slice(0, DEAL_MATCH_LIMIT);
+    }
+    // The CURSOR is what the walk can continue with, and `has_more` without one
+    // is a cut list nothing can read the rest of — so both ends of the walk end
+    // it here rather than looping on a cursor that will not move.
+    cursor = answered.page.next_cursor ?? null;
+    if (!cursor) {
+      return matches;
+    }
+  }
+  return matches;
 }
 
 export function AddDocumentDialog({
-  orgId,
+  anchor,
   open,
   onClose,
-}: Readonly<{ orgId: string; open: boolean; onClose: () => void }>) {
+}: Readonly<{
+  anchor: DocumentAnchor;
+  open: boolean;
+  onClose: () => void;
+}>) {
   const t = useT();
   const titleId = useId();
   const queryClient = useQueryClient();
 
-  const [choice, setChoice] = useState(THIS_COMPANY);
+  const [filing, setFiling] = useState<Filing>("anchor");
+  const [deal, setDeal] = useState<RecordPickerCandidate | null>(null);
   const [category, setCategory] = useState<Category>("other");
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<File | undefined>();
@@ -170,24 +261,77 @@ export function AddDocumentDialog({
   const maxUploadBytes = useMaxUploadBytes();
   const limitLabel = maxUploadBytes ? formatUploadLimit(maxUploadBytes) : "";
 
-  const deals = useAccountDeals(orgId, open);
-  const parent = parseParent(choice, orgId);
+  // One page of the account's deals, read through the query cache so a second
+  // search re-uses what the first walked. Keyed by the CURSOR, because that is
+  // what identifies a page of a keyset walk.
+  //
+  // Built on every anchor, called only from the deal picker — which only the
+  // account branch below renders. A hook cannot be conditional, and an
+  // uncalled callback asks nothing.
+  const fetchDealPage = useCallback(
+    (cursor: string | null) =>
+      queryClient.fetchQuery({
+        queryKey: ["dealsForOrg", anchor.id, cursor],
+        staleTime: DEAL_PAGE_FRESH_MS,
+        queryFn: async (): Promise<DealPage> => {
+          const { data, error } = await api.GET("/deals", {
+            params: {
+              query: {
+                organization_id: anchor.id,
+                limit: DEAL_PAGE_SIZE,
+                ...(cursor ? { cursor } : {}),
+              },
+            },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        },
+      }),
+    [anchor.id, queryClient],
+  );
+
+  // Kept on `fetchDealPage` alone. RecordPicker reads a new `searchTargets`
+  // identity as a new search space and empties the candidates it is showing, so
+  // a callback rebuilt on anything that changes while the reader types would
+  // clear the list under them.
+  const searchDeals = useCallback(
+    (query: string) =>
+      walkAccountDeals(fetchDealPage, query.trim().toLocaleLowerCase()),
+    [fetchDealPage],
+  );
+
+  const parent = parentOf(anchor, filing, deal);
+  // All three asked unconditionally: the number of hooks a render performs must
+  // not depend on which record the reader is filing against.
   const canWriteOrg = useCanWrite("organization", "update");
   const canWriteDeal = useCanWrite("deal", "update");
-  const permitted = parent.entityType === "deal" ? canWriteDeal : canWriteOrg;
+  const canWritePerson = useCanWrite("person", "update");
+  // The upload's RBAC object IS the parent's entity type, so the grant this
+  // dialog checks follows the CHOICE rather than the record it was opened from.
+  // With "a deal" chosen and none picked yet there is no parent, and the grant
+  // that governs the press is still the deal one.
+  const writable: Readonly<Record<Parent["entityType"], boolean>> = {
+    organization: canWriteOrg,
+    person: canWritePerson,
+    deal: canWriteDeal,
+  };
+  const permitted = writable[parent?.entityType ?? "deal"];
 
   // Emptying the form is separate from closing it, because the two happen at
   // different moments: every close empties, and the partial-failure path
   // empties the file without closing.
   const clearDraft = () => {
-    setChoice(THIS_COMPANY);
+    setFiling("anchor");
+    setDeal(null);
     setCategory("other");
     setTitle("");
     setFile(undefined);
   };
 
   // Everything the request needs arrives as a variable. A mutationFn closing
-  // over `file` or `choice` would submit whatever the previous render held.
+  // over `file` or `parent` would submit whatever the previous render held.
   const upload = useMutation({
     mutationFn: async (submitted: Submission) => {
       const id = await uploadFile(submitted);
@@ -218,12 +362,9 @@ export function AddDocumentDialog({
       }
     },
     onSuccess: async (result) => {
-      await queryClient.invalidateQueries({
-        queryKey: ["orgDocuments", orgId],
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ["organization360", orgId],
-      });
+      for (const queryKey of staleAfterUpload(anchor)) {
+        await queryClient.invalidateQueries({ queryKey });
+      }
       if (result.filed) {
         closeAndClear();
         return;
@@ -254,12 +395,13 @@ export function AddDocumentDialog({
     onClose();
   }
 
-  const refusal = uploadRefusal(
+  const refusal = uploadRefusal({
     file,
+    parent,
     permitted,
-    upload.isPending,
-    maxUploadBytes,
-  );
+    pending: upload.isPending,
+    maxBytes: maxUploadBytes,
+  });
 
   return (
     <Modal open={open} onClose={closeAndClear} labelledBy={titleId}>
@@ -279,28 +421,55 @@ export function AddDocumentDialog({
           {problemMessageOf(upload.error, t, t("docs.add.failed"))}
         </Callout>
       )}
-      {deals.isError && (
-        <Callout tone="warn" live="status">
-          {t("docs.add.dealsFailed")}
-        </Callout>
-      )}
 
-      <Field label={t("docs.add.about")} hint={t("docs.add.aboutHint")}>
-        {(control) => (
-          <Select
-            {...control}
-            value={choice}
-            onChange={setChoice}
-            options={[
-              { value: THIS_COMPANY, label: t("docs.add.thisCompany") },
-              ...(deals.data ?? []).map((deal) => ({
-                value: `${DEAL_PREFIX}${deal.id}`,
-                label: deal.name,
-              })),
+      {/* Asked only on an account, and asked as a QUESTION WITH TWO ANSWERS
+          rather than a dropdown: both answers have to be readable at rest,
+          because choosing between them is the decision this dialog exists to
+          put in front of the reader, and a menu covering two options makes
+          somebody open it to find out what the alternative was
+          (design-system/choicelist.tsx). A contact's library has no second
+          answer, so it asks nothing. */}
+      {anchor.record === "organization" && (
+        <>
+          <ChoiceList
+            legend={t("docs.add.about")}
+            value={filing}
+            onChange={setFiling}
+            choices={[
+              { value: "anchor", label: t("docs.add.thisCompany") },
+              {
+                value: "deal",
+                label: t("docs.add.aDeal"),
+                description: t("docs.add.aboutHint"),
+              },
             ]}
           />
-        )}
-      </Field>
+          {filing === "deal" && (
+            <div className="field">
+              <RecordPicker
+                label={t("docs.add.dealSearch")}
+                searchTargets={searchDeals}
+                selected={deal}
+                onPick={setDeal}
+                disabled={upload.isPending}
+              />
+              {/* The reach, stated up front rather than after the reader has
+                  failed to find something. It is the same sentence whatever
+                  the account's size, which is what makes it trustworthy: a
+                  caption that only appeared once a walk ran out would be a
+                  claim about the last search rather than about the control,
+                  and RecordPicker hands its caller no way to know which search
+                  an answer belonged to. */}
+              <p className="t-caption">
+                {t("docs.add.dealSearchReach", {
+                  deals: String(DEAL_SEARCH_REACH),
+                  matches: String(DEAL_MATCH_LIMIT),
+                })}
+              </p>
+            </div>
+          )}
+        </>
+      )}
 
       <Field label={t("docs.add.category")}>
         {(control) => (
@@ -346,15 +515,36 @@ export function AddDocumentDialog({
         <Button
           variant="primary"
           reason={refusal ? t(refusal, { size: limitLabel }) : undefined}
-          onClick={() =>
-            file && upload.mutate({ parent, category, title, file })
-          }
+          onClick={() => {
+            if (file && parent) {
+              upload.mutate({ parent, category, title, file });
+            }
+          }}
         >
           {t(upload.isPending ? "docs.add.uploading" : "docs.add.submit")}
         </Button>
       </div>
     </Modal>
   );
+}
+
+/**
+ * What a landed upload makes stale, per anchor.
+ *
+ * The two libraries are read by different surfaces and so by different keys:
+ * the account's is one unpaginated read plus the 360 that counts it, the
+ * contact's is its own cursor-paginated tab and nothing else — the person 360
+ * carries no attachments section, so invalidating it would refetch a composite
+ * that says nothing about the file just filed.
+ */
+function staleAfterUpload(anchor: DocumentAnchor): readonly QueryKey[] {
+  if (anchor.record === "person") {
+    return [["attachments", "person", anchor.id]];
+  }
+  return [
+    ["orgDocuments", anchor.id],
+    ["organization360", anchor.id],
+  ];
 }
 
 // Why the upload cannot be offered, in the order the reader can act on: a
@@ -365,17 +555,31 @@ export function AddDocumentDialog({
 // request it would repeat has already left: a second press lands a second copy
 // of the document on the record, and nothing downstream can tell that from two
 // deliberate uploads of the same file.
-function uploadRefusal(
-  file: File | undefined,
-  permitted: boolean,
-  pending: boolean,
-  maxBytes: number | undefined,
-): MessageKey | null {
+function uploadRefusal({
+  file,
+  parent,
+  permitted,
+  pending,
+  maxBytes,
+}: Readonly<{
+  file: File | undefined;
+  parent: Parent | null;
+  permitted: boolean;
+  pending: boolean;
+  maxBytes: number | undefined;
+}>): MessageKey | null {
   if (!permitted) {
     return "docs.add.errRefused";
   }
   if (!file) {
     return "docs.add.errNoFile";
+  }
+  // "A deal" chosen and none picked. Named as its own refusal rather than left
+  // to fall back on the account: a document filed somewhere the reader did not
+  // choose is worse than one not filed at all, and only a deal's documents can
+  // be read for deal fields.
+  if (!parent) {
+    return "docs.add.errNoDeal";
   }
   if (pending) {
     return "docs.add.errInFlight";

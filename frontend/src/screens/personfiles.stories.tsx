@@ -2,13 +2,20 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { userEvent, within } from "storybook/test";
 import type { components } from "../api/schema";
 import { PersonFilesTab } from "./personfiles";
-import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
+import {
+  installFetchStub,
+  jsonResponse,
+  meRoute,
+  StoryProviders,
+} from "./story-utils";
 
 // The person's own file library — its own fetch, distinct from the 360's
 // composite read, so its own set of stories: rows present, an unfiltered
-// empty library, and a read that failed and can be retried.
+// empty library, a read that failed and can be retried, and the upload the
+// header band offers in every one of those states.
 
 const meta: Meta = {
   title: "Records/Person record/Files tab",
@@ -57,6 +64,7 @@ const olderFiles: Attachment[] = files.map((file, index) => ({
 
 function Files({ data }: Readonly<{ data: Attachment[] }>) {
   installFetchStub({
+    "GET /me": meRoute({ person: ["update"] }),
     "GET /attachments": () => jsonResponse({ data, page }),
   });
   return (
@@ -73,8 +81,25 @@ export const Populated: Story = {
 };
 
 // An unfiltered zero is this person's own emptiness — the tab has no filter
-// to clear, so an empty page is always this state.
+// to clear, so an empty page is always this state. The upload is still offered:
+// an empty library is the state the verb exists to leave.
 export const Empty: Story = { render: () => <Files data={[]} /> };
+
+// The upload the header band opens — the ACCOUNT library's own dialog, anchored
+// on this contact. It asks no "about" question: a deal hangs off a company, and
+// nothing on a contact's page names one.
+export const Uploading: Story = {
+  render: () => <Files data={files} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add a document" }),
+    );
+    await within(canvasElement.ownerDocument.body).findByRole("heading", {
+      name: "Add a document",
+    });
+  },
+};
 
 // The older files behind the first page: the tab says the list is cut and
 // offers the walk that finishes it, so the truncation is a step rather than a
@@ -84,6 +109,7 @@ export const Paged: Story = {
   render: () => {
     let served = 0;
     installFetchStub({
+      "GET /me": meRoute({ person: ["update"] }),
       "GET /attachments": () => {
         served += 1;
         return served === 1
@@ -107,6 +133,7 @@ export const Paged: Story = {
 export const Failed: Story = {
   render: () => {
     installFetchStub({
+      "GET /me": meRoute({ person: ["update"] }),
       "GET /attachments": () =>
         jsonResponse({ title: "Error", status: 500 }, 500),
     });

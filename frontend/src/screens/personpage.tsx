@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
-  CalendarPlus,
+  CalendarDays,
   CheckSquare,
   Link as LinkIcon,
   Mail,
@@ -495,7 +495,8 @@ function PersonActions({
           navigate({ screen: "contacts", id: personId, id2: "meetings" })
         }
       >
-        <CalendarPlus size={15} aria-hidden="true" /> {t("person.action.book")}
+        <CalendarDays size={15} aria-hidden="true" />{" "}
+        {t("person.action.meetings")}
       </Button>
       <Button onClick={() => navigate({ screen: "tasks" })}>
         <CheckSquare size={15} aria-hidden="true" />{" "}
