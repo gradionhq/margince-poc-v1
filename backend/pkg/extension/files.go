@@ -143,17 +143,26 @@ func DeclaredTypeDisagreement(declared, sniffed string) string {
 // generated elsewhere.
 //
 // Three classes go, and each is a real attack rather than tidiness. Path
-// separators stop a name from ever reading as a path. Control characters stop a
-// name from rewriting a log line it appears in. Bidirectional overrides stop a
-// name from rendering as an extension it does not have — the name a person reads
-// and the extension the file has must be the same string. (A name ending
-// "gpj.exe" with a RIGHT-TO-LEFT OVERRIDE before it renders as "...jpg".)
+// separators stop a name from ever reading as a path. Line breaks stop a name
+// from rewriting a log line it appears in. Bidirectional overrides stop a name
+// from rendering as an extension it does not have — the name a person reads and
+// the extension the file has must be the same string. (A name ending "gpj.exe"
+// with a RIGHT-TO-LEFT OVERRIDE before it renders as "...jpg".)
+//
+// The line-break class is TWO tests, and the second is the one that is easy to
+// drop as redundant: unicode.IsControl answers for the Cc block, which is CR, LF
+// and NEL, and answers FALSE for U+2028 LINE SEPARATOR and U+2029 PARAGRAPH
+// SEPARATOR, which are categories Zl and Zp. Those two break a line in the
+// places a filename is read back — a log record, a JSON string, a CSV export —
+// so a name carrying one rewrites the record that quotes it exactly as a bare
+// newline would. Removing the Zl/Zp test because "IsControl already covers
+// control characters" reopens this.
 func SafeFilename(name string, ordinal int) string {
 	cleaned := strings.Map(func(r rune) rune {
 		switch {
 		case r == '/' || r == '\\' || r == 0:
 			return -1
-		case unicode.IsControl(r):
+		case unicode.IsControl(r), unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r):
 			return -1
 		case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200F, r == 0x200E:
 			return -1

@@ -82,12 +82,32 @@ func TestSafeFilenameRemovesPathControlAndBidiCharacters(t *testing.T) {
 		{"whitespace only is named by position", "   ", "attachment-3"},
 		{"right-to-left override that fakes an extension", "invoice\u202egpj.exe", "invoicegpj.exe"},
 		{"a newline cannot rewrite a log line", "note\ninjected", "noteinjected"},
+		{"a carriage return cannot either", "note\rinjected", "noteinjected"},
+		{"nor can NEL, which is a control character", "note\u0085injected", "noteinjected"},
 		{"a header injection attempt", "invoice\r\nX-Injected: yes.pdf", "invoiceX-Injected: yes.pdf"},
 		{"separators only is named by position", "/////", "attachment-3"},
 		{"an ordinary name is left alone", "quarterly-report.pdf", "quarterly-report.pdf"},
+		{"a space is not a line break and stays", "quarterly report.pdf", "quarterly report.pdf"},
 	} {
 		if got := extension.SafeFilename(c.in, 3); got != c.want {
 			t.Errorf("%s: SafeFilename(%q) = %q, want %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
+// U+2028 and U+2029 break a line everywhere a filename is read back — a log
+// record, a JSON string, a CSV export — but unicode.IsControl answers FALSE for
+// both, because they are categories Zl and Zp rather than Cc. Their own test so
+// that a future edit collapsing the two checks into one fails here rather than
+// silently restoring the injection a bare newline is already refused for.
+func TestSafeFilenameRemovesTheLineBreaksThatAreNotControlCharacters(t *testing.T) {
+	for _, c := range []struct{ name, in, want string }{
+		{"line separator", "note\u2028X-Injected: yes.pdf", "noteX-Injected: yes.pdf"},
+		{"paragraph separator", "note\u2029X-Injected: yes.pdf", "noteX-Injected: yes.pdf"},
+	} {
+		if got := extension.SafeFilename(c.in, 3); got != c.want {
+			t.Errorf("%s: SafeFilename(%q) = %q, want %q — the name can still break a line",
+				c.name, c.in, got, c.want)
 		}
 	}
 }
