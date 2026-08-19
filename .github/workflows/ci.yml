@@ -20,26 +20,34 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
 
-# One live run per PR ref: a new push to the same branch cancels the stale run
-# instead of queueing behind it. A merge to main gets a group of its OWN, keyed
-# by commit, so every merge is gated.
+# ONE live run per ref, main included: a new push cancels the stale lane instead
+# of running beside it or queueing behind it. The invariant that buys is that the
+# commit being gated is always main's TIP.
 #
-# `cancel-in-progress: false` alone does not achieve that, which is what the
-# previous spelling assumed. It protects the run that is already RUNNING; a
-# group holds at most one QUEUED run, so with every main push in one group each
-# merge evicted the one queued behind the current lane and was reported
-# `cancelled` with zero jobs. That reads identically to a green skip on every
-# dashboard. It is not hypothetical: three consecutive merges landed ungated
-# behind one slow lane on 2026-08-16, and the daily scheduled backend lane —
-# which exists for exactly this mask — leaves a window up to a day wide.
+# Gating every main commit — what a group keyed by commit buys — is not
+# affordable at this repository's size. A full-stack merge schedules 28 jobs
+# against an org-wide ceiling of 20 concurrent, so two overlapping merges turn a
+# 9-minute gate into a two-hour one and starve every PR lane behind them. A
+# verdict that lands hours after the merge gates nothing.
 #
-# The cost is deliberate: several full lanes, twelve integration shards each,
-# can now run on main at once rather than one at a time. Runner minutes for a
-# gate that runs is the trade this repository wants while main is the only
-# integration point.
+# `cancel-in-progress: false` is not the conservative setting it reads as, which
+# is the trap worth stating where the next reader will look: it protects the run
+# already RUNNING, and a group holds ONE pending run, so an arriving merge
+# cancels the pending one and takes its place. The superseded merge is reported
+# `cancelled` with zero jobs — indistinguishable from a green skip on every
+# dashboard — while the tip still waits out a lane gating an older tree.
+# `queue: max` lifts that pending limit to 100 and would gate every commit, but
+# it cannot be combined with cancellation, and it puts the tip's verdict behind
+# every lane ahead of it: the latency this setting exists to remove.
+#
+# main is a linear history of squash merges, so the tip's tree contains every
+# merge below it and "main is green" stays a true statement about all of them.
+# The price is per-commit attribution: a bisect over main cannot assume every
+# commit was gated, and a red lane can be superseded before anyone reads it —
+# `workflow_dispatch` on that commit brings the verdict back.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && github.sha || '' }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 defaults:
   run:

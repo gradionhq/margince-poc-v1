@@ -46,8 +46,17 @@ permissions:
   contents: read
 
 jobs:
+  # The cancellable half. An SBOM describes a tree and only the ref's newest tree
+  # is consumed, so a newer push supersedes the lane still cataloguing an older
+  # one — and the group sits on this JOB rather than on the workflow so that
+  # cancellation can never reach `sign` below. Cancelling generation stops
+  # signing before it starts (`sign` needs this job), which is the safe
+  # direction; cancelling it mid-flight would not be.
   sbom:
     name: sbom
+    concurrency:
+      group: ${{ github.workflow }}-sbom-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,6 +88,13 @@ jobs:
   # retracted, so a PR preview or a feature-branch dispatch must never produce
   # one. `needs: sbom` means the license gate has already passed, so a
   # policy-failing SBOM never reaches this job.
+  # It carries NO concurrency group either, so no later push can interrupt it: the
+  # signature reaches Rekor before the bundles are uploaded, and a lane cut
+  # between the two would leave a signature standing for a tree whose bundles
+  # nobody can fetch. Superseding therefore only ever takes effect BEFORE signing
+  # begins — while `sbom` is still pending or running, which is where the wasted
+  # work is anyway. Once generation is done this job runs to completion whatever
+  # else lands on the ref behind it.
   sign:
     name: sign
     needs: sbom
