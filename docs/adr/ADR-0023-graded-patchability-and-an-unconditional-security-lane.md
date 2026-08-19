@@ -1,8 +1,8 @@
 # ADR-0023 — Patchability is graded by how far a fork stays inside the seams, and security fixes ship to everyone
 
 **Status:** Active — the signed release channel and the private reporting path
-are built. The three patch grades, the cherry-pickable security lane, and the
-licence gate are **not built**; see below.
+are built. The security fast lane is **not built** and is the part still owed;
+see below.
 **Decided:** 2026-06-17
 
 ## The decision
@@ -49,30 +49,37 @@ published licence commitment says security fixes reach every install.
 
 ## What is owed
 
-Three parts of this decision are decided but unbuilt, and each is real debt.
-
-**The grade classifier.** Nothing in this repository reads a fork's diff and
-reports which of the three grades it falls in. Without it the grades are a
-promise a customer cannot verify before an upgrade, which is the moment the
-promise is worth anything. The classifier needs to bucket each changed hunk by
-path and identifier; that much is settled, and the rest of its design is not.
-
 **The security fast lane.** The record says a security fix ships as a small
 isolated change against core, cherry-pickable onto the current release and the
 two before it plus the long-term line, without taking a feature upgrade. This
 repository publishes whole releases only. There is no backport line, no
-long-term support branch, and no patch-only mode. **Not built.**
-
-**The licence gate and seat true-up.** The record moves licence enforcement to
-the release service: it checks the key and seat entitlement before serving
-feature updates, bugfix updates, and the conformity attestation, with the
-security lane carved out of the check. None of it exists — no key, no
-entitlement check, no seat report. **Not built.** The carve-out is the
-load-bearing part when it is built: no authentication step may run before the
-security branch is reached, or an expired key silently blocks a security fix.
+long-term support branch, and no patch-only mode. **Not built**, and this is the
+half worth keeping: it matters the first time a deployed installation needs a
+security fix it cannot take a feature upgrade to receive.
 
 The cadence and severity targets in the source were starting anchors to
 recalibrate on real use. They are not commitments this repository meets today.
+
+## What was retired
+
+**The three patch grades**, and the classifier that would have reported which
+grade a fork falls into, were retired 2026-08-19 without being built. Grading a
+fork's upgrade guarantee by how far it stays inside the seams is elaborate
+machinery for a problem this product does not have yet: no customer has forked
+in volume, and the grades are a promise nobody has asked to verify. The
+namespace split the grades were defined against — `backend/migrations/core/`
+against `backend/migrations/custom/`, and the fork-owned directories under
+`modules/` — stands on its own and is the part that actually protects an
+upgrade.
+
+**Licence enforcement and the seat true-up** are not this repository's to
+record. Commercial terms and the release-service entitlement check are decided
+and held elsewhere, so a record here would be a second copy of somebody else's
+decision, free to drift from it. What this repository keeps is the one rule that
+binds the code: **no authentication or entitlement step may run before a
+security fix is served.** An expired key must never block a security update.
+That carve-out is load-bearing wherever the check eventually lives, and it is
+stated here because the code that would implement it is here.
 
 ## History
 

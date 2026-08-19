@@ -1,9 +1,7 @@
 # ADR-0005 — The product runs its own agent loop over a swappable model client
 
 **Status:** Active — the loop, the swappable model client and the served tool
-surface are built. The delegated-worker protocol for external coding agents is
-**not built**; see below.
-
+surface are built.
 **Decided:** 2026-06-04
 
 ## The decision
@@ -57,14 +55,6 @@ runner cost.
 
 ## What is owed
 
-The delegated-worker protocol is not built. The original decision reserved a way
-to hand a scoped task to an external vendor agent — a cloud coding agent, an
-editor agent — and let it report back through the same tool surface and audit
-trail. Nothing in the tree implements it today, and no route or port exists for
-it. Its design is not final. If it is picked up, the open question is which
-scopes a delegated worker may hold and how its egress is bounded, since such a
-worker reads the record graph from outside the deployment.
-
 ## History
 
 Adopted from the retired specification, decided 2026-06-04. Rewritten in plain
@@ -77,3 +67,14 @@ closed can only reach a hosted endpoint. The third recorded that the operator �
 a hosting partner or the self-hosting customer — runs that endpoint, never
 Gradion. The local stdio surface was retired in 2026-08 for the revocation
 reason above, leaving the hosted HTTP surface as the only inbound one.
+
+The original decision also reserved a delegated-worker protocol: hand a scoped
+task to an external vendor agent — a cloud coding agent, an editor agent — and
+let it report back through the same tool surface and audit trail. It was
+retired 2026-08-19 without ever being built. Nobody asked for it, and reserving
+it carried a cost: it left an unanswered security question standing in the
+record — which scopes such a worker may hold, and how its egress is bounded
+when it reads the record graph from outside the deployment. An unanswered
+question about a feature that does not exist is better closed than kept open.
+If the need returns it is a new decision, and the security question is its
+first one rather than an inherited assumption.
