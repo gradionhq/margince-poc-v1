@@ -6,20 +6,15 @@ worker / web / database on hosts of their own). Both run the same images and
 the same configuration.
 
 The sizing below assumes the AI lanes are bound to a cloud provider. Running a
-model on the installation's own hardware
-([how-to/enrich-with-a-local-llm.md](../how-to/enrich-with-a-local-llm.md))
-needs substantially more memory and possibly a GPU, and is not sized here.
-
-Deployment mechanics — roles, database bootstrap, routing, health checks — are
-in [deployment.md](../deployment.md).
+model on the installation's own hardware needs substantially more memory and
+possibly a GPU, and is not sized here.
 
 ## Software
 
 | Requirement | Notes |
 |---|---|
 | **Postgres 16** with **pgvector** ≥ 0.5.0 | The `vector` extension is not trusted, so a superuser installs it once (`scripts/deploy/db-bootstrap.sql`). |
-| **Two non-superuser Postgres roles** | `margince_owner` (DDL) and `margince_app` (runtime). Neither may hold `SUPERUSER` or `BYPASSRLS` — both defeat the `FORCE ROW LEVEL SECURITY` tenant boundary. |
-| **Redis 7**, or **Valkey 7.2+** | Streams with consumer groups. Valkey is wire-compatible and works unchanged; Redis 7 is what the product is tested against. |
+| **Redis 7.0 - 7.2** | Streams with consumer groups. **Valkey** is compatible and should work but is not officially tested. |
 | **A TLS-terminating reverse proxy** | api and web must be served under one hostname. |
 | **Correct system clock** | Retention, automation triggers and job scheduling are time-driven. |
 | S3-compatible object store | Optional. Absent, attachments and company logos are unavailable; nothing else changes. |
@@ -39,10 +34,7 @@ Pick the tier by contact count. The second question is whether AI-powered
 search and retrieval is enabled: the embedding store is roughly twenty times
 the size of the CRM data itself, so it moves the numbers more than the tier
 does. That ratio assumes the default 1536-dimension embedding width; the store
-scales linearly with the configured `dimensions`. Switching the embedding
-model or width rewrites the store in place through a fleet-wide re-embed
-([configuration.md](configuration.md#embedding-binding-changes--reindex)) —
-it costs provider calls, not extra disk.
+scales linearly with the configured `dimensions`.
 
 ## Single node
 
@@ -99,7 +91,7 @@ Database disk follows the single-node table above; the other nodes need none.
 
 api and web sit behind one reverse proxy under **one hostname** — the web
 application, the MCP client handshake and the OAuth consent flow all depend on
-it. Path routing is in [deployment.md](../deployment.md#routing).
+it.
 
 Outbound access is needed only per feature: the bound AI provider, the FX and
 model-price sources, the Gmail / Microsoft capture connectors, outbound webhook
