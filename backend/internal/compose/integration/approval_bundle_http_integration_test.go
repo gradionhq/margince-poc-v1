@@ -169,11 +169,15 @@ func TestAnUnknownBundleIsNotFoundThroughTheAPI(t *testing.T) {
 	}
 }
 
-// Deciding is human work whatever it is spelled over. A passport reaches the
-// same origin and the same routes, so the bundle door has to refuse it exactly
-// as the single-approval door does — otherwise an agent that staged a bundle
-// could release the whole thing by asking for all of it at once.
-func TestABundleDecisionRefusesAPassport(t *testing.T) {
+// A bundle is a grouping and never a second authority object, and the door that
+// takes a passport is where that is easiest to lose: asking for all of it at
+// once must not release anything asking for one at a time would not.
+//
+// So the same two bounds apply per member. A credential lent `read` decides
+// nothing here, exactly as it decides nothing on the single-approval door — and
+// the members stay pending, which is the half a status code alone would not
+// prove.
+func TestABundleDecisionRefusesAReadOnlyPassport(t *testing.T) {
 	e := apptest.SetupApp(t)
 	e.Slug = "bundle-passport"
 	apptest.BootstrapWorkspaceSession(t, e, "Bundle Passport", "ada@passport.test", "Ada Admin")
@@ -187,11 +191,11 @@ func TestABundleDecisionRefusesAPassport(t *testing.T) {
 		t.Fatalf("create org → %d", status)
 	}
 	bundle := stageBundleRows(t, e, org.ID, "site_lead")
-	agent := apptest.PassportBearer(t, e, "bundle agent", "read", "write")
+	reader := apptest.PassportBearer(t, e, "bundle reader", "read")
 
-	status := e.Call(t, "POST", "/v1/approval-bundles/"+bundle.String()+"/approve", nil, agent, nil)
+	status := e.Call(t, "POST", "/v1/approval-bundles/"+bundle.String()+"/approve", nil, reader, nil)
 	if status != http.StatusForbidden && status != http.StatusUnauthorized {
-		t.Fatalf("a passport approving a bundle → %d, want it refused", status)
+		t.Fatalf("a read-only passport approving a bundle → %d, want it refused", status)
 	}
 	var stored string
 	if err := e.Owner.QueryRow(context.Background(),
@@ -200,5 +204,21 @@ func TestABundleDecisionRefusesAPassport(t *testing.T) {
 	}
 	if stored != "pending" {
 		t.Errorf("the member is %s after a refused agent decision, want pending", stored)
+	}
+
+	// And the other half of the same rule: a credential its human lent `write`
+	// answers what the SERVER proposed, on that human's own authority. Nothing
+	// here is the agent's own proposal — a site read staged these — so the bound
+	// that applies is the caps, and they cover it.
+	writer := apptest.PassportBearer(t, e, "bundle writer", "read", "write")
+	if status := e.Call(t, "POST", "/v1/approval-bundles/"+bundle.String()+"/approve", nil, writer, nil); status != http.StatusOK {
+		t.Fatalf("a write passport approving a server-proposed bundle → %d, want 200", status)
+	}
+	if err := e.Owner.QueryRow(context.Background(),
+		`SELECT status FROM approval WHERE bundle_id = $1`, bundle).Scan(&stored); err != nil {
+		t.Fatalf("reading the member back: %v", err)
+	}
+	if stored != "approved" {
+		t.Errorf("the member is %s after the decision, want approved", stored)
 	}
 }
