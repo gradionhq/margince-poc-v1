@@ -29,6 +29,20 @@
 -- app_user and session are NOT here either. They are what MustWorkspace
 -- ultimately resolves through, and they go last in this group.
 
+-- lock_timeout for the reason core/0139 sets it: every ALTER TABLE below needs
+-- ACCESS EXCLUSIVE on a live table, and a pending strong request queues behind
+-- whatever transaction is already running while every write arriving after it
+-- queues behind the request. Unbounded, one idle-in-transaction session turns
+-- this migration into an installation-wide write stall on `team`,
+-- `team_membership` and `record_grant`; three seconds makes it a fast, loud
+-- failure the deploy retries.
+--
+-- Added by the change that armed the lock-timeout fitness function, which
+-- reported this file as its first real catch. Safe on an already-applied
+-- database for the same reason it is on 1787111736: lock_timeout governs how a
+-- lock is ACQUIRED and touches neither schema nor data.
+SET LOCAL lock_timeout = '3s';
+
 ALTER TABLE onboarding_wizard_state DROP CONSTRAINT onboarding_wizard_state_workspace_id_fkey;
 ALTER TABLE onboarding_wizard_state DROP COLUMN workspace_id;
 
