@@ -6,15 +6,19 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ENTITY, type EntityKind } from "../app/entity";
 import { navigate } from "../app/router";
+import { useT } from "../i18n";
 import { throwProblem } from "./common";
 
 // A cross-record reference rendered as the target's display name plus a
 // backlink to its 360, resolved by id. Records point at each other by id
 // across the contract (owner, counterparty, partner org, deal); showing the
 // raw UUID is honest but unreadable, so this hydrates the name off the record
-// read and links through. The id is the fallback — shown (mono, no link)
-// while the name loads and whenever the lookup can't resolve one — so a
-// reference never renders blank or a dead link.
+// read and links through. A reference that cannot be named renders the id
+// (mono, no link) rather than blank or a dead link — on an audit row or a
+// history entry that id is the one traceable fact left. A reference whose read
+// has not answered YET, or whose read came back refused, says so instead:
+// a name that is coming, a name that is never coming, and a name nobody could
+// read at all are three different facts.
 //
 // `user`/`team` are the one exception to the "resolved name is a link"
 // rule: there is no 360 to send them to, so they resolve off the shared
@@ -30,37 +34,61 @@ export type EntityRefKind = EntityKind | RosterKind;
 type User = components["schemas"]["User"];
 type Team = components["schemas"]["Team"];
 
+/**
+ * What a read that carried no name is allowed to mean.
+ *
+ * A 404 is an ANSWER: the record is gone, or row-scope hides its existence from
+ * this reader (the API hides a row it may not see rather than admitting it),
+ * and no amount of waiting or asking again will produce a name. That is the
+ * settled reading the id fallback exists for.
+ *
+ * Every other failure — a 403 on the object, a 5xx, a dropped connection — is a
+ * read that never arrived, and it THROWS so react-query holds it as an error.
+ * Flattened to null it would be indistinguishable from the answer above, and
+ * the two say opposite things about whether this is worth asking again.
+ */
+function unnamedOrThrow(error: unknown, response: Response): null {
+  if (response.status === 404) {
+    return null;
+  }
+  throwProblem(error);
+}
+
 async function fetchEntityName(
   kind: EntityKind,
   id: string,
 ): Promise<string | null> {
-  // Coerce a missing name to null (never undefined): react-query forbids an
-  // undefined resolve, and a record read that somehow lacks its name field
-  // should fall back to the id, not crash the query. Each kind reads a
-  // different endpoint and a differently-named field, so this stays a
-  // straight per-kind switch rather than a generic lookup.
+  // A missing name coerces to null (never undefined): react-query forbids an
+  // undefined resolve, and a record that answers without its name field has
+  // answered. Each kind reads a different endpoint and a differently-named
+  // field, so this stays a straight per-kind switch rather than a generic
+  // lookup.
   if (kind === "person") {
-    const { data, error } = await api.GET("/people/{id}", {
+    const { data, error, response } = await api.GET("/people/{id}", {
       params: { path: { id } },
     });
-    return error ? null : (data.full_name ?? null);
+    if (error) return unnamedOrThrow(error, response);
+    return data.full_name ?? null;
   }
   if (kind === "organization") {
-    const { data, error } = await api.GET("/organizations/{id}", {
+    const { data, error, response } = await api.GET("/organizations/{id}", {
       params: { path: { id } },
     });
-    return error ? null : (data.display_name ?? null);
+    if (error) return unnamedOrThrow(error, response);
+    return data.display_name ?? null;
   }
   if (kind === "lead") {
-    const { data, error } = await api.GET("/leads/{id}", {
+    const { data, error, response } = await api.GET("/leads/{id}", {
       params: { path: { id } },
     });
-    return error ? null : (data.full_name ?? data.email ?? null);
+    if (error) return unnamedOrThrow(error, response);
+    return data.full_name ?? data.email ?? null;
   }
-  const { data, error } = await api.GET("/deals/{id}", {
+  const { data, error, response } = await api.GET("/deals/{id}", {
     params: { path: { id } },
   });
-  return error ? null : (data.name ?? null);
+  if (error) return unnamedOrThrow(error, response);
+  return data.name ?? null;
 }
 
 // Roster lookups share one cache entry across every EntityRef + the Share
@@ -99,14 +127,80 @@ export function useRoster(kind: RosterKind, enabled: boolean) {
 export function useEntityName(
   kind: EntityKind,
   id: string | null | undefined,
-): string | null {
+): { name: string | null; reading: NameReading } {
   const query = useQuery({
     queryKey: [kind, "ref", id],
     queryFn: () => fetchEntityName(kind, id ?? ""),
     enabled: Boolean(id),
     staleTime: 60_000,
   });
-  return query.data ?? null;
+  // The reading travels with the name, because a caller handed only `null`
+  // cannot tell a name that is still coming from one that will never come, and
+  // every caller that has had to guess has guessed the id.
+  return { name: usableName(query.data), reading: readingOf(query) };
+}
+
+/**
+ * The three readings of a reference the page cannot put a name to.
+ *
+ * `pending` is a read that has not answered yet, and it is allowed to say so.
+ * `unnamed` is a read that ANSWERED and carried no name — a record with a blank
+ * display field, or one the API will not admit exists (see `unnamedOrThrow`);
+ * there the id is what is left, and on the surfaces that keep this fallback —
+ * an audit row, a history entry, a record the reader may not open — it is the
+ * one traceable fact, so it stays. `failed` is a read that never arrived, and
+ * it may not borrow either spelling: painting the id while the name is still on
+ * its way is how a record page came to show a uuid for a moment on every load,
+ * and painting it for a 403 or a 500 states as settled fact a question nothing
+ * answered.
+ */
+type NameReading = "pending" | "failed" | "unnamed";
+
+function readingOf(
+  query: Readonly<{ isPending: boolean; isError: boolean }>,
+): NameReading {
+  if (query.isPending) {
+    return "pending";
+  }
+  return query.isError ? "failed" : "unnamed";
+}
+
+/**
+ * A caller-supplied or read-back name is usable only when it says something.
+ *
+ * Blank and whitespace-only are the same claim — the source has nothing —
+ * rather than a record whose name is a space, so neither skips the lookup and
+ * neither becomes a label. A button carrying one is a link a reader can neither
+ * read nor find.
+ */
+function usableName(name: string | null | undefined): string | null {
+  const trimmed = name?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function UnnamedRef({
+  id,
+  reading,
+}: Readonly<{ id: string; reading: NameReading }>) {
+  const t = useT();
+  if (reading === "pending") {
+    return <span className="t-caption">{t("common.loading")}</span>;
+  }
+  if (reading === "failed") {
+    // The id stays reachable through the title rather than printed as the
+    // value: on the line it reads as what the read came back with, and the
+    // read came back with nothing.
+    return (
+      <span className="t-caption" title={id}>
+        {t("ref.nameLoadFailed")}
+      </span>
+    );
+  }
+  return (
+    <span className="t-mono" title={id}>
+      {id}
+    </span>
+  );
 }
 
 function rosterName(kind: RosterKind, entry: User | Team): string | null {
@@ -138,63 +232,72 @@ export function EntityRef({
   // fallback are unchanged.
   name?: string | null;
 }>) {
-  const isRoster = kind === "user" || kind === "team";
-  // Both queries are called unconditionally (rules of hooks) and gated with
-  // `enabled` instead — only the branch matching `kind` actually fetches, and
-  // neither does when the caller supplied the name.
-  const recordQuery = useQuery({
+  if (!id) {
+    return <span className="t-mono">—</span>;
+  }
+  // Dispatch on the kind rather than running both resolutions and discarding
+  // one. Each branch then owns exactly the read it needs — no query has to be
+  // told to stay switched off, and none can report itself as loading when it
+  // was never going to run — and `kind` narrows here instead of being asserted
+  // inside a body that serves both.
+  if (kind === "user" || kind === "team") {
+    return <RosterRef kind={kind} id={id} name={name} />;
+  }
+  return <RecordRef kind={kind} id={id} name={name} asText={asText} />;
+}
+
+// A workspace user or team: no 360 exists to send the reader to, so a resolved
+// name renders as plain text and the reference never becomes a link.
+function RosterRef({
+  kind,
+  id,
+  name,
+}: Readonly<{ kind: RosterKind; id: string; name?: string | null }>) {
+  // A caller-supplied name wins here exactly as it does for a record: the
+  // connection graph returns its own labels, and falling straight through to
+  // the roster showed the reader a raw uuid until — and unless — /users
+  // resolved it.
+  const supplied = usableName(name);
+  const roster = useRoster(kind, supplied == null);
+  const match = roster.data?.find((entry) => entry.id === id);
+  const resolved =
+    supplied ?? (match ? usableName(rosterName(kind, match)) : null);
+  if (resolved == null) {
+    return <UnnamedRef id={id} reading={readingOf(roster)} />;
+  }
+  return <span title={id}>{resolved}</span>;
+}
+
+// A record with a 360 behind it: a resolved name is also the backlink.
+function RecordRef({
+  kind,
+  id,
+  name,
+  asText,
+}: Readonly<{
+  kind: EntityKind;
+  id: string;
+  name?: string | null;
+  asText: boolean;
+}>) {
+  // A caller-supplied name skips the lookup; a blank one does not, because a
+  // blank is the caller saying it has nothing rather than saying the record is
+  // nameless. `usableName` is what decides that, once, so the value that
+  // switches the read off is the same value that gets rendered.
+  const supplied = usableName(name);
+  const query = useQuery({
     queryKey: [kind, "ref", id],
-    queryFn: () => fetchEntityName(kind as EntityKind, id ?? ""),
-    // A caller-supplied name skips the lookup; a blank one does not, because a
-    // blank is the caller saying it has nothing rather than saying the record
-    // is nameless.
-    enabled: Boolean(id) && !isRoster && !name,
+    queryFn: () => fetchEntityName(kind, id),
+    enabled: supplied == null,
     // References change rarely relative to the pages that render them; a short
     // cache keeps a 360 from re-fetching the same name on every hover/refetch.
     staleTime: 60_000,
   });
-  const rosterQuery = useRoster(
-    isRoster ? (kind as RosterKind) : "user",
-    Boolean(id) && isRoster && !name,
-  );
-
-  if (!id) {
-    return <span className="t-mono">—</span>;
-  }
-
-  if (isRoster) {
-    const rosterKind = kind as RosterKind;
-    const match = rosterQuery.data?.find((entry) => entry.id === id);
-    // A caller-supplied name wins here exactly as it does for a record: the
-    // connection graph returns its own labels, and falling straight through to
-    // the roster showed the reader a raw uuid until — and unless — /users
-    // resolved it.
-    const resolved = name || (match ? rosterName(rosterKind, match) : null);
-    // No 360 exists for a user/team, so this never becomes a link — only the
-    // id-vs-resolved-name fallback applies.
-    if (resolved == null) {
-      return (
-        <span className="t-mono" title={id}>
-          {id}
-        </span>
-      );
-    }
-    return <span title={id}>{resolved}</span>;
-  }
-
-  // Only a resolved name is a safe link target; an unresolved id (still
-  // loading, or a record the caller can't read) stays plain mono text.
-  //
-  // An EMPTY supplied name counts as no name: a record whose display field is
-  // blank would otherwise render as a button with nothing in it, which is a
-  // link a reader can neither read nor find.
-  const resolved = name || recordQuery.data;
+  // Only a resolved name is a safe link target; a reference with no name —
+  // still loading, refused, or a record that carries none — never becomes one.
+  const resolved = supplied ?? usableName(query.data);
   if (resolved == null) {
-    return (
-      <span className="t-mono" title={id}>
-        {id}
-      </span>
-    );
+    return <UnnamedRef id={id} reading={readingOf(query)} />;
   }
   if (asText) {
     return <span title={id}>{resolved}</span>;
@@ -203,7 +306,7 @@ export function EntityRef({
     <button
       type="button"
       className="entity-link"
-      onClick={() => navigate(ENTITY[kind as EntityKind].route(id))}
+      onClick={() => navigate(ENTITY[kind].route(id))}
       title={id}
     >
       {resolved}
@@ -216,9 +319,11 @@ export function EntityRef({
  *
  * Reads the shared roster cache (one `/users` page, the same entry EntityRef
  * and the Share picker use), so a list of 50 rows costs no extra request. An
- * owner the roster cannot name still renders — as their id, mono — because a
- * row whose owner column is blank reads as unowned, and unowned is a different
- * fact with its own filter.
+ * owner the roster cannot name still renders rather than going blank, because
+ * a blank owner column reads as unowned, and unowned is a different fact with
+ * its own filter — but it renders as the same unnamed reference every other
+ * cross-record reference gets, not as a truncated id, which is a non-answer
+ * that has also lost the ability to be looked up.
  */
 export function OwnerName({
   ownerId,
@@ -232,9 +337,5 @@ export function OwnerName({
   if (named && "display_name" in named) {
     return <span>{named.display_name}</span>;
   }
-  return (
-    <span className="t-mono" title={ownerId}>
-      {ownerId.slice(0, 8)}
-    </span>
-  );
+  return <UnnamedRef id={ownerId} reading={readingOf(roster)} />;
 }

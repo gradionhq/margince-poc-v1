@@ -14,6 +14,14 @@
 // Widening it is a reviewed act. Adding a name here says the core will keep
 // rendering it for units it did not write, which is a different promise from
 // "this component exists".
+// SegmentedControl, because a closed choice a reader must SEE all of is a
+// different control from one they pick out of a list. Select already covers the
+// long closed set; two or three mutually exclusive options rendered as a
+// dropdown hide the very thing that makes them easy — that there are only three.
+// A unit left with only Select either accepts that, or hand-rolls a row of
+// buttons and gets the group semantics wrong: the fieldset, the accessible name
+// carried onto each option, and the pressed state are the parts nobody rebuilds
+// correctly by eye.
 export {
   Badge,
   Button,
@@ -21,6 +29,7 @@ export {
   EmptyState,
   Field,
   SectionHeader,
+  SegmentedControl,
   TextInput,
 } from "../design-system/atoms";
 // Callout, because a unit sometimes has to warn a person about a choice it is
@@ -95,6 +104,15 @@ export {
 // extensions/*/frontend exactly as it does in core, and a unit left with only
 // TextInput has to accept free text where the contract declares an enum.
 export { Select, type SelectOption } from "../design-system/select";
+// TokenInput, because a unit collecting a LIST of short values has otherwise to
+// ask for them comma-separated in a TextInput and split the string itself.
+//
+// What it publishes is not the box, it is the decisions inside it: one pasted
+// line carrying several values and one keystroke carrying one commit through the
+// same path, a value already spoken for skipped whether it collides with a token
+// on screen or with an earlier part of the same paste, and a remove control that
+// names the token it takes away. A unit that splits on commas gets none of those
+// and looks like the product until somebody pastes.
 // TokenList, because a set somebody assembled has to READ as a set.
 //
 // A unit that renders "name, then a remove button" per person produces a run of
@@ -102,4 +120,4 @@ export { Select, type SelectOption } from "../design-system/select";
 // the chip ground, the gap and the placement of the X are all stylesheet, which
 // a unit does not ship. This is the same token `TokenInput` draws, deliberately
 // from the same file: one visual, one home.
-export { type Token, TokenList } from "../design-system/tokeninput";
+export { type Token, TokenInput, TokenList } from "../design-system/tokeninput";

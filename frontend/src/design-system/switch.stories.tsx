@@ -59,6 +59,26 @@ export const WithReason: Story = {
 };
 
 /**
+ * The same refusal, stated with `reason` and nothing else. It has to be
+ * indistinguishable from `WithReason` above — dimmed track, dimmed label, the
+ * sentence underneath — because the two differ only in what the caller
+ * remembered to type, and a reader cannot see a prop. Judge them side by side
+ * in both themes: the refused ON knob names its own ink rather than dimming
+ * the accent, which over a dark ground is what keeps it from reading live.
+ */
+export const ReasonWithoutDisabled: Story = {
+  render: () => (
+    <Switch
+      label="Auto-enrich captured companies"
+      hint="Looks up a company the first time it is captured."
+      reason="Only an admin or ops can change this."
+      checked
+      onChange={() => undefined}
+    />
+  ),
+};
+
+/**
  * The flip is being written. No reason, because the wait explains itself by
  * ending — and no dimming, because dimming is what this product uses to say
  * "not yours to change". This story used to render `disabled`, which is the

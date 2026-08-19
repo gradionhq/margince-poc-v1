@@ -70,6 +70,13 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
   const anchor = nodes.find((n) => n.group === "anchor");
   const direct = nodes.filter((n) => n.group === "direct");
   const account = nodes.filter((n) => n.group === "account");
+  // A selection is only meaningful against the graph currently on screen. The
+  // panel stays mounted while the reader moves between contacts, so holding the
+  // raw state would open the detail region on a node this graph does not have
+  // and describe a relationship belonging to the contact they just left.
+  const selectedNode = nodes.some((n) => n.id === selected)
+    ? selected
+    : undefined;
 
   return (
     <div style={{ display: "grid", gap: "var(--space-4)" }}>
@@ -83,7 +90,7 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
           />
           <NodeList
             nodes={direct}
-            selected={selected}
+            selected={selectedNode}
             onSelect={setSelected}
             emptyLabel={t("person.graph.noDirect")}
           />
@@ -103,7 +110,7 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
           />
           <NodeList
             nodes={account}
-            selected={selected}
+            selected={selectedNode}
             onSelect={setSelected}
             emptyLabel={t("person.graph.noAccount")}
           />
@@ -119,8 +126,8 @@ export function PersonGraphPanel({ personId }: Readonly<{ personId: string }>) {
           moving focus: a reader on a screen reader would otherwise press a
           node and be told nothing happened. */}
       <div aria-live="polite">
-        {selected && anchor && (
-          <EdgeDetail graph={data} nodeId={selected} anchorId={anchor.id} />
+        {selectedNode && anchor && (
+          <EdgeDetail graph={data} nodeId={selectedNode} anchorId={anchor.id} />
         )}
       </div>
 
@@ -273,6 +280,7 @@ function EdgeDetail({
             key={`${edge.from}->${edge.to}`}
             edge={edge}
             graph={graph}
+            nodeId={nodeId}
             anchorId={anchorId}
           />
         ))}
@@ -284,11 +292,32 @@ function EdgeDetail({
 function EdgeFacts({
   edge,
   graph,
+  nodeId,
   anchorId,
-}: Readonly<{ edge: Edge; graph: Graph; anchorId: string }>) {
+}: Readonly<{
+  edge: Edge;
+  graph: Graph;
+  nodeId: string;
+  anchorId: string;
+}>) {
   const t = useT();
-  const otherEnd = edge.to === anchorId ? undefined : edge.to;
-  const otherLabel = graph.nodes?.find((n) => n.id === otherEnd)?.label;
+  // Whom this edge joins the SELECTED node to. Both ends have to be read,
+  // because an account-arm edge need not touch the anchor at all: reading `to`
+  // alone named the selected node as its own counterpart whenever the edge
+  // happened to point at it, so a colleague read as connected with themselves.
+  const otherEnd = edge.from === nodeId ? edge.to : edge.from;
+  const otherNode = graph.nodes?.find((n) => n.id === otherEnd);
+  // The anchor is the contact whose page this is, so it is named as the page's
+  // subject rather than by label. A far end the graph does not carry gets no
+  // sentence at all — the disclosure rules can drop a node while its pooled
+  // counts stay, and naming that edge "with this contact" would put the wrong
+  // party on it rather than admitting the picture is short one name.
+  const withWhom =
+    otherEnd === anchorId
+      ? t("person.graph.withContact")
+      : otherNode
+        ? t("person.graph.withColleague", { name: otherNode.label })
+        : undefined;
   const receipts = edge.receipts ?? [];
   return (
     <div style={{ marginTop: "var(--space-3)" }}>
@@ -301,11 +330,7 @@ function EdgeFacts({
         }}
       >
         <Badge>{t(`person.band.${edge.strength_bucket}`)}</Badge>
-        <span style={{ fontSize: "0.9rem" }}>
-          {otherLabel
-            ? t("person.graph.withColleague", { name: otherLabel })
-            : t("person.graph.withContact")}
-        </span>
+        {withWhom && <span style={{ fontSize: "0.9rem" }}>{withWhom}</span>}
       </p>
       <p
         style={{
