@@ -321,8 +321,9 @@ Wiring details:
   supersedes a lane still cataloguing an older tree, but `sign` carries no group
   and cannot be interrupted — it writes to Rekor before the bundles upload, and a
   lane cut between the two would leave a permanent signature for a tree whose
-  bundles nobody can fetch. A superseded run never reaches `sign` at all, because
-  its `sbom` job is cancelled first.
+  bundles nobody can fetch. Superseding therefore only takes effect *before*
+  signing begins — while `sbom` is pending or running. A push arriving after
+  generation finished does not stop the signature it has already earned.
 - **`release.yml`** — on a push to `main`, cuts a margince-constellation
   release versioned `1970.<build>` (the year pinned to the epoch while the
   flow is a PoC, so these releases order below any real dated release; the
@@ -360,13 +361,17 @@ Wiring details:
   back to the parent commit (`HEAD~1..HEAD`). Merges that land close together
   release only the tip: `draft` and `docker-image` each carry a cancelling group
   so a bake for a superseded commit stops, while `publish` carries a group that
-  **serializes instead of cancelling** — a running publish always finishes, and a
-  publish still pending when a newer one arrives gives up its place, so a lower
-  version can never land after a higher one. The patch range is what makes that
-  consequential:
+  **serializes instead of cancelling** — a publish that has started always
+  finishes, and a publish still pending when a newer one arrives gives up its
+  place. That is mutual exclusion, not ordering: nothing on this path rejects a
+  stale version, so a re-run or a dispatch of an older commit can still publish
+  after a newer one
+  ([#1810](https://github.com/gradionhq/margince-poc-v1/issues/1810)). The patch
+  range is what makes that consequential:
   each push's range starts at the ref's previous tip, so when commit *N*'s lane
   is cancelled the next release's patch runs *N..N+1* and the files *N* changed
   appear in no published patch at all. A consumer applying patches in order is
   therefore one increment short. Deriving the base from the last **published**
-  release instead of the push's `before` is what closes that, and is tracked as
-  an issue. Not a gate — it never blocks a merge.
+  release instead of the push's `before` is what closes that
+  ([#1798](https://github.com/gradionhq/margince-poc-v1/issues/1798)). Not a
+  gate — it never blocks a merge.

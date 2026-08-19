@@ -290,10 +290,11 @@ jobs:
     name: Publish release
     needs: [draft, docker-image]
     # `cancel-in-progress: false` here and nowhere else: publishing mutates the
-    # dist service, so a running publish finishes. The group still bounds the
-    # damage a fast merge sequence can do — one publish at a time, and a publish
-    # still waiting when a newer one arrives gives up its place, so a lower
-    # version can never land after a higher one.
+    # dist service, so a publish that has started always finishes. The group
+    # bounds how many can be in flight — one publish at a time per ref, and a
+    # publish still pending when a newer one arrives gives up its place. It is a
+    # mutual exclusion, not an ordering: which version reaches the dist service
+    # first is not something a concurrency group can decide.
     concurrency:
       group: ${{ github.workflow }}-publish-${{ github.ref }}
       cancel-in-progress: false

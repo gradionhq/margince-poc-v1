@@ -91,8 +91,10 @@ jobs:
   # It carries NO concurrency group either, so no later push can interrupt it: the
   # signature reaches Rekor before the bundles are uploaded, and a lane cut
   # between the two would leave a signature standing for a tree whose bundles
-  # nobody can fetch. A superseded run never gets this far — its `sbom` job is
-  # cancelled first.
+  # nobody can fetch. Superseding therefore only ever takes effect BEFORE signing
+  # begins — while `sbom` is still pending or running, which is where the wasted
+  # work is anyway. Once generation is done this job runs to completion whatever
+  # else lands on the ref behind it.
   sign:
     name: sign
     needs: sbom
