@@ -87,12 +87,14 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		if n := countRows(t, e, `SELECT count(*) FROM activity_link WHERE entity_type = 'organization'`); n != 0 {
 			t.Fatalf("%d org links, want 0 — the org rolls up through employment", n)
 		}
-		// Connector-created rows start owner-visible — asserted on alice
-		// herself, so an unrelated owner-visible row can never green this.
+		// Connector-created rows belong to the workspace from the start —
+		// customer identity is shared; the audience of the mail itself is a
+		// property of the activity. Asserted on alice herself, so an
+		// unrelated row can never green this.
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-			WHERE pe.email = 'alice@acme.example' AND p.visibility = 'owner'`); n != 1 {
-			t.Fatal("the connector-created person must start visibility='owner'")
+			WHERE pe.email = 'alice@acme.example' AND p.visibility = 'workspace'`); n != 1 {
+			t.Fatal("the connector-created person must start visibility='workspace'")
 		}
 		// The inbound reply above our outbound emitted exactly one engagement.reply.
 		if n := countRows(t, e, `SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'engagement.reply'`); n != 1 {

@@ -705,22 +705,30 @@ func (e *dedupeEnv) dispositionOwner(ctx context.Context, t *testing.T, domain s
 }
 
 // The blocked-domain list may not hand out a pointer to a record the caller
-// cannot read. An organization captured from mail is owner-PRIVATE until a
-// human promotes it, and that privacy does not yield to row_scope=all — so
+// cannot read. A capture-PRIVATE organization (visibility='owner') answers to
+// its owner alone, and that privacy does not yield to row_scope=all — so
 // returning its id here would leak what the record's own endpoint correctly
 // 404s, to every colleague with organization:read.
 func TestTheBlockedDomainListWithholdsAnInvisibleCompany(t *testing.T) {
 	e := setupDedupe(t)
 	owner := e.as()
 
-	// One human's captured company on a domain that then carries a decision.
+	// One human's captured company on a domain that then carries a decision,
+	// held owner-private the way a pre-shared-identity capture left it.
 	e.openTriage(owner, t, "anna@private.example", "Anna Weber", "private.example")
-	if _, err := e.store.ResolveDomainTriage(owner, ResolveDomainTriageInput{
+	resolved, err := e.store.ResolveDomainTriage(owner, ResolveDomainTriageInput{
 		Domain: "private.example", Status: DomainCompany, Source: DomainSourceSiteRead,
 		SeedURL: TriageSeedURL("private.example"), Evidence: "the site names a company",
 		DossierName: "Private Co",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("resolve: %v", err)
+	}
+	if err := e.store.tx(owner, func(tx pgx.Tx) error {
+		_, err := tx.Exec(owner, `UPDATE organization SET visibility = 'owner' WHERE id = $1`, resolved.OrganizationID)
+		return err
+	}); err != nil {
+		t.Fatalf("holding the company owner-private: %v", err)
 	}
 	if _, err := e.store.SetDomainAdmission(owner, "private.example", DomainAdmitted,
 		"a real customer"); err != nil {

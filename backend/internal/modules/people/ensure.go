@@ -11,7 +11,9 @@ package people
 // Exact match reuses; fuzzy CREATES ANYWAY and records a dedupe_candidate
 // for the review queue (capture never blocks on a human,
 // DEDUPE_FUZZY_AUTOMERGE is pinned never); no match creates. Connector-
-// created rows start visibility='owner' until a human promotes them.
+// created rows are workspace-visible: customer identity is shared across the
+// workspace, and the audience of the correspondence itself is decided per
+// activity (platform/auth ActivityContentClause), not by hiding the contact.
 
 import (
 	"context"
@@ -202,7 +204,7 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 		FirstName:   nameColumn(parsed.First),
 		LastName:    nameColumn(parsed.Last),
 		OwnerID:     ownerFromUUID(&in.OwnerID),
-		Visibility:  visibilityOwner,
+		Visibility:  visibilityWorkspace,
 		Quarantined: quarantineSuspect(in.DisplayName, in.Domain),
 		Emails:      []PersonEmailInput{{Email: in.Email, EmailType: emailTypeWork, IsPrimary: true}},
 		Source:      in.Source,

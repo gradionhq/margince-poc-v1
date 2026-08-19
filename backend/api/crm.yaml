@@ -8925,7 +8925,7 @@ paths:
         answer "what has this user/team been granted?". Read-only; tiered base scope (own/team/all) is
         not returned here — this surfaces only the *manual* grants on top of it.
       parameters:
-        - { name: record_type, in: query, schema: { type: string, enum: [deal, person, organization, lead] } }
+        - { name: record_type, in: query, schema: { type: string, enum: [deal, person, organization, lead, project] } }
         - { name: record_id, in: query, schema: { type: string, format: uuid } }
         - { name: subject_type, in: query, schema: { type: string, enum: [user, team] } }
         - { name: subject_id, in: query, schema: { type: string, format: uuid } }
@@ -22690,7 +22690,7 @@ components:
       required: [id, record_type, record_id, subject_type, subject_id, access, granted_by, created_at]
       properties:
         id: { type: string, format: uuid }
-        record_type: { type: string, enum: [deal, person, organization, lead] }
+        record_type: { type: string, enum: [deal, person, organization, lead, project] }
         record_id: { type: string, format: uuid }
         subject_type: { type: string, enum: [user, team] }
         subject_id: { type: string, format: uuid, description: 'app_user(id) or team(id) per subject_type.' }
@@ -22713,7 +22713,7 @@ components:
       type: object
       required: [record_type, record_id, subject_type, subject_id, access]
       properties:
-        record_type: { type: string, enum: [deal, person, organization, lead] }
+        record_type: { type: string, enum: [deal, person, organization, lead, project] }
         record_id: { type: string, format: uuid }
         subject_type: { type: string, enum: [user, team] }
         subject_id: { type: string, format: uuid }

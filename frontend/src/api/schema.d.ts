@@ -16775,7 +16775,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** @enum {string} */
-            record_type: "deal" | "person" | "organization" | "lead";
+            record_type: "deal" | "person" | "organization" | "lead" | "project";
             /** Format: uuid */
             record_id: string;
             /** @enum {string} */
@@ -16806,7 +16806,7 @@ export interface components {
         };
         CreateRecordGrantRequest: {
             /** @enum {string} */
-            record_type: "deal" | "person" | "organization" | "lead";
+            record_type: "deal" | "person" | "organization" | "lead" | "project";
             /** Format: uuid */
             record_id: string;
             /** @enum {string} */
@@ -28421,7 +28421,7 @@ export interface operations {
     listRecordGrants: {
         parameters: {
             query?: {
-                record_type?: "deal" | "person" | "organization" | "lead";
+                record_type?: "deal" | "person" | "organization" | "lead" | "project";
                 record_id?: string;
                 subject_type?: "user" | "team";
                 subject_id?: string;
