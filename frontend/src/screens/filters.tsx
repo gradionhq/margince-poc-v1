@@ -26,6 +26,7 @@ import {
   useFilterPreview,
   useFilterVocabulary,
 } from "./filterdata";
+import { ExportFilterMenu } from "./filterexport";
 import { FilterResults } from "./filterresults";
 import "./filters.css";
 import {
@@ -165,6 +166,15 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
             fields={vocabulary.data?.fields ?? []}
           />
         </SurfaceState>
+        {/* Below the builder, not in the header beside the count: the export
+            takes the filter as its argument, so it belongs after the thing it
+            reads — and a refusal is a sentence, which the header row has no
+            width for. It also takes the FILTER vocabulary's word for the object
+            rather than the view rail's, because `/exports` enumerates `person`,
+            the same as the preview it has to agree with. */}
+        <div className="filters-export-row">
+          <ExportFilterMenu resource={resource} tree={tree} />
+        </div>
       </Card>
 
       {/* Only once something has been asked. An empty table under an unasked

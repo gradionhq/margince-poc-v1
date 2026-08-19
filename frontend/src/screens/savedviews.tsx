@@ -13,7 +13,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { problemMessage, throwProblem } from "./common";
+import { problemMessageOf, throwProblem } from "./common";
 import type { ListQuery } from "./listquery";
 import { decode, encode, isComplete, type Node } from "./segmentpredicate";
 
@@ -278,7 +278,11 @@ function SaveViewButton({
         </h2>
         <Field
           label={t("views.name")}
-          error={create.isError ? problemMessage(create.error, t) : undefined}
+          // `problemMessageOf`, not `problemMessage`: what a failed mutation
+          // carries is a ProblemError, and handing that to the body reader
+          // yields the generic "request failed" instead of the reason the
+          // server actually gave.
+          error={create.isError ? problemMessageOf(create.error, t) : undefined}
         >
           {(control) => (
             <TextInput

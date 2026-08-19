@@ -79,6 +79,24 @@ function mount(
           truncated: false,
         });
       }
+      if (url.includes("/exports")) {
+        written.push(
+          request ? await request.json() : JSON.parse(String(init?.body)),
+        );
+        // A rendered file, not a document: served as text with the name the
+        // client is supposed to take its filename from.
+        //
+        // Deliberately NOT the name the client would compose for itself
+        // (`person-export.csv`): identical strings would make the assertion pass
+        // whether the header was read or ignored.
+        return new Response("id,full_name\np1,Ann Lee\n", {
+          status: 200,
+          headers: {
+            "Content-Type": "text/csv",
+            "Content-Disposition": 'attachment; filename="people-slice.csv"',
+          },
+        });
+      }
       if (url.includes("/views")) {
         // A save is recorded rather than answered with a fixture: what the
         // screen STORES is the thing worth asserting, and a canned view row
@@ -294,6 +312,77 @@ it("saves the tree under the key the server validates as a filter", async () => 
       filter: { and: [{ field: "full_name", op: "eq", value: "ann" }] },
     },
   });
+});
+
+it("exports the filter on screen, under the name the server gave it", async () => {
+  const createObjectURL = vi.fn(() => "blob:test");
+  const revokeObjectURL = vi.fn();
+  Object.defineProperties(URL, {
+    createObjectURL: { configurable: true, value: createObjectURL },
+    revokeObjectURL: { configurable: true, value: revokeObjectURL },
+  });
+  const anchors: HTMLAnchorElement[] = [];
+  vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+    this: HTMLAnchorElement,
+  ) {
+    anchors.push(this);
+  });
+  const { written, wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  await user.click(await screen.findByRole("button", { name: "Export CSV" }));
+
+  await waitFor(() => {
+    expect(written).toHaveLength(1);
+  });
+  // The tree on screen, not a saved view's id: what gets exported is what the
+  // count above the button just said, through the one filter engine.
+  expect(written[0]).toEqual({
+    object: "person",
+    filter: { and: [{ field: "full_name", op: "eq", value: "ann" }] },
+    format: "csv",
+  });
+  expect(anchors[0]?.download).toBe("people-slice.csv");
+});
+
+it("says so when an export is refused, instead of leaving the reader waiting", async () => {
+  const { wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  // The stub answers /exports with a 200 above; this test replaces just that
+  // route's answer so the failure path is the real one — a Problem body the
+  // screen has to read, not a thrown string.
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            title: "Export refused",
+            status: 403,
+            detail: "Bulk record read is human-only.",
+          }),
+          {
+            status: 403,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        ),
+    ),
+  );
+  await user.click(await screen.findByRole("button", { name: "Export JSON" }));
+
+  // The SERVER's reason, not "request failed". A refused bulk read can be
+  // refused for something a reader can act on, and a generic line tells them
+  // nothing — which is what handing a ProblemError to the body reader produces.
+  expect((await screen.findByRole("alert")).textContent).toBe(
+    "Bulk record read is human-only.",
+  );
 });
 
 it("starts a fresh tree when the object changes", async () => {

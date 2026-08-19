@@ -5175,4 +5175,6 @@ export const de = {
     "Die erste Seite der Treffer \u2014 genug, um den Filter zu pr\u00fcfen, nicht die gesamte Auswahl.",
   "filters.noMatches": "Keine Datens\u00e4tze entsprechen diesem Filter.",
   "filters.loadView": "Gespeicherten Filter laden",
+  "filters.exportCsv": "Als CSV exportieren",
+  "filters.exportJson": "Als JSON exportieren",
 } as const satisfies Record<MessageKey, string>;

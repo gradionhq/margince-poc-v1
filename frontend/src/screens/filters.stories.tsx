@@ -6,15 +6,15 @@ import { userEvent, within } from "storybook/test";
 import { FiltersScreen } from "./filters";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
-// The screen reads two routes and no session probe — the vocabulary for the
-// object being filtered, and a preview once a clause is complete — so the stub
-// only has to answer those two.
+// The screen reads four routes and no session probe: the vocabulary for the
+// object being filtered, a preview once a clause is complete, the reader's saved
+// views, and the export.
 //
 // The states worth capturing are the ones a reader can actually be in, and the
-// difference between them is the judgement this screen carries: nothing asked
-// yet (no count, no table), and asked (a count, and the rows behind it). A
-// screenshot of the first is what proves the second is not the only state the
-// surface knows how to draw.
+// differences between them are the judgements this screen carries: nothing asked
+// yet (no count, no table), asked (a count, and the rows behind it), restored
+// from a saved view, and an export that was refused. A screenshot of the first is
+// what proves the others are not the only states the surface knows how to draw.
 const meta: Meta<typeof FiltersScreen> = {
   title: "Screens/Filters and views",
   component: FiltersScreen,
@@ -120,6 +120,18 @@ function routes(): void {
     "GET /filters/vocabulary": () => jsonResponse(PERSON_VOCAB),
     "POST /filters/preview": () => jsonResponse(PREVIEW),
     "GET /views": () => jsonResponse(SAVED_VIEWS),
+    // Refused rather than served, because the failure is the state worth a
+    // screenshot: a success hands the browser a file and leaves the page looking
+    // exactly as it did, which documents nothing.
+    "POST /exports": () =>
+      jsonResponse(
+        {
+          title: "Export refused",
+          status: 403,
+          detail: "Bulk record read is human-only.",
+        },
+        403,
+      ),
   });
 }
 
@@ -156,6 +168,27 @@ export const LoadedFromASavedView: Story = {
       await page.findByRole("button", { name: "Gold tier in Berlin" }),
     );
     await canvas.findByText("3 contacts match");
+  },
+};
+
+export const ExportRefused: Story = {
+  // What a reader sees when the export cannot be served. The menu closes on the
+  // click, so the refusal has to land somewhere on the page — otherwise somebody
+  // waits for a file that is never coming.
+  render: () => {
+    routes();
+    return <FiltersScreen />;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add clause" }),
+    );
+    await userEvent.type(canvas.getByLabelText("Value"), "Berlin");
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Export CSV" }),
+    );
+    await canvas.findByRole("alert");
   },
 };
 

@@ -5187,6 +5187,8 @@ export const en = {
     "The first page of matches — enough to check the filter, not the whole selection.",
   "filters.noMatches": "No records match this filter.",
   "filters.loadView": "Load a saved filter",
+  "filters.exportCsv": "Export CSV",
+  "filters.exportJson": "Export JSON",
 } as const;
 
 export type MessageKey = keyof typeof en;

@@ -10,6 +10,7 @@ import {
 import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
 import "./aiexport.css";
+import { downloadBytes } from "./download";
 
 export type AiCallDetail = Pick<
   components["schemas"]["AiCall"],
@@ -119,14 +120,7 @@ export function ExportScenarioDialog({
   }
 
   function downloadYaml() {
-    const url = URL.createObjectURL(
-      new Blob([yaml], { type: "application/yaml" }),
-    );
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${scenarioSlug(name)}.yaml`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadBytes(yaml, `${scenarioSlug(name)}.yaml`, "application/yaml");
   }
 
   return (
