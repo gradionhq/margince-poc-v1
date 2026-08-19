@@ -139,7 +139,8 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		WithRecipientDirectory(recipientDirectory{}).
 		WithSendAuthority(send.SendAuthority).
 		WithDraftOutcome(send.DraftOutcome)
-	s.approvalsHandlers = s.approvalsHandlers.WithLateEffects(func(svc *approvals.Service) {
+	decisions := s.approvalsHandlers
+	s.approvalsHandlers = decisions.WithLateEffects(func(svc *approvals.Service) {
 		registerLateApprovalEffects(svc, pool, send)
 	})
 }

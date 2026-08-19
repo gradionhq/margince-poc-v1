@@ -136,19 +136,14 @@ func TestEveryReleasableKindSaysWhetherItsReleaseSends(t *testing.T) {
 	for _, kind := range kinds {
 		sends, inertly := approvals.ReleaseSends(kind), inert[kind]
 		if sends == inertly {
+			fault := "is in neither list"
+			if sends {
+				fault = "is claimed by both lists at once"
+			}
 			t.Errorf("%s is registered as a releasable kind and %s. Say which it is: a release that "+
 				"puts a message on the wire belongs in approvals.sendingKinds, so a credential whose "+
 				"human withheld the send cap cannot spend it; one that only writes records belongs in "+
-				"the list above", kind, classificationFault(sends, inertly))
+				"the list above", kind, fault)
 		}
 	}
-}
-
-// classificationFault names which half of the census a kind failed, so the
-// message says what to do rather than that something is wrong.
-func classificationFault(sends, inert bool) string {
-	if sends && inert {
-		return "is claimed by both lists at once"
-	}
-	return "is in neither list"
 }
