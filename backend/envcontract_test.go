@@ -227,10 +227,10 @@ func TestEveryEnvVarIsDocumented(t *testing.T) {
 	}
 }
 
-// TestEnvTemplateNamesOnlyLiveVars: an entry for a variable nothing reads is
+// TestEnvExampleNamesOnlyLiveVars: an entry for a variable nothing reads is
 // worse than no entry at all, because it invites an operator to supply a value
 // that cannot take effect.
-func TestEnvTemplateNamesOnlyLiveVars(t *testing.T) {
+func TestEnvExampleNamesOnlyLiveVars(t *testing.T) {
 	assertNamesOnlyLiveVars(t, envExample)
 }
 
@@ -255,11 +255,11 @@ func TestConfigurationDocNamesOnlyLiveVars(t *testing.T) {
 // proving more than it does.
 var entrypointRequired = regexp.MustCompile(`\$\{(MARGINCE_[A-Z0-9_]+):?\?`)
 
-// TestEntrypointRequiredVarsAreInTheTemplate: a var the container refuses to
+// TestEntrypointRequiredVarsAreInTheEnvExample: a var the container refuses to
 // boot without belongs in the file an operator is handed, not only in the
 // script that rejects them. docs/deployment.md names .env.example as that
 // file, which is what makes this an obligation rather than a nicety.
-func TestEntrypointRequiredVarsAreInTheTemplate(t *testing.T) {
+func TestEntrypointRequiredVarsAreInTheEnvExample(t *testing.T) {
 	offered := namesIn(t, envExample)
 
 	required := map[string]string{}
