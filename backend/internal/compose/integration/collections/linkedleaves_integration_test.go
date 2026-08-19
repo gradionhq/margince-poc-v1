@@ -22,7 +22,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// ownedOrg seeds one account owned by one seat, through the real writer.
+// ownedOrg goes through CreateOrganization so the owner_id the team leaf joins on
+// is the one production stamps. A hand-inserted row could carry an owner no
+// membership edge reaches, and the join would then be proven against a shape the
+// product cannot produce.
 func (f fixture) ownedOrg(t *testing.T, name string, owner ids.UUID) ids.UUID {
 	t.Helper()
 	seat := ids.From[ids.UserKind](owner)
