@@ -355,13 +355,13 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `frontend/scripts/check-native-controls.sh`, but nothing automated can tell
   that the component you just wrote already existed under another name, which is
   how this tree has twice grown a second spelling of a card.
-- `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
+- `extensions/<name>/` — the stable extension tier (ADR-0120): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the
-  enablement. The vanilla tree ships two first-party units, enabled by
-  default: `extensions/de` (the German jurisdiction pack — GoBD
-  calendar-year retention floors) and `extensions/yogi` (one served
-  🟢/read agent tool — the worked example of the governed-tool kind). `make composition` (run by every build lane)
+  enablement. The vanilla tree ships five first-party units: `de` (the
+  German jurisdiction pack — GoBD calendar-year retention floors),
+  `dispact-connector`, `notes`, `yogi` (one served 🟢/read agent tool — the
+  worked example of the governed-tool kind), and `zalo-oa`. `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at
   the root is the committed vanilla stub so bare go commands resolve.
 
