@@ -22,7 +22,21 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration/apptest"
+	"github.com/jackc/pgx/v5"
 )
+
+// disownOverDB nulls a record's owner at the database. A create over the wire
+// stamps the calling seat as owner when the body names none, so the unowned
+// state these queue tests are about has to be produced after the fact.
+func disownOverDB(t *testing.T, e *apptest.AppEnv, table, id string) {
+	t.Helper()
+	if err := apptest.InWorkspace(e, t, e.Slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(t.Context(), `UPDATE `+table+` SET owner_id = NULL WHERE id = $1`, id)
+		return err
+	}); err != nil {
+		t.Fatalf("disown %s %s: %v", table, id, err)
+	}
+}
 
 // listedIDs is the shape every list response shares, read down to the one
 // thing these assertions are about: which records came back.
@@ -173,6 +187,7 @@ func TestThePersonListNarrowsToTheUnownedQueueOnTheWire(t *testing.T) {
 
 	createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Owned Person", "owner_id": owner})
 	unowned := createdRecord(t, e, "/v1/people", apptest.AnyMap{"full_name": "Unowned Person"})
+	disownOverDB(t, e, "person", unowned)
 
 	// Unassigned is a fact with its own queue, not an absence: a list that
 	// answered every row here would send somebody to claim records that are
@@ -187,6 +202,7 @@ func TestTheLeadListNarrowsToTheUnownedQueueOnTheWire(t *testing.T) {
 
 	createdRecord(t, e, "/v1/leads", apptest.AnyMap{"full_name": "Owned Lead", "email": "owned@lead.test", "owner_id": owner})
 	unowned := createdRecord(t, e, "/v1/leads", apptest.AnyMap{"full_name": "Unowned Lead", "email": "unowned@lead.test"})
+	disownOverDB(t, e, "lead", unowned)
 
 	// The same dial the person and company lists answer (DM-VOCAB-OWN-1): a
 	// lead queue nobody has claimed is the first thing a rep asks a lead list.

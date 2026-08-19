@@ -8952,6 +8952,44 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /records/{record_type}/{id}/claim:
+    parameters:
+      - name: record_type
+        in: path
+        required: true
+        schema: { type: string, enum: [person, organization, lead, deal] }
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Identity]
+      operationId: claimRecord
+      x-agent-access: human-only
+      # Session cookie only, matching auth.RequireHuman at runtime: putting one's
+      # name on a customer record is a human's act.
+      security: [{ cookieAuth: [] }]
+      summary: Take ownership of a customer record.
+      description: |
+        Sets the record's `owner_id` to the caller. Customer identity is workspace-readable, and an
+        ownerless record is nobody's to change until somebody claims it — this is the claim. Permitted
+        on a record the caller can read that has no owner, or that is already theirs to change (a
+        reassignment to oneself). A record owned by somebody else, with no write share, answers `403`;
+        a claim that loses the race to another claimant answers `409` naming the owner that won.
+        One transaction: the row, its audit row (`assign`) and its `<record>.updated` event.
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: The record is the caller's.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecordClaim' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'Somebody else claimed the record first, or the version moved (`code: conflict` / `version_skew`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /record-grants:
     get:
       tags: [Access]
@@ -22770,6 +22808,14 @@ components:
         source: { type: [string, 'null'] }
         double_opt_in_token: { type: [string, 'null'], description: Required to make a grant effective when the purpose has requires_double_opt_in=true. }
 
+    RecordClaim:
+      type: object
+      required: [record_type, record_id, owner_id, version]
+      properties:
+        record_type: { type: string, enum: [person, organization, lead, deal] }
+        record_id: { type: string, format: uuid }
+        owner_id: { type: string, format: uuid, description: The caller — the record's owner now. }
+        version: { $ref: '#/components/schemas/RowVersion' }
     RecordGrant:
       type: object
       description: A manual per-record share (A52/ADR-0039) — widens own/team/all base scope for one record.

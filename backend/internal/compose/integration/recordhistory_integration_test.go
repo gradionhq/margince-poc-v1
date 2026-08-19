@@ -144,13 +144,12 @@ func TestRecordHistoryRendersEveryActorChronologically(t *testing.T) {
 		}
 	}
 
-	// The genesis row's actor is the harness admin — a synthetic user with
-	// no app_user row, so the summary honestly falls back to the raw
-	// prefixed actor_id instead of inventing a name.
+	// The genesis row's actor is the harness admin, a real app_user whose
+	// display name is "Rep" like every harness seat, so the summary resolves
+	// the name rather than falling back to the raw prefixed actor_id.
 	genesis := page.Entries[0]
-	if genesis.Action != "create" ||
-		!strings.HasPrefix(genesis.Summary, "human:") || !strings.HasSuffix(genesis.Summary, "created the record") {
-		t.Errorf("genesis line = %q (action %q), want raw-actor_id create line", genesis.Summary, genesis.Action)
+	if genesis.Action != "create" || genesis.Summary != "Rep created the record" {
+		t.Errorf("genesis line = %q (action %q), want the admin's resolved create line", genesis.Summary, genesis.Action)
 	}
 
 	human := page.Entries[1]

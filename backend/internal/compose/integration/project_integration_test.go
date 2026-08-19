@@ -433,8 +433,10 @@ func TestListProjectsAppliesFiltersRegisteredAfterThePrelude(t *testing.T) {
 // owns — but it must not be NAMED, because naming a project is reading it.
 func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 	e := Setup(t)
-	source := e.SeedOrg(t, "Helios GmbH", nil)
-	target := e.SeedOrg(t, "Helios AG", nil)
+	// The merging rep owns both companies (a merge is a write, and an own-scope
+	// seat only writes what it owns), but not the projects under them.
+	source := e.SeedOrg(t, "Helios GmbH", &e.Rep3)
+	target := e.SeedOrg(t, "Helios AG", &e.Rep3)
 	// Each side's project belongs to a different rep, and the caller below
 	// owns neither.
 	seedProject(e.Admin(), t, e, "Secret migration", nil, source, &e.Rep1)
@@ -482,8 +484,8 @@ func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 // naming is precision, not silence.
 func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
 	e := Setup(t)
-	source := e.SeedOrg(t, "Vector Ltd", nil)
-	target := e.SeedOrg(t, "Vector Limited", nil)
+	source := e.SeedOrg(t, "Vector Ltd", &e.Rep1)
+	target := e.SeedOrg(t, "Vector Limited", &e.Rep1)
 	seedProject(e.Admin(), t, e, "Mine A", nil, source, &e.Rep1)
 	seedProject(e.Admin(), t, e, "Mine B", nil, target, &e.Rep1)
 

@@ -317,6 +317,8 @@ export function CompanyOwnerControl({
   const canUpdate = useCan("organization", "update");
   const readOnlyReason = useCompanyReadOnlyReason(org);
   const patch = useCompanyFieldPatch(org);
+  const claim = useClaimRecord("organization", org.id, org.version);
+  const viewerId = useViewerId();
   const roster = useRoster("user", true);
   const owners = (roster.data ?? []).flatMap((entry) =>
     "display_name" in entry
@@ -367,9 +369,41 @@ export function CompanyOwnerControl({
           unresolvedOwnerLabel(roster, t)
         );
       }}
-      onSave={(next) => patch({ owner_id: next })}
+      // An unowned account is nobody's to change until somebody claims it, so
+      // a reader taking it on goes through the claim — the door the write arm
+      // leaves open to every seat — while naming a colleague stays a patch,
+      // which an unbounded seat may make and a bounded one may not.
+      onSave={(next) =>
+        !org.owner_id && next === viewerId ? claim() : patch({ owner_id: next })
+      }
     />
   );
+}
+
+// useClaimRecord is the claim door: POST /records/{type}/{id}/claim makes the
+// caller the owner of an unowned record (or re-confirms one already theirs)
+// and refreshes what shows it. Used wherever an owner control lets a reader
+// pick themselves on a record nobody owns.
+export function useClaimRecord(
+  recordType: "organization" | "person" | "lead" | "deal",
+  id: string,
+  version: number | undefined,
+) {
+  const queryClient = useQueryClient();
+  return async () => {
+    const { error } = await api.POST("/records/{record_type}/{id}/claim", {
+      params: {
+        path: { record_type: recordType, id },
+        ...ifMatch(requireVersion(version)),
+      },
+    });
+    if (error) {
+      throwProblem(error);
+    }
+    await queryClient.invalidateQueries({ queryKey: [`${recordType}s`] });
+    await queryClient.invalidateQueries({ queryKey: [`${recordType}360`, id] });
+    await queryClient.invalidateQueries({ queryKey: [recordType, id] });
+  };
 }
 
 function CompanyEditAction({

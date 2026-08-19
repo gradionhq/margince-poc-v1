@@ -7545,6 +7545,30 @@ func (e QuotaAttainmentBand) Valid() bool {
 	}
 }
 
+// Defines values for RecordClaimRecordType.
+const (
+	RecordClaimRecordTypeDeal         RecordClaimRecordType = "deal"
+	RecordClaimRecordTypeLead         RecordClaimRecordType = "lead"
+	RecordClaimRecordTypeOrganization RecordClaimRecordType = "organization"
+	RecordClaimRecordTypePerson       RecordClaimRecordType = "person"
+)
+
+// Valid indicates whether the value is a known member of the RecordClaimRecordType enum.
+func (e RecordClaimRecordType) Valid() bool {
+	switch e {
+	case RecordClaimRecordTypeDeal:
+		return true
+	case RecordClaimRecordTypeLead:
+		return true
+	case RecordClaimRecordTypeOrganization:
+		return true
+	case RecordClaimRecordTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RecordConsentRequestNewState.
 const (
 	RecordConsentRequestNewStateGranted   RecordConsentRequestNewState = "granted"
@@ -9269,31 +9293,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -19238,6 +19262,24 @@ type RbacObjectGrant struct {
 	Update bool `json:"update"`
 }
 
+// RecordClaim defines model for RecordClaim.
+type RecordClaim struct {
+	// OwnerId The caller — the record's owner now.
+	OwnerId    openapi_types.UUID    `json:"owner_id"`
+	RecordId   openapi_types.UUID    `json:"record_id"`
+	RecordType RecordClaimRecordType `json:"record_type"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+}
+
+// RecordClaimRecordType defines model for RecordClaim.RecordType.
+type RecordClaimRecordType string
+
 // RecordConsentRequest defines model for RecordConsentRequest.
 type RecordConsentRequest struct {
 	// DoubleOptInToken Required to make a grant effective when the purpose has requires_double_opt_in=true.
@@ -24348,6 +24390,16 @@ type GetRecordHistoryParams struct {
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ClaimRecordParams defines parameters for ClaimRecord.
+type ClaimRecordParams struct {
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
 // ListRelationshipsParams defines parameters for ListRelationships.
@@ -32551,6 +32603,9 @@ type ServerInterface interface {
 	// Full audit history for one record, rendered as plain-language lines.
 	// (GET /records/{entity_type}/{id}/history)
 	GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams)
+	// Take ownership of a customer record.
+	// (POST /records/{record_type}/{id}/claim)
+	ClaimRecord(w http.ResponseWriter, r *http.Request, recordType string, id Id, params ClaimRecordParams)
 	// List relationships (employment, deal_stakeholder, or partner edges).
 	// (GET /relationships)
 	ListRelationships(w http.ResponseWriter, r *http.Request, params ListRelationshipsParams)
@@ -34765,6 +34820,12 @@ func (_ Unimplemented) GetRecordContext(w http.ResponseWriter, r *http.Request, 
 // Full audit history for one record, rendered as plain-language lines.
 // (GET /records/{entity_type}/{id}/history)
 func (_ Unimplemented) GetRecordHistory(w http.ResponseWriter, r *http.Request, entityType string, id Id, params GetRecordHistoryParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Take ownership of a customer record.
+// (POST /records/{record_type}/{id}/claim)
+func (_ Unimplemented) ClaimRecord(w http.ResponseWriter, r *http.Request, recordType string, id Id, params ClaimRecordParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -49990,6 +50051,71 @@ func (siw *ServerInterfaceWrapper) GetRecordHistory(w http.ResponseWriter, r *ht
 	handler.ServeHTTP(w, r)
 }
 
+// ClaimRecord operation middleware
+func (siw *ServerInterfaceWrapper) ClaimRecord(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "record_type" -------------
+	var recordType string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "record_type", chi.URLParam(r, "record_type"), &recordType, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "record_type", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ClaimRecordParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ClaimRecord(w, r, recordType, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListRelationships operation middleware
 func (siw *ServerInterfaceWrapper) ListRelationships(w http.ResponseWriter, r *http.Request) {
 
@@ -54838,6 +54964,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/records/{entity_type}/{id}/history", wrapper.GetRecordHistory)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/records/{record_type}/{id}/claim", wrapper.ClaimRecord)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/relationships", wrapper.ListRelationships)

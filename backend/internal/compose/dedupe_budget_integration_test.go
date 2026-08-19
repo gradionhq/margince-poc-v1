@@ -96,13 +96,14 @@ func TestCaptureDedupeStagesMergeInsteadOfDuplicating(t *testing.T) {
 
 func TestSeatDerivedBudget(t *testing.T) {
 	e := integration.Setup(t)
-	// setupAuthz seeds three full-seat humans.
+	// The harness seeds four full-seat humans: three reps and the admin seat.
+	const seats = 4
 	budget, err := NewSeatBudget(e.Pool).MonthlyTokenBudget(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if budget != 3*perSeatBaseTokens*budgetSafetyFactor {
-		t.Fatalf("3-seat budget = %d, want %d", budget, 3*perSeatBaseTokens*budgetSafetyFactor)
+	if budget != seats*perSeatBaseTokens*budgetSafetyFactor {
+		t.Fatalf("%d-seat budget = %d, want %d", seats, budget, seats*perSeatBaseTokens*budgetSafetyFactor)
 	}
 	// An empty workspace floors at one seat rather than refusing. The
 	// workspace table sits outside RLS and is owner-seeded, so the seed

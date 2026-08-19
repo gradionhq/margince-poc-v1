@@ -308,6 +308,10 @@ var teamScopedDecider = principal.Permissions{
 func TestAcceptingSettlesOnlyTheContradictionsTheDeciderCanSee(t *testing.T) {
 	e := integration.Setup(t)
 	org := seedAccountAtStage(t, e, "customer")
+	// Accepting the offer writes the account's lifecycle, and an unowned row
+	// is writable by nobody below row_scope=all until claimed — so the
+	// team-scoped decider must own the account they are deciding on.
+	e.WsExec(t, "UPDATE organization SET owner_id = $1 WHERE id = $2", e.Rep1, org)
 	mine := seedOpenContractEnded(t, e, org)
 	// Same account, but its subject is a person capture-private to the OTHER
 	// team's rep — the one state that still hides an identity row from a seat.
@@ -320,10 +324,10 @@ func TestAcceptingSettlesOnlyTheContradictionsTheDeciderCanSee(t *testing.T) {
 		t.Fatalf("accepting the offer: %v", err)
 	}
 
-	// The account is ownerless, so it is visible at every tier — which is what
-	// makes this the control: the two signals differ ONLY in their subject, so
-	// the one that stays open stays open because of the contact it is about
-	// and nothing else.
+	// The account is the decider's own, so it is within their scope — which is
+	// what makes this the control: the two signals differ ONLY in their
+	// subject, so the one that stays open stays open because of the contact it
+	// is about and nothing else.
 	if status := signalStatus(t, e, mine); status != "acknowledged" {
 		t.Errorf("the signal subjected to the account itself reads %q, want "+
 			"acknowledged — the scope bound is settling rows it should not withhold", status)

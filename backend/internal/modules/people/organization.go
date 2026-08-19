@@ -46,6 +46,7 @@ func (s *Store) CreateOrganization(ctx context.Context, in CreateOrganizationInp
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	// The store-opened path reads the catalog through the unexported helper,
 	// not ActiveOrganizationColumns: that one takes organization:read on the
 	// caller's behalf, and a seat may hold create without it.
@@ -81,6 +82,7 @@ func (s *Store) CreateOrganizationTx(ctx context.Context, tx pgx.Tx, in CreateOr
 	if err != nil {
 		return crmcontracts.Organization{}, err
 	}
+	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	return createOrganizationInTx(ctx, tx, in, by, nil)
 }
 

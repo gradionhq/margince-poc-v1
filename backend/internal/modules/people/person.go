@@ -85,6 +85,7 @@ func (s *Store) CreatePerson(ctx context.Context, in CreatePersonInput) (crmcont
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
+	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	// The store-opened path reads the catalog through the unexported helper,
 	// not ActivePersonColumns: that one takes person:read on the caller's
 	// behalf, and a seat may hold create without it.
@@ -120,6 +121,7 @@ func (s *Store) CreatePersonTx(ctx context.Context, tx pgx.Tx, in CreatePersonIn
 	if err != nil {
 		return crmcontracts.Person{}, err
 	}
+	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	return createPersonInTx(ctx, tx, in, by, nil)
 }
 

@@ -231,6 +231,9 @@ func TestAFailedReassignmentDoesNotMarkItsRunApplied(t *testing.T) {
 	e := integration.Setup(t)
 	svc := approvalsServiceWithEffects(e.Pool)
 	person := e.SeedPerson(t, "Reassignment Fails", nil)
+	// The create stamps the seeding seat as owner; the test wants an unowned
+	// record so the failed write's footprint is unmistakable.
+	e.WsExec(t, `UPDATE person SET owner_id = NULL WHERE id = $1`, person)
 	// An owner that does not exist: the store's foreign key refuses it, which is
 	// an ordinary failure of the write rather than a fault injected around it.
 	id, handler := parkedRun(t, e, svc, string(workflow.ActionAssignOwner), person,

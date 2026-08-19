@@ -100,14 +100,19 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 		return ids.LeadID{}, false, err
 	}
 	var id ids.LeadID
+	// Owned by the human behind the connector, like a captured person: an
+	// ownerless lead is nobody's to change, and the connector's own replay is
+	// a write — a lead it could not write back to would be one it created and
+	// then could never resume.
 	err := tx.QueryRow(ctx, `
-		INSERT INTO lead (full_name, email, company_name, title, source_system, source_id, source, captured_by)
-		VALUES (NULLIF($1, ''), NULLIF(lower($2), ''), NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8)
+		INSERT INTO lead (full_name, email, company_name, title, source_system, source_id, source, captured_by, owner_id)
+		VALUES (NULLIF($1, ''), NULLIF(lower($2), ''), NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8, $9)
 		ON CONFLICT (source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
 		fields.FullName, fields.Email, fields.CompanyName, fields.Title,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy).Scan(&id)
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy,
+		storekit.OwnerOrActor(ctx, nil)).Scan(&id)
 	if err == nil {
 		var stamps []storekit.FieldStamp
 		for _, f := range []struct{ field, value string }{

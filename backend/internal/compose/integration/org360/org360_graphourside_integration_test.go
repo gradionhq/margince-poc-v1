@@ -422,8 +422,10 @@ func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) 
 	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
-	// An unassigned account, so no owner edge pads the user nodes.
+	// An unassigned account, so no owner edge pads the user nodes. The create
+	// stamps the seeding seat as owner, so the owner is nulled explicitly.
 	org := e.SeedOrg(t, "Acme", nil)
+	e.WsExec(t, "UPDATE organization SET owner_id = NULL WHERE id = $1", org)
 
 	// The colleagues of the contacts the cap will drop are seeded FIRST: every
 	// interaction shares one timestamp, so the user cap's tie-break is the user
@@ -514,8 +516,10 @@ func TestOrganizationGraphUserCapCountsUsersAndReportsTheRemainder(t *testing.T)
 	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
-	// An unassigned account, so the owner edge cannot pad the user count.
+	// An unassigned account, so the owner edge cannot pad the user count. The
+	// create stamps the seeding seat as owner, so the owner is nulled explicitly.
 	org := e.SeedOrg(t, "Acme", nil)
+	e.WsExec(t, "UPDATE organization SET owner_id = NULL WHERE id = $1", org)
 	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
 	employ(t, e, contact, org, "cto")
 	const writers = 13
