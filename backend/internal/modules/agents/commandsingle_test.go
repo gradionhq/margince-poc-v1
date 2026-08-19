@@ -607,14 +607,22 @@ func TestADecisionStagesNoTargetAndSaysWhichWayItGoes(t *testing.T) {
 		wants   string
 		mustSay string
 	}{
-		{"approve one", NewDecideApprovalCall(DecideApprovalCommand{ApprovalID: approval, Approve: true}),
-			"Approve", approval.String()},
-		{"reject one", NewDecideApprovalCall(DecideApprovalCommand{ApprovalID: approval}),
-			"Reject", approval.String()},
-		{"approve an act", NewDecideBundleCall(DecideBundleCommand{BundleID: bundle, Approve: true}),
-			"Approve", bundle.String()},
-		{"reject an act", NewDecideBundleCall(DecideBundleCommand{BundleID: bundle}),
-			"Reject", bundle.String()},
+		{
+			"approve one", NewDecideApprovalCall(DecideApprovalCommand{ApprovalID: approval, Approve: true}),
+			"Approve", approval.String(),
+		},
+		{
+			"reject one", NewDecideApprovalCall(DecideApprovalCommand{ApprovalID: approval}),
+			"Reject", approval.String(),
+		},
+		{
+			"approve an act", NewDecideBundleCall(DecideBundleCommand{BundleID: bundle, Approve: true}),
+			"Approve", bundle.String(),
+		},
+		{
+			"reject an act", NewDecideBundleCall(DecideBundleCommand{BundleID: bundle}),
+			"Reject", bundle.String(),
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
