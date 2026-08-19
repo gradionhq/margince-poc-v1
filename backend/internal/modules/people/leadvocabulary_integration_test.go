@@ -11,6 +11,7 @@ package people
 // round-trip through the lead read.
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -189,6 +190,37 @@ func TestLeadSourceGovernsHumanWritesAndTheScore(t *testing.T) {
 		if d.Key == "connector:apollo" {
 			t.Errorf("an adopted family still reads as discovered: %+v", d)
 		}
+	}
+
+	// The counts are a lead read: an actor scoped to their own rows counts
+	// only leads they may see. Unowned rows are visible at every scope, so
+	// the leads get an owner first.
+	owner := ids.From[ids.UserKind](e.user)
+	for _, id := range []ids.LeadID{leadID, ids.From[ids.LeadKind](ids.UUID(connectorLead.Id))} {
+		if _, err := e.store.UpdateLead(e.ctx, id, UpdateLeadInput{OwnerID: &owner}); err != nil {
+			t.Fatalf("assign owner: %v", err)
+		}
+	}
+	ownScope := principal.WithActor(principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.ws), ids.NewV7()),
+		principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+			Permissions: principal.Permissions{
+				RoleKeys: []string{"rep"},
+				Objects:  map[string]principal.ObjectGrant{"lead": {Read: true}, "custom_field": {Read: true}},
+				RowScope: principal.RowScopeOwn,
+			},
+		})
+	scoped, err := e.store.ListLeadSources(ownScope)
+	if err != nil {
+		t.Fatalf("scoped list: %v", err)
+	}
+	for _, s := range scoped.Data {
+		if s.LeadCount != nil && *s.LeadCount != 0 {
+			t.Errorf("own-scoped actor counts %d leads under %q, want 0 — lead_count is a lead read", *s.LeadCount, s.Key)
+		}
+	}
+	if len(scoped.Discovered) != 0 {
+		t.Errorf("own-scoped actor sees discovered sources %+v, want none", scoped.Discovered)
 	}
 }
 

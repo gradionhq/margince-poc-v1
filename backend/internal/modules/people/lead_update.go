@@ -153,7 +153,7 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 		}
 	}
 	if in.Source != nil {
-		if err := ensureHumanSourceAllowed(ctx, tx, *in.Source); err != nil {
+		if err := ensureHumanSourceAllowed(ctx, tx, strings.TrimSpace(*in.Source)); err != nil {
 			return crmcontracts.Lead{}, err
 		}
 	}

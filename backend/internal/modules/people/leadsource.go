@@ -172,14 +172,23 @@ func deriveSourceKey(label string) string {
 	return strings.Trim(key, "_")
 }
 
-// lead_count counts a connector family's leads through the family prefix,
-// because the leads carry `connector:<name>:<id>` while the row carries
-// `connector:<name>`.
-const leadSourceColumns = `id, key, label, intent, sort_order, active, system, version, created_at, updated_at,
+// leadSourceColumns renders the select list. lead_count carries the caller's
+// row scope — a narrowed actor counts only the leads they may see — and
+// counts a connector family's leads through the family prefix, because the
+// leads carry `connector:<name>:<id>` while the row carries `connector:<name>`.
+// The key's underscores are escaped so LIKE reads them as letters.
+func leadSourceColumns(ctx context.Context, args *[]any) (string, error) {
+	arg := func(v any) int { *args = append(*args, v); return len(*args) }
+	scope, err := scopeOrAllRows(ctx, "lead", "", arg)
+	if err != nil {
+		return "", err
+	}
+	return `id, key, label, intent, sort_order, active, system, version, created_at, updated_at,
 	(SELECT count(*) FROM lead
-	  WHERE lead.archived_at IS NULL
-	    AND (lead.source = lead_source.key
-	         OR (lead_source.key LIKE 'connector:%' AND lead.source LIKE lead_source.key || ':%')))`
+	  WHERE archived_at IS NULL AND ` + scope + `
+	    AND (source = lead_source.key
+	         OR (lead_source.key LIKE 'connector:%' AND source LIKE replace(lead_source.key, '_', '\_') || ':%')))`, nil
+}
 
 func scanLeadSource(row pgx.Row) (crmcontracts.LeadSource, error) {
 	var out crmcontracts.LeadSource
@@ -200,8 +209,20 @@ func scanLeadSource(row pgx.Row) (crmcontracts.LeadSource, error) {
 	return out, nil
 }
 
-func readLeadSource(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.LeadSource, error) {
-	out, err := scanLeadSource(tx.QueryRow(ctx, `SELECT `+leadSourceColumns+` FROM lead_source WHERE id = $1`, id))
+// readLeadSource reads one row; lock takes it FOR UPDATE first so a patch
+// built from the read cannot be overtaken by a concurrent writer.
+func readLeadSource(ctx context.Context, tx pgx.Tx, id ids.UUID, lock bool) (crmcontracts.LeadSource, error) {
+	if lock {
+		if _, err := storekit.LockRow(ctx, tx, "lead_source", id, storekit.NoArchiveColumn); err != nil {
+			return crmcontracts.LeadSource{}, err
+		}
+	}
+	args := []any{id}
+	cols, err := leadSourceColumns(ctx, &args)
+	if err != nil {
+		return crmcontracts.LeadSource{}, err
+	}
+	out, err := scanLeadSource(tx.QueryRow(ctx, `SELECT `+cols+` FROM lead_source WHERE id = $1`, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, apperrors.ErrNotFound
 	}
@@ -215,7 +236,12 @@ func (s *Store) ListLeadSources(ctx context.Context) (crmcontracts.LeadSourceLis
 	}
 	out := crmcontracts.LeadSourceListResponse{Data: []crmcontracts.LeadSource{}, Discovered: []crmcontracts.DiscoveredLeadSource{}}
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `SELECT `+leadSourceColumns+` FROM lead_source ORDER BY sort_order, label, id`)
+		var args []any
+		cols, err := leadSourceColumns(ctx, &args)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.Query(ctx, `SELECT `+cols+` FROM lead_source ORDER BY sort_order, label, id`, args...)
 		if err != nil {
 			return err
 		}
@@ -239,17 +265,24 @@ func (s *Store) ListLeadSources(ctx context.Context) (crmcontracts.LeadSourceLis
 
 // discoveredLeadSources groups the live leads' source values the table does
 // not name: connector values by family, everything else by its own value.
+// Under the caller's row scope, like every other lead read.
 func discoveredLeadSources(ctx context.Context, tx pgx.Tx) ([]crmcontracts.DiscoveredLeadSource, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	scope, err := scopeOrAllRows(ctx, "lead", "", arg)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := tx.Query(ctx,
 		`SELECT CASE WHEN source LIKE 'connector:%'
 		             THEN split_part(source, ':', 1) || ':' || split_part(source, ':', 2)
 		             ELSE source END AS family, count(*)
 		   FROM lead
-		  WHERE archived_at IS NULL
+		  WHERE archived_at IS NULL AND `+scope+`
 		    AND source NOT IN (SELECT key FROM lead_source)
 		    AND (source NOT LIKE 'connector:%'
 		         OR split_part(source, ':', 1) || ':' || split_part(source, ':', 2) NOT IN (SELECT key FROM lead_source))
-		  GROUP BY family ORDER BY count(*) DESC, family`)
+		  GROUP BY family ORDER BY count(*) DESC, family`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -305,7 +338,7 @@ func (s *Store) CreateLeadSource(ctx context.Context, in CreateLeadSourceInput) 
 			map[string]any{"key": key, "label": label, "intent": string(intent)}); err != nil {
 			return err
 		}
-		out, err = readLeadSource(ctx, tx, id)
+		out, err = readLeadSource(ctx, tx, id, false)
 		return err
 	})
 	return out, err
@@ -327,7 +360,7 @@ func (s *Store) UpdateLeadSource(ctx context.Context, id ids.UUID, in UpdateLead
 	}
 	var out crmcontracts.LeadSource
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		before, err := readLeadSource(ctx, tx, id)
+		before, err := readLeadSource(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}
@@ -354,7 +387,7 @@ func (s *Store) UpdateLeadSource(ctx context.Context, id ids.UUID, in UpdateLead
 		if _, err := storekit.Audit(ctx, tx, "update", "lead_source", id, p.Before(), p.After()); err != nil {
 			return err
 		}
-		out, err = readLeadSource(ctx, tx, id)
+		out, err = readLeadSource(ctx, tx, id, false)
 		return err
 	})
 	return out, err
@@ -367,7 +400,7 @@ func (s *Store) DeleteLeadSource(ctx context.Context, id ids.UUID) error {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := readLeadSource(ctx, tx, id)
+		current, err := readLeadSource(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}

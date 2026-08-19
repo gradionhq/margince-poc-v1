@@ -38,8 +38,17 @@ type UpdateLeadDisqualifyReasonInput struct {
 	Active    *bool
 }
 
-const leadDisqualifyReasonColumns = `id, label, sort_order, active, system, version, created_at, updated_at,
-	(SELECT count(*) FROM lead WHERE lead.disqualify_reason_id = lead_disqualify_reason.id)`
+// leadDisqualifyReasonColumns renders the select list; lead_count carries
+// the caller's row scope, like every other lead read.
+func leadDisqualifyReasonColumns(ctx context.Context, args *[]any) (string, error) {
+	arg := func(v any) int { *args = append(*args, v); return len(*args) }
+	scope, err := scopeOrAllRows(ctx, "lead", "", arg)
+	if err != nil {
+		return "", err
+	}
+	return `id, label, sort_order, active, system, version, created_at, updated_at,
+	(SELECT count(*) FROM lead WHERE disqualify_reason_id = lead_disqualify_reason.id AND ` + scope + `)`, nil
+}
 
 func scanLeadDisqualifyReason(row pgx.Row) (crmcontracts.LeadDisqualifyReason, error) {
 	var out crmcontracts.LeadDisqualifyReason
@@ -58,9 +67,21 @@ func scanLeadDisqualifyReason(row pgx.Row) (crmcontracts.LeadDisqualifyReason, e
 	return out, nil
 }
 
-func readLeadDisqualifyReason(ctx context.Context, tx pgx.Tx, id ids.UUID) (crmcontracts.LeadDisqualifyReason, error) {
+// readLeadDisqualifyReason reads one row; lock takes it FOR UPDATE first so
+// a patch built from the read cannot be overtaken by a concurrent writer.
+func readLeadDisqualifyReason(ctx context.Context, tx pgx.Tx, id ids.UUID, lock bool) (crmcontracts.LeadDisqualifyReason, error) {
+	if lock {
+		if _, err := storekit.LockRow(ctx, tx, "lead_disqualify_reason", id, storekit.NoArchiveColumn); err != nil {
+			return crmcontracts.LeadDisqualifyReason{}, err
+		}
+	}
+	args := []any{id}
+	cols, err := leadDisqualifyReasonColumns(ctx, &args)
+	if err != nil {
+		return crmcontracts.LeadDisqualifyReason{}, err
+	}
 	out, err := scanLeadDisqualifyReason(tx.QueryRow(ctx,
-		`SELECT `+leadDisqualifyReasonColumns+` FROM lead_disqualify_reason WHERE id = $1`, id))
+		`SELECT `+cols+` FROM lead_disqualify_reason WHERE id = $1`, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return out, apperrors.ErrNotFound
 	}
@@ -98,8 +119,13 @@ func (s *Store) ListLeadDisqualifyReasons(ctx context.Context) ([]crmcontracts.L
 	}
 	out := []crmcontracts.LeadDisqualifyReason{}
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		var args []any
+		cols, err := leadDisqualifyReasonColumns(ctx, &args)
+		if err != nil {
+			return err
+		}
 		rows, err := tx.Query(ctx,
-			`SELECT `+leadDisqualifyReasonColumns+` FROM lead_disqualify_reason ORDER BY sort_order, label, id`)
+			`SELECT `+cols+` FROM lead_disqualify_reason ORDER BY sort_order, label, id`, args...)
 		if err != nil {
 			return err
 		}
@@ -137,7 +163,7 @@ func (s *Store) CreateLeadDisqualifyReason(ctx context.Context, in CreateLeadDis
 			return err
 		}
 		var err error
-		out, err = readLeadDisqualifyReason(ctx, tx, id)
+		out, err = readLeadDisqualifyReason(ctx, tx, id, false)
 		return err
 	})
 	return out, err
@@ -153,7 +179,7 @@ func (s *Store) UpdateLeadDisqualifyReason(ctx context.Context, id ids.UUID, in 
 	}
 	var out crmcontracts.LeadDisqualifyReason
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		before, err := readLeadDisqualifyReason(ctx, tx, id)
+		before, err := readLeadDisqualifyReason(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}
@@ -177,7 +203,7 @@ func (s *Store) UpdateLeadDisqualifyReason(ctx context.Context, id ids.UUID, in 
 		if _, err := storekit.Audit(ctx, tx, "update", "lead_disqualify_reason", id, p.Before(), p.After()); err != nil {
 			return err
 		}
-		out, err = readLeadDisqualifyReason(ctx, tx, id)
+		out, err = readLeadDisqualifyReason(ctx, tx, id, false)
 		return err
 	})
 	return out, err
@@ -190,7 +216,7 @@ func (s *Store) DeleteLeadDisqualifyReason(ctx context.Context, id ids.UUID) err
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		current, err := readLeadDisqualifyReason(ctx, tx, id)
+		current, err := readLeadDisqualifyReason(ctx, tx, id, true)
 		if err != nil {
 			return err
 		}
