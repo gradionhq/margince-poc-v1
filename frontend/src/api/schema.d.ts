@@ -14888,7 +14888,7 @@ export interface components {
             job_id?: number;
             /**
              * Format: date-time
-             * @description When this job's first recorded attempt failed, so "failing since" is answerable. The attempt counter says which rung of the retry ladder the job is on, never how long it has been on it, and one failure at 21:08 is a different situation from an hour of them. Null when no attempt error was recorded — a job cancelled before it ran records none.
+             * @description When this job's first recorded attempt STARTED, so "failing since" is answerable. River stamps an attempt error with the attempt's start rather than the moment it failed, and the field is named for the question an operator asks — how long has this been going wrong — which the start is the honest answer to. The attempt counter says which rung of the retry ladder the job is on, never how long it has been on it, and one failure at 21:08 is a different situation from an hour of them. Null when no attempt error was recorded — a job cancelled before it ran records none.
              */
             first_failed_at?: string | null;
             /** @description The vocabulary token this failure was classified as (e.g. `provider_unavailable`, `version_skew`), from the same closed vocabulary as `reason` — core for a job the platform ships, declared by the extension unit for one it composes. It is what an alert matches and what a screen filters on, which is why it is a token and not prose. Null when the stored text could not be vetted: no class is asserted for a failure this surface could not recognise, and inventing one would key an alert on a guess. */

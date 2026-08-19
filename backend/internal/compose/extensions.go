@@ -61,9 +61,10 @@ func RegisterExtensions(exts []extension.Extension, verbs []extension.Verb, jobD
 	// After the jurisdiction packs, and still in the apply phase: the RBAC
 	// vocabulary is validate-then-apply inside RegisterRbacObjects itself (a set
 	// with one bad name registers none), so it cannot half-widen what a role
-	// document may grant. It is the one apply step that can still return an
-	// error, which is why it is LAST — a failure here leaves the packs applied
-	// and the boot aborting, and an aborting boot serves nothing either way.
+	// document may grant. Two fallible apply steps follow it — the composed job
+	// kinds and their failure vocabulary — so a failure in any of the three
+	// leaves the packs applied and the boot aborting, and an aborting boot
+	// serves nothing either way.
 	if err := RegisterRbacObjects(rbacObjects); err != nil {
 		return err
 	}

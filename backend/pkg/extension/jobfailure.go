@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -119,6 +120,34 @@ func validateFailureSentence(class, field, s string) error {
 	if strings.ContainsAny(s, "\r\n") {
 		return fmt.Errorf("failure class %q has a line break in its %s — a failure renders as one line in a bounded list", class, field)
 	}
+	// EVERY NON-PRINTING RUNE IS REFUSED, and this is a security check rather
+	// than a tidiness one.
+	//
+	// The registration that stops a unit claiming a core sentence or one of the
+	// substitutes compares strings exactly, so a sentence differing from a core
+	// one by a single invisible codepoint is not a collision to that check — and
+	// it renders to an operator as the sentence it copied, now carrying a class
+	// the real one can never carry. A non-breaking space is the realistic way in:
+	// copying a sentence out of rendered prose to use as a template brings one
+	// along, the author sees their own edit, and the gate sees a different string.
+	//
+	// unicode.IsPrint admits the ASCII space and no other space separator, and no
+	// format or control rune at all, so one test closes NBSP, the zero-width
+	// spaces, the bidi overrides and an ANSI escape sequence together. The last of
+	// those matters for a second reason: these strings reach an operator's
+	// terminal through psql and the process log unescaped.
+	//
+	// WHAT IT DOES NOT CLOSE, said plainly rather than left to be discovered: a
+	// homoglyph is printable, so a Cyrillic lookalike still differs by bytes while
+	// reading identically. Refusing that needs normalisation and folding, and it
+	// only defends against a unit doing it deliberately — which is outside this
+	// tier's threat model, where every composed unit is reviewed and a hostile one
+	// has better roads than a spoofed sentence.
+	for _, r := range s {
+		if !unicode.IsPrint(r) {
+			return fmt.Errorf("failure class %q has a non-printing character (%U) in its %s — the sentence is compared byte-for-byte against the core vocabulary, so an invisible rune would let it impersonate a sentence it must not claim", class, r, field)
+		}
+	}
 	if utf8.RuneCountInString(s) > maxFailureSentenceLength {
 		return fmt.Errorf("failure class %q has a %d-character %s — what a unit may publish into the fleet-visible error column is capped at %d, and a longer one is several failures owing several classes", class, utf8.RuneCountInString(s), field, maxFailureSentenceLength)
 	}
@@ -170,10 +199,11 @@ func ValidateFailureClasses(classes []FailureClass) error {
 // whose Sentence a unit formatted out of the cause, which is the accident the
 // whole seam exists to prevent — so the sentence is persisted only when the
 // installation registered exactly this value, all three fields, for the kind that
-// is failing. An unregistered one persists the unclassified substitute instead and
-// sends the cause to the log. Declaring a class is what makes it publishable; a
-// class the boot never validated costs the operator this unit's detail and reaches
-// the failure column with nothing.
+// is failing. An unregistered one falls through to the core sentinel vocabulary,
+// and persists the unclassified substitute only when nothing there matches either;
+// the cause goes to the log in both cases. Declaring a class is what makes it
+// publishable, so forgetting to declare one costs the operator this unit's own
+// wording and never a classification the failure would have had regardless.
 //
 // A nil cause answers nil: there is no failure to classify, and a wrapper that
 // invented one would turn a successful tick into a dead row.

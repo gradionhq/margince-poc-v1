@@ -11,6 +11,7 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
@@ -108,19 +109,55 @@ func faultFor(ctx context.Context, kind string, err error) error {
 			// promises is reachable somewhere, just not in a fleet-visible
 			// column. Returning here without logging would trade a vague screen
 			// for a silent log, which is the same operator stuck one step later.
-			slog.ErrorContext(ctx, "jobs: a worker failed", "kind", kind, "class", registered.Class, "err", err)
+			slog.ErrorContext(ctx, "jobs: a worker failed", faultLogAttrs(ctx, kind, registered.Class, err)...)
 			return &fault{sentence: registered.Sentence, cause: err}
 		}
 		slog.ErrorContext(ctx, "jobs: a worker returned a failure class this installation did not declare for this kind, so its sentence is not published",
-			"kind", kind, "class", class.Class, "err", err)
+			faultLogAttrs(ctx, kind, class.Class, err)...)
 	}
 	for _, known := range vocabulary {
 		if errors.Is(err, known.sentinel) {
 			return &fault{sentence: known.sentence, cause: err}
 		}
 	}
-	slog.ErrorContext(ctx, "jobs: a worker failed with an unclassified cause", "err", err)
+	// The SAME attributes as the two classified lines above. This is the branch
+	// whose sentence tells an operator the diagnosis is in the process log, so it
+	// is the one line that must be findable — and it was the one carrying neither
+	// the kind nor anything else identifying the tick.
+	slog.ErrorContext(ctx, "jobs: a worker failed with an unclassified cause", faultLogAttrs(ctx, kind, "", err)...)
 	return &fault{sentence: unrecognised, cause: err}
+}
+
+// faultLogAttrs is what every fault log line carries, spelled once so the three
+// branches cannot describe the same failure three different ways.
+//
+// The correlation id and the workspace are read off the context and attached
+// EXPLICITLY rather than left to the handler. slog.ErrorContext only enriches a
+// record if the DEFAULT handler happens to be correlation-aware, and no process
+// role installs one: cmd/worker builds a correlation-aware logger and passes it
+// around, while slog.Default() keeps the bare handler. So a line that relied on
+// the handler carried neither value, whichever context it was given — which is
+// the whole reason a caller is asked to pass the tick's own context.
+//
+// An absent value is OMITTED rather than logged empty. A dispatcher has no
+// workspace and the two kindless entry points have no kind; an empty attr would
+// assert a value the failure does not have, and a reader filtering on it would
+// match every one of them.
+func faultLogAttrs(ctx context.Context, kind, class string, err error) []any {
+	attrs := make([]any, 0, 8)
+	if kind != "" {
+		attrs = append(attrs, "kind", kind)
+	}
+	if class != "" {
+		attrs = append(attrs, "class", class)
+	}
+	if id, ok := principal.CorrelationID(ctx); ok {
+		attrs = append(attrs, "correlation_id", id.String())
+	}
+	if ws, ok := principal.WorkspaceID(ctx); ok {
+		attrs = append(attrs, "workspace_id", ws.String())
+	}
+	return append(attrs, "err", err)
 }
 
 // VettedSentence reports whether s is a sentence Fault itself would have

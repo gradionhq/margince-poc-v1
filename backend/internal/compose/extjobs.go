@@ -211,14 +211,10 @@ func composedJobSpecs(set []composedJob) []jobs.Spec {
 // contributes, keyed by River kind — the shape jobs.RegisterComposedFailureClasses
 // takes, because the READ starts from a row and a row carries a kind, not a unit.
 //
-// A unit's declared classes are registered under BOTH of its kinds, the
-// dispatcher's and the child's. A dispatcher fails too: it enumerates the
-// workspaces to fan out to, and a unit whose vocabulary names the provider
-// being unreachable can hit exactly that failure while deciding whom to
-// dispatch for. An operator reading a dead dispatcher needs the same class and
-// the same remedy the child's failure would have given them — and the two rows
-// carry different kinds, so registering one kind would leave the other
-// reporting a classified failure as unvettable.
+// The CHILD kind only, not the dispatcher's. A dispatcher runs no unit code —
+// it holds a pool and a declaration, never the unit's handler — so no declared
+// class can ever reach a dispatcher row, and a vocabulary registered for that
+// kind would be a table entry nothing could ever read.
 //
 // A unit that declared no classes contributes no entry rather than an empty
 // one, which is what keeps ComposedFailureKinds a list of kinds that actually
@@ -230,13 +226,12 @@ func composedFailureClasses(exts []extension.Extension, set []composedJob) map[s
 			byUnit[e.Name] = e.FailureClasses
 		}
 	}
-	byKind := make(map[string][]extension.FailureClass, 2*len(set))
+	byKind := make(map[string][]extension.FailureClass, len(set))
 	for _, j := range set {
 		classes, declared := byUnit[j.decl.Unit]
 		if !declared {
 			continue
 		}
-		byKind[j.decl.DispatcherKind()] = classes
 		byKind[j.decl.ChildKind()] = classes
 	}
 	return byKind

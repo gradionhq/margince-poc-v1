@@ -311,8 +311,11 @@ type Extension struct {
 	// core vocabulary, and it refuses the whole set together rather than
 	// mid-tick. It cannot refuse a class a job BUILDS at tick time, because no
 	// boot ever saw it: that one is caught on the write path, which publishes a
-	// class's sentence only when the installation registered exactly it, and
-	// otherwise reports the failure as unclassified and logs the cause.
+	// class's sentence only when the installation registered exactly it. An
+	// unregistered one falls through to the core vocabulary and reports as
+	// unclassified only when nothing there matches either, so forgetting to
+	// declare costs the unit's own wording and never a classification the failure
+	// would have had anyway. The cause goes to the log in every case.
 	FailureClasses []FailureClass
 }
 

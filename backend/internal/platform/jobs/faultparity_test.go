@@ -32,11 +32,14 @@ import (
 // perfectly compiling program that reports the wrong thing at run time.
 const sentinelRegistrySource = "../../shared/apperrors/apperrors.go"
 
-// unitKind is the composed kind these cases register a vocabulary under. One
-// spelling, because every case that registers uses the same one — a second kind
-// appears below only where a case is ABOUT the kind being different, and there it
-// is written inline so the difference is visible at the assertion.
-const unitKind = "ext_unit_job_ws"
+// The two composed kinds these cases use. unitKind is the one a vocabulary is
+// registered under; otherKind is never registered, and exists so a case about a
+// kind MISMATCH reads as a mismatch rather than as one named kind beside a bare
+// literal.
+const (
+	unitKind  = "ext_unit_job_ws"
+	otherKind = "ext_other_job_ws"
+)
 
 // TestEverySentinelIsClassifiedForTheJobSurface derives the coverage obligation
 // from apperrors' own source: every exported sentinel it declares has an entry in
@@ -255,7 +258,7 @@ func TestAComposedClassCannotImpersonateACoreClass(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Cleanup(resetComposedFailureClasses)
 			err := RegisterComposedFailureClasses(map[string][]extension.FailureClass{
-				"ext_unit_job_ws": {tc.class},
+				unitKind: {tc.class},
 			})
 			if err == nil {
 				t.Fatalf("registered a composed class declaring %s", tc.name)
@@ -276,11 +279,11 @@ func TestVettedFailurePrefersTheCoreVocabulary(t *testing.T) {
 	// Registered under a kind of its own so registration accepts it; the point is
 	// the READ, which must still answer with the core class.
 	if err := RegisterComposedFailureClasses(map[string][]extension.FailureClass{
-		"ext_unit_job_ws": {{Class: "provider_unavailable", Sentence: "the provider could not be reached", Remedy: "check the network"}},
+		unitKind: {{Class: "provider_unavailable", Sentence: "the provider could not be reached", Remedy: "check the network"}},
 	}); err != nil {
 		t.Fatalf("registering a well-formed composed vocabulary: %v", err)
 	}
-	got, ok := VettedFailure("ext_unit_job_ws", core.sentence)
+	got, ok := VettedFailure(unitKind, core.sentence)
 	if !ok {
 		t.Fatalf("a core sentence stored on an extension kind did not vet")
 	}
@@ -307,7 +310,7 @@ func TestVettedFailureRefusesWhatItCannotClassify(t *testing.T) {
 	for _, tc := range []struct{ name, kind, stored string }{
 		{"an empty column", unitKind, ""},
 		{"a raw cause that embeds a vetted sentence", unitKind, "poll: " + declared.Sentence + " at 10.0.0.1"},
-		{"another kind's sentence", "ext_other_job_ws", declared.Sentence},
+		{"another kind's sentence", otherKind, declared.Sentence},
 		{"a sentence nothing declares", unitKind, "something else went wrong"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -368,7 +371,7 @@ func TestAnUnregisteredClassNeverPublishesItsSentence(t *testing.T) {
 	}
 	for _, tc := range []struct{ name, kind string }{
 		{"a class this installation never declared", unitKind},
-		{"a declared class under another kind", "ext_other_job_ws"},
+		{"a declared class under another kind", otherKind},
 		{"no kind at all, as FaultContext has none", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -415,7 +418,7 @@ func TestAnUnregisteredClassStillGetsItsWrappedSentinelsSentence(t *testing.T) {
 		Sentence: "something the boot never validated",
 		Remedy:   "nothing",
 	}
-	stored := FaultForKind(t.Context(), "ext_unit_job_ws", extension.Failure(undeclared, core.sentinel))
+	stored := FaultForKind(t.Context(), unitKind, extension.Failure(undeclared, core.sentinel))
 	if stored.Error() != core.sentence {
 		t.Fatalf("persisted %q, want the wrapped sentinel's own sentence %q", stored.Error(), core.sentence)
 	}
@@ -477,5 +480,42 @@ func TestAClassifiedFailureStillSendsItsCauseToTheLog(t *testing.T) {
 	}
 	if !strings.Contains(logged.String(), declared.Class) {
 		t.Fatalf("the log line does not name the class, so it cannot be tied to the row an operator is reading: %q", logged.String())
+	}
+}
+
+// TestAnInvisibleRuneCannotSmuggleASubstituteSentencePastTheCollisionCheck.
+//
+// refuseCoreCollision compares sentences exactly, so before non-printing runes
+// were refused a sentence differing from a substitute by one invisible codepoint
+// registered cleanly — and then rendered to an operator as the substitute's own
+// text while carrying a class the real substitute can never carry. A genuine
+// unclassifiable failure shows that text with no class; this one showed it with
+// one, and nothing on the screen distinguished them.
+//
+// A non-breaking space is the realistic way in rather than a contrived one:
+// copying a sentence out of rendered prose to use as a template brings one along.
+func TestAnInvisibleRuneCannotSmuggleASubstituteSentencePastTheCollisionCheck(t *testing.T) {
+	// The runes are written as ESCAPES rather than pasted in. A test whose input
+	// is invisible in its own source cannot be read, and the next person to touch
+	// it would have no way to see what makes each case different.
+	for _, tc := range []struct{ name, sentence string }{
+		{"a non-breaking space for a space", strings.Replace(UnvettedFailureReason, " ", "\u00a0", 1)},
+		{"a zero-width space inserted", unrecognised + "\u200b"},
+		{"a bidi override inserted", NoRecordedCause + "\u202e"},
+		{"an ANSI escape inserted", "the provider was unreachable\x1b[2K"},
+		{"a tab inserted", "the provider was\tunreachable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Cleanup(resetComposedFailureClasses)
+			err := RegisterComposedFailureClasses(map[string][]extension.FailureClass{
+				unitKind: {{Class: "provider_hiccup", Sentence: tc.sentence, Remedy: "check the provider"}},
+			})
+			if err == nil {
+				t.Fatalf("registered a sentence carrying %s, which can impersonate a sentence no class may claim", tc.name)
+			}
+			if !strings.Contains(err.Error(), "non-printing character") {
+				t.Fatalf("refusal does not name the cause: %v", err)
+			}
+		})
 	}
 }

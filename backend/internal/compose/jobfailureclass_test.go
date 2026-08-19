@@ -24,11 +24,15 @@ var providerUnavailable = extension.FailureClass{
 	Remedy:   "check this installation's network reach to the provider; the poll catches up on its own.",
 }
 
-// TestADeclaredVocabularyIsRegisteredForBothTheDispatcherAndTheChildKind — a
-// dispatcher fails too, while it is deciding whom to fan out for, and its rows
-// carry a different kind from the child's. Registering one kind would leave the
-// other reporting a classified failure as unvettable.
-func TestADeclaredVocabularyIsRegisteredForBothTheDispatcherAndTheChildKind(t *testing.T) {
+// TestADeclaredVocabularyIsRegisteredForTheChildKindOnly: the child kind is the
+// only one a declared class can ever reach.
+//
+// A dispatcher runs no unit code — extJobDispatcherWorker holds a pool and a
+// declaration and never the unit's handler — so no failure it reports can carry a
+// unit's class, and a vocabulary registered under its kind would be a table entry
+// nothing could ever read. The child is where the unit's tick runs and therefore
+// the only kind whose rows can store a unit's sentence.
+func TestADeclaredVocabularyIsRegisteredForTheChildKindOnly(t *testing.T) {
 	decl := jobDecl()
 	unit := unitWithJob("refresh", noopTick)
 	unit.FailureClasses = []extension.FailureClass{providerUnavailable}
@@ -44,14 +48,15 @@ func TestADeclaredVocabularyIsRegisteredForBothTheDispatcherAndTheChildKind(t *t
 		t.Fatalf("RegisterExtensions: %v", err)
 	}
 
-	for _, kind := range []string{decl.DispatcherKind(), decl.ChildKind()} {
-		declared := jobs.ComposedFailureClasses(kind)
-		if len(declared) != 1 {
-			t.Fatalf("kind %s carries %d declared classes, want the unit's one", kind, len(declared))
-		}
-		if declared[0] != providerUnavailable {
-			t.Errorf("kind %s carries %+v, want the declared class verbatim", kind, declared[0])
-		}
+	declared := jobs.ComposedFailureClasses(decl.ChildKind())
+	if len(declared) != 1 {
+		t.Fatalf("child kind %s carries %d declared classes, want the unit's one", decl.ChildKind(), len(declared))
+	}
+	if declared[0] != providerUnavailable {
+		t.Errorf("child kind %s carries %+v, want the declared class verbatim", decl.ChildKind(), declared[0])
+	}
+	if got := jobs.ComposedFailureClasses(decl.DispatcherKind()); len(got) != 0 {
+		t.Errorf("dispatcher kind %s carries %d classes; a dispatcher runs no unit code, so nothing can ever read them", decl.DispatcherKind(), len(got))
 	}
 }
 
@@ -194,10 +199,23 @@ func TestAUnitThatDeclaresNoVocabularyRegistersNoKind(t *testing.T) {
 // jobs.Declared(), and a composed workspace kind left behind here demands a
 // refusal driver that only a real extension could supply.
 //
-// Both registrations REPLACE rather than merge, so an empty set is the reset.
+// Every registration REPLACES rather than merges, so an empty set is the reset.
+//
+// The five compose-side setters are cleared as well as the two jobs tables,
+// because RegisterExtensions writes them all on the way through and a helper that
+// cleared only the tables its own test reads would leave the unit named by
+// servedExtensionJobs() and ComposedExtensions() for the rest of the binary.
+// extjobs_integration_test.go asserts the first is empty and
+// handlers_extensions_test.go reads the second; both would then be passing on the
+// accident that "e" and "h" sort before "j".
 func restoreVanillaComposedTables(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
+		setComposedJobs(nil)
+		setComposedSubscriptions(nil)
+		setComposedTools(nil)
+		setComposedVerbs(nil)
+		setComposedExtensions(nil)
 		if err := jobs.RegisterComposed(nil); err != nil {
 			t.Errorf("clearing the composed kind table: %v", err)
 		}

@@ -20538,7 +20538,10 @@ components:
           type: [string, 'null']
           format: date-time
           description: >
-            When this job's first recorded attempt failed, so "failing since" is answerable.
+            When this job's first recorded attempt STARTED, so "failing since" is answerable.
+            River stamps an attempt error with the attempt's start rather than the moment it
+            failed, and the field is named for the question an operator asks — how long has
+            this been going wrong — which the start is the honest answer to.
             The attempt counter says which rung of the retry ladder the job is on, never how
             long it has been on it, and one failure at 21:08 is a different situation from an
             hour of them. Null when no attempt error was recorded — a job cancelled before it

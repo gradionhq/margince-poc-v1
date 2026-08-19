@@ -87,17 +87,24 @@ type Failure struct {
 	Attempt     int
 	MaxAttempts int
 	FailedAt    time.Time
-	// FirstFailedAt is when the FIRST recorded attempt failed, and it is nil
-	// when no attempt error was recorded at all — a cancelled job that never
-	// ran records none, and a zero time would read on a screen as 1970
-	// rather than as absence. The absence is carried for the same reason
+	// FirstFailedAt is when the FIRST recorded attempt STARTED, which is what
+	// River stores on an attempt error (AttemptError.At is the attempt's start,
+	// not the moment it failed — the same trap FailedAt above reads columns to
+	// avoid). It is named for what an operator asks rather than for the column:
+	// the question is "how long has this been going wrong", and the first
+	// attempt's start is the honest answer to it. A job that failed on a wall-clock
+	// timeout began failing at that start, whatever second the timeout fired.
+	//
+	// It answers what the attempt counter cannot: "failing since 21:08" and
+	// "failed once at 21:08" are different operator situations, and an attempt
+	// count of 3 says which ladder rung the job is on, never how long it has been
+	// on the ladder.
+	//
+	// Nil when no attempt error was recorded at all — a cancelled job that never
+	// ran records none, and a zero time would read on a screen as 1970 rather than
+	// as absence. The absence is carried for the same reason
 	// OldestWaitingAgeSeconds carries its own: nil and a value are different
 	// claims, and flattening one into the other invents a fact.
-	//
-	// It answers a question the attempt counter cannot: "failing since
-	// 21:08" and "failed once at 21:08" are different operator situations,
-	// and an attempt count of 3 says which ladder rung the job is on, never
-	// how long it has been on the ladder.
 	FirstFailedAt *time.Time
 	// StoredReason is river_job.errors' text VERBATIM, and the caller must
 	// not put it on a wire without vetting it: the column holds whatever a
@@ -213,7 +220,9 @@ func healthByKind(ctx context.Context, pool *pgxpool.Pool, workspaceID string, d
 //
 // first_failed_at is the one value that has no column to read, so errors[1]
 // — the OLDEST attempt, the array being append-ordered — is read as TEXT and
-// parsed in Go rather than cast in SQL. A `::timestamptz` in the statement
+// parsed in Go rather than cast in SQL. What that element carries is the
+// attempt's START (see Failure.FirstFailedAt), which is why the field is not
+// named for the moment of failure. A `::timestamptz` in the statement
 // would put the same app-written column back in the query's critical path
 // that the paragraph above keeps out of it: one unparseable value would fail
 // the whole read instead of leaving one row's "failing since" unanswered.

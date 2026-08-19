@@ -110,9 +110,11 @@ func renderFailure(f jobs.Failure) renderedFailure {
 	return renderedFailure{Reason: jobs.UnvettedFailureReason}
 }
 
-// jobHealthReadTimeout bounds the scoped job read. river_job has no index
-// over args->>'workspace_id', so both statements scan; a read that cannot
-// finish inside this is a signal, not something to wait out.
+// jobHealthReadTimeout bounds the scoped job read. cmd/migrate creates
+// river_job_workspace_arg over args->>'workspace_id', so the tenant arm is
+// indexed — the bound stays because the untenanted arm is not, and because a
+// read that cannot finish inside this is a signal rather than something to wait
+// out.
 const jobHealthReadTimeout = 5 * time.Second
 
 // jobHealthHandlers serves the admin job-health read. The pool is the only
@@ -166,9 +168,9 @@ func (h jobHealthHandlers) GetJobHealth(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Bounded, for the same reason the exposition endpoint bounds its own
-	// job read: this is two sequential scans of a table no index covers, and
-	// an unbounded one holds a request thread and a pool connection for as
-	// long as the scan takes. The budget is larger than the scrape's 2s
+	// job read: an unbounded one holds a request thread and a pool connection for
+	// as long as the read takes, and the untenanted arm of the scope is covered by
+	// no index. The budget is larger than the scrape's 2s
 	// because an operator waiting on a page tolerates more latency than a
 	// scrape interval does — but it is a budget, not the absence of one.
 	ctx, cancel := context.WithTimeout(ctx, jobHealthReadTimeout)
