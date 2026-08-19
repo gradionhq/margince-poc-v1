@@ -144,6 +144,69 @@ func enrichLegalEntitiesFromProfile(entities []corpusLegalEntity, fields []evide
 	return out
 }
 
+// fillLegalTrioFromCensus is the other direction, and the one that was
+// missing: what the CENSUS proved reaches the profile fields.
+//
+// The two lanes read the same legal page and disagree about what survived.
+// The census reads the whole page and gates each detail with groundedDetail;
+// the profile lane reads a bounded excerpt and gates against the one passage
+// the model cited. So an address the census confirmed was routinely dropped by
+// the profile lane for citing a neighbouring passage — communicode.de had
+// "Wittekindstr. 1a, 45131 Essen" on its entity and no registered_address
+// field at all, which is the state 136 of the demo dataset's 190 companies
+// were in.
+//
+// This adds nothing unevidenced. Every value copied here already passed the
+// census's own no-guess gate against the page that printed it, and it carries
+// that page's URL and evidence with it, so applyLegalGate judges it exactly as
+// it judges a profile-lane field. It fills only what is ABSENT: a field the
+// profile lane produced and the gate kept is the more specific answer and
+// stands.
+//
+// Called AFTER applyLegalGate on purpose. The gate abstains wholesale when the
+// census cannot say which entity the company is, and filling from a census
+// that was just judged untrustworthy would reintroduce exactly what the
+// abstention withheld.
+func fillLegalTrioFromCensus(fields []evidencedField, entities []corpusLegalEntity, pageKind map[string]crmcontracts.SiteReadPageKind, abstained bool) []evidencedField {
+	// One entity, or the company's legal identity is not settled and the
+	// abstention owns this decision rather than us.
+	if abstained || len(entities) != 1 {
+		return fields
+	}
+	entity := entities[0]
+	// Only a legal page speaks for legal identity — the same authority test
+	// applyLegalGate applies, so a census sighting from anywhere else cannot
+	// enter through this door either.
+	if pageKind[entity.SourceURL] != crmcontracts.SiteReadPageKindImpressum || !legalAuthorityPage(entity.SourceURL) {
+		return fields
+	}
+	present := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		present[f.Field] = true
+	}
+	out := fields
+	for field, value := range map[string]string{
+		string(crmcontracts.ColdStartFieldFieldLegalName):         entity.Name,
+		string(crmcontracts.ColdStartFieldFieldRegisteredAddress): entity.RegisteredAddress,
+		string(crmcontracts.ColdStartFieldFieldRegisterVat):       entity.RegisterNumber,
+	} {
+		if present[field] || strings.TrimSpace(value) == "" {
+			continue
+		}
+		out = append(out, evidencedField{
+			Field:           field,
+			Value:           value,
+			EvidenceSnippet: entity.EvidenceSnippet,
+			SourceURL:       entity.SourceURL,
+			// The census gates on the page rather than scoring, so there is
+			// no model confidence to carry. Full confidence states what is
+			// true of it: the page printed this, verbatim, and it was checked.
+			Confidence: 1,
+		})
+	}
+	return out
+}
+
 // legalEntityDetail counts how much of an entity block was actually
 // printed — the tie-break when the same entity is seen twice.
 func legalEntityDetail(entity corpusLegalEntity) int {

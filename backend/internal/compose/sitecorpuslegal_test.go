@@ -6,6 +6,8 @@ package compose
 import (
 	"strings"
 	"testing"
+
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
 
 // A group's legal notice states the same entity more than once: every
@@ -164,5 +166,132 @@ func TestLegalAbstentionNamesTheCauseThatFired(t *testing.T) {
 	}
 	if strings.Contains(legalWarningCensusIncomplete, "more than one entity") {
 		t.Errorf("the incomplete-census warning must claim nothing about the number of entities: %q", legalWarningCensusIncomplete)
+	}
+}
+
+// TestCensusFillsTheAddressTheProfileLaneMissed is the fix for the gap that
+// left 136 of the demo dataset's 190 companies with no address at all.
+//
+// The two legal lanes read the same page and disagree. The census reads the
+// whole page; the profile lane reads a bounded excerpt and gates against the
+// single passage the model cited. communicode.de's census carried
+// "Wittekindstr. 1a, 45131 Essen" while its profile lane dropped the same
+// address for citing a neighbouring passage, so the field never existed.
+func TestCensusFillsTheAddressTheProfileLaneMissed(t *testing.T) {
+	const impressum = "https://example.com/impressum"
+	kinds := map[string]crmcontracts.SiteReadPageKind{
+		impressum: crmcontracts.SiteReadPageKindImpressum,
+	}
+	entities := []corpusLegalEntity{{
+		Name:              "communicode GmbH",
+		RegisteredAddress: "Wittekindstr. 1a, 45131 Essen",
+		RegisterNumber:    "HRB 37643",
+		EvidenceSnippet:   "Impressum communicode GmbH, Wittekindstr. 1a in 45131 Essen",
+		SourceURL:         impressum,
+	}}
+	// The profile lane produced only the display name: its legal trio was
+	// dropped, which is the real state this replays.
+	fields := []evidencedField{{Field: "display_name", Value: "communicode", SourceURL: impressum, Confidence: 1}}
+
+	out := fillLegalTrioFromCensus(fields, entities, kinds, false)
+	got := map[string]string{}
+	for _, f := range out {
+		got[f.Field] = f.Value
+	}
+	if got["registered_address"] != "Wittekindstr. 1a, 45131 Essen" {
+		t.Errorf("registered_address = %q, want the address the census proved", got["registered_address"])
+	}
+	if got["legal_name"] != "communicode GmbH" {
+		t.Errorf("legal_name = %q", got["legal_name"])
+	}
+	if got["register_vat"] != "HRB 37643" {
+		t.Errorf("register_vat = %q", got["register_vat"])
+	}
+	// Every filled field must carry the evidence and the page, so the legal
+	// gate can judge it exactly as it judges a profile-lane field.
+	for _, f := range out {
+		if f.Field == "display_name" {
+			continue
+		}
+		if f.EvidenceSnippet == "" || f.SourceURL != impressum {
+			t.Errorf("%s arrived without evidence or a source page", f.Field)
+		}
+	}
+}
+
+// TestCensusFillNeverOverwritesTheProfileLane — a field the profile lane
+// produced and the gate kept is the more specific answer and stands.
+func TestCensusFillNeverOverwritesTheProfileLane(t *testing.T) {
+	const impressum = "https://example.com/impressum"
+	kinds := map[string]crmcontracts.SiteReadPageKind{impressum: crmcontracts.SiteReadPageKindImpressum}
+	entities := []corpusLegalEntity{{
+		Name: "Census GmbH", RegisteredAddress: "Census Weg 1 12345 Ort",
+		EvidenceSnippet: "Census GmbH Census Weg 1 12345 Ort", SourceURL: impressum,
+	}}
+	fields := []evidencedField{{
+		Field: "registered_address", Value: "Profile Strasse 2 54321 Stadt",
+		EvidenceSnippet: "Profile Strasse 2 54321 Stadt", SourceURL: impressum, Confidence: 0.9,
+	}}
+	out := fillLegalTrioFromCensus(fields, entities, kinds, false)
+	count := 0
+	for _, f := range out {
+		if f.Field != "registered_address" {
+			continue
+		}
+		count++
+		if f.Value != "Profile Strasse 2 54321 Stadt" {
+			t.Errorf("the profile lane's value was replaced by %q", f.Value)
+		}
+	}
+	if count != 1 {
+		t.Errorf("registered_address appears %d times, want exactly one", count)
+	}
+}
+
+// TestCensusFillRespectsTheAbstentionAndTheAuthorityRule pins the two ways
+// this must refuse. Filling from a census the gate just judged untrustworthy
+// would put back exactly what the abstention withheld, and a sighting from a
+// page that is not a legal notice must not speak for legal identity.
+func TestCensusFillRespectsTheAbstentionAndTheAuthorityRule(t *testing.T) {
+	const impressum = "https://example.com/impressum"
+	entity := corpusLegalEntity{
+		Name: "Anything GmbH", RegisteredAddress: "Irgendwo 1 11111 Ort",
+		EvidenceSnippet: "Anything GmbH Irgendwo 1 11111 Ort", SourceURL: impressum,
+	}
+	legalKinds := map[string]crmcontracts.SiteReadPageKind{impressum: crmcontracts.SiteReadPageKindImpressum}
+
+	if got := fillLegalTrioFromCensus(nil, []corpusLegalEntity{entity}, legalKinds, true); len(got) != 0 {
+		t.Error("an abstained read was filled from the census it abstained on")
+	}
+	two := []corpusLegalEntity{entity, {Name: "Other GmbH", SourceURL: impressum}}
+	if got := fillLegalTrioFromCensus(nil, two, legalKinds, false); len(got) != 0 {
+		t.Error("an unsettled census with two entities was used to fill legal identity")
+	}
+	// A contact page is not legal authority, however plainly it prints an address.
+	contactOnly := map[string]crmcontracts.SiteReadPageKind{
+		impressum: crmcontracts.SiteReadPageKindContact,
+	}
+	if got := fillLegalTrioFromCensus(nil, []corpusLegalEntity{entity}, contactOnly, false); len(got) != 0 {
+		t.Error("a non-legal page was allowed to state the company's legal identity")
+	}
+	// And a deep path is content ABOUT a legal page, not one.
+	deep := entity
+	deep.SourceURL = "https://example.com/a/b/c/impressum"
+	deepKinds := map[string]crmcontracts.SiteReadPageKind{deep.SourceURL: crmcontracts.SiteReadPageKindImpressum}
+	if got := fillLegalTrioFromCensus(nil, []corpusLegalEntity{deep}, deepKinds, false); len(got) != 0 {
+		t.Error("a deep-path legal page was treated as the company's own")
+	}
+}
+
+// TestCensusFillAddsNothingWhenTheCensusHasNothing — an entity stating a name
+// and no details fills only the name; the absent details stay absent rather
+// than becoming empty fields.
+func TestCensusFillAddsNothingWhenTheCensusHasNothing(t *testing.T) {
+	const impressum = "https://example.com/impressum"
+	kinds := map[string]crmcontracts.SiteReadPageKind{impressum: crmcontracts.SiteReadPageKindImpressum}
+	entities := []corpusLegalEntity{{Name: "Bare GmbH", SourceURL: impressum, EvidenceSnippet: "Bare GmbH"}}
+	out := fillLegalTrioFromCensus(nil, entities, kinds, false)
+	if len(out) != 1 || out[0].Field != "legal_name" {
+		t.Fatalf("want just the legal name, got %v", out)
 	}
 }
