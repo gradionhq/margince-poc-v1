@@ -287,9 +287,8 @@ func teamFixture(t *testing.T, e *apptest.AppEnv) string {
 	t.Helper()
 	var id string
 	if err := e.Owner.QueryRow(t.Context(), `
-		INSERT INTO team (workspace_id, name)
-		VALUES ((SELECT id FROM workspace WHERE slug = $1), 'Matrix Team') RETURNING id::text`,
-		e.Slug).Scan(&id); err != nil {
+		INSERT INTO team (name)
+		VALUES ('Matrix Team') RETURNING id::text`).Scan(&id); err != nil {
 		t.Fatalf("seed team: %v", err)
 	}
 	return id

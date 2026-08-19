@@ -71,7 +71,7 @@ func seedOrg(ctx context.Context, conn *pgx.Conn, cfg demoConfig, mode runMode) 
 		return fmt.Errorf("resolving the installation's workspace: %w", err)
 	}
 
-	teamIDs, teamsNew, err := ensureTeams(ctx, conn, workspace, cfg.Teams)
+	teamIDs, teamsNew, err := ensureTeams(ctx, conn, cfg.Teams)
 	if err != nil {
 		return err
 	}
@@ -86,13 +86,13 @@ func seedOrg(ctx context.Context, conn *pgx.Conn, cfg demoConfig, mode runMode) 
 	return nil
 }
 
-func ensureTeams(ctx context.Context, conn *pgx.Conn, workspace string, teams []demoTeam) (map[string]string, int, error) {
+func ensureTeams(ctx context.Context, conn *pgx.Conn, teams []demoTeam) (map[string]string, int, error) {
 	ids := map[string]string{}
 	created := 0
 	for _, team := range teams {
 		var id string
 		err := conn.QueryRow(ctx,
-			`SELECT id FROM team WHERE workspace_id = $1 AND name = $2`, workspace, team.Name).Scan(&id)
+			`SELECT id FROM team WHERE name = $1`, team.Name).Scan(&id)
 		switch {
 		case err == nil:
 			ids[team.Ref] = id
@@ -101,8 +101,8 @@ func ensureTeams(ctx context.Context, conn *pgx.Conn, workspace string, teams []
 			return nil, 0, fmt.Errorf("looking up team %q: %w", team.Name, err)
 		}
 		if err := conn.QueryRow(ctx,
-			`INSERT INTO team (workspace_id, name) VALUES ($1, $2) RETURNING id`,
-			workspace, team.Name).Scan(&id); err != nil {
+			`INSERT INTO team (name) VALUES ($1) RETURNING id`,
+			team.Name).Scan(&id); err != nil {
 			return nil, 0, fmt.Errorf("creating team %q: %w", team.Name, err)
 		}
 		ids[team.Ref] = id
@@ -136,8 +136,8 @@ func ensureUsers(ctx context.Context, conn *pgx.Conn, workspace string, cfg demo
 			return created, fmt.Errorf("user %s names team %q, which demo.json does not define", user.Email, user.Team)
 		}
 		if _, err := conn.Exec(ctx,
-			`INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($1, $2, $3)
-			 ON CONFLICT (team_id, user_id) DO NOTHING`, workspace, teamID, id); err != nil {
+			`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)
+			 ON CONFLICT (team_id, user_id) DO NOTHING`, teamID, id); err != nil {
 			return created, fmt.Errorf("adding %s to team %q: %w", user.Email, user.Team, err)
 		}
 	}

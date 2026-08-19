@@ -210,10 +210,9 @@ func (s *Service) CreateRecordGrant(ctx context.Context, in CreateGrantInput) (g
 		// `granted_by` moves to the caller, who is accountable for the access
 		// now in force.
 		if out, err = scanGrant(tx.QueryRow(ctx, `
-			INSERT INTO record_grant (workspace_id, record_type, record_id, subject_type, subject_id,
+			INSERT INTO record_grant (record_type, record_id, subject_type, subject_id,
 			                          access, granted_by, reason, expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, $7, $8)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 			ON CONFLICT (record_type, record_id, subject_type, subject_id) DO UPDATE
 			SET access     = EXCLUDED.access,
 			    expires_at = EXCLUDED.expires_at,

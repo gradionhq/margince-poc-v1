@@ -209,11 +209,9 @@ func highestPlaceholder(query string) int {
 
 func TestWireTeam(t *testing.T) {
 	id := ids.NewV7()
-	ws := ids.NewV7()
 	created := time.Date(2026, 6, 2, 9, 30, 0, 0, time.UTC)
 	got := wireTeam(teamRow{
 		ID:          id,
-		WorkspaceID: ws,
 		Name:        "Deal Desk",
 		MemberCount: 3,
 		CreatedAt:   created,

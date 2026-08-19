@@ -82,8 +82,8 @@ func setupCapturePrivacy(t *testing.T) *privacyEnv {
 		t.Fatal(err)
 	}
 	if _, err := conn.Exec(ctx,
-		`INSERT INTO team (id, workspace_id, name) VALUES ($1, $2, 'Sales')`,
-		e.team, e.ws); err != nil {
+		`INSERT INTO team (id, name) VALUES ($1, 'Sales')`,
+		e.team); err != nil {
 		t.Fatal(err)
 	}
 	for _, u := range []struct {
@@ -99,8 +99,7 @@ func setupCapturePrivacy(t *testing.T) *privacyEnv {
 	// Owner and teammate share a team; the admin does not need one.
 	for _, u := range []ids.UUID{e.owner, e.teammate} {
 		if _, err := conn.Exec(ctx,
-			`INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($1, $2, $3)`,
-			e.ws, e.team, u); err != nil {
+			`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`, e.team, u); err != nil {
 			t.Fatal(err)
 		}
 	}

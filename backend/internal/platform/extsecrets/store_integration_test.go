@@ -127,8 +127,8 @@ func (e *env) currentRef(t *testing.T, ws ids.UUID, unit, key string) keyvault.R
 	var ref string
 	err := e.owner.QueryRow(ctx, `
 		SELECT vault_ref FROM extension_secret
-		 WHERE extension_name = $1 AND workspace_id = $2 AND key = $3 AND user_id IS NULL`,
-		unit, ws, key).Scan(&ref)
+		 WHERE extension_name = $1 AND key = $2 AND user_id IS NULL`,
+		unit, key).Scan(&ref)
 	if err != nil {
 		t.Fatalf("reading the mapping row for %s/%s: %v", unit, key, err)
 	}

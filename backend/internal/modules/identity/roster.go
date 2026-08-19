@@ -176,7 +176,6 @@ type ListTeamsInput struct {
 
 type teamRow struct {
 	ID          ids.UUID
-	WorkspaceID ids.UUID
 	Name        string
 	MemberCount int
 	CreatedAt   time.Time
@@ -185,7 +184,7 @@ type teamRow struct {
 // teamColumns is the roster team SELECT list: the active-member count
 // joins app_user so a suspended/deactivated seat's membership row never
 // inflates the count (mirrors the active-only gate on ListUsers).
-const teamColumns = `t.id, t.workspace_id, t.name, COUNT(u.id) AS member_count, t.created_at`
+const teamColumns = `t.id, t.name, COUNT(u.id) AS member_count, t.created_at`
 
 const teamFromJoin = `
 	FROM team t
@@ -195,7 +194,6 @@ const teamFromJoin = `
 const listTeamsQuery = `
 	SELECT ` + teamColumns + teamFromJoin + `
 	WHERE t.archived_at IS NULL
-	  AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($1::timestamptz IS NULL OR (t.created_at, t.id) > ($1, $2))
 	GROUP BY t.id
 	ORDER BY t.created_at, t.id
@@ -204,7 +202,6 @@ const listTeamsQuery = `
 const listTeamsFilteredQuery = `
 	SELECT ` + teamColumns + teamFromJoin + `
 	WHERE t.archived_at IS NULL AND t.name ILIKE $1
-	  AND t.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 	  AND ($2::timestamptz IS NULL OR (t.created_at, t.id) > ($2, $3))
 	GROUP BY t.id
 	ORDER BY t.created_at, t.id
@@ -212,13 +209,17 @@ const listTeamsFilteredQuery = `
 
 func scanTeam(r pgx.Row) (teamRow, error) {
 	var tm teamRow
-	err := r.Scan(&tm.ID, &tm.WorkspaceID, &tm.Name, &tm.MemberCount, &tm.CreatedAt)
+	err := r.Scan(&tm.ID, &tm.Name, &tm.MemberCount, &tm.CreatedAt)
 	return tm, err
 }
 
-// ListTeams returns one keyset page of the caller's workspace's active
-// teams, bounded by each query's own workspace predicate, with each team's
-// active-membership count, optionally filtered by in.Q.
+// ListTeams returns one keyset page of the installation's active teams, with
+// each team's active-membership count, optionally filtered by in.Q.
+//
+// No workspace predicate: team carries no tenant since ADR-0091 §8 phase D. The
+// MEMBER count still narrows to this installation's people, because the join to
+// app_user does — that table keeps its tenant until the last slice of this
+// group.
 func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, storekit.Page, error) {
 	return listRosterPage(ctx, s.db, in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
 		plain:     listTeamsQuery,
