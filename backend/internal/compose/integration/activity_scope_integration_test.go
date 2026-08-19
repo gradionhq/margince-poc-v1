@@ -42,9 +42,11 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 
-	// Team2's activity: linked to a person Rep3 owns, so Rep1's team scope
-	// hides it.
+	// Team2's activity: linked only to a capture-private contact Rep3 owns,
+	// so the link-walk hides it from Rep1 (a plain contact would be readable
+	// by every seat and would carry the activity with it).
 	theirPerson := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirPerson, e.Rep3)
 	theirActivity := SeedIDRow(t, owner, `INSERT INTO activity (id, kind, subject, body, occurred_at, source, captured_by)
 		VALUES ($1, 'email', 'Q3 renewal terms', 'confidential body', now(), 'manual', 'human:x')`)
 	LinkActivity(t, owner, theirActivity, "person", theirPerson)

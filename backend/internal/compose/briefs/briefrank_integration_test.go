@@ -376,10 +376,12 @@ func TestBriefActedAndDismissedItemsLeaveTheNextQueue(t *testing.T) {
 	}
 }
 
-// A rep's brief only ranks deals they can see: under team row scope a
-// foreign team's deal never enters the candidate set, while an
-// all-scope principal ranks it.
-func TestBriefRankIsRowScoped(t *testing.T) {
+// A rep's brief ranks every deal the read model lets them see, and a deal is
+// workspace-shared identity (platform/auth tableclass.go): a team-scoped rep
+// ranks another team's deal exactly as an all-scope principal does. The
+// candidate query still composes the deal read predicate, so this is the
+// place that proves it widens nothing beyond what read_record answers.
+func TestBriefRankRanksEveryDealTheReadModelShows(t *testing.T) {
 	b := setupBrief(t)
 	owner := integration.OwnerConn(t)
 
@@ -389,24 +391,27 @@ func TestBriefRankIsRowScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range scoped.Queue {
-		if item.DealID == foreign {
-			t.Fatal("a team-scoped rep's brief ranked another team's deal — the candidate query leaks row scope")
-		}
+	if !queueHasDeal(scoped.Queue, foreign) {
+		t.Fatalf("team-scoped queue = %v misses another team's deal, which every seat reads", queueDeals(scoped.Queue))
 	}
-	if len(scoped.Queue) != 2 {
-		t.Fatalf("scoped queue = %v, want rep1's own two candidates", queueDeals(scoped.Queue))
+	if len(scoped.Queue) != 3 {
+		t.Fatalf("scoped queue = %v, want rep1's two candidates plus the foreign deal", queueDeals(scoped.Queue))
 	}
 
 	all, err := b.engine.Rank(b.repCtx, briefClock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	found := false
-	for _, item := range all.Queue {
-		found = found || item.DealID == foreign
-	}
-	if !found {
+	if !queueHasDeal(all.Queue, foreign) {
 		t.Fatalf("all-scope queue = %v misses the foreign deal", queueDeals(all.Queue))
 	}
+}
+
+func queueHasDeal(queue []BriefQueueItem, dealID ids.UUID) bool {
+	for _, item := range queue {
+		if item.DealID == dealID {
+			return true
+		}
+	}
+	return false
 }

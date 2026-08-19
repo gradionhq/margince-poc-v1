@@ -158,13 +158,19 @@ func TestOwnerReassignmentEmitsOwnerChanged(t *testing.T) {
 	}
 }
 
+// An activity's scope is the link walk. A contact is readable by every seat
+// unless its capture is private, so the activity Rep1 must not reach is one
+// linked only to a capture-private contact of Rep3's.
 func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 	e := Setup(t)
 	foreignPerson := e.SeedPerson(t, "Foreign owner", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", foreignPerson, e.Rep3)
 	myPerson := e.SeedPerson(t, "Mine", &e.Rep1)
 	admin := e.Admin()
+	// Only the private contact's owner can link to it.
+	foreignOwner := e.As(e.Rep3, []ids.UUID{e.Team2}, AdminPerms)
 
-	secret, _, err := e.Activities.LogActivity(admin, activities.LogActivityInput{
+	secret, _, err := e.Activities.LogActivity(foreignOwner, activities.LogActivityInput{
 		Kind: "note", Subject: strPtr("Confidential pricing call"), Source: "manual",
 		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: foreignPerson}},
 	})
@@ -187,7 +193,7 @@ func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithActivity())
 
-	// Get: the activity attached to another team's person answers 404.
+	// Get: the activity attached to the private contact answers 404.
 	if _, err := e.Activities.GetActivity(rep, ids.From[ids.ActivityKind](ids.UUID(secret.Id)), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("foreign-linked activity → %v, want ErrNotFound", err)
 	}
@@ -205,35 +211,40 @@ func TestActivityReadsAreScopedThroughLinks(t *testing.T) {
 		seen[ids.UUID(a.Id)] = true
 	}
 	if seen[ids.UUID(secret.Id)] {
-		t.Error("timeline surfaced an activity linked only to another team's record")
+		t.Error("timeline surfaced an activity linked only to a contact the caller cannot read")
 	}
 	if !seen[ids.UUID(visible.Id)] || !seen[ids.UUID(unlinked.Id)] {
 		t.Error("timeline lost a visible or workspace-shared activity")
 	}
 
-	// Filtering BY a record is a read OF it, so a record outside the caller's
-	// row scope owes the existence-hiding not-found rather than an empty page.
+	// Filtering BY a record is a read OF it, so a record the caller cannot
+	// read owes the existence-hiding not-found rather than an empty page.
 	// An empty page hides the rows but answers "that record has nothing on it",
 	// which is a different sentence and one the caller was not entitled to.
 	entityType, entityID := "person", foreignPerson
 	_, _, err = e.Activities.ListActivities(rep, activities.ListActivitiesInput{EntityType: &entityType, EntityID: &entityID})
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("entity-filter probe on a foreign person = %v, want ErrNotFound", err)
+		t.Errorf("entity-filter probe on a private contact = %v, want ErrNotFound", err)
 	}
 }
 
+// A duplicate-email conflict hands back the existing id so a client can open
+// the record — unless the caller may not read it. The contact they may not
+// read is a capture-private one of another rep's.
 func TestDuplicate409DoesNotDiscloseOutOfScopeIDs(t *testing.T) {
 	e := Setup(t)
 	admin := e.Admin()
-	if _, err := e.People.CreatePerson(admin, people.CreatePersonInput{
+	hidden, err := e.People.CreatePerson(admin, people.CreatePersonInput{
 		FullName: "Owned elsewhere", OwnerID: userIDPtr(&e.Rep3), Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: "taken@example.com", EmailType: "work", IsPrimary: true, Position: 1}},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	e.MakeCapturePrivate(t, "person", ids.UUID(hidden.Id), e.Rep3)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
-	_, err := e.People.CreatePerson(rep, people.CreatePersonInput{
+	_, err = e.People.CreatePerson(rep, people.CreatePersonInput{
 		FullName: "Duplicate attempt", Source: "manual",
 		Emails: []people.PersonEmailInput{{Email: "taken@example.com", EmailType: "work", IsPrimary: true, Position: 1}},
 	})
@@ -396,15 +407,20 @@ func TestReopeningWithARedundantLostReasonStillCleans(t *testing.T) {
 }
 
 // The idempotent-replay path returns a record, so it is a read: replaying
-// someone else's external source key must answer a bare conflict, never
-// the out-of-scope record's content.
+// someone else's external source key must answer a bare conflict when the
+// caller may not read that record, never its content. An activity linked
+// only to another rep's capture-private contact is such a record. A lead is
+// readable by every seat, so a lead replay hands the existing lead back —
+// the same answer the caller's own replay would get.
 func TestIdempotentReplayDoesNotDiscloseOutOfScopeRecords(t *testing.T) {
 	e := Setup(t)
 	foreignPerson := e.SeedPerson(t, "Foreign", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", foreignPerson, e.Rep3)
 	admin := e.Admin()
+	foreignOwner := e.As(e.Rep3, []ids.UUID{e.Team2}, AdminPerms)
 
 	src, key := "gmail", "msg-123"
-	if _, _, err := e.Activities.LogActivity(admin, activities.LogActivityInput{
+	if _, _, err := e.Activities.LogActivity(foreignOwner, activities.LogActivityInput{
 		Kind: "email", Subject: strPtr("Confidential thread"), Source: "connector",
 		SourceSystem: &src, SourceID: &key,
 		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: foreignPerson}},
@@ -412,10 +428,11 @@ func TestIdempotentReplayDoesNotDiscloseOutOfScopeRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	leadSrc, leadKey := "apollo", "lead-9"
-	if _, _, err := e.People.CreateLead(admin, people.CreateLeadInput{
+	theirLead, _, err := e.People.CreateLead(admin, people.CreateLeadInput{
 		FullName: strPtr("Foreign lead"), OwnerID: userIDPtr(&e.Rep3), Source: "import",
 		SourceSystem: &leadSrc, SourceID: &leadKey,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -424,29 +441,39 @@ func TestIdempotentReplayDoesNotDiscloseOutOfScopeRecords(t *testing.T) {
 	if _, _, err := e.Activities.LogActivity(rep, activities.LogActivityInput{
 		Kind: "email", Source: "connector", SourceSystem: &src, SourceID: &key,
 	}); !errors.Is(err, apperrors.ErrConflict) {
-		t.Errorf("activity replay of a foreign source key → %v, want bare ErrConflict", err)
+		t.Errorf("activity replay of a source key on an unreadable record → %v, want bare ErrConflict", err)
 	}
-	if _, _, err := e.People.CreateLead(rep, people.CreateLeadInput{
+	replayed, _, err := e.People.CreateLead(rep, people.CreateLeadInput{
 		FullName: strPtr("Replay attempt"), Source: "import",
 		SourceSystem: &leadSrc, SourceID: &leadKey,
-	}); !errors.Is(err, apperrors.ErrConflict) {
-		t.Errorf("lead replay of a foreign source key → %v, want bare ErrConflict", err)
+	})
+	if err != nil || replayed.Id != theirLead.Id {
+		t.Errorf("lead replay of another team's source key → (%v, %v), want the existing readable lead %v", replayed.Id, err, theirLead.Id)
 	}
 }
 
-// Link targets are validated under RLS + row scope before the insert: the
-// FK alone runs as the table owner and would persist a guessed foreign or
-// out-of-scope UUID as a link.
+// Link targets are validated against the caller's visibility before the
+// insert: the FK alone runs as the table owner and would persist a guessed
+// or unreadable UUID as a link. Another team's plain contact is readable and
+// so linkable; their capture-private contact is neither.
 func TestActivityLinkTargetsMustBeVisible(t *testing.T) {
 	e := Setup(t)
+	theirContact := e.SeedPerson(t, "Their contact", &e.Rep3)
 	foreignPerson := e.SeedPerson(t, "Foreign", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", foreignPerson, e.Rep3)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, repPermsWithCapture())
 
 	if _, _, err := e.Activities.LogActivity(rep, activities.LogActivityInput{
 		Kind: "note", Source: "manual",
+		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: theirContact}},
+	}); err != nil {
+		t.Errorf("link to another team's readable contact → %v, want success", err)
+	}
+	if _, _, err := e.Activities.LogActivity(rep, activities.LogActivityInput{
+		Kind: "note", Source: "manual",
 		Links: []activities.ActivityLinkInput{{EntityType: "person", EntityID: foreignPerson}},
 	}); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("link to an out-of-scope person → %v, want ErrNotFound", err)
+		t.Errorf("link to a capture-private person → %v, want ErrNotFound", err)
 	}
 	if _, _, err := e.Activities.LogActivity(rep, activities.LogActivityInput{
 		Kind: "note", Source: "manual",

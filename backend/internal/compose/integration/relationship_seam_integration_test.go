@@ -231,8 +231,9 @@ func TestAnEdgeIsInvisibleWhenEitherEndpointIsOutOfTheCallersRowScope(t *testing
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	admin := e.As(e.Rep1, nil, AdminPerms)
 
-	// Both endpoints owned by Rep2. The edge is created by the admin, so its
-	// existence owes nothing to Rep1.
+	// Both endpoints captured privately by Rep2 — ownership alone leaves a
+	// person or an organization readable by every seat with the grant. The
+	// edge is created by the admin, so its existence owes nothing to Rep1.
 	owner := ids.From[ids.UserKind](e.Rep2)
 	person, err := e.People.CreatePerson(admin, people.CreatePersonInput{
 		FullName: "Rep2 Contact", OwnerID: &owner, Source: "manual",
@@ -253,8 +254,12 @@ func TestAnEdgeIsInvisibleWhenEitherEndpointIsOutOfTheCallersRowScope(t *testing
 		t.Fatalf("create_record relationship as admin: %v", err)
 	}
 	edgeID, _ := wireEdge(t, created)
+	// Made private once the edge exists: the admin who seeded it is not the
+	// captor and could not create an edge over a private endpoint.
+	e.MakeCapturePrivate(t, "person", ids.UUID(person.Id), e.Rep2)
+	e.MakeCapturePrivate(t, "organization", ids.UUID(org.Id), e.Rep2)
 
-	// Rep3 owns neither endpoint and sits in the other team. Every verb that
+	// Rep3 can read neither endpoint. Every verb that
 	// returns or touches the row must answer NOT FOUND — not permission-denied,
 	// which would confirm the edge exists.
 	stranger := e.As(e.Rep3, []ids.UUID{e.Team2}, relationshipReaderPerms())
@@ -301,6 +306,7 @@ func TestAnEdgeCannotBeCreatedOverAnEndpointTheCallerCannotSee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding the hidden organization: %v", err)
 	}
+	e.MakeCapturePrivate(t, "organization", ids.UUID(hidden.Id), e.Rep2)
 	stranger := e.As(e.Rep3, []ids.UUID{e.Team2}, relationshipReaderPerms())
 	mine, err := e.People.CreatePerson(stranger, people.CreatePersonInput{FullName: "Rep3 Contact", Source: "manual"})
 	if err != nil {
@@ -462,7 +468,7 @@ func TestOneHiddenEndpointIsEnoughToHideTheEdge(t *testing.T) {
 	stranger := e.As(e.Rep3, []ids.UUID{e.Team2}, relationshipReaderPerms())
 
 	// The person is the STRANGER's own, so their row scope admits it. The
-	// organization belongs to Rep2, so it does not.
+	// organization is Rep2's private capture, so it does not.
 	mine, err := e.People.CreatePerson(stranger, people.CreatePersonInput{FullName: "Rep3 Visible", Source: "manual"})
 	if err != nil {
 		t.Fatalf("Rep3 creating their own person: %v", err)
@@ -483,6 +489,9 @@ func TestOneHiddenEndpointIsEnoughToHideTheEdge(t *testing.T) {
 		t.Fatalf("create_record as admin over a mixed pair: %v", err)
 	}
 	edgeID, _ := wireEdge(t, created)
+	// Made private once the edge exists: the admin who seeded it is not the
+	// captor and could not create an edge over a private endpoint.
+	e.MakeCapturePrivate(t, "organization", ids.UUID(hidden.Id), e.Rep2)
 
 	// The stranger can read the person. They must still not reach the edge — and
 	// the answer must be NOT FOUND, because a permission-denied would confirm it.

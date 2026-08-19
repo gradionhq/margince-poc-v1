@@ -13,6 +13,10 @@
 -- replacement a human sets. It is never set by capture's default path for a
 -- linked row, and the restriction guard on `activity` already refuses an
 -- UPDATE of a row held under a retention obligation.
+-- Bounded wait: an open transaction on activity must not queue this ALTER
+-- forever, and everything behind it with it.
+SET LOCAL lock_timeout = '3s';
+
 ALTER TABLE activity
   ADD COLUMN audience text NOT NULL DEFAULT 'workspace'
   CONSTRAINT activity_audience_check CHECK (audience IN ('workspace', 'participants', 'selected'));

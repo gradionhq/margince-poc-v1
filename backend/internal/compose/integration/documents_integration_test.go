@@ -45,6 +45,9 @@ func seedDocument(
 	return id
 }
 
+// A deal is readable by every seat, so a file on another team's deal IS in the
+// library; the parent the caller cannot read is a capture-private contact of
+// the other team's rep, and the file on it is neither listed nor counted.
 func TestOrganizationDocumentsHideAFileWhoseParentIsOutOfScope(t *testing.T) {
 	e := Setup(t)
 	store := activities.NewStore(e.DB())
@@ -55,9 +58,12 @@ func TestOrganizationDocumentsHideAFileWhoseParentIsOutOfScope(t *testing.T) {
 	theirs := e.SeedDeal(t, "Another team's deal", pipeline, stage, &e.Rep3)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, mine, org)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirs, org)
+	private := e.SeedPerson(t, "Their private contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", private, e.Rep3)
 
 	seedDocument(t, e, org, "deal", mine, "our-contract.pdf", "contract", false)
 	seedDocument(t, e, org, "deal", theirs, "their-contract.pdf", "contract", false)
+	seedDocument(t, e, org, "person", private, "their-private-note.pdf", "legal", false)
 	seedDocument(t, e, org, "organization", org, "nda.pdf", "legal", false)
 
 	docs, _, err := store.ListOrganizationDocuments(
@@ -65,18 +71,18 @@ func TestOrganizationDocumentsHideAFileWhoseParentIsOutOfScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list documents: %v", err)
 	}
-	// Two, not three: the contract on the other team's deal is neither listed
-	// nor counted. A total of three with two rows would say something exists.
-	if len(docs) != 2 {
+	// Three, not four: the file on the private contact is neither listed nor
+	// counted. A total of four with three rows would say something exists.
+	if len(docs) != 3 {
 		names := make([]string, 0, len(docs))
 		for _, d := range docs {
 			names = append(names, d.Filename)
 		}
-		t.Fatalf("documents = %v, want only the two whose parents this caller can read", names)
+		t.Fatalf("documents = %v, want only the three whose parents this caller can read", names)
 	}
 	for _, doc := range docs {
-		if doc.Filename == "their-contract.pdf" {
-			t.Error("a file on a deal outside the caller's row scope reached the account library")
+		if doc.Filename == "their-private-note.pdf" {
+			t.Error("a file on a contact the caller cannot read reached the account library")
 		}
 	}
 }
@@ -212,13 +218,14 @@ var docUploadPerms = principal.Permissions{
 func TestAttachmentMetadataRefusesASupersedesTargetTheCallerCannotSee(t *testing.T) {
 	e := Setup(t)
 	store := activities.NewStore(e.DB())
-	pipeline, stage, _ := DealFixture(t, e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	theirs := e.SeedDeal(t, "Another team's deal", pipeline, stage, &e.Rep3)
-	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirs, org)
+	// The unreadable parent is a capture-private contact: a deal would be
+	// readable by every seat.
+	private := e.SeedPerson(t, "Their private contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", private, e.Rep3)
 
 	mine := seedDocument(t, e, org, "organization", org, "v2.pdf", "contract", false)
-	hidden := seedDocument(t, e, org, "deal", theirs, "their-v1.pdf", "contract", false)
+	hidden := seedDocument(t, e, org, "person", private, "their-v1.pdf", "contract", false)
 
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, docWritePerms)
 	_, err := store.UpdateAttachmentMetadata(ctx, mine,
@@ -298,14 +305,14 @@ func TestAnActivityBorneFileReachesTheLibraryAndStaysGated(t *testing.T) {
 	pipeline, stage, _ := DealFixture(t, e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedDeal(t, "My deal", pipeline, stage, &e.Rep1)
-	theirs := e.SeedDeal(t, "Another team's deal", pipeline, stage, &e.Rep3)
 	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, mine, org)
-	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirs, org)
+	private := e.SeedPerson(t, "Their private contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", private, e.Rep3)
 
-	// Two emails on this account: one linked to a deal the rep covers, one to a
-	// deal they do not.
+	// Two emails on this account: one linked to a deal the rep covers, one
+	// linked only to a contact they cannot read.
 	visibleEmail := seedActivityWithDeal(t, e, mine)
-	hiddenEmail := seedActivityWithDeal(t, e, theirs)
+	hiddenEmail := seedActivityWithPerson(t, e, private)
 	seedDocument(t, e, org, "activity", visibleEmail, "signed-msa.pdf", "contract", false)
 	seedDocument(t, e, org, "activity", hiddenEmail, "their-msa.pdf", "contract", false)
 
@@ -324,6 +331,21 @@ func TestAnActivityBorneFileReachesTheLibraryAndStaysGated(t *testing.T) {
 	if found["their-msa.pdf"] {
 		t.Error("a file on an activity outside the caller's scope appeared in the library")
 	}
+}
+
+// seedActivityWithPerson files one email against a contact; the activity's
+// scope is then that contact's visibility, through the link walk.
+func seedActivityWithPerson(t *testing.T, e *Env, person ids.UUID) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	e.WsExec(t, `
+		INSERT INTO activity (id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, 'email', 'Contract', $2::timestamptz, 'manual', 'human:test')`,
+		id, activityOccurredAt)
+	e.WsExec(t, `
+		INSERT INTO activity_link (activity_id, entity_type, person_id)
+		VALUES ($1, 'person', $2)`, id, person)
+	return id
 }
 
 // seedActivityWithDeal files one email against a deal, which is what gives the

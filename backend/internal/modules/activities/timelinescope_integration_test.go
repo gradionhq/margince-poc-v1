@@ -27,16 +27,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// A lead owned by another rep is not readable, so asking for its timeline is
-// answered not-found — the same as an id that names nothing. Any other answer,
-// including an empty page, tells the caller the lead is there.
-func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
+// A project owned by another rep is not readable (a project keeps the
+// own/team/all row scope; a lead or deal is workspace-readable identity), so
+// asking for its timeline is answered not-found — the same as an id that names
+// nothing. Any other answer, including an empty page, tells the caller the
+// project is there.
+func TestNarrowingTheTimelineToAnUnreadableProjectAnswersNotFound(t *testing.T) {
 	e := setupPromises(t)
-	hiddenLeadID, visiblePersonID, activityID := ids.NewV7(), ids.NewV7(), ids.NewV7()
+	orgID, hiddenProjectID, visiblePersonID, activityID := ids.NewV7(), ids.NewV7(), ids.NewV7(), ids.NewV7()
 
-	e.exec(t, `INSERT INTO lead (id, full_name, owner_id, source, captured_by)
-		VALUES ($1, 'Hidden Prospect', $2, 'seed', 'system')`,
-		hiddenLeadID, e.other)
+	e.exec(t, `INSERT INTO organization (id, display_name, owner_id, source, captured_by)
+		VALUES ($1, 'Zeta GmbH', $2, 'seed', 'system')`, orgID, e.rep)
+	e.exec(t, `INSERT INTO project (id, name, organization_id, owner_id, source, captured_by)
+		VALUES ($1, 'Hidden Rollout', $2, $3, 'seed', 'system')`,
+		hiddenProjectID, orgID, e.other)
 	e.exec(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
 		VALUES ($1, 'Visible Contact', $2, 'seed', 'system')`,
 		visiblePersonID, e.rep)
@@ -48,17 +52,17 @@ func TestNarrowingTheTimelineToAnUnreadableLeadAnswersNotFound(t *testing.T) {
 	// which is precisely the case a scope check alone cannot catch.
 	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, person_id)
 		VALUES ($1, $2, 'person', $3)`, ids.NewV7(), activityID, visiblePersonID)
-	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, lead_id)
-		VALUES ($1, $2, 'lead', $3)`, ids.NewV7(), activityID, hiddenLeadID)
+	e.exec(t, `INSERT INTO activity_link (id, activity_id, entity_type, project_id)
+		VALUES ($1, $2, 'project', $3)`, ids.NewV7(), activityID, hiddenProjectID)
 
-	leadType := "lead"
+	projectType := "project"
 	store := NewStore(database.BindTo(e.pool, ids.From[ids.WorkspaceKind](e.ws)))
 	_, _, err := store.ListActivities(e.as(), ListActivitiesInput{
-		EntityType: &leadType, EntityID: &hiddenLeadID,
+		EntityType: &projectType, EntityID: &hiddenProjectID,
 	})
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("narrowing the timeline to a lead owned by another rep → %v, want "+
-			"ErrNotFound — an answer of any kind confirms the lead exists and that "+
+		t.Fatalf("narrowing the timeline to a project owned by another rep → %v, want "+
+			"ErrNotFound — an answer of any kind confirms the project exists and that "+
 			"this activity happened on it", err)
 	}
 }

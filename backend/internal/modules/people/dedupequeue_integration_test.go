@@ -271,8 +271,8 @@ func TestDedupeDispositionIsHumanOnly(t *testing.T) {
 	}
 }
 
-// asOwnScoped is a different human whose row scope is own-only: the pair
-// belongs to e.rep, so every candidate read must hide it.
+// asOwnScoped is a different human whose row scope is own-only: the pair is
+// e.rep's capture-private contacts, so every candidate read must hide it.
 func (e *dedupeEnv) asOwnScoped(other ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
@@ -295,10 +295,11 @@ func TestDedupeQueueHidesPairsOutsideTheCallersRowScope(t *testing.T) {
 	_, _ = seedPersonPair(ctx, t, e, "Vis Owner", "vis@scope.test", "Viz Owner", "viz@scope.test", "scope.test")
 	c := openCandidates(ctx, t, e, "person")[0]
 
-	// The pair's people carry no owner_id (ownerless rows are
-	// workspace-shared), so first bind them to e.rep to make them private.
+	// A person is workspace-readable identity, so ownership alone hides
+	// nothing: the pair's people become e.rep's capture-private contacts
+	// (visibility='owner'), the one state that still narrows a person read.
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE person SET owner_id = $1`, e.rep)
+		_, err := tx.Exec(ctx, `UPDATE person SET owner_id = $1, visibility = 'owner'`, e.rep)
 		return err
 	}); err != nil {
 		t.Fatal(err)
@@ -338,35 +339,28 @@ func seedOrgPair(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids
 	return ids.UUID(first.Id), ids.UUID(second.Id)
 }
 
-// seedLeadPair leaves one open lead candidate: same employer, a near spelling
-// of the name, no shared exact key.
-func seedLeadPair(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids.UUID) {
-	t.Helper()
-	first := e.createLead(ctx, t, "Jonas Petersen", "jonas@nordwind.test", "Nordwind Logistik")
-	second := e.createLead(ctx, t, "Jonas Peterson", "", "Nordwind Logistik")
-	return first.UUID, second.UUID
-}
-
-// setRowOwner binds one record to an owner, or releases it to the workspace
-// when owner is nil. Stated on both sides of a pair rather than assumed from
-// what the create path stamped: the whole point of the test below is which
-// side the caller can reach, so neither side's ownership may be incidental.
-func setRowOwner(ctx context.Context, t *testing.T, e *dedupeEnv, stmt string, owner *ids.UUID, id ids.UUID) {
+// setRowVisibility runs one arm's privacy statement over a record: it either
+// makes the row the owner's capture-private contact or releases it to the
+// workspace (owner nil). Stated on both sides of a pair rather than assumed
+// from what the create path stamped: the whole point of the test below is
+// which side the caller can reach, so neither side's state may be incidental.
+func setRowVisibility(ctx context.Context, t *testing.T, e *dedupeEnv, stmt string, owner *ids.UUID, id ids.UUID) {
 	t.Helper()
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, stmt, owner, id)
 		return err
 	}); err != nil {
-		t.Fatalf("setting the owner of %s: %v", id, err)
+		t.Fatalf("setting the visibility of %s: %v", id, err)
 	}
 }
 
 // halfVisibleArm is one entity type's turn through the queue's both-sides
-// rule: how to leave an open pair of that type, and how to bind one of them
-// to an owner.
+// rule: how to leave an open pair of that type, how to make one of them the
+// owner's capture-private record, and how to release the other.
 type halfVisibleArm struct {
 	entityType string
-	setOwner   string
+	setPrivate string
+	setShared  string
 	seed       func(context.Context, *testing.T, *dedupeEnv) (ids.UUID, ids.UUID)
 }
 
@@ -382,18 +376,26 @@ type halfVisibleArm struct {
 // passes while the queue discloses the evidence of records the reader may not
 // open.
 //
-// Run per entity type because the clause spells person, organization and lead
+// Run per entity type because the clause spells person and organization
 // separately, and per SIDE because it spells left and right separately too.
+// A lead has no arm here: it is workspace-readable identity with no capture
+// privacy, so no human seat can ever see only half of a lead pair.
 func TestDedupeQueueHidesAPairTheCallerCanOnlyHalfSee(t *testing.T) {
 	arms := []halfVisibleArm{
 		{
-			entityPerson, `UPDATE person SET owner_id = $1 WHERE id = $2`,
+			entityPerson,
+			`UPDATE person SET owner_id = $1, visibility = 'owner' WHERE id = $2`,
+			`UPDATE person SET owner_id = $1, visibility = 'workspace' WHERE id = $2`,
 			func(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids.UUID) {
 				return seedPersonPair(ctx, t, e, "John Doe", "john@queue.test", "Jon Doe", "jon@queue.test", "queue.test")
 			},
 		},
-		{entityOrganization, `UPDATE organization SET owner_id = $1 WHERE id = $2`, seedOrgPair},
-		{entityLead, `UPDATE lead SET owner_id = $1 WHERE id = $2`, seedLeadPair},
+		{
+			entityOrganization,
+			`UPDATE organization SET owner_id = $1, visibility = 'owner' WHERE id = $2`,
+			`UPDATE organization SET owner_id = $1, visibility = 'workspace' WHERE id = $2`,
+			seedOrgPair,
+		},
 	}
 	for _, arm := range arms {
 		// The pair is stored canonically, lower id left (DH-DDL-1), and ids
@@ -423,12 +425,12 @@ func halfVisiblePairStaysHidden(t *testing.T, arm halfVisibleArm, hide string) {
 	if len(seeded) != 1 {
 		t.Fatalf("seeded %d %s candidates, want exactly 1", len(seeded), arm.entityType)
 	}
-	// Exactly one side goes private; the other is released to the workspace,
-	// which own-scoped callers may read. So the colleague below reaches one
-	// half of the pair and only the other is out of reach — the state no
-	// other test in this package puts the queue in.
-	setRowOwner(ctx, t, e, arm.setOwner, &e.rep, hidden)
-	setRowOwner(ctx, t, e, arm.setOwner, nil, shared)
+	// Exactly one side becomes e.rep's capture-private record; the other is
+	// released to the workspace, which every seat may read. So the colleague
+	// below reaches one half of the pair and only the other is out of reach —
+	// the state no other test in this package puts the queue in.
+	setRowVisibility(ctx, t, e, arm.setPrivate, &e.rep, hidden)
+	setRowVisibility(ctx, t, e, arm.setShared, nil, shared)
 
 	// The private half's owner sees both halves, so the pair is still there
 	// and still listable: the refusal below is the second EXISTS failing, not

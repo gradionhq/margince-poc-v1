@@ -87,14 +87,20 @@ func TestResolveEntitiesAnswersARecordForAnAddressTheCallerHolds(t *testing.T) {
 	}
 }
 
-// THE PROPERTY THIS FEATURE RESTS ON. The ladder finds the other team's person
-// by address — it is workspace-wide and must be, or the same payload would
-// create a duplicate for one rep and not another. The seam read is what turns
-// that into an answer this caller is entitled to, and the answer must be the
-// same word a genuine miss gets.
+// THE PROPERTY THIS FEATURE RESTS ON. The ladder finds a colleague's private
+// capture by address — it is workspace-wide and must be, or the same payload
+// would create a duplicate for one rep and not another. The seam read is what
+// turns that into an answer this caller is entitled to, and the answer must be
+// the same word a genuine miss gets.
 func TestAnAddressOutsideTheCallersScopeResolvesToNothingItCanTellApart(t *testing.T) {
 	e := setupQuery(t)
-	seedResolveFixture(t, e)
+	f := seedResolveFixture(t, e)
+	// Ownership alone leaves a person readable by every seat with the grant;
+	// capture privacy is what takes Bernd out of Rep1's row scope.
+	if _, err := e.Owner.Exec(context.Background(),
+		`UPDATE person SET visibility = 'owner' WHERE id = $1`, f.rep3Person); err != nil {
+		t.Fatalf("capturing Bernd privately: %v", err)
+	}
 	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	rep1 := e.teamRep(e.Rep1, e.Team1)
 

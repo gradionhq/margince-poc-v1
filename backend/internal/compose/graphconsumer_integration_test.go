@@ -310,10 +310,11 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	// guessed address, wait for the sweep, and read match_status to learn
 	// whether a contact with that address exists somewhere you cannot reach.
 	//
-	// Capture privacy alone does not close it. Most contacts are
-	// visibility='workspace' and protected only by row scope, which is a
-	// property of the READER — so the sweep has to run under each ghost
-	// owner's own authority, and this is the test that says so.
+	// Authority is a property of the READER — so the sweep has to run under
+	// each ghost owner's own authority, and this is the test that says so. A
+	// person is readable by every seat unless it is capture-private, so the
+	// specimen here is visibility='owner' to Rep1: the one row a matcher acting
+	// for Rep3 may not see.
 	e := integration.Setup(t)
 	ctx := context.Background()
 
@@ -334,8 +335,8 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 		t.Fatalf("seeding Rep3's ghost: %v", err)
 	}
 
-	// A contact owned by Rep1, on the OTHER team, carrying the address the
-	// ghost would match on. Not capture-private — the ordinary case.
+	// A contact capture-private to Rep1, on the OTHER team, carrying the
+	// address the ghost would match on.
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	person, err := e.People.CreatePerson(rep1, people.CreatePersonInput{
 		FullName: "Dana Buyer", Source: "manual",
@@ -344,13 +345,7 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating Rep1's contact: %v", err)
 	}
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`UPDATE person SET owner_id = $2 WHERE id = $1`, ids.UUID(person.Id), e.Rep1)
-		return err
-	}); err != nil {
-		t.Fatalf("assigning the contact to Rep1: %v", err)
-	}
+	e.MakeCapturePrivate(t, "person", ids.UUID(person.Id), e.Rep1)
 
 	// The workspace sweep, the shape an organization event triggers.
 	matcher := NewLinkedInMatchGen(e.Pool, e.People, identity.NewService(e.Pool), slog.New(slog.DiscardHandler))
@@ -380,10 +375,10 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 // (person.created/person.updated), not just an organization sweep.
 //
 // Passing the owner filter as ids.Nil (SQL NULL, "every owner") would let a
-// member with wide row scope, iterated by forEachGhostOwner for their OWN
-// unrelated ghost, also match every OTHER member's ghosts under that wide
-// scope — turning a one-row CSV upload into a contact-existence oracle for
-// a workspace-visible contact the uploader's own row scope hides.
+// member iterated by forEachGhostOwner for their OWN unrelated ghost also
+// match every OTHER member's ghosts under their authority — or, worse, under
+// no authority — turning a one-row CSV upload into a contact-existence oracle
+// for a contact the uploader may not read.
 func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	e := integration.Setup(t)
 	ctx := context.Background()
@@ -417,7 +412,9 @@ func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T
 	}
 
 	// Rep1's contact, on a third team, carrying the address the attacker's
-	// ghost guessed. Visible to Rep2 (all-scope), hidden from Rep3 (own-scope).
+	// ghost guessed. Capture-private to Rep1, so hidden from Rep3 — and from
+	// Rep2 too, which is why a match here could only come from a sweep that
+	// ran without any owner's authority at all.
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AdminPerms)
 	person, err := e.People.CreatePerson(rep1, people.CreatePersonInput{
 		FullName: "Dana Buyer", Source: "manual",
@@ -426,13 +423,7 @@ func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T
 	if err != nil {
 		t.Fatalf("creating Rep1's contact: %v", err)
 	}
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx,
-			`UPDATE person SET owner_id = $2 WHERE id = $1`, ids.UUID(person.Id), e.Rep1)
-		return err
-	}); err != nil {
-		t.Fatalf("assigning the contact to Rep1: %v", err)
-	}
+	e.MakeCapturePrivate(t, "person", ids.UUID(person.Id), e.Rep1)
 
 	// The per-person path: what a real capture/manual write triggers.
 	matcher := NewLinkedInMatchGen(e.Pool, e.People, identity.NewService(e.Pool), slog.New(slog.DiscardHandler))

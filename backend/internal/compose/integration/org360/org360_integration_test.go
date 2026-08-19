@@ -10,11 +10,12 @@ package org360
 // summarizes. What this suite pins:
 //
 //   - the account itself is gated like any other record (cross-tenant and
-//     out-of-row-scope both answer not-found, indistinguishably);
+//     capture-private both answer not-found, indistinguishably);
 //   - a section the caller may not read is OMITTED and NAMED, never
 //     returned as an empty list that reads like "there is none";
-//   - the contact list, the deal figures and the timeline each carry the
-//     caller's row scope, so the composite cannot become the side channel;
+//   - the contact list, the meeting participants and the timeline each carry
+//     the caller's read scope (capture privacy on people and accounts), so the
+//     composite cannot become the side channel;
 //   - the visit baseline moves only through the explicit acknowledgment,
 //     monotonically, and per user.
 
@@ -113,15 +114,18 @@ func TestOrganization360OmitsSectionsTheCallerMayNotRead(t *testing.T) {
 	}
 }
 
-func TestOrganization360HidesAnAccountOutsideTheCallersRowScope(t *testing.T) {
+func TestOrganization360HidesACapturePrivateAccount(t *testing.T) {
 	e := integration.Setup(t)
 	svc := org360Service(e)
-	// Rep3 sits in the other team, so Rep1's team scope cannot reach it.
-	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
+	// Accounts are readable by every seat; the one state that still hides one
+	// is capture privacy, where only the owning user reads the row.
+	theirsRaw := e.SeedOrg(t, "Other Rep's Private Account", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", theirsRaw, e.Rep3)
+	theirs := ids.From[ids.OrganizationKind](theirsRaw)
 
 	_, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), theirs)
 	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("assemble out of row scope → %v, want ErrNotFound (existence-hiding)", err)
+		t.Errorf("assemble on a capture-private account → %v, want ErrNotFound (existence-hiding)", err)
 	}
 	// The positive control: the same call on the caller's own account works,
 	// so the gate narrows scope rather than breaking the read.
@@ -224,15 +228,17 @@ func TestOrganization360ConsentReportsEveryPurposeEvenWithoutARow(t *testing.T) 
 	}
 }
 
-// A contact the caller cannot read contributes nothing: not to the list,
-// not to the count, and not to the account's warmth.
-func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
+// A contact the caller cannot read (capture-private to another user)
+// contributes nothing: not to the list, not to the count, and not to the
+// account's warmth.
+func TestOrganization360ContactsHideACapturePrivateContact(t *testing.T) {
 	e := integration.Setup(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
 	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	for _, person := range []ids.UUID{mine, theirs} {
 		e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
 			VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
@@ -243,7 +249,7 @@ func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
 		t.Fatalf("assemble: %v", err)
 	}
 	if view.People == nil || len(view.People.Data) != 1 {
-		t.Fatalf("people section = %+v, want only the contact inside the caller's row scope", view.People)
+		t.Fatalf("people section = %+v, want only the contact the caller can read", view.People)
 	}
 	if ids.UUID(view.People.Data[0].PersonId) != mine {
 		t.Errorf("contact = %v, want the caller's own %v", view.People.Data[0].PersonId, mine)
@@ -299,9 +305,9 @@ func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
 }
 
 // A task reaches this account through a contact the caller can read, while
-// also being linked to another team's deal. The task belongs on the page;
-// that deal's id does not.
-func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
+// also being linked to another team's deal. Deals are readable by every seat
+// regardless of row scope, so the page names both the contact and the deal.
+func TestOrganization360NextStepsNameALinkedDealOfAnotherTeam(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
@@ -327,9 +333,9 @@ func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
 		t.Fatalf("next_steps = %+v, want the one open task reachable through the visible contact", view.NextSteps)
 	}
 	step := view.NextSteps.Data[0]
-	if step.LinkedDealId != nil {
-		t.Errorf("linked_deal_id = %v for a deal outside the caller's row scope — the task is theirs to see, that deal is not",
-			step.LinkedDealId)
+	if step.LinkedDealId == nil || ids.UUID(*step.LinkedDealId) != theirDeal {
+		t.Errorf("linked_deal_id = %v, want %v — deals are workspace-readable, so the other team's deal is named",
+			step.LinkedDealId, theirDeal)
 	}
 	if step.LinkedPersonId == nil || ids.UUID(*step.LinkedPersonId) != mine {
 		t.Errorf("linked_person_id = %v, want the visible contact %v", step.LinkedPersonId, mine)
@@ -400,15 +406,16 @@ func TestOrganization360NextMeetingSeparatesNoneFromWithheld(t *testing.T) {
 // The meeting is reachable through a visible contact, so the caller may see
 // that it exists. Who ELSE was in the room is a separate question, answered per
 // person — otherwise the composite becomes the side channel that hands out a
-// colleague's contacts.
-func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
+// colleague's capture-private contacts.
+func TestOrganization360NextMeetingParticipantsHideACapturePrivateContact(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
-	theirs := e.SeedPerson(t, "Another Team's Contact", &e.Rep3)
+	theirs := e.SeedPerson(t, "Another Rep's Private Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	for _, person := range []ids.UUID{mine, theirs} {
 		e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
 			VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
@@ -440,7 +447,7 @@ func TestOrganization360NextMeetingParticipantsHonorRowScope(t *testing.T) {
 			view.NextMeeting.Participants)
 	}
 	if ids.UUID(view.NextMeeting.Participants[0].PersonId) != mine {
-		t.Errorf("participants named %q — a meeting visible through one contact must not disclose a colleague's",
+		t.Errorf("participants named %q — a meeting visible through one contact must not disclose a colleague's private contact",
 			view.NextMeeting.Participants[0].DisplayName)
 	}
 }

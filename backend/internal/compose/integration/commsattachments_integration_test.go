@@ -96,9 +96,10 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 	e := Setup(t)
 	store, blob := attachmentStore(e)
 	// Rep3 holds the SAME role as the sender in the admitting case above, so
-	// the only thing separating them is row scope — which is what this proves.
+	// the only thing separating them is the parent's visibility — which is
+	// what this proves.
 	grantOwnScopeRepRole(t, e, e.Rep3)
-	// Owned by Rep1; Rep3 sits in the other team and never had access.
+	// Capture-private to Rep1 once the file is on it; Rep3 never had access.
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
 
 	att, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
@@ -107,6 +108,7 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding the attachment: %v", err)
 	}
+	e.MakeCapturePrivate(t, "person", person, e.Rep1)
 
 	authority := compose.NewSendAttachmentAuthority(e.Pool, blob)
 	ok, reason, err := authority.EnsureTransmittable(
@@ -115,16 +117,16 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 		t.Fatalf("EnsureTransmittable: %v", err)
 	}
 	if ok {
-		t.Fatal("a file outside the sender's row scope was cleared for transmit")
+		t.Fatal("a file on a record the sender cannot read was cleared for transmit")
 	}
 	if reason == "" {
 		t.Error("the refusal carries no reason, so a parked delivery explains nothing")
 	}
 
-	// ROW SCOPE is what refused this, not a missing grant. Rep3 holds
+	// VISIBILITY is what refused this, not a missing grant. Rep3 holds
 	// person:read — the same object grant the admitted sender holds — so
 	// without this the case would pass against a sender who simply holds
-	// nothing, and would keep passing if the row-scope clause were deleted.
+	// nothing, and would keep passing if the visibility clause were deleted.
 	// The proof is that the SAME sender, asked about a person they own,
 	// is admitted.
 	ownPerson := e.SeedPerson(t, "Rep3's Own Person", &e.Rep3)
@@ -140,7 +142,7 @@ func TestEnsureTransmittableRefusesAFileTheSenderCanNoLongerSee(t *testing.T) {
 		t.Fatalf("EnsureTransmittable on the sender's own file: %v", err)
 	}
 	if !okOwn {
-		t.Errorf("the same sender was refused a file on a record they OWN (%q) — the refusal above was a missing grant, not row scope", ownReason)
+		t.Errorf("the same sender was refused a file on a record they OWN (%q) — the refusal above was a missing grant, not visibility", ownReason)
 	}
 }
 
@@ -157,7 +159,7 @@ func TestEnsureTransmittableRefusesAnUnknownFileIndistinguishablyFromAnInvisible
 	e := Setup(t)
 	store, blob := attachmentStore(e)
 	grantOwnScopeRepRole(t, e, e.Rep3)
-	// A real file, owned by Rep1, that Rep3 cannot see.
+	// A real file on a contact capture-private to Rep1, which Rep3 cannot see.
 	person := e.SeedPerson(t, "Rep1's Person", &e.Rep1)
 	att, err := store.UploadAttachment(e.Admin(), activities.AttachmentInput{
 		EntityType: "person", EntityID: person, Filename: "private.pdf", Content: bytes.NewReader([]byte("PDF")),
@@ -165,6 +167,7 @@ func TestEnsureTransmittableRefusesAnUnknownFileIndistinguishablyFromAnInvisible
 	if err != nil {
 		t.Fatalf("seeding the attachment: %v", err)
 	}
+	e.MakeCapturePrivate(t, "person", person, e.Rep1)
 
 	authority := compose.NewSendAttachmentAuthority(e.Pool, blob)
 	sender := ids.From[ids.UserKind](e.Rep3)

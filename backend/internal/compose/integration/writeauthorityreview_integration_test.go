@@ -101,16 +101,18 @@ func TestAReadShareOfADealCannotRewriteItsContracts(t *testing.T) {
 		return err
 	}
 
-	// Nothing shared: the contract is not there as far as this caller is
-	// concerned, and that answer must not change.
-	if err := retitle(); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("patching a contract on an unshared deal → %v, want not-found", err)
+	// Nothing shared: a deal is readable by every seat holding the deal grant,
+	// so the contract is already in view and the refusal is the write arm's —
+	// permission-denied, not a 404 over a row the caller can read.
+	if err := retitle(); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("patching a contract on an unshared deal → %v, want permission-denied (readable, not writable)", err)
 	}
 
 	shareRecord(owner, t, e, "deal", deal, e.Rep1, "read")
-	// The read share opens the agreement — that half is the feature.
+	// The agreement stays open under a read share, and the share confers
+	// nothing more than what every reader already had.
 	if _, err := store.GetContract(holder, id); err != nil {
-		t.Fatalf("a read share of the deal does not open its contract: %v", err)
+		t.Fatalf("a read share of the deal does not keep its contract open: %v", err)
 	}
 	if err := retitle(); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("patching a contract under a read share of its deal → %v, want permission-denied", err)
@@ -238,9 +240,12 @@ func TestAReadShareOfACompanyCannotMakeItAPartner(t *testing.T) {
 	owner := e.As(e.Rep3, []ids.UUID{e.Team2}, grantsAtTeamScope("organization", "partner"))
 	holder := e.As(e.Rep1, []ids.UUID{e.Team1}, grantsAtTeamScope("organization", "partner"))
 
+	// Captured privately by Rep3: an organization that is merely owned is
+	// readable by every seat with the grant, and capture privacy is what
+	// makes the share the holder's only path to it.
 	org := ids.NewV7()
-	e.WsExec(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Reseller GmbH', 'manual', 'human:x')`, org, e.Rep3)
+	e.WsExec(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Reseller GmbH', 'owner', 'manual', 'human:x')`, org, e.Rep3)
 
 	promote := func(as context.Context) error {
 		_, err := people.NewStore(e.DB()).UpsertPartner(as, people.UpsertPartnerInput{

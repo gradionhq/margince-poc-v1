@@ -120,7 +120,11 @@ func TestOrganizationAskServesTheFloorWithoutALane(t *testing.T) {
 // account: it must answer 404, not 403, or the refusal confirms it exists.
 func TestOrganizationAskHidesAnAccountOutOfRowScope(t *testing.T) {
 	e := Setup(t)
-	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Theirs", &e.Rep3))
+	theirs := e.SeedOrg(t, "Theirs", &e.Rep3)
+	// An account is readable by every seat with the grant; capture privacy
+	// is what takes it out of this caller's row scope.
+	e.MakeCapturePrivate(t, "organization", theirs, e.Rep3)
+	org := ids.From[ids.OrganizationKind](theirs)
 	lane := &countingLane{reply: `{"sentences":[]}`}
 	svc := briefService(e, lane, "routing-1")
 

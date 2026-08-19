@@ -161,13 +161,10 @@ func TestReplayRefusesOnceTheCallerHasLostSightOfTheRecord(t *testing.T) {
 		t.Fatalf("handler ran %d times, want 1 — the replay re-executed instead of replaying", calls)
 	}
 
-	// The record moves to a team this caller is not in. Nothing about the
-	// claim changed: same principal, same key, same path, same body.
-	owner := integration.OwnerConn(t)
-	if _, err := owner.Exec(context.Background(),
-		`UPDATE person SET owner_id = $1 WHERE id = $2`, e.Rep3, person); err != nil {
-		t.Fatalf("transferring the person to another team: %v", err)
-	}
+	// The record becomes capture-private to another rep — the one state that
+	// takes a person out of this caller's read scope. Nothing about the claim
+	// changed: same principal, same key, same path, same body.
+	e.MakeCapturePrivate(t, "person", person, e.Rep3)
 
 	after := keyedPersonCall(rep1, r, person, key)
 	if after.Code != http.StatusNotFound {

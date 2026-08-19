@@ -186,25 +186,36 @@ func TestQueryPlanAnswersExactPredicatesCompletely(t *testing.T) {
 // The exit criterion. Two principals, one corpus: the rep's answer is a strict
 // subset of the admin's, and nothing in the rep's answer — not the rows, not
 // the count, not the coverage verdict — is computed over a row they cannot see.
+//
+// The target is `project`, the record type that still carries the own/team/all
+// row scope: a deal is readable by every seat holding the deal grant, so two
+// principals asking about deals would get the same answer by design.
 func TestQueryPlanAnswersTwoPrincipalsFromOneCorpusWithoutLeaking(t *testing.T) {
 	q := setupQuery(t)
 	f := q.seedFixture(t)
-	const plan = `{"version": "v1", "target": "deal",
-		"where": [{"field": "status", "op": "eq", "value": "open"}]}`
+	rep3Project := q.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Rollout', $3, 'manual', 'human:x')`, q.Rep3, f.rep3Org)
+	// An ownerless project is workspace-shared and visible at every tier — the
+	// control that keeps "the rep sees fewer rows" from being read as "the rep
+	// sees only their own".
+	sharedProject := q.SeedID(t, `INSERT INTO project (id, name, organization_id, source, captured_by)
+		VALUES ($1, 'Rollout', $2, 'manual', 'human:x')`, f.rep1Org)
+	const plan = `{"version": "v1", "target": "project",
+		"where": [{"field": "name", "op": "eq", "value": "Rollout"}]}`
 
 	admin := idSet(q.run(q.admin(), t, plan))
 	rep := idSet(q.run(q.teamRep(q.Rep1, q.Team1), t, plan))
 
 	if len(admin) != 3 {
-		t.Fatalf("the admin sees %d of 3 deals", len(admin))
+		t.Fatalf("the admin sees %d of 3 projects", len(admin))
 	}
 	// Their own, plus the ownerless workspace-shared row — and not the other
 	// team's.
-	if !rep[f.rep1Deal] || !rep[f.sharedDeal] {
+	if !rep[f.project] || !rep[sharedProject] {
 		t.Fatalf("the rep cannot see their own rows: %v", rep)
 	}
-	if rep[f.rep3Deal] {
-		t.Fatal("the rep sees another team's deal")
+	if rep[rep3Project] {
+		t.Fatal("the rep sees another team's project")
 	}
 	for id := range rep {
 		if !admin[id] {
@@ -227,8 +238,14 @@ func TestQueryPlanTraversalCarriesTheHopsOwnRowScope(t *testing.T) {
 	if !admin[f.rep1Deal] || !admin[f.rep3Deal] {
 		t.Fatalf("the unbounded reader does not reach both Stuttgart deals: %v", admin)
 	}
-	// rep3 owns the other organization. Their deal is reachable only through
-	// an organization rep1 cannot read.
+	// rep3 captured the other organization privately, which is what keeps
+	// an organization out of a colleague's row scope. Their deal — readable
+	// in itself — is reachable through this hop only via an organization
+	// rep1 cannot read.
+	if _, err := q.Owner.Exec(context.Background(),
+		`UPDATE organization SET visibility = 'owner' WHERE id = $1`, f.rep3Org); err != nil {
+		t.Fatalf("capturing the organization privately: %v", err)
+	}
 	rep := idSet(q.run(q.teamRep(q.Rep1, q.Team1), t, plan))
 	if rep[f.rep3Deal] {
 		t.Fatal("a hop through an organization the caller cannot read admitted a row")

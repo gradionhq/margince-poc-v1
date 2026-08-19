@@ -23,8 +23,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 )
 
-// seedTracedActivity writes an activity LINKED to a person somebody else owns,
-// and a trace row pointing at it.
+// seedTracedActivity writes an activity LINKED to a person somebody else
+// captured privately, and a trace row pointing at it.
 //
 // The link is what puts it outside an own-scoped reader's reach. An activity
 // has no owner of its own: it inherits the sensitivity of what it attaches to,
@@ -37,7 +37,9 @@ func seedTracedActivity(ctx context.Context, t *testing.T, db *database.DB, owne
 
 // seedTracedActivityOwnedBy writes the activity, the person it links to, and the
 // trace row. personOwner names who owns that person — zero means a stranger,
-// which is what puts the activity outside an own-scoped reader's reach.
+// whose person is seeded capture-private (visibility='owner'): a person is
+// workspace-readable identity, so ownership alone no longer hides it, and
+// capture privacy is what puts the activity outside every other reader's reach.
 func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.DB,
 	owner, personOwner ids.UUID, sourceID string,
 ) {
@@ -54,9 +56,9 @@ func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.D
 		// A real app_user either way, because person.owner_id is a foreign key
 		// and a scope test that seeded a dangling owner would be proving
 		// something about referential integrity instead.
-		personHolder := personOwner
+		personHolder, visibility := personOwner, "workspace"
 		if personHolder.IsZero() {
-			personHolder = ids.NewV7()
+			personHolder, visibility = ids.NewV7(), "owner"
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO app_user (id, workspace_id, email, display_name, status)
@@ -67,10 +69,10 @@ func seedTracedActivityOwnedBy(ctx context.Context, t *testing.T, db *database.D
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person (id, full_name, owner_id, source, captured_by)
+			INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
 			VALUES ($1,
-			        'Linked Person', $2, 'manual', 'human:test')`,
-			personID, personHolder); err != nil {
+			        'Linked Person', $2, $3, 'manual', 'human:test')`,
+			personID, personHolder, visibility); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `

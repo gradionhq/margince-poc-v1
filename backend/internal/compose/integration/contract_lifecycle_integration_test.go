@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/contracts"
-	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -216,39 +215,33 @@ func TestTheDatabaseRefusesContradictoryTerms(t *testing.T) {
 }
 
 // A contract the caller cannot see answers NOT FOUND, never a denial: a 403
-// would confirm the agreement exists.
+// would confirm the agreement exists. A deal is readable by every seat, so
+// the hidden anchor is an account capture-private to Rep1: an
+// organization-anchored contract on it is invisible to Rep3.
 func TestAnInvisibleContractIsAbsentRatherThanRefused(t *testing.T) {
 	e := Setup(t)
-	// Rep3 sits in the other team, so a deal-anchored contract on Rep1's deal
-	// is outside their row scope.
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
-	pipeline, open, _ := DealFixture(t, e)
+	e.MakeCapturePrivate(t, "organization", org, e.Rep1)
 
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, ContractRepPerms)
 	orgID := ids.From[ids.OrganizationKind](org)
-	// OWNED by Rep1. An ownerless deal is visible to every team-scoped reader,
-	// so a fixture that skipped this would assert nothing: the contract would
-	// be readable for a reason that has nothing to do with the predicate.
-	owner := ids.From[ids.UserKind](e.Rep1)
-	deal, err := e.Deals.CreateDeal(rep1, deals.CreateDealInput{
-		Name: "Rep1's deal", PipelineID: pipeline, StageID: open,
-		OrganizationID: &orgID, OwnerID: &owner, Source: "manual",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	dealID := ids.From[ids.DealKind](ids.UUID(deal.Id))
 	created, err := e.Contracts.CreateContract(rep1, contracts.CreateContractInput{
 		OrganizationID: orgID,
-		DealID:         &dealID,
 		Title:          "Rep1's agreement", ValueBasis: contracts.BasisTotal, Source: "manual",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	contractID := ids.From[ids.ContractKind](ids.UUID(created.Id))
+
+	// The owner reads it, so the refusal below is the anchor's visibility and
+	// not a broken read.
+	if _, err := e.Contracts.GetContract(rep1, contractID); err != nil {
+		t.Fatalf("the owner cannot read their own contract: %v", err)
+	}
 
 	rep3 := e.As(e.Rep3, []ids.UUID{e.Team2}, ContractRepPerms)
-	_, err = e.Contracts.GetContract(rep3, ids.From[ids.ContractKind](ids.UUID(created.Id)))
+	_, err = e.Contracts.GetContract(rep3, contractID)
 
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("a contract outside the caller's scope: err = %v, want ErrNotFound (existence stays hidden)", err)

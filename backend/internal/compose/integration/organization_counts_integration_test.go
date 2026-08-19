@@ -174,6 +174,10 @@ func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 	}
 	employ(mine)
 	employ(theirs)
+	// Ownership alone no longer narrows a person; capture privacy does.
+	// Applied after the edge is seeded, since the seeding admin is not the
+	// captor and could not link to a private contact.
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 
 	pipeline, open := pipelineFixtureFor(e.Admin(), t, e.Deals)
 	for _, owner := range []ids.UUID{e.Rep1, e.Rep3} {
@@ -187,11 +191,12 @@ func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 		}
 	}
 
-	admin, err := e.People.GetOrganization(e.Admin(), orgIDOf(acme), storekit.LiveOnly)
+	// The captor reads both contacts: their own private one and the shared one.
+	captor, err := e.People.GetOrganization(e.As(e.Rep3, []ids.UUID{e.Team2}, AdminPerms), orgIDOf(acme), storekit.LiveOnly)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCounts(t, "admin sees the workspace", admin, 2, 2)
+	assertCounts(t, "the captor sees both contacts", captor, 2, 2)
 
 	perms := rollupOrgReadPerms(principal.RowScopeOwn)
 	perms.Objects["computed_field"] = principal.ObjectGrant{Read: true}
@@ -201,7 +206,7 @@ func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertCounts(t, "own-scope rep: own contacts, whole pipeline", own, 1, 2)
+	assertCounts(t, "own-scope rep: readable contacts, whole pipeline", own, 1, 2)
 	page, _, err := e.People.ListOrganizations(rep, people.ListOrganizationsInput{})
 	if err != nil {
 		t.Fatal(err)

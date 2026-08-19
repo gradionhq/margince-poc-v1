@@ -545,8 +545,11 @@ func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
 func TestSuggestionDismissalRefusesAnInvisibleAccount(t *testing.T) {
 	e := integration.Setup(t)
 	svc := org360Service(e)
-	// Owned by Rep3, who sits in Team2 — outside Rep1's team-scoped row scope.
-	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Someone else's account", &e.Rep3))
+	// Capture-private to Rep3: the one state that hides an account from
+	// every other seat.
+	orgRaw := e.SeedOrg(t, "Someone else's private account", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", orgRaw, e.Rep3)
+	org := ids.From[ids.OrganizationKind](orgRaw)
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms)
 
 	// The record gate runs before anything else, so this is a 404 rather than the

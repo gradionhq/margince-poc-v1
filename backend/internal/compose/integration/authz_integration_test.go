@@ -51,12 +51,19 @@ func TestObjectLevelRBACDeniesUngrantedActions(t *testing.T) {
 	}
 }
 
-func TestRowScopeTeamNeverShowsAnotherTeamsRecord(t *testing.T) {
+// Contacts are an identity table: every seat that holds person.read reads
+// every contact, whichever team owns it, and the team row scope binds only
+// WRITES. The one contact a seat cannot read is a capture-private one
+// belonging to somebody else — and that one answers 404, never a 403 that
+// would disclose its existence.
+func TestRowScopeTeamReadsEveryContactButWritesOnlyItsOwnTeams(t *testing.T) {
 	e := Setup(t)
 	mine := e.SeedPerson(t, "Mine", &e.Rep1)
 	teammates := e.SeedPerson(t, "Teammates", &e.Rep2)
 	foreign := e.SeedPerson(t, "Foreign", &e.Rep3)
 	shared := e.SeedPerson(t, "Shared", nil)
+	private := e.SeedPerson(t, "Their Private Capture", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", private, e.Rep3)
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
 
@@ -68,29 +75,47 @@ func TestRowScopeTeamNeverShowsAnotherTeamsRecord(t *testing.T) {
 	for _, p := range rows {
 		visible[ids.UUID(p.Id)] = true
 	}
-	for id, want := range map[ids.UUID]bool{mine: true, teammates: true, shared: true, foreign: false} {
+	for id, want := range map[ids.UUID]bool{mine: true, teammates: true, shared: true, foreign: true, private: false} {
 		if visible[id] != want {
 			t.Errorf("team-scoped list visibility of %s = %v, want %v", id, visible[id], want)
 		}
 	}
 
-	// Single fetch: the foreign row answers 404 — never the row, and
-	// never a 403 that would disclose its existence.
-	if _, err := e.People.GetPerson(rep, PersonIDOf(foreign), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("get another team's record → %v, want ErrNotFound", err)
+	// Single fetch: the other team's contact is readable; the private one
+	// answers 404 — never the row, and never a 403 that would disclose it.
+	if _, err := e.People.GetPerson(rep, PersonIDOf(foreign), storekit.LiveOnly); err != nil {
+		t.Errorf("get another team's contact → %v, want success", err)
 	}
-	// Nor can it be mutated blind by id.
-	if _, err := e.People.UpdatePerson(rep, PersonIDOf(foreign), people.UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("update another team's record → %v, want ErrNotFound", err)
+	if _, err := e.People.GetPerson(rep, PersonIDOf(private), storekit.LiveOnly); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("get another rep's private capture → %v, want ErrNotFound", err)
+	}
+	// Writes keep the team scope: the readable foreign row is refused, the
+	// hidden one stays hidden.
+	if _, err := e.People.UpdatePerson(rep, PersonIDOf(foreign), people.UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("update another team's contact → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.People.UpdatePerson(rep, PersonIDOf(private), people.UpdatePersonInput{Title: strPtr("Pwned")}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("update another rep's private capture → %v, want ErrNotFound", err)
+	}
+	if _, err := e.People.UpdatePerson(rep, PersonIDOf(teammates), people.UpdatePersonInput{Title: strPtr("Lead")}); err != nil {
+		t.Errorf("update a teammate's contact → %v, want success", err)
 	}
 
-	// row_scope=all (read_only) sees all four.
+	// The private capture's owner sees all five; a stranger with row_scope=all
+	// still sees only four, because capture privacy is not a row-scope tier.
 	all, _, err := e.People.ListPeople(e.As(e.Rep3, []ids.UUID{e.Team2}, ReadOnlyPerms), people.ListPeopleInput{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 4 {
-		t.Errorf("row_scope=all sees %d people, want 4", len(all))
+	if len(all) != 5 {
+		t.Errorf("the private capture's owner with row_scope=all sees %d people, want 5", len(all))
+	}
+	stranger, _, err := e.People.ListPeople(e.As(ids.NewV7(), nil, ReadOnlyPerms), people.ListPeopleInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stranger) != 4 {
+		t.Errorf("a stranger with row_scope=all sees %d people, want 4", len(stranger))
 	}
 }
 

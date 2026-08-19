@@ -194,40 +194,44 @@ func TestThePersonLinkIsWhatThePersonCreationRungReads(t *testing.T) {
 
 func TestReadingPipelineFactsTakesTheRowScopeNotJustTheGrant(t *testing.T) {
 	// The object grant and the row scope are two different gates, and the
-	// sibling below only removes the first. Every principal there is
-	// RowScopeAll, against which EnsureActivityContentVisible is a no-op by
+	// sibling below only removes the first. Every principal there reads the
+	// seed's links, against which EnsureActivityContentVisible is a no-op by
 	// construction — so deleting that call left nothing red.
 	//
-	// This is the other half: the grant is HELD, and the activity is linked to a
-	// person another owner holds, so only the link-walk can refuse.
+	// This is the other half: the grant is HELD, and the activity is linked only
+	// to another rep's capture-private person (visibility='owner' — ownership
+	// alone no longer hides a person), so only the link-walk can refuse.
 	e := setupFacts(t)
 	id := e.seed(t, capturedRow{kind: "email"})
 	other := ids.NewV7()
 	e.exec(t, `INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Other')`,
 		other, e.ws, "other-"+other.String()+"@facts.test")
 	person := ids.NewV7()
-	e.exec(t, `INSERT INTO person (id, full_name, source, captured_by, owner_id)
-		VALUES ($1, 'Theirs', 'test', 'connector:gmail', $2)`, person, other)
+	e.exec(t, `INSERT INTO person (id, full_name, source, captured_by, owner_id, visibility)
+		VALUES ($1, 'Theirs', 'test', 'connector:gmail', $2, 'owner')`, person, other)
 	e.exec(t, `INSERT INTO activity_link (activity_id, entity_type, person_id)
 		VALUES ($1, 'person', $2)`, id, person)
 
-	// The allow arm over the same seed: unbounded scope reads it. Without this,
-	// a link that failed to land would make the refusal below meaningless.
-	if _, err := e.store.ReadPipelineFacts(e.as(), id); err != nil {
-		t.Fatalf("an unbounded reader could not read the seed: %v", err)
+	asUser := func(userID ids.UUID, scope principal.RowScope) context.Context {
+		return principal.WithActor(
+			principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.ws), ids.NewV7()),
+			principal.Principal{
+				Type: principal.PrincipalHuman, ID: "human:" + userID.String(), UserID: userID,
+				Permissions: principal.Permissions{
+					RoleKeys: []string{"rep"},
+					Objects:  map[string]principal.ObjectGrant{"activity": {Read: true}},
+					RowScope: scope,
+				},
+			})
 	}
 
-	scoped := principal.WithActor(
-		principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.ws), ids.NewV7()),
-		principal.Principal{
-			Type: principal.PrincipalHuman, ID: "human:" + e.user.String(), UserID: e.user,
-			Permissions: principal.Permissions{
-				RoleKeys: []string{"rep"},
-				Objects:  map[string]principal.ObjectGrant{"activity": {Read: true}},
-				RowScope: principal.RowScopeOwn,
-			},
-		})
-	if _, err := e.store.ReadPipelineFacts(scoped, id); !errors.Is(err, apperrors.ErrNotFound) {
+	// The allow arm over the same seed: the contact's owner reads it. Without
+	// this, a link that failed to land would make the refusal below meaningless.
+	if _, err := e.store.ReadPipelineFacts(asUser(other, principal.RowScopeOwn), id); err != nil {
+		t.Fatalf("the private contact's owner could not read the seed: %v", err)
+	}
+
+	if _, err := e.store.ReadPipelineFacts(asUser(e.user, principal.RowScopeOwn), id); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("err = %v, want ErrNotFound — the grant is held, so only the row "+
 			"scope can refuse, and it must hide existence rather than deny", err)
 	}

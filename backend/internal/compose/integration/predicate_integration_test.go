@@ -31,6 +31,9 @@ func TestPredicateEngineFiltersRealRowsWithinRowScope(t *testing.T) {
 	e := Setup(t)
 	mineMatch := e.SeedPerson(t, "Anna Renewal", &e.Rep1)
 	foreignMatch := e.SeedPerson(t, "Bruno Renewal", &e.Rep3)
+	// A person is readable by every seat with the grant; capture privacy
+	// is what keeps this one inside Rep3's row scope alone.
+	e.MakeCapturePrivate(t, "person", foreignMatch, e.Rep3)
 	mineOther := e.SeedPerson(t, "Clara Support", &e.Rep1)
 	mineLiteral := e.SeedPerson(t, "Dora 100% Renewal", &e.Rep1)
 
@@ -56,12 +59,15 @@ func TestPredicateEngineFiltersRealRowsWithinRowScope(t *testing.T) {
 	}
 
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
+	// The private capture's owner reads both: their own private row and the
+	// colleague's shared one.
+	captor := e.As(e.Rep3, []ids.UUID{e.Team2}, AdminPerms)
 	contains := func(s string) storekit.Predicate {
 		return storekit.Predicate{Field: "full_name", Op: storekit.OpContains, Value: s}
 	}
 
 	// Team-scoped rep: the filter matches three live rows, but the
-	// foreign team's match stays invisible — scope composes with the
+	// capture-private match stays invisible — scope composes with the
 	// predicate, the predicate never overrides it.
 	got := selectIDs(rep, storekit.Predicate{And: []storekit.Predicate{contains("renewal")}})
 	for id, want := range map[ids.UUID]bool{
@@ -72,14 +78,14 @@ func TestPredicateEngineFiltersRealRowsWithinRowScope(t *testing.T) {
 		}
 	}
 
-	// The unbounded admin sees the same filter across teams — the delta
-	// against the rep's result IS the scope clause doing its work.
-	if got := selectIDs(e.Admin(), contains("renewal")); !got[foreignMatch] || !got[mineMatch] {
-		t.Errorf("admin contains(renewal) = %v, want both teams' matches", got)
+	// The captor sees the same filter across both rows — the delta against
+	// the rep's result IS the scope clause doing its work.
+	if got := selectIDs(captor, contains("renewal")); !got[foreignMatch] || !got[mineMatch] {
+		t.Errorf("captor contains(renewal) = %v, want both matches", got)
 	}
 
-	// A filter that names only the other team's rows (owner_id = rep3)
-	// returns nothing for the team-scoped rep: no out-seeing via filter.
+	// A filter that names only the private row (owner_id = rep3) returns
+	// nothing for the team-scoped rep: no out-seeing via filter.
 	byForeignOwner := storekit.Predicate{Field: "owner_id", Op: storekit.OpEq, Value: e.Rep3.String()}
 	if got := selectIDs(rep, byForeignOwner); len(got) != 0 {
 		t.Errorf("team-scoped filter on foreign owner returned %v, want none", got)
@@ -109,8 +115,8 @@ func TestPredicateEngineFiltersRealRowsWithinRowScope(t *testing.T) {
 	// separately: a count is an existence oracle. An unscoped one would answer
 	// "812 rows match owner_id = <another team's rep>" while the page it labels
 	// showed none, which tells the caller precisely what the row scope exists to
-	// withhold. The rep-versus-admin delta below IS the scope clause, exactly as
-	// it is for SelectIDs above.
+	// withhold. The rep-versus-captor delta below IS the scope clause, exactly
+	// as it is for SelectIDs above.
 	countMatching := func(ctx context.Context, p storekit.Predicate) int {
 		t.Helper()
 		var n int
@@ -126,10 +132,10 @@ func TestPredicateEngineFiltersRealRowsWithinRowScope(t *testing.T) {
 	}
 
 	if n := countMatching(rep, contains("renewal")); n != 2 {
-		t.Errorf("team-scoped count(renewal) = %d, want 2 — the foreign team's match must not be counted", n)
+		t.Errorf("team-scoped count(renewal) = %d, want 2 — the private match must not be counted", n)
 	}
-	if n := countMatching(e.Admin(), contains("renewal")); n != 3 {
-		t.Errorf("admin count(renewal) = %d, want 3 across both teams", n)
+	if n := countMatching(captor, contains("renewal")); n != 3 {
+		t.Errorf("captor count(renewal) = %d, want 3 across both owners", n)
 	}
 	if n := countMatching(rep, byForeignOwner); n != 0 {
 		t.Errorf("team-scoped count on a foreign owner = %d, want 0 — a count must not confirm rows the caller cannot read", n)

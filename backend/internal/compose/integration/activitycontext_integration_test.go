@@ -81,7 +81,7 @@ func assertPreparedFor(t *testing.T, assembled retrieval.Context, want datasourc
 type meetingFixture struct {
 	pipeline, stage        ids.UUID
 	rep1Org, rep1Deal      ids.UUID
-	rep3Org, rep3Deal      ids.UUID
+	rep3Org, rep3Project   ids.UUID
 	organizer, otherPerson ids.UUID
 }
 
@@ -95,12 +95,14 @@ func seedMeetingFixture(t *testing.T, e *SearchEnv) meetingFixture {
 
 	// Seeded rep3-first on purpose: ids are time-ordered, so the record the
 	// caller may NOT see sorts ahead of the one they may. A walk that skipped
-	// the per-subject visibility probe would prep against it.
-	f.rep3Org = e.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
-		VALUES ($1, $2, 'Other Team GmbH', 'manual', 'human:x')`, e.Rep3)
-	f.rep3Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
-		VALUES ($1, $2, 'Other Team Renewal', $3, $4, $5, 'manual', 'human:x')`,
-		e.Rep3, f.pipeline, f.stage, f.rep3Org)
+	// the per-subject visibility probe would prep against it. Accounts are
+	// readable by every seat, so the other team's organization is
+	// capture-private (only Rep3 reads it); the other team's project is hidden
+	// by the plain team row scope a project keeps.
+	f.rep3Org = e.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Other Team GmbH', 'owner', 'manual', 'human:x')`, e.Rep3)
+	f.rep3Project = e.SeedID(t, `INSERT INTO project (id, owner_id, name, organization_id, source, captured_by)
+		VALUES ($1, $2, 'Other Team Rollout', $3, 'manual', 'human:x')`, e.Rep3, f.rep3Org)
 	f.rep1Org = e.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, source, captured_by)
 		VALUES ($1, $2, 'Turbinenbau AG', 'manual', 'human:x')`, e.Rep1)
 	f.rep1Deal = e.SeedID(t, `INSERT INTO deal (id, owner_id, name, pipeline_id, stage_id, organization_id, source, captured_by)
@@ -282,22 +284,30 @@ func TestAMeetingNeverDisclosesTheRecordBehindALinkTheCallerCannotSee(t *testing
 		assertAbsent(t, assembled, datasource.EntityRef{Type: datasource.EntityOrganization, ID: f.rep3Org})
 	})
 
-	// A record the caller cannot see that WOULD have been the subject: the prep
-	// is built around the one they can, not refused and not built around the
-	// one they cannot.
+	// A record the caller cannot see that WOULD have been the subject (a
+	// project outranks an account in the subject tiers): the prep is built
+	// around the one they can, not refused and not built around the one they
+	// cannot.
 	t.Run("a hidden record is never the subject", func(t *testing.T) {
 		e := SetupSearch(t)
 		f := seedMeetingFixture(t, e)
 		meeting := seedMeeting(t, e, "Joint review")
-		linkMeeting(t, e, meeting, "deal", "deal_id", f.rep3Deal)
-		linkMeeting(t, e, meeting, "deal", "deal_id", f.rep1Deal)
+		linkMeeting(t, e, meeting, "project", "project_id", f.rep3Project)
+		linkMeeting(t, e, meeting, "organization", "organization_id", f.rep1Org)
 
-		assembled, err := prepFor(e.AsTeamRep(e.Rep1, e.Team1), t, e, meeting)
+		// The control: the project's own team preps against the project.
+		theirs, err := prepFor(e.teamRepWhoReadsProjects(e.Rep3, e.Team2), t, e, meeting)
+		if err != nil {
+			t.Fatalf("preparing for the meeting as the project's team: %v", err)
+		}
+		assertPreparedFor(t, theirs, datasource.EntityRef{Type: datasource.EntityProject, ID: f.rep3Project})
+
+		assembled, err := prepFor(e.teamRepWhoReadsProjects(e.Rep1, e.Team1), t, e, meeting)
 		if err != nil {
 			t.Fatalf("preparing for the meeting: %v", err)
 		}
-		assertPreparedFor(t, assembled, datasource.EntityRef{Type: datasource.EntityDeal, ID: f.rep1Deal})
-		assertAbsent(t, assembled, datasource.EntityRef{Type: datasource.EntityDeal, ID: f.rep3Deal})
+		assertPreparedFor(t, assembled, datasource.EntityRef{Type: datasource.EntityOrganization, ID: f.rep1Org})
+		assertAbsent(t, assembled, datasource.EntityRef{Type: datasource.EntityProject, ID: f.rep3Project})
 	})
 }
 
@@ -308,8 +318,10 @@ func TestAMeetingNeverDisclosesTheRecordBehindALinkTheCallerCannotSee(t *testing
 func TestAMeetingNeverDisclosesAnAttendeeTheCallerCannotSee(t *testing.T) {
 	e := SetupSearch(t)
 	f := seedMeetingFixture(t, e)
-	hidden := e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, source, captured_by)
-		VALUES ($1, $2, 'Dieter Fremd', 'manual', 'human:x')`, e.Rep3)
+	// Contacts are readable by every seat, so the hidden attendee is a
+	// capture-private contact of the other team's rep.
+	hidden := e.SeedID(t, `INSERT INTO person (id, owner_id, full_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Dieter Fremd', 'owner', 'manual', 'human:x')`, e.Rep3)
 	meeting := seedMeeting(t, e, "Joint review")
 	linkMeeting(t, e, meeting, "deal", "deal_id", f.rep1Deal)
 	addParty(t, e, meeting, "organizer", &hidden, "dieter@othertteam.example")
@@ -475,11 +487,29 @@ func TestAnEventOutsideTheCallersScopeIsNotFound(t *testing.T) {
 	e := SetupSearch(t)
 	f := seedMeetingFixture(t, e)
 	meeting := seedMeeting(t, e, "Other team only")
-	linkMeeting(t, e, meeting, "deal", "deal_id", f.rep3Deal)
+	linkMeeting(t, e, meeting, "project", "project_id", f.rep3Project)
 
-	if _, err := prepFor(e.AsTeamRep(e.Rep1, e.Team1), t, e, meeting); !errors.Is(err, apperrors.ErrNotFound) {
+	if _, err := prepFor(e.teamRepWhoReadsProjects(e.Rep3, e.Team2), t, e, meeting); err != nil {
+		t.Fatalf("preparing for the meeting as the project's own team: %v", err)
+	}
+	if _, err := prepFor(e.teamRepWhoReadsProjects(e.Rep1, e.Team1), t, e, meeting); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("preparing for another team's meeting = %v, want not-found", err)
 	}
+}
+
+// teamRepWhoReadsProjects is AsTeamRep with the project read grant added: the
+// search fixture's grant vocabulary stops at the five searchable types, and a
+// suite whose hidden record is a project must hold the grant so that what
+// hides the row is the team row scope and not object RBAC.
+func (e *SearchEnv) teamRepWhoReadsProjects(user, team ids.UUID) context.Context {
+	grants := searchReadGrants()
+	grants["project"] = principal.ObjectGrant{Read: true}
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + user.String(), UserID: user,
+		TeamIDs:     []ids.UUID{team},
+		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeTeam},
+	})
 }
 
 // An archived event answers the same not-found, so a prep never re-serves a

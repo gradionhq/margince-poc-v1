@@ -437,10 +437,12 @@ func TestForecastDerivationDrillThroughReconcilesExactly(t *testing.T) {
 	}
 }
 
-// The explanation rides the SAME row-scope clause as the report: a
-// team-scoped rep's drill-through returns only their team's deals, and
-// pointing the handle at a foreign owner yields an empty set, not a leak.
-func TestForecastDerivationHonorsRowScope(t *testing.T) {
+// Deals are readable by every seat that holds the deal grant, whatever its
+// own/team/all tier, and the explanation rides the SAME read model as the
+// report: a team-scoped rep's forecast groups every owner's deals, the
+// drill-through returns them all, a handle pinned to the other rep's owner
+// resolves to that rep's deals, and the admin sees exactly the same set.
+func TestForecastDerivationReadsEveryDealWhateverTheTier(t *testing.T) {
 	e := setupForecast(t)
 	e.seedOpenDeal(t, "Mine A", 20, &e.Rep1, int64p(10000), stringp("commit"))
 	e.seedOpenDeal(t, "Mine B", 60, &e.Rep1, int64p(20000), stringp("commit"))
@@ -448,32 +450,31 @@ func TestForecastDerivationHonorsRowScope(t *testing.T) {
 
 	rep := e.dealReadCtx(e.Rep1, []ids.UUID{e.Team1}, principal.RowScopeTeam)
 	result := e.runReport(rep, t, "forecast", `{"group_by":["owner_id"]}`)
-	if len(result.Rows) != 1 || result.Rows[0]["owner_id"] != e.Rep1.String() {
-		t.Fatalf("team-scoped report rows = %+v, want only rep1's group", result.Rows)
+	if len(result.Rows) != 2 {
+		t.Fatalf("team-scoped report rows = %+v, want both owners' groups", result.Rows)
 	}
 
 	derivation := e.explainReport(rep, t, "forecast", result.DerivationURL)
-	if derivation.TotalRows != 2 || len(derivation.Rows) != 2 {
-		t.Fatalf("team-scoped drill-through = %d rows (total %d), want rep1's 2 deals",
+	if derivation.TotalRows != 3 || len(derivation.Rows) != 3 {
+		t.Fatalf("team-scoped drill-through = %d rows (total %d), want all 3 deals",
 			len(derivation.Rows), derivation.TotalRows)
 	}
 	var sum int64
 	for _, source := range derivation.Rows {
 		sum += wireInt(t, source, "amount_minor")
 	}
-	if sum != 30000 {
-		t.Errorf("team-scoped drill-through sum = %d, want 30000 (never the foreign 40000)", sum)
+	if sum != 70000 {
+		t.Errorf("team-scoped drill-through sum = %d, want 70000 (every deal, the other rep's included)", sum)
 	}
 
-	// A handle pinned to the foreign owner resolves to an EMPTY set
-	// under team scope — anything that returns a record is a read.
+	// A handle pinned to the other rep's owner resolves to that rep's deal
+	// under team scope, the same way it does for the admin.
 	foreign := e.explainReport(rep, t, "forecast", "/v1/reports/forecast/derivation?by=owner_id&agg=count%3A%3Adeals&owner_id="+e.Rep3.String())
-	if foreign.TotalRows != 0 || len(foreign.Rows) != 0 {
-		t.Errorf("foreign-owner drill-through leaked %d rows (total %d)", len(foreign.Rows), foreign.TotalRows)
+	if foreign.TotalRows != 1 || len(foreign.Rows) != 1 {
+		t.Errorf("other-owner drill-through = %d rows (total %d), want that rep's 1 deal", len(foreign.Rows), foreign.TotalRows)
 	}
 
-	// Admin (row_scope=all) sees all three — the scope, not the data,
-	// made the difference.
+	// Admin (row_scope=all) sees the same three — the tier made no difference.
 	full := e.explainReport(e.Admin(), t, "forecast", result.DerivationURL)
 	if full.TotalRows != 3 {
 		t.Errorf("admin drill-through total = %d, want 3", full.TotalRows)

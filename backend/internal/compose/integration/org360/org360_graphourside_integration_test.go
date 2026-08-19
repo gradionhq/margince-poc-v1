@@ -294,18 +294,19 @@ func TestOrganizationGraphOmitsOurSideWithoutThePersonOrActivityGrant(t *testing
 	}
 }
 
-// An interaction with a person the caller's row scope hides draws nothing: the
-// contact is not a node, so the colleague who wrote to them has nothing to
-// point at. Anything else would leak the fact of contact with a record whose
-// existence the card is hiding.
-func TestOrganizationGraphDrawsNoContactEdgeForAnOutOfScopeContact(t *testing.T) {
+// An interaction with a person the caller cannot read (capture-private to a
+// colleague) draws nothing: the contact is not a node, so the colleague who
+// wrote to them has nothing to point at. Anything else would leak the fact of
+// contact with a record whose existence the card is hiding.
+func TestOrganizationGraphDrawsNoContactEdgeForACapturePrivateContact(t *testing.T) {
 	e := integration.Setup(t)
 	owner := integration.OwnerConn(t)
 	svc := org360Service(e)
 
 	org := e.SeedOrg(t, "Acme", &e.Rep1)
 	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
-	theirs := e.SeedPerson(t, "Their Contact", &e.Rep3)
+	theirs := e.SeedPerson(t, "Their Private Contact", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", theirs, e.Rep3)
 	employ(t, e, mine, org, "cto")
 	employ(t, e, theirs, org, "cfo")
 	writerToMine := seedMember(t, owner, e.WS, "Writes To Mine")
@@ -320,10 +321,10 @@ func TestOrganizationGraphDrawsNoContactEdgeForAnOutOfScopeContact(t *testing.T)
 	}
 	users := graphUserNodes(graph)
 	if _, drawn := users[writerToMine]; !drawn {
-		t.Error("the colleague who wrote to the in-scope contact is missing")
+		t.Error("the colleague who wrote to the readable contact is missing")
 	}
 	if _, drawn := users[writerToTheirs]; drawn {
-		t.Error("a colleague was drawn for contact with a person outside the caller's row scope")
+		t.Error("a colleague was drawn for contact with a capture-private person the caller cannot read")
 	}
 	targets := graphEdgeTargets(graph, crmcontracts.OrganizationGraphEdgeKindInContactWith)
 	if len(targets) != 1 || targets[writerToMine] != mine {

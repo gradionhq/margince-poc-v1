@@ -6,23 +6,22 @@
 package briefs
 
 // A persisted brief item is a REFERENCE to a deal, held for as long as the run
-// lives — so the read that hands it back re-checks the deal's row scope rather
-// than trusting the ranking that queued it. Between the two, a deal can be
-// reassigned; the rep who lost it must read the same answer from the brief that
-// `read_record` gives them on the same id.
+// lives — so the read that hands it back composes the deal's read predicate
+// rather than trusting the ranking that queued it. A deal is workspace-shared
+// identity (platform/auth tableclass.go): reassigning it to another team does
+// not take it out of a team-scoped rep's brief, and the rep reads the same
+// answer from the brief that `read_record` gives them on the same id.
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func TestBriefReadReChecksTheDealRowScope(t *testing.T) {
+func TestBriefReadServesAReassignedDealLikeTheDealReadDoes(t *testing.T) {
 	b := setupBrief(t)
 	owner := integration.OwnerConn(t)
 	// A team-scoped rep, not the all-scope fixture: an unbounded principal
@@ -34,14 +33,14 @@ func TestBriefReadReChecksTheDealRowScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Both must be queued BEFORE anything moves: a missing item reads back as
-	// the zero value, whose nil id is refused by every path below — so the two
-	// assertions about the reassigned deal would pass without the row scope
-	// ever being the reason.
+	// the zero value, whose nil id is refused by every path below — so the
+	// assertions about the reassigned deal would pass without the read
+	// predicate ever being the reason.
 	queued := itemsByDeal(t, run)
-	lost, lostQueued := queued[b.dealA]
+	moved, movedQueued := queued[b.dealA]
 	kept, keptQueued := queued[b.dealB]
-	if !lostQueued || !keptQueued {
-		t.Fatalf("the snapshot queued %v, want both fixture deals — nothing below tests a row scope without them", queueItemDeals(run))
+	if !movedQueued || !keptQueued {
+		t.Fatalf("the snapshot queued %v, want both fixture deals — nothing below tests the read predicate without them", queueItemDeals(run))
 	}
 
 	// The deal moves to the other team between the snapshot and the read.
@@ -56,20 +55,17 @@ func TestBriefReadReChecksTheDealRowScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	served := itemsByDeal(t, after)
-	// Both halves are asserted: dropping the reassigned item is the fix, and
-	// keeping the other one is what stops an empty queue from passing for it.
-	if _, present := served[b.dealA]; present {
-		t.Errorf("the brief still serves deal %s after it moved to another team — the item read skips the deal's row scope", b.dealA)
+	if _, present := served[b.dealA]; !present {
+		t.Errorf("the brief dropped deal %s after it moved to another team — a deal is readable by every seat, the item read narrows more than the deal read does", b.dealA)
 	}
 	if _, present := served[b.dealB]; !present {
-		t.Errorf("the brief dropped deal %s, which the rep still owns — the join narrowed more than the row scope does", b.dealB)
+		t.Errorf("the brief dropped deal %s, which the rep still owns", b.dealB)
 	}
 
-	// The single-item door answers the same question the same way: not-found,
-	// never forbidden and never conflict, so the mark discloses no more than
-	// the read it was launched from.
-	if _, err := b.engine.MarkActed(rep, lost.ID, later); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Errorf("marking an item whose deal moved away → %v, want ErrNotFound (existence-hiding)", err)
+	// The single-item door answers the same way: the mark is a read-back of a
+	// deal the rep can still see, so it succeeds for both items.
+	if _, err := b.engine.MarkActed(rep, moved.ID, later); err != nil {
+		t.Errorf("marking an item whose deal moved to another team: %v, want success (the deal stays readable)", err)
 	}
 	if _, err := b.engine.MarkActed(rep, kept.ID, later); err != nil {
 		t.Errorf("marking an item the rep still owns: %v", err)

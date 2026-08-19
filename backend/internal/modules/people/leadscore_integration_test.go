@@ -305,21 +305,22 @@ func TestManualSignalReadReturnsTheStoredQualificationEvidence(t *testing.T) {
 	}
 }
 
-// Scoring a lead is a WRITE to it, and naming one in the request is a read of
-// it: a rep who cannot see a lead must not be able to score it, and must not
-// learn it exists by being told so.
+// Scoring a lead is a WRITE to it. A lead is workspace-readable identity
+// (platform/auth tableclass.go), so every seat with the lead grant may READ
+// another rep's lead — but row scope and record grants still govern writes,
+// and a rep who does not own the lead may not score it.
 //
 // The schema fitness gate (backend/migrations, TestFK_rowScopedTargetsHave-
 // VisibilityDecision) classifies lead_manual_signal.lead_id as client-supplied
 // and gated. That classification is a claim about this call, and this test is
-// what makes it true rather than asserted: without the EnsureVisibleLive probe
+// what makes it true rather than asserted: without the write-authority probe
 // in SetLeadManualSignal, a rep could write their judgement onto any lead in
-// the workspace by id alone, and the 404-vs-403 answer below is what keeps the
-// refusal from confirming the lead is there.
-func TestARepCannotScoreALeadTheyCannotSee(t *testing.T) {
+// the workspace by id alone. The refusal is ErrPermissionDenied, not
+// ErrNotFound: the lead is visibly readable, so there is no existence to hide.
+func TestARepCannotScoreALeadTheyDoNotOwn(t *testing.T) {
 	ctx, store, base := newLeadScoreEnvWithBase(t)
 
-	// Owned by the teammate, deliberately: an UNOWNED lead is visible to every
+	// Owned by the teammate, deliberately: an UNOWNED lead is writable by every
 	// scope tier by design (OwnerPredicate reads `owner_id IS NULL OR = me` —
 	// a record nobody owns is not somebody else's private record), so a lead
 	// with no owner would pass the probe honestly and prove nothing.
@@ -340,8 +341,8 @@ func TestARepCannotScoreALeadTheyCannotSee(t *testing.T) {
 	// A rep in the same workspace, restricted to their OWN rows. `base.owner` is
 	// a fixture role name, not this lead's owner — the lead above belongs to
 	// base.teammate, so to this caller it is somebody else's row. The lead grants
-	// are real, so what refuses below is row scope and not a missing permission,
-	// which is the case the probe exists for.
+	// are real, so what refuses below is write authority and not a missing
+	// object permission, which is the case the probe exists for.
 	notTheLeadsOwner := base.owner
 	stranger := principal.WithCorrelationID(
 		principal.WithWorkspaceID(context.Background(), base.ws), ids.NewV7())
@@ -359,16 +360,18 @@ func TestARepCannotScoreALeadTheyCannotSee(t *testing.T) {
 		Reason: "scoring a lead that is not mine to see",
 	})
 	if err == nil {
-		t.Fatal("a rep scored a lead outside their row scope — the visibility probe is not running")
+		t.Fatal("a rep scored a lead they do not own — the write-authority probe is not running")
 	}
-	// ErrNotFound, never ErrPermissionDenied: a refusal that distinguishes
-	// "exists but forbidden" from "no such lead" tells a caller which ids are
-	// real, which is the existence disclosure the row-scope rule forbids.
-	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("want ErrNotFound so the refusal hides existence, got %v", err)
+	// ErrPermissionDenied, not ErrNotFound: the lead is readable by every seat,
+	// so the refusal names the real reason — the caller may read it but not
+	// write it — instead of pretending the lead is not there.
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("want ErrPermissionDenied (readable, not writable), got %v", err)
 	}
-	if _, err := store.ListLeadManualSignals(stranger, leadID); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("manual signal read exposed an out-of-scope lead: got %v, want ErrNotFound", err)
+	// The READ half is open: another rep's lead and its manual signals are
+	// workspace-readable, so the same caller lists them without refusal.
+	if _, err := store.ListLeadManualSignals(stranger, leadID); err != nil {
+		t.Fatalf("reading another rep's lead signals: %v, want success (a lead is readable by every seat)", err)
 	}
 
 	// And nothing was written: the refusal must land before the insert, not

@@ -75,12 +75,13 @@ func seedWorkspaceUser(t *testing.T, e *Env, displayName string) ids.UUID {
 
 func TestRecordHistoryGatesOnPrincipalPermissionAndVisibility(t *testing.T) {
 	e := Setup(t)
-	// Owned by Rep1 (Team1): an ownerless record is workspace-shared at
-	// every tier, so the out-of-scope assertion needs a real owner to
-	// exclude the Team2-only caller.
+	// Captured privately by Rep1: a person is otherwise readable by every
+	// seat with the grant, so the out-of-scope assertion needs a private
+	// capture to exclude the other caller.
 	personID := e.SeedPerson(t, "Gated Subject", &e.Rep1)
+	e.MakeCapturePrivate(t, "person", personID, e.Rep1)
 
-	// Rep3 sits only in Team2: 404, not an empty page — existence-hiding
+	// Rep3 is not the captor: 404, not an empty page — existence-hiding
 	// on the row-scope gate like every record read.
 	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, RepPerms)
 	if _, err := privacy.ListRecordHistory(outsider, e.DB(), privacy.RecordHistoryFilter{

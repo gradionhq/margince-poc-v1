@@ -94,24 +94,25 @@ func TestDealsByStageWeightedDerivationReconcilesExactly(t *testing.T) {
 	}
 }
 
-// The stage join must not widen what a team-scoped rep's drill-through sees:
-// the same row-scope clause the forecast suite proves in
-// TestForecastDerivationHonorsRowScope applies here too, and a foreign
-// owner's deal in the SAME stage must stay invisible.
-func TestDealsByStageDerivationHonorsRowScope(t *testing.T) {
+// Deals are readable by every seat that holds the deal grant, whatever the
+// seat's own/team/all tier: a own-scoped rep's deals-by-stage counts another
+// rep's deal in the same stage, and the drill-through returns the SAME set the
+// aggregate counted — the same read model the forecast suite proves in
+// TestForecastDerivationReadsEveryDealWhateverTheTier.
+func TestDealsByStageCountsEveryDealWhateverTheTier(t *testing.T) {
 	e := setupForecast(t)
 	e.seedOpenDeal(t, "Mine", 60, &e.Rep1, int64p(10000), stringp("commit"))
-	e.seedOpenDeal(t, "Theirs", 60, &e.Rep3, int64p(999999), stringp("commit"))
+	e.seedOpenDeal(t, "Theirs", 60, &e.Rep3, int64p(20000), stringp("commit"))
 
 	rep := e.dealReadCtx(e.Rep1, nil, principal.RowScopeOwn)
 	result := e.runReport(rep, t, "deals-by-stage",
 		`{"group_by":["stage_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"},{"fn":"sum","field":"weighted_amount_minor","as":"weighted_minor"}]}`)
 	row := dealsByStageRow(t, result, e.stages[60].String())
-	if got := wireInt(t, row, "deals"); got != 1 {
-		t.Fatalf("deals = %d, want 1 — the foreign rep's deal in the same stage must not be counted", got)
+	if got := wireInt(t, row, "deals"); got != 2 {
+		t.Fatalf("deals = %d, want 2 — a deal is readable by every seat, the other rep's included", got)
 	}
-	if got := wireInt(t, row, "weighted_minor"); got != weightedMinor(10000, 60) {
-		t.Errorf("weighted_minor = %d, want %d (only the caller's own deal)", got, weightedMinor(10000, 60))
+	if want := weightedMinor(10000, 60) + weightedMinor(20000, 60); wireInt(t, row, "weighted_minor") != want {
+		t.Errorf("weighted_minor = %d, want %d (both deals in the stage)", wireInt(t, row, "weighted_minor"), want)
 	}
 
 	handle, ok := row["derivation_url"].(string)
@@ -119,8 +120,8 @@ func TestDealsByStageDerivationHonorsRowScope(t *testing.T) {
 		t.Fatalf("aggregate row has no derivation_url: %+v", row)
 	}
 	derivation := e.explainReport(rep, t, "deals-by-stage", handle)
-	if derivation.TotalRows != 1 {
-		t.Errorf("own-scope drill-through total = %d, want 1 (never the foreign deal)", derivation.TotalRows)
+	if derivation.TotalRows != 2 {
+		t.Errorf("own-scope drill-through total = %d, want the 2 deals the aggregate counted", derivation.TotalRows)
 	}
 }
 

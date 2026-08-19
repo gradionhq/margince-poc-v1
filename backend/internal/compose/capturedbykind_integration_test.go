@@ -121,11 +121,13 @@ func TestCapturedByKindNarrowsRowScopeAndNeverWidensIt(t *testing.T) {
 	e := integration.Setup(t)
 	store := people.NewStore(e.DB())
 
-	// An AI-created person owned by Rep3, who sits in the other team.
+	// An AI-created person capture-private to Rep3, who sits in the other team.
+	// Ownership alone hides no person from another seat; visibility='owner' is
+	// the state that still keeps the row out of Rep1's read scope.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
-			INSERT INTO person (id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, 'Other Team AI Record', 'test', 'agent:capture_counterparty_verdict')`, ids.NewV7(), e.Rep3)
+			INSERT INTO person (id, owner_id, full_name, source, captured_by, visibility)
+			VALUES ($1, $2, 'Other Team AI Record', 'test', 'agent:capture_counterparty_verdict', 'owner')`, ids.NewV7(), e.Rep3)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding: %v", err)

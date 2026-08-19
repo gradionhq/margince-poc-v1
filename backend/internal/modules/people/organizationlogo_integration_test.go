@@ -212,18 +212,19 @@ func TestOrganizationLogoIsRowScopedLikeEveryOtherRead(t *testing.T) {
 	if _, _, err := e.store.SetOrganizationLogo(owner, orgID, key, "https://fremd.test/touch.png"); err != nil {
 		t.Fatalf("seed the logo: %v", err)
 	}
-	// An ownerless organization is workspace-shared, so bind it to this rep:
-	// own-only row scope can only hide a row that somebody owns.
+	// An organization is workspace-readable identity, so ownership alone hides
+	// nothing: make it this rep's capture-private record (visibility='owner'),
+	// the one state that still keeps an organization out of another seat's reach.
 	if err := e.store.tx(owner, func(tx pgx.Tx) error {
-		_, err := tx.Exec(owner, `UPDATE organization SET owner_id = $2 WHERE id = $1`, orgID, e.rep)
+		_, err := tx.Exec(owner, `UPDATE organization SET owner_id = $2, visibility = 'owner' WHERE id = $1`, orgID, e.rep)
 		return err
 	}); err != nil {
 		t.Fatalf("bind the organization's owner: %v", err)
 	}
 
 	// A caller scoped to their own records only: the organization is another
-	// rep's, so both the location read and the write answer not-found rather
-	// than confirming it exists.
+	// rep's private capture, so both the location read and the write answer
+	// not-found rather than confirming it exists.
 	stranger := e.asOwnScoped(ids.NewV7())
 	if _, err := e.store.OrganizationLogoKey(stranger, orgID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("an out-of-scope logo read must be existence-hidden, got %v", err)

@@ -65,9 +65,12 @@ func TestAvailabilityBusyReadHonorsRowScope(t *testing.T) {
 	e := Setup(t)
 	slotStart := time.Date(2026, 7, 7, 10, 0, 0, 0, time.UTC)
 
-	// rep1's meeting is linked to a person OWNED by rep1 — visible to
-	// the team, hidden from the other team.
+	// rep1's meeting is linked to a person rep1 captured PRIVATELY — visible
+	// to rep1 alone. A person who is merely owned is readable by every seat
+	// with the grant, so capture privacy is what keeps the meeting out of a
+	// colleague's row scope.
 	target := e.SeedPerson(t, "Scoped Client", &e.Rep1)
+	e.MakeCapturePrivate(t, "person", target, e.Rep1)
 	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, SchedulerPerms)
 	if _, err := e.Activities.BookMeeting(rep1, activities.BookMeetingInput{
 		Host: ids.From[ids.UserKind](e.Rep1), Start: slotStart, End: slotStart.Add(time.Hour),
@@ -99,12 +102,16 @@ func TestAvailabilityBusyReadHonorsRowScope(t *testing.T) {
 		return false
 	}
 
-	// A teammate sees the block; a rep from the other team sees rep1's
-	// calendar as free at that slot — the meeting is outside their row
-	// scope and must not leak through free/busy.
+	// The captor sees the block; a teammate and a rep from the other team
+	// both see rep1's calendar as free at that slot — the meeting is outside
+	// their row scope and must not leak through free/busy. Capture privacy
+	// is not team-shaped, so the teammate is hidden from it too.
+	if proposes(rep1) {
+		t.Fatal("the captor still sees the booked slot as free")
+	}
 	teammate := e.As(e.Rep2, []ids.UUID{e.Team1}, SchedulerPerms)
-	if proposes(teammate) {
-		t.Fatal("teammate still sees the booked slot as free")
+	if !proposes(teammate) {
+		t.Fatal("a teammate can see the busy block — free/busy leaks the private meeting")
 	}
 	stranger := e.As(e.Rep3, []ids.UUID{e.Team2}, SchedulerPerms)
 	if !proposes(stranger) {

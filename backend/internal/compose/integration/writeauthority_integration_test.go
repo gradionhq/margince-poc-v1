@@ -36,8 +36,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// sharedPersonFixture is one person owned by rep3 in team2 — outside rep1's
-// team scope, so a share is rep1's only path to it and every outcome below is
+// sharedPersonFixture is one person rep3 captured PRIVATELY — a person who is
+// merely owned is readable by every seat with the grant, so capture privacy
+// is what makes a share rep1's only path to it, and every outcome below is
 // attributable to the grant rather than to the scope tier.
 type sharedPersonFixture struct {
 	env    *SearchEnv
@@ -50,8 +51,8 @@ func seedSharedPerson(t *testing.T, name string) sharedPersonFixture {
 	t.Helper()
 	e := SetupSearch(t)
 	person := e.SeedID(t,
-		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, $3, $2, 'manual', 'human:x')`, e.Rep3, name)
+		`INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+		 VALUES ($1, $3, $2, 'owner', 'manual', 'human:x')`, e.Rep3, name)
 	return sharedPersonFixture{
 		env:    e,
 		person: person,
@@ -197,11 +198,12 @@ func TestAReadShareOfALeadCannotScoreIt(t *testing.T) {
 		}
 	}
 
-	// Unshared first: the live probe's own refusal, which must stay a 404 for
-	// the same reason the plain probe's does — nothing about a row a caller has
-	// never been shown may be confirmed by the way it is refused.
-	if err := score(); !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("scoring an unshared lead → %v, want not-found (existence-hiding)", err)
+	// Unshared first: a lead is readable by every seat holding the lead grant,
+	// so the caller can already see the row and the refusal is the write
+	// arm's — permission-denied, not a 404 that would send them hunting for
+	// a typo in an id they can read back from their own screen.
+	if err := score(); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("scoring an unshared lead → %v, want permission-denied (the row is readable, not writable)", err)
 	}
 
 	shareLead("read")

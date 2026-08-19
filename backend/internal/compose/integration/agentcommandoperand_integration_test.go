@@ -29,10 +29,10 @@ import (
 )
 
 // TestAConfirmFirstFactCallAgainstAnUnseeableOrganizationStagesNothing is
-// this task's actual behavioral proof: an agent acting for a human whose row
-// scope hides an organization (team-scoped, no shared team with the
-// organization's owner) gets the existence-hiding 404 GetOrganization itself
-// would give, and stages NO approval. A target answered from the route alone
+// this task's actual behavioral proof: an agent acting for a human who cannot
+// read an organization (it is capture-private to the admin who captured it,
+// and the rep holds no record grant) gets the existence-hiding 404
+// GetOrganization itself would give, and stages NO approval. A target answered from the route alone
 // asks for no read and so makes no such refusal — it stages one regardless;
 // that is the delta this test exercises through the REAL row-scope predicate
 // (internal/platform/auth),
@@ -47,23 +47,23 @@ func TestAConfirmFirstFactCallAgainstAnUnseeableOrganizationStagesNothing(t *tes
 		t.Fatalf("resolving admin id: %v", err)
 	}
 
-	// Owned by the admin: owner_id IS NULL is visible to everyone regardless
-	// of row scope, so an explicit owner the rep below shares no team with is
-	// what makes the miss genuine rather than incidental.
+	// An account is readable by every seat unless its capture is private:
+	// visibility='owner' narrows it to owner_id, which is the admin and not
+	// the rep below, so the miss is genuine rather than incidental.
 	orgID := createdID(t, e, "/v1/organizations", apptest.AnyMap{
-		"display_name": "Row-Scope Hidden Inc", "owner_id": adminID,
+		"display_name": "Capture-Private Inc", "owner_id": adminID,
 	})
 
 	wsA := wsID(t, e, e.Slug)
 	rep := ids.NewV7()
 	seedInWorkspace(t, e, wsA,
+		stmt(`UPDATE organization SET visibility = 'owner' WHERE id = $1`, orgID),
 		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
 		// Borrow the bootstrap admin's hash so the rep can actually sign in —
 		// the same reason TestRosterWithholdsRoleKeysFromANonAdmin does.
 		stmt(`UPDATE app_user SET password_hash = (SELECT password_hash FROM app_user WHERE email = 'ada@example.com') WHERE id = $1`, rep),
-		// 'rep' is RowScopeTeam with no team_membership row seeded — an empty
-		// team set, so the predicate's team arm matches nothing and only
-		// owner_id = rep's own id could pass it, which it does not.
+		// 'rep' is an ordinary human seat: it reads every account except one
+		// whose capture is private to somebody else.
 		stmt(`INSERT INTO role_assignment (workspace_id, role_id, user_id) SELECT $2, r.id, $1 FROM role r WHERE r.key = 'rep'`, rep, wsA),
 	)
 	if status := e.Call(t, "POST", "/v1/auth/login", apptest.AnyMap{

@@ -121,8 +121,10 @@ func TestScrapeStagesEnrichmentBoundToOrg(t *testing.T) {
 
 func TestScrapeHidesAnInvisibleOrg(t *testing.T) {
 	e := integration.Setup(t)
-	// Owned by rep3 (team2) — invisible to rep1 (team1) under team row-scope.
+	// Capture-private to rep3 (team2): an organization is otherwise readable by
+	// every seat, so visibility='owner' is what makes it invisible to rep1.
 	hidden := insertOrg(t, e, e.Rep3, "hidden.example", "")
+	e.MakeCapturePrivate(t, "organization", hidden, e.Rep3)
 	fake := ai.NewFakeClient().Script(acmeExtraction)
 	engine := &scrapeEngine{extract: evidenceExtractor{fetch: acmePage, brain: fakeModelPath(t, fake).ColdStart}, people: e.People, approvals: approvals.NewService(e.DB())}
 

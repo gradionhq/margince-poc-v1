@@ -36,8 +36,8 @@ func TestAnInvisibleIncumbentIsTracedOnItsOwnTransaction(t *testing.T) {
 	if _, err := sink.Upsert(ctx, rec); err != nil {
 		t.Fatalf("first capture: %v", err)
 	}
-	// Move it out of every reader's reach by linking it to a person owned by
-	// somebody else, then replay: the replay resolves onto a row this principal
+	// Move it out of every reader's reach by linking it to a person somebody
+	// else captured privately, then replay: the replay resolves onto a row this principal
 	// cannot see, which is the refusal under test.
 	hideIncumbent(ctx, t, db, "m-incumbent")
 
@@ -63,9 +63,11 @@ func TestAnInvisibleIncumbentIsTracedOnItsOwnTransaction(t *testing.T) {
 	}
 }
 
-// hideIncumbent links a captured activity to a person a stranger owns, which is
-// what puts it outside this principal's row scope: an activity has no owner of
-// its own and inherits the sensitivity of what it attaches to.
+// hideIncumbent links a captured activity to a stranger's capture-private
+// person (visibility='owner'), which is what puts it outside this principal's
+// row scope: a person is workspace-readable identity, so ownership alone hides
+// nothing, and an activity has no owner of its own — it inherits the
+// sensitivity of what it attaches to.
 func hideIncumbent(ctx context.Context, t *testing.T, db *database.DB, sourceID string) {
 	t.Helper()
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
@@ -77,8 +79,8 @@ func hideIncumbent(ctx context.Context, t *testing.T, db *database.DB, sourceID 
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO person (id, full_name, owner_id, source, captured_by)
-			VALUES ($1, 'Stranger', $2, 'manual', 'human:test')`,
+			INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+			VALUES ($1, 'Stranger', $2, 'owner', 'manual', 'human:test')`,
 			personID, stranger); err != nil {
 			return err
 		}
@@ -94,7 +96,7 @@ func hideIncumbent(ctx context.Context, t *testing.T, db *database.DB, sourceID 
 
 // ownScopedSinkContext is a capture connector acting for a member who may see
 // only their own records — the ordinary rep seat, and the one for which an
-// incumbent linked to somebody else's person is out of reach.
+// incumbent linked to somebody else's capture-private person is out of reach.
 func ownScopedSinkContext(ctx context.Context, ws ids.UUID) context.Context {
 	member := ids.NewV7()
 	ctx = principal.WithWorkspaceID(ctx, ws)

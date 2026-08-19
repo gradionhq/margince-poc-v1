@@ -187,11 +187,25 @@ func TestExportBundleCompleteAndValidOpenFormat(t *testing.T) {
 }
 
 // The pinned security property: a team-scoped caller's export contains
-// exactly its own records and none of the other team's — across every
-// scoped member (records, edges, activities, files, audit).
+// exactly what that caller may read — across every scoped member (records,
+// edges, activities, files, audit). Contacts, accounts, deals and leads are
+// readable by every seat, so the other team's deal and lead ARE in the
+// bundle; what stays out is the other rep's capture-private contact and
+// account, and everything reachable only through them.
 func TestExportRowScopeExcludesInvisibleRecords(t *testing.T) {
 	e := SetupSearch(t)
 	f := e.seedExportFixture(t)
+	for _, private := range []struct {
+		table string
+		id    ids.UUID
+	}{
+		{"person", f.rep3Person}, {"organization", f.rep3Org},
+	} {
+		if _, err := e.Owner.Exec(context.Background(),
+			`UPDATE `+private.table+` SET visibility = 'owner' WHERE id = $1`, private.id); err != nil {
+			t.Fatalf("making the other rep's %s capture-private: %v", private.table, err)
+		}
+	}
 
 	var buf bytes.Buffer
 	summary, err := compose.NewExportWriter(e.Pool).WriteBundle(e.exportRep(e.Rep1, e.Team1), &buf)
@@ -213,13 +227,24 @@ func TestExportRowScopeExcludesInvisibleRecords(t *testing.T) {
 			t.Fatalf("%s LEAKED an invisible row %s: got %v", file, hidden, rowIDs)
 		}
 	}
+	assertBothIDs := func(file string, mine, theirs ids.UUID) {
+		rowIDs := CSVColumn(t, entries[file], "id")
+		set := map[string]bool{}
+		for _, id := range rowIDs {
+			set[id] = true
+		}
+		if !set[mine.String()] || !set[theirs.String()] {
+			t.Fatalf("%s is missing a row every seat may read (mine %s, theirs %s): got %v", file, mine, theirs, rowIDs)
+		}
+	}
 	assertOnlyID("person.csv", f.rep1Person, f.rep3Person)
 	assertOnlyID("organization.csv", f.rep1Org, f.rep3Org)
-	assertOnlyID("deal.csv", f.rep1Deal, f.rep3Deal)
-	assertOnlyID("lead.csv", f.rep1Lead, f.rep3Lead)
+	assertBothIDs("deal.csv", f.rep1Deal, f.rep3Deal)
+	assertBothIDs("lead.csv", f.rep1Lead, f.rep3Lead)
 	assertOnlyID("activity.csv", f.rep1Activity, f.rep3Activity)
 
-	// One employment edge each; the caller sees only its own.
+	// One employment edge each; the other rep's joins two private endpoints,
+	// so the caller sees only its own.
 	if got := summary.RowCounts["relationship"]; got != 1 {
 		t.Fatalf("row-scope leak: relationship count = %d, want 1", got)
 	}

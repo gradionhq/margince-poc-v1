@@ -126,9 +126,9 @@ func TestBothDoorsRefuseOneRecordNeitherCallerCanSee(t *testing.T) {
 	native := NewProvider(e.Pool)
 	agent := scopedArchiveAgent(t, e)
 
-	// Owned by a rep in another team: the row-scope clause hides it from the
-	// human this agent acts for, and an ownerless row would be workspace-shared
-	// and visible to everyone, proving nothing.
+	// Capture-private to a rep in another team: a person is otherwise readable
+	// by every seat whoever owns it, so visibility='owner' is the one state that
+	// still hides the row from the human this agent acts for.
 	elsewhere := e.As(e.Rep3, []ids.UUID{e.Team2}, integration.AdminPerms)
 	hidden, err := native.Create(elsewhere, datasource.CreateInput{
 		EntityType: datasource.EntityPerson,
@@ -138,6 +138,7 @@ func TestBothDoorsRefuseOneRecordNeitherCallerCanSee(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seeding the out-of-scope person: %v", err)
 	}
+	e.MakeCapturePrivate(t, "person", hidden.ID, e.Rep3)
 
 	rec := httptest.NewRecorder()
 	stageRefusal(rec, archiveRequestFor(agent, hidden.ID), approvalsAdapter{svc: approvals.NewService(e.DB())},

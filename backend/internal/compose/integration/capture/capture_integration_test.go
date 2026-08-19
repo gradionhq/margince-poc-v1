@@ -265,8 +265,10 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 
 func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	e := integration.SetupSearch(t)
-	// A person owned by team2 — invisible to the team1 granting human.
-	foreignPerson := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Foreign Target', $2, 'manual', 'human:x')`, e.Rep3)
+	// A person capture-private to team2's rep — the one state that hides a
+	// person from the team1 granting human.
+	foreignPerson := e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+		VALUES ($1, 'Foreign Private Target', $2, 'owner', 'manual', 'human:x')`, e.Rep3)
 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	fake := &mailFake{linkTo: foreignPerson}

@@ -260,8 +260,9 @@ func TestARaceOnAClaimedAddressStillAnswersTheDuplicateContract(t *testing.T) {
 func TestTheChokepointRefusalHidesARecordTheCallerCannotRead(t *testing.T) {
 	e := setupDedupe(t)
 	owner := e.as()
-	// Owned explicitly: an ownerless row reads as workspace-shared at every row
-	// scope, so it could not demonstrate anything about hiding.
+	// Owned explicitly AND capture-private: a person is workspace-readable
+	// identity, so ownership alone hides nothing — visibility='owner' is the
+	// one state that keeps the row out of every other seat's row scope.
 	ownerID := ids.From[ids.UserKind](e.rep)
 	hidden, err := e.store.CreatePerson(owner, CreatePersonInput{
 		FullName: "Mara Steiner", Source: "manual", OwnerID: &ownerID,
@@ -271,6 +272,12 @@ func TestTheChokepointRefusalHidesARecordTheCallerCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	hiddenID := ids.From[ids.PersonKind](ids.UUID(hidden.Id))
+	if err := e.store.tx(owner, func(tx pgx.Tx) error {
+		_, uerr := tx.Exec(owner, `UPDATE person SET visibility = 'owner' WHERE id = $1`, hiddenID)
+		return uerr
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// A second rep who may create people but sees only their own rows.
 	stranger := e.asRowScope(principal.RowScopeOwn)

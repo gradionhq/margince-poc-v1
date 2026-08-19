@@ -224,15 +224,17 @@ func (e *sendEnv) seedNonMailAnchor(t *testing.T, sourceID string) ids.ActivityI
 	return id
 }
 
-// linkToPersonOwnedBy ties the anchor to a person owned by the given user —
-// the only way an activity leaves the workspace-shared default and becomes
-// scoped, since an activity carries no owner_id of its own.
+// linkToPersonOwnedBy ties the anchor to a capture-private person owned by
+// the given user (visibility='owner'): a person is workspace-readable
+// identity, so ownership alone no longer hides it, and capture privacy is
+// the state that still keeps the anchor outside every other caller's row
+// scope.
 func (e *sendEnv) linkToPersonOwnedBy(t *testing.T, anchor ids.ActivityID, owner ids.UUID) {
 	t.Helper()
 	person := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO person (id, full_name, owner_id, source, captured_by)
-		 VALUES ($1, 'Buyer', $2, 'manual', 'human:x')`, person, owner); err != nil {
+		`INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by)
+		 VALUES ($1, 'Buyer', $2, 'owner', 'manual', 'human:x')`, person, owner); err != nil {
 		t.Fatalf("seeding the linked person: %v", err)
 	}
 	if _, err := e.owner.Exec(context.Background(),

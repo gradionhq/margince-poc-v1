@@ -88,11 +88,13 @@ func TestSearchRanksAcrossObjectTypes(t *testing.T) {
 
 func TestSearchHitsCarryTheCallersRowScope(t *testing.T) {
 	e := SetupSearch(t)
-	e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by) VALUES ($1, 'Scoped Bremen', $2, 'manual', 'human:x')`, e.Rep3)
+	// A person is readable by every seat with the grant; a capture-private
+	// one is readable by its owner alone, and a search hit IS a read.
+	e.SeedID(t, `INSERT INTO person (id, full_name, owner_id, visibility, source, captured_by) VALUES ($1, 'Scoped Bremen', $2, 'owner', 'manual', 'human:x')`, e.Rep3)
 	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Shared Bremen', 'manual', 'human:x')`)
 
-	// rep1 (team1, row_scope=team) must not see rep3's (team2) record —
-	// but the ownerless row is workspace-shared.
+	// rep1 must not see rep3's private capture — but the ownerless row is
+	// workspace-shared.
 	page, err := e.Store.Search(e.AsTeamRep(e.Rep1, e.Team1), search.Input{Query: "bremen"})
 	if err != nil {
 		t.Fatal(err)
@@ -100,13 +102,13 @@ func TestSearchHitsCarryTheCallersRowScope(t *testing.T) {
 	if len(page.Hits) != 1 || page.Hits[0].Title != "Shared Bremen" {
 		t.Fatalf("row scope leaked into search: %+v", page.Hits)
 	}
-	// row_scope=all sees both.
-	page, err = e.Store.Search(e.Admin(), search.Input{Query: "bremen"})
+	// The captor sees both.
+	page, err = e.Store.Search(e.AsTeamRep(e.Rep3, e.Team2), search.Input{Query: "bremen"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(page.Hits) != 2 {
-		t.Fatalf("unbounded scope sees %d, want 2", len(page.Hits))
+		t.Fatalf("the captor sees %d, want 2", len(page.Hits))
 	}
 }
 

@@ -143,14 +143,21 @@ func TestSimilarityRankingAndRowScope(t *testing.T) {
 		t.Fatalf("similarity ranking wrong: %+v", hits)
 	}
 
-	// rep1 (team1) cannot see rep3's row through the vector lane either.
+	// Contacts are readable by every seat; the one Rep1 cannot read is
+	// capture-private to Rep3. Set after the ranking above, because the
+	// unbounded reader is not its owner and is hidden from it just the same.
+	if _, err := e.Owner.Exec(context.Background(),
+		`UPDATE person SET visibility = 'owner' WHERE id = $1`, foreign); err != nil {
+		t.Fatalf("making the contact capture-private: %v", err)
+	}
+	// rep1 cannot see rep3's private capture through the vector lane either.
 	hits, err = e.Store.SimilarEntities(e.AsTeamRep(e.Rep1, e.Team1), queryVec.Vectors[0], identity, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, h := range hits {
 		if h.ID == foreign {
-			t.Fatalf("row scope leaked through the vector lane: %+v", hits)
+			t.Fatalf("a capture-private contact leaked through the vector lane: %+v", hits)
 		}
 	}
 }

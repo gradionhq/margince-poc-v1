@@ -35,7 +35,8 @@ type runsEnv struct {
 	store *Store
 	ctx   context.Context
 	ws    ids.UUID
-	// mine is visible to the acting principal; theirs is not.
+	// mine is visible to the acting principal; theirs is another rep's
+	// capture-private contact, which no other seat can read.
 	mine   ids.PersonID
 	theirs ids.PersonID
 	owner  *pgx.Conn
@@ -92,13 +93,14 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 		t.Fatal(err)
 	}
 	for _, p := range []struct {
-		id    ids.PersonID
-		owner *ids.UUID
-	}{{e.mine, &actor}, {e.theirs, &stranger}} {
+		id         ids.PersonID
+		owner      *ids.UUID
+		visibility string
+	}{{e.mine, &actor, "workspace"}, {e.theirs, &stranger, "owner"}} {
 		if _, err := owner.Exec(ctx, `
-			INSERT INTO person (id, owner_id, full_name, source, captured_by)
-			VALUES ($1, $2, 'Anna Muster', 'manual', 'human:test')`,
-			p.id, p.owner); err != nil {
+			INSERT INTO person (id, owner_id, visibility, full_name, source, captured_by)
+			VALUES ($1, $2, $3, 'Anna Muster', 'manual', 'human:test')`,
+			p.id, p.owner, p.visibility); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -178,8 +180,9 @@ func setupRuns(t *testing.T, cfg runsConfig) *runsEnv {
 				// asking about the installation, not about a person.
 				"integrations": {Read: true},
 			},
-			// Own-scope on purpose: this is the scope a rep has, and the
-			// person they do not own is the one the gate must refuse.
+			// Own-scope on purpose: this is the scope a rep has. A person is
+			// workspace-readable identity, so what the gate must refuse is the
+			// other rep's capture-private contact, not merely one they do not own.
 			RowScope: principal.RowScopeOwn,
 		},
 	})

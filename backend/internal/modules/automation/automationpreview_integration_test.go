@@ -13,6 +13,7 @@ package automation
 
 import (
 	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -95,13 +96,14 @@ func TestPreviewMatchesCurrentRecordsWithoutApplying(t *testing.T) {
 	if res.WindowDays != 30 {
 		t.Fatalf("window = %d, want the 30-day default", res.WindowDays)
 	}
-	// Three live open deals match; rep1 (row_scope=own) sees only their
-	// own — the other two are masked, honestly counted.
-	if res.MatchesNow != 1 || res.ExcludedByPermission != 2 {
-		t.Fatalf("matches=%d excluded=%d, want 1 visible + 2 masked", res.MatchesNow, res.ExcludedByPermission)
+	// Three live open deals match, and a deal is workspace-readable identity:
+	// rep1 (row_scope=own) sees the other reps' deals too, so nothing is
+	// masked and the exclusion count is honestly zero.
+	if res.MatchesNow != 3 || res.ExcludedByPermission != 0 {
+		t.Fatalf("matches=%d excluded=%d, want 3 visible + 0 masked", res.MatchesNow, res.ExcludedByPermission)
 	}
-	if len(res.Sample) != 1 || res.Sample[0] != board.ownDeal {
-		t.Fatalf("sample = %v, want exactly the caller's own matching deal", res.Sample)
+	if len(res.Sample) != 3 || !slices.Contains(res.Sample, board.ownDeal) {
+		t.Fatalf("sample = %v, want all three live open deals including the caller's own", res.Sample)
 	}
 	if res.WouldHaveFired == nil || *res.WouldHaveFired != 3 {
 		t.Fatalf("would_have_fired = %v, want 3 open-destination moves in the window", res.WouldHaveFired)

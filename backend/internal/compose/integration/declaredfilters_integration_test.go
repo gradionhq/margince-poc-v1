@@ -330,11 +330,17 @@ func teamScopedRep(e *Env, user ids.UUID, teams []ids.UUID) context.Context {
 	})
 }
 
-func TestTheTeamFilterCannotReachAnotherTeamsRows(t *testing.T) {
+// Contacts are readable by every seat, so owner_team_id=<other team> is an
+// honest selection of that team's contacts — but the filter is ANDed onto
+// the visibility predicate, so it can only ever subtract: a capture-private
+// contact of that team stays out of the page.
+func TestTheTeamFilterCannotReachAnotherTeamsPrivateCapture(t *testing.T) {
 	e := Setup(t)
 	// Rep1+Rep2 share Team1; Rep3 sits in Team2.
 	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
 	outsider := e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
+	private := e.SeedPerson(t, "Private To Rep3", &e.Rep3)
+	e.MakeCapturePrivate(t, "person", private, e.Rep3)
 
 	rep := teamScopedRep(e, e.Rep1, []ids.UUID{e.Team1})
 	other := ids.From[ids.TeamKind](e.Team2)
@@ -342,16 +348,15 @@ func TestTheTeamFilterCannotReachAnotherTeamsRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listing another team's rows: %v", err)
 	}
-	// Naming a team the caller cannot see filters THEIR OWN visible rows to
-	// nothing. It must never reach that team's records: the filter is ANDed
-	// onto the row-scope predicate, so it can only ever subtract.
+	got := map[ids.UUID]bool{}
 	for _, person := range page {
-		if ids.UUID(person.Id) == outsider {
-			t.Fatal("owner_team_id reached a row outside the caller's row scope — the filter widened authorization")
-		}
+		got[ids.UUID(person.Id)] = true
 	}
-	if len(page) != 0 {
-		t.Fatalf("owner_team_id=<other team> returned %d rows, want none", len(page))
+	if got[private] {
+		t.Fatal("owner_team_id reached a capture-private row the caller cannot read — the filter widened authorization")
+	}
+	if !got[outsider] || len(page) != 1 {
+		t.Fatalf("owner_team_id=<other team> returned %d rows, want exactly the other team's one readable contact", len(page))
 	}
 }
 

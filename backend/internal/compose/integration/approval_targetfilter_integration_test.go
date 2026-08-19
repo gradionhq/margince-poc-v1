@@ -150,20 +150,22 @@ func TestApprovalListKindFilterNarrowsTheWholeInbox(t *testing.T) {
 	}
 }
 
-// A target the caller's row scope hides answers an EMPTY list, never a 403:
-// a refusal would confirm that something is staged against a record they are
+// A target the caller cannot read answers an EMPTY list, never a 403: a
+// refusal would confirm that something is staged against a record they are
 // not allowed to know exists. Existence-hiding is the same answer the record's
-// own read gives.
+// own read gives. Accounts are readable by every seat, so the hidden one here
+// is capture-private to its owner.
 func TestApprovalListFilteredToAnOutOfScopeTargetIsEmpty(t *testing.T) {
 	e := Setup(t)
 	svc := approvals.NewService(e.DB())
 
 	theirs := e.SeedOrg(t, "Other Team Account", &e.Rep3)
+	e.MakeCapturePrivate(t, "organization", theirs, e.Rep3)
 	staged := stageFor(t, svc, e, "deepread", "organization", theirs)
 	orgType := "organization"
 
-	// Rep1 holds organization.update — the deepread decision grant — but sits
-	// in the other team, so the row scope hides the account itself.
+	// Rep1 holds organization.update — the deepread decision grant — but is
+	// not the capturing owner, so the account itself is hidden from them.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 	rows, page, err := svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &theirs})
 	if err != nil {
@@ -176,8 +178,8 @@ func TestApprovalListFilteredToAnOutOfScopeTargetIsEmpty(t *testing.T) {
 		t.Errorf("page = %+v for an empty answer — a client would page for rows that do not exist", page)
 	}
 
-	// The positive control: the owning team sees it, so the empty answer above
-	// is the row scope and not a broken filter.
+	// The positive control: the owner sees it, so the empty answer above is
+	// the visibility rule and not a broken filter.
 	owner := e.As(e.Rep3, []ids.UUID{e.Team2}, siteReadPerms)
 	if got := listIDs(owner, t, svc, approvals.ListInput{TargetType: &orgType, TargetID: &theirs}); !got[staged] {
 		t.Errorf("the owning team's read is missing %s", staged)
