@@ -85,7 +85,7 @@ func TestTheRLSClaimPatternCatchesTheSpellingsThisTreeGrew(t *testing.T) {
 
 // TestNoGoSourceClaimsRLSStillScopesARead walks the same hand-written trees the
 // license notice covers — derived from the tree, so a new file is enrolled the
-// moment it exists — and the decision records under docs/adr/ alongside them.
+// moment it exists.
 //
 // The name says Go source because that is where the sweep started. It reads
 // prose too: a decision record ratified row-level security as the live tenant
@@ -134,28 +134,10 @@ func TestNoGoSourceClaimsRLSStillScopesARead(t *testing.T) {
 	// security as the live tenant control months after 0217 retired it, and
 	// every Go-only gate passed it.
 	//
-	// Prose is scanned per PARAGRAPH, not per line. Markdown wraps at 80
-	// columns wherever the words fall, so the record that caused this split
-	// "tenant" from "isolation through row-level security" across two lines and
-	// a line-by-line sweep matched neither half. A gate that a line break
-	// defeats is one the next author defeats by accident.
-	records, err := filepath.Glob("../docs/adr/ADR-*.md")
-	if err != nil {
-		t.Fatalf("listing decision records: %v", err)
-	}
-	for _, path := range records {
-		b, err := os.ReadFile(path) // #nosec G304 -- path comes from a glob over the tracked docs tree
-		if err != nil {
-			t.Fatalf("reading %s: %v", path, err)
-		}
-		checked++
-		for _, para := range prosePargraphs(string(b)) {
-			if rlsClaim.MatchString(para.text) {
-				claims = append(claims, filepath.ToSlash(path)+":"+strconv.Itoa(para.line)+": "+para.text)
-			}
-		}
-	}
-
+	// The decision records were scanned here too, until they moved to the
+	// private principles repository (2026-08-19). A test in this module cannot
+	// read another repository, so that half of the sweep is gone rather than
+	// silently passing: the records now carry their own check where they live.
 	if checked == 0 {
 		t.Fatal("the sweep read no file — a gate that scans nothing passes exactly like a clean one")
 	}

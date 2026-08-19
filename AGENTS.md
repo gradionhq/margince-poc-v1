@@ -9,9 +9,11 @@ what is here.
 the team; then code, tests, migrations and `backend/api/crm.yaml`, which are what
 the product does today; then the guardrails (security, privacy, agent authority,
 auditability, contract compatibility, licensing, data durability) enforced by
-tests wherever possible; then [docs/](docs/); then the decision records in
-[docs/adr/](docs/adr/), which carry rationale and can be superseded in the same PR
-as the change. Retired material is history and never blocks work on its own.
+tests wherever possible; then [docs/](docs/). Retired material is history and
+never blocks work on its own. The reasoning behind a guardrail is kept by the
+team and is not in this repository — you never need it to work here, because the
+rule that binds a change is enforced by a gate and a refusing gate names what to
+do instead.
 [CLAUDE.md](CLAUDE.md#what-decides-a-question-here) has the long form.
 
 **Do not refuse or narrow ordinary product evolution because an older document
@@ -26,8 +28,8 @@ bodies — and never include local machine paths or secrets.
 the part of that a test can catch: private references in tracked source and prose
 files. Commit messages, PR bodies, secrets and machine paths are on you. A public contributor must be able to follow every instruction this repository
 gives them, so write a rule out here rather than citing somewhere they cannot
-reach. Cite a decision by its number (`ADR-0054`); the record is in
-[docs/adr/](docs/adr/).
+reach. A decision number (`ADR-0054`) may appear as a label, but never cite it
+as though a reader could open it — state the rule itself.
 
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
@@ -35,9 +37,10 @@ bear on your change; the file is not meant to be read end to end. Update it at
 the end of every working session, keeping it to open work — the narrative of what
 you did belongs in the commit and the PR, which is the durable record. Route
 findings as you work: implementation decisions are recorded in the commit and PR
-that makes the change; a decision that binds future work gets a record in
-[docs/adr/](docs/adr/) in the same PR; a finding you are NOT fixing now (bug, gap,
-follow-up task — engineer's call) becomes a GitHub issue in this repo.
+that makes the change; a decision that binds future work is raised with the team
+so the record lands where the reasoning is kept; a finding you are NOT fixing now
+(bug, gap, follow-up task — engineer's call) becomes a GitHub issue in this
+repo.
 
 **Label every issue you file.** Unlabeled means untriaged, so an unlabeled
 issue lies about your own finding. Exactly one `priority:` and exactly one

@@ -42,8 +42,7 @@ This is where Margince is built: the running Go code, the OpenAPI
 contract it is generated from, the tests that prove its behaviour, and
 the documentation for building and operating it. There is no separate
 specification that outranks what is here — `backend/api/crm.yaml` is the
-contract, the tests are the record of behaviour, and the decisions behind
-both are in [docs/adr/](docs/adr/).
+contract and the tests are the record of behaviour.
 
 **Start here:**
 
@@ -357,9 +356,9 @@ Findings are routed, not lost:
 - **Implementation decisions** are explained in the commit message and PR
   that makes the change; git history is the record.
 - **Decisions that bind future work** — a security posture, a contract
-  shape, a persistence choice — get a record in [docs/adr/](docs/adr/),
-  written in the same PR as the change. A record can be superseded; write
-  the replacement alongside the code that changes it.
+  shape, a persistence choice — are raised with the maintainers, who keep
+  the decision records. What binds a change here is enforced by a gate, and
+  a gate that refuses names what to do instead.
 - **Anything found but not fixed** — a bug, a gap, a follow-up — becomes a
   GitHub issue in this repo, labelled.
 - **Session state** — progress, in-flight work, pickup point — goes in

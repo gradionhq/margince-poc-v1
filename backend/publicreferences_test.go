@@ -13,7 +13,7 @@ package backendarch
 //
 // The rule is therefore absolute rather than a matter of taste: if a rule
 // matters, it is written out here. A citation is by decision number, and the
-// record for that number lives in docs/adr/, which is part of this tree.
+// number is a label, not a pointer: the record it names is not in this tree.
 //
 // This derives the file list from git rather than walking the filesystem, so
 // an untracked scratch file is out of scope and a newly tracked one is in it
@@ -46,7 +46,7 @@ var forbidden = []struct {
 	{
 		name:    "private specification path",
 		pattern: regexp.MustCompile(`(^|[^\w/.-])specs/[a-z]`),
-		why:     "write the rule out here, or cite a decision number and put the record in docs/adr/",
+		why:     "write the rule out here — a public contributor cannot open anything else",
 	},
 	{
 		name:    "private pull-request reference",

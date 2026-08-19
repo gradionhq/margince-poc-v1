@@ -31,13 +31,19 @@ separate specification won every argument.
 2. **Code, tests, migrations and `backend/api/crm.yaml`** define what the product
    does today. They are the record of current behaviour, not a description of it.
 3. **Guardrails** — security, privacy and lawful processing, agent authority,
-   auditability, public contract compatibility, licensing, data durability. These
-   are enforced by tests and fitness functions wherever that is possible; the
-   reasoning behind each lives in [docs/adr/](docs/adr/).
+   auditability, public contract compatibility, licensing, data durability.
+   These are enforced by tests and fitness functions wherever that is possible,
+   and the test is the thing to read: it states the obligation in a form that
+   fails when the obligation stops holding.
 4. **[docs/](docs/)** explains how the product is built and operated.
-5. **Decision records in [docs/adr/](docs/adr/)** carry the rationale. A decision
-   can be superseded — write the replacement in the same PR as the change.
-6. **Retired material** is history. It never blocks work on its own.
+5. **Retired material** is history. It never blocks work on its own.
+
+The reasoning behind a guardrail — why it was chosen and what it rules out — is
+kept by the team and is not part of this repository. A public contributor never
+needs it to work here: the rule that binds a change is enforced by a gate, and
+when a gate refuses something it names what to do instead. If you cannot tell
+why a rule exists and the answer would change your patch, ask in the issue
+rather than guessing.
 
 **Do not refuse or narrow ordinary product evolution because an older document
 describes a different choice.** Name the conflict and say what it costs. If the
@@ -67,7 +73,7 @@ machine path — those stay your judgement, and the secret-scan gate is the only
 other net under them.
 
 Cite a decision by its number (`ADR-0054`) and keep the record in
-[docs/adr/](docs/adr/), which is public and part of this tree.
+the rule itself, written out here where a public contributor can read it.
 
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
@@ -77,8 +83,8 @@ you did belongs in the commit and the PR, which is the durable record.
 
 Route findings as you work. Implementation decisions are recorded in the commit
 and PR that makes the change — git history is the record. A decision that binds
-future work gets a decision record in [docs/adr/](docs/adr/), written in the same
-PR. Anything found but **not** fixed in the current change — a bug, a gap, a
+future work is raised with the team, so the record lands where the reasoning is
+kept. Anything found but **not** fixed in the current change — a bug, a gap, a
 follow-up — becomes a GitHub issue in this repo. When to file is the engineer's
 call.
 
