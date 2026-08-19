@@ -767,9 +767,12 @@ sbom:
 	@echo "wrote $(SBOM_FILES)"
 
 ## sbom-supplement — fill in licenses syft cannot resolve. syft leaves GitHub
-## Actions unlicensed (anchore/syft#4209) and passes PyPI's ambiguous "BSD"
-## through for a couple of build-tooling deps, so the license gate would deny
-## them though their real licenses are permissive. The curated purl->SPDX map
+## Actions unlicensed (anchore/syft#4209), passes PyPI's ambiguous "BSD"
+## through for a couple of build-tooling deps, and reports an optional npm
+## platform binary that this OS never installs as unlicensed, since the only
+## record of it is a lockfile entry and pnpm locks carry no license field. The
+## license gate would deny all three though their real licenses are permissive.
+## The curated purl->SPDX map
 ## lives in sbom-schemas/license-supplement.json (key = purl without version,
 ## so every pinned action version matches — and that directory is in the
 ## license gate's classifier scope, so editing the map re-runs the gate); it

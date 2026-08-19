@@ -11,6 +11,7 @@
   "pkg:github/dorny/paths-filter": "MIT",
   "pkg:github/pnpm/action-setup": "MIT",
   "pkg:github/reproducible-containers/buildkit-cache-dance": "Apache-2.0",
+  "pkg:npm/lightningcss-win32-arm64-msvc": "MPL-2.0",
   "pkg:pypi/ply": "BSD-3-Clause",
   "pkg:pypi/semantic-version": "BSD-2-Clause"
 }
