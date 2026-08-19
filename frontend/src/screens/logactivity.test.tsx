@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { pickOption } from "../design-system/select-testing";
 import { calendarDay } from "../format/calendarday";
 import { LocaleProvider } from "../i18n";
+import { RECORD_ZONE } from "./company360";
 import { LogActivity } from "./logactivity";
 import { PersonScreen } from "./people";
 import { groupTask } from "./tasks";
@@ -226,30 +227,83 @@ describe("log activity from a 360", () => {
     );
   });
 
-  it("keeps the due-date input's space for a note and enables it for a task", async () => {
+  it("offers one date box for every kind: prefilled today, relabeled per kind, the day kept across a switch", async () => {
     stubApi({ "POST /activities": createdActivity });
-    render(<LogActivity entityType="organization" entityId="o1" />);
-    // The field stays in place for a note, disabled rather than hidden.
-    // Mounting it on the kind switch moved every control below it down
-    // mid-form.
-    const due = screen.getByLabelText("Due date", { selector: "input" });
-    expect(due.hasAttribute("disabled")).toBe(true);
-    // Reserved means VISIBLE-but-disabled. `hidden` is display:none, which
-    // collapses the row and reintroduces the reflow this test exists to stop.
-    expect(due.closest("div")?.hasAttribute("hidden")).toBe(false);
-    // Read the clock on both sides of the switch: a run that straddles
+    // Read the clock on both sides of the render: a run that straddles
     // midnight would otherwise fail on which "today" the prefill caught.
     const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const dayBeforeSwitch = calendarDay(new Date(), zone);
-    await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
-    const dayAfterSwitch = calendarDay(new Date(), zone);
-    const enabled = screen.getByLabelText<HTMLInputElement>("Due date", {
+    const dayBeforeRender = calendarDay(new Date(), zone);
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    const dayAfterRender = calendarDay(new Date(), zone);
+    // A note's date is the day it happened, live from the start and showing
+    // the today that would otherwise be assumed invisibly at submit.
+    const noteDay = screen.getByLabelText<HTMLInputElement>("Date", {
       selector: "input",
     });
-    expect(enabled.hasAttribute("disabled")).toBe(false);
-    // Becoming a task fills the empty field with the writer's own today —
-    // the date that would otherwise be assumed invisibly at submit.
-    expect([dayBeforeSwitch, dayAfterSwitch]).toContain(enabled.value);
+    expect(noteDay.hasAttribute("disabled")).toBe(false);
+    expect([dayBeforeRender, dayAfterRender]).toContain(noteDay.value);
+    // Becoming a task turns the same box into the due date, keeping the day
+    // the writer picked instead of resetting it under them.
+    fireEvent.change(noteDay, { target: { value: PICKED_DAY } });
+    await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
+    const dueDay = screen.getByLabelText<HTMLInputElement>("Due date", {
+      selector: "input",
+    });
+    expect(dueDay.value).toBe(PICKED_DAY);
+  });
+
+  it("posts a backdated note's occurred_at inside the picked day", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    fireEvent.change(screen.getByLabelText("Date"), {
+      target: { value: PICKED_DAY },
+    });
+    await userEvent.type(screen.getByLabelText("Subject *"), "Call recap");
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    await waitFor(() =>
+      expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+        true,
+      ),
+    );
+    const post = captured.find((entry) => entry.key === "POST /activities");
+    if (!post) throw new Error("expected a POST /activities to be captured");
+    if (
+      typeof post.body !== "object" ||
+      post.body === null ||
+      !("occurred_at" in post.body) ||
+      typeof post.body.occurred_at !== "string"
+    ) {
+      throw new Error("expected the note to carry a string occurred_at");
+    }
+    // The instant lands on the day the writer picked in BOTH zones that
+    // matter: the record pages render timelines in RECORD_ZONE, and the
+    // writer reads their own wall clock — and a note never carries a due
+    // date, backdated or not.
+    const occurred = new Date(post.body.occurred_at);
+    expect(calendarDay(occurred, RECORD_ZONE)).toBe(PICKED_DAY);
+    expect(calendarDay(occurred, READER_ZONE)).toBe(PICKED_DAY);
+    expect("due_at" in post.body).toBe(false);
+  });
+
+  it("refuses a future day for a note but not for a task's due date", async () => {
+    const captured: Captured[] = [];
+    stubApi({ "POST /activities": createdActivity }, captured);
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    // Nothing has occurred in the future: for a note the input is capped at
+    // today, and a value forced past the cap fails the form's own validation,
+    // so the POST never leaves.
+    const noteDay = screen.getByLabelText<HTMLInputElement>("Date");
+    expect(noteDay.max).toBe(noteDay.value);
+    fireEvent.change(noteDay, { target: { value: "2199-01-01" } });
+    await userEvent.type(screen.getByLabelText("Subject *"), "Time travel");
+    await userEvent.click(screen.getByRole("button", { name: "Log" }));
+    expect(captured.some((entry) => entry.key === "POST /activities")).toBe(
+      false,
+    );
+    // A due date has no ceiling — tasks are usually for the future.
+    await pickOption(userEvent.setup(), screen.getByLabelText("Type"), "Task");
+    expect(screen.getByLabelText<HTMLInputElement>("Due date").max).toBe("");
   });
 
   it("posts a task's due_at as the END of the picked day in the writer's own zone", async () => {

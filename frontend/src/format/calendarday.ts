@@ -71,3 +71,40 @@ export function calendarDay(at: Date, zone: string): string {
 export function dueInstant(day: string): string {
   return new Date(`${day}T23:59:59`).toISOString();
 }
+
+// The instant that is NOON of a picked calendar day in a named zone — for a
+// backdated entry whose screens render dates in that zone (the record pages'
+// RECORD_ZONE): filing it at the zone's own midday is what keeps it on the
+// picked day both there and in the wall clock of any writer within twelve
+// hours of that zone.
+//
+// Found without a timezone table: read what wall time the zone shows at UTC
+// noon of that day, then shift the instant by the difference from the noon
+// that was wanted. One correction is exact because a zone's offset does not
+// change within the couple of hours the shift moves through — DST switches
+// happen at night, and the target is midday.
+export function middayInstant(day: string, zone: string): string {
+  const utcNoon = new Date(`${day}T12:00:00Z`);
+  const parts = new Map(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      // h23, not `hour12: false`: some ICU builds resolve the latter to h24,
+      // which prints midnight as "24" and breaks the ISO string below.
+      hourCycle: "h23",
+    })
+      .formatToParts(utcNoon)
+      .map((part) => [part.type, part.value]),
+  );
+  const shown = new Date(
+    `${parts.get("year")}-${parts.get("month")}-${parts.get("day")}T${parts.get("hour")}:${parts.get("minute")}:00Z`,
+  );
+  const wanted = new Date(`${day}T12:00:00Z`);
+  return new Date(
+    utcNoon.getTime() - (shown.getTime() - wanted.getTime()),
+  ).toISOString();
+}

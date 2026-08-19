@@ -12,11 +12,12 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
-import { calendarDay, dueInstant } from "../format/calendarday";
+import { calendarDay, dueInstant, middayInstant } from "../format/calendarday";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
+import { RECORD_ZONE } from "./company360";
 
 // Log a note or task from a 360 (person/company/deal/lead): the contract's
 // logActivity POST, linked to the record being viewed, occurred_at stamped
@@ -29,8 +30,9 @@ type ActivityDraft = {
   kind: "note" | "task" | "meeting";
   subject: string;
   body: string;
-  // yyyy-mm-dd from the date input; only a task carries a due date.
-  dueAt: string;
+  // yyyy-mm-dd from the date input. Its meaning follows the kind: a task's
+  // due date, otherwise the day the note or meeting happened.
+  day: string;
   // A meeting's body is ordinary notes UNLESS this is explicitly checked —
   // otherwise "discussed pricing, follow up Tuesday" typed while logging a
   // meeting would silently carry source_system: transcript, which the
@@ -44,7 +46,7 @@ const EMPTY_DRAFT: ActivityDraft = {
   kind: "note",
   subject: "",
   body: "",
-  dueAt: "",
+  day: "",
   asTranscript: false,
 };
 
@@ -54,14 +56,37 @@ const EMPTY_DRAFT: ActivityDraft = {
 // any future line citation at a timestamp instead of what was said.
 const ACCEPTED_TRANSCRIPT_EXTENSION = ".txt";
 
-// The writer's own calendar day. A task's due date starts here the moment the
-// kind becomes task — the day that WOULD apply is shown in the field instead
-// of being assumed at submit behind an empty box.
+// The writer's own calendar day. The composer's date field starts here — the
+// day that WOULD apply is shown where the writer can change it instead of
+// being assumed at submit behind an empty box.
 function todayDay(): string {
   return calendarDay(
     new Date(),
     Intl.DateTimeFormat().resolvedOptions().timeZone,
   );
+}
+
+function freshDraft(kind: ActivityDraft["kind"] = "note"): ActivityDraft {
+  return { ...EMPTY_DRAFT, kind, day: todayDay() };
+}
+
+// The instant a logged activity carries. The picked day left on today — or,
+// for a note, pushed into the future, which nothing can have occurred in —
+// means the actual moment of logging, so entries logged in sequence keep
+// their timeline order. A backdated day becomes that day's noon in
+// RECORD_ZONE, the zone every record page renders its timeline in, so the
+// entry files under the day the writer picked. A task's picked day is its
+// DUE date instead — the task itself occurred now.
+function occurredInstant(input: ActivityDraft): string {
+  const now = new Date();
+  const today = calendarDay(
+    now,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+  if (input.kind === "task" || input.day === "" || input.day >= today) {
+    return now.toISOString();
+  }
+  return middayInstant(input.day, RECORD_ZONE);
 }
 
 /**
@@ -85,13 +110,7 @@ export function LogActivityForm({
   const t = useT();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState<ActivityDraft>(() =>
-    initialKind
-      ? {
-          ...EMPTY_DRAFT,
-          kind: initialKind,
-          dueAt: initialKind === "task" ? todayDay() : "",
-        }
-      : EMPTY_DRAFT,
+    freshDraft(initialKind),
   );
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -119,15 +138,15 @@ export function LogActivityForm({
           kind: input.kind,
           subject: input.subject.trim(),
           body: outgoingBody || null,
-          occurred_at: new Date().toISOString(),
-          // The picked day becomes the instant that day ENDS in the writer's
+          occurred_at: occurredInstant(input),
+          // A due date becomes the instant that day ENDS in the writer's
           // own zone (format/calendarday). Handing the bare `yyyy-mm-dd` to
           // `new Date` reads it as UTC midnight instead, which is neither the
           // end of the day nor, west of UTC, the day the writer picked: the task
           // arrived already overdue, and the tasks list — which buckets in the
           // reader's zone — filed it under yesterday.
-          ...(input.kind === "task" && input.dueAt
-            ? { due_at: dueInstant(input.dueAt) }
+          ...(input.kind === "task" && input.day
+            ? { due_at: dueInstant(input.day) }
             : {}),
           ...(isTranscript ? { source_system: "transcript" } : {}),
           links: [{ entity_type: entityType, entity_id: entityId }],
@@ -147,7 +166,7 @@ export function LogActivityForm({
       for (const queryKey of keys) {
         queryClient.invalidateQueries({ queryKey });
       }
-      setDraft(EMPTY_DRAFT);
+      setDraft(freshDraft());
       onLogged?.();
     },
   });
@@ -175,39 +194,29 @@ export function LogActivityForm({
               ]}
               value={draft.kind}
               onChange={(value) =>
-                setDraft((current) => {
-                  const kind =
-                    value === "task" || value === "meeting" ? value : "note";
-                  // Becoming a task fills the empty due date with today — the
-                  // likeliest answer, standing where the writer can change it.
-                  // A date the writer already picked is never overwritten.
-                  const dueAt =
-                    kind === "task" && current.dueAt === ""
-                      ? todayDay()
-                      : current.dueAt;
-                  return { ...current, kind, dueAt };
+                setField({
+                  kind:
+                    value === "task" || value === "meeting" ? value : "note",
                 })
               }
             />
           )}
         </Field>
-        {/* Only a task carries a due date, but the field stays in place for a
-            note — disabled, not hidden. Mounting it on the kind switch moved
-            every control below it down while the writer was reading them, and
-            `hidden` would do the same thing by another name (it is
-            display:none). Disabled keeps the row's height AND shows the reader
-            that the field exists and why it is not theirs to fill yet. */}
-        <Field
-          label={t("log.dueAt")}
-          hint={draft.kind === "task" ? undefined : t("log.dueAtHint")}
-        >
+        {/* One date box for every kind, prefilled with today, so nothing about
+            the entry's date is assumed invisibly. The picked day carries what
+            the kind needs it to: a task's due date, otherwise the day the
+            note or meeting happened (occurredInstant). */}
+        <Field label={draft.kind === "task" ? t("log.dueAt") : t("log.date")}>
           {(control) => (
             <TextInput
               {...control}
               type="date"
-              value={draft.dueAt}
-              disabled={draft.kind !== "task"}
-              onChange={(event) => setField({ dueAt: event.target.value })}
+              value={draft.day}
+              // A note or meeting cannot have happened in the future, and the
+              // cap makes the picker say so; a due date has no such ceiling.
+              // occurredInstant clamps a typed-in future day the same way.
+              max={draft.kind === "task" ? undefined : todayDay()}
+              onChange={(event) => setField({ day: event.target.value })}
               // A native date input opens its calendar only from the tiny
               // icon; a click on the value just places a caret. Opening on
               // any click is what a writer reaching for "the date" expects.

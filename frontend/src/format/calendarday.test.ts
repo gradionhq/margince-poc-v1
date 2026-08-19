@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { describe, expect, it } from "vitest";
-import { calendarDay, dueInstant } from "./calendarday";
+import { calendarDay, dueInstant, middayInstant } from "./calendarday";
 
 // The zone the machine running this suite happens to be in. Every assertion
 // below is written against it rather than against a fixed offset, because the
@@ -45,5 +45,37 @@ describe("dueInstant", () => {
     expect(dueInstant("2026-07-05")).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
     );
+  });
+});
+
+describe("middayInstant", () => {
+  it("lands at the zone's own noon of the picked day, either side of a DST switch", () => {
+    // Berlin is +01:00 in January and +02:00 in July.
+    expect(middayInstant("2026-01-15", "Europe/Berlin")).toBe(
+      "2026-01-15T11:00:00.000Z",
+    );
+    expect(middayInstant("2026-07-05", "Europe/Berlin")).toBe(
+      "2026-07-05T10:00:00.000Z",
+    );
+  });
+
+  it("keeps the picked day in the record zone AND for writers far west of it", () => {
+    // The scenario that broke writer-local noon: a writer in Honolulu (UTC-10)
+    // backdating an entry a Berlin-rendered timeline then filed under the
+    // NEXT day. Minted at Berlin noon, both zones read the picked day.
+    const at = new Date(middayInstant("2026-07-10", "Europe/Berlin"));
+    expect(calendarDay(at, "Europe/Berlin")).toBe("2026-07-10");
+    expect(calendarDay(at, "Pacific/Honolulu")).toBe("2026-07-10");
+  });
+
+  it("holds for zones on half-hour offsets and across the date line", () => {
+    for (const zone of [
+      "Asia/Kolkata",
+      "Pacific/Kiritimati",
+      "Pacific/Honolulu",
+    ]) {
+      const at = new Date(middayInstant("2026-03-29", zone));
+      expect(calendarDay(at, zone)).toBe("2026-03-29");
+    }
   });
 });
