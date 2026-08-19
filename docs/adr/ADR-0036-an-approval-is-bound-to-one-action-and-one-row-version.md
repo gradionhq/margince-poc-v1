@@ -1,24 +1,28 @@
-# ADR-0036 — An approval authorizes one exact action against one exact row version
+# ADR-0036 — An approval authorizes one exact action, against the row the approver saw
 
 **Status:** Active
 **Decided:** 2026-06-23
 
 ## The decision
 
-When a human approves a staged agent action, the approval is bound to that
-action
-and to the state of the target row at the moment they saw it. The approval token
-is signed and carries the approval id, the tool name and a hash of the staged
-change, so a token minted for one action cannot authorize another. It can be
-spent
-once and it expires. Before the action runs, the server re-reads the target row
-and
-compares its `version` column against the version recorded when the change was
-staged; a mismatch refuses the run with a version-skew error and the action must
-be
+When a human approves a staged agent action, the approval is bound to that action
+and to the state of the target row when they saw it. The approval token is signed
+and carries the approval id, the tool name and a hash of the staged change, so a
+token minted for one action cannot authorize another. It can be spent once and it
+expires. Before the action runs, the server re-reads the target row and compares
+its `version` column against the version recorded when the change was staged; a
+mismatch refuses the run with a version-skew error and the action must be
 re-staged. Approving requires the same permissions the action itself would
-require,
-so nobody approves their way past a grant they do not hold.
+require, so nobody approves their way past a grant they do not hold.
+
+**The version check does not apply to every kind, and that is deliberate.** Some
+approvals name no row: a rate proposal targets the workspace's shared price
+sheet, and its effect is an effective-dated insert-or-replace whose outcome is
+not knowable when the decision is made. There is no row for a pin to refer to,
+so the version comparison is skipped and the binding rests on the token, the tool
+and the change hash. What guards those kinds instead is the authority table
+demanding **both** create and update on the sheet, so an approver who could
+perform only one half cannot release an upsert that does the other.
 
 ## Why
 
