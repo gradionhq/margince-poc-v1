@@ -208,12 +208,16 @@ describe("overlay refusal copy — translator coverage", () => {
   });
 
   it("create-lead (POST /leads)", () => {
-    assertTranslatedRefusal("leads.tsx", 'api.POST("/leads", {', "create-lead");
+    assertTranslatedRefusal(
+      "leads.list.tsx",
+      'api.POST("/leads", {',
+      "create-lead",
+    );
   });
 
   it("promote-lead (POST /leads/{id}/promote)", () => {
     assertTranslatedRefusal(
-      "leads.tsx",
+      "leads.qualify.tsx",
       '"/leads/{id}/promote"',
       "promote-lead",
     );
@@ -221,7 +225,7 @@ describe("overlay refusal copy — translator coverage", () => {
 
   it("disqualify-lead (DELETE /leads/{id})", () => {
     assertTranslatedRefusal(
-      "leads.tsx",
+      "leads.disqualify.tsx",
       'api.DELETE("/leads/{id}", {',
       "disqualify-lead",
     );

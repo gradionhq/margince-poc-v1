@@ -39,10 +39,23 @@ function statusLabel(status: Lead["status"]): MessageKey | null {
   );
 }
 
+// The ladder's colours: a new lead is quiet, contact is in motion, engaged
+// is the signal worth noticing; the terminal pair is muted.
+function statusTone(status: Lead["status"]): "accent" | "success" | undefined {
+  switch (status) {
+    case "contacted":
+      return "accent";
+    case "engaged":
+      return "success";
+    default:
+      return undefined;
+  }
+}
+
 export function StatusBadge({ status }: Readonly<{ status: Lead["status"] }>) {
   const t = useT();
   const label = statusLabel(status);
-  return <Badge>{label ? t(label) : status}</Badge>;
+  return <Badge tone={statusTone(status)}>{label ? t(label) : status}</Badge>;
 }
 
 export function SlaBadge({ state }: Readonly<{ state: Lead["sla_state"] }>) {
@@ -280,4 +293,47 @@ export function LeadBoard({
       )}
     </>
   );
+}
+
+export function promoteEligible(lead: Lead): boolean {
+  return isOpenStatus(lead.status) && Boolean(lead.email);
+}
+
+// The terminal badge a lead status earns (null = live/open, no badge). A lead
+// is archived iff it is promoted or disqualified; keying the label off the
+// status — not a bare archived_at — is what stops a promoted lead reading
+// "Disqualified". Exhaustive over the four statuses: a new value is a compile
+// error here, not a silently-unlabelled row.
+export function terminalBadge(
+  status: Lead["status"],
+): { label: MessageKey; tone: "warn" } | null {
+  switch (status) {
+    case "disqualified":
+      return { label: "lead.disqualified", tone: "warn" };
+    case "promoted":
+      return { label: "record.archived", tone: "warn" };
+    case "new":
+    case "contacted":
+    case "engaged":
+      return null;
+  }
+}
+
+// The open ladder, as the page's open-step predicate reads it.
+export const LEAD_OPEN_STATUSES = ["new", "contacted", "engaged"] as const;
+type LeadOpenStatus = (typeof LEAD_OPEN_STATUSES)[number];
+
+export function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
+  return status === "new" || status === "contacted" || status === "engaged";
+}
+
+// The message key for one §3 factor name, falling back to the raw name for
+// a factor the catalog does not know yet.
+export function scoreFactorLabel(
+  factor: string,
+  t: ReturnType<typeof useT>,
+): string {
+  const key = `lead.factor.${factor}` as MessageKey;
+  const label = t(key);
+  return label === key ? factor : label;
 }

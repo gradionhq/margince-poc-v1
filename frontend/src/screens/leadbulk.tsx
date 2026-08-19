@@ -14,6 +14,11 @@ type Lead = components["schemas"]["Lead"];
 /** One row's outcome in a fan-out: it went through, or it did not and why. */
 export type BulkOutcome = { id: string; name: string; error?: string };
 
+/** Which verb a bulk run applied, for the caller that has to say what moved. */
+export type BulkAction =
+  | { kind: "assign"; ownerId: string; ownerName: string }
+  | { kind: "disqualify" };
+
 /**
  * Bulk verbs over selected leads: assign an owner, disqualify. Both are a
  * client-side fan-out of the record's own write — there is no bulk endpoint,
@@ -32,7 +37,7 @@ export function LeadBulkBar({
   /** The selected rows, with the versions the list currently holds. */
   leads: readonly Lead[];
   /** Called after any run — the caller refetches and clears the selection. */
-  onDone: (outcomes: readonly BulkOutcome[]) => void;
+  onDone: (outcomes: readonly BulkOutcome[], action: BulkAction) => void;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -41,9 +46,12 @@ export function LeadBulkBar({
   const [outcomes, setOutcomes] = useState<readonly BulkOutcome[]>([]);
 
   const run = useMutation({
-    mutationFn: async (
-      write: (lead: Lead) => Promise<void>,
-    ): Promise<BulkOutcome[]> =>
+    mutationFn: async ({
+      write,
+    }: {
+      write: (lead: Lead) => Promise<void>;
+      action: BulkAction;
+    }): Promise<BulkOutcome[]> =>
       // Sequential, not Promise.all: a bulk verb over a work queue is a
       // handful of rows, and a burst of concurrent writes against one
       // rep's own leads buys nothing but contention.
@@ -65,38 +73,49 @@ export function LeadBulkBar({
         }
         return done;
       }, Promise.resolve([])),
-    onSuccess: async (result) => {
+    onSuccess: async (result, { action }) => {
       // Awaited: the rows that refused keep their selection so they can be
       // retried, and a retry that fired before the refetch landed would
       // resend the very version that just conflicted. The run stays pending
       // — and the verbs disabled — until the list holds fresh versions.
       await queryClient.invalidateQueries({ queryKey: ["leads"] });
       setOutcomes(result);
-      onDone(result);
+      onDone(result, action);
     },
   });
 
+  const ownerName =
+    (roster.data ?? [])
+      .filter((entry) => entry.id === ownerId)
+      .map((entry) => ("display_name" in entry ? entry.display_name : null))
+      .find((name) => typeof name === "string") ?? ownerId;
   const assign = () =>
-    run.mutate(async (lead) => {
-      const { error } = await api.PATCH("/leads/{id}", {
-        params: {
-          path: { id: lead.id },
-          ...ifMatch(requireVersion(lead.version)),
-        },
-        body: { owner_id: ownerId },
-      });
-      if (error) {
-        throwProblem(error, t);
-      }
+    run.mutate({
+      action: { kind: "assign", ownerId, ownerName },
+      write: async (lead) => {
+        const { error } = await api.PATCH("/leads/{id}", {
+          params: {
+            path: { id: lead.id },
+            ...ifMatch(requireVersion(lead.version)),
+          },
+          body: { owner_id: ownerId },
+        });
+        if (error) {
+          throwProblem(error, t);
+        }
+      },
     });
   const disqualify = () =>
-    run.mutate(async (lead) => {
-      const { error } = await api.DELETE("/leads/{id}", {
-        params: { path: { id: lead.id } },
-      });
-      if (error) {
-        throwProblem(error, t);
-      }
+    run.mutate({
+      action: { kind: "disqualify" },
+      write: async (lead) => {
+        const { error } = await api.DELETE("/leads/{id}", {
+          params: { path: { id: lead.id } },
+        });
+        if (error) {
+          throwProblem(error, t);
+        }
+      },
     });
 
   const failed = outcomes.filter((o) => o.error);
