@@ -36,15 +36,19 @@ func StampFields(ctx context.Context, tx pgx.Tx, objectType string, objectID ids
 	if len(stamps) == 0 {
 		return nil
 	}
-	wsID, ok := principal.WorkspaceID(ctx)
-	if !ok {
+	// The value is dead — field_provenance carries no tenant since ADR-0091 §8
+	// phase D — but the CHECK is not: it refuses a caller that reached this
+	// write outside a workspace context at all, which is a wiring fault rather
+	// than a row problem and is worth naming here instead of surfacing as a
+	// constraint violation somewhere downstream.
+	if _, ok := principal.WorkspaceID(ctx); !ok {
 		return fmt.Errorf("storekit: field provenance outside workspace context")
 	}
 	for _, s := range stamps {
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO field_provenance (workspace_id, object_type, object_id, field_name, source, captured_by, confidence, evidence_ref)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-			wsID, objectType, objectID, s.Field, source, capturedBy, s.Confidence, s.EvidenceRef); err != nil {
+			`INSERT INTO field_provenance (object_type, object_id, field_name, source, captured_by, confidence, evidence_ref)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			objectType, objectID, s.Field, source, capturedBy, s.Confidence, s.EvidenceRef); err != nil {
 			return fmt.Errorf("storekit: stamp field provenance: %w", err)
 		}
 	}

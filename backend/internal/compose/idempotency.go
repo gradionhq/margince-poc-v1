@@ -228,8 +228,8 @@ func claimKey(ctx context.Context, pool *pgxpool.Pool, principalID, key, endpoin
 // (workspace, principal, key, endpoint) already exists.
 func insertClaim(ctx context.Context, tx pgx.Tx, principalID, key, endpoint, digest string) (bool, error) {
 	tag, err := tx.Exec(ctx, `
-		INSERT INTO idempotency_key (workspace_id, principal_id, key, endpoint, request_digest)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+		INSERT INTO idempotency_key (principal_id, key, endpoint, request_digest)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (principal_id, key, endpoint) DO NOTHING`,
 		principalID, key, endpoint, digest)
 	if err != nil {

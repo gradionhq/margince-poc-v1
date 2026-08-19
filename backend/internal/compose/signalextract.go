@@ -161,7 +161,7 @@ func (x *SignalExtractor) deferRefusedReading(
 ) error {
 	var refusals int
 	if markErr := database.WithWorkspaceTx(ctx, x.pool, func(tx pgx.Tx) error {
-		counted, countErr := recordThreadRefusal(ctx, tx, wsID, thread, now)
+		counted, countErr := recordThreadRefusal(ctx, tx, thread, now)
 		refusals = counted
 		return countErr
 	}); markErr != nil {
@@ -207,7 +207,7 @@ func (x *SignalExtractor) commitReading(
 				raised++
 			}
 		}
-		return markThreadScanned(ctx, tx, wsID, thread, now)
+		return markThreadScanned(ctx, tx, thread, now)
 	}); err != nil {
 		return 0, err
 	}

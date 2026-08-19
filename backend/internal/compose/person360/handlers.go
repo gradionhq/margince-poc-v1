@@ -19,7 +19,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -136,12 +135,12 @@ func (s *Service) Acknowledge(ctx context.Context, personID ids.PersonID) (crmco
 			return err
 		}
 		return tx.QueryRow(ctx, `
-			INSERT INTO user_record_view (workspace_id, user_id, entity_type, entity_id, last_viewed_at)
-			VALUES ($1, $2, $3, $4, $5)
+			INSERT INTO user_record_view (user_id, entity_type, entity_id, last_viewed_at)
+			VALUES ($1, $2, $3, $4)
 			ON CONFLICT (user_id, entity_type, entity_id)
 			DO UPDATE SET last_viewed_at = GREATEST(user_record_view.last_viewed_at, EXCLUDED.last_viewed_at)
 			RETURNING last_viewed_at`,
-			storekit.MustWorkspace(ctx), userID, entityTypePerson, personID, now).Scan(&stored)
+			userID, entityTypePerson, personID, now).Scan(&stored)
 	})
 	if err != nil {
 		return crmcontracts.RecordViewAck{}, err

@@ -240,10 +240,10 @@ func TestCollapseNeverLetsAMachineGuessOverrideAHumanConfirmation(t *testing.T) 
 		} {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO linkedin_connection
-				    (id, workspace_id, owner_user_id, full_name, normalized_name,
+				    (id, owner_user_id, full_name, normalized_name,
 				     company_name, normalized_company, matched_person_id, match_status,
 				     source, synced_at)
-				VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+				VALUES ($1,
 				        $2, 'Dup Person', 'dup person', $3, $4, $5, $6, 'csv_export', $7::date)`,
 				row.id, e.rep, row.company, NormalizeOrgName(row.company),
 				row.person.UUID, row.status, row.syncedAt); err != nil {

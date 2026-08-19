@@ -50,9 +50,9 @@ func linkedInMatchFixture(ctx context.Context, t *testing.T, e *integration.Env)
 	seedAsAdmin(t, e, func(c context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(c, `
 			INSERT INTO linkedin_connection
-			    (workspace_id, owner_user_id, full_name, normalized_name, company_name,
+			    (owner_user_id, full_name, normalized_name, company_name,
 			     normalized_company, profile_url, matched_org_id, source)
-			VALUES (`+wsGUC+`, $1, 'Andreas Müller', 'andreas muller', 'Acme GmbH',
+			VALUES ($1, 'Andreas Müller', 'andreas muller', 'Acme GmbH',
 			        'acme', 'https://www.linkedin.com/in/amueller', $2, 'csv_export')`,
 			e.Rep1, orgID)
 		return err

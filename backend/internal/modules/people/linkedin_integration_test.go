@@ -402,9 +402,9 @@ func TestRenormalizingCollapsesTheDuplicatesAnOldKeyLeft(t *testing.T) {
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		insert := `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name,
+			  (owner_user_id, full_name, normalized_name,
 			   company_name, normalized_company, match_status, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			VALUES (
 			        $1, 'Abbas Fawaz', 'abbas fawaz', 'najahak.io | Growth',
 			        $2, $3, 'csv_export')
 			RETURNING id`
@@ -472,9 +472,9 @@ func TestCollapsingADuplicateKeepsWhatEachCopyKnew(t *testing.T) {
 	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
 		insert := `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name, company_name,
+			  (owner_user_id, full_name, normalized_name, company_name,
 			   normalized_company, position, email, connected_on, match_status, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			VALUES (
 			        $1, 'Abbas Fawaz', 'abbas fawaz', 'najahak.io | Growth',
 			        $2, $3, $4, NULL, $5, 'csv_export')`
 		// The stale copy carries the address and nothing else of note.

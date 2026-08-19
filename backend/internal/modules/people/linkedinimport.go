@@ -317,11 +317,10 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO linkedin_connection
-		    (workspace_id, owner_user_id, full_name, normalized_name, position,
+		    (owner_user_id, full_name, normalized_name, position,
 		     company_name, normalized_company, connected_on, email, profile_url,
 		     source, synced_at)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''),
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''), $7, NULLIF($8, ''),
 	        NULLIF($9, ''), 'csv_export', now())
 		ON CONFLICT (owner_user_id, normalized_name,
 		             coalesce(normalized_company, ''), coalesce(connected_on, 'epoch'::date))
