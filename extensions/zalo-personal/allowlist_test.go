@@ -286,13 +286,16 @@ func TestEveryVerdictIsRecordedByItselfWithWhatItReplaced(t *testing.T) {
 	t.Parallel()
 	rt := newRuntime()
 	rt.tx.singleRows = [][]any{
-		connectionRow(statusConnected, memberZaloUID, true),            // read
-		connectionRow(statusConnected, memberZaloUID, true),            // brought forward
-		allowRow(entryID, counterpartyZaloUID, verdictBlock, "Chosen"), // the existing verdict
-		allowRow(entryID, counterpartyZaloUID, verdictAllow, "Chosen"), // what the upsert returned
+		connectionRow(statusConnected, memberZaloUID, true), // read
+		connectionRow(statusConnected, memberZaloUID, true), // brought forward
+		// allow -> block, which is a NARROWING and therefore leaves no floor: this
+		// test is about how one verdict is recorded, and the lifting of an exclusion
+		// is its own act with its own row (floor_test.go).
+		allowRow(entryID, counterpartyZaloUID, verdictAllow, "Chosen"), // the existing verdict
+		allowRow(entryID, counterpartyZaloUID, verdictBlock, "Chosen"), // what the upsert returned
 	}
 
-	if _, err := saveAllowlist(context.Background(), rt, json.RawMessage(oneVerdict)); err != nil {
+	if _, err := saveAllowlist(context.Background(), rt, json.RawMessage(oneExclusion)); err != nil {
 		t.Fatalf("changing a verdict: %v", err)
 	}
 	if len(rt.tx.audited) != 1 {
@@ -305,8 +308,8 @@ func TestEveryVerdictIsRecordedByItselfWithWhatItReplaced(t *testing.T) {
 	if change.Action != extension.AuditUpdate {
 		t.Fatalf("replacing a verdict was recorded as %q; a create would read as a first-ever permission", change.Action)
 	}
-	if !strings.Contains(string(change.Before), string(verdictBlock)) ||
-		!strings.Contains(string(change.After), string(verdictAllow)) {
+	if !strings.Contains(string(change.Before), string(verdictAllow)) ||
+		!strings.Contains(string(change.After), string(verdictBlock)) {
 		t.Fatalf("the ledger does not say what changed: %s -> %s", change.Before, change.After)
 	}
 }

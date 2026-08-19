@@ -62,6 +62,13 @@ const (
 	// A message that passed the member's filter and still could not be landed.
 	// It carries the message id and never the message.
 	eventMessageDropped = "message_dropped"
+	// A member stopped excluding one conversation, and the instant from which this
+	// installation may therefore read it. Announced separately from verdict_dropped
+	// because they answer different questions: that one says a decision was removed,
+	// this one says from WHEN the conversation may be read — and it is the only place
+	// that fact survives, since the verdict row carrying the exclusion is deleted by
+	// the same act.
+	eventExclusionLifted = "exclusion_lifted"
 )
 
 // recordConnection writes the ledger row and the event for one connection

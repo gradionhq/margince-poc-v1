@@ -226,7 +226,11 @@ func pollMember(ctx context.Context, rt extension.Runtime, conn connection, open
 	if err != nil {
 		return turn.refused(conn.Status, err), err
 	}
-	if !consentOf(conn, entries).captures() {
+	// NO FLOORS ARE READ HERE, and that is not an omission: this asks only whether
+	// ANY conversation could be captured, so that no socket is opened for a member
+	// nothing could come from. A floor narrows WHEN a conversation is captured from,
+	// never WHETHER, so it cannot change this answer.
+	if !consentOf(conn, entries, nil).captures() {
 		// Armed with a mode that admits nothing — only_allowed whose inclusion list
 		// is empty, or a mode this unit does not recognise. Nothing this drain
 		// returned could be kept, so no socket is opened for the same reason an
@@ -310,6 +314,7 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 		still   *connection
 		fresh   []allowEntry
 		reached map[string]bookmark
+		floors  map[string]time.Time
 	)
 	if err := rt.Tx(ctx, func(ctx context.Context, tx extension.Tx) error {
 		var err error
@@ -319,7 +324,16 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 		if fresh, err = verdictsOf(ctx, tx, conn.UserID); err != nil {
 			return err
 		}
-		reached, err = cursorsOf(ctx, tx, conn.UserID)
+		if reached, err = cursorsOf(ctx, tx, conn.UserID); err != nil {
+			return err
+		}
+		// THE FLOORS ARE RE-READ WITH THE VERDICTS, in the same instant, for the same
+		// reason: a member who lifts an exclusion while this drain is running has
+		// widened their answer, and the floor that lift wrote is what keeps the
+		// widening from reaching backwards. Reading the two at different moments
+		// would admit the conversation on the new verdict and judge it against no
+		// floor at all.
+		floors, err = floorsOf(ctx, tx, conn.UserID)
 		return err
 	}); err != nil {
 		return nil, err
@@ -342,7 +356,7 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 		// THE MODE COMES FROM THE RE-READ ROW TOO, not from the one the fleet read:
 		// a member who switched mode while the socket was open must be judged on the
 		// mode they are in now, exactly as with their list.
-		by:      consentOf(*still, fresh),
+		by:      consentOf(*still, fresh, floors),
 		cursors: reached,
 		names:   namesByCounterparty(append(entries, fresh...), rosterFor(ctx, opened)),
 		ours:    ours,
@@ -350,13 +364,15 @@ func decideAgainst(ctx context.Context, rt extension.Runtime, conn connection,
 }
 
 // consentOf gathers one member's whole answer to "which conversations go into the
-// CRM?" out of the row and their list, so the mode, its floor and the verdicts cannot
-// be assembled from two different reads at two different moments.
-func consentOf(conn connection, entries []allowEntry) consent {
+// CRM?" out of the row, their list and their per-conversation floors, so the mode, its
+// floor, the verdicts and the floors cannot be assembled from two different reads at
+// two different moments.
+func consentOf(conn connection, entries []allowEntry, floors map[string]time.Time) consent {
 	return consent{
 		mode:     conn.CaptureMode,
 		since:    conn.modeFloor,
 		verdicts: verdictsByCounterparty(entries),
+		floors:   floors,
 	}
 }
 

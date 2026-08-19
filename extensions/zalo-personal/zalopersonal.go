@@ -31,10 +31,13 @@
 // Which file does what:
 //
 //   - migrations/ — ext_zalo_personal_connection, one row per connected member
-//     (status, the account's Zalo uid, whether capture is armed, the cursor);
+//     (status, the account's Zalo uid, whether capture is armed);
 //     ext_zalo_personal_allowlist, that member's own verdicts about their own
-//     counterparties; and ext_zalo_personal_sent_message, which is what tells a
-//     reply the CRM staged from one the rep typed on their phone.
+//     counterparties; ext_zalo_personal_sent_message, which is what tells a
+//     reply the CRM staged from one the rep typed on their phone;
+//     ext_zalo_personal_conversation_cursor, how far each conversation has been
+//     read; and ext_zalo_personal_conversation_floor, which conversations may
+//     not be read BACKWARDS and from when.
 //   - connection.go — the four operations a member drives from the screen.
 //     Connect is TWO of them because the QR handshake's own steps are a 100s
 //     and a 120s long-poll, which cannot live inside one HTTP call; the
@@ -59,6 +62,10 @@
 //     only thing that separates the CRM's own reply from one they typed on their
 //     phone — which is captured, because otherwise every conversation is
 //     one-sided in exactly the way this unit's consent copy recommends working.
+//   - floor.go — the per-conversation consent floor: lifting an exclusion means
+//     "capture this person from now", never "capture the period I was hiding",
+//     and this is the durable mark that keeps the difference after the verdict
+//     row carrying the exclusion is gone.
 //   - ledger.go — every state change on a connection row is recorded, because
 //     a member's personal account becoming readable by this installation is a
 //     fact somebody may later ask about.

@@ -319,6 +319,7 @@ const (
 	readVerdicts = "verdicts"
 	readCursors  = "cursors"
 	readMarkers  = "markers"
+	readFloors   = "floors"
 )
 
 // readKindOf names a read by the table it addresses, which is the same discriminator
@@ -332,6 +333,8 @@ func readKindOf(sql string) string {
 		return readMarkers
 	case strings.Contains(sql, cursorTable):
 		return readCursors
+	case strings.Contains(sql, floorTable):
+		return readFloors
 	case strings.Contains(sql, allowlistTable):
 		return readVerdicts
 	}

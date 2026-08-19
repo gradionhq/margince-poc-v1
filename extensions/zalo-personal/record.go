@@ -71,11 +71,17 @@ type consent struct {
 	// mode is captureEveryoneExcept, captureOnlyChosen, or empty for a member who
 	// has not chosen. Empty captures nothing.
 	mode string
-	// since is when this mode was chosen. It is the FLOOR under everyone_except —
-	// see admitsUnderMode.
+	// since is when this mode was chosen. It is the MODE's floor under
+	// everyone_except — see admitsUnderMode.
 	since time.Time
 	// verdicts is the member's own list, keyed by counterparty.
 	verdicts map[string]verdict
+	// floors is the member's PER-CONVERSATION floor: for a conversation they once
+	// explicitly excluded, the instant that exclusion was lifted. A conversation
+	// absent from it was never excluded and carries no floor, which is what lets a
+	// newly named one collect its whole backlog. See floor.go for why an exclusion
+	// leaves a mark and a mode switch does not.
+	floors map[string]time.Time
 }
 
 // captures reports whether this consent could admit anything at all, which is what
@@ -145,9 +151,9 @@ func admits(frame zaloInbound, by consent, mark bookmark, ours map[string]bool) 
 // mirror images — the asymmetry is deliberate and is the mode-switch decision.
 //
 // UNDER only_chosen the member named this conversation, so its whole queued history
-// is what they asked for: no floor, and a conversation included today collects the
-// messages Zalo is still holding for it. That is the promise the inclusion list
-// exists to keep.
+// is what they asked for: THE MODE CARRIES NO FLOOR, and a conversation included
+// today collects the messages Zalo is still holding for it. That is the promise the
+// inclusion list exists to keep.
 //
 // UNDER everyone_except the member named NOBODY. Reaching back through Zalo's queue
 // would sweep in conversations they had looked at and deliberately left out under a
@@ -160,39 +166,80 @@ func admits(frame zaloInbound, by consent, mark bookmark, ours map[string]bool) 
 // conversations nobody has ever mentioned, and only on the tick after the switch.
 // The cost of not having it is capturing a conversation the member had already
 // decided against. A member who wants one of those conversations back can name it,
-// which is the inclusion list — and naming it is the act that removes the floor.
+// which is the inclusion list — and naming it is what removes the MODE's floor.
 //
-// A conversation whose bookmark WAS WRITTEN UNDER THIS MODE is past that question:
-// capture has been reading it, and where it got to is what the bookmark says. A
-// bookmark written EARLIER is not, and the difference is what stops a round trip from
-// walking through the floor — everyone_except reads a conversation to some id,
-// only_chosen refuses everything above it while leaving the bookmark standing, and
-// coming back to everyone_except re-stamps the floor onto a conversation that still
-// has one. Reading its mere presence would then hand over the whole excluded period.
+// WHAT NAMING SOMEBODY DOES NOT REMOVE IS THEIR OWN CONVERSATION'S FLOOR, and that is
+// the second, per-conversation floor both arms consult. The mode's floor is a guess
+// about conversations nobody ever decided about; a conversation's own floor is the
+// residue of a decision the member DID make about that one person, and no later act
+// retroactively admits the period it covers. An explicit exclusion leaves a mark; a
+// conversation that was never excluded carries none — floor.go argues both halves.
+//
+// A conversation whose bookmark WAS WRITTEN UNDER THE FLOOR IN FORCE is past the
+// question: capture has been reading it, and where it got to is what the bookmark
+// says. A bookmark written EARLIER is not, and the difference is what stops a round
+// trip from walking through the floor — everyone_except reads a conversation to some
+// id, only_chosen refuses everything above it while leaving the bookmark standing,
+// and coming back to everyone_except re-stamps the floor onto a conversation that
+// still has one. Reading its mere presence would then hand over the whole excluded
+// period.
 func admitsUnderMode(frame zaloInbound, by consent, mark bookmark) bool {
 	other := frame.counterparty()
 	switch by.mode {
 	case captureOnlyChosen:
-		return by.verdicts[other] == verdictAllow
+		if by.verdicts[other] != verdictAllow {
+			return false
+		}
+		// The MODE has no floor here; the conversation may still have one of its own.
+		return above(frame, mark, by.floors[other])
 	case captureEveryoneExcept:
 		if by.verdicts[other] == verdictBlock {
 			return false
 		}
-		if mark.postdates(by.since) {
-			return true
-		}
-		// No bookmark under this mode: nothing has been captured from this
-		// conversation since the member chose it, so the floor applies. A frame with
-		// no readable time is refused later by representable, and treating it as
-		// below the floor here keeps this arm from being the one that decides a
-		// malformed frame's fate.
-		return frame.OccurredAt.After(by.since)
+		// WHICHEVER FLOOR IS LATER. They answer different questions — "when did this
+		// member last widen the rule for everybody" and "when did they stop hiding
+		// this one person" — and a message has to clear both, so taking the earlier
+		// of the two would let one answer overrule the other.
+		return above(frame, mark, later(by.since, by.floors[other]))
 	}
 	// A mode this unit does not recognise — including none at all — captures nothing.
 	// The database refuses "armed with no mode", so this is unreachable through any
 	// writer; it is here because the safe direction for an unreachable branch in a
 	// consent filter is deny, not allow.
 	return false
+}
+
+// above is the floor test both modes share, once the mode has decided that this
+// conversation is admissible at all.
+//
+// A ZERO FLOOR ADMITS EVERYTHING, and that is the state of a conversation nothing has
+// ever narrowed: no mode floor, no exclusion ever lifted. It is checked first so the
+// ordinary only_chosen case never asks a question about time.
+func above(frame zaloInbound, mark bookmark, floor time.Time) bool {
+	if floor.IsZero() {
+		return true
+	}
+	if mark.postdates(floor) {
+		// Capture has been reading this conversation SINCE the floor was set, so the
+		// bookmark — not the floor — is what says where it got to.
+		return true
+	}
+	// No bookmark from after the floor: nothing has been captured from this
+	// conversation since the member last narrowed their answer about it, so the floor
+	// applies. A frame with no readable time is refused later by representable, and
+	// treating it as below the floor here keeps this arm from being the one that
+	// decides a malformed frame's fate.
+	return frame.OccurredAt.After(floor)
+}
+
+// later is whichever of two instants is the later one, and a zero time loses to any
+// real one — which is what makes "this conversation has no floor of its own" and "this
+// member has no mode floor" the same absent value rather than two special cases.
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // refusalUnder names why the mode declined, in the mode's own vocabulary, so a

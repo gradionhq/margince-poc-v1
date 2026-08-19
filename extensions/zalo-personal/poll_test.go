@@ -128,6 +128,13 @@ func scriptCursors(rt *fakeRuntime, rows ...[]any) {
 	rt.tx.script(readCursors, rows...)
 }
 
+// scriptFloors states which conversations carry a consent floor, and from when. It is
+// separate from both the verdicts and the cursors because a floor outlives the verdict
+// it came from and means something different from a bookmark — see floor.go.
+func scriptFloors(rt *fakeRuntime, rows ...[]any) {
+	rt.tx.script(readFloors, rows...)
+}
+
 // THE FLEET READ ITSELF, asserted on the statement, because both properties live
 // in the SQL and nowhere else: a member who has not chosen is never enumerated, so
 // no credential of theirs is unsealed and no socket of theirs is opened, and the

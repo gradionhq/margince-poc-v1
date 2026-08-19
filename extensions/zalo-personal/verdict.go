@@ -138,6 +138,18 @@ func writeVerdicts(ctx context.Context, tx extension.Tx, member string, entries 
 		if err := recordVerdict(ctx, tx, before, &after); err != nil {
 			return err
 		}
+		// A `block` that becomes an `allow` is an exclusion LIFTED, and the row that
+		// recorded it has just been overwritten — so unless the instant of the lift is
+		// written here, in this same transaction, nothing is left to say the excluded
+		// period existed and the whole of it lands on the next tick. It is the same
+		// act dropVerdict handles for the removal path, and both route through
+		// exclusionLifted so there is ONE answer to what a lift is.
+		if !exclusionLifted(before, after.Mode) {
+			continue
+		}
+		if err := raiseFloor(ctx, tx, member, entry.ChannelUserID); err != nil {
+			return err
+		}
 	}
 	return nil
 }

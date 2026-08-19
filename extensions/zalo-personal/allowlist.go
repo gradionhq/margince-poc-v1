@@ -353,6 +353,16 @@ func armCaptureAndBringForward(ctx context.Context, tx extension.Tx, member, mod
 // capture actually got to, rather than re-offering their whole conversation. When the
 // bookmark lived on this row, deleting a verdict silently reset it.
 //
+// IT DOES RAISE THE CONVERSATION'S FLOOR WHEN THE ROW BEING DELETED IS AN EXCLUSION,
+// in this same transaction, and that write is what makes the deletion safe. Removing a
+// `block` is a member saying "capture this person from now" — and the row that
+// recorded the period they were hidden for is the very row this statement destroys, so
+// the instant of the lift has to be recorded before it goes. Without it the whole
+// excluded period lands on the next tick, from precisely the window the member had
+// decided against. Removing an `allow` raises nothing: that is an inclusion ending,
+// not an exclusion lifting, and a conversation that was never excluded carries no
+// mark.
+//
 // A person who was never on the list is not an error: "they are off it" is the
 // outcome asked for, and a picker that removes somebody twice has done no harm.
 func dropVerdict(ctx context.Context, tx extension.Tx, member string, before *allowEntry) error {
@@ -364,5 +374,11 @@ func dropVerdict(ctx context.Context, tx extension.Tx, member string, before *al
 		  WHERE user_id = $1::uuid AND channel_user_id = $2`, member, before.ChannelUserID); err != nil {
 		return err
 	}
-	return recordVerdictDropped(ctx, tx, before)
+	if err := recordVerdictDropped(ctx, tx, before); err != nil {
+		return err
+	}
+	if !exclusionLifted(before, verdictNone) {
+		return nil
+	}
+	return raiseFloor(ctx, tx, member, before.ChannelUserID)
 }

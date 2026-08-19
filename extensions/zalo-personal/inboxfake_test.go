@@ -156,6 +156,27 @@ func cursorRowWrittenAt(counterparty, at string, written time.Time) []any {
 	return []any{counterparty, at, written}
 }
 
+// floorRow scripts one conversation's consent floor, in the order floorsOf projects:
+// the counterparty, and the instant their last explicit exclusion was lifted.
+//
+// A conversation with NO row here was never explicitly excluded and carries no floor —
+// which is the state that lets a newly named conversation collect its whole backlog,
+// so most fixtures script none.
+func floorRow(counterparty string, notBefore time.Time) []any {
+	return []any{counterparty, notBefore}
+}
+
+// storedFloor scripts one floor as the SINGLE-row reads see it — floorColumns, which
+// carries the row id the ledger records against and the version that tells a first
+// exclusion from a second.
+func storedFloor(id, counterparty string, notBefore time.Time, version int) []any {
+	return []any{id, counterparty, notBefore, version}
+}
+
+// floorEntryID is a floor row id, canonical because the ledger's own grammar refuses
+// anything that is not a lower-case UUID.
+const floorEntryID = "9c5d3e4f-6071-4c8d-afbf-2a3b4c5d6e7f"
+
 // entryID and secondEntryID are verdict row ids, canonical because the ledger's
 // own grammar refuses anything that is not a lower-case UUID.
 const (
