@@ -29,7 +29,7 @@ in `src/app/ui-preview.ts`; the naming prefix is the contract with the reader.
 |---|---|
 | `VITE_UI_PREVIEW_OIDC=1` | The federated sign-in buttons on the login screen, with the second provider marked *not yet available*. |
 | `VITE_UI_PREVIEW_RESET=1` | The "Forgot password?" link and the request card it opens. |
-| `VITE_UI_PREVIEW_TASKBAR=1` | The bottom agent taskbar — the competing proposal to the page-head dock, with the page you are on to the left of it and the workspace to the right. Its counts are READ from the API; what it cannot read (an agent run in flight) is reachable only from the review-only switcher in its panel. It takes the page-head dock and the Ask FAB down while it is on. |
+| `VITE_UI_PREVIEW_TASKBAR=1` | The bottom agent taskbar — the competing proposal to the shipped dock, which floats at the foot of the content column, with the page you are on to the left of the bar and the workspace to the right. Its counts are READ from the API; what it cannot read (an agent run in flight) is reachable only from the review-only switcher in its panel. It takes the dock down while it is on, so exactly one agent surface is ever on screen. |
 
 ```sh
 pnpm dev:preview                    # every switch on — the demo entry point

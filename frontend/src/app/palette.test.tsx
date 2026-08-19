@@ -14,7 +14,7 @@ import {
   ASK_QUERY_KEY,
   type Command,
   CommandPalette,
-  paletteHotkeyLabel,
+  paletteHotkeyCaps,
 } from "./palette";
 
 // B-EP09.5 (AC-shell-3..7) and RS-1 (live /search records + see-all)
@@ -79,18 +79,27 @@ const commands: Command[] = [
 
 // The palette answers to both modifiers, but the affordance may advertise only
 // one, and ⌘ names a key a Windows keyboard does not have.
-describe("paletteHotkeyLabel", () => {
+describe("paletteHotkeyCaps", () => {
   it("names the modifier the platform actually has", () => {
-    expect(paletteHotkeyLabel("MacIntel")).toBe("⌘K");
-    expect(paletteHotkeyLabel("iPhone")).toBe("⌘K");
-    expect(paletteHotkeyLabel("Win32")).toBe("Ctrl K");
-    expect(paletteHotkeyLabel("Linux x86_64")).toBe("Ctrl K");
+    expect(paletteHotkeyCaps("MacIntel")).toEqual(["⌘", "K"]);
+    expect(paletteHotkeyCaps("iPhone")).toEqual(["⌘", "K"]);
+    expect(paletteHotkeyCaps("Win32")).toEqual(["Ctrl", "K"]);
+    expect(paletteHotkeyCaps("Linux x86_64")).toEqual(["Ctrl", "K"]);
   });
 
   // An unreported platform is far more likely to be Windows or Linux than a Mac,
   // and Ctrl is the modifier that works on both.
   it("falls back to Ctrl when the platform is unknown", () => {
-    expect(paletteHotkeyLabel("")).toBe("Ctrl K");
+    expect(paletteHotkeyCaps("")).toEqual(["Ctrl", "K"]);
+  });
+
+  // One cap per key, and never a string a caller has to take apart again: the
+  // surface that draws these drew them by splitting "⌘K" with a lookbehind regex,
+  // which does not parse at all on an engine without lookbehind.
+  it("hands back one entry per key, so no caller has to split a string", () => {
+    for (const platform of ["MacIntel", "Win32", ""]) {
+      expect(paletteHotkeyCaps(platform)).toHaveLength(2);
+    }
   });
 });
 

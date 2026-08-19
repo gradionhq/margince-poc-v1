@@ -113,7 +113,7 @@ export function resolveTheme(): Theme {
   return themeFor(readStoredChoice());
 }
 
-export function applyTheme(theme: Theme): void {
+function applyTheme(theme: Theme): void {
   document.documentElement.dataset.theme = theme;
 }
 

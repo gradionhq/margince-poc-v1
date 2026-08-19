@@ -117,9 +117,14 @@ function BrandBlock() {
 }
 
 // WCAG 2.4.1, Bypass Blocks. Every page in the product puts the same block ahead
-// of its content — the brand, the search, up to eleven navigation rows, the More
-// button, the settings door and the account menu — and without this a keyboard
-// reader walked all of it again on every page they opened.
+// of its content — up to eleven navigation rows and the entitlement row in the
+// sidebar, then the strip's collapse control, trail, search, system-of-record
+// chip, approvals bell and account menu — and without this a keyboard reader
+// walked all of it again on every page they opened.
+//
+// The destination is the SCROLLER, not the content column: the strip is the first
+// row of that column, so a skip that landed on `.main` put the reader in front of
+// the very chrome they asked to skip.
 //
 // A button, not the conventional `<a href="#content">`, because this app is
 // hash-routed: setting the hash to "#content" is a NAVIGATION here, and the
@@ -346,20 +351,25 @@ export function WorkspaceRail({
   // this nav cannot become without giving up its landmark. The body stops
   // scrolling for the same reason: a touch that starts on the scrim should
   // dismiss, not scroll the page underneath.
+  //
+  // The SKIP LINK goes inert with it, and is not an afterthought: it is a sibling
+  // of the nav rather than a child of the column, so Tab past the sheet's last row
+  // wrapped onto it, drew it over the scrim, and pointed it at an inert element —
+  // a control that takes focus, shows itself, and does nothing.
   useEffect(() => {
     if (!sheetOpen) {
       return;
     }
-    const main = document.querySelector<HTMLElement>(".main");
+    const locked = document.querySelectorAll<HTMLElement>(".main, .skiplink");
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    if (main) {
-      main.inert = true;
+    for (const element of locked) {
+      element.inert = true;
     }
     return () => {
       document.body.style.overflow = previous;
-      if (main) {
-        main.inert = false;
+      for (const element of locked) {
+        element.inert = false;
       }
     };
   }, [sheetOpen]);
@@ -490,12 +500,9 @@ function SettingsTopBar({
   );
 }
 
-function SettingsPageTitle({
-  route,
-  actions,
-}: Readonly<{ route: Route; actions?: ReactNode }>) {
+function SettingsPageTitle({ route }: Readonly<{ route: Route }>) {
   const section = useSettingsSection(route.id);
-  return <PageTitle route={route} actions={actions} section={section} />;
+  return <PageTitle route={route} section={section} />;
 }
 
 // One group of the switcher's list, with the section's own heading above it — the
@@ -547,7 +554,9 @@ function SectionPickGroup({
  * The LIST claims the current page and the button does not: the entries are the
  * section's navigation, the same links the sidebar's level carries above the
  * breakpoint, while the button is a control that opens them — and a control is
- * not a page. Only one element in the document may make that claim.
+ * not a page. Several elements may name the current page (the trail's last stop
+ * and the sidebar's active row both do, and agree); what none of them may do is
+ * claim it for something that is not a destination.
  */
 function SectionSwitcher({
   section,
@@ -618,11 +627,9 @@ function SectionSwitcher({
  */
 export function PageTitle({
   route,
-  actions,
   section,
 }: Readonly<{
   route: Route;
-  actions?: ReactNode;
   section?: NavSection;
 }>) {
   const t = useT();
@@ -677,12 +684,19 @@ export function PageTitle({
   return (
     <div className="pagetitle">
       <div className="pagetitle-text">
-        <h1 className={switcher ? "t-display pageswitchhead" : "t-display"}>
+        {/* The heading is named by the PAGE even when a control is all it
+            contains. Name-from-content would otherwise reach into the switcher's
+            own `aria-label` — "Privacy & audit — change section" — and put an
+            instruction in the document's heading list. The control keeps that
+            name; the heading states the page. */}
+        <h1
+          className={switcher ? "t-display pageswitchhead" : "t-display"}
+          aria-label={switcher ? title : undefined}
+        >
           {switcher || title}
         </h1>
         {subKey && <p className="pagesub">{t(subKey)}</p>}
       </div>
-      {actions && <div className="pagetitle-actions">{actions}</div>}
     </div>
   );
 }
@@ -691,12 +705,10 @@ export function Shell({
   children,
   counts,
   onOpenSearch,
-  pageActions,
 }: Readonly<{
   children: ReactNode;
   counts?: ShellCounts;
   onOpenSearch: () => void;
-  pageActions?: ReactNode;
 }>) {
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
@@ -715,7 +727,6 @@ export function Shell({
   // a section route is a different component, mounted on the way in and gone
   // again on the way out.
   const walk = useNavWalk(route, !railless && !leveled);
-  const contentRegion = useRef<HTMLElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   // A route change opens a different page, and a page opens at its top. Nothing
   // in the browser does this for us here: the document itself never scrolls
@@ -803,7 +814,7 @@ export function Shell({
 
   return (
     <div className={collapsed ? "app" : "app railexpanded"}>
-      <SkipToContent target={contentRegion} />
+      <SkipToContent target={scroller} />
       {/* One rail, two suppliers of what it shows: a screen owning a level wires
           its own data in, everything else renders the destinations alone. The
           provider spans both, because the way out of a level is asked for on the
@@ -815,14 +826,7 @@ export function Shell({
           <WorkspaceRail {...railProps} />
         )}
       </NavWalkProvider>
-      {/* Focusable only as the skip link's destination — never a tab stop of its
-          own, which is what tabIndex -1 buys. A reader who takes the skip lands
-          here, and the next Tab continues into the page's own controls. */}
-      <main
-        className={gridded ? "main main-gridded" : "main"}
-        ref={contentRegion}
-        tabIndex={-1}
-      >
+      <main className={gridded ? "main main-gridded" : "main"}>
         {leveled ? (
           <SettingsTopBar
             route={route}
@@ -844,11 +848,15 @@ export function Shell({
             railless; these advisories belong only here. */}
         <EconomyBanner />
         <EmbedReindexBanner />
-        <div className="scroll" ref={scroller}>
+        {/* Focusable only as the skip link's destination — never a tab stop of
+            its own, which is what tabIndex -1 buys. A reader who takes the skip
+            lands here, PAST the strip, and the next Tab continues into the page's
+            own controls. */}
+        <div className="scroll" ref={scroller} tabIndex={-1}>
           {leveled ? (
-            <SettingsPageTitle route={route} actions={pageActions} />
+            <SettingsPageTitle route={route} />
           ) : (
-            <PageTitle route={route} actions={pageActions} />
+            <PageTitle route={route} />
           )}
           {children}
         </div>

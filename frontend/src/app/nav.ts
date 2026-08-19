@@ -1,12 +1,12 @@
 import {
   BarChart3,
+  Bell,
   Building2,
   CheckSquare,
   Home,
   Kanban,
   type LucideIcon,
   Merge,
-  ShieldCheck,
   Sparkles,
   UserPlus,
   Users,
@@ -77,9 +77,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // labels under them has only the shape to go on.
       { screen: "deals", labelKey: "nav.deals", icon: Kanban },
       { screen: "tasks", labelKey: "nav.tasks", icon: CheckSquare },
-      // ShieldCheck, not another check-in-square: Approvals sits directly under
-      // Tasks and a near-identical glyph makes the pair unreadable at 20px.
-      { screen: "inbox", labelKey: "nav.inbox", icon: ShieldCheck },
+      // The same bell the top bar rings. Approvals are the one queue that waits
+      // on a PERSON, and the chrome reports it in three places at once — this
+      // row, the strip's own affordance, and the phone bar; two glyphs for one
+      // queue reads as two queues. It also keeps the pair under Tasks readable:
+      // a shield-check beside a check-in-square was two ticks in two boxes at
+      // 20px, and this is a different shape entirely.
+      { screen: "inbox", labelKey: "nav.inbox", icon: Bell },
     ],
   },
   {
@@ -198,5 +202,5 @@ export function railTrail(
   route: Route,
   section?: NavSection,
 ): readonly NavTrailLevel[] {
-  return navTrail(primaryLevel(), route, section, activeRowFor(route));
+  return navTrail(primaryLevel(), route, activeRowFor(route), section);
 }

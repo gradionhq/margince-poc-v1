@@ -159,10 +159,11 @@ hand-kept synonym list. **Never rename a `screen` to match a label** — that
 breaks every existing hash URL and every `SCREEN_ENTITY` / `OFF_RAIL_TITLE_KEYS`
 lookup keyed on it.
 
-Off-rail destinations (reached from Settings, not the rail — `settings`,
-`dedupe`, `products`, `offers`, `offer-templates`, `custom-fields`, `partners`,
-`share`, `search`, `design`) resolve their page title through
-`OFF_RAIL_TITLE_KEYS`, so a raw screen slug is never shown as a title.
+Off-rail destinations (reached from Settings or from a record, not the rail —
+`settings`, `offers`, `partners`, `share`, `search`) resolve their page title
+through `OFF_RAIL_TITLE_KEYS` in `app/pagemeta.ts`, so a raw screen slug is never
+shown as a title. `dedupe` left that list when Duplicates became a rail
+destination.
 
 ### The badge policy
 
@@ -186,7 +187,7 @@ The dark-rail family — `--bgRail`, `--railTop`, `--railBottom`, `--railIcon`,
 `--railIconHover`, `--railIconActive`, `--railHover`, `--railActive`,
 `--overlayScrim` — still exists, still carries its "deliberately unthemed,
 white-alpha in BOTH themes" comment, and is still correct **for the ink-green
-field**, which now keeps the agent panel at the sidebar foot and the
+field** — the collapsed rail's tooltips and the client-surface bar, plus the
 website/deck surfaces. It is not the app chrome. A contributor styling a new
 panel from those tokens is styling the marketing field by mistake.
 
@@ -290,11 +291,11 @@ workbench. Four things about it are load-bearing rather than stylistic:
 - **It is `aria-hidden`.** Every state it shows is also stated in text by the
   surface around it, which is what makes it safe to be this decorative.
 
-The sidebar's agent orb is deliberately **not** the Core: the Core paints its
-interior on a canvas, and permanent chrome on every screen would run a render
-loop for the whole session. The orb uses the same technique the Core's shell
-does — `color-mix()` over tokens, no literals — with layered radial gradients in
-place of a shader.
+The agent dock's orb **is** the Core (`MarginceCoreScene`, `state="dormant"`,
+feed off), not a lookalike: there is one orb in the product, and a CSS
+approximation in permanent chrome would be a second one for a reader to tell
+apart from the real thing. `agentdock.css` says the same next to the rule that
+sizes it.
 
 ## The gates
 

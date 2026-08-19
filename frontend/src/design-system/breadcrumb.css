@@ -3,7 +3,7 @@
    full size — is the next thing down the page.
 
    The type scale and the two colour roles are the ones the page head's
-   hand-drawn `.pagecrumb` used, so a surface that adopts this primitive is
+   hand-drawn record crumb used, so a surface that adopts this primitive is
    unchanged on screen. */
 .crumbs {
   min-width: 0;

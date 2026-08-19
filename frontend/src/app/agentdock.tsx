@@ -71,16 +71,16 @@ function AskComposer({ route }: Readonly<{ route: Route }>) {
     // Named, so a screen reader landing inside the panel knows which of its
     // parts it is standing in: the composer is the one part of this panel that
     // takes input rather than pointing somewhere else.
-    <section className="agentask" aria-label={t("fab.panelAria")}>
-      <span className="t-label">{t("fab.context", { context })}</span>
-      <p className="t-caption agentaskscope">{t("fab.scope")}</p>
+    <section className="agentask" aria-label={t("ask.panelAria")}>
+      <span className="t-label">{t("ask.context", { context })}</span>
+      <p className="t-caption agentaskscope">{t("ask.scope")}</p>
       <Textarea
-        aria-label={t("fab.inputAria")}
-        placeholder={t("fab.placeholder")}
+        aria-label={t("ask.inputAria")}
+        placeholder={t("ask.placeholder")}
         rows={3}
       />
       <Button variant="primary" small>
-        {t("fab.send")}
+        {t("ask.send")}
       </Button>
     </section>
   );

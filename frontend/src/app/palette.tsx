@@ -321,8 +321,17 @@ export function CommandPalette({
 // user told to press ⌘K is being told to press a key that is not there. Pure in
 // its argument so the call site passes `navigator.platform` and this stays
 // testable without stubbing the platform.
-export function paletteHotkeyLabel(platform: string): string {
-  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘K" : "Ctrl K";
+/**
+ * The chord as its KEYS, because the one surface that draws it draws a cap per
+ * key (app/topbar.tsx).
+ *
+ * Keys rather than a joined string, and no regex: the top bar used to split a
+ * "⌘K" label with a lookbehind, which is a parse-time SyntaxError on an engine
+ * without lookbehind (Safari before 16.4) — a blank app rather than a
+ * plain-looking shortcut.
+ */
+export function paletteHotkeyCaps(platform: string): readonly string[] {
+  return /mac|iphone|ipad|ipod/i.test(platform) ? ["⌘", "K"] : ["Ctrl", "K"];
 }
 
 export function usePaletteHotkey(toggle: () => void) {

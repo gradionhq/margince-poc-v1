@@ -94,30 +94,6 @@ export function useNavWalk(
   return walk;
 }
 
-/**
- * Arms the focus claim for an address whose level is about to arrive.
- *
- * The way INTO a section is an ordinary link — the door is an `<a href>` so it
- * shows its target, opens in a new tab, and works before any handler runs — so
- * the walk in cannot arm the claim the way `onWalkUp` does, by being the thing
- * that navigates. It has to say so on the side, which is what this returns.
- *
- * Outside a shell there is no memory to claim against (a story, the component
- * workbench), and a walk that cannot be remembered is not an error: the level
- * still arrives, it just does not take focus.
- */
-export function useNavWalkClaim(): (address: string) => void {
-  const walk = useContext(NavWalkMemory);
-  return useCallback(
-    (address: string) => {
-      if (walk) {
-        walk.current.claimAt = address;
-      }
-    },
-    [walk],
-  );
-}
-
 // The address the way back leads to. Below the section's own level it is the
 // entry the reader drilled through — that entry's own address is what names the
 // shallower level. At the section's own level there is no address above it
@@ -161,12 +137,10 @@ export function useNavLevel(
   // for: merely landing on a route that has a level must not pull focus off the
   // page the reader is reading.
   //
-  // Three moves ask, and each has to arm the claim itself: walking OUT and
-  // standing on a row that opens a deeper level, both below, and the door INTO
-  // a section — which is a link rather than a handler, so it arms the claim
-  // through `useNavWalkClaim` from wherever it is rendered. A direction with no
-  // arming site is a direction that drops focus to <body> without saying so,
-  // so they are counted here rather than left to be discovered one at a time.
+  // Two moves ask, and each arms the claim itself: walking OUT, and standing on
+  // a row that opens a deeper level. A direction with no arming site is a
+  // direction that drops focus to <body> without saying so, so they are counted
+  // here rather than left to be discovered one at a time.
   const onWalkUp = () => {
     const target = walkUpTarget(parent, walk.current.origin);
     walk.current.claimAt = routeHash(target);

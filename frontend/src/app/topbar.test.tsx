@@ -2,20 +2,18 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 /** @vitest-environment jsdom */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  render as rtlRender,
-  screen,
-  within,
-} from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { ShieldCheck, UserRound } from "lucide-react";
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocaleProvider } from "../i18n";
 import type { NavCounts, NavSection } from "./nav";
 import { parseHash, type Route } from "./router";
+import {
+  fixtureSection,
+  ignoreSearch,
+  newClient,
+  render,
+  renderWith,
+} from "./testing/shellharness";
 import { TopBar } from "./topbar";
 
 // The sticky strip above every railed page: what is true of the SESSION rather
@@ -61,21 +59,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const newClient = () =>
-  new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-const renderWith = (client: QueryClient, ui: ReactNode) =>
-  rtlRender(
-    <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
-  );
-
-const render = (ui: ReactNode) => renderWith(newClient(), ui);
-
-// The bar cannot render without a way to open the palette. Cases that are not
-// about search pass a handler that records nothing; the search cases pass a spy.
-const ignoreSearch = () => undefined;
 // The collapse control is minted only when the bar is handed a toggle, so a case
 // that needs it on screen supplies one that records nothing.
 const ignoreToggle = () => undefined;
@@ -97,36 +80,6 @@ function stopText(item: Element): string {
 }
 
 const stopTexts = () => within(trail()).getAllByRole("listitem").map(stopText);
-
-// A section with a THIRD level under one of its entries, so nothing here rests
-// on Settings happening to be exactly two levels deep. The child level is
-// synthetic and borrows labels rather than real sibling entry ids, which would
-// name a shape the settings level does not publish.
-function fixtureSection(activeId?: string): NavSection {
-  return {
-    screen: "settings",
-    titleKey: "nav.settings",
-    activeId,
-    groups: [
-      {
-        headingKey: "settings.group.you",
-        items: [
-          { id: "account", labelKey: "settings.tab.account", icon: UserRound },
-        ],
-      },
-      {
-        headingKey: "settings.group.org",
-        items: [
-          {
-            id: "deep",
-            labelKey: "settings.tab.privacy",
-            icon: ShieldCheck,
-          },
-        ],
-      },
-    ],
-  };
-}
 
 function renderTopBar(
   route: Route,

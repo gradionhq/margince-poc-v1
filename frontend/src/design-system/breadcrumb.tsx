@@ -29,7 +29,7 @@ export type Crumb = {
  * The trail that says where the reader is and how they got here.
  *
  * It generalises the two-segment record crumb the page head drew by hand
- * (the shell's own `.pagecrumb`: the list, a slash, the record's name), which could only ever
+ * (the shell's own record crumb: the list, a slash, the record's name), which could only ever
  * be those two segments and hard-coded the fact that the second one was the
  * page. Every decision that one made by position is a rule here: the LAST item
  * is the current page and is never a link even when it carries an `href`,

@@ -3,7 +3,6 @@ import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
-import { Button } from "../design-system/atoms";
 import { memoryStorage } from "../testing/appharness";
 import {
   clearPendingAuthorize,
@@ -216,26 +215,13 @@ describe("PageTitle", () => {
   // for itself — the search, the collapse toggle, the agent's trigger — belongs
   // to the top bar or to the dock now, and a button appearing here without a
   // caller asking for it is chrome creeping back into the content column.
-  it("carries no control the screen did not ask for", () => {
+  // The heading block is a NAME, not a toolbar. A screen's own verbs stand in
+  // its `.list-head`, where the list they act on is; the shell used to thread a
+  // `pageActions` slot down to here and no screen ever filled it.
+  it("carries no control at all", () => {
     render(<PageTitle route={{ screen: "deals" }} />);
     expect(screen.queryAllByRole("button")).toHaveLength(0);
     expect(screen.queryAllByRole("link")).toHaveLength(0);
-  });
-
-  it("renders the screen actions it is given, beside the title", () => {
-    const { container } = render(
-      <PageTitle
-        route={{ screen: "deals" }}
-        // The design system's control, not a hand-rolled button: what a screen
-        // actually passes here comes from there, and a test that supplies its
-        // own version of production proves nothing about production.
-        actions={<Button variant="primary">New deal</Button>}
-      />,
-    );
-    const action = screen.getByRole("button", { name: "New deal" });
-    expect(
-      container.querySelector(".pagetitle-actions")?.contains(action),
-    ).toBe(true);
   });
 });
 

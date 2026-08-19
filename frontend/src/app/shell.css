@@ -1,3 +1,26 @@
+/* The frame's own measurements, on :root rather than on `.app`, because two of
+   them are read by a sheet whose element can stand outside that frame: the strip
+   (app/topbar.css) resolves its height and its gutter from here, and a `.topbar`
+   rendered on a bare canvas — which is what a story does — would otherwise get
+   `height: var(--topbarH)` as an invalid declaration and collapse to its
+   content. `.app` still owns what only the frame can mean: the rail's width and
+   the reading column. */
+:root {
+  /* The session strip's height. The sidebar's own head measures against it, so
+     the first destination's row begins where the strip's rule ends and the two
+     halves of the chrome share one horizontal line rather than nearly sharing
+     one. */
+  --topbarH: 50px;
+  /* The page's own inset, spelled ONCE and used by every part of the frame that
+     touches it: the strip, the heading, the screen's block, and the air under the
+     strip — which the SCROLLER carries rather than each screen's own block, so a
+     heading, a record's identity block and a full-height list all begin at the
+     same distance from the rule. The same number at every width; a phone is a
+     narrower column, not a different layout. */
+  --pageGutter: var(--space-5);
+  --pageGapTop: var(--space-5);
+}
+
 /* The sidebar's width, as a REGISTERED length. Declared rather than plain,
    because an unregistered custom property is a token string to the animation
    engine: it flips at the halfway point instead of interpolating, and both the
@@ -55,19 +78,12 @@
      150–200ms). The column also animates a geometric property, so every frame
      re-lays-out the content beside it — a shorter run is cheaper as well as
      better. */
-  /* The session strip's height, and the sidebar's own head measures against it:
-     the first destination's row begins where the strip's rule ends, so the two
-     halves of the chrome share one horizontal line rather than nearly sharing
-     one. */
-  --topbarH: 50px;
-  /* The page's own inset, spelled ONCE and used by every part of the frame that
-     touches it: the strip above, the heading, the screen's block, and the air
-     under the strip (carried by the SCROLLER, not by each screen's own block, so
-     a heading, a record's identity block and a full-height list all begin at the
-     same distance from the rule). The same number at every width — a phone is a
-     narrower column, not a different layout. */
-  --pageGutter: var(--space-5);
-  --pageGapTop: var(--space-5);
+  /* The band the floating agent stands in, measured from the foot of the content
+     column: its own offset plus the 40px trigger (app/agentdock.css). The
+     scroller keeps it clear so a page's last row is never under the dock —
+     stated here rather than on each screen family, which is how a list ended up
+     with a lane and a scrolling page ended up relying on its own end rhythm. */
+  --agentLane: calc(var(--space-6) + 40px);
   --shellAnim: 0.2s;
   /* Standard/in-out, because the panel starts and ends on screen. A decelerate
      curve belongs to something entering from off-canvas. */
@@ -141,9 +157,9 @@
   position: relative;
   /* No `contain: layout` here, tempting as it is for the collapse animation's
      relayout cost: containment makes this element the containing block for every
-     fixed-position descendant, and the screens render their toasts, the ask FAB
-     and their modals inside it. They would anchor to this column and be clipped
-     by its `overflow: hidden` instead of standing on the viewport. The collapse
+     fixed-position descendant, and the screens render their toasts and their
+     modals inside it. They would anchor to this column and be clipped by its
+     `overflow: hidden` instead of standing on the viewport. The collapse
      is 200ms; correctness is worth more than those frames. */
 }
 /* The content area is the ground, not a panel: screens float their own cards on
@@ -152,6 +168,9 @@
   flex: 1;
   overflow-y: auto;
   padding-top: var(--pageGapTop);
+  /* The page's own end rhythm is `.wrap`'s; this is what is left of the agent's
+     lane after it. */
+  padding-bottom: calc(var(--agentLane) - var(--pageGutter));
   /* A column, so the page's heading is a row above the screen's own block and a
      full-height screen (a list, a board) can still take the rest of the space
      rather than measuring itself against a scroller it does not start at. */
@@ -170,7 +189,7 @@
    the content beneath it start on the same line — the shell no longer insets
    this column, the column does. */
 .wrap {
-  padding: 0 var(--pageGutter) var(--space-16);
+  padding: 0 var(--pageGutter) var(--pageGutter);
   width: 100%;
   /* Its own height, not the column's: only the full-height screens below claim
      what is left. */
@@ -215,32 +234,14 @@
   flex: 1;
   min-width: 0;
 }
-.list-head > button,
-.list-head > .list-head-actions {
-  margin-top: 4px;
-  flex: none;
-}
-.list-head-actions {
-  display: flex;
-  gap: var(--space-2);
-}
-/* A head whose only child is its actions: the page's name is printed by the
-   shell, so there is no title beside them to push them across. The `flex: 1`
-   above is for the TITLE stack that is normally first — left on a lone button
-   it stretches the control the full width of the page. */
-.list-head > .list-head-actions:only-child,
-.list-head > button:only-child {
-  flex: none;
-  margin-left: auto;
-}
-
 /* ===== sidebar =====
  * The ground is the matte near-white surface in BOTH states. The collapsed
  * state matches the canonical rail's geometry — 64px, 44px targets, the
- * logomark chip, the active indicator bar — but not its ink-green field: a
+ * logomark chip, the 44px targets — but not its ink-green field: a
  * sidebar that changed colour on collapse would read as two shells.
  *
- * Top to bottom: brand, search, the ten destinations, then the account block
+ * Top to bottom: brand, the destinations (or the entries of a section the
+ * reader walked into), More at phone width, then the installation's entitlement
  * pinned to the foot. */
 .rail {
   background: var(--bgElevated);
@@ -258,12 +259,21 @@
      the labels are already at full width, so for those few frames the panel
      overflowed itself and flashed a horizontal scrollbar across the navigation.
      Nothing in the expanded state needs to paint outside the panel; the tooltips
-     and the active indicator that do belong to the collapsed one, which opts out
-     of clipping below. */
+     that do belong to the collapsed one, which opts out of clipping below. */
   overflow-x: hidden;
 }
-/* The collapsed panel must NOT clip: the tooltips and the active indicator both
-   sit outside its 64px box. Each label clips itself. */
+/* The collapsed panel must NOT clip: its tooltips sit outside the 64px box, and
+   each label clips itself.
+   The cost is that it cannot scroll either — `overflow-y: auto` resolves the
+   other axis to `auto` too, and a tooltip is then clipped or drags a horizontal
+   scrollbar across a 64px column. On a window shorter than the panel is tall
+   (measured: 774px of rows against a 583px viewport at 1280x720) its own foot
+   therefore sits below the fold with nothing to scroll. Fixing that properly
+   means portalling this tooltip the way design-system/tooltip.tsx already
+   portals its own, measured frame and all — which is a change in
+   app/navlevel.tsx, not a rule here. Filed rather than half-done: a `fixed`
+   tooltip with no offsets keeps its static position, which is inside the icon
+   column, and lands on top of the row it names. */
 .rail.collapsed {
   overflow: visible;
 }
@@ -427,7 +437,7 @@
   gap: 0;
 }
 
-/* Not clipped: the active indicator and the collapsed tooltip both sit outside
+/* Not clipped: the collapsed tooltip sits outside
    the row's box on purpose, and the label does its own ellipsis, so a clip here
    only ever hides something that is meant to be seen. */
 .rail .navitem {
@@ -460,13 +470,13 @@
   background: var(--bgHover);
   color: var(--textPrimary);
 }
-/* The current row, in three signals — a tint, a weight, and a bar — because a
-   tint alone is colour-only (WCAG 1.4.1, Level A) and the tint itself measures
-   ~1.1:1 against the sidebar ground, so it cannot carry the state on its own.
-   The INK stays neutral: the accent as 13.5px text measures 3.9:1 on the dark
-   theme's tinted row, under the 4.5:1 AA needs, and weight does not rescue that
-   below 18.66px. The accent moves to the icon and the bar, where the bar is
-   what 1.4.11 asks (3:1 non-text) and both clear it. */
+/* The current row, in three signals — a tint, a weight, and the accent on the
+   glyph — because a tint alone is colour-only (WCAG 1.4.1, Level A) and the tint
+   itself measures ~1.1:1 against the sidebar ground, so it cannot carry the state
+   on its own. The INK stays neutral: the accent as 13.5px text measures 3.9:1 on
+   the dark theme's tinted row, under the 4.5:1 AA needs, and weight does not
+   rescue that below 18.66px. The glyph is where the accent goes, and at 3:1
+   non-text (1.4.11) it clears. */
 .rail .navitem.active {
   background: var(--accentLight);
   color: var(--textPrimary);
@@ -475,10 +485,6 @@
 .rail .navitem.active svg {
   color: var(--accent);
 }
-/* The bar sits INSIDE the rail's gutter rather than on its edge: the sidebar is
-   flush to the viewport, and a bar hung past the padding would be sliced in
-   half by the window. Same offset in both states, so nothing about the current
-   row moves when the sidebar collapses. */
 /* One icon size in both states. Animating the glyph's box relayouts the whole
    sidebar every frame, and a resizing icon is the jitter — 18px reads correctly
    beside a 13.5px label and alone on the 64px rail. */
@@ -561,7 +567,10 @@
 .rail .navlevel {
   display: flex;
   flex-direction: column;
-  gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
+  /* Between GROUPS, which set the gap between their own rows. `.navgroup +
+     .navgroup` carries the break; this is only what keeps two adjacent boxes
+     from touching when a level publishes one group. */
+  gap: 1px; /* ds:ignore a hairline between boxes, not a rhythm */
 }
 /* A drilled-in level ARRIVES, so it says so — the same rise the account menu
  * makes (app/account.css), on the shell's own curve, and short because this is
@@ -642,9 +651,9 @@
      column — where growing would mean growing taller than the rows under it. */
   flex: none;
   margin-bottom: var(--space-2);
-  /* Filled, where the search row above it is an outlined field: the two sit one
-     under the other, and giving both a hairline made them twins. A recessed
-     ground says "control" in a different word than a border does. */
+  /* Filled rather than outlined: it is the way OUT of a level, standing above a
+     column of rows, and a hairline would read as a field at the head of them. A
+     recessed ground says "control" in a different word than a border does. */
   background: var(--bgCard);
   color: var(--textPrimary);
   font-family: var(--f-body);
@@ -672,11 +681,9 @@
   }
 }
 /* A level takes the brand's WORDS for its own rows: the mark alone already stands
-   for the product here, and it keeps both jobs it has — the link home and the
-   collapse affordance — so the head is never a dead box.
-   The search row STAYS. It is the only visible way to search: ⌘K is invisible to
-   anyone who does not already know it, and a level that hid the row was a level
-   with no search affordance at all.
+   for the product here, and it keeps the job it has — the link home — so the head
+   is never a dead box. The level's own name stands a row below, where the words
+   would have been.
    One selector serves both sidebar widths: nothing more specific than `.rail …`
    claims `display` on the brand's words, so the 64px rail follows without being
    named. */
@@ -691,6 +698,13 @@
 .rail .grow {
   flex: 1;
   min-height: var(--space-3);
+}
+/* `:has()` rather than a bare selector: without `license:read` the row inside
+   returns nothing, and a foot that drew its rule anyway left a 12px band with a
+   hairline over it under the navigation — a divider dividing one thing from
+   nothing. */
+.rail .railfoot:not(:has(*)) {
+  display: none;
 }
 .rail .railfoot {
   margin: var(--space-3) calc(-1 * var(--space-2)) 0;
@@ -719,8 +733,12 @@
   background: var(--bgHover);
   color: var(--textPrimary);
 }
+/* `--accent`, not `--accentBrand`: the brand token is deliberately unthemed
+   (tokens.css) and in the dark theme it falls to 3.0:1 against the panel — and to
+   2.5:1 over a hovered row, which is where this ring is actually drawn. A focus
+   ring is a UI state and takes the state colour. */
 .rail .raillicense:focus-visible {
-  outline: 2px solid var(--accentBrand);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 .rail .raillicense svg {
@@ -761,12 +779,6 @@
 .pagetitle {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  /* The switcher takes a row of its own under the pair: it is what changes the
-     whole page, so it spans the column rather than sitting in the heading's
-     line. */
-  flex-wrap: wrap;
-  gap: var(--space-4);
   flex: none;
   width: 100%;
   /* No top padding: the scroller carries the air under the strip for every
@@ -815,12 +827,6 @@
 .pageswitchhead > .pageswitch {
   flex: 1;
   min-width: 0;
-}
-.pagetitle-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex: none;
 }
 
 /* ===== the section switcher (phone width only) =====
@@ -885,7 +891,7 @@
 .sectionpickgroup {
   display: flex;
   flex-direction: column;
-  gap: 1px; /* ds:ignore the rows' hairline separation, same as .navgroup's */
+  gap: 1px; /* ds:ignore a hairline between sheet rows, not a rhythm */
 }
 .sectionpickgroup h3 {
   margin: 0 0 var(--space-1);
@@ -1060,7 +1066,6 @@
   .app.railexpanded {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr;
-    --shellGap: 8px;
   }
   .rail,
   .rail.expanded,
@@ -1127,9 +1132,9 @@
   .rail.collapsed .navlevel {
     display: contents;
   }
-  /* The bottom bar carries destinations and nothing else: search, the account
-     block and the group headings all belong to the sidebar, and the sheet below
-     brings the first two back where there is room for them. */
+  /* The bottom bar carries destinations and nothing else. The group headings and
+     the entitlement row belong to a column with room for them, so the sheet
+     below is where they come back. */
   .rail .navheading,
   .rail .ws,
   .rail .railfoot,
@@ -1351,11 +1356,26 @@
   /* The foot comes back with the sheet: the entitlement is as true on a phone as
      anywhere, and the sheet is the one place at this width with room to say it.
      It divides the sheet on the sheet's own 4px gutter rather than the sidebar's
-     8px one. */
+     8px one.
+     The `.rail.collapsed …` variants are restated for the row and its label for
+     the reason this block states three times over: the desktop preference
+     survives a resize and outranks a bare `.rail` selector — without it a reader
+     who left the sidebar collapsed opened the sheet to a centred glyph with no
+     seat count and nothing saying what it was. */
   .rail.sheetopen .railfoot {
     display: block;
     margin: var(--space-3) calc(-1 * var(--space-2)) 0;
     padding: var(--space-3) var(--space-2) 0;
+  }
+  .rail.sheetopen .raillicense,
+  .rail.sheetopen.collapsed .raillicense {
+    justify-content: flex-start;
+    min-height: 48px;
+    padding: 0 var(--space-3);
+  }
+  .rail.sheetopen .raillicense .navlabel,
+  .rail.sheetopen.collapsed .raillicense .navlabel {
+    display: block;
   }
   .rail.sheetopen .raillicense {
     min-height: 48px;
@@ -1369,7 +1389,10 @@
   /* the bar floats over the content, and the agent stands above the bar, so the
      scroll area ends clear of both */
   .scroll {
-    padding-bottom: 124px; /* ds:ignore clears the nav bar and the agent above it */
+    padding-bottom: calc(
+      104px -
+      var(--pageGutter)
+    ); /* ds:ignore clears the nav bar and the agent standing above it */
   }
   /* Except where there is no bar. Rail-less surfaces (login, onboarding,
      booking, the client frame) carry their own chrome and never render the
@@ -1391,10 +1414,6 @@
  * toast is a sibling in the markup even though it is fixed and takes no space,
  * and an `:only-child` rule switched the whole layout off for as long as one
  * was on screen. */
-/* The bottom inset is the agent's lane. Only this family needs it stated: a
-   scrolling page already ends in its own 64px of air, which the dock floats over
-   harmlessly, while a full-height surface pins its own footer to the foot of the
-   column and would put the pager under the agent. */
 .wrap:has(> .lt) {
   display: flex;
   flex-direction: column;
@@ -1403,7 +1422,7 @@
      heading off the top of the column by exactly the height of that heading. */
   flex: 1;
   min-height: 0;
-  padding: 0 var(--pageGutter) var(--space-16);
+  padding: 0 var(--pageGutter) var(--pageGutter);
 }
 /* The surface takes the height rather than its content deciding it. Sized by
  * content, a list that momentarily renders smaller — a board mid-refetch after

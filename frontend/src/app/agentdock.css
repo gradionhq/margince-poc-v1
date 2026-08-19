@@ -8,9 +8,8 @@
  *
  * It hovers OVER the page rather than sitting in a row of it, so it takes the
  * chrome a floating object needs to read as one: a hairline border, an elevated
- * ground, and a shadow to stand on. (The dock used to sit beside the page's h1
- * and deliberately went without the shadow there — a shadowed pill would have
- * out-ranked the heading beside it. Nothing shares its row now.)
+ * ground, and a shadow to stand on. Nothing shares its row, so nothing competes
+ * with that shadow.
  */
 .agentdock {
   position: absolute;

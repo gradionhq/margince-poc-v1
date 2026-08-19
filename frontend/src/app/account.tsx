@@ -1,10 +1,4 @@
-import {
-  Check,
-  ChevronRight,
-  ChevronsUpDown,
-  LogOut,
-  UserRound,
-} from "lucide-react";
+import { Check, ChevronRight, LogOut, UserRound } from "lucide-react";
 import {
   type KeyboardEvent,
   type RefObject,
@@ -15,7 +9,7 @@ import {
   useState,
 } from "react";
 import type { components } from "../api/schema";
-import { Avatar, SegmentedControl } from "../design-system/atoms";
+import { Avatar } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { useLogout, useMe } from "../screens/common";
 import { SETTINGS_SCREEN } from "../screens/settings";
@@ -383,6 +377,13 @@ function AccountPanel({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    // Tab leaves the menu, so the menu goes with it (the APG menu-button
+    // pattern). Not prevented: the reader asked to move on, and the panel used
+    // to stay painted over whatever they moved on to.
+    if (event.key === "Tab") {
+      onDismiss();
+      return;
+    }
     switch (event.key) {
       case "ArrowDown":
         move(nextSeat(rows.current, active, 1));
@@ -473,106 +474,22 @@ function AccountPanel({
 }
 
 /**
- * The same destinations, flat — what the phone sheet gets.
- *
- * At phone width the rail is a bottom bar and "More" expands it into a sheet
- * over the page. A popover anchored inside that sheet has nowhere to open, so
- * the sheet takes the rows themselves instead of the trigger that hides them.
- * The identity line comes with them: the sheet is the phone's whole sidebar, and
- * without the trigger nothing else on it says who is signed in.
- */
-export function AccountRows() {
-  const t = useT();
-  const me = useMe();
-  const choice = useThemeChoice();
-  const identity = identityOf(me.data?.user);
-  return (
-    <div className="accountrows">
-      {identity.label && (
-        <div className="acctsheetwho">
-          <IdentityLines identity={identity} />
-        </div>
-      )}
-      <SettingsRow />
-      {/* Flat, not a flyout. A submenu is a hover-and-aim shape: it costs a
-          second tap to open, a third to pick, and it opens over the list it came
-          from on a surface that is already the width of the screen. Three
-          options all visible at once is one tap, and it is the control the
-          design system already has for a closed set. */}
-      <div className="acctthemeflat">
-        <span className="acctthemelabel">{t("shell.theme")}</span>
-        <SegmentedControl
-          options={THEME_CHOICES}
-          value={choice}
-          onChange={setThemeChoice}
-          labels={{
-            light: t(THEME_LABEL_KEYS.light),
-            dark: t(THEME_LABEL_KEYS.dark),
-            system: t(THEME_LABEL_KEYS.system),
-          }}
-          label={t("shell.theme")}
-        />
-      </div>
-      <hr />
-      <SignOutRow />
-    </div>
-  );
-}
-
-/**
- * What the trigger says beside the avatar.
- *
- * Where the trigger is the avatar and nothing else — the top bar always, the
- * collapsed rail at 64px — the two lines do not fit, so the sentence they carry
- * is present for a screen reader and clipped for the eye. That is the technique
- * the collapsed agent panel uses, rather than a tooltip standing in for text
- * that was never rendered.
- */
-function TriggerLines({
-  identity,
-  avatarOnly,
-  spokenId,
-}: Readonly<{
-  identity: Identity;
-  avatarOnly: boolean;
-  spokenId: string;
-}>) {
-  if (avatarOnly) {
-    return identity.spoken ? (
-      <span className="sr-only" id={spokenId}>
-        {identity.spoken}
-      </span>
-    ) : null;
-  }
-  return (
-    <>
-      <IdentityLines identity={identity} />
-      <ChevronsUpDown size={15} className="acctchev" aria-hidden />
-    </>
-  );
-}
-
-/** Which chrome the block wears. `rail` is the sidebar's row — name over address
- *  — and `topbar` is the avatar at the top-right of the viewport. */
-export type AccountVariant = "rail" | "topbar";
-
-/**
  * The account block: who is signed in, and the things it is FOR.
  *
- * It is now the product's ONE appearance control and its ONE door into settings
- * — the sidebar's foot carried that door and no longer exists — so the panel
- * holds the identity at the top, the settings door, the theme choice, and the
- * way out. Theme is here rather than only on a settings page because a reader
- * changing the appearance wants to see the appearance change, not to navigate to
- * a form and find their way back.
+ * It is the product's ONE appearance control and its ONE door into settings — the
+ * sidebar's foot carried that door and no longer exists — so the panel holds the
+ * identity at the top, the settings door, the theme choice, and the way out.
+ * Theme is here rather than only on a settings page because a reader changing the
+ * appearance wants to see the appearance change, not to navigate to a form and
+ * find their way back.
  *
- * `variant` picks the chrome; `collapsed` is the rail's own width state and says
- * nothing about the top bar, where the trigger is an avatar at every width.
+ * The trigger is the avatar and nothing else, at every width: the strip has no
+ * room for a name over an address, so the sentence they would carry is present
+ * for a screen reader and clipped for the eye. That is the technique the agent
+ * dock uses when it is a glyph, rather than a tooltip standing in for text that
+ * was never rendered.
  */
-export function AccountMenu({
-  variant = "rail",
-  collapsed = false,
-}: Readonly<{ variant?: AccountVariant; collapsed?: boolean }>) {
+export function AccountMenu() {
   const t = useT();
   const me = useMe();
   const [open, setOpen] = useState(false);
@@ -604,38 +521,23 @@ export function AccountMenu({
   }, []);
 
   const identity = identityOf(me.data?.user);
-  // The top bar has no room for the two lines at any width; the rail has none
-  // only while it is collapsed.
-  const avatarOnly = variant === "topbar" || collapsed;
 
   // One dismissal for every popover in the chrome (app/popover.ts): Escape from
   // anywhere inside, any outside click, and the opening click deferred past.
   usePopoverDismiss(open, menu, dismiss);
 
   return (
-    <div
-      // Namespaced, because the variant's own word is a class the CHROME already
-      // owns: `account topbar` matched `.topbar` and the block inherited the
-      // strip's grid, padding and bottom rule — an avatar in a 120px box with a
-      // hairline under it.
-      className={["account", `acct-${variant}`, collapsed ? "collapsed" : ""]
-        .filter(Boolean)
-        .join(" ")}
-    >
+    <div className="account">
       <button
         type="button"
         className="user"
         ref={trigger}
         // Where the row PRINTS the person's name, WCAG 2.5.3 (Label in Name)
-        // requires that visible text to be part of the accessible name —
-        // otherwise someone driving the app by voice says the only word they can
-        // see and reaches nothing. Avatar-only there is no visible text to
-        // match, so the control is named by what it does.
-        aria-label={
-          avatarOnly || !identity.label
-            ? t("shell.accountAria")
-            : `${identity.label} — ${t("shell.accountAria")}`
-        }
+        // requires that visible text to be part of the accessible name. This
+        // trigger prints none — it is the avatar alone — so it is named by what
+        // it does, and the person it belongs to is carried as its DESCRIPTION
+        // below.
+        aria-label={t("shell.accountAria")}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -645,8 +547,8 @@ export function AccountMenu({
         // replaces the button's contents for name computation and would
         // otherwise silence it. The `title` is the pointer's version of the same
         // sentence, and never the accessible name.
-        aria-describedby={avatarOnly && identity.spoken ? spokenId : undefined}
-        title={avatarOnly && identity.spoken ? identity.spoken : undefined}
+        aria-describedby={identity.spoken ? spokenId : undefined}
+        title={identity.spoken || undefined}
         onClick={() => setOpen((current) => !current)}
       >
         {identity.label ? (
@@ -665,11 +567,11 @@ export function AccountMenu({
             <UserRound size={15} />
           </span>
         )}
-        <TriggerLines
-          identity={identity}
-          avatarOnly={avatarOnly}
-          spokenId={spokenId}
-        />
+        {identity.spoken && (
+          <span className="sr-only" id={spokenId}>
+            {identity.spoken}
+          </span>
+        )}
       </button>
       {open && (
         <AccountPanel

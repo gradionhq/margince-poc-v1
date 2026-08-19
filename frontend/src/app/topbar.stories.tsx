@@ -11,7 +11,7 @@ import {
   meRoute,
   StoryProviders,
 } from "../screens/story-utils";
-import type { NavSection } from "./nav";
+import type { NavCounts, NavSection } from "./nav";
 import { CommandPalette, useBuiltinCommands } from "./palette";
 import type { Route } from "./router";
 import { PageTitle, WorkspaceRail } from "./shell";
@@ -20,31 +20,43 @@ import { TopBar } from "./topbar";
 /**
  * The one strip that is true of the whole session rather than of the page under
  * it: where you are, how you reach anything, which system of record is
- * answering, and who is signed in.
+ * answering, what is waiting on you, and who is signed in.
  *
  * Every frame renders the REAL frame — the `.app` grid, the sidebar beside it,
- * the bar as the first row of `<main>`. Nothing here is decoration: the trail
- * measures itself against whatever the lead column is left with, and the search
- * is absolutely positioned at `calc(50vw - var(--railW))` inside a column that
- * starts at `--railW`, which is how it lands on the centre of the WINDOW and
- * stays there when the sidebar moves. A bar rendered at a hand-set width is a
+ * the bar as the first row of `<main>`. Nothing here is decoration. The bar is
+ * three tracks, `minmax(0, 1fr) auto minmax(0, 1fr)`, and the search stands IN
+ * that row rather than being taken out of it: the field therefore lands on the
+ * centre of the CONTENT column — not of the window — and the trail beside it has
+ * an edge to shrink and ellipsis against. A bar rendered at a hand-set width is a
  * picture of geometry the product does not use, and the one thing it would get
  * wrong is the thing worth looking at.
  *
+ * The strip's height is one token, `--topbarH`, and the sidebar's head is
+ * measured against it so the first destination's row begins on the line this
+ * bar's rule ends on. That alignment is a claim about TWO components, so it can
+ * only be read with the panel beside the strip — which is the other reason these
+ * frames render the whole L rather than the bar alone.
+ *
  * The sidebar control is live in every frame, so either state can be moved to
- * the other and the search can be watched staying put while the column's edge
- * travels.
+ * the other. What that shows is the search MOVING: it is centred on the column,
+ * the column's left edge travels 188px, and the field travels half of that. A
+ * field that stayed put under the toggle would be centred on the window, which
+ * is the arrangement this bar was changed away from.
  *
- * ONE thing these frames cannot promise on their own. The centred field is a
- * `min-width: 1101px` arrangement, and `fe-uat` captures every non-phone story
- * at 1024px — already inside the narrow rule. So the screenshots the render
- * gate takes of the wide frames below show the collapsed glyph, and the centred
- * field is real only in Storybook itself, in a window wider than 1100px. The
- * `Narrow` story is the one that pins the small arrangement deterministically.
+ * TWO things these frames cannot promise on their own, both because `fe-uat`
+ * captures every non-phone story at 1024px:
  *
- * fullscreen: the bar measures itself against the viewport at both ends — the
- * search against `50vw`, the trail flush to the right edge — so Storybook's
- * default canvas padding would frame a geometry the product does not use.
+ * - The labeled field and its two key caps belong to a `min-width: 1101px`
+ *   arrangement, so the render gate photographs the collapsed glyph on every
+ *   wide frame below. The caps are real only in Storybook, in a window wider
+ *   than 1100px; `Narrow` is the frame that pins the small arrangement
+ *   deterministically.
+ * - The approvals bell is the other way round — it is hidden only under 700px,
+ *   so 1024px does photograph it, and `Phone` is the frame where it is gone.
+ *
+ * fullscreen: the bar is the first row of the content column and the trail is
+ * flush to that column's right edge, so Storybook's default canvas padding would
+ * frame a geometry the product does not use.
  */
 const meta: Meta<typeof TopBar> = {
   title: "Shell/Top bar",
@@ -54,9 +66,17 @@ const meta: Meta<typeof TopBar> = {
 export default meta;
 type Story = StoryObj<typeof TopBar>;
 
-// The badges the rail beside the bar carries. They belong to the sidebar rather
-// than to this strip, and they are here so the frame is the real one.
+// What is waiting, handed to the sidebar AND to the bar — as the shell hands it
+// (app/shell.tsx). One queue, two readings of it: the Approvals row's badge in
+// the panel and the bell's chip in the strip. A frame that fed the panel and left
+// the bar at nothing would draw the same queue as 12 and as empty at once, which
+// is the one thing a picture of this chrome must not do.
 const COUNTS = { inbox: 12, tasks: 4 };
+
+// Nobody waiting. Zero is not a smaller badge: the row's count and the bell's
+// chip are both absent, because a signal that is always on screen with nothing
+// behind it teaches a reader to stop looking at it.
+const NOTHING_WAITING = { inbox: 0, tasks: 0 };
 
 /**
  * The width the bar's own media query turns on at, for the two frames that are
@@ -158,10 +178,12 @@ function usePaletteSeam() {
 function BarFrame({
   route,
   section,
+  counts = COUNTS,
   startCollapsed = false,
 }: Readonly<{
   route: Route;
   section?: NavSection;
+  counts?: NavCounts;
   startCollapsed?: boolean;
 }>) {
   const [collapsed, setCollapsed] = useState(startCollapsed);
@@ -171,13 +193,14 @@ function BarFrame({
       <WorkspaceRail
         route={route}
         section={section}
-        counts={COUNTS}
+        counts={counts}
         collapsed={collapsed}
       />
       <main className="main">
         <TopBar
           route={route}
           section={section}
+          counts={counts}
           collapsed={collapsed}
           onToggle={() => setCollapsed((current) => !current)}
           onOpenSearch={openSearch}
@@ -197,11 +220,13 @@ function BarFrame({
 function BarStory({
   route,
   section,
+  counts,
   startCollapsed,
   record,
 }: Readonly<{
   route: Route;
   section?: NavSection;
+  counts?: NavCounts;
   startCollapsed?: boolean;
   record?: { id: string; name: string };
 }>) {
@@ -212,6 +237,7 @@ function BarStory({
         <BarFrame
           route={route}
           section={section}
+          counts={counts}
           startCollapsed={startCollapsed}
         />
       </SeedCache>
@@ -243,6 +269,27 @@ export const ListRoute: Story = {
 export const ListRouteCollapsed: Story = {
   name: "a list route — sidebar collapsed",
   render: () => <BarStory route={{ screen: "deals" }} startCollapsed />,
+};
+
+/**
+ * Nobody waiting, which is the state the bell is SILENT in.
+ *
+ * Every other frame here carries the shell's real counts, so the bell wears its
+ * chip and the panel's Approvals row wears the same figure. This is the other
+ * half, and it is the half worth a frame of its own: at zero the chip is absent
+ * rather than a small "0", because a badge that is on screen on every route with
+ * nothing behind it is what teaches a reader to stop reading badges — and the one
+ * queue in this product that blocks somebody else cannot afford that.
+ *
+ * The glyph stays. What is waiting changes; where to look for it does not, and a
+ * control that appeared and disappeared under the account block would move the
+ * two things beside it every time somebody staged an approval.
+ */
+export const NothingWaiting: Story = {
+  name: "nothing waiting — the bell is silent",
+  render: () => (
+    <BarStory route={{ screen: "deals" }} counts={NOTHING_WAITING} />
+  ),
 };
 
 /**
@@ -355,9 +402,15 @@ export const SettingsEntry: Story = {
  * is no ⌘K to fall back on, so a search that vanished at narrow widths would be
  * a search with no way in at all.
  *
- * It is also the arrangement in which the trail is bounded at all: with the
- * search back in the flow, the lead column ends where the glyph begins, and the
- * crumb clips against that edge instead of running past it.
+ * Two caps also go with the label. They are the frame's honest limit rather than
+ * a state of their own: `fe-uat` captures at 1024px, which is inside this rule,
+ * so nothing the render gate photographs has ever shown them — see the note on
+ * the meta above.
+ *
+ * The row stops being a grid here and becomes a flex line, which is a different
+ * way of arriving at the same bound: the field is no longer centred on anything,
+ * the lead takes the width that is left, and the crumb clips where the glyph
+ * begins instead of at a track edge.
  */
 export const Narrow: Story = {
   name: "under 1100px — search drops to its glyph",
@@ -374,10 +427,21 @@ export const Narrow: Story = {
 /**
  * Phone width, where the sidebar is the bottom bar.
  *
- * There is no panel left to collapse, so the control for it is gone rather than
- * disabled — and what stays is exactly what a phone reader cannot get any other
- * way: where they are, how to search, and who they are. The bar is shorter and
- * its gutters narrower, which is the whole of what it gives up.
+ * The strip gives up CONTROLS here and no geometry: `--topbarH` and
+ * `--pageGutter` are one number at every width, so the bar is the same height on
+ * a phone as on a desktop and stands on the same gutter as the content column
+ * under it. What goes is the collapse control — there is no panel left to
+ * collapse, so it is absent rather than disabled — and the bell, because the
+ * bottom bar carries Approvals at this width and the same count twice on a 390px
+ * row reads as two queues. What stays is exactly what a phone reader cannot get
+ * any other way: where they are, how to search, and who they are.
+ *
+ * The panel is the other half of the frame. It is five glyphs — four
+ * destinations and More — with NO captions under them: five words at 9.5px are
+ * five words nobody reads, and every row still carries its name in `aria-label`,
+ * which is what a screen reader and a voice-control user were using anyway. The
+ * sheet behind More is where those names are spelled out, and it has a frame of
+ * its own under Shell/Navigation shell.
  *
  * `uat-phone` is what makes the capture gate drive the browser to 390px. Without
  * it the frame would be captured at the harness's own width and would draw the
@@ -385,7 +449,7 @@ export const Narrow: Story = {
  * reads this one in Storybook with the viewport tool, or by narrowing the window.
  */
 export const Phone: Story = {
-  name: "phone — no collapse control",
+  name: "phone — no collapse control, no bell",
   globals: { viewport: { value: "phone" } },
   tags: ["uat-phone"],
   render: () => <BarStory route={{ screen: "deals" }} />,

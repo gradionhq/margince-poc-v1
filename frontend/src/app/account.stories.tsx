@@ -10,19 +10,29 @@ import {
   jsonResponse,
   StoryProviders,
 } from "../screens/story-utils";
-import { AccountMenu, AccountRows } from "./account";
+import { AccountMenu } from "./account";
 import { meFixture } from "./mefixture";
+// The strip's own sheet, loaded because THIS file builds a `.topbar` by hand and
+// imports nothing that would pull it in. `.storybook/preview.tsx` loads the
+// chrome sheets a story reaches by class rather than by module — but its list was
+// written when `.topbar` still lived in shell.css, and the strip moved out into a
+// sheet of its own with the shell restructure. Without this line every frame
+// below drew an UNSTYLED strip: `display: block`, no height, no ground, no rule,
+// the trail at the left edge and the menu anchored to the viewport instead of to
+// the block. The frames still passed the render gate, because an unstyled
+// element renders perfectly well.
+import "./topbar.css";
 
 /**
  * Who is signed in, and the two things the product now offers nowhere else: the
  * door into settings, and the appearance choice.
  *
- * The block stands in TWO containers, which is what most of these frames are
- * here to show. In the top bar the trigger is an avatar at the top-right of the
- * viewport and the menu drops out of it, with the theme flyout opening to the
- * LEFT because there is no room on the right. In the sidebar the trigger is a
- * row at the foot of a tall column and the menu rises out of it, with the flyout
- * opening the other way. Same component, same rows; only the anchoring differs.
+ * ONE chrome: the avatar at the end of the strip's trail, with the menu dropping
+ * out of it and the theme flyout opening LEFT because there is no room on the
+ * right. The block had a sidebar form once — a row at the foot of the column,
+ * menu rising, flyout mirrored — and it went with the foot it stood in; the
+ * sidebar carries the installation's entitlement there now (Shell/Navigation
+ * shell). Nothing here photographs an arrangement a reader cannot reach.
  *
  * The chip is the design system's `Avatar` rather than a mark of this block's
  * own: the monogram is taken the same way everywhere, and the tint is keyed on
@@ -30,10 +40,10 @@ import { meFixture } from "./mefixture";
  * account page and a rename does not move them to another one.
  *
  * fullscreen: the block measures itself against the container it sits in — the
- * collapsed rail is 64px, the expanded one 252px, the top bar's trail is flush
- * to the viewport's right edge — so every story renders the real chrome.
- * Storybook's default canvas padding would frame a geometry the product does not
- * use.
+ * strip's trail is flush to the content column's right edge, and the menu's drop
+ * offset is computed from the strip's own height — so every story renders the
+ * real chrome. Storybook's default canvas padding would frame a geometry the
+ * product does not use.
  */
 const meta: Meta<typeof AccountMenu> = {
   title: "Shell/Account block",
@@ -61,51 +71,40 @@ function stubSession(user: Partial<SessionUser> = {}) {
 }
 
 /**
- * The probe that has not answered yet — left unresolved on purpose, because
- * "in flight" is the state under review and any answer would end it before the
- * catalog could show it.
- */
-function stubUnresolvedSession() {
-  installFetchStub({ "GET /me": () => new Promise<Response>(() => {}) });
-}
-
-/**
- * The block in the sidebar frame it sits in: the shell's grid gives the sidebar
- * its width, and the foot is the band under the navigation. The content column
- * is present and empty on purpose — the sidebar is flush to the frame's left
- * edge and reads as an edge only against something beside it.
- */
-function RailFoot({
-  collapsed = false,
-  children,
-}: Readonly<{ collapsed?: boolean; children: ReactNode }>) {
-  return (
-    <div className={collapsed ? "app" : "app railexpanded"}>
-      <div className={collapsed ? "rail collapsed" : "rail expanded"}>
-        <div className="grow" />
-        <div className="railfoot">{children}</div>
-      </div>
-      <main className="main" />
-    </div>
-  );
-}
-
-/**
  * The block in the top bar's trail, which is where the product renders it.
  *
- * The strip is the real one, so the trigger sits where it really sits: hard
- * against the viewport's right edge, with nothing to its right for a menu — or a
- * flyout — to open into. The frame is given height because the panel drops
- * DOWNWARD here, and a strip the height of its own row would show the menu
- * hanging off the bottom of a canvas that is not the page.
+ * The strip is the real one, INSIDE the real frame: `.app`, the sidebar taking
+ * its column, the bar as the first row of `<main>`. That is not ceremony. Both
+ * numbers the strip is built from — `--topbarH` and `--pageGutter` — are declared
+ * on `.app` (app/shell.css), so a bar rendered on the bare canvas resolves them
+ * to nothing: `height` and `padding` are then invalid declarations, the strip
+ * collapses to its content, loses its gutter, and puts the trigger hard against
+ * the WINDOW instead of against the content column's edge. The account menu's own
+ * drop offset is computed from `--topbarH` too, so it lands wrong in the same
+ * breath.
+ *
+ * All THREE of the bar's tracks are rendered, and the middle one is why: the
+ * strip is `minmax(0, 1fr) auto minmax(0, 1fr)`, so a frame that supplied only a
+ * lead and a trail put the trail in the MIDDLE track and left the third one
+ * empty — the block then sat near the centre of the bar, which is the one thing
+ * about its position these frames are for. The slot is the search's own, left
+ * empty: what the trail needs from it is its width, and a live field here would
+ * be a second component in a frame about this one. Below 1100px, where `fe-uat`
+ * captures, the real slot is a 36px glyph and this one is 0px — so the block in
+ * the captured frames sits about a glyph's width right of where it really does.
  */
 function TopBarTrail({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <div style={{ minHeight: "440px" }}>
-      <header className="topbar">
-        <div className="topbar-lead" />
-        <div className="topbar-trail">{children}</div>
-      </header>
+    <div className="app railexpanded">
+      <div className="rail expanded" />
+      <main className="main">
+        <header className="topbar">
+          <div className="topbar-lead" />
+          <div className="topbar-searchslot" />
+          <div className="topbar-trail">{children}</div>
+        </header>
+        <div className="scroll" />
+      </main>
     </div>
   );
 }
@@ -139,7 +138,7 @@ export const TopBar: Story = {
     return (
       <StoryProviders>
         <TopBarTrail>
-          <AccountMenu variant="topbar" />
+          <AccountMenu />
         </TopBarTrail>
       </StoryProviders>
     );
@@ -152,6 +151,13 @@ export const TopBar: Story = {
  * Read top to bottom it is the whole of what this menu is for: who you are —
  * printed HERE because the trigger no longer prints it — the product's one door
  * into settings, the appearance choice, and the way out under its own rule.
+ *
+ * Only ONE row carries a leading glyph, and it is Sign out. The other two are
+ * words in a list of three, where a column of icons is decoration that has to be
+ * scanned past; the way out is the row nobody wants to hit by accident, so it is
+ * the one that earns a second signal beside its label. The chevron on Theme is
+ * not that signal — it says there is a layer behind the row, which is a fact
+ * about the control rather than an emblem for it.
  */
 export const TopBarMenu: Story = {
   name: "Top bar menu",
@@ -161,7 +167,7 @@ export const TopBarMenu: Story = {
     return (
       <StoryProviders>
         <TopBarTrail>
-          <AccountMenu variant="topbar" />
+          <AccountMenu />
         </TopBarTrail>
       </StoryProviders>
     );
@@ -184,7 +190,7 @@ export const TopBarThemeFlyout: Story = {
     return (
       <StoryProviders>
         <TopBarTrail>
-          <AccountMenu variant="topbar" />
+          <AccountMenu />
         </TopBarTrail>
       </StoryProviders>
     );
@@ -205,148 +211,8 @@ export const TopBarThemeFlyoutDark: Story = {
     return (
       <StoryProviders>
         <TopBarTrail>
-          <AccountMenu variant="topbar" />
+          <AccountMenu />
         </TopBarTrail>
-      </StoryProviders>
-    );
-  },
-};
-
-/**
- * The labeled rail: the chip, the name over the address, and the chevron that
- * says there is a menu behind the row. Two initials, because the session
- * carries a display name of two words.
- */
-export const Expanded: Story = {
-  render: () => {
-    stubSession();
-    return (
-      <StoryProviders>
-        <RailFoot>
-          <AccountMenu collapsed={false} />
-        </RailFoot>
-      </StoryProviders>
-    );
-  },
-};
-
-/**
- * The rail's menu, which rises rather than drops — the block sits at the foot of
- * a column that fills the viewport, so there is no room under it — and whose
- * flyout therefore opens to the RIGHT. Same rows, mirrored geometry.
- */
-export const ExpandedThemeFlyout: Story = {
-  name: "Rail theme flyout",
-  play: openThemeFlyout,
-  render: () => {
-    stubSession();
-    return (
-      <StoryProviders>
-        <RailFoot>
-          <AccountMenu collapsed={false} />
-        </RailFoot>
-      </StoryProviders>
-    );
-  },
-};
-
-/**
- * 64px, where the chip is the whole row.
- *
- * Nothing else is rendered — the name, the address and the chevron are gone,
- * and the sentence they carry reaches a screen reader through the clipped line
- * instead. So the mark is the only thing left identifying the reader, which is
- * why it has to be the same mark their account page draws.
- */
-export const Collapsed: Story = {
-  render: () => {
-    stubSession();
-    return (
-      <StoryProviders>
-        <RailFoot collapsed>
-          <AccountMenu collapsed />
-        </RailFoot>
-      </StoryProviders>
-    );
-  },
-};
-
-/**
- * A session with no display name, which is the case the monogram's address
- * split exists for.
- *
- * The address becomes the label — nobody is given a name the product made up —
- * and it is not repeated on a second line under itself. The monogram then comes
- * off the address's own parts rather than off a name that is not there, so this
- * reader still gets two letters instead of one initial or an empty circle.
- */
-export const AddressOnly: Story = {
-  name: "Address as the label",
-  render: () => {
-    stubSession({ display_name: "" });
-    return (
-      <StoryProviders>
-        <RailFoot>
-          <AccountMenu collapsed={false} />
-        </RailFoot>
-      </StoryProviders>
-    );
-  },
-};
-
-/**
- * Before the session resolves.
- *
- * The chip keeps its box so the row does not jump when the name arrives, and it
- * shows a person glyph — never initials of a name nobody has, and never an
- * empty circle that reads as a mark that failed to load.
- */
-export const SessionUnresolved: Story = {
-  name: "Session not resolved",
-  render: () => {
-    stubUnresolvedSession();
-    return (
-      <StoryProviders>
-        <RailFoot>
-          <AccountMenu collapsed={false} />
-        </RailFoot>
-      </StoryProviders>
-    );
-  },
-};
-
-/**
- * The phone sheet's flat form.
- *
- * At this width the rail is a bottom bar and "More" expands it into a sheet, so
- * there is no trigger to open a popover from and nowhere for one to open into.
- * The rows stand on their own — identity, the settings door, the appearance
- * choice, the way out — and the appearance choice is FLAT here rather than a
- * flyout: three options visible at once is one tap, where a submenu would cost
- * a second tap to open and a third to pick, over a surface already the width of
- * the screen.
- *
- * The sheet's layout is a viewport media query, so this story is honest only at
- * phone width — `uat-phone` is what makes the capture gate render it there, and
- * a reviewer reads it in Storybook with the viewport tool or by narrowing the
- * browser.
- */
-export const PhoneSheet: Story = {
-  name: "Phone sheet rows",
-  globals: { viewport: { value: "phone" } },
-  tags: ["uat-phone"],
-  render: () => {
-    stubSession();
-    return (
-      <StoryProviders>
-        <div className="app railexpanded">
-          <div className="rail expanded sheetopen">
-            <div className="railfoot">
-              <AccountRows />
-            </div>
-          </div>
-          <main className="main" />
-        </div>
       </StoryProviders>
     );
   },

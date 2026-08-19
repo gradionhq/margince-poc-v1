@@ -12,7 +12,7 @@ import {
   sectionHead,
   useRouteSubject,
 } from "./pagemeta";
-import { paletteHotkeyLabel } from "./palette";
+import { paletteHotkeyCaps } from "./palette";
 import { type Route, routeHash } from "./router";
 import { SorModeChip } from "./sormodechip";
 import "./topbar.css";
@@ -117,19 +117,16 @@ function TopBarSearch({
         <Search size={15} strokeWidth={1.8} aria-hidden />
         <span className="topbar-searchlabel">{label}</span>
         {/* One cap per KEY, which is how a keyboard shortcut is read: "⌘ then K",
-            not the four-character string "⌘K" in one box. The label helper spells
-            the chord for the platform, and splitting on its space is what keeps
-            the two spellings ("⌘ K" and "Ctrl K") one source.
+            not the four-character string "⌘K" in one box. The caps come from the
+            palette's own helper, which is also what the label is joined from, so
+            the two spellings ("⌘ K" and "Ctrl K") stay one source.
             The whole group is a hint rather than a second name: the aria-label
             above already says what this control does, so nobody is made to
             listen to the shortcut spelled out. */}
         <span className="topbar-keys" aria-hidden>
-          {paletteHotkeyLabel(navigator.platform)
-            .split(/[\s]+|(?<=⌘)/)
-            .filter(Boolean)
-            .map((cap) => (
-              <kbd key={cap}>{cap}</kbd>
-            ))}
+          {paletteHotkeyCaps(navigator.platform).map((cap) => (
+            <kbd key={cap}>{cap}</kbd>
+          ))}
         </span>
       </button>
     </div>
@@ -220,7 +217,7 @@ export function TopBar({
       <div className="topbar-trail">
         <SorModeChip />
         <ApprovalsBell waiting={counts?.inbox} />
-        <AccountMenu variant="topbar" />
+        <AccountMenu />
       </div>
     </header>
   );

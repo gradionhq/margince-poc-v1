@@ -1,18 +1,15 @@
 /* ===== the account block =====
-   The block owns its own chrome and stands in EITHER container: the top bar's
-   trail, where the trigger is an avatar at the top-right of the viewport and the
-   menu drops out of it, and the sidebar, where the trigger is a row at the foot
-   of a tall column and the menu rises out of it.
+   An avatar in the top bar's trail, and the menu that drops out of it.
 
-   Everything here used to be scoped `.rail .account …` because there was only
-   one container. Now only the rules that genuinely MEASURE a container carry a
-   container's selector — the direction the menu opens, the side the flyout takes,
-   the 64px collapsed row — and everything else belongs to the component. */
+   One container. The block had a sidebar form once and it went with the foot it
+   stood in, so nothing here is scoped by a container any more — what remains is
+   the component's own chrome, plus the one width where the flyout cannot open
+   outward at all (the phone rule below). */
 
 .account {
   position: relative;
-  /* In the rail the block is the last flex item of a column that grows; without
-     this it shrinks under the navigation on a short viewport. */
+  /* The menu is positioned against this box, and the trail is a flex row that
+     would otherwise squeeze it. */
   flex: none;
 }
 
@@ -68,119 +65,11 @@
   font-size: var(--fs-meta);
   color: var(--textMeta);
 }
-.acctchev {
-  flex: none;
-  color: var(--textMeta);
-}
 
-/* In the top bar the trigger is the avatar and nothing else. That strip is
-   chrome true of the whole session, not a row about a person, so the block takes
-   the strip's control size rather than the rail's row geometry. The name and the
-   address are not rendered — the sentence they carry reaches a screen reader
-   through the clipped line (account.tsx), and the panel prints them when it
-   opens, which is where the reader confirms whose account they are acting on. */
-.account.acct-topbar .user {
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  justify-content: center;
-  border-radius: var(--r-full);
-}
-
-/* Collapsed the rail is 64px and there is one thing to show: the avatar, centred
-   in a target that still measures the 44px the rail's own rows keep (WDS-NAV-1).
-   The clipped line is absolutely positioned and therefore needs this row as its
-   containing block. */
-.account.collapsed .user {
-  position: relative;
-  width: 44px;
-  height: 44px;
-  padding: 0;
-  margin: 0 auto;
-  justify-content: center;
-}
-
-/* ===== the menu =====
-   Downward and anchored to the trigger's RIGHT edge, which is the top bar's
-   arrangement: the trigger sits at the top-right of the viewport, so a menu
-   anchored on its left edge would open off the screen. */
-.accountmenu {
-  position: absolute;
-  top: calc(100% + 6px);
-  bottom: auto;
-  right: 0;
-  left: auto;
-  width: 236px;
-  /* The width above is the comfortable reading measure; this keeps it a measure
-     rather than a promise the viewport cannot keep. A narrow phone at 200% zoom
-     leaves less room than that plus the gutter, and the menu is anchored to an
-     edge, so growing past the viewport clips it on the other side. */
-  max-width: calc(100vw - 2 * var(--space-2));
-  display: flex;
-  flex-direction: column;
-  padding: 5px; /* ds:ignore popover inset carried over from the menu it replaces */
-  gap: 1px; /* ds:ignore menu rows read as one list, not as spaced blocks */
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-  box-shadow: var(--shadow-pop);
-  z-index: 60;
-  /* The menu comes OUT OF the trigger rather than appearing beside it: the
-     transform origin is the control that opened it, so the growth reads as one
-     movement instead of a panel switching on. Short (0.14s) because this is
-     chrome — a menu you have to wait for is a menu that feels slow — and on the
-     shell's own curve, so it belongs to the same choreography as the sidebar
-     collapse rather than carrying a second easing vocabulary.
-     Transform and opacity only: both composite, so it cannot cost a frame.
-     The fallback repeats `.app`'s curve because the block is also rendered
-     outside the shell (the component workbench), and an unresolved custom
-     property in a shorthand invalidates the whole declaration — which would
-     silently drop the animation there rather than degrade it. */
-  animation: accountmenu-drop 0.14s
-    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
-  transform-origin: top right;
-}
-
-/* In the sidebar the block sits at the FOOT of a column that fills the viewport,
-   so a menu dropped under it would open off the bottom of the screen. The
-   expanded rail also clips horizontally (`overflow-x: hidden`), so the menu takes
-   the rail's own content width rather than a width of its own — anything wider
-   would be cut off rather than overhang. */
-.rail .accountmenu {
-  top: auto;
-  bottom: calc(100% + 6px);
-  left: 0;
-  right: 0;
-  width: auto;
-  min-width: 188px;
-  animation-name: accountmenu-rise;
-  transform-origin: bottom center;
-}
-/* Collapsed the rail is 64px and opts out of clipping, so the menu pops out
-   BESIDE it and brings its own width — 220px, the comfortable reading measure
-   the expanded rail happens to give it. Its bottom edge lines up with the
-   trigger's, which is what makes it read as belonging to that row. */
-.rail .account.collapsed .accountmenu {
-  left: calc(100% + 8px);
-  right: auto;
-  bottom: 0;
-  width: 220px;
-  transform-origin: bottom left;
-}
 @keyframes accountmenu-drop {
   from {
     opacity: 0;
     transform: translateY(-4px) scale(0.97);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-@keyframes accountmenu-rise {
-  from {
-    opacity: 0;
-    transform: translateY(4px) scale(0.97);
   }
   to {
     opacity: 1;
@@ -254,17 +143,6 @@
    border on the first row of a group — it is a separator, and a screen reader is
    told so. */
 .accountmenu hr,
-.accountrows hr {
-  height: 1px;
-  border: 0;
-  /* Wall to wall. The panel carries a 5px inset so its rows clear the rounded
-     corner, and a separator that respected it read as a short line floating
-     inside the menu rather than as the division between two groups — so it
-     bleeds back out through the inset it sits in. */
-  margin: var(--space-1) -5px; /* ds:ignore bleeds the panel's own optical inset, not a rhythm */
-  background: var(--borderSubtle);
-}
-
 /* Who is signed in, at the top of the panel. In the top bar the trigger carries
    no name, so this is the only place the reader confirms the account before
    acting on it. It takes the rows' own inset so the block stands on the same left
@@ -272,19 +150,6 @@
    pointer, because it is a statement about who you are, not a row that goes
    anywhere. */
 .acctmenuwho,
-.acctsheetwho {
-  display: flex;
-  padding: 7px 9px; /* ds:ignore the row inset it lines up with, not a rhythm of its own */
-}
-
-/* ===== the theme flyout =====
-   The seat is what the flyout is measured against; it is `role="none"` in the
-   markup and draws nothing of its own. */
-.acctthemeseat {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
 /* It opens to the LEFT. The menu this hangs off is anchored to a trigger at the
    top-right of the viewport, so the room is reliably on the inside and reliably
    not on the outside — an outward flyout would open past the window edge on
@@ -309,13 +174,7 @@
     var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
   transform-origin: top right;
 }
-/* In the sidebar the menu stands against the LEFT edge of the viewport, so the
-   inside is the other way round. */
-.rail .accountsub {
-  left: calc(100% + 5px);
-  right: auto;
-  transform-origin: top left;
-}
+
 @keyframes accountsub-open {
   from {
     opacity: 0;
@@ -337,58 +196,7 @@
   color: var(--accent);
 }
 
-/* ===== the rows, flat =====
-   The phone sheet has no popover to open, so it gets the rows themselves: the
-   same list, without the elevated surface, the border or the rise — those belong
-   to a thing that opens over something else, and inside the sheet there is
-   nothing to open over. */
-.accountrows {
-  display: flex;
-  flex-direction: column;
-  gap: 1px; /* ds:ignore the menu's own row rhythm — one list, not spaced blocks */
-}
-/* Theme, flat: the label on the left and the three options beside it, all
-   visible. It is a row of the same list, so it takes the rows' inset rather than
-   a rhythm of its own. */
-.acctthemeflat {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: 7px 9px; /* ds:ignore the row inset it lines up with */
-}
 .acctthemelabel {
   font-size: var(--fs-sm);
   color: var(--textContent);
-}
-
-/* ===== the rows inside the phone sheet =====
-   In the sheet the account rows stand in ONE list with the destinations above
-   them, so they take the destinations' geometry rather than the menu's: the same
-   48px touch row, the same icon column, the same label size. The menu's compact
-   optics belong to a popover under a pointer, and beside 48px rows they read as a
-   different list bolted to the bottom of this one.
-   The breakpoint is the sheet's own (PHONE_MAX_WIDTH in app/viewport.ts, and the
-   `.rail.sheetopen` rules in app/shell.css it has to agree with). */
-@media (max-width: 700px) {
-  .rail.sheetopen .accountrows .acctrow {
-    gap: var(--space-3);
-    min-height: 48px;
-    padding: 0 var(--space-3);
-    border-radius: 8px; /* ds:ignore the rail row's own radius, matched from .navitem */
-    font-size: 13.5px; /* matched from .rail.sheetopen .navlabel */
-  }
-  /* The glyphs arrive at 15px from the menu's markup; in the sheet they stand in
-     the destinations' 18px column. */
-  .rail.sheetopen .accountrows .acctrow svg {
-    width: 18px;
-    height: 18px;
-  }
-  .rail.sheetopen .accountrows .acctsheetwho,
-  .rail.sheetopen .accountrows .acctthemeflat {
-    padding: var(--space-2) var(--space-3);
-  }
-  .rail.sheetopen .accountrows hr {
-    margin: var(--space-2) 0;
-  }
 }
