@@ -103,6 +103,8 @@ func setupPromoteConsent(t *testing.T) *promoteConsentEnv {
 			Objects: map[string]principal.ObjectGrant{
 				"lead":   {Create: true, Read: true, Update: true, Delete: true},
 				"person": {Create: true, Read: true, Update: true, Delete: true},
+				// The lead vocabularies share the custom-field catalog's grant.
+				"custom_field": {Create: true, Read: true, Update: true, Delete: true},
 			},
 			RowScope: principal.RowScopeAll,
 		},

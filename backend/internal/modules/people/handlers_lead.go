@@ -162,8 +162,23 @@ func (h Handlers) DemoteLead(w http.ResponseWriter, r *http.Request, id crmcontr
 
 // DisqualifyLead: DELETE /leads/{id} — the one path where
 // "disqualified ⇒ archived" is enforced.
+// DisqualifyLead: DELETE /leads/{id}. The body is optional on the wire — an
+// agent's governed call sends none — so an empty body is "no reason", not a
+// malformed request.
 func (h Handlers) DisqualifyLead(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	lead, err := h.store.DisqualifyLead(r.Context(), pathID[ids.LeadKind](id))
+	var in DisqualifyLeadInput
+	if r.ContentLength != 0 {
+		var req crmcontracts.DisqualifyLeadRequest
+		if !httperr.Decode(w, r, &req) {
+			return
+		}
+		if req.ReasonId != nil {
+			reason := ids.UUID(*req.ReasonId)
+			in.ReasonID = &reason
+		}
+		in.Note = req.Note
+	}
+	lead, err := h.store.DisqualifyLead(r.Context(), pathID[ids.LeadKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

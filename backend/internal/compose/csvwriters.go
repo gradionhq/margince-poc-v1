@@ -324,7 +324,7 @@ func (w *csvWriters) Reverse(ctx context.Context, object string, nativeID ids.UU
 		if lead.ArchivedAt != nil {
 			return nil
 		}
-		if _, err := w.people.DisqualifyLead(ctx, ids.From[ids.LeadKind](nativeID)); err != nil {
+		if _, err := w.people.DisqualifyLead(ctx, ids.From[ids.LeadKind](nativeID), people.DisqualifyLeadInput{}); err != nil {
 			return fmt.Errorf("import undo: reversing lead %s: %w", nativeID, err)
 		}
 		return nil

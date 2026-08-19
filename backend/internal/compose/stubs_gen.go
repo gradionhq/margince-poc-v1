@@ -635,6 +635,38 @@ func (stubs) UpdateInstallationSettings(w nethttp.ResponseWriter, r *nethttp.Req
 	httperr.NotImplemented(w, r, "UpdateInstallationSettings")
 }
 
+func (stubs) ListLeadDisqualifyReasons(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListLeadDisqualifyReasons")
+}
+
+func (stubs) CreateLeadDisqualifyReason(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateLeadDisqualifyReasonParams) {
+	httperr.NotImplemented(w, r, "CreateLeadDisqualifyReason")
+}
+
+func (stubs) DeleteLeadDisqualifyReason(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteLeadDisqualifyReason")
+}
+
+func (stubs) UpdateLeadDisqualifyReason(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateLeadDisqualifyReasonParams) {
+	httperr.NotImplemented(w, r, "UpdateLeadDisqualifyReason")
+}
+
+func (stubs) ListLeadSources(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListLeadSources")
+}
+
+func (stubs) CreateLeadSource(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateLeadSourceParams) {
+	httperr.NotImplemented(w, r, "CreateLeadSource")
+}
+
+func (stubs) DeleteLeadSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteLeadSource")
+}
+
+func (stubs) UpdateLeadSource(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateLeadSourceParams) {
+	httperr.NotImplemented(w, r, "UpdateLeadSource")
+}
+
 func (stubs) ListLeads(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListLeadsParams) {
 	httperr.NotImplemented(w, r, "ListLeads")
 }

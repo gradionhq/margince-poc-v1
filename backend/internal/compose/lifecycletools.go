@@ -46,7 +46,7 @@ func (a activityRelinker) RelinkActivity(
 type leadDisqualifier struct{ store *people.Store }
 
 func (l leadDisqualifier) DisqualifyLead(ctx context.Context, id ids.UUID) (json.RawMessage, error) {
-	out, err := l.store.DisqualifyLead(ctx, ids.From[ids.LeadKind](id))
+	out, err := l.store.DisqualifyLead(ctx, ids.From[ids.LeadKind](id), people.DisqualifyLeadInput{})
 	if err != nil {
 		return nil, err
 	}

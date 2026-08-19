@@ -79,7 +79,11 @@ func recomputeLeadScoreTx(ctx context.Context, tx pgx.Tx, leadID ids.LeadID, now
 	if err != nil {
 		return err
 	}
-	scored := ScoreLeadDetail(deref(title), deref(source), signals, now).withManual(manual)
+	intents, err := loadSourceIntents(ctx, tx)
+	if err != nil {
+		return err
+	}
+	scored := ScoreLeadDetail(deref(title), intents.Of(deref(source)), signals, now).withManual(manual)
 	machine := scored.Score
 
 	// Sticky override: the machine value moves score_computed, never score.

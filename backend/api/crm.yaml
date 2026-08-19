@@ -4710,9 +4710,14 @@ paths:
     delete:
       tags: [Leads]
       operationId: disqualifyLead
-      summary: Disqualify (soft-archive) a lead.
-      description: Sets `archived_at` + `status=disqualified`; still fetchable by id.
+      summary: Disqualify (soft-archive) a lead, with a reason.
+      description: Sets `archived_at` + `status=disqualified` and records the reason and note; still fetchable by id.
       x-mcp-tool: { verb: disqualify_lead, record_type: lead, tier: confirmation_required, scope: write }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DisqualifyLeadRequest' }
       responses:
         '200':
           description: Disqualified lead.
@@ -5002,6 +5007,169 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
   # -------------------------- /relationships --------------------------------
+  # ------------------------------ /lead-sources -----------------------------
+  # The installation's lead vocabularies. Installation-scoped configuration
+  # like pipelines: read by everyone, written by a human session holding the
+  # custom_field object (the same posture as the custom-field catalog).
+  /lead-sources:
+    get:
+      tags: [Leads]
+      operationId: listLeadSources
+      summary: List lead sources, active and inactive, in display order.
+      description: |
+        `data` is the administered list. `discovered` names source values that
+        live on leads but are not in the list — connector-written keys such as
+        `connector:apollo:…` grouped by their connector prefix, seed values,
+        imports — with how many live leads carry each. Adding one as a source
+        (POST with that key) makes it administrable.
+      responses:
+        '200':
+          description: The lead source list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadSourceListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Leads]
+      operationId: createLeadSource
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Add a lead source.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateLeadSourceRequest' }
+      responses:
+        '201':
+          description: Created lead source.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /lead-sources/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Leads]
+      operationId: updateLeadSource
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Rename, reorder, re-weight or (de)activate a lead source.
+      description: |
+        Changing `intent` does not rescore existing leads; each lead picks the
+        new weight up on its next recompute. A built-in (`system`) source
+        accepts every field here — it only refuses deletion.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateLeadSourceRequest' }
+      responses:
+        '200':
+          description: Updated lead source.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadSource' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Leads]
+      operationId: deleteLeadSource
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Remove a lead source nothing uses.
+      description: |
+        409 when the source is built-in or any live lead still carries it —
+        deactivate it instead, which hides it from the create form and the
+        filter while every existing lead keeps its value.
+      responses:
+        '204': { description: Removed. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /lead-disqualify-reasons:
+    get:
+      tags: [Leads]
+      operationId: listLeadDisqualifyReasons
+      summary: List disqualification reasons, active and inactive, in display order.
+      responses:
+        '200':
+          description: The reason list.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadDisqualifyReasonListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Leads]
+      operationId: createLeadDisqualifyReason
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Add a disqualification reason.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateLeadDisqualifyReasonRequest' }
+      responses:
+        '201':
+          description: Created reason.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadDisqualifyReason' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /lead-disqualify-reasons/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Leads]
+      operationId: updateLeadDisqualifyReason
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Rename, reorder or (de)activate a disqualification reason.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateLeadDisqualifyReasonRequest' }
+      responses:
+        '200':
+          description: Updated reason.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadDisqualifyReason' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Leads]
+      operationId: deleteLeadDisqualifyReason
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Remove a disqualification reason no lead carries.
+      description: 409 when the reason is built-in or any lead still points at it — deactivate it instead.
+      responses:
+        '204': { description: Removed. }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
   /relationships:
     get:
       tags: [Relationships]
@@ -19298,7 +19466,11 @@ components:
         next_task_subject: { type: [string, 'null'], readOnly: true, description: 'Subject of the earliest open task linked to this lead.' }
         next_task_due_at: { type: [string, 'null'], format: date-time, readOnly: true, description: 'Due time of the earliest open task linked to this lead; undated tasks follow dated ones.' }
         score_reason: { type: [string, 'null'], readOnly: true, description: 'The highest-impact factor in the retained current score explanation, for a compact queue reason.' }
-        source: { type: string }
+        source: { type: string, description: 'The stored source key. For a human-created lead this is a lead_source key; connectors and imports write their own values (`connector:<name>:<id>`).' }
+        source_label: { type: [string, 'null'], readOnly: true, description: 'The administered label for `source`, when the key is in the lead_source list; null for connector, seed and other free values.' }
+        disqualify_reason_id: { type: [string, 'null'], format: uuid, readOnly: true, description: 'Set by DELETE /leads/{id} with a reason; null on an open lead.' }
+        disqualify_reason: { type: [string, 'null'], readOnly: true, description: 'The label of disqualify_reason_id at read time.' }
+        disqualify_note: { type: [string, 'null'], readOnly: true }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
@@ -19351,6 +19523,7 @@ components:
         candidate_org_key: { type: [string, 'null'], description: 'Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK.' }
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this lead belongs to; carries no same-company guard (a lead has no company).' }
         status: { type: string, enum: [new, working] }
+        source: { type: string, minLength: 1, description: 'Correct the source. A human may set any ACTIVE lead_source key or keep a free value it already carries; an inactive administered key is 422. Changing it recomputes the score (the source weight is part of it).' }
         score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.' }
         score_override_reason: { type: [string, 'null'], minLength: 1, description: 'Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.' }
         owner_id: { type: [string, 'null'], format: uuid }
@@ -19442,6 +19615,103 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Lead' } }
         page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Lead vocabularies (sources, disqualification reasons) ----
+    LeadSourceIntent:
+      type: string
+      enum: [high, neutral, low]
+      x-enum-varnames: [LeadSourceIntentHigh, LeadSourceIntentNeutral, LeadSourceIntentLow]
+      description: 'What the scorer makes of a lead from this source: high adds the high-intent points, low subtracts the low-intent penalty, neutral does neither (formulas §3.1).'
+
+    LeadSource:
+      type: object
+      description: One administered lead source. `key` is the value stored on `lead.source`; `label` is what a user sees.
+      required: [id, key, label, intent, sort_order, active, system, lead_count, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        key: { type: string, description: 'Lowercase stable key, the stored value. Never changes after creation.' }
+        label: { type: string }
+        intent: { $ref: '#/components/schemas/LeadSourceIntent' }
+        sort_order: { type: integer }
+        active: { type: boolean, description: 'Inactive sources leave the create form and the filter; leads carrying them keep the value.' }
+        system: { type: boolean, readOnly: true, description: 'Built-in. Can be renamed, re-weighted and deactivated, never deleted.' }
+        lead_count: { type: integer, readOnly: true, description: 'Live leads carrying this key.' }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    DiscoveredLeadSource:
+      type: object
+      description: A source value present on leads but absent from the administered list — a connector family, a seed, an import.
+      required: [key, lead_count]
+      properties:
+        key: { type: string, description: 'The stored value, or for `connector:<name>:<id>` values the `connector:<name>` family.' }
+        lead_count: { type: integer }
+
+    LeadSourceListResponse:
+      type: object
+      required: [data, discovered]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/LeadSource' } }
+        discovered: { type: array, items: { $ref: '#/components/schemas/DiscoveredLeadSource' } }
+
+    CreateLeadSourceRequest:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1 }
+        key: { type: string, description: 'Optional; derived from the label (lowercased, non-alphanumerics collapsed to `_`) when absent. Must be unique.' }
+        intent: { $ref: '#/components/schemas/LeadSourceIntent' }
+        sort_order: { type: integer }
+
+    UpdateLeadSourceRequest:
+      type: object
+      properties:
+        label: { type: string, minLength: 1 }
+        intent: { $ref: '#/components/schemas/LeadSourceIntent' }
+        sort_order: { type: integer }
+        active: { type: boolean }
+
+    LeadDisqualifyReason:
+      type: object
+      required: [id, label, sort_order, active, system, lead_count, version, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        sort_order: { type: integer }
+        active: { type: boolean }
+        system: { type: boolean, readOnly: true }
+        lead_count: { type: integer, readOnly: true, description: 'Leads disqualified with this reason.' }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    LeadDisqualifyReasonListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/LeadDisqualifyReason' } }
+
+    CreateLeadDisqualifyReasonRequest:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1 }
+        sort_order: { type: integer }
+
+    UpdateLeadDisqualifyReasonRequest:
+      type: object
+      properties:
+        label: { type: string, minLength: 1 }
+        sort_order: { type: integer }
+        active: { type: boolean }
+
+    DisqualifyLeadRequest:
+      type: object
+      description: Why the lead is closed. Both fields are optional on the wire so an agent's governed disqualify still works; the UI always sends a reason.
+      properties:
+        reason_id: { type: [string, 'null'], format: uuid, description: 'An ACTIVE lead_disqualify_reason; 422 otherwise.' }
+        note: { type: [string, 'null'] }
 
     # ---- Explain This Score (AC-S7, ADR-0105) ----
     # How a human characterised a manual scoring input. Named rather than

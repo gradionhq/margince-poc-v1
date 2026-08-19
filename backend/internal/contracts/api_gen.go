@@ -4590,6 +4590,27 @@ func (e LeadManualSignalKind) Valid() bool {
 	}
 }
 
+// Defines values for LeadSourceIntent.
+const (
+	LeadSourceIntentHigh    LeadSourceIntent = "high"
+	LeadSourceIntentLow     LeadSourceIntent = "low"
+	LeadSourceIntentNeutral LeadSourceIntent = "neutral"
+)
+
+// Valid indicates whether the value is a known member of the LeadSourceIntent enum.
+func (e LeadSourceIntent) Valid() bool {
+	switch e {
+	case LeadSourceIntentHigh:
+		return true
+	case LeadSourceIntentLow:
+		return true
+	case LeadSourceIntentNeutral:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for LicenseEntitlementState.
 const (
 	LicenseEntitlementStateAbsent   LicenseEntitlementState = "absent"
@@ -13450,6 +13471,12 @@ type CreateImportRunRequest struct {
 // CreateImportRunRequestConnector The source kind. The HubSpot and Salesforce connectors run the same engine and arrive with their own tickets (IEM-AC-8).
 type CreateImportRunRequestConnector string
 
+// CreateLeadDisqualifyReasonRequest defines model for CreateLeadDisqualifyReasonRequest.
+type CreateLeadDisqualifyReasonRequest struct {
+	Label     string `json:"label"`
+	SortOrder *int   `json:"sort_order,omitempty"`
+}
+
 // CreateLeadRequest defines model for CreateLeadRequest.
 type CreateLeadRequest struct {
 	CandidateOrgKey *string              `json:"candidate_org_key,omitempty"`
@@ -13471,6 +13498,17 @@ type CreateLeadRequest struct {
 
 // CreateLeadRequestStatus defines model for CreateLeadRequest.Status.
 type CreateLeadRequestStatus string
+
+// CreateLeadSourceRequest defines model for CreateLeadSourceRequest.
+type CreateLeadSourceRequest struct {
+	// Intent What the scorer makes of a lead from this source: high adds the high-intent points, low subtracts the low-intent penalty, neutral does neither (formulas §3.1).
+	Intent *LeadSourceIntent `json:"intent,omitempty"`
+
+	// Key Optional; derived from the label (lowercased, non-alphanumerics collapsed to `_`) when absent. Must be unique.
+	Key       *string `json:"key,omitempty"`
+	Label     string  `json:"label"`
+	SortOrder *int    `json:"sort_order,omitempty"`
+}
 
 // CreateListRequest defines model for CreateListRequest.
 type CreateListRequest struct {
@@ -14085,12 +14123,27 @@ type DemoteLeadResponse struct {
 // nulled (formulas §26).
 type DemoteLeadResponseUnwind string
 
+// DiscoveredLeadSource A source value present on leads but absent from the administered list — a connector family, a seed, an import.
+type DiscoveredLeadSource struct {
+	// Key The stored value, or for `connector:<name>:<id>` values the `connector:<name>` family.
+	Key       string `json:"key"`
+	LeadCount int    `json:"lead_count"`
+}
+
 // DismissPersonMomentRequest Which moment to hide, and the evidence it was showing when the reader hid it. Both are
 // required: the fingerprint is what lets the moment come back when the evidence moves,
 // and a dismissal without one is a permanent silence nobody asked for.
 type DismissPersonMomentRequest struct {
 	ClaimKey            string `json:"claim_key"`
 	EvidenceFingerprint string `json:"evidence_fingerprint"`
+}
+
+// DisqualifyLeadRequest Why the lead is closed. Both fields are optional on the wire so an agent's governed disqualify still works; the UI always sends a reason.
+type DisqualifyLeadRequest struct {
+	Note *string `json:"note,omitempty"`
+
+	// ReasonId An ACTIVE lead_disqualify_reason; 422 otherwise.
+	ReasonId *openapi_types.UUID `json:"reason_id,omitempty"`
 }
 
 // EmailDraft A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
@@ -14860,8 +14913,15 @@ type Lead struct {
 	CapturedBy *string `json:"captured_by,omitempty"`
 
 	// CompanyName FREE TEXT — NOT an organization FK.
-	CompanyName *string   `json:"company_name,omitempty"`
-	CreatedAt   time.Time `json:"created_at"`
+	CompanyName    *string   `json:"company_name,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	DisqualifyNote *string   `json:"disqualify_note,omitempty"`
+
+	// DisqualifyReason The label of disqualify_reason_id at read time.
+	DisqualifyReason *string `json:"disqualify_reason,omitempty"`
+
+	// DisqualifyReasonId Set by DELETE /leads/{id} with a reason; null on an open lead.
+	DisqualifyReasonId *openapi_types.UUID `json:"disqualify_reason_id,omitempty"`
 
 	// Email Lowercased; lead-internal dedupe key.
 	Email *openapi_types.Email `json:"email,omitempty"`
@@ -14914,13 +14974,18 @@ type Lead struct {
 	SlaDeadlineAt *time.Time `json:"sla_deadline_at,omitempty"`
 
 	// SlaState Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
-	SlaState     *LeadSlaState `json:"sla_state,omitempty"`
-	Source       string        `json:"source"`
-	SourceId     *string       `json:"source_id,omitempty"`
-	SourceSystem *string       `json:"source_system,omitempty"`
-	Status       LeadStatus    `json:"status"`
-	Title        *string       `json:"title,omitempty"`
-	UpdatedAt    time.Time     `json:"updated_at"`
+	SlaState *LeadSlaState `json:"sla_state,omitempty"`
+
+	// Source The stored source key. For a human-created lead this is a lead_source key; connectors and imports write their own values (`connector:<name>:<id>`).
+	Source   string  `json:"source"`
+	SourceId *string `json:"source_id,omitempty"`
+
+	// SourceLabel The administered label for `source`, when the key is in the lead_source list; null for connector, seed and other free values.
+	SourceLabel  *string    `json:"source_label,omitempty"`
+	SourceSystem *string    `json:"source_system,omitempty"`
+	Status       LeadStatus `json:"status"`
+	Title        *string    `json:"title,omitempty"`
+	UpdatedAt    time.Time  `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -14936,6 +15001,32 @@ type LeadSlaState string
 
 // LeadStatus defines model for Lead.Status.
 type LeadStatus string
+
+// LeadDisqualifyReason defines model for LeadDisqualifyReason.
+type LeadDisqualifyReason struct {
+	Active    bool               `json:"active"`
+	CreatedAt time.Time          `json:"created_at"`
+	Id        openapi_types.UUID `json:"id"`
+	Label     string             `json:"label"`
+
+	// LeadCount Leads disqualified with this reason.
+	LeadCount *int      `json:"lead_count,omitempty"`
+	SortOrder int       `json:"sort_order"`
+	System    *bool     `json:"system,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+}
+
+// LeadDisqualifyReasonListResponse defines model for LeadDisqualifyReasonListResponse.
+type LeadDisqualifyReasonListResponse struct {
+	Data []LeadDisqualifyReason `json:"data"`
+}
 
 // LeadListResponse defines model for LeadListResponse.
 type LeadListResponse struct {
@@ -15048,6 +15139,45 @@ type LeadScoreFactor struct {
 
 	// SourceActivityIds The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3).
 	SourceActivityIds *[]openapi_types.UUID `json:"source_activity_ids,omitempty"`
+}
+
+// LeadSource One administered lead source. `key` is the value stored on `lead.source`; `label` is what a user sees.
+type LeadSource struct {
+	// Active Inactive sources leave the create form and the filter; leads carrying them keep the value.
+	Active    bool               `json:"active"`
+	CreatedAt time.Time          `json:"created_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// Intent What the scorer makes of a lead from this source: high adds the high-intent points, low subtracts the low-intent penalty, neutral does neither (formulas §3.1).
+	Intent LeadSourceIntent `json:"intent"`
+
+	// Key Lowercase stable key, the stored value. Never changes after creation.
+	Key   string `json:"key"`
+	Label string `json:"label"`
+
+	// LeadCount Live leads carrying this key.
+	LeadCount *int `json:"lead_count,omitempty"`
+	SortOrder int  `json:"sort_order"`
+
+	// System Built-in. Can be renamed, re-weighted and deactivated, never deleted.
+	System    *bool     `json:"system,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
+	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
+	// send the last-seen value in `If-Match`; a mismatch returns `409 code: version_skew`
+	// (ErrVersionSkew) so the client re-reads before retrying. Applies to the native SoR path,
+	// not only overlay mode.
+	Version *RowVersion `json:"version,omitempty"`
+}
+
+// LeadSourceIntent What the scorer makes of a lead from this source: high adds the high-intent points, low subtracts the low-intent penalty, neutral does neither (formulas §3.1).
+type LeadSourceIntent string
+
+// LeadSourceListResponse defines model for LeadSourceListResponse.
+type LeadSourceListResponse struct {
+	Data       []LeadSource           `json:"data"`
+	Discovered []DiscoveredLeadSource `json:"discovered"`
 }
 
 // LicenseEntitlement What the license grants and how much of it is used, as this process last resolved it.
@@ -20245,6 +20375,13 @@ type UpdateInstallationSettingsRequest struct {
 	Timezone *string `json:"timezone,omitempty"`
 }
 
+// UpdateLeadDisqualifyReasonRequest defines model for UpdateLeadDisqualifyReasonRequest.
+type UpdateLeadDisqualifyReasonRequest struct {
+	Active    *bool   `json:"active,omitempty"`
+	Label     *string `json:"label,omitempty"`
+	SortOrder *int    `json:"sort_order,omitempty"`
+}
+
 // UpdateLeadRequest Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
 // via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
 // "disqualified ⇒ archived" is enforced on that one path); `promoted` is reachable only via
@@ -20264,7 +20401,10 @@ type UpdateLeadRequest struct {
 	Score *int `json:"score,omitempty"`
 
 	// ScoreOverrideReason Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.
-	ScoreOverrideReason  *string                  `json:"score_override_reason,omitempty"`
+	ScoreOverrideReason *string `json:"score_override_reason,omitempty"`
+
+	// Source Correct the source. A human may set any ACTIVE lead_source key or keep a free value it already carries; an inactive administered key is 422. Changing it recomputes the score (the source weight is part of it).
+	Source               *string                  `json:"source,omitempty"`
 	Status               *UpdateLeadRequestStatus `json:"status,omitempty"`
 	Title                *string                  `json:"title,omitempty"`
 	AdditionalProperties map[string]interface{}   `json:"-"`
@@ -20272,6 +20412,16 @@ type UpdateLeadRequest struct {
 
 // UpdateLeadRequestStatus defines model for UpdateLeadRequest.Status.
 type UpdateLeadRequestStatus string
+
+// UpdateLeadSourceRequest defines model for UpdateLeadSourceRequest.
+type UpdateLeadSourceRequest struct {
+	Active *bool `json:"active,omitempty"`
+
+	// Intent What the scorer makes of a lead from this source: high adds the high-intent points, low subtracts the low-intent penalty, neutral does neither (formulas §3.1).
+	Intent    *LeadSourceIntent `json:"intent,omitempty"`
+	Label     *string           `json:"label,omitempty"`
+	SortOrder *int              `json:"sort_order,omitempty"`
+}
 
 // UpdateOfferLineItemRequest Any subset; omit a field to leave it unchanged. Totals are derived and not settable (422).
 type UpdateOfferLineItemRequest struct {
@@ -22115,6 +22265,82 @@ type UploadImportSourceMultipartBody struct {
 	// known to the business is imported as leads and promoted, not smuggled
 	// past the qualification step by the choice of an enum value.
 	Object ImportObject `json:"object"`
+}
+
+// CreateLeadDisqualifyReasonParams defines parameters for CreateLeadDisqualifyReason.
+type CreateLeadDisqualifyReasonParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateLeadDisqualifyReasonParams defines parameters for UpdateLeadDisqualifyReason.
+type UpdateLeadDisqualifyReasonParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// CreateLeadSourceParams defines parameters for CreateLeadSource.
+type CreateLeadSourceParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// UpdateLeadSourceParams defines parameters for UpdateLeadSource.
+type UpdateLeadSourceParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ListLeadsParams defines parameters for ListLeads.
@@ -24769,8 +24995,23 @@ type UploadImportSourceMultipartRequestBody UploadImportSourceMultipartBody
 // UpdateInstallationSettingsJSONRequestBody defines body for UpdateInstallationSettings for application/json ContentType.
 type UpdateInstallationSettingsJSONRequestBody = UpdateInstallationSettingsRequest
 
+// CreateLeadDisqualifyReasonJSONRequestBody defines body for CreateLeadDisqualifyReason for application/json ContentType.
+type CreateLeadDisqualifyReasonJSONRequestBody = CreateLeadDisqualifyReasonRequest
+
+// UpdateLeadDisqualifyReasonJSONRequestBody defines body for UpdateLeadDisqualifyReason for application/json ContentType.
+type UpdateLeadDisqualifyReasonJSONRequestBody = UpdateLeadDisqualifyReasonRequest
+
+// CreateLeadSourceJSONRequestBody defines body for CreateLeadSource for application/json ContentType.
+type CreateLeadSourceJSONRequestBody = CreateLeadSourceRequest
+
+// UpdateLeadSourceJSONRequestBody defines body for UpdateLeadSource for application/json ContentType.
+type UpdateLeadSourceJSONRequestBody = UpdateLeadSourceRequest
+
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
+
+// DisqualifyLeadJSONRequestBody defines body for DisqualifyLead for application/json ContentType.
+type DisqualifyLeadJSONRequestBody = DisqualifyLeadRequest
 
 // UpdateLeadJSONRequestBody defines body for UpdateLead for application/json ContentType.
 type UpdateLeadJSONRequestBody = UpdateLeadRequest
@@ -27066,6 +27307,30 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "created_at")
 	}
 
+	if raw, found := object["disqualify_note"]; found {
+		err = json.Unmarshal(raw, &a.DisqualifyNote)
+		if err != nil {
+			return fmt.Errorf("error reading 'disqualify_note': %w", err)
+		}
+		delete(object, "disqualify_note")
+	}
+
+	if raw, found := object["disqualify_reason"]; found {
+		err = json.Unmarshal(raw, &a.DisqualifyReason)
+		if err != nil {
+			return fmt.Errorf("error reading 'disqualify_reason': %w", err)
+		}
+		delete(object, "disqualify_reason")
+	}
+
+	if raw, found := object["disqualify_reason_id"]; found {
+		err = json.Unmarshal(raw, &a.DisqualifyReasonId)
+		if err != nil {
+			return fmt.Errorf("error reading 'disqualify_reason_id': %w", err)
+		}
+		delete(object, "disqualify_reason_id")
+	}
+
 	if raw, found := object["email"]; found {
 		err = json.Unmarshal(raw, &a.Email)
 		if err != nil {
@@ -27250,6 +27515,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "source_id")
 	}
 
+	if raw, found := object["source_label"]; found {
+		err = json.Unmarshal(raw, &a.SourceLabel)
+		if err != nil {
+			return fmt.Errorf("error reading 'source_label': %w", err)
+		}
+		delete(object, "source_label")
+	}
+
 	if raw, found := object["source_system"]; found {
 		err = json.Unmarshal(raw, &a.SourceSystem)
 		if err != nil {
@@ -27338,6 +27611,27 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 	object["created_at"], err = json.Marshal(a.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'created_at': %w", err)
+	}
+
+	if a.DisqualifyNote != nil {
+		object["disqualify_note"], err = json.Marshal(a.DisqualifyNote)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'disqualify_note': %w", err)
+		}
+	}
+
+	if a.DisqualifyReason != nil {
+		object["disqualify_reason"], err = json.Marshal(a.DisqualifyReason)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'disqualify_reason': %w", err)
+		}
+	}
+
+	if a.DisqualifyReasonId != nil {
+		object["disqualify_reason_id"], err = json.Marshal(a.DisqualifyReasonId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'disqualify_reason_id': %w", err)
+		}
 	}
 
 	if a.Email != nil {
@@ -27492,6 +27786,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		object["source_id"], err = json.Marshal(a.SourceId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'source_id': %w", err)
+		}
+	}
+
+	if a.SourceLabel != nil {
+		object["source_label"], err = json.Marshal(a.SourceLabel)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'source_label': %w", err)
 		}
 	}
 
@@ -29834,6 +30135,14 @@ func (a *UpdateLeadRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "score_override_reason")
 	}
 
+	if raw, found := object["source"]; found {
+		err = json.Unmarshal(raw, &a.Source)
+		if err != nil {
+			return fmt.Errorf("error reading 'source': %w", err)
+		}
+		delete(object, "source")
+	}
+
 	if raw, found := object["status"]; found {
 		err = json.Unmarshal(raw, &a.Status)
 		if err != nil {
@@ -29922,6 +30231,13 @@ func (a UpdateLeadRequest) MarshalJSON() ([]byte, error) {
 		object["score_override_reason"], err = json.Marshal(a.ScoreOverrideReason)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'score_override_reason': %w", err)
+		}
+	}
+
+	if a.Source != nil {
+		object["source"], err = json.Marshal(a.Source)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'source': %w", err)
 		}
 	}
 
@@ -31424,13 +31740,37 @@ type ServerInterface interface {
 	// Update the installation's settings (admin/ops).
 	// (PATCH /installation/settings)
 	UpdateInstallationSettings(w http.ResponseWriter, r *http.Request)
+	// List disqualification reasons, active and inactive, in display order.
+	// (GET /lead-disqualify-reasons)
+	ListLeadDisqualifyReasons(w http.ResponseWriter, r *http.Request)
+	// Add a disqualification reason.
+	// (POST /lead-disqualify-reasons)
+	CreateLeadDisqualifyReason(w http.ResponseWriter, r *http.Request, params CreateLeadDisqualifyReasonParams)
+	// Remove a disqualification reason no lead carries.
+	// (DELETE /lead-disqualify-reasons/{id})
+	DeleteLeadDisqualifyReason(w http.ResponseWriter, r *http.Request, id Id)
+	// Rename, reorder or (de)activate a disqualification reason.
+	// (PATCH /lead-disqualify-reasons/{id})
+	UpdateLeadDisqualifyReason(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadDisqualifyReasonParams)
+	// List lead sources, active and inactive, in display order.
+	// (GET /lead-sources)
+	ListLeadSources(w http.ResponseWriter, r *http.Request)
+	// Add a lead source.
+	// (POST /lead-sources)
+	CreateLeadSource(w http.ResponseWriter, r *http.Request, params CreateLeadSourceParams)
+	// Remove a lead source nothing uses.
+	// (DELETE /lead-sources/{id})
+	DeleteLeadSource(w http.ResponseWriter, r *http.Request, id Id)
+	// Rename, reorder, re-weight or (de)activate a lead source.
+	// (PATCH /lead-sources/{id})
+	UpdateLeadSource(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadSourceParams)
 	// List leads (their OWN list, distinct from contacts; cursor-paginated).
 	// (GET /leads)
 	ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams)
 	// Create a lead.
 	// (POST /leads)
 	CreateLead(w http.ResponseWriter, r *http.Request, params CreateLeadParams)
-	// Disqualify (soft-archive) a lead.
+	// Disqualify (soft-archive) a lead, with a reason.
 	// (DELETE /leads/{id})
 	DisqualifyLead(w http.ResponseWriter, r *http.Request, id Id)
 	// Get a lead by id.
@@ -33080,6 +33420,54 @@ func (_ Unimplemented) UpdateInstallationSettings(w http.ResponseWriter, r *http
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List disqualification reasons, active and inactive, in display order.
+// (GET /lead-disqualify-reasons)
+func (_ Unimplemented) ListLeadDisqualifyReasons(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a disqualification reason.
+// (POST /lead-disqualify-reasons)
+func (_ Unimplemented) CreateLeadDisqualifyReason(w http.ResponseWriter, r *http.Request, params CreateLeadDisqualifyReasonParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a disqualification reason no lead carries.
+// (DELETE /lead-disqualify-reasons/{id})
+func (_ Unimplemented) DeleteLeadDisqualifyReason(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename, reorder or (de)activate a disqualification reason.
+// (PATCH /lead-disqualify-reasons/{id})
+func (_ Unimplemented) UpdateLeadDisqualifyReason(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadDisqualifyReasonParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List lead sources, active and inactive, in display order.
+// (GET /lead-sources)
+func (_ Unimplemented) ListLeadSources(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a lead source.
+// (POST /lead-sources)
+func (_ Unimplemented) CreateLeadSource(w http.ResponseWriter, r *http.Request, params CreateLeadSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Remove a lead source nothing uses.
+// (DELETE /lead-sources/{id})
+func (_ Unimplemented) DeleteLeadSource(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename, reorder, re-weight or (de)activate a lead source.
+// (PATCH /lead-sources/{id})
+func (_ Unimplemented) UpdateLeadSource(w http.ResponseWriter, r *http.Request, id Id, params UpdateLeadSourceParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List leads (their OWN list, distinct from contacts; cursor-paginated).
 // (GET /leads)
 func (_ Unimplemented) ListLeads(w http.ResponseWriter, r *http.Request, params ListLeadsParams) {
@@ -33092,7 +33480,7 @@ func (_ Unimplemented) CreateLead(w http.ResponseWriter, r *http.Request, params
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Disqualify (soft-archive) a lead.
+// Disqualify (soft-archive) a lead, with a reason.
 // (DELETE /leads/{id})
 func (_ Unimplemented) DisqualifyLead(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -40770,6 +41158,320 @@ func (siw *ServerInterfaceWrapper) UpdateInstallationSettings(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateInstallationSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListLeadDisqualifyReasons operation middleware
+func (siw *ServerInterfaceWrapper) ListLeadDisqualifyReasons(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLeadDisqualifyReasons(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateLeadDisqualifyReason operation middleware
+func (siw *ServerInterfaceWrapper) CreateLeadDisqualifyReason(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateLeadDisqualifyReasonParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateLeadDisqualifyReason(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteLeadDisqualifyReason operation middleware
+func (siw *ServerInterfaceWrapper) DeleteLeadDisqualifyReason(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteLeadDisqualifyReason(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateLeadDisqualifyReason operation middleware
+func (siw *ServerInterfaceWrapper) UpdateLeadDisqualifyReason(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateLeadDisqualifyReasonParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateLeadDisqualifyReason(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListLeadSources operation middleware
+func (siw *ServerInterfaceWrapper) ListLeadSources(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLeadSources(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateLeadSource operation middleware
+func (siw *ServerInterfaceWrapper) CreateLeadSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CreateLeadSourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateLeadSource(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteLeadSource operation middleware
+func (siw *ServerInterfaceWrapper) DeleteLeadSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteLeadSource(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateLeadSource operation middleware
+func (siw *ServerInterfaceWrapper) UpdateLeadSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params UpdateLeadSourceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateLeadSource(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -53200,6 +53902,30 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/installation/settings", wrapper.UpdateInstallationSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/lead-disqualify-reasons", wrapper.ListLeadDisqualifyReasons)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/lead-disqualify-reasons", wrapper.CreateLeadDisqualifyReason)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/lead-disqualify-reasons/{id}", wrapper.DeleteLeadDisqualifyReason)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/lead-disqualify-reasons/{id}", wrapper.UpdateLeadDisqualifyReason)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/lead-sources", wrapper.ListLeadSources)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/lead-sources", wrapper.CreateLeadSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/lead-sources/{id}", wrapper.DeleteLeadSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/lead-sources/{id}", wrapper.UpdateLeadSource)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/leads", wrapper.ListLeads)

@@ -9,8 +9,12 @@
 //
 // Tables owned: person, person_email, person_phone, person_consent,
 // organization, organization_domain, relationship, partner, lead,
-// lead_score_history, lead_manual_signal,
-// person_signature_enrich_state, person_provider_claim.
+// lead_score_history, lead_manual_signal, lead_source,
+// lead_disqualify_reason, person_signature_enrich_state,
+// person_provider_claim.
+// lead_source and lead_disqualify_reason are the two administered lead
+// vocabularies: the pick lists behind "where did this come from" and "why
+// was it dropped", and the weighting the scorer reads.
 // lead_score_history is the retained series behind "Explain This Score"
 // (ADR-0105): the breakdown is written with the score and read back
 // verbatim, because a decomposition recomputed at read time explains a
