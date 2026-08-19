@@ -420,8 +420,14 @@ func TestNothingInThisUnitEverDeletesAFloor(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading %s: %v", source, err)
 		}
-		for _, statement := range strings.Split(string(body), "DELETE FROM ")[1:] {
-			if strings.HasPrefix(statement, "`+floorTable") || strings.HasPrefix(statement, floorTable) {
+		// The needle is the VERB alone, and the table is looked for on the rest of
+		// its line. Spelling `DELETE FROM ` as one literal would make this test's
+		// own source read as a query naming no table to
+		// TestExtensionSQLNamesOnlyTheUnitsOwnTables, which judges any folded
+		// string that opens as a statement — and this is a search term, not SQL.
+		for _, after := range strings.Split(string(body), "DELETE")[1:] {
+			line, _, _ := strings.Cut(after, "\n")
+			if strings.Contains(line, "floorTable") {
 				t.Errorf("%s deletes from the floor table — a floor is the record of a period a member excluded, and removing one hands over conversation they hid", source)
 			}
 		}
