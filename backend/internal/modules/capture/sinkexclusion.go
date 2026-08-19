@@ -58,7 +58,10 @@ func (s *Sink) dropBeforeStoreTx(ctx context.Context, tx pgx.Tx, rec connector.N
 	if err := s.logBreadcrumbTx(ctx, tx, actionCaptureExcluded, rec, excluded); err != nil {
 		return "", err
 	}
-	if err := s.traceTx(ctx, tx, rec, pipelinetrace.StageInternalDrop, TraceSuppressed, excluded); err != nil {
+	// The trace is written from a record with its counterparty and content
+	// stripped: with payload tracing enabled the trace writer would otherwise
+	// store the very address or subject the rule exists to keep out.
+	if err := s.traceTx(ctx, tx, withoutParties(rec), pipelinetrace.StageInternalDrop, TraceSuppressed, excluded); err != nil {
 		return "", err
 	}
 	return "a capture exclusion rule keeps this message out (" + excluded + ")", nil
@@ -114,4 +117,14 @@ func nilToNull(id ids.UUID) *ids.UUID {
 		return nil
 	}
 	return &id
+}
+
+// withoutParties is the record with everything that names a person or says
+// what was written removed — what an exclusion drop may leave a trace of.
+func withoutParties(rec connector.NormalizedRecord) connector.NormalizedRecord {
+	rec.Counterparty = connector.Counterparty{}
+	rec.Participants = nil
+	rec.Addresses = nil
+	rec.Fields = nil
+	return rec
 }

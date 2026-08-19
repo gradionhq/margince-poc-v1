@@ -137,7 +137,7 @@ func (s *ExclusionStore) Add(ctx context.Context, scope, kind, raw string) (Excl
 		// Audit-only, like the own-domain list beside it: this is capture
 		// configuration, and the closed event catalog carries no type for it.
 		_, err := storekit.Audit(ctx, tx, "update", captureSettingsObject, storekit.MustWorkspace(ctx),
-			nil, map[string]any{auditKeyExclusion: value, "scope": scope, "kind": kind})
+			nil, exclusionAuditImage(out))
 		return err
 	})
 	return out, err
@@ -177,9 +177,23 @@ func (s *ExclusionStore) Remove(ctx context.Context, id ids.UUID) error {
 		// "archive", not a delete verb: the audit vocabulary is closed and
 		// lifting a rule IS retiring it, as the own-domain list reads it.
 		_, err = storekit.Audit(ctx, tx, "archive", captureSettingsObject, storekit.MustWorkspace(ctx),
-			map[string]any{auditKeyExclusion: e.Value, "scope": e.Scope, "kind": e.Kind}, nil)
+			exclusionAuditImage(e), nil)
 		return err
 	})
+}
+
+// exclusionAuditImage is what the trail records about a rule. A workspace
+// rule is installation configuration and its value is the fact an auditor
+// asks for; a user's own rule is that person's boundary, and the address they
+// keep out of the CRM must not enter it through the audit log — the trail
+// carries the rule's id, scope and kind, which answers "who set a rule, when"
+// without repeating what it names.
+func exclusionAuditImage(e Exclusion) map[string]any {
+	image := map[string]any{"id": e.ID, "scope": e.Scope, "kind": e.Kind}
+	if e.Scope == ExclusionScopeWorkspace {
+		image[auditKeyExclusion] = e.Value
+	}
+	return image
 }
 
 // ValidExclusionValue vets one rule's value and returns its stored form: a

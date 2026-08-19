@@ -71,6 +71,17 @@ func TestAnExclusionKeepsAMessageOutBeforeAnythingIsStored(t *testing.T) {
 	if n := countRows(t, e, `SELECT count(*) FROM system_log WHERE action = 'capture_excluded'`); n != 2 {
 		t.Errorf("%d exclusion breadcrumbs, want 2", n)
 	}
+	if n := countRows(t, e, `SELECT count(*) FROM capture_trace WHERE reason IN ('excluded_address', 'excluded_domain') AND (counterparty IS NOT NULL OR subject IS NOT NULL)`); n != 0 {
+		t.Error("the exclusion trace carries the counterparty or subject")
+	}
+	// The audit trail records that a user set a rule, not which address: the
+	// address they keep out of the CRM must not enter it through the ledger.
+	if n := countRows(t, e, `SELECT count(*) FROM audit_log WHERE entity_type = 'capture_settings' AND (before::text ILIKE '%home.example%' OR after::text ILIKE '%home.example%')`); n != 0 {
+		t.Error("the audit trail carries a user's excluded address")
+	}
+	if n := countRows(t, e, `SELECT count(*) FROM audit_log WHERE entity_type = 'capture_settings' AND after::text ILIKE '%payroll.example%'`); n != 1 {
+		t.Errorf("%d audit rows naming the workspace rule's domain, want 1 — installation configuration is what the trail is for", n)
+	}
 
 	// The list answers the workspace's rules and the caller's own; a
 	// colleague sees the workspace rule and not the owner's personal one, and
