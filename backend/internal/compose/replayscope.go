@@ -96,6 +96,7 @@ const (
 
 	objectOffer         = "offer"
 	objectPipeline      = "pipeline"
+	objectCustomField   = "custom_field"
 	objectSignal        = "signal"
 	objectQuota         = "quota"
 	objectOfferTemplate = "offer_template"
@@ -249,10 +250,17 @@ var replayableOperations = map[string]replayTarget{
 
 	// Surfaces whose module gates on something other than a coreObject, so
 	// there is no object grant for this middleware to re-check.
-	"POST /v1/custom-fields":               {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"PATCH /v1/custom-fields/{id}":         {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"PATCH /v1/custom-fields/{id}/options": {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"POST /v1/custom-fields/{id}/retire":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	// The two administered lead vocabularies are gated like the field catalog
+	// they extend — auth.Require on "custom_field" in every store entry point —
+	// and their rows are workspace-shared config with no owner column.
+	"POST /v1/lead-sources":                  {object: objectCustomField, rowNote: noOwnerCatalog},
+	"PATCH /v1/lead-sources/{id}":            {object: objectCustomField, rowNote: noOwnerCatalog},
+	"POST /v1/lead-disqualify-reasons":       {object: objectCustomField, rowNote: noOwnerCatalog},
+	"PATCH /v1/lead-disqualify-reasons/{id}": {object: objectCustomField, rowNote: noOwnerCatalog},
+	"POST /v1/custom-fields":                 {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	"PATCH /v1/custom-fields/{id}":           {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	"PATCH /v1/custom-fields/{id}/options":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	"POST /v1/custom-fields/{id}/retire":     {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	// An approval is row-scoped through its TARGET (approvals.decidable =
 	// decision grants AND targetVisible), and that rule lives inside the
 	// approvals module — so the probe is borrowed rather than reimplemented

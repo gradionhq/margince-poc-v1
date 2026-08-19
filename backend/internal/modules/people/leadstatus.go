@@ -25,13 +25,11 @@ const (
 	LeadStatusDisqualified LeadStatus = "disqualified"
 )
 
-// openLeadStatuses is the open set in ladder order, spelled once for the
-// SQL that names it (openLeadStatusList) and the Go that ranks it.
+// openLeadStatuses is the open set in ladder order, for the Go that ranks
+// it. The SQL predicates that select workable leads spell the same list as
+// a literal, module by module, because a fragment cannot cross the module
+// boundary — TestLadderClimbsFromActivityAndNeverDescends holds the ladder.
 var openLeadStatuses = []LeadStatus{LeadStatusNew, LeadStatusContacted, LeadStatusEngaged}
-
-// openLeadStatusList is the SQL literal list of the open statuses, for the
-// predicates that select workable leads: `status IN (` + list + `)`.
-const openLeadStatusList = `'new','contacted','engaged'`
 
 // ParseLeadStatus is the seam guard: a set membership check at parse
 // time, because LeadStatus("typo") still compiles.

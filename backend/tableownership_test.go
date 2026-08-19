@@ -95,6 +95,8 @@ var tableOwners = map[string]string{
 	"lead":                           "internal/modules/people",
 	"lead_score_history":             "internal/modules/people",
 	"lead_manual_signal":             "internal/modules/people",
+	"lead_source":                    "internal/modules/people",
+	"lead_disqualify_reason":         "internal/modules/people",
 	"organization_profile_field":     "internal/modules/people",
 	"person_profile_field":           "internal/modules/people",
 	// The signature pass's per-person read cursor (PO-F-2a): which mail was
