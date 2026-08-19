@@ -1,6 +1,13 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { meFixture } from "../app/mefixture";
@@ -154,37 +161,83 @@ function json(body: unknown): Response {
   });
 }
 
+// Every body this rail POSTs, in order, so a test can assert what was SENT
+// rather than what the component happened to render afterwards. The employment
+// modal's whole contract with the server is the shape of one request.
+const sent: Array<{ method: string; path: string; body: unknown }> = [];
+
 function mount(view: Person360) {
+  sent.length = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL) => {
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(
         input instanceof Request ? input.url : String(input),
         "https://test",
       );
+      // openapi-fetch hands `fetch` a Request, not (url, init), so the body is
+      // on the Request and reading it needs a clone — consuming the original
+      // would leave the real call with an empty body.
+      const request = input instanceof Request ? input : null;
+      const method = request?.method ?? init?.method ?? "GET";
+      if (method === "POST" || method === "PATCH") {
+        const raw = request
+          ? await request.clone().text()
+          : String(init?.body ?? "");
+        if (raw !== "") {
+          sent.push({ method, path: url.pathname, body: JSON.parse(raw) });
+        }
+      }
       // The session probe is the one route that must answer a real body: an
       // unroutable /me fails every grant closed, which changes the edit
       // affordances the rail draws and nothing about its readings.
-      return url.pathname.endsWith("/me")
-        ? json(meFixture({ allow: { person: ["read", "update"] } }))
-        : json({ data: [], page });
+      if (url.pathname.endsWith("/me")) {
+        return json(meFixture({ allow: { person: ["read", "update"] } }));
+      }
+      // Every write to an employment row pins If-Match, and the version comes
+      // from this list read. Answering it empty is not a neutral stub: the rail
+      // refuses to write unpinned, so an empty list turns a "mark as ended"
+      // click into a refusal and no request at all.
+      if (method === "GET" && url.pathname.endsWith("/relationships")) {
+        return json({
+          data: (view.employments?.data ?? []).map((employment) => ({
+            id: employment.relationship_id,
+            version: 3,
+          })),
+          page,
+        });
+      }
+      // The employer picker searches organizations; without a candidate the
+      // modal's Save stays disabled and there is no request to inspect.
+      if (url.pathname.endsWith("/organizations")) {
+        return json({
+          data: [{ id: "o-9", display_name: "Employer GmbH" }],
+          page,
+        });
+      }
+      return json({ data: [], page });
     }),
   );
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  render(
+  const tree = (shown: Person360) => (
     <QueryClientProvider client={client}>
       <LocaleProvider initial="en">
         <PersonRail
-          view={view}
+          view={shown}
           guard={undefined}
           firstName="Dana"
           onExplain={() => {}}
         />
       </LocaleProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const { rerender } = render(tree(view));
+  // Re-rendering the SAME tree with different rows, which is what the record
+  // page does when its query refetches. Mounting a fresh one would reset the
+  // state a caller may be trying to observe surviving.
+  return { rerender: (shown: Person360) => rerender(tree(shown)) };
 }
 
 beforeEach(() => {
@@ -470,5 +523,268 @@ describe("the sibling sections governed by their own grants", () => {
     const companies = section("Companies");
     expect(within(companies).getByText("Brandt Automotive GmbH")).toBeTruthy();
     expect(within(companies).queryByText(WITHHELD_SENTENCE)).toBeNull();
+  });
+});
+
+// What the modal SENDS, and whether the box the reader looked at agreed with it.
+// The two must never part company. A modal that omits the field for a box the
+// reader never touched leaves the server to decide, and the server's answer can
+// be the opposite of the unticked box on screen — leaving no way to say "no"
+// except ticking and unticking again. So the box states an answer from the
+// moment it opens, and the answer it states is the one the record takes.
+describe("adding a company", () => {
+  // Its own instance per test, and told about the fake timers this suite
+  // installs: a shared one carries pointer and keyboard state between tests, so
+  // the second test to run would inherit the first one's.
+  function driver() {
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  async function openAndPickEmployer(user: ReturnType<typeof driver>) {
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+    await user.type(screen.getByRole("searchbox"), "emp");
+    await user.click(await screen.findByText("Employer GmbH"));
+  }
+
+  // `.checked` directly rather than a jest-dom matcher: this suite does not
+  // install them, and the assertion is about the box's own state.
+  //
+  // NARROWED, not asserted. `as HTMLInputElement` would be the unchecked cast T6
+  // forbids, and here it would also lie usefully: a control that stopped being an
+  // <input> would read `undefined`, which is falsy, so every "not ticked"
+  // assertion below would keep passing over a checkbox that no longer exists.
+  function currentEmployerTicked(): boolean {
+    const box = screen.getByRole("checkbox", {
+      name: "This is their current employer",
+    });
+    if (!(box instanceof HTMLInputElement)) {
+      throw new Error(
+        `the current-employer control is a ${box.tagName}, not an input`,
+      );
+    }
+    return box.checked;
+  }
+
+  // Narrowed, not asserted: the recorded body is `unknown` because it came off
+  // the wire, and casting it would be this suite claiming a shape it has not
+  // checked — which is the whole class of thing these tests exist to catch.
+  function asObject(body: unknown, t: string): Record<string, unknown> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new Error(`${t} was not a JSON object: ${JSON.stringify(body)}`);
+    }
+    return { ...body };
+  }
+
+  async function employmentBody(): Promise<Record<string, unknown>> {
+    // The mutation is in flight when the click returns, so the assertion waits
+    // for the request rather than for anything the modal renders — what was
+    // SENT is the only thing under test here.
+    await waitFor(() => {
+      if (!sent.some((request) => request.path.endsWith("/relationships"))) {
+        throw new Error(
+          `no employment was posted; requests were ${JSON.stringify(sent)}`,
+        );
+      }
+    });
+    const post = sent.find(
+      (request) =>
+        request.method === "POST" && request.path.endsWith("/relationships"),
+    );
+    return asObject(post?.body, "the posted employment");
+  }
+
+  it("starts ticked for somebody with no current job, and sends that", async () => {
+    const user = driver();
+    mount(emptyButGranted);
+    await screen.findByRole("button", { name: "Add company" });
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+
+    // The state the reader sees BEFORE touching anything — the reading that a
+    // modal deciding the field only on interaction cannot honour.
+    expect(currentEmployerTicked()).toBe(true);
+
+    await user.type(screen.getByRole("searchbox"), "emp");
+    await user.click(await screen.findByText("Employer GmbH"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    expect((await employmentBody()).is_current_primary).toBe(true);
+  });
+
+  it("lets the reader say no, and sends that", async () => {
+    const user = driver();
+    mount(emptyButGranted);
+    await screen.findByRole("button", { name: "Add company" });
+    await openAndPickEmployer(user);
+    await user.click(
+      screen.getByRole("checkbox", { name: "This is their current employer" }),
+    );
+    expect(currentEmployerTicked()).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    // `false`, not absent. A reader who unticks a box has decided, and the
+    // server must not derive over them.
+    const body = await employmentBody();
+    expect("is_current_primary" in body).toBe(true);
+    expect(body.is_current_primary).toBe(false);
+  });
+
+  it("re-takes the default every time it opens, not once", async () => {
+    // `useState` reads its initializer ONCE and this modal never remounts, so a
+    // default taken at first render answers a question about the rows as they
+    // were then. Open it for somebody who has an employer (unticked), close it,
+    // and reopen after that employer is gone: the box has to be ticked, or the
+    // save states a `false` about a person with no current job — the very thing
+    // the default exists to prevent.
+    const user = driver();
+    const { rerender } = mount(granted);
+    await screen.findByRole("button", { name: "Add company" });
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+    expect(currentEmployerTicked()).toBe(false);
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    rerender(emptyButGranted);
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+    expect(currentEmployerTicked()).toBe(true);
+  });
+
+  it("starts unticked for somebody who already has a current job", async () => {
+    // The other half of the default, and the reason it is read off the rows
+    // rather than hardcoded: which of two employers is the main one is not
+    // this modal's to assume.
+    const user = driver();
+    mount(granted);
+    await screen.findByRole("button", { name: "Add company" });
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+
+    expect(currentEmployerTicked()).toBe(false);
+  });
+});
+
+// The rail sorts the employer somebody still holds to the top and marks it
+// current, and "ending" a job writes today as its last day. Both readings turn
+// on the same rule as the server's: a job is still theirs until its last day has
+// PASSED, so a notice period is not a departure and today's date is.
+describe("which employer is the current one", () => {
+  function withEmployments(
+    rows: Array<{
+      relationship_id: string;
+      organization_name: string;
+      is_current_primary: boolean;
+      ended_at: string | null;
+    }>,
+  ): Person360 {
+    return {
+      ...granted,
+      employments: {
+        data: rows.map((row) => ({
+          relationship_id: row.relationship_id,
+          organization_id: `o-${row.relationship_id}`,
+          organization_name: row.organization_name,
+          role: "Head of Fleet",
+          is_current_primary: row.is_current_primary,
+          started_at: "2022-03-01T00:00:00Z",
+          ended_at: row.ended_at,
+        })),
+        page,
+      },
+    };
+  }
+
+  // NOW is pinned to 2026-08-18, so these are a fortnight either side of it.
+  const future = "2026-09-01";
+  const past = "2026-08-04";
+
+  function employerOrder(): string[] {
+    return Array.from(
+      section("Companies").querySelectorAll(".pe-employment-org"),
+    ).map((node) => node.textContent ?? "");
+  }
+
+  it("puts the job they still hold first, notice period and all", async () => {
+    mount(
+      withEmployments([
+        {
+          relationship_id: "rel-old",
+          organization_name: "Former GmbH",
+          is_current_primary: false,
+          ended_at: past,
+        },
+        {
+          relationship_id: "rel-now",
+          organization_name: "Notice GmbH",
+          is_current_primary: true,
+          ended_at: future,
+        },
+      ]),
+    );
+    await screen.findByText("Notice GmbH");
+
+    const [first, second] = employerOrder();
+    expect(first).toContain("Notice GmbH");
+    // Serving notice is still the current job, so the row says so.
+    expect(first).toContain("current");
+    expect(second).toContain("Former GmbH");
+    expect(second).not.toContain("current");
+  });
+
+  it("stops calling it current once the last day has passed", async () => {
+    // The flag still says this employer is the primary one — the record of WHICH
+    // employer it was is not rewritten when the date passes. Currency is derived
+    // from the date, so the marker goes even though the flag stayed.
+    mount(
+      withEmployments([
+        {
+          relationship_id: "rel-gone",
+          organization_name: "Former GmbH",
+          is_current_primary: true,
+          ended_at: past,
+        },
+        {
+          relationship_id: "rel-older",
+          organization_name: "Earlier GmbH",
+          is_current_primary: false,
+          ended_at: past,
+        },
+      ]),
+    );
+    await screen.findByText("Former GmbH");
+
+    // Nobody is current here, so the section marks nobody — a flag left over
+    // from a job that has ended must not outrank a row that never claimed one.
+    for (const row of employerOrder()) {
+      expect(row).not.toContain("current");
+    }
+  });
+
+  it("ends an employment as of today, not tomorrow", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mount(
+      withEmployments([
+        {
+          relationship_id: "rel-now",
+          organization_name: "Brandt Automotive GmbH",
+          is_current_primary: true,
+          ended_at: null,
+        },
+      ]),
+    );
+    await screen.findByText("Brandt Automotive GmbH");
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("button", { name: "Mark as ended" }));
+
+    await waitFor(() => {
+      expect(sent.some((request) => request.method === "PATCH")).toBe(true);
+    });
+    const patch = sent.find((request) => request.method === "PATCH");
+    const body = patch?.body;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new Error(
+        `the end-employment patch was not a JSON object: ${JSON.stringify(body)}`,
+      );
+    }
+    // The LOCAL date, formatted by hand. Reaching for toISOString() here would
+    // send yesterday's date to anybody west of UTC for most of their working day.
+    expect((body as Record<string, unknown>).ended_at).toBe("2026-08-18");
   });
 });

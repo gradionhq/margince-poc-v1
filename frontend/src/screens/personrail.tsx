@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Mail, Phone } from "lucide-react";
 import type { ReactNode } from "react";
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -33,6 +33,7 @@ import {
 import { useT } from "../i18n";
 import { useProviderLabel } from "./channelproviders";
 import { problemMessageOf, throwProblem, useSorMode } from "./common";
+import { stillHeld, today } from "./employmentcurrency";
 import { interactionIcon } from "./interactionchrome";
 import { consentWord } from "./personstrip";
 import { personTabRoute } from "./persontab";
@@ -463,10 +464,6 @@ async function patchEmployment(
   }
 }
 
-function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 // The four writes the Companies section makes, sharing one invalidation:
 // person360 is what this section itself reads its rows from, and personBrief
 // comes with it because the brief's first sentence names the employer. The
@@ -497,7 +494,7 @@ function useEmploymentActions(personId: string) {
   });
   const end = useMutation({
     mutationFn: (employment: Employment) =>
-      patchEmployment(employment, personId, { ended_at: todayDate() }, t),
+      patchEmployment(employment, personId, { ended_at: today() }, t),
     onSuccess: invalidate,
   });
   const update = useMutation({
@@ -544,7 +541,9 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<Employment | null>(null);
   const employments = [...(view.employments?.data ?? [])].sort(
-    (a, b) => Number(b.is_current_primary) - Number(a.is_current_primary),
+    (a, b) =>
+      Number(b.is_current_primary && stillHeld(b)) -
+      Number(a.is_current_primary && stillHeld(a)),
   );
   // Every org this person already has a live edge to — the 360 projection
   // drops an edge the moment it is removed, so this list IS the live set,
@@ -607,6 +606,7 @@ function Employers({ view }: Readonly<{ view: Person360 }>) {
         personId={person.id}
         create={actions.create}
         excludedOrgIds={connectedOrgIds}
+        hasCurrentEmployment={employments.some(stillHeld)}
       />
       {/* Remove is the irreversible verb — the connection and its history are
           gone, not merely dated — so it is the one that sits behind a
@@ -698,7 +698,7 @@ function EmploymentRow({
           ) : (
             <span className="inlinetext">{t("field.unset")}</span>
           )}
-          {employment.is_current_primary && (
+          {employment.is_current_primary && stillHeld(employment) && (
             <span className="pe-rail-value-good">{t("rel.current")}</span>
           )}
         </span>
@@ -757,6 +757,7 @@ function AddEmploymentModal({
   personId,
   create,
   excludedOrgIds,
+  hasCurrentEmployment,
 }: Readonly<{
   open: boolean;
   onClose: () => void;
@@ -766,12 +767,40 @@ function AddEmploymentModal({
   // picker refuses to offer a second edge to the same company, since only
   // a duplicated current-primary is refused server-side.
   excludedOrgIds: ReadonlyArray<string>;
+  // Whether this person already holds a job that has not ended. It is the exact
+  // fact the server's own rule turns on, read off the same rows, so the box can
+  // START in the state the save will produce instead of showing the reader one
+  // answer and writing the other.
+  hasCurrentEmployment: boolean;
 }>) {
   const t = useT();
   const headingId = useId();
   const [org, setOrg] = useState<RecordPickerCandidate | null>(null);
   const [role, setRole] = useState("");
-  const [isCurrent, setIsCurrent] = useState(false);
+  // Ticked by default for somebody with no current job, because that is what
+  // the save will do either way: the server marks a person's only current
+  // employment as their primary one. A box that started unticked and then
+  // produced the opposite was worse than sending the wrong value — it showed
+  // the reader a state the record never took, and left "no" expressible only by
+  // ticking and unticking again.
+  //
+  // So the box always STATES an answer and the reader can change it. The
+  // server's rule still exists for callers who send nothing — MCP and the API —
+  // and `hasCurrentEmployment` is read off the same rows that rule reads, so the
+  // two agree by construction rather than by being maintained in step.
+  const [isCurrent, setIsCurrent] = useState(!hasCurrentEmployment);
+  // useState only reads its initial value ONCE, and this modal is mounted for
+  // the life of the section rather than remounted per open. So the default has
+  // to be re-taken every time it opens, or it answers a question about the rows
+  // as they were the first time the section rendered: end the only employment,
+  // reopen, and the box would still be unticked because the initializer had
+  // already run — writing an explicit `false` for the person's one current job,
+  // which is the whole defect this default exists to prevent.
+  useEffect(() => {
+    if (open) {
+      setIsCurrent(!hasCurrentEmployment);
+    }
+  }, [open, hasCurrentEmployment]);
   const [allConnected, setAllConnected] = useState(false);
 
   // Wraps the shared org search with this person's own already-connected
@@ -796,7 +825,6 @@ function AddEmploymentModal({
   function close() {
     setOrg(null);
     setRole("");
-    setIsCurrent(false);
     setAllConnected(false);
     create.reset();
     onClose();

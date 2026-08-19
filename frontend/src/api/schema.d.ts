@@ -12521,8 +12521,7 @@ export interface components {
             /** Format: uuid */
             project_id?: string | null;
             role?: string | null;
-            /** @default false */
-            is_current_primary: boolean;
+            is_current_primary?: boolean;
             /** Format: date */
             started_at?: string | null;
             /** Format: date */
