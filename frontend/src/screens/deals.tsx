@@ -40,6 +40,7 @@ import {
 } from "../design-system/composed";
 import { type ListChip, ListSurface } from "../design-system/listsurface";
 import type { ListColumn } from "../design-system/listtable";
+import { FieldGuard } from "../design-system/rbac";
 import { Select } from "../design-system/select";
 import { AutonomyDot, ProvenanceTag } from "../design-system/trust";
 import {
@@ -576,7 +577,11 @@ function dealColumns(
       numeric: true,
       sort: "amount_minor",
       cell: (deal) =>
-        deal.amount_minor != null && deal.currency ? (
+        // Withheld is not empty: a masked amount keeps its cell and says so,
+        // where an unpriced deal shows nothing.
+        deal.masked_fields?.includes("amount_minor") ? (
+          <FieldGuard mode="masked" />
+        ) : deal.amount_minor != null && deal.currency ? (
           <span className="t-mono">
             {formatMoney(deal.amount_minor, deal.currency, locale)}
           </span>

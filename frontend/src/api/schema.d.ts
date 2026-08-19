@@ -12810,6 +12810,8 @@ export interface components {
             /** Format: int64 */
             amount_minor?: number | null;
             currency?: string | null;
+            /** @description The fields of THIS row the caller's role withholds (a field mask — e.g. `amount_minor` for a rep on a deal they may read but not change). A named field is null because it is withheld, not because it is empty; absent or empty means nothing is withheld. Sorting or filtering the list by a masked field is refused (422). */
+            readonly masked_fields?: string[];
             /** @description Native→base, frozen at close (null while open). Decimal-as-string to avoid float rounding of the 10-dp rate. */
             fx_rate_to_base?: string | null;
             /** Format: date */

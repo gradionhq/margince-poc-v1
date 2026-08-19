@@ -470,3 +470,33 @@ func TestNonActiveStatusesCannotLogIn(t *testing.T) {
 		t.Fatalf("reactivated user cannot log in: %v", err)
 	}
 }
+
+// The seeded field mask reaches the principal through the role: a rep's
+// login carries the deal amount mask, and a manager's does not. A mask is a
+// property of the role, read at login like the grants — the store that
+// withholds the column never reads the table.
+func TestTheRepRoleCarriesTheDealAmountMask(t *testing.T) {
+	e := setupRevocationEnv(t, "field-mask")
+	ctx := principal.WithWorkspaceID(context.Background(), e.admin.WorkspaceID.UUID)
+	if err := e.svc.ChangeUserRole(e.wsCtx(e.admin), e.admin, e.member.UserID, "rep"); err != nil {
+		t.Fatal(err)
+	}
+	asRep, _, err := e.svc.Login(ctx, e.member.Email, memberPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := principal.FieldMask{Object: "deal", Field: "amount_minor", Condition: principal.MaskOutsideWriteAuthority}
+	if len(asRep.Permissions.FieldMasks) != 1 || asRep.Permissions.FieldMasks[0] != want {
+		t.Errorf("a rep's field masks = %+v, want exactly %+v", asRep.Permissions.FieldMasks, want)
+	}
+	if err := e.svc.ChangeUserRole(e.wsCtx(e.admin), e.admin, e.member.UserID, "manager"); err != nil {
+		t.Fatal(err)
+	}
+	asManager, _, err := e.svc.Login(ctx, e.member.Email, memberPassword)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(asManager.Permissions.FieldMasks) != 0 {
+		t.Errorf("a manager's field masks = %+v, want none", asManager.Permissions.FieldMasks)
+	}
+}

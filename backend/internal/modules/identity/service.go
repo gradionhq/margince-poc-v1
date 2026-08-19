@@ -456,7 +456,12 @@ func loadGrants(ctx context.Context, tx pgx.Tx, userID ids.UserID) (roles []stri
 		}
 		teams = append(teams, t)
 	}
-	return roles, teams, policy.Merge(byRole), teamRows.Err()
+	if err := teamRows.Err(); err != nil {
+		return nil, nil, principal.Permissions{}, err
+	}
+	perms = policy.Merge(byRole)
+	perms.FieldMasks, err = loadFieldMasks(ctx, tx, roles)
+	return roles, teams, perms, err
 }
 
 // rawTeamIDs widens typed team ids to the untyped []ids.UUID the kernel

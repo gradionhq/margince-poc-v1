@@ -107,6 +107,9 @@ func runListPage[T any](
 	where []string,
 	scan func(pgx.Rows, []fieldcatalog.Column, *storekit.ListSort) ([]T, []*string, error),
 	key func(T) (time.Time, ids.UUID),
+	// finish runs over the trimmed page inside the same transaction — the
+	// field-mask pass, which needs one more statement over the page's ids.
+	finish ...func(pgx.Tx, []T) error,
 ) ([]T, storekit.Page, error) {
 	var out []T
 	var page storekit.Page
@@ -130,6 +133,11 @@ func runListPage[T any](
 			page = storekit.Page{
 				HasMore:    true,
 				NextCursor: pre.sorted.EncodePageCursor(cursorKeys[pre.limit-1], createdAt, id),
+			}
+		}
+		for _, f := range finish {
+			if err := f(tx, out); err != nil {
+				return err
 			}
 		}
 		return nil

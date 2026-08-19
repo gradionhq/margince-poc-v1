@@ -129,6 +129,22 @@ explicitly makes Demo Admin the owner of its records (`scripts/seed-dev.sql`).
 No system role ships `row_scope: own`; it exists for custom roles. The seeded `rep`/`manager` are
 `team`, so team membership is what actually decides who may write whose records.
 
+## Field masks — one column of a readable row
+
+A role can read a kind of record and still not read every column of it. `field_mask`
+(`backend/migrations/core/…_field_mask.up.sql`) names, per **role key**, an object, a field and a
+condition: `always`, or `outside_write_authority` — the row is readable but not the caller's to
+change. The masks are loaded into the principal at login with the grants (a seat carries the union
+over its roles) and applied where a store maps the row onto the wire (`platform/auth/fieldmask.go`,
+`deals/fieldmask.go`): the field goes out `null` and the record names it in `masked_fields`, so a
+reader can tell withheld from empty. Sorting or filtering a list by a masked column is refused
+(422), because ordering by a value is reading it. An unbounded seat (`row_scope: all`) carries no
+mask.
+
+The one seeded mask is the one the shared-identity read makes load-bearing: `rep` → `deal` →
+`amount_minor` → `outside_write_authority`. A rep sees every deal and who owns it; the amount of a
+deal outside their write authority is withheld.
+
 ## Teams
 
 A **team** (`team` table) is a named group; **`team_membership`** joins users to teams (many-to-many
