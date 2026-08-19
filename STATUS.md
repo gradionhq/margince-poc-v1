@@ -890,14 +890,15 @@ webhooks, agents, privacy. Configuration and machinery rather than records,
 which is why the stakes were low, but low is not none and a reader should not
 have to infer it from migration numbers.
 
-### Where phase D stands: 26 tables
+### Where phase D stands: 8 tables, and every one of them is gated
 
 Merged: briefs (#1486), capture (#1491), overlay (#1510, fork-owned so it lands
 in `migrations/custom/`), ai + migration (#1525, split across both namespaces
 because the importer is fork-owned), deals quoting & delivery (#1543), activity
 satellites (#1547), deal spine (#1635), activity spine (#1655), organization
 cluster (#1701), person cluster (#1720), lead/relationship/partner cluster
-(#1723). **103 → 26**, counted from the migrated schema rather than from this
+(#1723), credentials (#1771), authz satellites (#1825), singletons (#1834).
+**103 → 8**, counted from the migrated schema rather than from this
 list — `make test-db-up`, then:
 
 ```sql
@@ -909,17 +910,30 @@ SELECT c.relname FROM pg_class c
  ORDER BY 1;
 ```
 
-Every record-bearing table is done. What remains is identity, search's two, a
-handful of singletons, and the two ledgers.
+Every record-bearing table is done, and the mechanical part of phase D is over.
+**The eight that remain are not a backlog to work through — each is waiting on
+something else**, which is why they were left rather than missed:
 
-**What is left, and the shape of each:**
+| tables | waiting on |
+|---|---|
+| `role`, `role_assignment` | **#1826.** Three SHIPPED CUSTOM migrations name `role.workspace_id`, and `dbmigrate.Up` applies all of `core` before any of `custom` — so on a fresh database a custom migration runs against the FINAL core schema. Dropping the column breaks the install, not just a test. Needs a ruling on guarding versus editing those three. |
+| `app_user`, `session` | **#1766 and §5.** `app_user.workspace_id` is what `MustWorkspace` resolves through, and `Identity.WorkspaceID` backs the JWS `"ws"` claim §1 retires separately. The claim goes first, or the value needs a new source. |
+| `embedding`, `graph_interaction_edge` | the re-embed run-lifecycle collapse, described below. Nothing scopes a pass any more, so the fan-out is redundant machinery over one corpus — but the pending array is how a run knows it finished. |
+| `audit_log`, `system_log` | the append-only ledgers, last by the decision recorded above. |
 
-| group | tables | note |
-|---|---|---|
-| identity | `app_user`, `session`, `role`, `role_assignment`, `team`, `team_membership`, `passport`, `oauth_client`, `oauth_grant`, `oauth_authorization_code`, `oauth_refresh_token`, `auth_token`, `record_grant`, `extension_secret`, `onboarding_wizard_state` | 15 tables. `app_user` is what `MustWorkspace` ultimately hangs on — take it last within the group |
-| search | `embedding`, `graph_interaction_edge` | see below: the fan-out is now redundant machinery over one corpus, and collapsing it is the prerequisite |
-| the rest | `idempotency_key`, `field_provenance`, `user_record_view`, `suggestion_dismissal`, `signal_thread_scan`, `linkedin_account`, `linkedin_connection` | singletons; one slice |
-| **last** | `audit_log`, `system_log` | the append-only ledgers, by the decision recorded above |
+**The ordering finding is the one to carry forward.** `custom` always runs after
+all of `core`, so any custom migration naming a core column must survive that
+column being dropped later. `role` is the first case — `person`,
+`organization`, `deal`, `lead`, `activity`, `team` and `passport` were all
+checked and no custom migration names their `workspace_id`. That was luck. Any
+future core column drop needs `grep -l '<table>\.workspace_id'
+migrations/custom/` before the migration is written, not after.
+
+**`scripts/` is now gated (#1829).** `TestEveryScriptNamesColumnsTheSchemaHas`
+checks every INSERT column list in `scripts/` and `infra/` against the migrated
+catalog, in the integration lane. Four slices in a row shipped a broken
+`seed-dev.sql` before it existed; the singleton slice was the first to find out
+before `live-boot` rather than after.
 
 **Two findings from the last three slices that outlive them**, both about a
 write shape or a number nobody was checking:
@@ -944,15 +958,16 @@ be split or moved mid-flight because a table turned out to be fork-owned
 slice. Check `grep -rl "CREATE TABLE.*<name>" migrations/` before writing the
 migration, not after `migrate up` refuses.
 
-**Sweep `scripts/` too, and do not trust a Go-literal sweep to find it.**
-Three consecutive slices — organization, person, lead — shipped a
-`scripts/seed-dev.sql` still naming the dropped column, because every slice's
-sweep parses Go string literals and that file is not Go. Each was caught by
-`live-boot`, the slowest job on the board and the only one that executes the
-file; `scripts/seed-demo-company.sh` has no such job and is broken on `main`
-today (#1724). The gate gap is #1725. Until it exists, grep `scripts/` by hand:
-`grep -rn workspace_id scripts/` and check each hit against the tables the slice
-touches.
+**`scripts/` is gated now (#1829) — but the gate is narrow on purpose.**
+`TestEveryScriptNamesColumnsTheSchemaHas` checks INSERT column lists only,
+because an identifier in one is unambiguously a column of the named table and
+the check can therefore fail with no false positives. A predicate
+(`WHERE x.workspace_id = …`) needs statement boundaries to attribute, and a
+checker that cried wolf would be turned off. So still grep `scripts/` by hand
+for predicates: `grep -rn workspace_id scripts/`, checked against the tables the
+slice touches. FOUR consecutive slices shipped a broken `seed-dev.sql` before
+the gate existed, every one caught by `live-boot` — the slowest job on the
+board and the only one that runs the file.
 
 **Sweep `backend/tools/` too — it is a second Go module and `go build ./...`
 never compiles it.** The capture slice swept `internal/`, `extensions/`,
