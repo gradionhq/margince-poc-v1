@@ -249,7 +249,7 @@ func candidateOwners(cfg RoutingConfig) []ids.UserID {
 
 // ownerCapacity answers, for each candidate, whether the user can take
 // work (active, unarchived) and how many open leads they already hold —
-// the cap counts new/working, live leads, however they were assigned.
+// the cap counts open (new/contacted/engaged), live leads, however they were assigned.
 func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UserID) (active map[ids.UserID]bool, openLoad map[ids.UserID]int, err error) {
 	active = map[ids.UserID]bool{}
 	openLoad = map[ids.UserID]int{}
@@ -260,7 +260,7 @@ func ownerCapacity(ctx context.Context, tx pgx.Tx, candidates []ids.UserID) (act
 		SELECT u.id, count(l.id)
 		  FROM app_user u
 		  LEFT JOIN lead l ON l.owner_id = u.id
-		       AND l.status IN ('new','working') AND l.archived_at IS NULL
+		       AND l.status IN ('new','contacted','engaged') AND l.archived_at IS NULL
 		 WHERE u.id = ANY($1) AND u.status = 'active' AND u.archived_at IS NULL
 		 GROUP BY u.id`, candidates)
 	if err != nil {

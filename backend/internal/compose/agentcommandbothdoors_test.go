@@ -178,7 +178,7 @@ var bothDoorsFixtures = map[string]bothDoorsFixture{
 	"updatePerson":       updateDoors("people", "person", `{"title":"CTO"}`),
 	"updateOrganization": updateDoors("organizations", "organization", `{"industry":"payments"}`),
 	"updateDeal":         updateDoors("deals", "deal", `{"forecast_category":"commit"}`),
-	"updateLead":         updateDoors("leads", "lead", `{"status":"working"}`),
+	"updateLead":         updateDoors("leads", "lead", `{"status":"contacted"}`),
 	"updateActivity":     updateDoors("activities", "activity", `{"subject":"Renewal call"}`),
 	"updateProject":      updateDoors("projects", "project", `{"description":"Rollout"}`),
 	"updateRelationship": updateDoors("relationships", "relationship", `{"role":"champion"}`),

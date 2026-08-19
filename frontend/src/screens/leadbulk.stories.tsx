@@ -21,7 +21,7 @@ const leads = [
     id: "l-1",
     full_name: "Jonas Petersen",
     email: "jonas@nordwind.example",
-    status: "working" as const,
+    status: "contacted" as const,
     score: 72,
     source: "manual",
     captured_by: "human:u1",

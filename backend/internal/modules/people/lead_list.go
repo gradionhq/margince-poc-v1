@@ -59,6 +59,10 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	if in.Sort == nil || *in.Sort == "" {
 		return s.listLeadWorkQueue(ctx, in)
 	}
+	policy, err := s.slaPolicy(ctx)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
 	return listPage(ctx, s, in.Sort, in.Limit, listPageSpec[crmcontracts.Lead]{
 		entity:  leadEntity,
 		columns: leadColumns,
@@ -93,11 +97,13 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 				where = append(where, storekit.SQLf(leadSourceColumn+" = $%d", arg(*in.Source)))
 			}
 			if in.SLAState != nil {
-				where = append(where, slaStateClause(*in.SLAState, arg))
+				where = append(where, slaStateClause(policy, *in.SLAState, arg))
 			}
 			return where, nil
 		},
-		scan: scanLeadPage,
+		scan: func(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Lead, []*string, error) {
+			return scanLeadPage(rows, active, sorted, policy)
+		},
 		// A lead is one flat row: no child tables to load alongside the page.
 		attach: func(context.Context, pgx.Tx, []crmcontracts.Lead) error { return nil },
 		cursorKey: func(last crmcontracts.Lead) (time.Time, ids.UUID) {
@@ -115,7 +121,7 @@ func leadQuickFindClause(query string, arg func(any) int) string {
 
 // scanLeadPage drains one list query's rows: each lead plus, under a
 // non-default sort, the row's trailing __cursor_key.
-func scanLeadPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort) ([]crmcontracts.Lead, []*string, error) {
+func scanLeadPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.ListSort, policy leadSLAPolicy) ([]crmcontracts.Lead, []*string, error) {
 	var leads []crmcontracts.Lead
 	var cursorKeys []*string
 	for rows.Next() {
@@ -124,7 +130,7 @@ func scanLeadPage(rows pgx.Rows, active []fieldcatalog.Column, sorted *storekit.
 		if sorted != nil {
 			extra = append(extra, &key)
 		}
-		l, err := scanLead(rows, active, extra...)
+		l, err := scanLead(rows, active, policy, extra...)
 		if err != nil {
 			return nil, nil, err
 		}

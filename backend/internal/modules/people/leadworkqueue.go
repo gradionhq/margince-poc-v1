@@ -71,7 +71,11 @@ func (s *Store) listLeadWorkQueue(ctx context.Context, in ListLeadsInput) ([]crm
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
-	where, args, arg, err := leadQueueWhere(ctx, in, active)
+	policy, err := s.slaPolicy(ctx)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	where, args, arg, err := leadQueueWhere(ctx, in, active, policy)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -85,7 +89,7 @@ func (s *Store) listLeadWorkQueue(ctx context.Context, in ListLeadsInput) ([]crm
 		cursor = &decoded
 		asOf = decoded.AsOf
 	}
-	rank := leadQueueRank(arg, asOf)
+	rank := leadQueueRank(policy, arg, asOf)
 	if cursor != nil {
 		where = append(where, storekit.SQLf("("+rank+", -score, created_at, id) > ($%d, $%d, $%d, $%d)",
 			arg(cursor.Rank), arg(-cursor.Score), arg(cursor.CreatedAt), arg(cursor.ID)))
@@ -93,10 +97,10 @@ func (s *Store) listLeadWorkQueue(ctx context.Context, in ListLeadsInput) ([]crm
 	query := `SELECT ` + leadColumns + storekit.SelectSuffix(active) + `, ` + rank +
 		` FROM lead WHERE ` + strings.Join(where, " AND ") +
 		` ORDER BY ` + rank + `, score DESC, created_at, id` + storekit.SQLf(` LIMIT %d`, limit+1)
-	return s.readLeadQueuePage(ctx, query, *args, active, limit, asOf)
+	return s.readLeadQueuePage(ctx, query, *args, active, limit, asOf, policy)
 }
 
-func leadQueueWhere(ctx context.Context, in ListLeadsInput, active []fieldcatalog.Column) ([]string, *[]any, func(any) int, error) {
+func leadQueueWhere(ctx context.Context, in ListLeadsInput, active []fieldcatalog.Column, policy leadSLAPolicy) ([]string, *[]any, func(any) int, error) {
 	args := []any{}
 	arg := func(value any) int { args = append(args, value); return len(args) }
 	where := []string{whereAlways}
@@ -135,14 +139,20 @@ func leadQueueWhere(ctx context.Context, in ListLeadsInput, active []fieldcatalo
 		where = append(where, storekit.SQLf(leadSourceColumn+" = $%d", arg(*in.Source)))
 	}
 	if in.SLAState != nil {
-		where = append(where, slaStateClause(*in.SLAState, arg))
+		where = append(where, slaStateClause(policy, *in.SLAState, arg))
 	}
 	return where, &args, arg, nil
 }
 
-func leadQueueRank(arg func(any) int, asOf time.Time) string {
-	minutes := int(FirstResponseTarget / time.Minute)
-	risk := int(slaAtRiskWindow / time.Minute)
+// leadQueueRank renders the SLA band as a CASE over the lead's own columns.
+// With the target switched off every lead ranks the same and the queue
+// falls through to score, then age.
+func leadQueueRank(policy leadSLAPolicy, arg func(any) int, asOf time.Time) string {
+	if !policy.enabled {
+		return fmt.Sprintf("%d", leadQueueRankInactive)
+	}
+	minutes := policy.targetMinutes()
+	risk := int(policy.atRisk() / time.Minute)
 	deadline := storekit.SQLf("COALESCE(routed_at, created_at) + $%d * interval '1 minute'", arg(minutes))
 	return fmt.Sprintf(`CASE
 		WHEN archived_at IS NOT NULL OR first_response_at IS NOT NULL THEN %d
@@ -152,7 +162,7 @@ func leadQueueRank(arg func(any) int, asOf time.Time) string {
 		deadline, arg(risk), arg(asOf), leadQueueRankAtRisk, leadQueueRankWithinTarget)
 }
 
-func (s *Store) readLeadQueuePage(ctx context.Context, query string, args []any, active []fieldcatalog.Column, limit int, asOf time.Time) ([]crmcontracts.Lead, storekit.Page, error) {
+func (s *Store) readLeadQueuePage(ctx context.Context, query string, args []any, active []fieldcatalog.Column, limit int, asOf time.Time, policy leadSLAPolicy) ([]crmcontracts.Lead, storekit.Page, error) {
 	var leads []crmcontracts.Lead
 	var ranks []int
 	err := s.tx(ctx, func(tx pgx.Tx) error {
@@ -163,7 +173,7 @@ func (s *Store) readLeadQueuePage(ctx context.Context, query string, args []any,
 		defer rows.Close()
 		for rows.Next() {
 			var rank int
-			lead, err := scanLead(rows, active, &rank)
+			lead, err := scanLead(rows, active, policy, &rank)
 			if err != nil {
 				return err
 			}

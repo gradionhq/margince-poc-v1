@@ -9,7 +9,9 @@ package people
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
@@ -35,6 +37,17 @@ const leadColumns = `id, full_name, email, title, company_name, candidate_org_ke
 	(SELECT s.label FROM lead_source s WHERE s.key = lead.source),
 	disqualify_reason_id, disqualify_note,
 	(SELECT r.label FROM lead_disqualify_reason r WHERE r.id = lead.disqualify_reason_id),
+	status_set_by, qualified_deal_id,
+	(SELECT jsonb_build_object('trigger', CASE WHEN a.kind = 'meeting' AND a.meeting_status = 'held' THEN 'meeting_held'
+	                                           WHEN a.kind = 'meeting' THEN 'meeting_booked'
+	                                           ELSE 'inbound_reply' END,
+	                           'activity_id', a.id, 'occurred_at', a.occurred_at)
+	   FROM activity_link l JOIN activity a ON a.id = l.activity_id
+	  WHERE l.lead_id = lead.id AND a.archived_at IS NULL
+	    AND ((a.kind = 'email' AND a.direction = 'inbound')
+	         OR (a.kind = 'meeting' AND a.meeting_status IN ('booked','held')))
+	  ORDER BY CASE WHEN a.kind = 'meeting' AND a.meeting_status = 'held' THEN 0
+	                WHEN a.kind = 'meeting' THEN 1 ELSE 2 END, a.occurred_at DESC, a.id LIMIT 1),
 	(SELECT max(a.occurred_at) FROM activity_link l JOIN activity a ON a.id = l.activity_id
 	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL),
 	(SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
@@ -69,7 +82,11 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.A
 	if archived == storekit.LiveOnly {
 		q += liveOnlyClause
 	}
-	l, err := scanLead(tx.QueryRow(ctx, q, id), active)
+	policy, err := loadLeadSLAPolicy(ctx, tx)
+	if err != nil {
+		return crmcontracts.Lead{}, err
+	}
+	l, err := scanLead(tx.QueryRow(ctx, q, id), active, policy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Lead{}, apperrors.ErrNotFound
 	}
@@ -79,10 +96,12 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.A
 // scanLead scans core + active custom columns, plus whatever trailing
 // expressions the caller selected — the list page appends the sort's
 // __cursor_key there, exactly as scanPerson does.
-func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Lead, error) {
+func scanLead(row pgx.Row, active []fieldcatalog.Column, policy leadSLAPolicy, extra ...any) (crmcontracts.Lead, error) {
 	var l crmcontracts.Lead
 	var id ids.UUID
-	var ownerID, projectID, promotedPerson, disqualifyReason *ids.UUID
+	var ownerID, projectID, promotedPerson, disqualifyReason, qualifiedDeal *ids.UUID
+	var statusSetBy *string
+	var evidence []byte
 	var email *string
 	var status string
 	var version int64
@@ -93,6 +112,7 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &projectID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
 		&l.RoutedAt, &l.FirstResponseAt, &l.SourceLabel, &disqualifyReason, &l.DisqualifyNote, &l.DisqualifyReason,
+		&statusSetBy, &qualifiedDeal, &evidence,
 		&l.LastActivityAt, &openTasks,
 		&l.NextTaskSubject, &l.NextTaskDueAt, &l.ScoreReason,
 	}
@@ -109,6 +129,18 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	l.ProjectId = uuidPtr(projectID)
 	l.PromotedPersonId = uuidPtr(promotedPerson)
 	l.DisqualifyReasonId = uuidPtr(disqualifyReason)
+	l.QualifiedDealId = uuidPtr(qualifiedDeal)
+	if statusSetBy != nil {
+		setBy := crmcontracts.LeadStatusSetBy(*statusSetBy)
+		l.StatusSetBy = &setBy
+	}
+	if len(evidence) > 0 {
+		var ev crmcontracts.LeadQualificationEvidence
+		if err := json.Unmarshal(evidence, &ev); err != nil {
+			return l, fmt.Errorf("decode qualification evidence for lead %s: %w", l.Id, err)
+		}
+		l.QualificationEvidence = &ev
+	}
 	if email != nil {
 		e := openapi_types.Email(*email)
 		l.Email = &e
@@ -116,6 +148,6 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	l.Status = crmcontracts.LeadStatus(status)
 	l.Version = &version
 	l.OpenTaskCount = &openTasks
-	l.SlaDeadlineAt, l.SlaState = leadSLAFields(l.RoutedAt, l.CreatedAt, l.FirstResponseAt, l.ArchivedAt)
+	l.SlaDeadlineAt, l.SlaState = leadSLAFields(policy, l.RoutedAt, l.CreatedAt, l.FirstResponseAt, l.ArchivedAt)
 	return l, nil
 }

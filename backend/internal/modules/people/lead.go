@@ -299,10 +299,14 @@ func (s *Store) FindLeadByLinkedInURL(ctx context.Context, rawURL string) (*crmc
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// A dedupe probe for the capture path — its result is not rendered
 		// with custom fields, so no catalog columns are carried (nil active).
+		policy, err := loadLeadSLAPolicy(ctx, tx)
+		if err != nil {
+			return err
+		}
 		l, err := scanLead(tx.QueryRow(ctx,
 			`SELECT `+leadColumns+` FROM lead
 			 WHERE linkedin_url = $1 AND archived_at IS NULL AND `+scope+`
-			 ORDER BY created_at ASC, id ASC LIMIT 1`, args...), nil)
+			 ORDER BY created_at ASC, id ASC LIMIT 1`, args...), nil, policy)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

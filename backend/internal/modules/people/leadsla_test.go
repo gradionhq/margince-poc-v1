@@ -16,7 +16,7 @@ func TestLeadSLAFieldsFollowTheClock(t *testing.T) {
 	now := time.Date(2026, 8, 18, 12, 0, 0, 0, time.UTC)
 	leadSLAClock = func() time.Time { return now }
 	t.Cleanup(func() { leadSLAClock = time.Now })
-	routed := now.Add(-FirstResponseTarget + 10*time.Minute)
+	routed := now.Add(-DefaultFirstResponseTarget + 10*time.Minute)
 	responded := now.Add(-time.Minute)
 	closed := now
 
@@ -28,7 +28,7 @@ func TestLeadSLAFieldsFollowTheClock(t *testing.T) {
 		"fresh, clock from created_at": {created: now.Add(-time.Hour), want: state(crmcontracts.LeadSlaStateWithinTarget)},
 		"routing restarts the clock":   {created: now.Add(-48 * time.Hour), routed: now.Add(-time.Hour), want: state(crmcontracts.LeadSlaStateWithinTarget)},
 		"inside the last quarter":      {created: routed, want: state(crmcontracts.LeadSlaStateAtRisk)},
-		"past the deadline":            {created: now.Add(-FirstResponseTarget - time.Minute), want: state(crmcontracts.LeadSlaStateBreached)},
+		"past the deadline":            {created: now.Add(-DefaultFirstResponseTarget - time.Minute), want: state(crmcontracts.LeadSlaStateBreached)},
 		"answered leads owe nothing":   {created: now.Add(-48 * time.Hour), firstResponse: &responded, want: nil},
 		"closed leads owe nothing":     {created: now.Add(-48 * time.Hour), archived: &closed, want: nil},
 	}
@@ -38,12 +38,16 @@ func TestLeadSLAFieldsFollowTheClock(t *testing.T) {
 			if !tc.routed.IsZero() {
 				routedAt = &tc.routed
 			}
-			deadline, got := leadSLAFields(routedAt, tc.created, tc.firstResponse, tc.archived)
+			deadline, got := leadSLAFields(leadSLAPolicy{enabled: true, target: DefaultFirstResponseTarget}, routedAt, tc.created, tc.firstResponse, tc.archived)
 			if (got == nil) != (tc.want == nil) || (got != nil && *got != *tc.want) {
 				t.Fatalf("sla_state = %v, want %v", got, tc.want)
 			}
 			if tc.archived == nil && deadline == nil {
 				t.Fatal("an open lead always carries its deadline")
+			}
+			offDeadline, offState := leadSLAFields(leadSLAPolicy{target: DefaultFirstResponseTarget}, routedAt, tc.created, tc.firstResponse, tc.archived)
+			if offDeadline != nil || offState != nil {
+				t.Fatalf("with the target switched off a lead carries no SLA field, got deadline %v state %v", offDeadline, offState)
 			}
 		})
 	}

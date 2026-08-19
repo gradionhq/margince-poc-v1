@@ -41,7 +41,7 @@ func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	// (+8) → machine fit is 23. Seeded at score 0 so a resumed recompute
 	// demonstrably rebuilds it.
 	leadID := e.SeedID(t, `INSERT INTO lead (id, full_name, title, status, source, score, captured_by)
-	                     VALUES ($1, 'Vera VP', 'VP Sales', 'working', 'inbound', 0, 'human:x')`)
+	                     VALUES ($1, 'Vera VP', 'VP Sales', 'contacted', 'inbound', 0, 'human:x')`)
 
 	// (1) A human score with no reason is rejected (AC-S1).
 	if _, err := store.UpdateLead(ctx, leadIDOf(leadID), people.UpdateLeadInput{Score: intp(90)}); err == nil {

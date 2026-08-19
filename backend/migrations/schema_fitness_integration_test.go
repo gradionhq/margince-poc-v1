@@ -213,6 +213,7 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// Server-derived pointers: stamped from an operation's outcome,
 	// never accepted from the request body.
 	"lead.promoted_person_id":     "server-derived: stamped by PromoteLead",
+	"lead.qualified_deal_id":      "server-derived: stamped by QualifyLead with the id of the deal the same transaction just created through deals.CreateDealTx, under the caller's own deal:create grant — never a request-supplied reference",
 	"person.merged_into_id":       "server-derived: stamped by MergePerson",
 	"organization.merged_into_id": "server-derived: stamped by MergeOrganization",
 	// The same shape as its two siblings above, through the same writer

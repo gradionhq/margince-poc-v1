@@ -193,7 +193,7 @@ func TestOnlyALeadStillInPlayIsACandidate(t *testing.T) {
 	e := Setup(t)
 	owner := OwnerConn(t)
 
-	working := seedLeadInStatus(t, owner, "working")
+	working := seedLeadInStatus(t, owner, "contacted")
 	disqualified := seedLeadInStatus(t, owner, "disqualified")
 	for _, id := range []ids.UUID{working, disqualified} {
 		backdateCreatedAt(t, owner, "lead", id, longEstablished)

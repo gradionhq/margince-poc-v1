@@ -76,7 +76,7 @@ const lead = {
   full_name: "Jonas Petersen",
   email: "jonas@nordwind.example",
   company_name: "Nordwind Logistik",
-  status: "working" as const,
+  status: "contacted" as const,
   score: 72,
   captured_by: "human:u-1",
   source: "manual",
@@ -270,7 +270,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
           body: await request.json(),
           ifMatch: request.headers.get("If-Match"),
         });
-        return jsonResponse({ ...lead, status: "working" });
+        return jsonResponse({ ...lead, status: "contacted" });
       }
       if (url.includes("/leads?") || url.endsWith("/leads")) {
         return jsonResponse({
@@ -284,7 +284,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Board" }));
     const card = await screen.findByText("Jonas Petersen");
-    const workingColumn = screen.getByRole("region", { name: "Working" });
+    const workingColumn = screen.getByRole("region", { name: "Contacted" });
 
     // jsdom ships no DataTransfer, so the drag carries the same two methods
     // the handlers actually use — setData on the way out, getData on the way
@@ -300,7 +300,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
     fireEvent.drop(workingColumn, { dataTransfer: data });
 
     await waitFor(() => expect(patched.length).toBe(1));
-    expect(patched[0].body).toMatchObject({ status: "working" });
+    expect(patched[0].body).toMatchObject({ status: "contacted" });
     // The version rides the variables, so the write cannot clobber a change
     // made since this card rendered.
     expect(patched[0].ifMatch).toBe("7");
@@ -501,7 +501,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
       if (method === "POST" && url.includes("/leads/l-1/demote")) {
         demoteBody = JSON.parse(await request.text());
         return jsonResponse({
-          lead: { ...lead, status: "working" },
+          lead: { ...lead, status: "contacted" },
           unwind: "reversed",
           person_id: "p-42",
         });
@@ -567,7 +567,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
       actor_id: "human:u-9",
       action: "update",
       occurred_at: "2026-06-01T08:00:00Z",
-      after: { status: "working" },
+      after: { status: "contacted" },
     }));
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -624,7 +624,7 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
       actor_id: "human:u-9",
       action: "update",
       occurred_at: "2026-06-01T08:00:00Z",
-      after: { status: "working" },
+      after: { status: "contacted" },
     }));
     stubFetch(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -873,15 +873,15 @@ describe("LeadsScreen — search/sort/pagination + status filter (P-14)", () => 
     );
   });
 
-  it("sends status=working when the status filter is set", async () => {
+  it("sends status=contacted when the status filter is set", async () => {
     const { urls } = stubFetch(async () => emptyPage());
     render(<LeadsScreen />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
 
-    await pickFilter("Status", "Working");
+    await pickFilter("Status", "Contacted");
 
     await waitFor(() =>
-      expect(urls.some((url) => url.includes("status=working"))).toBe(true),
+      expect(urls.some((url) => url.includes("status=contacted"))).toBe(true),
     );
   });
 
@@ -1142,10 +1142,10 @@ describe("LeadScreen — edit with If-Match (P-1)", () => {
     expect(screen.getByText("Score: 72")).toBeTruthy();
     // The badge and the status control now read the SAME word, which is the
     // point: a German reader saw "In Bearbeitung" on the chip and the raw
-    // enum "working" in the cell. The badge is the one asserted here.
+    // enum "contacted" in the cell. The badge is the one asserted here.
     expect(
       screen
-        .getAllByText("Working")
+        .getAllByText("Contacted")
         .some((el) => el.classList.contains("badge")),
     ).toBe(true);
     expect(
@@ -1460,20 +1460,20 @@ describe("LeadScreen — status control (P-12)", () => {
       if (method === "PATCH" && url.includes("/leads/l-1")) {
         patchHeader = request.headers.get("If-Match");
         patchBody = JSON.parse(await request.text());
-        return jsonResponse({ ...lead, status: "working", version: 2 });
+        return jsonResponse({ ...lead, status: "contacted", version: 2 });
       }
       return undefined;
     });
     render(<LeadScreen id="l-1" />);
 
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Working" })).toBeTruthy(),
+      expect(screen.getByRole("button", { name: "Contacted" })).toBeTruthy(),
     );
-    await userEvent.click(screen.getByRole("button", { name: "Working" }));
+    await userEvent.click(screen.getByRole("button", { name: "Contacted" }));
 
     await waitFor(() => expect(patchBody).toBeTruthy());
     expect(patchHeader).toBe("1");
-    expect(patchBody).toMatchObject({ status: "working" });
+    expect(patchBody).toMatchObject({ status: "contacted" });
   });
 
   it("hides the status control for a promoted/disqualified lead", async () => {
@@ -1481,7 +1481,7 @@ describe("LeadScreen — status control (P-12)", () => {
     render(<LeadScreen id="l-1" />);
 
     await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "Working" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Contacted" })).toBeNull();
     expect(screen.queryByRole("button", { name: "New" })).toBeNull();
   });
 });
@@ -1709,7 +1709,7 @@ describe("terminalBadge (archived/terminal labelling)", () => {
       tone: "warn",
     });
     expect(terminalBadge("new")).toBeNull();
-    expect(terminalBadge("working")).toBeNull();
+    expect(terminalBadge("contacted")).toBeNull();
   });
 });
 

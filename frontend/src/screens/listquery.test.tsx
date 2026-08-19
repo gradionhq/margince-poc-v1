@@ -262,7 +262,7 @@ describe("ListTable: query vocabulary", () => {
             allLabel: "lead.filterStatusAll",
             options: [
               { value: "new", label: "lead.statusNew" },
-              { value: "working", label: "lead.statusWorking" },
+              { value: "contacted", label: "lead.statusContacted" },
             ],
           },
         ]}
@@ -352,7 +352,7 @@ describe("removing an applied filter", () => {
             key: "status",
             label: "lead.filterStatus",
             allLabel: "lead.filterStatusAll",
-            options: [{ value: "working", label: "lead.statusWorking" }],
+            options: [{ value: "contacted", label: "lead.statusContacted" }],
           },
         ]}
       />,
@@ -362,7 +362,7 @@ describe("removing an applied filter", () => {
       await screen.findByRole("button", { name: "Filter" }),
     );
     await userEvent.click(screen.getByRole("button", { name: "Status" }));
-    await userEvent.click(screen.getByRole("button", { name: "Working" }));
+    await userEvent.click(screen.getByRole("button", { name: "Contacted" }));
     await waitFor(() =>
       expect(fetchPage.mock.calls.some(([query]) => query.filters.status)).toBe(
         true,

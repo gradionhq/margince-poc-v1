@@ -179,7 +179,7 @@ export const ViewsChipsAndPaging: Story = {
           allLabel: "lead.filterStatusAll",
           options: [
             { value: "EU", label: "lead.statusNew" },
-            { value: "US", label: "lead.statusWorking" },
+            { value: "US", label: "lead.statusContacted" },
           ],
         },
       ]}

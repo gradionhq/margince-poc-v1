@@ -4583,7 +4583,7 @@ paths:
         - $ref: '#/components/parameters/AiWritten'
         - name: status
           in: query
-          schema: { type: string, enum: [new, working, promoted, disqualified] }
+          schema: { type: string, enum: [new, contacted, engaged, promoted, disqualified] }
         - name: owner_id
           in: query
           schema: { type: string, format: uuid }
@@ -4669,6 +4669,44 @@ paths:
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /leads/settings:
+    get:
+      tags: [Leads]
+      operationId: getLeadSettings
+      summary: How this installation handles leads.
+      description: |
+        The first-response target (formulas §18) is opt-in: off by default. While it is off
+        no lead carries `sla_deadline_at`/`sla_state`, the `sla_state` filter matches nothing,
+        the work queue orders by score alone and the breach scan records nothing. Read by every
+        role (the list needs it to know what to render); changed by admin/ops. Governed by the
+        `custom_field` RBAC object like the rest of the data-model settings.
+      responses:
+        '200':
+          description: The lead settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadSettings' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    patch:
+      tags: [Leads]
+      operationId: updateLeadSettings
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Change how this installation handles leads (admin/ops).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateLeadSettingsRequest' }
+      responses:
+        '200':
+          description: The updated lead settings.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeadSettings' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
   /leads/{id}:
@@ -19443,7 +19481,7 @@ components:
         company_name: { type: [string, 'null'], description: FREE TEXT — NOT an organization FK. }
         candidate_org_key: { type: [string, 'null'], description: Loose key for ABM routing without creating an org. }
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this lead belongs to; a lead has at most one. NO same-company guard exists on this arm and none can: a lead has no organization_id, only candidate_org_key, so the deal_project_same_org trigger has no lead twin. Promotion is where a mismatch becomes visible.' }
-        status: { type: string, enum: [new, working, promoted, disqualified], default: new }
+        status: { type: string, enum: [new, contacted, engaged, promoted, disqualified], default: new, description: 'The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.' }
         score: { type: integer, default: 0, description: 'Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).' }
         score_override_reason: { type: [string, 'null'], readOnly: true, description: 'Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.' }
         score_computed: { type: [integer, 'null'], readOnly: true, description: 'Server-derived. The latest machine-computed §3 score, retained ONLY while an override is in force (else null, because score itself is the machine value).' }
@@ -19471,6 +19509,15 @@ components:
         disqualify_reason_id: { type: [string, 'null'], format: uuid, readOnly: true, description: 'Set by DELETE /leads/{id} with a reason; null on an open lead.' }
         disqualify_reason: { type: [string, 'null'], readOnly: true, description: 'The label of disqualify_reason_id at read time.' }
         disqualify_note: { type: [string, 'null'], readOnly: true }
+        status_set_by:
+          type: [string, 'null']
+          enum: [human, system]
+          x-enum-varnames: [LeadStatusSetByHuman, LeadStatusSetBySystem]
+          readOnly: true
+          description: 'Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.'
+        qualified_deal_id: { type: [string, 'null'], format: uuid, readOnly: true, description: 'The deal opened by the qualify call that promoted this lead, when one was asked for.' }
+        qualification_evidence:
+          $ref: '#/components/schemas/LeadQualificationEvidence'
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
         raw: { type: [object, 'null'], additionalProperties: true }
         version: { $ref: '#/components/schemas/RowVersion' }
@@ -19500,7 +19547,7 @@ components:
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'] }
         project_id: { type: [string, 'null'], format: uuid }
-        status: { type: string, enum: [new, working, promoted, disqualified], default: new }
+        status: { type: string, enum: [new, contacted, engaged, promoted, disqualified], default: new, description: 'The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.' }
         owner_id: { type: [string, 'null'], format: uuid }
         source_system: { type: [string, 'null'] }
         source_id: { type: [string, 'null'] }
@@ -19511,7 +19558,7 @@ components:
     UpdateLeadRequest:
       type: object
       description: |
-        Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
+        Partial update. `status` may move only between the open steps `new`/`contacted`/`engaged` here. **Disqualifying is done
         via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
         "disqualified ⇒ archived" is enforced on that one path); `promoted` is reachable only via
         POST /leads/{id}/promote. Both terminal states are therefore excluded from this enum.
@@ -19522,7 +19569,7 @@ components:
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'], description: 'Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK.' }
         project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this lead belongs to; carries no same-company guard (a lead has no company).' }
-        status: { type: string, enum: [new, working] }
+        status: { type: string, enum: [new, contacted, engaged], description: 'A human may place an open lead on any open step, forwards or back; the system only ever moves forwards.' }
         source: { type: string, minLength: 1, description: 'Correct the source. A human may set any ACTIVE lead_source key or keep a free value it already carries; an inactive administered key is 422. Changing it recomputes the score (the source weight is part of it).' }
         score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.' }
         score_override_reason: { type: [string, 'null'], minLength: 1, description: 'Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.' }
@@ -19546,6 +19593,39 @@ components:
           properties:
             activity_id: { type: [string, 'null'], format: uuid }
             note: { type: [string, 'null'] }
+        deal:
+          $ref: '#/components/schemas/QualifyDealRequest'
+
+    QualifyDealRequest:
+      type: object
+      description: |
+        Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
+        to use the default pipeline's first open stage. The deal's owner is the lead's owner
+        and its organization is left unset (a lead has no organization). The deal's id lands
+        on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
+      properties:
+        pipeline_id: { type: [string, 'null'], format: uuid }
+        stage_id: { type: [string, 'null'], format: uuid }
+        name: { type: [string, 'null'], description: 'Defaults to "<company> — <stage>" or the lead''s name.' }
+        amount_minor: { type: [integer, 'null'], format: int64 }
+        currency: { type: [string, 'null'], description: 'ISO-4217; required with amount_minor.' }
+
+    LeadQualificationEvidence:
+      type: [object, 'null']
+      readOnly: true
+      description: |
+        The strongest genuine-engagement signal captured against this lead, derived from its
+        linked activities at read time: a held meeting over a booked one over an inbound reply.
+        What the qualify dialog shows as the reason and sends back as `trigger`; null when the
+        lead has no such signal yet (a human may still qualify with `human_qualify`).
+      required: [trigger]
+      properties:
+        trigger:
+          type: string
+          enum: [inbound_reply, meeting_booked, meeting_held]
+          x-enum-varnames: [LeadQualificationEvidenceTriggerInboundReply, LeadQualificationEvidenceTriggerMeetingBooked, LeadQualificationEvidenceTriggerMeetingHeld]
+        activity_id: { type: string, format: uuid }
+        occurred_at: { type: string, format: date-time }
 
     PromoteLeadResponse:
       type: object
@@ -19556,6 +19636,7 @@ components:
           type: boolean
           description: True if promotion merged into an existing person (no duplicate); false if a new person was created.
         lead_id: { type: string, format: uuid }
+        deal_id: { type: [string, 'null'], format: uuid, description: 'The deal opened alongside, when the request asked for one.' }
 
     PromoteLeadPreview:
       type: object
@@ -19705,6 +19786,19 @@ components:
         label: { type: string, minLength: 1 }
         sort_order: { type: integer }
         active: { type: boolean }
+
+    LeadSettings:
+      type: object
+      required: [first_response_enabled, first_response_target_minutes]
+      properties:
+        first_response_enabled: { type: boolean, description: 'Whether the first-response target is tracked at all. Off by default.' }
+        first_response_target_minutes: { type: integer, description: 'How long a lead may wait for its first genuine response once the clock starts (routing, else creation). 15..10080.' }
+
+    UpdateLeadSettingsRequest:
+      type: object
+      properties:
+        first_response_enabled: { type: boolean }
+        first_response_target_minutes: { type: integer, minimum: 15, maximum: 10080 }
 
     DisqualifyLeadRequest:
       type: object

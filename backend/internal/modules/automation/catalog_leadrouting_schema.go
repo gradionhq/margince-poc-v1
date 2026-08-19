@@ -53,7 +53,7 @@ func leadRoutingSchema() map[string]any {
 			"cap_per_owner": map[string]any{
 				schemaKeyType:        schemaTypeInteger,
 				schemaKeyMinimum:     1,
-				schemaKeyDescription: "Max open (new/working) leads an owner may hold; omitted = uncapped.",
+				schemaKeyDescription: "Max open (new, contacted, engaged) leads an owner may hold; omitted = uncapped.",
 			},
 			"rules": map[string]any{
 				schemaKeyType:        "array",

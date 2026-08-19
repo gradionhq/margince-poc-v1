@@ -2968,6 +2968,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/leads/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How this installation handles leads.
+         * @description The first-response target (formulas §18) is opt-in: off by default. While it is off
+         *     no lead carries `sla_deadline_at`/`sla_state`, the `sla_state` filter matches nothing,
+         *     the work queue orders by score alone and the breach scan records nothing. Read by every
+         *     role (the list needs it to know what to render); changed by admin/ops. Governed by the
+         *     `custom_field` RBAC object like the rest of the data-model settings.
+         */
+        get: operations["getLeadSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Change how this installation handles leads (admin/ops). */
+        patch: operations["updateLeadSettings"];
+        trace?: never;
+    };
     "/leads/{id}": {
         parameters: {
             query?: never;
@@ -13929,10 +13954,11 @@ export interface components {
              */
             project_id?: string | null;
             /**
+             * @description The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
              * @default new
              * @enum {string}
              */
-            status: "new" | "working" | "promoted" | "disqualified";
+            status: "new" | "contacted" | "engaged" | "promoted" | "disqualified";
             /**
              * @description Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).
              * @default 0
@@ -14001,6 +14027,17 @@ export interface components {
             /** @description The label of disqualify_reason_id at read time. */
             readonly disqualify_reason?: string | null;
             readonly disqualify_note?: string | null;
+            /**
+             * @description Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.
+             * @enum {string|null}
+             */
+            readonly status_set_by?: "human" | "system" | null;
+            /**
+             * Format: uuid
+             * @description The deal opened by the qualify call that promoted this lead, when one was asked for.
+             */
+            readonly qualified_deal_id?: string | null;
+            qualification_evidence?: components["schemas"]["LeadQualificationEvidence"];
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
             raw?: {
@@ -14028,10 +14065,11 @@ export interface components {
             /** Format: uuid */
             project_id?: string | null;
             /**
+             * @description The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
              * @default new
              * @enum {string}
              */
-            status: "new" | "working" | "promoted" | "disqualified";
+            status: "new" | "contacted" | "engaged" | "promoted" | "disqualified";
             /** Format: uuid */
             owner_id?: string | null;
             source_system?: string | null;
@@ -14041,7 +14079,7 @@ export interface components {
             [key: string]: unknown;
         };
         /**
-         * @description Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
+         * @description Partial update. `status` may move only between the open steps `new`/`contacted`/`engaged` here. **Disqualifying is done
          *     via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
          *     "disqualified ⇒ archived" is enforced on that one path); `promoted` is reachable only via
          *     POST /leads/{id}/promote. Both terminal states are therefore excluded from this enum.
@@ -14059,8 +14097,11 @@ export interface components {
              * @description The body of work this lead belongs to; carries no same-company guard (a lead has no company).
              */
             project_id?: string | null;
-            /** @enum {string} */
-            status?: "new" | "working";
+            /**
+             * @description A human may place an open lead on any open step, forwards or back; the system only ever moves forwards.
+             * @enum {string}
+             */
+            status?: "new" | "contacted" | "engaged";
             /** @description Correct the source. A human may set any ACTIVE lead_source key or keep a free value it already carries; an inactive administered key is 422. Changing it recomputes the score (the source weight is part of it). */
             source?: string;
             /** @description Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute. */
@@ -14085,13 +14126,51 @@ export interface components {
                 activity_id?: string | null;
                 note?: string | null;
             };
+            deal?: components["schemas"]["QualifyDealRequest"];
         };
+        /**
+         * @description Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
+         *     to use the default pipeline's first open stage. The deal's owner is the lead's owner
+         *     and its organization is left unset (a lead has no organization). The deal's id lands
+         *     on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
+         */
+        QualifyDealRequest: {
+            /** Format: uuid */
+            pipeline_id?: string | null;
+            /** Format: uuid */
+            stage_id?: string | null;
+            /** @description Defaults to "<company> — <stage>" or the lead's name. */
+            name?: string | null;
+            /** Format: int64 */
+            amount_minor?: number | null;
+            /** @description ISO-4217; required with amount_minor. */
+            currency?: string | null;
+        };
+        /**
+         * @description The strongest genuine-engagement signal captured against this lead, derived from its
+         *     linked activities at read time: a held meeting over a booked one over an inbound reply.
+         *     What the qualify dialog shows as the reason and sends back as `trigger`; null when the
+         *     lead has no such signal yet (a human may still qualify with `human_qualify`).
+         */
+        LeadQualificationEvidence: {
+            /** @enum {string} */
+            trigger: "inbound_reply" | "meeting_booked" | "meeting_held";
+            /** Format: uuid */
+            activity_id?: string;
+            /** Format: date-time */
+            occurred_at?: string;
+        } | null;
         PromoteLeadResponse: {
             person: components["schemas"]["Person"];
             /** @description True if promotion merged into an existing person (no duplicate); false if a new person was created. */
             merged: boolean;
             /** Format: uuid */
             lead_id?: string;
+            /**
+             * Format: uuid
+             * @description The deal opened alongside, when the request asked for one.
+             */
+            deal_id?: string | null;
         };
         /** @description What POST /leads/{id}/promote would do, computed without writing (ADR-0119/A170). */
         PromoteLeadPreview: {
@@ -14209,6 +14288,16 @@ export interface components {
             label?: string;
             sort_order?: number;
             active?: boolean;
+        };
+        LeadSettings: {
+            /** @description Whether the first-response target is tracked at all. Off by default. */
+            first_response_enabled: boolean;
+            /** @description How long a lead may wait for its first genuine response once the clock starts (routing, else creation). 15..10080. */
+            first_response_target_minutes: number;
+        };
+        UpdateLeadSettingsRequest: {
+            first_response_enabled?: boolean;
+            first_response_target_minutes?: number;
         };
         /** @description Why the lead is closed. Both fields are optional on the wire so an agent's governed disqualify still works; the UI always sends a reason. */
         DisqualifyLeadRequest: {
@@ -23445,7 +23534,7 @@ export interface operations {
                  *     itself), and not otherwise.
                  */
                 ai_written?: components["parameters"]["AiWritten"];
-                status?: "new" | "working" | "promoted" | "disqualified";
+                status?: "new" | "contacted" | "engaged" | "promoted" | "disqualified";
                 owner_id?: string;
                 /**
                  * @description Rows owned by any member of this team. NARROWS the caller's row scope, never widens it:
@@ -23541,6 +23630,53 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getLeadSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The lead settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSettings"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    updateLeadSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLeadSettingsRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated lead settings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSettings"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
         };
     };

@@ -221,7 +221,7 @@ func baseProfile(domain string) profile {
 			p.DealStage = "lost"
 			p.LostReason = lostReasons[hashIndex("lostreason:"+domain, len(lostReasons))]
 		} else {
-			p.LeadState = pickOne(domain, "lead", []string{"new", "working"})
+			p.LeadState = pickOne(domain, "lead", []string{"new", "contacted", "engaged"})
 		}
 	case "target":
 		// Mostly nothing, which is the honest majority. A few carry an

@@ -30,7 +30,7 @@ const lead = {
   full_name: "Jonas Petersen",
   email: "jonas@nordwind.example",
   company_name: "Nordwind Logistik",
-  status: "working" as const,
+  status: "contacted" as const,
   score: 72,
   source: "manual",
   captured_by: "human:u1",
@@ -235,7 +235,7 @@ export const LeadsBoard: Story = {
               id: "l-2",
               full_name: "Petra Vogel",
               company_name: "Südwind AG",
-              status: "working",
+              status: "contacted",
               score: 54,
             },
           ],
@@ -262,7 +262,7 @@ export const LeadPresentationComponents: Story = {
       <div style={{ display: "grid", gap: "var(--space-3)" }}>
         <div style={{ display: "flex", gap: "var(--space-2)" }}>
           <StatusBadge status="new" />
-          <StatusBadge status="working" />
+          <StatusBadge status="contacted" />
         </div>
         <LeadBoard
           rows={[
@@ -271,7 +271,7 @@ export const LeadPresentationComponents: Story = {
               ...lead,
               id: "l-2",
               full_name: "Petra Vogel",
-              status: "working",
+              status: "contacted",
               score: 54,
             },
           ]}

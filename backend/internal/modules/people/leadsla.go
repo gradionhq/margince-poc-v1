@@ -24,32 +24,24 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// FirstResponseTarget is LEADSLA_FIRST_RESPONSE_MINUTES (formulas §18,
-// default 240): how long a lead may wait for its first genuine response
-// after the clock starts.
-const FirstResponseTarget = 240 * time.Minute
-
-// slaAtRiskWindow is the tail of the target inside which an unanswered lead
-// reads as at_risk rather than within_target: the last quarter.
-const slaAtRiskWindow = FirstResponseTarget / 4
-
 // leadSLAClock is the clock the derived SLA fields are read against. A
 // package variable rather than a Store field because the scanner that
 // derives them has no store in hand; tests pin it.
 var leadSLAClock = time.Now
 
 // leadSLAFields derives the wire's sla_deadline_at and sla_state from the
-// stored clock start, first response and closure (formulas §18.1). A closed
-// or answered lead owes nothing and reads null.
-func leadSLAFields(routedAt *time.Time, createdAt time.Time, firstResponseAt, archivedAt *time.Time) (*time.Time, *crmcontracts.LeadSlaState) {
-	if archivedAt != nil {
+// stored clock start, first response and closure (formulas §18.1) under the
+// installation's policy. A closed or answered lead owes nothing and reads
+// null; with the target switched off every lead does.
+func leadSLAFields(policy leadSLAPolicy, routedAt *time.Time, createdAt time.Time, firstResponseAt, archivedAt *time.Time) (*time.Time, *crmcontracts.LeadSlaState) {
+	if !policy.enabled || archivedAt != nil {
 		return nil, nil
 	}
 	start := createdAt
 	if routedAt != nil {
 		start = *routedAt
 	}
-	deadline := start.Add(FirstResponseTarget)
+	deadline := start.Add(policy.target)
 	if firstResponseAt != nil {
 		return &deadline, nil
 	}
@@ -58,7 +50,7 @@ func leadSLAFields(routedAt *time.Time, createdAt time.Time, firstResponseAt, ar
 	switch {
 	case now.After(deadline):
 		state = crmcontracts.LeadSlaStateBreached
-	case deadline.Sub(now) <= slaAtRiskWindow:
+	case deadline.Sub(now) <= policy.atRisk():
 		state = crmcontracts.LeadSlaStateAtRisk
 	}
 	return &deadline, &state
@@ -73,20 +65,26 @@ func leadSLAFields(routedAt *time.Time, createdAt time.Time, firstResponseAt, ar
 // a filter reading a different clock — the container's, seconds adrift, or
 // the other side of a boundary crossed mid-request — would return an at_risk
 // row whose own payload says breached.
-func slaStateClause(state crmcontracts.ListLeadsParamsSlaState, arg func(any) int) string {
+//
+// With the target switched off no lead is in any SLA state, so the filter
+// matches nothing rather than pretending a default target.
+func slaStateClause(policy leadSLAPolicy, state crmcontracts.ListLeadsParamsSlaState, arg func(any) int) string {
+	if !policy.enabled {
+		return "FALSE"
+	}
 	deadline := "COALESCE(routed_at, created_at) + $%d * interval '1 minute'"
 	open := "archived_at IS NULL AND first_response_at IS NULL AND "
-	minutes := int(FirstResponseTarget / time.Minute)
+	minutes := policy.targetMinutes()
 	now := leadSLAClock().UTC()
 	switch crmcontracts.LeadSlaState(state) {
 	case crmcontracts.LeadSlaStateBreached:
 		return storekit.SQLf(open+deadline+" < $%d", arg(minutes), arg(now))
 	case crmcontracts.LeadSlaStateAtRisk:
 		return storekit.SQLf(open+deadline+" >= $%d AND "+deadline+" - $%d * interval '1 minute' <= $%d",
-			arg(minutes), arg(now), arg(minutes), arg(int(slaAtRiskWindow/time.Minute)), arg(now))
+			arg(minutes), arg(now), arg(minutes), arg(int(policy.atRisk()/time.Minute)), arg(now))
 	default:
 		return storekit.SQLf(open+deadline+" - $%d * interval '1 minute' > $%d",
-			arg(minutes), arg(int(slaAtRiskWindow/time.Minute)), arg(now))
+			arg(minutes), arg(int(policy.atRisk()/time.Minute)), arg(now))
 	}
 }
 
@@ -112,12 +110,23 @@ type SLABreach struct {
 // LOCKED lets two scans share the work without escalating a lead twice.
 // Each breach lands one audit row and lead.sla_breached; the escalation
 // task hangs off that event.
+//
+// With the target switched off the scan is a no-op: no deadline exists to
+// breach, and a breach row the installation never asked for would page an
+// owner about a rule they did not set.
 func (s *Store) ScanLeadSLA(ctx context.Context, now time.Time) ([]SLABreach, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
 		return nil, err
 	}
 	var breaches []SLABreach
 	err := s.tx(ctx, func(tx pgx.Tx) error {
+		policy, err := loadLeadSLAPolicy(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if !policy.enabled {
+			return nil
+		}
 		rows, err := tx.Query(ctx, `
 			SELECT id, owner_id, COALESCE(routed_at, created_at) + $1 * interval '1 minute', COALESCE(full_name, email, '')
 			FROM lead
@@ -125,7 +134,7 @@ func (s *Store) ScanLeadSLA(ctx context.Context, now time.Time) ([]SLABreach, er
 			  AND COALESCE(routed_at, created_at) + $1 * interval '1 minute' < $2
 			ORDER BY created_at
 			FOR UPDATE SKIP LOCKED`,
-			int(FirstResponseTarget/time.Minute), now)
+			policy.targetMinutes(), now)
 		if err != nil {
 			return fmt.Errorf("select breached leads: %w", err)
 		}

@@ -117,16 +117,51 @@ func (h Handlers) PromoteLead(w http.ResponseWriter, r *http.Request, id crmcont
 		in.EvidenceNote = req.Evidence.Note
 		in.EvidenceActivityID = idArg[ids.ActivityKind](req.Evidence.ActivityId)
 	}
+	if req.Deal != nil {
+		in.Deal = &QualifyDealInput{
+			PipelineID: uuidPtrToIDs(req.Deal.PipelineId), StageID: uuidPtrToIDs(req.Deal.StageId),
+			AmountMinor: req.Deal.AmountMinor, Currency: req.Deal.Currency,
+		}
+		if req.Deal.Name != nil {
+			in.Deal.Name = *req.Deal.Name
+		}
+	}
 
-	person, merged, err := h.store.PromoteLead(r.Context(), pathID[ids.LeadKind](id), in)
+	out, err := h.store.QualifyLead(r.Context(), pathID[ids.LeadKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
 	}
 	leadID := id
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.PromoteLeadResponse{
-		LeadId: &leadID, Merged: merged, Person: person,
+		LeadId: &leadID, Merged: out.Merged, Person: out.Person, DealId: uuidPtr(out.DealID),
 	})
+}
+
+// GetLeadSettings serves GET /leads/settings.
+func (h Handlers) GetLeadSettings(w http.ResponseWriter, r *http.Request) {
+	out, err := h.store.GetLeadSettings(r.Context())
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
+}
+
+// UpdateLeadSettings serves PATCH /leads/settings (admin/ops, human only).
+func (h Handlers) UpdateLeadSettings(w http.ResponseWriter, r *http.Request) {
+	var req crmcontracts.UpdateLeadSettingsRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	out, err := h.store.UpdateLeadSettings(r.Context(), UpdateLeadSettingsInput{
+		FirstResponseEnabled: req.FirstResponseEnabled, FirstResponseTargetMinutes: req.FirstResponseTargetMinutes,
+	})
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, out)
 }
 
 // PreviewLeadPromotion serves GET /leads/{id}/promote-preview — what

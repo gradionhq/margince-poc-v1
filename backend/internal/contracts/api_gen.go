@@ -3080,22 +3080,25 @@ func (e CreateImportRunRequestConnector) Valid() bool {
 
 // Defines values for CreateLeadRequestStatus.
 const (
+	CreateLeadRequestStatusContacted    CreateLeadRequestStatus = "contacted"
 	CreateLeadRequestStatusDisqualified CreateLeadRequestStatus = "disqualified"
+	CreateLeadRequestStatusEngaged      CreateLeadRequestStatus = "engaged"
 	CreateLeadRequestStatusNew          CreateLeadRequestStatus = "new"
 	CreateLeadRequestStatusPromoted     CreateLeadRequestStatus = "promoted"
-	CreateLeadRequestStatusWorking      CreateLeadRequestStatus = "working"
 )
 
 // Valid indicates whether the value is a known member of the CreateLeadRequestStatus enum.
 func (e CreateLeadRequestStatus) Valid() bool {
 	switch e {
+	case CreateLeadRequestStatusContacted:
+		return true
 	case CreateLeadRequestStatusDisqualified:
+		return true
+	case CreateLeadRequestStatusEngaged:
 		return true
 	case CreateLeadRequestStatusNew:
 		return true
 	case CreateLeadRequestStatusPromoted:
-		return true
-	case CreateLeadRequestStatusWorking:
 		return true
 	default:
 		return false
@@ -4526,22 +4529,43 @@ func (e LeadSlaState) Valid() bool {
 
 // Defines values for LeadStatus.
 const (
+	LeadStatusContacted    LeadStatus = "contacted"
 	LeadStatusDisqualified LeadStatus = "disqualified"
+	LeadStatusEngaged      LeadStatus = "engaged"
 	LeadStatusNew          LeadStatus = "new"
 	LeadStatusPromoted     LeadStatus = "promoted"
-	LeadStatusWorking      LeadStatus = "working"
 )
 
 // Valid indicates whether the value is a known member of the LeadStatus enum.
 func (e LeadStatus) Valid() bool {
 	switch e {
+	case LeadStatusContacted:
+		return true
 	case LeadStatusDisqualified:
+		return true
+	case LeadStatusEngaged:
 		return true
 	case LeadStatusNew:
 		return true
 	case LeadStatusPromoted:
 		return true
-	case LeadStatusWorking:
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadStatusSetBy.
+const (
+	LeadStatusSetByHuman  LeadStatusSetBy = "human"
+	LeadStatusSetBySystem LeadStatusSetBy = "system"
+)
+
+// Valid indicates whether the value is a known member of the LeadStatusSetBy enum.
+func (e LeadStatusSetBy) Valid() bool {
+	switch e {
+	case LeadStatusSetByHuman:
+		return true
+	case LeadStatusSetBySystem:
 		return true
 	default:
 		return false
@@ -4584,6 +4608,27 @@ func (e LeadManualSignalKind) Valid() bool {
 	case LeadManualSignalKindFact:
 		return true
 	case LeadManualSignalKindJudgement:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LeadQualificationEvidenceTrigger.
+const (
+	LeadQualificationEvidenceTriggerInboundReply  LeadQualificationEvidenceTrigger = "inbound_reply"
+	LeadQualificationEvidenceTriggerMeetingBooked LeadQualificationEvidenceTrigger = "meeting_booked"
+	LeadQualificationEvidenceTriggerMeetingHeld   LeadQualificationEvidenceTrigger = "meeting_held"
+)
+
+// Valid indicates whether the value is a known member of the LeadQualificationEvidenceTrigger enum.
+func (e LeadQualificationEvidenceTrigger) Valid() bool {
+	switch e {
+	case LeadQualificationEvidenceTriggerInboundReply:
+		return true
+	case LeadQualificationEvidenceTriggerMeetingBooked:
+		return true
+	case LeadQualificationEvidenceTriggerMeetingHeld:
 		return true
 	default:
 		return false
@@ -8729,16 +8774,19 @@ func (e UpdateDealRequestStatus) Valid() bool {
 
 // Defines values for UpdateLeadRequestStatus.
 const (
-	UpdateLeadRequestStatusNew     UpdateLeadRequestStatus = "new"
-	UpdateLeadRequestStatusWorking UpdateLeadRequestStatus = "working"
+	UpdateLeadRequestStatusContacted UpdateLeadRequestStatus = "contacted"
+	UpdateLeadRequestStatusEngaged   UpdateLeadRequestStatus = "engaged"
+	UpdateLeadRequestStatusNew       UpdateLeadRequestStatus = "new"
 )
 
 // Valid indicates whether the value is a known member of the UpdateLeadRequestStatus enum.
 func (e UpdateLeadRequestStatus) Valid() bool {
 	switch e {
-	case UpdateLeadRequestStatusNew:
+	case UpdateLeadRequestStatusContacted:
 		return true
-	case UpdateLeadRequestStatusWorking:
+	case UpdateLeadRequestStatusEngaged:
+		return true
+	case UpdateLeadRequestStatusNew:
 		return true
 	default:
 		return false
@@ -10247,22 +10295,25 @@ func (e ListLeadsParamsCapturedByKind) Valid() bool {
 
 // Defines values for ListLeadsParamsStatus.
 const (
+	ListLeadsParamsStatusContacted    ListLeadsParamsStatus = "contacted"
 	ListLeadsParamsStatusDisqualified ListLeadsParamsStatus = "disqualified"
+	ListLeadsParamsStatusEngaged      ListLeadsParamsStatus = "engaged"
 	ListLeadsParamsStatusNew          ListLeadsParamsStatus = "new"
 	ListLeadsParamsStatusPromoted     ListLeadsParamsStatus = "promoted"
-	ListLeadsParamsStatusWorking      ListLeadsParamsStatus = "working"
 )
 
 // Valid indicates whether the value is a known member of the ListLeadsParamsStatus enum.
 func (e ListLeadsParamsStatus) Valid() bool {
 	switch e {
+	case ListLeadsParamsStatusContacted:
+		return true
 	case ListLeadsParamsStatusDisqualified:
+		return true
+	case ListLeadsParamsStatusEngaged:
 		return true
 	case ListLeadsParamsStatusNew:
 		return true
 	case ListLeadsParamsStatusPromoted:
-		return true
-	case ListLeadsParamsStatusWorking:
 		return true
 	default:
 		return false
@@ -10514,22 +10565,22 @@ func (e ListOrganizationDocumentsParamsCategory) Valid() bool {
 
 // Defines values for ListOrganizationDocumentsParamsDocState.
 const (
-	ListOrganizationDocumentsParamsDocStateCurrent    ListOrganizationDocumentsParamsDocState = "current"
-	ListOrganizationDocumentsParamsDocStateDraft      ListOrganizationDocumentsParamsDocState = "draft"
-	ListOrganizationDocumentsParamsDocStateFinal      ListOrganizationDocumentsParamsDocState = "final"
-	ListOrganizationDocumentsParamsDocStateSuperseded ListOrganizationDocumentsParamsDocState = "superseded"
+	Current    ListOrganizationDocumentsParamsDocState = "current"
+	Draft      ListOrganizationDocumentsParamsDocState = "draft"
+	Final      ListOrganizationDocumentsParamsDocState = "final"
+	Superseded ListOrganizationDocumentsParamsDocState = "superseded"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationDocumentsParamsDocState enum.
 func (e ListOrganizationDocumentsParamsDocState) Valid() bool {
 	switch e {
-	case ListOrganizationDocumentsParamsDocStateCurrent:
+	case Current:
 		return true
-	case ListOrganizationDocumentsParamsDocStateDraft:
+	case Draft:
 		return true
-	case ListOrganizationDocumentsParamsDocStateFinal:
+	case Final:
 		return true
-	case ListOrganizationDocumentsParamsDocStateSuperseded:
+	case Superseded:
 		return true
 	default:
 		return false
@@ -13485,18 +13536,20 @@ type CreateLeadRequest struct {
 	FullName        *string              `json:"full_name,omitempty"`
 
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key for LinkedIn-captured leads.
-	LinkedinUrl          *string                  `json:"linkedin_url,omitempty"`
-	OwnerId              *openapi_types.UUID      `json:"owner_id,omitempty"`
-	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
-	Source               string                   `json:"source"`
-	SourceId             *string                  `json:"source_id,omitempty"`
-	SourceSystem         *string                  `json:"source_system,omitempty"`
+	LinkedinUrl  *string             `json:"linkedin_url,omitempty"`
+	OwnerId      *openapi_types.UUID `json:"owner_id,omitempty"`
+	ProjectId    *openapi_types.UUID `json:"project_id,omitempty"`
+	Source       string              `json:"source"`
+	SourceId     *string             `json:"source_id,omitempty"`
+	SourceSystem *string             `json:"source_system,omitempty"`
+
+	// Status The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
 	Status               *CreateLeadRequestStatus `json:"status,omitempty"`
 	Title                *string                  `json:"title,omitempty"`
 	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
-// CreateLeadRequestStatus defines model for CreateLeadRequest.Status.
+// CreateLeadRequestStatus The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
 type CreateLeadRequestStatus string
 
 // CreateLeadSourceRequest defines model for CreateLeadSourceRequest.
@@ -14952,8 +15005,17 @@ type Lead struct {
 	PromotedAt *time.Time          `json:"promoted_at,omitempty"`
 
 	// PromotedPersonId Set on promotion (convenience mirror).
-	PromotedPersonId *openapi_types.UUID     `json:"promoted_person_id,omitempty"`
-	Raw              *map[string]interface{} `json:"raw,omitempty"`
+	PromotedPersonId *openapi_types.UUID `json:"promoted_person_id,omitempty"`
+
+	// QualificationEvidence The strongest genuine-engagement signal captured against this lead, derived from its
+	// linked activities at read time: a held meeting over a booked one over an inbound reply.
+	// What the qualify dialog shows as the reason and sends back as `trigger`; null when the
+	// lead has no such signal yet (a human may still qualify with `human_qualify`).
+	QualificationEvidence *LeadQualificationEvidence `json:"qualification_evidence,omitempty"`
+
+	// QualifiedDealId The deal opened by the qualify call that promoted this lead, when one was asked for.
+	QualifiedDealId *openapi_types.UUID     `json:"qualified_deal_id,omitempty"`
+	Raw             *map[string]interface{} `json:"raw,omitempty"`
 
 	// RoutedAt When routing assigned an owner. Starts the §18 first-response clock; null means the clock starts at created_at.
 	RoutedAt *time.Time `json:"routed_at,omitempty"`
@@ -14981,11 +15043,16 @@ type Lead struct {
 	SourceId *string `json:"source_id,omitempty"`
 
 	// SourceLabel The administered label for `source`, when the key is in the lead_source list; null for connector, seed and other free values.
-	SourceLabel  *string    `json:"source_label,omitempty"`
-	SourceSystem *string    `json:"source_system,omitempty"`
-	Status       LeadStatus `json:"status"`
-	Title        *string    `json:"title,omitempty"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	SourceLabel  *string `json:"source_label,omitempty"`
+	SourceSystem *string `json:"source_system,omitempty"`
+
+	// Status The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
+	Status LeadStatus `json:"status"`
+
+	// StatusSetBy Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.
+	StatusSetBy *LeadStatusSetBy `json:"status_set_by,omitempty"`
+	Title       *string          `json:"title,omitempty"`
+	UpdatedAt   time.Time        `json:"updated_at"`
 
 	// Version Monotonic row version, incremented by the server on every mutation (data-model §1.3a).
 	// Echoed back as the `version` field on every mutable entity. To make a write conditional,
@@ -14999,8 +15066,11 @@ type Lead struct {
 // LeadSlaState Derived from sla_deadline_at and first_response_at (formulas §18.1); null once responded or on a terminal lead. Orders the work queue above score (ADR-0119/A170).
 type LeadSlaState string
 
-// LeadStatus defines model for Lead.Status.
+// LeadStatus The activity-driven ladder: new → contacted (we reached out) → engaged (they answered or a meeting is booked/held) → promoted (qualified: a contact exists) | disqualified. contacted and engaged are set by the system from captured activity and may be set by hand.
 type LeadStatus string
+
+// LeadStatusSetBy Who placed the lead on its current status: a human by hand, or the system from captured activity. Null for a lead still on new.
+type LeadStatusSetBy string
 
 // LeadDisqualifyReason defines model for LeadDisqualifyReason.
 type LeadDisqualifyReason struct {
@@ -15072,6 +15142,19 @@ type LeadManualSignalListResponse struct {
 	Data []LeadManualSignal `json:"data"`
 }
 
+// LeadQualificationEvidence The strongest genuine-engagement signal captured against this lead, derived from its
+// linked activities at read time: a held meeting over a booked one over an inbound reply.
+// What the qualify dialog shows as the reason and sends back as `trigger`; null when the
+// lead has no such signal yet (a human may still qualify with `human_qualify`).
+type LeadQualificationEvidence struct {
+	ActivityId *openapi_types.UUID              `json:"activity_id,omitempty"`
+	OccurredAt *time.Time                       `json:"occurred_at,omitempty"`
+	Trigger    LeadQualificationEvidenceTrigger `json:"trigger"`
+}
+
+// LeadQualificationEvidenceTrigger defines model for LeadQualificationEvidence.Trigger.
+type LeadQualificationEvidenceTrigger string
+
 // LeadScoreEntry One point in the retained series — what the score was, and why.
 type LeadScoreEntry struct {
 	ComputedAt time.Time          `json:"computed_at"`
@@ -15139,6 +15222,15 @@ type LeadScoreFactor struct {
 
 	// SourceActivityIds The activities behind a behavioral factor, re-read through the CALLER's scope (ADR-0105 §3).
 	SourceActivityIds *[]openapi_types.UUID `json:"source_activity_ids,omitempty"`
+}
+
+// LeadSettings defines model for LeadSettings.
+type LeadSettings struct {
+	// FirstResponseEnabled Whether the first-response target is tracked at all. Off by default.
+	FirstResponseEnabled bool `json:"first_response_enabled"`
+
+	// FirstResponseTargetMinutes How long a lead may wait for its first genuine response once the clock starts (routing, else creation). 15..10080.
+	FirstResponseTargetMinutes int `json:"first_response_target_minutes"`
 }
 
 // LeadSource One administered lead source. `key` is the value stored on `lead.source`; `label` is what a user sees.
@@ -18664,6 +18756,12 @@ type PromoteLeadPreviewOutcome string
 
 // PromoteLeadRequest defines model for PromoteLeadRequest.
 type PromoteLeadRequest struct {
+	// Deal Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
+	// to use the default pipeline's first open stage. The deal's owner is the lead's owner
+	// and its organization is left unset (a lead has no organization). The deal's id lands
+	// on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
+	Deal *QualifyDealRequest `json:"deal,omitempty"`
+
 	// Evidence Which inbound email/meeting (or human) triggered promotion; recorded in audit.
 	Evidence *struct {
 		ActivityId *openapi_types.UUID `json:"activity_id,omitempty"`
@@ -18681,6 +18779,8 @@ type PromoteLeadRequestTrigger string
 
 // PromoteLeadResponse defines model for PromoteLeadResponse.
 type PromoteLeadResponse struct {
+	// DealId The deal opened alongside, when the request asked for one.
+	DealId *openapi_types.UUID `json:"deal_id,omitempty"`
 	LeadId *openapi_types.UUID `json:"lead_id,omitempty"`
 
 	// Merged True if promotion merged into an existing person (no duplicate); false if a new person was created.
@@ -18942,6 +19042,22 @@ type PutOnboardingStateRequestSourceMode string
 
 // PutOnboardingStateRequestStep defines model for PutOnboardingStateRequest.Step.
 type PutOnboardingStateRequestStep string
+
+// QualifyDealRequest Open a deal in the same transaction as the promotion. Omit pipeline_id and stage_id
+// to use the default pipeline's first open stage. The deal's owner is the lead's owner
+// and its organization is left unset (a lead has no organization). The deal's id lands
+// on the lead as `qualified_deal_id`; a deal failure rolls the whole promotion back.
+type QualifyDealRequest struct {
+	AmountMinor *int64 `json:"amount_minor,omitempty"`
+
+	// Currency ISO-4217; required with amount_minor.
+	Currency *string `json:"currency,omitempty"`
+
+	// Name Defaults to "<company> — <stage>" or the lead's name.
+	Name       *string             `json:"name,omitempty"`
+	PipelineId *openapi_types.UUID `json:"pipeline_id,omitempty"`
+	StageId    *openapi_types.UUID `json:"stage_id,omitempty"`
+}
 
 // Quota A per-owner or per-team revenue target for one period (RD-DDL-2). Exactly one of
 // owner_id/team_id is non-null (CHECK constraint) — never both, never neither;
@@ -20382,7 +20498,7 @@ type UpdateLeadDisqualifyReasonRequest struct {
 	SortOrder *int    `json:"sort_order,omitempty"`
 }
 
-// UpdateLeadRequest Partial update. `status` may move only between `new`/`working` here. **Disqualifying is done
+// UpdateLeadRequest Partial update. `status` may move only between the open steps `new`/`contacted`/`engaged` here. **Disqualifying is done
 // via DELETE /leads/{id}** (which sets status=disqualified AND archives — the invariant
 // "disqualified ⇒ archived" is enforced on that one path); `promoted` is reachable only via
 // POST /leads/{id}/promote. Both terminal states are therefore excluded from this enum.
@@ -20404,14 +20520,22 @@ type UpdateLeadRequest struct {
 	ScoreOverrideReason *string `json:"score_override_reason,omitempty"`
 
 	// Source Correct the source. A human may set any ACTIVE lead_source key or keep a free value it already carries; an inactive administered key is 422. Changing it recomputes the score (the source weight is part of it).
-	Source               *string                  `json:"source,omitempty"`
+	Source *string `json:"source,omitempty"`
+
+	// Status A human may place an open lead on any open step, forwards or back; the system only ever moves forwards.
 	Status               *UpdateLeadRequestStatus `json:"status,omitempty"`
 	Title                *string                  `json:"title,omitempty"`
 	AdditionalProperties map[string]interface{}   `json:"-"`
 }
 
-// UpdateLeadRequestStatus defines model for UpdateLeadRequest.Status.
+// UpdateLeadRequestStatus A human may place an open lead on any open step, forwards or back; the system only ever moves forwards.
 type UpdateLeadRequestStatus string
+
+// UpdateLeadSettingsRequest defines model for UpdateLeadSettingsRequest.
+type UpdateLeadSettingsRequest struct {
+	FirstResponseEnabled       *bool `json:"first_response_enabled,omitempty"`
+	FirstResponseTargetMinutes *int  `json:"first_response_target_minutes,omitempty"`
+}
 
 // UpdateLeadSourceRequest defines model for UpdateLeadSourceRequest.
 type UpdateLeadSourceRequest struct {
@@ -25010,6 +25134,9 @@ type UpdateLeadSourceJSONRequestBody = UpdateLeadSourceRequest
 // CreateLeadJSONRequestBody defines body for CreateLead for application/json ContentType.
 type CreateLeadJSONRequestBody = CreateLeadRequest
 
+// UpdateLeadSettingsJSONRequestBody defines body for UpdateLeadSettings for application/json ContentType.
+type UpdateLeadSettingsJSONRequestBody = UpdateLeadSettingsRequest
+
 // DisqualifyLeadJSONRequestBody defines body for DisqualifyLead for application/json ContentType.
 type DisqualifyLeadJSONRequestBody = DisqualifyLeadRequest
 
@@ -27435,6 +27562,22 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "promoted_person_id")
 	}
 
+	if raw, found := object["qualification_evidence"]; found {
+		err = json.Unmarshal(raw, &a.QualificationEvidence)
+		if err != nil {
+			return fmt.Errorf("error reading 'qualification_evidence': %w", err)
+		}
+		delete(object, "qualification_evidence")
+	}
+
+	if raw, found := object["qualified_deal_id"]; found {
+		err = json.Unmarshal(raw, &a.QualifiedDealId)
+		if err != nil {
+			return fmt.Errorf("error reading 'qualified_deal_id': %w", err)
+		}
+		delete(object, "qualified_deal_id")
+	}
+
 	if raw, found := object["raw"]; found {
 		err = json.Unmarshal(raw, &a.Raw)
 		if err != nil {
@@ -27537,6 +27680,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'status': %w", err)
 		}
 		delete(object, "status")
+	}
+
+	if raw, found := object["status_set_by"]; found {
+		err = json.Unmarshal(raw, &a.StatusSetBy)
+		if err != nil {
+			return fmt.Errorf("error reading 'status_set_by': %w", err)
+		}
+		delete(object, "status_set_by")
 	}
 
 	if raw, found := object["title"]; found {
@@ -27723,6 +27874,20 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.QualificationEvidence != nil {
+		object["qualification_evidence"], err = json.Marshal(a.QualificationEvidence)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'qualification_evidence': %w", err)
+		}
+	}
+
+	if a.QualifiedDealId != nil {
+		object["qualified_deal_id"], err = json.Marshal(a.QualifiedDealId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'qualified_deal_id': %w", err)
+		}
+	}
+
 	if a.Raw != nil {
 		object["raw"], err = json.Marshal(a.Raw)
 		if err != nil {
@@ -27806,6 +27971,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 	object["status"], err = json.Marshal(a.Status)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'status': %w", err)
+	}
+
+	if a.StatusSetBy != nil {
+		object["status_set_by"], err = json.Marshal(a.StatusSetBy)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'status_set_by': %w", err)
+		}
 	}
 
 	if a.Title != nil {
@@ -31770,6 +31942,12 @@ type ServerInterface interface {
 	// Create a lead.
 	// (POST /leads)
 	CreateLead(w http.ResponseWriter, r *http.Request, params CreateLeadParams)
+	// How this installation handles leads.
+	// (GET /leads/settings)
+	GetLeadSettings(w http.ResponseWriter, r *http.Request)
+	// Change how this installation handles leads (admin/ops).
+	// (PATCH /leads/settings)
+	UpdateLeadSettings(w http.ResponseWriter, r *http.Request)
 	// Disqualify (soft-archive) a lead, with a reason.
 	// (DELETE /leads/{id})
 	DisqualifyLead(w http.ResponseWriter, r *http.Request, id Id)
@@ -33477,6 +33655,18 @@ func (_ Unimplemented) ListLeads(w http.ResponseWriter, r *http.Request, params 
 // Create a lead.
 // (POST /leads)
 func (_ Unimplemented) CreateLead(w http.ResponseWriter, r *http.Request, params CreateLeadParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// How this installation handles leads.
+// (GET /leads/settings)
+func (_ Unimplemented) GetLeadSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Change how this installation handles leads (admin/ops).
+// (PATCH /leads/settings)
+func (_ Unimplemented) UpdateLeadSettings(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -41731,6 +41921,48 @@ func (siw *ServerInterfaceWrapper) CreateLead(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateLead(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLeadSettings operation middleware
+func (siw *ServerInterfaceWrapper) GetLeadSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLeadSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateLeadSettings operation middleware
+func (siw *ServerInterfaceWrapper) UpdateLeadSettings(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateLeadSettings(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -53932,6 +54164,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/leads", wrapper.CreateLead)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/leads/settings", wrapper.GetLeadSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/leads/settings", wrapper.UpdateLeadSettings)
 	})
 	r.Group(func(r chi.Router) {
 		r.Delete(options.BaseURL+"/leads/{id}", wrapper.DisqualifyLead)

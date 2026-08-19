@@ -262,6 +262,7 @@ var agentPolicies = map[string]agentPolicy{
 	"PATCH /v1/installation/settings":                                    {Op: "updateInstallationSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/lead-disqualify-reasons/{id}":                             {Op: "updateLeadDisqualifyReason", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/lead-sources/{id}":                                        {Op: "updateLeadSource", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
+	"PATCH /v1/leads/settings":                                           {Op: "updateLeadSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/leads/{id}":                                               {Op: "updateLead", Access: "tool", Tool: "update_record", RecordType: "lead", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/offers/{id}":                                              {Op: "updateOffer", Access: "tool", Tool: "update_record", RecordType: "offer", Tier: "auto_execute", Scope: "write"},
 	"PATCH /v1/offers/{id}/line-items/{lineItemId}":                      {Op: "updateOfferLineItem", Access: "tool", Tool: "update_record", RecordType: "offer", Tier: "auto_execute", Scope: "write"},

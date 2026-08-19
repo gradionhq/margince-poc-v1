@@ -54,6 +54,8 @@ type PromoteLeadInput struct {
 	Trigger            string
 	EvidenceActivityID *ids.ActivityID
 	EvidenceNote       *string
+	// Deal, when set, opens a deal in the same transaction (qualify-to-deal).
+	Deal *QualifyDealInput
 }
 
 // AlreadyPromotedError maps to 409: promotion happened once; the pointer
@@ -87,29 +89,35 @@ func (e *PromoteNeedsIdentityError) MessageFault() (code, message string) {
 // the lead, recording trigger + evidence + the resulting person) and the
 // first-class lead.promoted event alongside the person.* it caused.
 func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadInput) (crmcontracts.Person, bool, error) {
+	out, err := s.QualifyLead(ctx, id, in)
+	return out.Person, out.Merged, err
+}
+
+// QualifyLead is PromoteLead with the whole outcome: the person, whether it
+// merged, and the deal opened alongside when the call asked for one.
+func (s *Store) QualifyLead(ctx context.Context, id ids.LeadID, in PromoteLeadInput) (PromoteOutcome, error) {
 	// Promotion mutates the lead AND writes the person side, so it needs
 	// both grants — a rep who may work leads but not create contacts
 	// cannot mint contacts through this door.
 	if err := auth.Require(ctx, "lead", principal.ActionUpdate); err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	if err := auth.Require(ctx, "person", principal.ActionCreate); err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	if _, err := ParsePromoteTrigger(in.Trigger); err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 	active, err := s.activeColumns(ctx, "person")
 	if err != nil {
-		return crmcontracts.Person{}, false, err
+		return PromoteOutcome{}, err
 	}
 
-	var person crmcontracts.Person
-	merged := false
+	var out PromoteOutcome
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The lead lock comes BEFORE the promotability read: two
 		// concurrent promotes of one lead must serialize here, so the
@@ -124,7 +132,7 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		personID, mergeFields, err := s.promoteTarget(ctx, tx, lead, by, &merged)
+		personID, mergeFields, err := s.promoteTarget(ctx, tx, lead, by, &out.Merged)
 		if err != nil {
 			return err
 		}
@@ -135,10 +143,14 @@ func (s *Store) PromoteLead(ctx context.Context, id ids.LeadID, in PromoteLeadIn
 			return err
 		}
 
-		person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, merged, mergeFields, active)
+		out.Person, err = finalizeLeadPromotion(ctx, tx, id, in, lead, personID, out.Merged, mergeFields, active)
+		if err != nil {
+			return err
+		}
+		out.DealID, err = s.openQualifiedDeal(ctx, tx, id, lead, personID, in.Deal)
 		return err
 	})
-	return person, merged, err
+	return out, err
 }
 
 // carryLeadConsent re-points the lead's consent state to the promoted

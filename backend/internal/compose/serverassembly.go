@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 )
@@ -41,10 +42,17 @@ import (
 // The match stager is injected here because approvals is a sibling of
 // people and a module never imports one: compose is where that edge is
 // made, as it is for every other cross-module dependency.
+//
+// The lead settings write through the installation settings store, and the
+// qualify dialog's "also open a deal" rides the deals store through the
+// people→deals edge (leadDealOpener) — both injected here for the same
+// ADR-0054 reason as the stager.
 func newPeopleHandlers(pool *pgxpool.Pool) peopleHandlers {
 	return people.NewHandlers(InstallationDB(pool)).
 		WithFieldCatalog(customfields.NewService(pool, nil)).
-		WithMatchStager(linkedInMatchStager(pool))
+		WithMatchStager(linkedInMatchStager(pool)).
+		WithSettings(NewSettingsStore(pool)).
+		WithDealOpener(leadDealOpener{deals: deals.NewStore(InstallationDB(pool), DealsInstallation())})
 }
 
 // newActivitiesHandlers builds the timeline transport over the sibling

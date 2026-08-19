@@ -93,7 +93,7 @@ export const seededLead = {
   email: "jonas@nordwind.example",
   title: "Head of Operations",
   company_name: "Nordwind Logistik",
-  status: "working",
+  status: "contacted",
   score: 46,
   owner_id: "u1",
   captured_by: "human:u1",

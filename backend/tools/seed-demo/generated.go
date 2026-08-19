@@ -260,8 +260,8 @@ func driveLeadTo(c *client, leadID, state, domain string) error {
 // the API refuses both on create.
 func leadCreateStatus(want string) string {
 	switch want {
-	case "working":
-		return "working"
+	case "contacted", "engaged":
+		return want
 	default:
 		return "new"
 	}

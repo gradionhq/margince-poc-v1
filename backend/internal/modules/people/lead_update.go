@@ -164,6 +164,9 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	if err := stampHumanFirstResponse(ctx, p, current, in); err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	if err := stampStatusSetBy(ctx, p, current, in); err != nil {
+		return crmcontracts.Lead{}, err
+	}
 	storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 	if p.Empty() {
 		return current, nil
@@ -353,5 +356,27 @@ func stampHumanFirstResponse(ctx context.Context, p *storekit.Patch, current crm
 	if actor.Type == principal.PrincipalHuman {
 		p.Set(firstResponseColumn, nil, time.Now().UTC())
 	}
+	return nil
+}
+
+// leadStatusSetByColumn records who placed the lead on its current step.
+const leadStatusSetByColumn = "status_set_by"
+
+// stampStatusSetBy records that a status written through this path was a
+// hand's doing — a human, or an agent acting for one — as opposed to the
+// system's own climb from captured activity (advanceLeadStatusTx).
+func stampStatusSetBy(ctx context.Context, p *storekit.Patch, current crmcontracts.Lead, in UpdateLeadInput) error {
+	if in.Status == nil || LeadStatus(*in.Status) == LeadStatus(current.Status) {
+		return nil
+	}
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return err
+	}
+	setBy := crmcontracts.LeadStatusSetByHuman
+	if actor.Type == principal.PrincipalSystem {
+		setBy = crmcontracts.LeadStatusSetBySystem
+	}
+	p.Set(leadStatusSetByColumn, current.StatusSetBy, string(setBy))
 	return nil
 }

@@ -45,7 +45,7 @@ func seedSweepable(t *testing.T, e *Env) {
 		e.SeedOrg(t, name, nil)
 		lead := name
 		if _, _, err := e.People.CreateLead(e.Admin(), people.CreateLeadInput{
-			FullName: &lead, Status: "working", Source: "manual",
+			FullName: &lead, Status: "contacted", Source: "manual",
 		}); err != nil {
 			t.Fatalf("seeding lead %q: %v", name, err)
 		}

@@ -6,36 +6,68 @@ package people
 import "github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 
 // LeadStatus is the lead lifecycle vocabulary — the Go spelling of the
-// lead_status CHECK (0009), kept in sync by the enumsync fitness gate.
-// Domain logic branches on these constants, never on raw literals: a
-// typo'd literal compiles and misbehaves silently, a typo'd constant
-// does not exist.
+// lead_status CHECK, kept in sync by the enumsync fitness gate. Domain
+// logic branches on these constants, never on raw literals: a typo'd
+// literal compiles and misbehaves silently, a typo'd constant does not
+// exist.
+//
+// The open states are a ladder the system climbs from captured activity
+// (new → contacted when we reach out → engaged when they answer or a
+// meeting is booked or held) and a human may place by hand; the terminal
+// pair is reached only through the governed promote and disqualify paths.
 type LeadStatus string
 
 const (
 	LeadStatusNew          LeadStatus = "new"
-	LeadStatusWorking      LeadStatus = "working"
+	LeadStatusContacted    LeadStatus = "contacted"
+	LeadStatusEngaged      LeadStatus = "engaged"
 	LeadStatusPromoted     LeadStatus = "promoted"
 	LeadStatusDisqualified LeadStatus = "disqualified"
 )
+
+// openLeadStatuses is the open set in ladder order, spelled once for the
+// SQL that names it (openLeadStatusList) and the Go that ranks it.
+var openLeadStatuses = []LeadStatus{LeadStatusNew, LeadStatusContacted, LeadStatusEngaged}
+
+// openLeadStatusList is the SQL literal list of the open statuses, for the
+// predicates that select workable leads: `status IN (` + list + `)`.
+const openLeadStatusList = `'new','contacted','engaged'`
 
 // ParseLeadStatus is the seam guard: a set membership check at parse
 // time, because LeadStatus("typo") still compiles.
 func ParseLeadStatus(raw string) (LeadStatus, error) {
 	switch s := LeadStatus(raw); s {
-	case LeadStatusNew, LeadStatusWorking, LeadStatusPromoted, LeadStatusDisqualified:
+	case LeadStatusNew, LeadStatusContacted, LeadStatusEngaged, LeadStatusPromoted, LeadStatusDisqualified:
 		return s, nil
 	}
 	return "", &values.ParseError{
 		Field: leadStatusColumn, Code: "invalid_lead_status",
-		Message: "status is one of new, working, promoted, disqualified",
+		Message: "status is one of new, contacted, engaged, promoted, disqualified",
 	}
 }
 
 // Open reports whether the lead is still workable — the one spelling of
-// the "new or working" predicate that scoring and routing share.
+// the "on the ladder" predicate that scoring and routing share.
 func (s LeadStatus) Open() bool {
-	return s == LeadStatusNew || s == LeadStatusWorking
+	return s.rung() >= 0
+}
+
+// rung is the status's position on the open ladder, -1 off it.
+func (s LeadStatus) rung() int {
+	for i, open := range openLeadStatuses {
+		if open == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// Advances reports whether moving from s to target is a step UP the open
+// ladder — the only move the system makes on its own. A human may also step
+// down; a terminal lead is never moved by either.
+func (s LeadStatus) Advances(target LeadStatus) bool {
+	from, to := s.rung(), target.rung()
+	return from >= 0 && to > from
 }
 
 // parseWritableLeadStatus is the create/update seam guard: it parses a
@@ -47,7 +79,7 @@ func (s LeadStatus) Open() bool {
 // all of that: it strands the lead in a dead state no later promote can
 // recover, breaks the disqualified⇒archived invariant, and evades the
 // distinct scope the governed paths require. The ordinary write path may
-// only place a lead in a workable status.
+// only place a lead on the open ladder.
 func parseWritableLeadStatus(raw string) (LeadStatus, error) {
 	s, err := ParseLeadStatus(raw)
 	if err != nil {

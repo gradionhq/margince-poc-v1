@@ -13,6 +13,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/freemail"
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
@@ -39,6 +40,12 @@ type Store struct {
 	// config that must not be cached into staleness. Nil falls back to the
 	// shipped baseline with no workspace overlay.
 	consumerMail ConsumerMailReader
+	// settings is the installation settings store the lead-settings endpoints
+	// write through; nil means the settings are read-only on this store.
+	settings *settings.Store
+	// dealOpener opens the deal a qualify call asks for, inside the promote
+	// transaction; compose binds the deals store. Nil refuses such calls.
+	dealOpener LeadDealOpener
 }
 
 // ConsumerMailReader builds the workspace's consumer-mail matcher on a

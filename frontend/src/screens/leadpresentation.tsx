@@ -25,7 +25,8 @@ export function scoreTone(score: number): "success" | "warn" | undefined {
 
 export const LEAD_STATUS_FILTER_OPTIONS = [
   { value: "new", label: "lead.statusNew" },
-  { value: "working", label: "lead.statusWorking" },
+  { value: "contacted", label: "lead.statusContacted" },
+  { value: "engaged", label: "lead.statusEngaged" },
   { value: "promoted", label: "lead.statusPromoted" },
   { value: "disqualified", label: "lead.statusDisqualified" },
 ] as const;
@@ -113,7 +114,8 @@ export function sourceLabel(
 
 const LEAD_BOARD_STAGES = [
   { stage: "new", label: "lead.statusNew" },
-  { stage: "working", label: "lead.statusWorking" },
+  { stage: "contacted", label: "lead.statusContacted" },
+  { stage: "engaged", label: "lead.statusEngaged" },
 ] as const;
 
 function LeadCard({
@@ -185,7 +187,7 @@ export function LeadBoard({
     mutationFn: async (moved: {
       id: string;
       version?: number;
-      status: "new" | "working";
+      status: "new" | "contacted" | "engaged";
     }) => {
       const { data, error } = await api.PATCH("/leads/{id}", {
         // Refused rather than sent unpinned: a row the server did not version is
@@ -209,7 +211,10 @@ export function LeadBoard({
   });
 
   const live = rows.filter(
-    (lead) => lead.status === "new" || lead.status === "working",
+    (lead) =>
+      lead.status === "new" ||
+      lead.status === "contacted" ||
+      lead.status === "engaged",
   );
   const columns: BoardColumn<BoardRecord>[] = LEAD_BOARD_STAGES.map((stage) => {
     const held = live.filter((lead) => lead.status === stage.stage);
