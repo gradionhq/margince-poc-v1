@@ -97,7 +97,7 @@ func legalIdentityPath(rawURL string) bool {
 		return false
 	}
 	last := segments[len(segments)-1]
-	if containsAny(last, "impressum", "imprint") || last == "legal-notice" {
+	if containsAny(last, "impressum", "imprint") || legalNoticeSegment(last) {
 		return true
 	}
 	// "publisher" is an imprint only at the TOP of a site, because it is also
@@ -114,6 +114,36 @@ func legalIdentityPath(rawURL string) bool {
 		return false
 	}
 	return len(segments) == 1 || (len(segments) == 2 && (segments[0] == "c" || segments[0] == companyWord))
+}
+
+// legalNoticeSegments are the mandatory-legal-notice page names this
+// classifier recognises beyond the German and English forms above.
+//
+// Every one of them names the SAME legally required page an Impressum is —
+// France's mentions légales, Spain's aviso legal, Italy's note legali — so
+// treating them as legal authority widens the reader's reach without
+// loosening what counts as legal evidence.
+//
+// Deliberately NOT here: contact, about, company. Those are the pages the
+// non-German half of the dataset actually publishes, and a registered
+// address taken off a marketing page is exactly the guess the legal gate
+// exists to refuse. Widening the gate to reach them would trade the
+// no-guess property for coverage.
+var legalNoticeSegments = map[string]bool{
+	"legal-notice":            true,
+	"legal-notices":           true,
+	"legalnotice":             true,
+	"mentions-legales":        true,
+	"mentions-légales":        true,
+	"aviso-legal":             true,
+	"note-legali":             true,
+	"nota-legal":              true,
+	"colofon":                 true,
+	"juridische-kennisgeving": true,
+}
+
+func legalNoticeSegment(last string) bool {
+	return legalNoticeSegments[last]
 }
 
 func pathSegments(path string) []string {

@@ -10,6 +10,7 @@ package compose
 // answers to the census gate.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -211,4 +212,58 @@ func bytesOfRunes(r byte, n int) []byte {
 		out[i] = r
 	}
 	return out
+}
+
+// TestThreeLegalPagesCostAtMostOneCommercialPage prices the change from one
+// legal page to three, on a site whose pages are long enough that the corpus
+// budget genuinely binds.
+//
+// Legal pages outrank every commercial kind in corpus rank, so the extra two
+// come out of the budget About, Services and Products would have had. Read at
+// full width they cost two services pages of four. Read narrowly — which is
+// all the legal trio needs, being three short fields at the top of a notice —
+// they cost one. That is the trade this pins: one commercial page, against
+// reaching the actual Impressum on a multi-locale site.
+func TestThreeLegalPagesCostAtMostOneCommercialPage(t *testing.T) {
+	corpus := func(legalPages int) map[crmcontracts.SiteReadPageKind]int {
+		var pages []crawlPage
+		add := func(kind crmcontracts.SiteReadPageKind, path string, n int) {
+			for i := range n {
+				pages = append(pages, crawlPage{
+					URL:  fmt.Sprintf("https://example.com/%s%d", path, i),
+					Kind: kind,
+					Text: strings.Repeat("Inhalt dieser Seite in ausreichender Laenge fuer die Analyse. ", 120),
+				})
+			}
+		}
+		add(crmcontracts.SiteReadPageKindImpressum, "impressum", legalPages)
+		add(crmcontracts.SiteReadPageKindServices, "services", 8)
+		add(crmcontracts.SiteReadPageKindProducts, "products", 8)
+		add(crmcontracts.SiteReadPageKindAbout, "about", 2)
+		out := map[crmcontracts.SiteReadPageKind]int{}
+		for _, page := range profileExcerptPages(pages) {
+			out[page.Kind]++
+		}
+		return out
+	}
+
+	withLegal := corpus(5)
+	if got := withLegal[crmcontracts.SiteReadPageKindImpressum]; got != profileMaxImpressumPages {
+		t.Errorf("legal pages read = %d, want the bound %d", got, profileMaxImpressumPages)
+	}
+	// The commercial half must survive. Anything at or below one page is the
+	// starvation the narrow-read carve-out exists to prevent.
+	services := withLegal[crmcontracts.SiteReadPageKindServices]
+	if services < 2 {
+		t.Errorf("services pages read = %d — the legal pages starved the commercial evidence", services)
+	}
+	if withLegal[crmcontracts.SiteReadPageKindAbout] < 2 {
+		t.Error("the About pages were crowded out")
+	}
+	// And the whole point of reading three: a site that publishes several
+	// legal pages gets more than the first one, which on a large site is
+	// routinely a privacy policy naming no address at all.
+	if corpus(1)[crmcontracts.SiteReadPageKindImpressum] != 1 {
+		t.Error("a site with one legal page must still get it")
+	}
 }
