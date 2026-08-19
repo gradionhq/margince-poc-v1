@@ -205,6 +205,47 @@ describe("editing the tree", () => {
     expect(after.and[0].value).toBe("");
   });
 
+  it("keeps half-typed numeric input rather than coercing it", async () => {
+    resetIDsForTest();
+    const user = userEvent.setup();
+    render(
+      <Harness
+        start={newGroup("and", [newLeaf("cf_deal_score", "gte", "")])}
+      />,
+    );
+
+    // "-" is neither a number nor a mistake; coercing it would either move the
+    // count or refuse a clause somebody is still typing. It stays text until it
+    // parses, and then becomes a number the engine will accept.
+    await user.type(screen.getByLabelText("Value"), "-");
+    expect(wire().and[0].value).toBe("-");
+
+    await user.type(screen.getByLabelText("Value"), "12");
+    expect(wire().and[0].value).toBe(-12);
+  });
+
+  it("removes a nested group without touching its siblings", async () => {
+    resetIDsForTest();
+    const user = userEvent.setup();
+    render(
+      <Harness
+        start={newGroup("and", [
+          newLeaf("owner_id", "eq", "u1"),
+          newGroup("or", [newLeaf("full_name", "contains", "ann")]),
+        ])}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Remove group" }));
+
+    // The clause beside the group survives: removal names a node, and the root is
+    // not offered a remove control at all.
+    expect(wire()).toEqual({
+      and: [{ field: "owner_id", op: "eq", value: "u1" }],
+    });
+    expect(screen.queryByRole("button", { name: "Remove group" })).toBeNull();
+  });
+
   it("nests a group, and the nested one joins the other way", async () => {
     resetIDsForTest();
     const user = userEvent.setup();

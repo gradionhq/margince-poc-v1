@@ -28,6 +28,7 @@ import {
   type FilterOp,
   type Group,
   isGroup,
+  type Leaf,
   type LeafValue,
   type Node,
   newGroup,
@@ -290,6 +291,19 @@ function ClauseRow({
     }),
   );
 
+  // Every edit below rewrites the leaf IN PLACE, keeping its id.
+  //
+  // That is not cosmetic. React keys a clause row on its node's id, so minting a
+  // fresh leaf per keystroke remounts the row and the caret goes with it — a
+  // human typing "gold" would get "g" and lose focus. Spreading the node that
+  // was found keeps the row alive through its own value changing.
+  const edit = (change: (found: Leaf) => Leaf) =>
+    onChange(
+      replaceNode(tree, leafID, (found) =>
+        isGroup(found) ? found : change(found),
+      ) ?? tree,
+    );
+
   const retype = (nextField: string) => {
     const next = fields.find((f) => f.name === nextField);
     // The operator may not survive the move — a date has no `contains` — so it
@@ -298,15 +312,12 @@ function ClauseRow({
     const keptOp = next?.operators.includes(op)
       ? op
       : ((next?.operators[0] ?? "eq") as FilterOp);
-    onChange(
-      replaceNode(tree, leafID, () =>
-        newLeaf(
-          nextField,
-          keptOp as FilterOp,
-          emptyValueFor(keptOp as FilterOp),
-        ),
-      ) ?? tree,
-    );
+    edit((found) => ({
+      ...found,
+      field: nextField,
+      op: keptOp as FilterOp,
+      value: emptyValueFor(keptOp as FilterOp),
+    }));
   };
 
   return (
@@ -325,15 +336,11 @@ function ClauseRow({
         options={operatorOptions}
         value={op}
         onChange={(nextOp) =>
-          onChange(
-            replaceNode(tree, leafID, () =>
-              newLeaf(
-                field,
-                nextOp as FilterOp,
-                emptyValueFor(nextOp as FilterOp),
-              ),
-            ) ?? tree,
-          )
+          edit((found) => ({
+            ...found,
+            op: nextOp as FilterOp,
+            value: emptyValueFor(nextOp as FilterOp),
+          }))
         }
         aria-label={t("filters.operator")}
       />
@@ -342,10 +349,7 @@ function ClauseRow({
         op={op}
         value={value}
         onChange={(nextValue) =>
-          onChange(
-            replaceNode(tree, leafID, () => newLeaf(field, op, nextValue)) ??
-              tree,
-          )
+          edit((found) => ({ ...found, value: nextValue }))
         }
       />
       <Button
