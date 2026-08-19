@@ -404,6 +404,7 @@ export const en = {
   "table.rangeLoaded": "{first}–{last} of {count} {unit} loaded so far",
   "unit.contacts": "contacts",
   "unit.companies": "companies",
+  "unit.deals": "deals",
   "unit.leads": "leads",
   "unit.partners": "partners",
   "unit.products": "products",
@@ -5181,6 +5182,13 @@ export const en = {
   "filters.noFilterYet": "Add a clause to see what it selects",
   "filters.loadingVocabulary": "Loading the fields you can filter on\u2026",
   "filters.noFields": "No filterable fields for this record type.",
+  "filters.resultsTitle": "Matching records",
+  "filters.resultsCaption":
+    "The first page of matches — enough to check the filter, not the whole selection.",
+  "filters.noMatches": "No records match this filter.",
+  "filters.loadView": "Load a saved filter",
+  "filters.exportCsv": "Export CSV",
+  "filters.exportJson": "Export JSON",
 } as const;
 
 export type MessageKey = keyof typeof en;
