@@ -1078,73 +1078,6 @@
   padding: 1px 7px;
 }
 
-/* ===== Ask-about-this FAB ===== */
-.askfab-root {
-  position: fixed;
-  right: 22px;
-  bottom: 22px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  /* Under the phone sheet and its scrim (29/30), above everything the page
-     itself draws: a floating action button that stayed lit over a dimmed page
-     read as the one thing still live while the sheet was open. */
-  z-index: 28;
-}
-.askfab {
-  width: 46px;
-  height: 46px;
-  border-radius: var(--r-full);
-  border: 0;
-  cursor: pointer;
-  background: var(--ai);
-  color: var(--textOnAccent);
-  display: grid;
-  place-items: center;
-  box-shadow: var(--shadow-pop);
-}
-.askfab svg {
-  width: 20px;
-  height: 20px;
-}
-.askfab-panel {
-  width: min(340px, calc(100vw - 44px));
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.askfab-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-/* The FAB's header band is 28px of chrome, so its verbs sit below the shared
-   .iconbtn floor. Stated as min-* because that floor is stated that way. */
-.askfab-head .iconbtn {
-  width: 28px;
-  height: 28px;
-  min-inline-size: 28px;
-  min-block-size: 28px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--textMeta);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.askfab-head .iconbtn svg {
-  width: 15px;
-  height: 15px;
-}
-.askfab-scope {
-  background: var(--aiLight);
-  color: var(--aiText);
-  border-radius: var(--r-sm);
-  padding: 6px 9px;
-}
-
 /* ===== client-surface chrome (rail-less extension frame) ===== */
 .client-chrome {
   min-height: 100vh;
@@ -1557,13 +1490,6 @@
     align-items: center;
     padding: var(--space-4) var(--space-4) var(--space-2);
     flex-wrap: wrap;
-  }
-  /* Above the bar, and on the same gutter as everything else at this width — it
-     is the third floating thing in the corner, and 22px put it out of line with
-     the two under it. */
-  .askfab-root {
-    right: var(--space-4);
-    bottom: 76px;
   }
 }
 

@@ -27,7 +27,6 @@ import type { MessageKey } from "../i18n/en";
 import { useEntityName } from "../screens/entityref";
 import { SETTINGS_SCREEN, useSettingsSection } from "../screens/settings";
 import { AccountMenu, AccountRows } from "./account";
-import { AgentDock } from "./agentdock";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { type EntityKind, SCREEN_ENTITY } from "./entity";
@@ -54,7 +53,6 @@ import { paletteHotkeyLabel } from "./palette";
 import { usePopoverDismiss } from "./popover";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
-import { uiPreviewTaskbarEnabled } from "./ui-preview";
 import { usePhoneViewport } from "./viewport";
 import "./shell.css";
 
@@ -599,17 +597,9 @@ export function SettingsRail(props: Readonly<RailProps>) {
 function SettingsPageHead({
   route,
   actions,
-  counts,
-}: Readonly<{ route: Route; actions?: ReactNode; counts?: ShellCounts }>) {
+}: Readonly<{ route: Route; actions?: ReactNode }>) {
   const section = useSettingsSection(route.id);
-  return (
-    <PageHead
-      route={route}
-      actions={actions}
-      counts={counts}
-      section={section}
-    />
-  );
+  return <PageHead route={route} actions={actions} section={section} />;
 }
 
 // The line under the page's name, for the screens whose name alone does not
@@ -808,12 +798,10 @@ function SectionSwitcher({
 export function PageHead({
   route,
   actions,
-  counts,
   section,
 }: Readonly<{
   route: Route;
   actions?: ReactNode;
-  counts?: ShellCounts;
   section?: NavSection;
 }>) {
   const t = useT();
@@ -908,13 +896,6 @@ export function PageHead({
         <div className="pageaside">
           {actions}
           <SorModeChip />
-          {/* One agent surface at a time: with the taskbar preview on, the bar at
-              the bottom of the viewport IS the agent, and a second chip beside
-              the page title reports the same thing in the same words two feet
-              away (app/ui-preview.ts). */}
-          {uiPreviewTaskbarEnabled() ? null : (
-            <AgentDock approvalsWaiting={counts?.inbox} />
-          )}
         </div>
       </header>
       {/* Beside the heading it was a control wedged into the page's title; under
@@ -1044,13 +1025,9 @@ export function Shell({
         tabIndex={-1}
       >
         {leveled ? (
-          <SettingsPageHead
-            route={route}
-            actions={pageActions}
-            counts={counts}
-          />
+          <SettingsPageHead route={route} actions={pageActions} />
         ) : (
-          <PageHead route={route} actions={pageActions} counts={counts} />
+          <PageHead route={route} actions={pageActions} />
         )}
         {/* Public, onboarding, and preference routes are intentionally
             railless; these advisories belong only here. */}
