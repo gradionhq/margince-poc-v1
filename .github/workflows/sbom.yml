@@ -54,6 +54,7 @@ jobs:
   # direction; cancelling it mid-flight would not be.
   sbom:
     name: sbom
+    timeout-minutes: 45
     concurrency:
       group: ${{ github.workflow }}-sbom-${{ github.ref }}
       cancel-in-progress: true
@@ -97,6 +98,7 @@ jobs:
   # else lands on the ref behind it.
   sign:
     name: sign
+    timeout-minutes: 30
     needs: sbom
     if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
