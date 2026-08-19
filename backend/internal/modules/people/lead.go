@@ -166,15 +166,22 @@ func createLeadInTx(ctx context.Context, tx pgx.Tx, in CreateLeadInput, by strin
 
 // insertLeadRow writes the lead row itself and answers with its id.
 func insertLeadRow(ctx context.Context, tx pgx.Tx, in CreateLeadInput, active []fieldcatalog.Column, by string) (ids.LeadID, error) {
+	if err := ensureHumanSourceAllowed(ctx, tx, in.Source); err != nil {
+		return ids.LeadID{}, err
+	}
+	intents, err := loadSourceIntents(ctx, tx)
+	if err != nil {
+		return ids.LeadID{}, err
+	}
 	id := ids.New[ids.LeadKind]()
 	// The initial score is the §3 fit component — a fresh lead has no
 	// behavioral history yet; signal recompute moves it later.
-	fit := ScoreLeadDetail(deref(in.Title), in.Source, nil, time.Now().UTC())
+	fit := ScoreLeadDetail(deref(in.Title), intents.Of(in.Source), nil, time.Now().UTC())
 	cfCols, cfHolders, args := storekit.InsertFragments(active, in.CustomFields, []any{
 		id, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
 		in.LinkedInURL, in.Status, fit.Score, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
 	})
-	_, err := tx.Exec(ctx,
+	_, err = tx.Exec(ctx,
 		`INSERT INTO lead (id, full_name, email, title, company_name, candidate_org_key,
 		                   linkedin_url, status, score, owner_id, project_id, source_system, source_id, source, captured_by`+cfCols+`)
 		 VALUES ($1, $2, lower($3), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15`+cfHolders+`)`,
@@ -375,7 +382,14 @@ func leadUniqueViolation(err error, email *string) (error, bool) {
 
 // DisqualifyLead is the one path enforcing "disqualified ⇒ archived"
 // (DELETE /leads/{id} in the contract).
-func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts.Lead, error) {
+// DisqualifyLeadInput is why the lead is closed. Both are optional on the
+// wire so the governed agent path still works; the UI always sends a reason.
+type DisqualifyLeadInput struct {
+	ReasonID *ids.UUID
+	Note     *string
+}
+
+func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID, in DisqualifyLeadInput) (crmcontracts.Lead, error) {
 	if err := auth.Require(ctx, "lead", principal.ActionDelete); err != nil {
 		return crmcontracts.Lead{}, err
 	}
@@ -397,13 +411,26 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 		if err != nil {
 			return err
 		}
+		if in.ReasonID != nil {
+			if err := ensureActiveDisqualifyReason(ctx, tx, *in.ReasonID); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.Exec(ctx,
-			`UPDATE lead SET status = 'disqualified', archived_at = now(), `+firstResponseSet+` WHERE id = $1 AND archived_at IS NULL`,
-			id); err != nil {
+			`UPDATE lead SET status = 'disqualified', archived_at = now(), disqualify_reason_id = $2, disqualify_note = $3, `+
+				firstResponseSet+` WHERE id = $1 AND archived_at IS NULL`,
+			id, in.ReasonID, in.Note); err != nil {
 			return err
 		}
+		after := map[string]any{leadStatusColumn: "disqualified"}
+		if in.ReasonID != nil {
+			after["disqualify_reason_id"] = *in.ReasonID
+		}
+		if in.Note != nil {
+			after["disqualify_note"] = *in.Note
+		}
 		auditID, err := storekit.Audit(ctx, tx, "archive", "lead", id.UUID,
-			map[string]any{leadStatusColumn: current.Status}, map[string]any{leadStatusColumn: "disqualified"})
+			map[string]any{leadStatusColumn: current.Status}, after)
 		if err != nil {
 			return err
 		}

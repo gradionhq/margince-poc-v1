@@ -32,6 +32,9 @@ const leadColumns = `id, full_name, email, title, company_name, candidate_org_ke
 	linkedin_url, status, score, score_override_reason, score_computed, owner_id, project_id, source_system, source_id,
 	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at,
 	routed_at, first_response_at,
+	(SELECT s.label FROM lead_source s WHERE s.key = lead.source),
+	disqualify_reason_id, disqualify_note,
+	(SELECT r.label FROM lead_disqualify_reason r WHERE r.id = lead.disqualify_reason_id),
 	(SELECT max(a.occurred_at) FROM activity_link l JOIN activity a ON a.id = l.activity_id
 	   WHERE l.lead_id = lead.id AND a.archived_at IS NULL),
 	(SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
@@ -79,7 +82,7 @@ func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.A
 func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Lead, error) {
 	var l crmcontracts.Lead
 	var id ids.UUID
-	var ownerID, projectID, promotedPerson *ids.UUID
+	var ownerID, projectID, promotedPerson, disqualifyReason *ids.UUID
 	var email *string
 	var status string
 	var version int64
@@ -89,7 +92,8 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 		&id, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
 		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &projectID, &l.SourceSystem, &l.SourceId,
 		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
-		&l.RoutedAt, &l.FirstResponseAt, &l.LastActivityAt, &openTasks,
+		&l.RoutedAt, &l.FirstResponseAt, &l.SourceLabel, &disqualifyReason, &l.DisqualifyNote, &l.DisqualifyReason,
+		&l.LastActivityAt, &openTasks,
 		&l.NextTaskSubject, &l.NextTaskDueAt, &l.ScoreReason,
 	}
 	cf := storekit.ScanDests(active)
@@ -104,6 +108,7 @@ func scanLead(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	l.OwnerId = uuidPtr(ownerID)
 	l.ProjectId = uuidPtr(projectID)
 	l.PromotedPersonId = uuidPtr(promotedPerson)
+	l.DisqualifyReasonId = uuidPtr(disqualifyReason)
 	if email != nil {
 		e := openapi_types.Email(*email)
 		l.Email = &e

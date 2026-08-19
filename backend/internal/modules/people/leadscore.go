@@ -33,12 +33,6 @@ const (
 
 var decisionMakerTitle = regexp.MustCompile(`(?i)(chief|vp|head|director|founder|owner|c[a-z]o)\b`)
 
-// HIGH_INTENT_SOURCES / LOW_INTENT_SOURCES defaults.
-var (
-	highIntentSources = map[string]bool{"inbound": true, "webform": true, "referral": true}
-	lowIntentSources  = map[string]bool{"import": true, "crawl": true}
-)
-
 // BehavioralSignal is one lead-linked engagement event; Kind names the
 // §3.1 base-point row.
 type BehavioralSignal struct {
@@ -103,27 +97,24 @@ var behavioralBasePoints = map[string]float64{
 	"email_open":     behavioralEmailOpenPoints,
 }
 
-// ScoreLead computes §3.1 at one instant and reports the score with its
-// breakdown. An unknown signal kind contributes zero — column-readiness
-// degradation, not an error.
-func ScoreLead(title, source string, signals []BehavioralSignal, now time.Time) (int, []ScoreFactor) {
-	scored := ScoreLeadDetail(title, source, signals, now)
-	return scored.Score, scored.Factors
-}
-
-// ScoreLeadDetail is ScoreLead with the intermediate arithmetic kept, for
-// the caller that has to persist an explanation rather than a number.
-func ScoreLeadDetail(title, source string, signals []BehavioralSignal, now time.Time) LeadScoring {
+// ScoreLeadDetail computes §3.1 at one instant and reports the score with
+// its breakdown and the intermediate arithmetic, for the caller that has to
+// persist an explanation rather than a number. An unknown signal kind
+// contributes zero — column-readiness degradation, not an error. The
+// source's weight arrives resolved (SourceIntents.Of) because the weighting
+// is the installation's lead_source table, not a literal here.
+func ScoreLeadDetail(title string, intent SourceIntent, signals []BehavioralSignal, now time.Time) LeadScoring {
 	var factors []ScoreFactor
 
 	if title != "" && decisionMakerTitle.MatchString(title) {
 		factors = append(factors, ScoreFactor{Factor: "decision_maker_title", Points: fitDecisionMakerPoints})
 	}
-	switch {
-	case highIntentSources[source]:
+	switch intent {
+	case SourceIntentHigh:
 		factors = append(factors, ScoreFactor{Factor: "high_intent_source", Points: fitHighIntentSourcePoints})
-	case lowIntentSources[source]:
+	case SourceIntentLow:
 		factors = append(factors, ScoreFactor{Factor: "low_intent_source", Points: fitLowIntentSourcePenalty})
+	case SourceIntentNeutral:
 	}
 
 	// One decayed factor per signal KIND, sources aggregated — the

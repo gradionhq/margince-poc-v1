@@ -27,7 +27,9 @@ type UpdateLeadInput struct {
 	CompanyName     *string
 	CandidateOrgKey *string
 	Status          *string // only new ↔ working here; terminal states have their own paths
-	Score           *int
+	// Source corrects where the lead came from; the score follows it.
+	Source *string
+	Score  *int
 	// ScoreOverrideReason is the written reason for a score override; nil
 	// means the field was absent (no override change). The explicit CLEAR
 	// gesture is ClearScoreOverride, not an empty string — an empty reason
@@ -150,6 +152,11 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 			return crmcontracts.Lead{}, err
 		}
 	}
+	if in.Source != nil {
+		if err := ensureHumanSourceAllowed(ctx, tx, strings.TrimSpace(*in.Source)); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	}
 	p, resumeRecompute, err := buildLeadPatch(current, in)
 	if err != nil {
 		return crmcontracts.Lead{}, err
@@ -194,6 +201,13 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	}
 	if resumeRecompute {
 		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC(), true); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	} else if in.Source != nil && *in.Source != current.Source {
+		// The source weight is part of the score (formulas §3.1): a corrected
+		// source is rescored at once. Under an override the recompute moves
+		// score_computed and leaves the human's number alone.
+		if err := recomputeLeadScoreTx(ctx, tx, id, time.Now().UTC(), false); err != nil {
 			return crmcontracts.Lead{}, err
 		}
 	} else if in.Score != nil {
@@ -245,6 +259,12 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 			return nil, false, err
 		}
 		p.Set(leadStatusColumn, current.Status, string(status))
+	}
+	if in.Source != nil {
+		if strings.TrimSpace(*in.Source) == "" {
+			return nil, false, &values.ParseError{Field: "source", Code: codeRequired, Message: "source must not be empty"}
+		}
+		p.Set("source", current.Source, strings.TrimSpace(*in.Source))
 	}
 	resumeRecompute, err := applyScoreOverride(p, current, in)
 	if err != nil {

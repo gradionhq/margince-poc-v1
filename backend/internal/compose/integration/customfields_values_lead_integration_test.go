@@ -102,7 +102,7 @@ func TestCustomFieldValues_LeadDisqualifyPreservesCustomFields(t *testing.T) {
 		t.Fatalf("CreateLead: %v", err)
 	}
 
-	disqualified, err := f.store.DisqualifyLead(f.ctx, leadIDOf(ids.UUID(created.Id)))
+	disqualified, err := f.store.DisqualifyLead(f.ctx, leadIDOf(ids.UUID(created.Id)), people.DisqualifyLeadInput{})
 	if err != nil {
 		t.Fatalf("DisqualifyLead: %v", err)
 	}

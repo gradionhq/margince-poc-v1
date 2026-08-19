@@ -22,7 +22,7 @@ func TestScoreLeadWorkedExample(t *testing.T) {
 		{Kind: "link_click", OccurredAt: now.AddDate(0, 0, -10), ActivityID: ids.New[ids.ActivityKind]()},
 		{Kind: "link_click", OccurredAt: now.AddDate(0, 0, -10), ActivityID: ids.New[ids.ActivityKind]()},
 	}
-	score, factors := ScoreLead("VP Sales", "webform", signals, now)
+	score, factors := scoreLeadBySource("VP Sales", "webform", signals, now)
 	if score != 51 {
 		t.Fatalf("worked example score = %d, want 51 (factors: %+v)", score, factors)
 	}
@@ -34,7 +34,7 @@ func TestScoreLeadWorkedExample(t *testing.T) {
 		t.Fatalf("breakdown sums to %.2f but score is %d — Explain This Score must reconcile", sum, score)
 	}
 	// Idempotent under the fixed clock.
-	again, _ := ScoreLead("VP Sales", "webform", signals, now)
+	again, _ := scoreLeadBySource("VP Sales", "webform", signals, now)
 	if again != score {
 		t.Fatalf("recompute drifted: %d → %d", score, again)
 	}
@@ -43,14 +43,14 @@ func TestScoreLeadWorkedExample(t *testing.T) {
 func TestScoreLeadEdges(t *testing.T) {
 	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
 
-	if score, _ := ScoreLead("Intern", "crawl", nil, now); score != 0 {
+	if score, _ := scoreLeadBySource("Intern", "crawl", nil, now); score != 0 {
 		t.Errorf("negative fit must clamp at 0, got %d", score)
 	}
-	if score, _ := ScoreLead("CEO", "referral", nil, now); score != 23 {
+	if score, _ := scoreLeadBySource("CEO", "referral", nil, now); score != 23 {
 		t.Errorf("pure-fit cold lead = %d, want 23", score)
 	}
 	// Unknown signal kinds contribute nothing (column-readiness rule).
-	score, factors := ScoreLead("", "manual", []BehavioralSignal{
+	score, factors := scoreLeadBySource("", "manual", []BehavioralSignal{
 		{Kind: "engagement_event_not_yet_shipped", OccurredAt: now},
 	}, now)
 	if score != 0 || len(factors) != 0 {
@@ -61,7 +61,7 @@ func TestScoreLeadEdges(t *testing.T) {
 	for range 10 {
 		flood = append(flood, BehavioralSignal{Kind: "reply", OccurredAt: now})
 	}
-	if score, _ := ScoreLead("CTO", "inbound", flood, now); score != 100 {
+	if score, _ := scoreLeadBySource("CTO", "inbound", flood, now); score != 100 {
 		t.Errorf("clamp ceiling: %d, want 100", score)
 	}
 }
@@ -80,7 +80,7 @@ func TestScoreLeadProductionPathFixture(t *testing.T) {
 	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
 	// The worked example's lead, carrying only the signals the ingestion
 	// path can produce today.
-	scored := ScoreLeadDetail("VP Sales", "webform", []BehavioralSignal{
+	scored := ScoreLeadDetail("VP Sales", SourceIntentHigh, []BehavioralSignal{
 		{Kind: "reply", OccurredAt: now.AddDate(0, 0, -2), ActivityID: ids.New[ids.ActivityKind]()},
 	}, now)
 	if scored.Score != 46 {
@@ -97,7 +97,7 @@ func TestScoreLeadDetailSeparatesRoundingFromClamping(t *testing.T) {
 
 	// Rounding alone: a decayed reply lands on a fraction, well inside the
 	// bounds, so rounded and stored agree and no clamp is implied.
-	rounding := ScoreLeadDetail("", "webform", []BehavioralSignal{
+	rounding := ScoreLeadDetail("", SourceIntentHigh, []BehavioralSignal{
 		{Kind: "reply", OccurredAt: now.AddDate(0, 0, -3), ActivityID: ids.New[ids.ActivityKind]()},
 	}, now)
 	if rounding.RawSum == float64(rounding.RoundedSum) {
@@ -113,7 +113,7 @@ func TestScoreLeadDetailSeparatesRoundingFromClamping(t *testing.T) {
 	for range 10 {
 		flood = append(flood, BehavioralSignal{Kind: "reply", OccurredAt: now, ActivityID: ids.New[ids.ActivityKind]()})
 	}
-	clamped := ScoreLeadDetail("CTO", "inbound", flood, now)
+	clamped := ScoreLeadDetail("CTO", SourceIntentHigh, flood, now)
 	if clamped.Score != leadScoreMax {
 		t.Fatalf("expected the ceiling, got %d", clamped.Score)
 	}
@@ -130,7 +130,7 @@ func TestScoreLeadDetailSeparatesRoundingFromClamping(t *testing.T) {
 // being handed a number to take on faith.
 func TestBehavioralFactorsCarryTheirUndecayedBase(t *testing.T) {
 	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
-	scored := ScoreLeadDetail("", "manual", []BehavioralSignal{
+	scored := ScoreLeadDetail("", SourceIntentNeutral, []BehavioralSignal{
 		{Kind: "reply", OccurredAt: now.AddDate(0, 0, -14), ActivityID: ids.New[ids.ActivityKind]()},
 	}, now)
 	if len(scored.Factors) != 1 {
@@ -152,7 +152,7 @@ func TestBehavioralFactorsCarryTheirUndecayedBase(t *testing.T) {
 // whole breakdown rather than over an already-rounded number.
 func TestWithManualFoldsHumanInputIntoOneTotal(t *testing.T) {
 	now := time.Date(2026, 6, 4, 0, 0, 0, 0, time.UTC)
-	machine := ScoreLeadDetail("VP Sales", "webform", nil, now)
+	machine := ScoreLeadDetail("VP Sales", SourceIntentHigh, nil, now)
 	withManual := machine.withManual([]ScoreFactor{{Factor: "manual:employees", Points: 8}})
 
 	if withManual.Score != machine.Score+8 {
@@ -171,5 +171,39 @@ func TestWithManualFoldsHumanInputIntoOneTotal(t *testing.T) {
 	// An empty input list must not disturb the run it was folded into.
 	if unchanged := machine.withManual(nil); unchanged.Score != machine.Score {
 		t.Errorf("empty manual set moved the score: %d → %d", machine.Score, unchanged.Score)
+	}
+}
+
+// scoreLeadBySource is the test-side spelling of the old source-keyed
+// scorer: it resolves the seeded weighting the way production resolves the
+// installation's table, so the worked examples still read by source name.
+func scoreLeadBySource(title, source string, signals []BehavioralSignal, now time.Time) (int, []ScoreFactor) {
+	scored := ScoreLeadDetail(title, defaultSourceIntents.Of(source), signals, now)
+	return scored.Score, scored.Factors
+}
+
+func TestSourceIntentsResolveConnectorFamilies(t *testing.T) {
+	intents := SourceIntents{"connector:apollo": SourceIntentHigh, "import": SourceIntentLow}
+	cases := map[string]SourceIntent{
+		"connector:apollo:a-1": SourceIntentHigh,
+		"connector:apollo":     SourceIntentHigh,
+		"connector:other:x":    SourceIntentNeutral,
+		"import":               SourceIntentLow,
+		"seed":                 SourceIntentNeutral,
+		"":                     SourceIntentNeutral,
+	}
+	for source, want := range cases {
+		if got := intents.Of(source); got != want {
+			t.Errorf("Of(%q) = %q, want %q", source, got, want)
+		}
+	}
+}
+
+func TestDeriveSourceKey(t *testing.T) {
+	cases := map[string]string{"Trade show": "trade_show", "  Web-Form!! ": "web_form", "Ökologisch": "kologisch", "": ""}
+	for label, want := range cases {
+		if got := deriveSourceKey(label); got != want {
+			t.Errorf("deriveSourceKey(%q) = %q, want %q", label, got, want)
+		}
 	}
 }

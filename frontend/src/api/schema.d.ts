@@ -2983,8 +2983,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Disqualify (soft-archive) a lead.
-         * @description Sets `archived_at` + `status=disqualified`; still fetchable by id.
+         * Disqualify (soft-archive) a lead, with a reason.
+         * @description Sets `archived_at` + `status=disqualified` and records the reason and note; still fetchable by id.
          */
         delete: operations["disqualifyLead"];
         options?: never;
@@ -3196,6 +3196,104 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/lead-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List lead sources, active and inactive, in display order.
+         * @description `data` is the administered list. `discovered` names source values that
+         *     live on leads but are not in the list — connector-written keys such as
+         *     `connector:apollo:…` grouped by their connector prefix, seed values,
+         *     imports — with how many live leads carry each. Adding one as a source
+         *     (POST with that key) makes it administrable.
+         */
+        get: operations["listLeadSources"];
+        put?: never;
+        /** Add a lead source. */
+        post: operations["createLeadSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lead-sources/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a lead source nothing uses.
+         * @description 409 when the source is built-in or any live lead still carries it —
+         *     deactivate it instead, which hides it from the create form and the
+         *     filter while every existing lead keeps its value.
+         */
+        delete: operations["deleteLeadSource"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename, reorder, re-weight or (de)activate a lead source.
+         * @description Changing `intent` does not rescore existing leads; each lead picks the
+         *     new weight up on its next recompute. A built-in (`system`) source
+         *     accepts every field here — it only refuses deletion.
+         */
+        patch: operations["updateLeadSource"];
+        trace?: never;
+    };
+    "/lead-disqualify-reasons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List disqualification reasons, active and inactive, in display order. */
+        get: operations["listLeadDisqualifyReasons"];
+        put?: never;
+        /** Add a disqualification reason. */
+        post: operations["createLeadDisqualifyReason"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/lead-disqualify-reasons/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove a disqualification reason no lead carries.
+         * @description 409 when the reason is built-in or any lead still points at it — deactivate it instead.
+         */
+        delete: operations["deleteLeadDisqualifyReason"];
+        options?: never;
+        head?: never;
+        /** Rename, reorder or (de)activate a disqualification reason. */
+        patch: operations["updateLeadDisqualifyReason"];
         trace?: never;
     };
     "/relationships": {
@@ -13891,7 +13989,18 @@ export interface components {
             readonly next_task_due_at?: string | null;
             /** @description The highest-impact factor in the retained current score explanation, for a compact queue reason. */
             readonly score_reason?: string | null;
+            /** @description The stored source key. For a human-created lead this is a lead_source key; connectors and imports write their own values (`connector:<name>:<id>`). */
             source: string;
+            /** @description The administered label for `source`, when the key is in the lead_source list; null for connector, seed and other free values. */
+            readonly source_label?: string | null;
+            /**
+             * Format: uuid
+             * @description Set by DELETE /leads/{id} with a reason; null on an open lead.
+             */
+            readonly disqualify_reason_id?: string | null;
+            /** @description The label of disqualify_reason_id at read time. */
+            readonly disqualify_reason?: string | null;
+            readonly disqualify_note?: string | null;
             /** @description Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied. */
             readonly captured_by: string;
             raw?: {
@@ -13952,6 +14061,8 @@ export interface components {
             project_id?: string | null;
             /** @enum {string} */
             status?: "new" | "working";
+            /** @description Correct the source. A human may set any ACTIVE lead_source key or keep a free value it already carries; an inactive administered key is 422. Changing it recomputes the score (the source weight is part of it). */
+            source?: string;
             /** @description Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute. */
             score?: number | null;
             /** @description Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared. */
@@ -14022,6 +14133,91 @@ export interface components {
         LeadListResponse: {
             data: components["schemas"]["Lead"][];
             page: components["schemas"]["PageInfo"];
+        };
+        /**
+         * @description What the scorer makes of a lead from this source: high adds the high-intent points, low subtracts the low-intent penalty, neutral does neither (formulas §3.1).
+         * @enum {string}
+         */
+        LeadSourceIntent: "high" | "neutral" | "low";
+        /** @description One administered lead source. `key` is the value stored on `lead.source`; `label` is what a user sees. */
+        LeadSource: {
+            /** Format: uuid */
+            id: string;
+            /** @description Lowercase stable key, the stored value. Never changes after creation. */
+            key: string;
+            label: string;
+            intent: components["schemas"]["LeadSourceIntent"];
+            sort_order: number;
+            /** @description Inactive sources leave the create form and the filter; leads carrying them keep the value. */
+            active: boolean;
+            /** @description Built-in. Can be renamed, re-weighted and deactivated, never deleted. */
+            readonly system: boolean;
+            /** @description Live leads carrying this key. */
+            readonly lead_count: number;
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description A source value present on leads but absent from the administered list — a connector family, a seed, an import. */
+        DiscoveredLeadSource: {
+            /** @description The stored value, or for `connector:<name>:<id>` values the `connector:<name>` family. */
+            key: string;
+            lead_count: number;
+        };
+        LeadSourceListResponse: {
+            data: components["schemas"]["LeadSource"][];
+            discovered: components["schemas"]["DiscoveredLeadSource"][];
+        };
+        CreateLeadSourceRequest: {
+            label: string;
+            /** @description Optional; derived from the label (lowercased, non-alphanumerics collapsed to `_`) when absent. Must be unique. */
+            key?: string;
+            intent?: components["schemas"]["LeadSourceIntent"];
+            sort_order?: number;
+        };
+        UpdateLeadSourceRequest: {
+            label?: string;
+            intent?: components["schemas"]["LeadSourceIntent"];
+            sort_order?: number;
+            active?: boolean;
+        };
+        LeadDisqualifyReason: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            sort_order: number;
+            active: boolean;
+            readonly system: boolean;
+            /** @description Leads disqualified with this reason. */
+            readonly lead_count: number;
+            version: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        LeadDisqualifyReasonListResponse: {
+            data: components["schemas"]["LeadDisqualifyReason"][];
+        };
+        CreateLeadDisqualifyReasonRequest: {
+            label: string;
+            sort_order?: number;
+        };
+        UpdateLeadDisqualifyReasonRequest: {
+            label?: string;
+            sort_order?: number;
+            active?: boolean;
+        };
+        /** @description Why the lead is closed. Both fields are optional on the wire so an agent's governed disqualify still works; the UI always sends a reason. */
+        DisqualifyLeadRequest: {
+            /**
+             * Format: uuid
+             * @description An ACTIVE lead_disqualify_reason; 422 otherwise.
+             */
+            reason_id?: string | null;
+            note?: string | null;
         };
         /**
          * @description `fact` — the rep knows this. `assumption` — a working estimate.
@@ -23382,7 +23578,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DisqualifyLeadRequest"];
+            };
+        };
         responses: {
             /** @description Disqualified lead. */
             200: {
@@ -23773,6 +23973,282 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    listLeadSources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The lead source list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSourceListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createLeadSource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLeadSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Created lead source. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSource"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteLeadSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateLeadSource: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLeadSourceRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated lead source. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadSource"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listLeadDisqualifyReasons: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The reason list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDisqualifyReasonListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createLeadDisqualifyReason: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLeadDisqualifyReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Created reason. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDisqualifyReason"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteLeadDisqualifyReason: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateLeadDisqualifyReason: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateLeadDisqualifyReasonRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated reason. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadDisqualifyReason"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listRelationships: {

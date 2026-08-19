@@ -61,6 +61,11 @@ var preservedResetTables = map[string]bool{
 	// activity_channel_provider_fkey constraints and abort the whole sweep
 	// transaction outright.
 	"activity_kind": true, "channel_provider": true,
+	// The two administered lead vocabularies — sources and disqualification
+	// reasons — are installation configuration on the same footing as
+	// `setting`: the migration seeds the built-ins and an administrator shapes
+	// the rest, and neither is a record of this workspace's customers.
+	"lead_source": true, "lead_disqualify_reason": true,
 	// in-flight delivery: drained by the outbox pass, not deleted under it
 	"event_outbox": true,
 	// The retention floor's evidence (A165, migration 0289). Preserved from the

@@ -274,6 +274,7 @@ func leadUpdateInput(req LeadUpdateRequest, ifVersion *int64) UpdateLeadInput {
 		Title:               req.Title,
 		CompanyName:         req.CompanyName,
 		CandidateOrgKey:     req.CandidateOrgKey,
+		Source:              req.Source,
 		Score:               req.Score,
 		ScoreOverrideReason: req.ScoreOverrideReason,
 		ClearScoreOverride:  req.scoreNull || req.reasonNull,

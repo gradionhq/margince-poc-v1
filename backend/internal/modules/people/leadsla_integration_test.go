@@ -228,7 +228,7 @@ func TestFirstResponseFromHumanStatusChangeAndDisposition(t *testing.T) {
 	}
 
 	dropped := e.seedLeadCreatedAt(t, "dropped@example.test", now.Add(-time.Hour))
-	closed, err := e.store.DisqualifyLead(e.ctx, dropped)
+	closed, err := e.store.DisqualifyLead(e.ctx, dropped, DisqualifyLeadInput{})
 	if err != nil {
 		t.Fatalf("disqualify: %v", err)
 	}

@@ -24,8 +24,10 @@ import (
 )
 
 // qualificationFields is the lead's qualification surface, in the fixed
-// order gaps are reported (derived from the contract's lead shape).
-var qualificationFields = []string{"email", "full_name", "company_name", "title", "source"}
+// order gaps are reported (derived from the contract's lead shape). Source
+// is not on it: the column is NOT NULL and administered as a vocabulary, so
+// it is never a gap this tool could fill.
+var qualificationFields = []string{"email", "full_name", "company_name", "title"}
 
 type qualifyLead struct {
 	p datasource.SystemOfRecordProvider
@@ -61,7 +63,6 @@ func (t qualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 		FullName    *string `json:"full_name"`
 		CompanyName *string `json:"company_name"`
 		Title       *string `json:"title"`
-		Source      *string `json:"source"`
 	}
 	if err := json.Unmarshal(rec.Fields, &lead); err != nil {
 		return nil, fmt.Errorf("crmagents: lead %s read back with unreadable fields: %w", args.RecordID, err)
@@ -110,8 +111,6 @@ func (t qualifyLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 			value = lead.CompanyName
 		case "title":
 			value = lead.Title
-		case "source":
-			value = lead.Source
 		}
 		if isBlank(value) {
 			gaps = append(gaps, field)

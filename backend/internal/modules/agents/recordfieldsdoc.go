@@ -119,8 +119,8 @@ func recordFieldsDocument() recordFieldsDoc {
 	return recordFieldsDoc{
 		Version:  recordFieldsVersion,
 		Notation: recordFieldsNotation,
-		Create:   recordFieldsWrite{Fields: createRecordShapes, Notes: fieldNotes(createShapes)},
-		Update:   recordFieldsWrite{Fields: updateRecordShapes, Notes: fieldNotes(updateShapes)},
+		Create:   recordFieldsWrite{Fields: createRecordShapes, Notes: fieldNotes(createShapes, false)},
+		Update:   recordFieldsWrite{Fields: updateRecordShapes, Notes: fieldNotes(updateShapes, true)},
 	}
 }
 
@@ -130,25 +130,29 @@ func recordFieldsDocument() recordFieldsDoc {
 // Each note is keyed on a field the shapes actually declare, so it appears in
 // the section it is true of — the create half and the patch half disagree about
 // several of them, and the wrong advice is worse than none.
-func fieldNotes(shapes map[datasource.EntityType]reflect.Type) []string {
+func fieldNotes(shapes map[datasource.EntityType]reflect.Type, patch bool) []string {
 	notes := []string{"A task is record_type=activity with kind=task."}
-	notes = append(notes, provenanceStampNote(shapes)...)
+	notes = append(notes, sourceNote(shapes, patch)...)
 	notes = append(notes, dealPipelineNote(shapes)...)
 	notes = append(notes, relationshipNote(shapes))
 	notes = append(notes, activityReachNotes(shapes)...)
 	return append(notes, customFieldNotes(shapes)...)
 }
 
-// provenanceStampNote says that naming `source` does not set it.
+// sourceNote says what naming `source` does on this write.
 //
 // Only where the shapes actually carry the field. On create it is accepted and
-// then overwritten, so believing it took effect would be wrong; on update no
-// request type has it at all, so it is REFUSED as an unknown key — opposite
-// advice, and one shared sentence used to give the create one to both. Derived
-// from the shapes so it cannot drift from which write this is.
-func provenanceStampNote(shapes map[datasource.EntityType]reflect.Type) []string {
+// then overwritten, so believing it took effect would be wrong. On update the
+// one record type that carries it is the lead, where `source` is the
+// administered "where did this come from" value and a patch genuinely
+// corrects it — the opposite of the create advice, so the two sentences are
+// kept apart by which write this is rather than by one shared note.
+func sourceNote(shapes map[datasource.EntityType]reflect.Type, patch bool) []string {
 	if !describesField(shapes, "source") {
 		return nil
+	}
+	if patch {
+		return []string{"`source` on a lead is the administered lead-source key (see Settings › Data model); a patch corrects it, and the score follows."}
 	}
 	return []string{"`source` is accepted but overwritten — this surface stamps its own provenance."}
 }
