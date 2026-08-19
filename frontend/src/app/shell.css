@@ -145,6 +145,15 @@
   --railW: 0px;
   grid-template-columns: 1fr;
 }
+/* And they carry no top bar, so the air the scroller leaves under one has
+   nothing above it to clear. On the login surface — a full-height card measured
+   against the viewport — that 20px pushed the card down by exactly that much and
+   put its submit button off the bottom edge at 200% zoom, where the viewport is
+   400px tall and the card is 400px tall. The mirror of this for the phone bar's
+   lane is in the phone block below. */
+.app.railless .scroll {
+  padding-top: 0;
+}
 
 .main {
   display: flex;

@@ -66,6 +66,46 @@
   color: var(--textMeta);
 }
 
+/* ===== the menu =====
+   Downward and anchored to the trigger's RIGHT edge, which is the top bar's
+   arrangement: the trigger sits at the top-right of the viewport, so a menu
+   anchored on its left edge would open off the screen. */
+.accountmenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  width: 236px;
+  /* The width above is the comfortable reading measure; this keeps it a measure
+     rather than a promise the viewport cannot keep. A narrow phone at 200% zoom
+     leaves less room than that plus the gutter, and the menu is anchored to an
+     edge, so growing past the viewport clips it on the other side. */
+  max-width: calc(100vw - 2 * var(--space-2));
+  display: flex;
+  flex-direction: column;
+  padding: 5px; /* ds:ignore popover inset carried over from the menu it replaces */
+  gap: 1px; /* ds:ignore menu rows read as one list, not as spaced blocks */
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  z-index: 60;
+  /* The menu comes OUT OF the trigger rather than appearing beside it: the
+     transform origin is the control that opened it, so the growth reads as one
+     movement instead of a panel switching on. Short (0.14s) because this is
+     chrome — a menu you have to wait for is a menu that feels slow — and on the
+     shell's own curve, so it belongs to the same choreography as the sidebar
+     collapse rather than carrying a second easing vocabulary.
+     Transform and opacity only: both composite, so it cannot cost a frame.
+     The fallback repeats `.app`'s curve because the block is also rendered
+     outside the shell (the component workbench), and an unresolved custom
+     property in a shorthand invalidates the whole declaration — which would
+     silently drop the animation there rather than degrade it. */
+  animation: accountmenu-drop 0.14s
+    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  transform-origin: top right;
+}
+
 @keyframes accountmenu-drop {
   from {
     opacity: 0;
@@ -142,14 +182,36 @@
 /* The groups: who you are, where you go, then the way out. An <hr> rather than a
    border on the first row of a group — it is a separator, and a screen reader is
    told so. */
-.accountmenu hr,
+.accountmenu hr {
+  height: 1px;
+  border: 0;
+  /* Wall to wall. The panel carries a 5px inset so its rows clear the rounded
+     corner, and a separator that respected it read as a short line floating
+     inside the menu rather than as the division between two groups — so it
+     bleeds back out through the inset it sits in. */
+  margin: var(--space-1) -5px; /* ds:ignore bleeds the panel's own optical inset, not a rhythm */
+  background: var(--borderSubtle);
+}
+
 /* Who is signed in, at the top of the panel. In the top bar the trigger carries
    no name, so this is the only place the reader confirms the account before
    acting on it. It takes the rows' own inset so the block stands on the same left
    edge as they do, and it is deliberately outside the row rule — no hover and no
    pointer, because it is a statement about who you are, not a row that goes
    anywhere. */
-.acctmenuwho,
+.acctmenuwho {
+  display: flex;
+  padding: 7px 9px; /* ds:ignore the row inset it lines up with, not a rhythm of its own */
+}
+
+/* ===== the theme flyout =====
+   The seat is what the flyout is measured against; it is `role="none"` in the
+   markup and draws nothing of its own. */
+.acctthemeseat {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
 /* It opens to the LEFT. The menu this hangs off is anchored to a trigger at the
    top-right of the viewport, so the room is reliably on the inside and reliably
    not on the outside — an outward flyout would open past the window edge on
@@ -199,4 +261,27 @@
 .acctthemelabel {
   font-size: var(--fs-sm);
   color: var(--textContent);
+}
+
+/* ===== the flyout at phone width =====
+   A 168px flyout opening INWARD from a menu that is itself anchored to the right
+   edge starts at a negative x once the viewport is narrower than about 430px:
+   the menu's own left edge is already close to the window's, and there is no
+   scrollbar to recover what falls off it. It is also the only appearance control
+   at that width, so it may not be the one that goes off screen.
+   Below the sheet's breakpoint (PHONE_MAX_WIDTH in app/viewport.ts) it stops
+   being a popover and becomes an indented group inside the menu: in the flow, no
+   surface of its own, its rows stepped in so they read as belonging to the row
+   that opened them. */
+@media (max-width: 700px) {
+  .accountsub {
+    position: static;
+    min-width: 0;
+    padding: var(--space-1) 0 var(--space-1) var(--space-4);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    animation: none;
+  }
 }

@@ -270,9 +270,16 @@ test("AC-shell-7: the top bar's search opens the palette", async ({ page }) => {
 test("AC-shell-8: the agent dock offers a scoped ask on core screens, never on the AI surface", async ({
   page,
 }) => {
+  // The panel is a disclosure that outlives a route change — a hash navigation
+  // does not reload the document and the dock is the same component either side
+  // of it — so this ENSURES it is open rather than toggling: a second click on an
+  // already-expanded trigger closes it, which is what a plain click did here.
   const openDock = async (hash: string) => {
     await page.goto(hash);
-    await page.locator(".agentdocktrigger").click();
+    const trigger = page.locator(".agentdocktrigger");
+    if ((await trigger.getAttribute("aria-expanded")) !== "true") {
+      await trigger.click();
+    }
     await expect(page.locator(".agentpanel")).toBeVisible();
   };
 
@@ -302,7 +309,10 @@ test("features/10 §7: the account menu holds the settings door, the appearance 
   await expect(
     menu.getByRole("menuitem", { name: "Einstellungen" }),
   ).toHaveAttribute("href", "#/settings");
-  await expect(menu.getByRole("link")).toHaveCount(1);
+  // ONE row in here navigates. Counted as anchors rather than by the link role:
+  // inside a `role="menu"` every row carries `role="menuitem"`, which is what a
+  // menu's keyboard contract needs and what replaces the implicit link role.
+  await expect(menu.locator("a[href]")).toHaveCount(1);
   await expect(menu.getByRole("menuitem", { name: "Abmelden" })).toBeVisible();
 
   // Appearance is a submenu, not a control sitting open in the menu: three
