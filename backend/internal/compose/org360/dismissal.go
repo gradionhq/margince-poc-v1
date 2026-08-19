@@ -37,7 +37,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -89,10 +88,10 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 		// reads a dismissal's age, and the id is a v7 uuid, so the instant stays
 		// recoverable for support without a column nobody reads.
 		_, err = tx.Exec(ctx, `
-			INSERT INTO suggestion_dismissal (workspace_id, user_id, organization_id, fingerprint)
-			VALUES ($1, $2, $3, $4)
+			INSERT INTO suggestion_dismissal (user_id, organization_id, fingerprint)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (user_id, organization_id, fingerprint) DO NOTHING`,
-			storekit.MustWorkspace(ctx), userID, orgID, fingerprint)
+			userID, orgID, fingerprint)
 		if err != nil {
 			return fmt.Errorf("record the suggestion dismissal: %w", err)
 		}
