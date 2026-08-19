@@ -13,10 +13,12 @@ package jobs
 // operator as "this could not be classified".
 
 import (
+	"bytes"
 	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -435,4 +437,41 @@ func resetComposedFailureClasses() {
 	defer composedClasses.mu.Unlock()
 	composedClasses.byKind = nil
 	composedClasses.declared = nil
+}
+
+// TestAClassifiedFailureStillSendsItsCauseToTheLog holds the half of the seam's
+// promise that classification could quietly have broken.
+//
+// A class says what KIND of thing went wrong. It does not say which host failed
+// to resolve, and that is the diagnosis — the thing Fault promises is reachable
+// somewhere, just not in a column with no workspace and no RLS. A classified
+// failure that returned without logging would have traded a vague screen for a
+// silent log: better reading, same operator, one step further from the answer.
+func TestAClassifiedFailureStillSendsItsCauseToTheLog(t *testing.T) {
+	t.Cleanup(resetComposedFailureClasses)
+	const kind = "ext_unit_job_ws"
+	declared := extension.FailureClass{
+		Class:    "provider_unavailable",
+		Sentence: "the provider could not be reached from this installation",
+		Remedy:   "check the network",
+	}
+	registerForTest(t, kind, declared)
+
+	var logged bytes.Buffer
+	restore := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelError})))
+	t.Cleanup(func() { slog.SetDefault(restore) })
+
+	cause := errors.New("dial tcp: lookup provider.example: no such host")
+	stored := FaultForKind(t.Context(), kind, extension.Failure(declared, cause))
+
+	if stored.Error() != declared.Sentence {
+		t.Fatalf("persisted %q, want the declared sentence %q", stored.Error(), declared.Sentence)
+	}
+	if !strings.Contains(logged.String(), "provider.example") {
+		t.Fatalf("the cause never reached the log, so the diagnosis is nowhere: %q", logged.String())
+	}
+	if !strings.Contains(logged.String(), declared.Class) {
+		t.Fatalf("the log line does not name the class, so it cannot be tied to the row an operator is reading: %q", logged.String())
+	}
 }

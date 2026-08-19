@@ -102,6 +102,13 @@ func faultFor(ctx context.Context, kind string, err error) error {
 	// classification it would have had anyway.
 	if class, ok := extension.FailureClassOf(err); ok {
 		if registered, found := registeredFailureClass(kind, class); found {
+			// THE CAUSE STILL GOES TO THE LOG. Classifying a failure says what
+			// KIND of thing went wrong; it does not say which host did not
+			// resolve, and that detail is the diagnosis — the thing this seam
+			// promises is reachable somewhere, just not in a fleet-visible
+			// column. Returning here without logging would trade a vague screen
+			// for a silent log, which is the same operator stuck one step later.
+			slog.ErrorContext(ctx, "jobs: a worker failed", "kind", kind, "class", registered.Class, "err", err)
 			return &fault{sentence: registered.Sentence, cause: err}
 		}
 		slog.ErrorContext(ctx, "jobs: a worker returned a failure class this installation did not declare for this kind, so its sentence is not published",
