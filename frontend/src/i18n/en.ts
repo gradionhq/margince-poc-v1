@@ -5394,6 +5394,45 @@ export const en = {
     "Not asked for: {categories}. A blank here means nobody bought it, not that the provider had nothing.",
   "provider.profile.retrievedAt": "Bought {date}",
   "provider.profile.source": "Provided by {provider}",
+
+  // The predicate builder (AC-filters-and-views-3/4). Operator labels are keyed
+  // per reading rather than per symbol: the same `gte` is "on or after" a date
+  // and "at least" a quantity, and one label for both would send a reader
+  // looking for a calendar on a score.
+  "filters.joinAll": "ALL \u00b7 AND",
+  "filters.joinAny": "ANY \u00b7 OR",
+  "filters.joinLabel": "How this group joins its clauses",
+  "filters.removeGroup": "Remove group",
+  "filters.addGroup": "Add group",
+  "filters.addClause": "Add clause",
+  "filters.emptyGroup":
+    "No clauses yet \u2014 an empty group matches nothing, so add one.",
+  "filters.field": "Field",
+  "filters.choosePlaceholder": "Choose a field",
+  "filters.customBadge": "custom field",
+  "filters.operator": "Operator",
+  "filters.value": "Value",
+  "filters.values": "Values",
+  "filters.addValue": "Add a value",
+  "filters.removeClause": "Remove the {field} clause",
+  "filters.existsLabel": "Whether the field has a value",
+  "filters.hasValue": "has a value",
+  "filters.isEmpty": "is empty",
+  "filters.yes": "yes",
+  "filters.no": "no",
+  "filters.op.eq": "is",
+  "filters.op.neq": "is not",
+  "filters.op.in": "is any of",
+  "filters.op.contains": "contains",
+  "filters.op.exists": "has a value",
+  "filters.op.afterDate": "is after",
+  "filters.op.onOrAfterDate": "is on or after",
+  "filters.op.beforeDate": "is before",
+  "filters.op.onOrBeforeDate": "is on or before",
+  "filters.op.moreThan": "is more than",
+  "filters.op.atLeast": "is at least",
+  "filters.op.lessThan": "is less than",
+  "filters.op.atMost": "is at most",
 } as const;
 
 export type MessageKey = keyof typeof en;
