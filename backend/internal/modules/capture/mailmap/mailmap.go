@@ -438,10 +438,18 @@ func truncate(s string, limit int) string {
 	return s[:cut] + "…"
 }
 
-// recordParts hands the collected files to the seam. The two shapes are
-// deliberately separate types: this package owns the MIME reading and its
-// bounds, and the seam owns what a connector may report — a shared struct
-// would let a future parser widen the seam without anyone deciding to.
+// recordParts hands the collected files to the seam.
+//
+// The two shapes stay separate types, and the line between them is a stage
+// rather than an owner: mailmap.Part is a candidate MID-WALK, which is why the
+// collector can still refuse one, and connector.Part is a file that already
+// cleared every bound. The copy below is where that transition is made, so a
+// part cannot reach the seam without passing through it.
+//
+// This is NOT the "second spelling" that pkg/extension/files.go rules out. That
+// rule is about two producers each declaring their own file type and therefore
+// their own bounds; here there is one producer, one set of bounds, and one
+// published file type at the seam that every producer shares.
 func (m Message) recordParts() []connector.Part {
 	if len(m.parts) == 0 {
 		return nil

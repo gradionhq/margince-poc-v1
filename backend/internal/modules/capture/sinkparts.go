@@ -11,9 +11,14 @@ package capture
 // arrangement capture already has with people for counterparties — the seam is
 // how capture stays out of a sibling's tables.
 //
-// Nothing here decides bounds, filenames or content types either. Those are
-// settled by the one mail parser every adapter shares, before a part reaches
-// the seam: a bound enforced twice is two bounds that can disagree.
+// Nothing here decides bounds, filenames or content types, and the two halves of
+// that have different reasons. Bounds belong to whichever producer reads the
+// bytes, because bounding is what lets it read them at all — today that is the
+// one mail parser every adapter shares. Filenames and content types belong to
+// the ONE published pair every producer calls (extension.SafeFilename,
+// extension.SniffContentType), so no producer can certify the field whose whole
+// purpose is to distrust it. Either way a bound enforced twice is two bounds
+// that can disagree.
 
 import (
 	"context"

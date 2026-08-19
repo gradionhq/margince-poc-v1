@@ -1,0 +1,204 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package extension
+
+// The files a captured record carried, the ones it could not, and the files an
+// outbound message carries.
+//
+// They live on the PUBLISHED surface rather than in the core's connector port
+// because a unit and a core connector must hand the file keeper the same type.
+// The alternative — a mirrored type on each side kept honest by a parity test —
+// is what ports/jurisdiction already rejected for the pack contract: "aliased so
+// a pack registered by an extension and one registered by a core module are the
+// same type". A second spelling of a file is a second set of bounds that can
+// disagree about how large a file may be.
+
+import (
+	"mime"
+	"net/http"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+// InboundFile is one file a captured record carried.
+//
+// Body is held in memory because every bound that decides whether it may be held
+// has already been applied by the time one exists — see MaxInboundMessageBytes,
+// which is the bound that makes that safe rather than merely true.
+type InboundFile struct {
+	// Ordinal identifies the file WITHIN its message, counted over every
+	// attachment part including dropped ones. Together with the record's source
+	// id it is what capture is idempotent on, so it must not shift between pulls
+	// of the same message.
+	Ordinal int
+	// Filename is presentational and already sanitized (SafeFilename). Nothing
+	// opens a file by it; the object key is generated.
+	Filename string
+	// ContentType is what the BYTES say. DeclaredType carries the sender's claim
+	// only where it disagreed, so the disagreement stays inspectable.
+	ContentType  string
+	DeclaredType string
+	Body         []byte
+}
+
+// FileDrop is how many files one bound refused, and why.
+//
+// A COUNT rather than a row per file, because the count is attacker-chosen: a
+// single message can contain hundreds of thousands of empty parts, and one
+// breadcrumb each would let a sender decide how many rows our own audit trail
+// writes. The reason is the fact worth keeping; the tally is the scale.
+//
+// It names no filename on purpose — it reaches an operational log, and a sender
+// writes the filename.
+type FileDrop struct {
+	Reason string
+	Count  int
+}
+
+// OutboundFile is one file to transmit, in provider-neutral form. The connector
+// owns the wire encoding, exactly as it does for the body.
+//
+// The identifying fields travel WITH the bytes rather than being looked up at
+// send time, because the outbound record snapshots them: archiving or superseding
+// a document later must not rewrite the history of what was attached to a message
+// that already went out.
+type OutboundFile struct {
+	AttachmentID string
+	Filename     string
+	ContentType  string
+	ByteSize     int64
+	Checksum     string
+	Body         []byte
+}
+
+// The INBOUND bounds — all four of them, and the aggregate is not optional.
+//
+// Named for the DIRECTION because Carriage carries different numbers about the
+// other one: what this installation will accept from a provider is not what a
+// provider will carry for it.
+//
+// MaxInboundMessageBytes is what makes InboundFile.Body safe to hold in memory.
+// Without it, MaxInboundFiles × MaxInboundFileBytes licenses 500 MiB per message
+// — ten times what mail has ever admitted — on code that reads as bounded.
+// MaxInboundFilesExamined is the separate ceiling on files LOOKED AT: a crafted
+// message can hold hundreds of thousands of empty parts, and the cost of walking
+// them is not the cost of keeping them.
+const (
+	MaxInboundFiles         = 20
+	MaxInboundFilesExamined = 200
+	MaxInboundFileBytes     = 25 << 20
+	MaxInboundMessageBytes  = 50 << 20
+)
+
+// sniffLen is what http.DetectContentType actually reads. Reading exactly that
+// much keeps the sniff off the whole file.
+const sniffLen = 512
+
+// maxFilenameLen keeps a pathological name out of the column and out of every
+// list that renders it. Generous enough that no real filename hits it.
+const maxFilenameLen = 200
+
+// SniffContentType resolves what a file actually is. The sender's declaration is
+// a hint from an untrusted party; the bytes are the fact.
+//
+// PUBLISHED because every producer of an InboundFile must answer this question
+// the same way. A unit that self-reported ContentType would be certifying the
+// one field whose entire purpose is to distrust the sender.
+func SniffContentType(content []byte) string {
+	head := content
+	if len(head) > sniffLen {
+		head = head[:sniffLen]
+	}
+	full := http.DetectContentType(head)
+	// DetectContentType appends a charset for text types. The column stores the
+	// media type, and the charset is not something a receipt reports on.
+	if base, _, err := mime.ParseMediaType(full); err == nil {
+		return base
+	}
+	return full
+}
+
+// DeclaredTypeDisagreement returns the declared type only when it differs from
+// what the bytes say. Storing an agreeing claim would fill the column on every
+// row and make the interesting case invisible.
+func DeclaredTypeDisagreement(declared, sniffed string) string {
+	base := strings.TrimSpace(strings.ToLower(declared))
+	if base == "" {
+		return ""
+	}
+	if parsed, _, err := mime.ParseMediaType(base); err == nil {
+		base = parsed
+	}
+	if base == sniffed {
+		return ""
+	}
+	return base
+}
+
+// SafeFilename makes a sender-supplied name safe to store and show
+// (DOC-PARAM-8). It is presentational only: nothing opens a file by this name, and the object key is
+// generated elsewhere.
+//
+// Three classes go, and each is a real attack rather than tidiness. Path
+// separators stop a name from ever reading as a path. Line breaks stop a name
+// from rewriting a log line it appears in. Bidirectional overrides stop a name
+// from rendering as an extension it does not have — the name a person reads and
+// the extension the file has must be the same string. (A name ending "gpj.exe"
+// with a RIGHT-TO-LEFT OVERRIDE before it renders as "...jpg".)
+//
+// The line-break class is TWO tests, and the second is the one that is easy to
+// drop as redundant: unicode.IsControl answers for the Cc block, which is CR, LF
+// and NEL, and answers FALSE for U+2028 LINE SEPARATOR and U+2029 PARAGRAPH
+// SEPARATOR, which are categories Zl and Zp. Those two break a line in the
+// places a filename is read back — a log record, a JSON string, a CSV export —
+// so a name carrying one rewrites the record that quotes it exactly as a bare
+// newline would. Removing the Zl/Zp test because "IsControl already covers
+// control characters" reopens this.
+func SafeFilename(name string, ordinal int) string {
+	cleaned := strings.Map(func(r rune) rune {
+		switch {
+		case r == '/' || r == '\\' || r == 0:
+			return -1
+		case unicode.IsControl(r), unicode.Is(unicode.Zl, r), unicode.Is(unicode.Zp, r):
+			return -1
+		case r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069, r == 0x200F, r == 0x200E:
+			return -1
+		}
+		return r
+	}, name)
+	// A name that is only dots would still read as a path component.
+	cleaned = strings.TrimSpace(cleaned)
+	if strings.Trim(cleaned, ".") == "" {
+		cleaned = ""
+	}
+	if cleaned == "" {
+		// Named by position rather than left blank: a reader needs something to
+		// point at, and the ordinal is the one true thing we know about it.
+		return "attachment-" + strconv.Itoa(ordinal)
+	}
+	if len(cleaned) > maxFilenameLen {
+		// truncateFilename appends an ellipsis, so it is given room for one: the
+		// stated ceiling is what the column and every list that renders it must
+		// hold.
+		cleaned = truncateFilename(cleaned, maxFilenameLen-len("…"))
+	}
+	return cleaned
+}
+
+// truncateFilename cuts to a byte ceiling and marks the cut, so a shortened name
+// is visibly shortened rather than silently different. The ceiling is in BYTES
+// because it is the column's ceiling; the cut backs off to a rune boundary so
+// what is stored is never a broken UTF-8 sequence.
+func truncateFilename(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}

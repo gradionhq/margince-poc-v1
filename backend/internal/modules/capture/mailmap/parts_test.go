@@ -155,39 +155,6 @@ func TestAnOversizedFileIsRefusedAndTheMessageStillLands(t *testing.T) {
 	}
 }
 
-// DOC-PARAM-8: a sender-supplied name is never a path, never rewrites a log
-// line, and never renders as an extension it does not have.
-func TestASenderCannotChooseADangerousFilename(t *testing.T) {
-	for name, given := range map[string]string{
-		"a path":                "../../etc/passwd",
-		"a windows path":        `..\\..\\windows\\system32`,
-		"a newline in the name": "invoice\r\nX-Injected: yes.pdf",
-		"a right-to-left flip":  "invoice\u202egpj.exe",
-	} {
-		t.Run(name, func(t *testing.T) {
-			got := SafeFilename(given, 1)
-			for _, forbidden := range []string{"/", `\`, "\n", "\r", "\u202e"} {
-				if strings.Contains(got, forbidden) {
-					t.Errorf("SafeFilename(%q) = %q, which still contains %q", given, got, forbidden)
-				}
-			}
-			if got == "" {
-				t.Error("a sanitized name must still be something a reader can point at")
-			}
-		})
-	}
-}
-
-// A name that sanitizes away entirely still needs to be something a reader can
-// point at, and the ordinal is the one true thing we know about the file.
-func TestAFileWithNoUsableNameIsNamedByItsPosition(t *testing.T) {
-	for _, given := range []string{"", "   ", "...", "/////"} {
-		if got := SafeFilename(given, 4); got != "attachment-4" {
-			t.Errorf("SafeFilename(%q) = %q, want attachment-4", given, got)
-		}
-	}
-}
-
 // DOC-PARAM-9 / DOC-AC-13: the bytes govern, and the sender's disagreeing claim
 // is kept rather than resolved away.
 func TestTheBytesDecideTheTypeAndTheSendersClaimIsKept(t *testing.T) {
@@ -343,17 +310,5 @@ func TestAFileWhoseBytesCannotBeReadIsRefusedAndNamed(t *testing.T) {
 	drops := files.drops()
 	if len(drops) != 1 || drops[0].Reason != DropUnreadablePart {
 		t.Errorf("drops = %v, want one %q", drops, DropUnreadablePart)
-	}
-}
-
-// A pathological name is cut to something a column and a list can hold, and the
-// ellipsis counts against the ceiling rather than pushing past it.
-func TestAnEndlessFilenameIsCutToTheCeiling(t *testing.T) {
-	got := SafeFilename(strings.Repeat("a", maxFilenameLen*3), 1)
-	if len(got) > maxFilenameLen {
-		t.Errorf("kept %d bytes, want no more than the stated ceiling of %d", len(got), maxFilenameLen)
-	}
-	if got == "" {
-		t.Error("a truncated name must still be something a reader can point at")
 	}
 }
