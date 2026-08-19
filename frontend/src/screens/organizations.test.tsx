@@ -615,8 +615,18 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
     // The wire's own parameter name and the band as written. A dial that sent
     // anything else would be ignored by the server, which answers the WHOLE
     // list with 200 OK — a filter that reads as working and is not.
+    // The parsed parameter, not a substring of the URL: `includes` would also
+    // accept a longer value that merely starts this way, so it asserts less than
+    // it appears to — and it would keep passing if the band set ever grew one.
     await waitFor(() =>
-      expect(urls.some((url) => url.includes("size_band=51-200"))).toBe(true),
+      expect(
+        urls.some(
+          (url) =>
+            new URL(url, window.location.origin).searchParams.get(
+              "size_band",
+            ) === "51-200",
+        ),
+      ).toBe(true),
     );
   });
 
