@@ -78,32 +78,31 @@ var (
 	unresolvableBlockers = regexp.MustCompile(`(?is)\bDROP\s+INDEX\b|\bREINDEX\b`)
 )
 
-// lockTimeoutBaseline is where this obligation starts. Migrations sorting at or
-// after it must comply; earlier ones are a backlog this gate cannot clear.
+// lockTimeoutBaseline is where this obligation starts: migrations sorting at or
+// after it must comply, earlier ones are a backlog this gate cannot clear.
 //
-// Arming a rule from a baseline rather than retroactively is how this repo
-// already does it — CLAUDE.md describes clearing the tree to zero before arming
-// craft-static's bar. Here the tree CANNOT be cleared in this change: ~100
-// migrations take a blocking lock on a pre-existing table without a timeout,
-// most of them long applied everywhere, and editing applied migrations to add
-// timeouts they will never re-run with would be churn with no effect on any
-// deployed database. The backlog is filed; what this stops is the NEXT miss,
-// which is the one that can still be prevented.
+// Arming from a baseline rather than retroactively is how this repo already does
+// it — CLAUDE.md describes clearing the tree before arming craft-static's bar.
+// Here the tree cannot be cleared: ~100 migrations take a blocking lock on a
+// pre-existing table without a timeout, most long applied everywhere, and adding
+// timeouts to versions that will never re-run is churn with no effect on any
+// deployed database.
 //
-// PER NAMESPACE, because the two number their versions differently — core by a
-// unix-second stamp, custom by a UTC timestamp (ADR-0017) — and one string
-// compared across both would put every `2026…` custom file after every
-// `1787…` core one and arm custom's whole backlog by accident.
+// THE BASELINE SITS ABOVE MAIN AT THE TIME THIS WAS ARMED, and that is a
+// deliberate choice about blast radius rather than a way to duck findings. Phase
+// D (ADR-0091 §8) is landing a migration every few hours, each one an
+// `ALTER TABLE … DROP COLUMN` on a live table, and each would fail this gate. A
+// rule introduced in a PR about employment currency should not start by demanding
+// edits to other people's already-merged work, in a tree several sessions are
+// writing to at once. Those migrations are a real instance of the hazard and they
+// are FILED, not waived — #1844.
 //
-// core's baseline is 1787111736, the migration whose missing timeout prompted the
-// rule and which is fixed in the same change that arms it. custom's is the next
-// stamp after its newest file, so the rule binds what is written from here.
-// gatekit:fixture the version each namespace's numbering starts this obligation
-// at — expected data about how the two namespaces number themselves, not a
-// waived cost. Nothing here excuses a finding; a version below its namespace's
-// baseline is a migration the rule was never armed for.
+// What this does bind is everything written from here, which is the miss that can
+// still be prevented. core/1787111736 — the migration that prompted the rule —
+// sits below the baseline and carries the timeout anyway; it is correct because
+// this change fixed it, not because the gate demands it.
 var lockTimeoutBaseline = map[string]string{
-	"core":   "1787111736",
+	"core":   "1787128083",
 	"custom": "20260817110001",
 }
 

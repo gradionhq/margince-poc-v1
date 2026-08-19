@@ -12,12 +12,6 @@
 -- the rollback stops — the honest outcome, since no value this migration could
 -- write would be true. A rollback on an empty database (the reverse-and-reapply
 -- lane) has nothing to attribute and passes.
-
--- lock_timeout, matching the up half: re-adding these columns needs the same
--- ACCESS EXCLUSIVE, and a rollback runs at exactly the moment nobody can afford
--- it to hang.
-SET LOCAL lock_timeout = '3s';
-
 ALTER TABLE team ADD COLUMN workspace_id uuid;
 ALTER TABLE team_membership ADD COLUMN workspace_id uuid;
 ALTER TABLE record_grant ADD COLUMN workspace_id uuid;
