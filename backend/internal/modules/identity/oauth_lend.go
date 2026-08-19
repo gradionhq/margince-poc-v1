@@ -164,10 +164,9 @@ func writeAuthorizationCode(
 	var codeID ids.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO oauth_authorization_code
-		  (workspace_id, code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at,
+		  (code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at,
 		   lent_passport_id)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval,
+		VALUES ($1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval,
 		        $9)
 		RETURNING id`,
 		hashOAuthCode(code), req.ClientID, id.UserID, storedScopes, req.CodeChallenge,

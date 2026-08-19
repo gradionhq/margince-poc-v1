@@ -162,10 +162,10 @@ func mintPassport(ctx context.Context, tx pgx.Tx, id Identity, in IssuePassportI
 	out := IssuedPassport{Token: token, Scopes: in.Scopes}
 
 	if err := tx.QueryRow(ctx,
-		`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
-		 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval, $7)
+		`INSERT INTO passport (on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		 VALUES ($1, $1, $2, $3, $4, now() + $5::interval, $6)
 		 RETURNING id, expires_at`,
-		id.WorkspaceID, id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String(), grantID).
+		id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String(), grantID).
 		Scan(&out.ID, &out.ExpiresAt); err != nil {
 		return IssuedPassport{}, err
 	}
@@ -333,8 +333,8 @@ const liveClientPredicate = `c.disabled_at IS NULL AND c.deleted_at IS NULL`
 // row means the grant points at a client that no longer exists, which must
 // fail closed rather than pass for want of a disabled_at to read.
 const agentLivenessJoins = `
-	LEFT JOIN oauth_grant  g ON (g.workspace_id, g.id)        = (p.workspace_id, p.oauth_grant_id)
-	LEFT JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)`
+	LEFT JOIN oauth_grant  g ON g.id        = p.oauth_grant_id
+	LEFT JOIN oauth_client c ON c.client_id = g.client_id`
 
 // A human who owes a credential rotation is held to nothing over REST, and
 // "agent ≤ human" is a runtime property: their passports must therefore resolve
@@ -366,7 +366,7 @@ const (
 // makes the liveness rule above impossible to have on one path and miss on
 // the other.
 func agentAuthQuery(predicate string) string {
-	return `SELECT p.id, p.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
+	return `SELECT p.id, u.workspace_id, p.on_behalf_of, p.scopes, u.seat_type
 		FROM passport p
 		JOIN app_user u ON u.id = p.on_behalf_of` + agentLivenessJoins + `
 		WHERE ` + predicate + `

@@ -186,9 +186,9 @@ func (e *Env) SeedPassport(t *testing.T, owner *pgx.Conn, label string) ids.UUID
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := owner.Exec(context.Background(), `
-		INSERT INTO passport (id, workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
-		VALUES ($1, $2, $3, $3, $4, ARRAY['read','write'], $5, now() + interval '1 day')`,
-		id, e.WS, e.Rep1, label, "hash-"+id.String()); err != nil {
+		INSERT INTO passport (id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+		VALUES ($1, $2, $2, $3, ARRAY['read','write'], $4, now() + interval '1 day')`,
+		id, e.Rep1, label, "hash-"+id.String()); err != nil {
 		t.Fatalf("seeding passport %s: %v", label, err)
 	}
 	return id

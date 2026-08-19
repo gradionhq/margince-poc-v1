@@ -54,9 +54,9 @@ func (e *stagingEnv) seedPassport(t *testing.T) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if _, err := e.owner.Exec(context.Background(), `
-		INSERT INTO passport (id, workspace_id, label, on_behalf_of, granted_by, token_hash, scopes, expires_at)
-		VALUES ($1, $2, $3, $4, $4, $5, $6, now() + interval '30 days')`,
-		id, e.ws, "agent "+id.String(), e.rep, "hash-"+id.String(), []string{"read", "enrich"}); err != nil {
+		INSERT INTO passport (id, label, on_behalf_of, granted_by, token_hash, scopes, expires_at)
+		VALUES ($1, $2, $3, $3, $4, $5, now() + interval '30 days')`,
+		id, "agent "+id.String(), e.rep, "hash-"+id.String(), []string{"read", "enrich"}); err != nil {
 		t.Fatalf("seeding a passport: %v", err)
 	}
 	return id
