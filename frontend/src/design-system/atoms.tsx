@@ -309,13 +309,26 @@ function ButtonSentences({
 export function Badge({
   tone,
   children,
+  quiet,
 }: Readonly<{
   tone?: "success" | "warn" | "danger" | "ai" | "accent";
   children: ReactNode;
+  // The same status in a column of them. A pill states one status against
+  // surrounding prose; a table row states one per row, and a stack of filled
+  // pills reads as decoration a reader learns to skip. `quiet` keeps the tone
+  // and drops the fill: a dot in the tone's colour, and the label as plain
+  // text. Same vocabulary, so a status cannot be worded one way in a list and
+  // another on the record the list opens.
+  quiet?: boolean;
 }>) {
-  return (
-    <span className={tone ? `badge badge-${tone}` : "badge"}>{children}</span>
-  );
+  const classes = ["badge"];
+  if (quiet) {
+    classes.push("badge-quiet");
+  }
+  if (tone) {
+    classes.push(`badge-${tone}`);
+  }
+  return <span className={classes.join(" ")}>{children}</span>;
 }
 
 // AVATAR_TONES are the monogram backgrounds, all token-driven. The colour

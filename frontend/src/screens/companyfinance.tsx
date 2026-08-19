@@ -1,8 +1,10 @@
 import { Landmark } from "lucide-react";
+import type { ReactNode } from "react";
 import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
+import { Meter, Sparkline } from "../design-system/readings";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -132,10 +134,7 @@ export function CompanyFinanceCard({
     cardState === "stale" ||
     cardState === "partial";
   return (
-    <Panel
-      title={title}
-      footer={present ? <FinanceProvenance summary={summary} /> : undefined}
-    >
+    <Panel title={title} {...chromeOf(summary, present, t)}>
       <PanelBody>
         <SurfaceState
           state={cardState}
@@ -154,6 +153,31 @@ export function CompanyFinanceCard({
   );
 }
 
+// The three slots the panel's chrome fills, decided together because all three
+// hang on the same question: does this panel have real figures to qualify?
+//
+// Where the figures came from and how fresh they are belongs beside the
+// panel's NAME rather than under its last row — it qualifies every number in
+// the panel, and a reader who has scrolled past the invoice table has stopped
+// looking for it. The footer carries what the table could not fit, and the
+// offer to connect a source is an action rather than a reading.
+function chromeOf(
+  summary: FinanceSummary,
+  present: boolean,
+  t: ReturnType<typeof useT>,
+): { titleAction?: ReactNode; actions?: ReactNode; footer?: ReactNode } {
+  if (!present) {
+    return {};
+  }
+  return {
+    titleAction: <FinanceProvenance summary={summary} />,
+    actions: summary.provider ? undefined : <ConnectFinance />,
+    footer: summary.truncated ? (
+      <span className="t-caption">{t("finance.moreInvoices")}</span>
+    ) : undefined,
+  };
+}
+
 // What the card says when it has no figures. Two different sentences, because
 // "nobody has connected an accounting system" and "this customer is not mapped
 // to one of its customers" have different fixes.
@@ -162,29 +186,25 @@ const EMPTY_LABEL: Partial<Record<FinanceState, MessageKey>> = {
   unmapped: "finance.unmapped",
 };
 
+// The panel leads with the one figure that asks for a decision, and states
+// the rest around it. Overdue money is what a rep acts on; net invoiced is
+// context for the size of the relationship, and the payment habit is context
+// for whether the overdue figure is a blip or the pattern.
 function FinanceBody({ summary }: Readonly<{ summary: FinanceSummary }>) {
   const t = useT();
   const { locale } = useLocale();
   return (
     <>
-      <div className="co-figures">
-        <FinanceFigure
-          label={t("finance.netInvoiced")}
-          value={amountOf(summary.net_invoiced, locale)}
-        />
-        <FinanceFigure
-          label={t("finance.openBalance")}
-          value={amountOf(summary.open_balance, locale)}
-        />
-        <FinanceFigure
-          label={t("finance.overdue")}
-          value={amountOf(summary.overdue, locale)}
-          // Overdue money is the one reading on this card that is bad news
-          // simply by being present.
-          tone={(summary.overdue?.amount_minor ?? 0) > 0 ? "danger" : undefined}
-        />
+      <div className="fin-split">
+        <OverdueLead summary={summary} />
+        <div className="fin-aside">
+          <FinanceFigure
+            label={t("finance.netInvoiced")}
+            value={amountOf(summary.net_invoiced, locale)}
+          />
+          <PaymentBehaviour summary={summary} />
+        </div>
       </div>
-      <PaymentBehaviour summary={summary} />
       <RecentInvoices summary={summary} />
     </>
   );
@@ -213,35 +233,154 @@ function amountOf(
 function FinanceFigure({
   label,
   value,
-  tone,
-}: Readonly<{ label: string; value?: string; tone?: "danger" }>) {
+  hero,
+}: Readonly<{ label: string; value?: string; hero?: boolean }>) {
   return (
-    <div className="co-figure">
+    <div className="fin-figure">
       <Eyebrow>{label}</Eyebrow>
-      <span
-        className={
-          tone ? `co-figure-value fin-value-${tone}` : "co-figure-value"
-        }
-      >
+      <span className={hero ? "fin-amount fin-amount-hero" : "fin-amount"}>
         {value ?? "—"}
       </span>
     </div>
   );
 }
 
-// How they pay, as a number. No sparkline: `payment_behaviour`'s series is
-// its own reading and nothing on this panel draws a shape from it — the
-// median line beside it is the figure the panel actually backs.
-function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
+// Overdue money, at the size of the decision it asks for, with everything the
+// panel knows about WHY it is that size underneath: what share of the open
+// balance it is, how late this customer usually pays, and the two halves of
+// the open balance drawn against each other.
+//
+// The hero figure is drawn whatever the rest of the panel can say. The
+// sentence and the bar under it each appear only when their own inputs
+// arrived, so a customer with no settled invoices gets the figure and nothing
+// invented beneath it.
+function OverdueLead({ summary }: Readonly<{ summary: FinanceSummary }>) {
   const t = useT();
-  if (summary.median_days_after_due == null) {
+  const { locale } = useLocale();
+  const split = openSplitOf(summary);
+  return (
+    <div className="fin-lead">
+      <FinanceFigure
+        label={t("finance.overdue")}
+        value={amountOf(summary.overdue, locale)}
+        hero
+      />
+      <FinanceLede summary={summary} split={split} />
+      {split && (
+        <>
+          <Meter
+            value={split.overdue}
+            max={split.open}
+            label={t("finance.overdueShareLabel")}
+            tone="danger"
+            restTone="accent"
+          />
+          {/* The bar's two colours, named. Without this the reader is left to
+              infer which half is which from the tones alone, and the tones are
+              what a reader who cannot distinguish them needs the words for. */}
+          <p className="fin-legend">
+            <Badge tone="danger" quiet>
+              {t("finance.legendOverdue", {
+                amount: formatMoney(split.overdue, split.currency, locale),
+              })}
+            </Badge>
+            <Badge tone="accent" quiet>
+              {t("finance.legendOpen", {
+                amount: formatMoney(split.open, split.currency, locale),
+              })}
+            </Badge>
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+// What the overdue figure MEANS, in whichever clauses the data supports: its
+// share of the open balance, and how late this customer settles.
+//
+// Each clause is a sentence and is terminated here rather than in the catalog,
+// because `medianDaysLabel` is also read on its own elsewhere on the record,
+// where a trailing full stop mid-line would be wrong. One terminator, spelled
+// once, so the two clauses cannot end differently from each other.
+function FinanceLede({
+  summary,
+  split,
+}: Readonly<{ summary: FinanceSummary; split: OpenSplit | null }>) {
+  const t = useT();
+  const clauses: string[] = [];
+  if (split) {
+    clauses.push(
+      t("finance.shareOfOpen", {
+        percent: Math.round((split.overdue / split.open) * 100),
+      }),
+    );
+  }
+  if (summary.median_days_after_due != null) {
+    clauses.push(medianDaysLabel(summary.median_days_after_due, t));
+  }
+  if (clauses.length === 0) {
     return null;
   }
   return (
-    <p className="fin-behaviour">
-      <Eyebrow>{t("finance.behaviour")}</Eyebrow>{" "}
-      {medianDaysLabel(summary.median_days_after_due, t)}
-    </p>
+    <p className="fin-lede">{clauses.map((one) => `${one}.`).join(" ")}</p>
+  );
+}
+
+// The open balance as its two halves in ONE currency: what is overdue, and
+// the whole it is part of.
+//
+// Null unless the halves make a proportion at all. Different currencies is a
+// proportion of nothing. Nothing open would put a full bar over "€0 open",
+// which reads as an account entirely in arrears rather than one that owes us
+// nothing. And overdue ABOVE open is not a share that has run high, it is two
+// figures that contradict each other: the mirror says money is late that it
+// also says is not outstanding.
+//
+// The third case is refused rather than clamped because clamping picks a
+// winner between two figures the panel cannot choose between, and picks it
+// silently — a bar pinned at 100% beside a sentence reading "115% of
+// everything open" is the same disagreement with a coat of paint. The overdue
+// figure above still draws: it is what the mirror reported, and it is the one
+// number a reader can act on. What refuses is only the claim about a
+// relationship between the two.
+type OpenSplit = { overdue: number; open: number; currency: string };
+
+function openSplitOf(summary: FinanceSummary): OpenSplit | null {
+  const open = summary.open_balance;
+  const overdue = summary.overdue;
+  if (
+    open?.amount_minor == null ||
+    !open.currency ||
+    overdue?.amount_minor == null ||
+    open.currency !== overdue.currency ||
+    open.amount_minor <= 0 ||
+    overdue.amount_minor > open.amount_minor
+  ) {
+    return null;
+  }
+  return {
+    overdue: overdue.amount_minor,
+    open: open.amount_minor,
+    currency: open.currency,
+  };
+}
+
+// How they pay, as the shape of it: days late per settled invoice, oldest
+// first. A line climbing to the right is a customer slipping, which is the one
+// thing the median beside the overdue figure cannot say, because averaging is
+// what hides it.
+function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
+  const t = useT();
+  const series = summary.payment_behaviour ?? [];
+  if (series.length < 2) {
+    return null;
+  }
+  return (
+    <div className="fin-behaviour">
+      <Eyebrow>{t("finance.behaviour")}</Eyebrow>
+      <Sparkline points={series} label={t("finance.behaviourShape")} />
+    </div>
   );
 }
 
@@ -253,35 +392,29 @@ function RecentInvoices({ summary }: Readonly<{ summary: FinanceSummary }>) {
     return null;
   }
   return (
-    <>
-      {/* Six columns — number, three dates, amount, status — on a panel inside
-          a record page. Nothing here is droppable: an invoice is only checkable
-          against its own dates. So the table scrolls sideways inside its panel
-          rather than widening the whole record page, which is the containment
-          DataTable already gives every list built from it (atoms.tsx). */}
-      <div className="table-scroll">
-        <table className="table fin-table">
-          <thead>
-            <tr>
-              <th>{t("finance.col.invoice")}</th>
-              <th>{t("finance.col.issued")}</th>
-              <th>{t("finance.col.due")}</th>
-              <th>{t("finance.col.paid")}</th>
-              <th>{t("finance.col.amount")}</th>
-              <th>{t("finance.col.status")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {invoices.map((invoice) => (
-              <InvoiceRow key={invoice.id} invoice={invoice} locale={locale} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {summary.truncated && (
-        <p className="surfacestate-empty">{t("finance.moreInvoices")}</p>
-      )}
-    </>
+    // Four columns, and nothing is dropped to get there: the issue, due and
+    // settlement dates read as one life of one invoice rather than three
+    // columns a reader has to line up by eye. It is still every date the
+    // server sent, which is what an invoice is checkable against. The table
+    // scrolls sideways inside its panel rather than widening the record page,
+    // the containment DataTable gives every list built from it (atoms.tsx).
+    <div className="table-scroll">
+      <table className="table fin-table">
+        <thead>
+          <tr>
+            <th>{t("finance.col.invoice")}</th>
+            <th>{t("finance.col.dates")}</th>
+            <th className="fin-col-amount">{t("finance.col.amount")}</th>
+            <th className="fin-col-status">{t("finance.col.status")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {invoices.map((invoice) => (
+            <InvoiceRow key={invoice.id} invoice={invoice} locale={locale} />
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -293,37 +426,47 @@ function InvoiceRow({
   locale: ReturnType<typeof useLocale>["locale"];
 }>) {
   const t = useT();
+  const late = invoice.days_late != null && invoice.days_late > 0;
   return (
-    <tr>
-      <td>{invoice.number ?? t("finance.unnumbered")}</td>
-      <td>{formatDate(invoice.issued_at, locale, RECORD_ZONE)}</td>
-      <td>
+    // A row the customer still owes past its due date carries the tint, so the
+    // rows that need chasing are findable without reading the status column of
+    // every one of them. A settled invoice that was paid late is history, not
+    // work, and takes no tint however late it was.
+    <tr className={late && invoice.status !== "paid" ? "fin-row-late" : ""}>
+      <td className="fin-cell-id">
+        {invoice.number ?? t("finance.unnumbered")}
+      </td>
+      <td className="fin-cell-dates">
+        {formatDate(invoice.issued_at, locale, RECORD_ZONE)} →{" "}
         {invoice.due_at ? formatDate(invoice.due_at, locale, RECORD_ZONE) : "—"}
-      </td>
-      {/* When it was actually settled. A dash is "not yet", which is a
-          different reading from a date — and the one the status beside it
-          explains. */}
-      <td>
-        {invoice.paid_at
-          ? formatDate(invoice.paid_at, locale, RECORD_ZONE)
-          : "—"}
-      </td>
-      <td>{formatMoney(invoice.gross_minor, invoice.currency, locale)}</td>
-      <td>
-        <Badge tone={STATUS_TONE[invoice.status]}>
-          {t(STATUS_LABEL[invoice.status])}
-        </Badge>{" "}
-        {/* HOW late, beside whether it was. "Paid" and "paid 8 days late" are
-            different facts about a customer, and the second is the one a rep
-            reads a payment history for. Zero and negative say nothing worth a
-            line: on time is what the status already said. */}
-        {invoice.days_late != null && invoice.days_late > 0 && (
-          <span className="t-caption">
-            {t(daysLateKey(invoice.status, invoice.days_late), {
-              days: invoice.days_late,
+        {/* When it was actually settled, appended rather than given a column
+            of its own: an unpaid invoice has no date to put there, and a
+            column of dashes states nothing the status does not. */}
+        {invoice.paid_at && (
+          <span className="fin-cell-paid">
+            {" · "}
+            {t("finance.paidOn", {
+              when: formatDate(invoice.paid_at, locale, RECORD_ZONE),
             })}
           </span>
         )}
+      </td>
+      <td className="fin-col-amount">
+        {formatMoney(invoice.gross_minor, invoice.currency, locale)}
+      </td>
+      {/* HOW late, and whether it was, as ONE reading. "Paid" and "paid 22
+          days late" are different facts about a customer, and splitting them
+          across a badge and a caption made the reader assemble the sentence.
+          Zero and negative say nothing worth a line: on time is what the
+          status alone already says. */}
+      <td className="fin-col-status">
+        <Badge tone={STATUS_TONE[invoice.status]} quiet>
+          {late && invoice.days_late != null
+            ? t(daysLateKey(invoice.status, invoice.days_late), {
+                days: invoice.days_late,
+              })
+            : t(STATUS_LABEL[invoice.status])}
+        </Badge>
       </td>
     </tr>
   );
@@ -371,15 +514,18 @@ const STATUS_TONE: Record<
 // Where the figures came from and when. Both are the card's own honesty: a
 // reader looking at money needs to know which system said so, and how long
 // ago — and `offline_demo` says outright that these are demonstration data.
+// Which accounting source the figures came from and how fresh they are — the
+// qualification every number in the panel inherits, so it sits beside the
+// panel's name rather than after its last row.
+//
+// Null when nothing is connected: there is no source to name, and the offer to
+// connect one is an ACTION, which the panel places with its other actions
+// instead of in the line that reports provenance.
 function FinanceProvenance({ summary }: Readonly<{ summary: FinanceSummary }>) {
   const t = useT();
   const { locale } = useLocale();
   if (!summary.provider) {
-    return (
-      <div className="co-card-actions">
-        <Button small>{t("finance.connect")}</Button>
-      </div>
-    );
+    return null;
   }
   return (
     <p className="t-caption fin-provenance">
@@ -391,5 +537,17 @@ function FinanceProvenance({ summary }: Readonly<{ summary: FinanceSummary }>) {
           })
         : t("finance.fromNeverSynced", { provider: summary.provider })}
     </p>
+  );
+}
+
+// The offer to connect an accounting source, for a panel that has none. An
+// action rather than a reading, so it never sits in the provenance line, and
+// never on a panel that already has a source to report.
+function ConnectFinance() {
+  const t = useT();
+  return (
+    <div className="co-card-actions">
+      <Button small>{t("finance.connect")}</Button>
+    </div>
   );
 }
