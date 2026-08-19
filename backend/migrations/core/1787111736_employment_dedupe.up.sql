@@ -63,7 +63,7 @@ LOCK TABLE relationship IN SHARE ROW EXCLUSIVE MODE;
 -- `ended_at IS NOT NULL`, which cleared the flag from people who had not left:
 -- a last day in the FUTURE is a notice period, not a departure. The amendment is
 -- authorized by the same rule that authorized the 2026-08 tenant sweep — it
--- ships WITH the additive repair (core 1787123140) that reaches every database
+-- ships WITH the additive repair (core 1787128142) that reaches every database
 -- which already applied the old predicate, so the two land in the same state
 -- rather than diverging.
 --
@@ -72,7 +72,7 @@ LOCK TABLE relationship IN SHARE ROW EXCLUSIVE MODE;
 -- version behind: clearing a future-dated primary let the promotion at the
 -- bottom hand the flag to a DIFFERENT employer, and no later migration can tell
 -- an inherited flag from a chosen one. Fixing it here means that never happens;
--- 1787123140 then has only the already-applied case to repair.
+-- 1787128142 then has only the already-applied case to repair.
 UPDATE relationship SET is_current_primary = false
  WHERE kind = 'employment' AND is_current_primary
    AND ended_at IS NOT NULL AND ended_at <= current_date

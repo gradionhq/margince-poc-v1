@@ -5,7 +5,7 @@
 
 package migrations
 
-// 1787123140 undoes damage 1787111736 did, so its test has to carry that damage
+// 1787128142 undoes damage 1787111736 did, so its test has to carry that damage
 // through it. Applied to a fresh schema the repair matches nothing — there is
 // no flag to restore — and a wrong predicate, a wrong direction of the date
 // comparison, or no repair at all would every one of them pass.
@@ -104,8 +104,8 @@ func TestTheNoticePeriodRepairGivesBackOnlyTheFlagsItShould(t *testing.T) {
 	}
 	// Back to the schema this repair lands on, so the rows below are the rows
 	// 1787111736 left behind on a database that had already applied it.
-	if _, err := dbmigrate.Down(ctx, conn, core, stepsDownTo(t, core, "1787123140")); err != nil {
-		t.Fatalf("reverting down to 1787123140: %v", err)
+	if _, err := dbmigrate.Down(ctx, conn, core, stepsDownTo(t, core, "1787128142")); err != nil {
+		t.Fatalf("reverting down to 1787128142: %v", err)
 	}
 
 	rows := []noticeRow{
@@ -149,7 +149,7 @@ func TestTheNoticePeriodRepairGivesBackOnlyTheFlagsItShould(t *testing.T) {
 	seeded := seedNoticePeriods(t, conn, rows)
 
 	if _, err := dbmigrate.Up(ctx, conn, core); err != nil {
-		t.Fatalf("applying 1787123140: %v", err)
+		t.Fatalf("applying 1787128142: %v", err)
 	}
 
 	for _, row := range rows {
