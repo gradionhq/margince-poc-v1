@@ -50,10 +50,10 @@ body:
   - type: input
     id: decision-ref
     attributes:
-      label: Related decision record, if you know of one
+      label: Related decision number, if you know of one
       description: >-
-        A decision number from docs/adr/, if one bears on this. Leave blank if
-        none — a maintainer will find it.
+        A decision number, if one bears on this — the records themselves are
+        not in this repository. Leave blank if none; a maintainer will find it.
       placeholder: "ADR-0055"
 
   - type: textarea

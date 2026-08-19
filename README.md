@@ -42,8 +42,7 @@ This is where Margince is built: the running Go code, the OpenAPI
 contract it is generated from, the tests that prove its behaviour, and
 the documentation for building and operating it. There is no separate
 specification that outranks what is here — `backend/api/crm.yaml` is the
-contract, the tests are the record of behaviour, and the decisions behind
-both are in [docs/adr/](docs/adr/).
+contract and the tests are the record of behaviour.
 
 **Start here:**
 
@@ -290,20 +289,16 @@ per-client throttling at the proxy.
   mutation executes (agent-stamped provenance), a 🟡 mutation stages an
   approval and is redeemed by repeating the identical request with
   `X-Approval-Token`, an un-tiered mutating route is refused
-  (default-deny), and the human-only governance surface (consent, DSR,
-  pipeline/stage config, passports) rejects agent principals outright.
-  A passport may ANSWER a staged proposal on its human's authority, and
-  the self-approval bypass stays structurally closed: the credential
-  that proposed an action does not release it.
+  (default-deny), and the human-only governance surface (approvals,
+  consent, DSR, pipeline/stage config, passports) rejects agent
+  principals outright — the self-approval bypass is structurally closed.
 - **Approval engine (EP07 core, ADR-0036)**: a refused 🟡 action lands
   in the `approval` inbox (`approval.requested`) with a one-line
   summary, the exact proposed change, its content hash, and the target
   row's version; humans decide over `/approvals` — the inbox shows only
   approvals the caller could themselves decide;
-  deciding takes the RBAC the effect itself needs, the target's row
-  scope and a full seat — over the web app, or on a passport carrying
-  the caps the release spends (`write`, plus `send` where approving
-  sends), never on the credential that proposed it; redemption is single-use, 15-minute window, bound to the
+  deciding is human-only, and the approver must hold the RBAC the effect
+  itself needs; redemption is single-use, 15-minute window, bound to the
   staging passport and the content hash, refused on target version skew
   (the human's yes was about the world they saw).
 - **AI runtime + certification**: every model call rides one contract-first
@@ -361,9 +356,9 @@ Findings are routed, not lost:
 - **Implementation decisions** are explained in the commit message and PR
   that makes the change; git history is the record.
 - **Decisions that bind future work** — a security posture, a contract
-  shape, a persistence choice — get a record in [docs/adr/](docs/adr/),
-  written in the same PR as the change. A record can be superseded; write
-  the replacement alongside the code that changes it.
+  shape, a persistence choice — are raised with the maintainers, who keep
+  the decision records. What binds a change here is enforced by a gate, and
+  a gate that refuses names what to do instead.
 - **Anything found but not fixed** — a bug, a gap, a follow-up — becomes a
   GitHub issue in this repo, labelled.
 - **Session state** — progress, in-flight work, pickup point — goes in

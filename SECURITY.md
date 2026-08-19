@@ -48,9 +48,8 @@ codebase, in particular:
 
 Out of scope: vulnerabilities in third-party dependencies without a
 demonstrated impact here (report those upstream), findings requiring a
-compromised host or database, denial-of-service against a dev
-deployment (`MARGINCE_ENV=dev` deliberately relaxes trust switches), and
-issues in the separate specification repository.
+compromised host or database, and denial-of-service against a dev
+deployment (`MARGINCE_ENV=dev` deliberately relaxes trust switches).
 
 ## Supported versions
 

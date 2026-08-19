@@ -9,15 +9,18 @@ what is here.
 the team; then code, tests, migrations and `backend/api/crm.yaml`, which are what
 the product does today; then the guardrails (security, privacy, agent authority,
 auditability, contract compatibility, licensing, data durability) enforced by
-tests wherever possible; then [docs/](docs/); then the decision records in
-[docs/adr/](docs/adr/), which carry rationale and can be superseded in the same PR
-as the change. Retired material is history and never blocks work on its own.
+tests wherever possible; then [docs/](docs/). Retired material is history and
+never blocks work on its own. The reasoning behind a guardrail is kept by the
+team and is not in this repository — you never need it to work here, because the
+rule that binds a change is enforced by a gate and a refusing gate names what to
+do instead.
 [CLAUDE.md](CLAUDE.md#what-decides-a-question-here) has the long form.
 
 **Do not refuse or narrow ordinary product evolution because an older document
 describes a different choice.** Name the conflict and say what it costs. If the
-change touches a guardrail, update the decision alongside the implementation. If
-the call is someone else's, say whose and open a `status: needs-decision` issue.
+change touches a guardrail, say so in the pull request so the decision behind it
+is updated with the code. If the call is someone else's, say whose and open a
+`status: needs-decision` issue.
 
 **This repository is public.** Never refer to a private repository, document, path
 or link — not in code, comments, tests, docs, issues, commit messages or PR
@@ -26,8 +29,8 @@ bodies — and never include local machine paths or secrets.
 the part of that a test can catch: private references in tracked source and prose
 files. Commit messages, PR bodies, secrets and machine paths are on you. A public contributor must be able to follow every instruction this repository
 gives them, so write a rule out here rather than citing somewhere they cannot
-reach. Cite a decision by its number (`ADR-0054`); the record is in
-[docs/adr/](docs/adr/).
+reach. A decision number (`ADR-0054`) may appear as a label, but never cite it
+as though a reader could open it — state the rule itself.
 
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
@@ -35,9 +38,10 @@ bear on your change; the file is not meant to be read end to end. Update it at
 the end of every working session, keeping it to open work — the narrative of what
 you did belongs in the commit and the PR, which is the durable record. Route
 findings as you work: implementation decisions are recorded in the commit and PR
-that makes the change; a decision that binds future work gets a record in
-[docs/adr/](docs/adr/) in the same PR; a finding you are NOT fixing now (bug, gap,
-follow-up task — engineer's call) becomes a GitHub issue in this repo.
+that makes the change; a decision that binds future work is raised with the team
+so the record lands where the reasoning is kept; a finding you are NOT fixing now
+(bug, gap, follow-up task — engineer's call) becomes a GitHub issue in this
+repo.
 
 **Label every issue you file.** Unlabeled means untriaged, so an unlabeled
 issue lies about your own finding. Exactly one `priority:` and exactly one
@@ -234,7 +238,7 @@ a working note, or a screenshot, and leave it out:
 `/scratchpad/`), but the rule is yours to keep — a new debris path it doesn't
 yet list must still stay out, and be added to `.gitignore` when you spot it.
 
-## Layout (spec ADR-0054/A69 as amended: four `cmd/<role>` binaries + the §9 single-tx exception)
+## Layout (ADR-0054: the modules/platform/shared triad, three `cmd/<role>` binaries)
 
 The `backend/internal/{modules,platform,shared}` triad — the DAG is
 `shared → platform → modules → compose → cmd`, enforced three ways
@@ -247,7 +251,8 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `ports/{authz,datasource,mcp,connector,workflow,model,retrieval,extraction,fieldcatalog,jurisdiction}`
   (the frozen seam interfaces + additive provider mechanics).
 - `internal/platform/` — technical plumbing, owns no domain:
-  `database` (pg pool + the RLS `WithWorkspaceTx` GUC contract) +
+  `database` (pg pool + the `WithWorkspaceTx` GUC contract that binds every
+  tenant statement's workspace predicate) +
   `database/storekit` (the ONE spelling of the audit+outbox write shape,
   keyset cursors, version patches), `auth` (the ONE admission point:
   `Admit` (scope ∧ tier) + object RBAC + row-scope clauses incl. the
@@ -346,13 +351,15 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
   `frontend/scripts/check-native-controls.sh`, but nothing automated can tell
   that the component you just wrote already existed under another name, which is
   how this tree has twice grown a second spelling of a card.
-- `extensions/<name>/` — the stable extension tier (ADR-0069): each unit
+- `extensions/<name>/` — the stable extension tier (ADR-0120): each unit
   is its own Go module importing ONLY the marker-allowlisted
   `backend/pkg/**` surface; presence under `extensions/` is the
-  enablement. The vanilla tree ships two first-party units, enabled by
-  default: `extensions/de` (the German jurisdiction pack — GoBD
-  calendar-year retention floors) and `extensions/yogi` (one served
-  🟢/read agent tool — the worked example of the governed-tool kind). `make composition` (run by every build lane)
+  enablement. The vanilla tree ships six first-party units: `de` (the
+  German jurisdiction pack — GoBD calendar-year retention floors),
+  `dispact-connector`, `notes`, `yogi` (one served 🟢/read agent tool — the
+  worked example of the governed-tool kind), `zalo-oa` and `zalo-personal`.
+  Read `extensions/` for the live list rather than trusting this sentence — a
+  count in prose goes stale the first time somebody adds a unit. `make composition` (run by every build lane)
   generates the ignored `build/composition/` wiring; `composition/` at
   the root is the committed vanilla stub so bare go commands resolve.
 
@@ -361,8 +368,11 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `internal/contracts/api_gen.go`, `internal/compose/stubs_gen.go` —
   generated (`make gen`); the drift gate fails a hand edit.
 - `migrations/core/*` that have shipped — additive migrations only.
-- RLS policies and the `database.WithWorkspaceTx` GUC contract — every
-  tenant query goes through it; there is no raw-pool path for tenant data.
+- The `database.WithWorkspaceTx` GUC contract — every tenant query goes through
+  it; there is no raw-pool path for tenant data. Core tenant isolation is a
+  per-statement predicate bound by that contract and held by
+  `scripts/check-rls-store-path.sh`; migration `0217` retired row-level security
+  in core. Extension tables still carry FORCE RLS.
 - `internal/shared/apperrors` — the fixed sentinel registry; extend it only
   alongside the error contract it implements, never for one call site.
 
@@ -422,9 +432,9 @@ function you add will block your push.
   `craftsmanship` job runs the same bar as a required check.
 - `BLOCKER` and `MAJOR` findings both block; `MINOR` is advisory. The size ceilings are
   80 CODE lines / 500 file lines for product code and 160 / 1000 for `*_test.go`.
-  A comment-only line is not length: the ceiling asks how much a reader must
-  hold at once, and an explanation reduces that. This is also what keeps the
-  check agreeing with golangci's `funlen`, configured here `ignore-comments`.
+  A comment-only line is not length: the ceiling asks how much a reader must hold
+  at once, and an explanation reduces that. The whole-tree file-length check in
+  `scripts/check-go-file-length.sh` counts the same way.
 - A *genuine* false positive is waived **in-source with a reason**: `//craft:ignore <check> <reason>`
   (a reasonless waiver is itself a finding).
 
@@ -459,8 +469,8 @@ the short form:
    (the recurring reviewer catch here was "fixed the case under review,
    missed the sibling copy").
 2. **Prefer fitness functions over point fixes** — derive the obligation
-   from the system (e.g. every `workspace_id` table must have FORCE RLS;
-   every CHECK violation maps to a 4xx; `backend/arch_test.go` derives
+   from the system (e.g. every tenant statement carries its workspace
+   predicate; every CHECK violation maps to a 4xx; `backend/arch_test.go` derives
    its package lists from the tree), don't maintain it as a list.
 3. **Anything that returns a record is a read** and carries the row-scope
    gate — including replay, conflict, and error paths.
