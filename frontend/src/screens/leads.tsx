@@ -85,9 +85,7 @@ type PromoteTrigger = PromoteLeadRequest["trigger"];
 export { scoreTone } from "./leadpresentation";
 
 export function promoteEligible(lead: Lead): boolean {
-  return (
-    isOpenStatus(lead.status) && Boolean(lead.email)
-  );
+  return isOpenStatus(lead.status) && Boolean(lead.email);
 }
 
 // The terminal badge a lead status earns (null = live/open, no badge). A lead
@@ -557,9 +555,7 @@ const LEAD_OPEN_STATUSES = ["new", "contacted", "engaged"] as const;
 type LeadOpenStatus = (typeof LEAD_OPEN_STATUSES)[number];
 
 function isOpenStatus(status: Lead["status"]): status is LeadOpenStatus {
-  return (
-    status === "new" || status === "contacted" || status === "engaged"
-  );
+  return status === "new" || status === "contacted" || status === "engaged";
 }
 
 // "Explain This Score" (AC-S7): the weighted factors behind the number,

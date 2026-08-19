@@ -143,8 +143,10 @@ func assertRecomputeRanExactlyOnce(t *testing.T, e *SearchEnv) {
 			`SELECT count(*) FROM workflow_run WHERE handler = 'recompute_lead_score'`).Scan(&runs); err != nil {
 			return err
 		}
+		// Only the SCORE audits: the status ladder's own handler also reads
+		// this reply (contacted → engaged) and audits that move.
 		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM audit_log WHERE entity_type = 'lead' AND action = 'update'`).Scan(&audits)
+			`SELECT count(*) FROM audit_log WHERE entity_type = 'lead' AND action = 'update' AND after ? 'score'`).Scan(&audits)
 	})
 	if err != nil {
 		t.Fatal(err)
