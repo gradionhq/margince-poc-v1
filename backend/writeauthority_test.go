@@ -116,13 +116,6 @@ var readAuthorityOnAWritePath = gatekit.Waive(map[string]string{
 	"internal/modules/consent:PreferenceTokenForEmail": "mints the unsubscribe capability the outbound message must carry (RFC 8058). The row is the RECIPIENT's own preference-centre credential, not a field of the person and not something a colleague's share grants or withholds; the send that mints it is gated on the activity it creates",
 	"internal/modules/integrations:QueueRun":           "an enrichment BUYS data about a person, which is why its object gate is person:READ by design and not update. The only row it writes is integrations' own run; a provider answer that later lands on a record goes through that record's own apply path, which takes the write-authority probe there",
 
-	// The "add" verb, which this change did not decide (#1405). Every entry here
-	// probes a record in order to hang something OFF it rather than to change
-	// it, and whether a `read` share admits that is the product question the
-	// issue carries. They are named individually rather than dropped by
-	// spelling, so deciding #1405 is a matter of deleting entries from this map.
-	"internal/modules/activities:ensureAttachmentParentVisible": "the attachment's parent probe: an attachment has no independent authority and inherits the parent record's row scope, so this is the `add` question (#1405) and not this change's to answer",
-
 	// Refusal-disclosure clauses: rendered so a refusal may NAME the rows it
 	// collided with, and only the ones the caller could already read. The
 	// DECISION each of them feeds is unscoped on purpose — work the caller
