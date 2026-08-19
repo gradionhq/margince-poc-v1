@@ -60,7 +60,22 @@ func (l License) Token(lookup config.Lookup) (string, error) {
 	// deliberate spelling, and an operator who wrote one did not also mean the
 	// other.
 	if l.TokenRef.Configured() {
-		return l.TokenRef.withField("license.token").Resolve(lookup)
+		ref := l.TokenRef.withField("license.token")
+		token, err := ref.Resolve(lookup)
+		if err != nil {
+			return "", err
+		}
+		// A named source that yielded nothing is a mistake, not an unlicensed
+		// installation — the same rule token_file has enforced below all along.
+		// Without this the newer spelling would be the WEAKER one: an operator
+		// whose mounted secret failed to project would be told their
+		// installation has no license rather than that the file they named is
+		// empty, and in production those two produce the same refusal with the
+		// wrong remedy attached.
+		if token == "" {
+			return "", ref.Missing()
+		}
+		return token, nil
 	}
 	if l.TokenFile == "" {
 		return "", nil
