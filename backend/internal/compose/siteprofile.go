@@ -46,9 +46,21 @@ const (
 	// all — so a one-page bound spent the entire legal budget on a page that
 	// could not ground the trio, and the profile returned nothing for 36 of
 	// the demo dataset's companies. Three pages reaches the actual Impressum
-	// on a multi-locale site while still leaving most of the corpus to what
-	// the company sells.
+	// on a multi-locale site.
 	profileMaxImpressumPages = 3
+	// What the EXTRA legal pages may cost between them, and what each one
+	// gets. Legal pages outrank every commercial kind in corpus rank, so
+	// without a share of their own the two extra ones simply take the budget
+	// About, Services and Products would have had — measured on a site with
+	// pages long enough to fill the corpus, three full-width legal pages cut
+	// services from four to one.
+	//
+	// An address, a legal name and a registration number are short and sit
+	// at the top of the notice, so the extra pages are read at a fraction of
+	// a full excerpt. That is enough to find the trio on the second or third
+	// legal page and cheap enough that the commercial evidence barely moves.
+	profileExtraImpressumRunes = 900
+	profileLegalBudgetRunes    = 2 * profileExtraImpressumRunes
 )
 
 // profileSystem is the profile call's prompt.
@@ -123,14 +135,27 @@ func profileExcerptPages(pages []crawlPage) []crawlPage {
 	var out []crawlPage
 	used := 0
 	legalPages := 0
+	legalRunes := 0
 	selected := map[string]bool{}
 	addPage := func(page crawlPage) bool {
 		capRunes := profilePageExcerptRunes
-		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
+		legal := page.Kind == crmcontracts.SiteReadPageKindImpressum
+		if legal {
 			if legalPages >= profileMaxImpressumPages {
 				return false
 			}
 			capRunes = profileImpressumExcerptRunes
+			// The FIRST legal page is free and full width — it is the one
+			// the breadth pass buys, and every kind gets one. The extra two
+			// are read narrowly and charged against the legal share, so
+			// widening the bound cannot cost the commercial pages more than
+			// that share.
+			if legalPages > 0 {
+				capRunes = profileExtraImpressumRunes
+				if legalRunes+capRunes > profileLegalBudgetRunes {
+					return false
+				}
+			}
 		}
 		pageRunes := []rune(page.Text)
 		if len(pageRunes) > capRunes {
@@ -143,8 +168,11 @@ func profileExcerptPages(pages []crawlPage) []crawlPage {
 		out = append(out, page)
 		used += len(pageRunes)
 		selected[page.URL] = true
-		if page.Kind == crmcontracts.SiteReadPageKindImpressum {
+		if legal {
 			legalPages++
+			if legalPages > 1 {
+				legalRunes += len(pageRunes)
+			}
 		}
 		return true
 	}
@@ -162,7 +190,7 @@ func profileExcerptPages(pages []crawlPage) []crawlPage {
 		}
 	}
 	// A small site may not publish every kind. Spend any room that remains
-	// on the next-best pages without weakening the one-legal-page bound.
+	// on the next-best pages without weakening the legal bounds above.
 	for _, page := range ranked {
 		if selected[page.URL] {
 			continue

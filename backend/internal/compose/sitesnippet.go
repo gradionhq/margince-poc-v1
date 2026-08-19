@@ -253,10 +253,61 @@ func (x snippetIndex) nameInCited(id, name string) (string, bool) {
 	// applies, and for the same reason it documents — a passage printing
 	// "24114 Kiel" and "HRB 123456" must never vouch for an invented
 	// "HRB 24114". Allowing gaps would confirm a fabricated identifier.
-	if printedInOrder(contentTokens(ref.norm), contentTokens(nameNorm)) {
+	if tokensPrintedTogether(ref.norm, nameNorm) {
 		return ref.passage, true
 	}
 	return "", false
+}
+
+// tokensPrintedTogether is the content-token comparison with the two guards
+// the raw printedInOrder does not carry on its own.
+//
+// A value of pure punctuation has NO content tokens, and an empty claim is
+// contained in everything — printedInOrder would compare an empty slice
+// against itself and vouch for "---" on any page at all. It is refused here
+// instead: nothing is not evidence.
+//
+// A value must also keep the SEPARATORS the page printed between digits.
+// Content tokens drop punctuation, which is right for an address whose parts
+// markup split apart, and wrong for an identifier: a page printing
+// "HRB 123/456" would otherwise ground "HRB 123-456", a registration number
+// that is not the one on the page. So a value whose tokens are joined by
+// punctuation rather than whitespace has to appear that way verbatim.
+func tokensPrintedTogether(passageNorm, valueNorm string) bool {
+	claimed := contentTokens(valueNorm)
+	if len(claimed) == 0 {
+		return false
+	}
+	if joinedByPunctuation(valueNorm) {
+		return strings.Contains(passageNorm, valueNorm)
+	}
+	return printedInOrder(contentTokens(passageNorm), claimed)
+}
+
+// joinedByPunctuation reports whether any two content tokens of the value sit
+// directly against a punctuation mark with no space — "123/456", "123-456".
+// Those separators are part of what the page said; whitespace between tokens
+// is only layout.
+func joinedByPunctuation(valueNorm string) bool {
+	prevAlnum := false
+	for i, r := range valueNorm {
+		alnum := unicode.IsLetter(r) || unicode.IsDigit(r)
+		if !alnum && r != ' ' && prevAlnum {
+			// A trailing mark ("Straße 8,") separates nothing.
+			rest := valueNorm[i+len(string(r)):]
+			for _, next := range rest {
+				if next == ' ' {
+					break
+				}
+				if unicode.IsLetter(next) || unicode.IsDigit(next) {
+					return true
+				}
+				break
+			}
+		}
+		prevAlnum = alnum
+	}
+	return false
 }
 
 // contentWordOverlap answers whether value and the cited passage share
