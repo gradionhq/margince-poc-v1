@@ -14,6 +14,7 @@ package integration
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -31,21 +32,24 @@ func TestOrganizationCounts_ListAndSingleReadAgreeWithTheEdges(t *testing.T) {
 	second := e.SeedPerson(t, "Also At Acme", nil)
 	leaver := e.SeedPerson(t, "Left Acme", nil)
 
-	employ := func(person, org ids.UUID, current bool) {
+	employ := func(person, org ids.UUID, ended *time.Time) {
 		t.Helper()
 		personID := ids.From[ids.PersonKind](person)
 		orgID := ids.From[ids.OrganizationKind](org)
 		if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
 			Kind: "employment", PersonID: &personID, OrganizationID: &orgID,
-			IsCurrentPrimary: current, Source: "manual",
+			IsCurrentPrimary: ended == nil, EndedAt: ended, Source: "manual",
 		}); err != nil {
 			t.Fatalf("seeding the employment edge: %v", err)
 		}
 	}
-	employ(staff, acme, true)
-	employ(second, acme, true)
-	// A past employer is not a contact: the column answers who works here.
-	employ(leaver, acme, false)
+	left := time.Date(2021, 6, 30, 0, 0, 0, 0, time.UTC)
+	employ(staff, acme, nil)
+	employ(second, acme, nil)
+	// A past employer is not a contact: the column answers who works here. Dated
+	// as over, because that is what past is — an undated non-primary job cannot
+	// say it, now that a person's only employment is their current primary one.
+	employ(leaver, acme, &left)
 
 	pipeline, open := pipelineFixtureFor(e.Admin(), t, e.Deals)
 	for _, name := range []string{"D1", "D2", "D3"} {

@@ -36,6 +36,26 @@ UPDATE relationship SET archived_at = now()
  WHERE kind = 'employment' AND ended_at IS NULL AND archived_at IS NULL
    AND id NOT IN (SELECT id FROM keeper);
 
+-- The second half of the repair, and the same rule the store now applies to
+-- every write: a person whose ONE current employment carries no primary flag
+-- has it promoted. Without this the defect is fixed for everything written from
+-- here and left standing in exactly the rows that produced the report.
+--
+-- Only where the answer is unambiguous. The NOT EXISTS excludes a person who
+-- has another current employment (which of two employers is primary is a
+-- question nothing here can answer) and one who already holds a live primary
+-- flag on an ended row (promoting past it would violate
+-- uq_rel_current_primary_employer). It runs after the dedupe above so an
+-- archived duplicate no longer counts as a second current employment.
+UPDATE relationship r SET is_current_primary = true
+ WHERE r.kind = 'employment' AND r.ended_at IS NULL AND r.archived_at IS NULL
+   AND NOT r.is_current_primary
+   AND NOT EXISTS (
+     SELECT 1 FROM relationship o
+      WHERE o.kind = 'employment' AND o.person_id = r.person_id
+        AND o.archived_at IS NULL AND o.id <> r.id
+        AND (o.ended_at IS NULL OR o.is_current_primary));
+
 CREATE UNIQUE INDEX uq_rel_employment
   ON relationship (person_id, organization_id)
   WHERE kind = 'employment' AND ended_at IS NULL AND archived_at IS NULL;

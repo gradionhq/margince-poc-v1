@@ -29,11 +29,13 @@ import (
 
 // employmentRow is one seeded edge and what the repair is expected to do to it.
 type employmentRow struct {
-	label    string
-	org      string // which of the two seeded organizations
-	primary  bool
-	ended    bool
-	survives bool
+	label       string
+	person      string // which of the seeded people
+	org         string // which of the seeded organizations
+	primary     bool
+	ended       bool
+	survives    bool
+	endsPrimary bool
 }
 
 // seedEmploymentDuplicates plants the state a deployed database is in on the
@@ -41,11 +43,15 @@ type employmentRow struct {
 func seedEmploymentDuplicates(t *testing.T, conn *pgx.Conn, rows []employmentRow) map[string]string {
 	t.Helper()
 	ctx := context.Background()
-	var person string
-	if err := conn.QueryRow(ctx, `
-		INSERT INTO person (full_name, source, captured_by)
-		VALUES ('Ronny Duplicate', 'test', 'human:test') RETURNING id`).Scan(&person); err != nil {
-		t.Fatalf("seeding the person: %v", err)
+	people := map[string]string{}
+	for _, name := range []string{"duplicated", "unmarked", "undecided"} {
+		var id string
+		if err := conn.QueryRow(ctx, `
+			INSERT INTO person (full_name, source, captured_by)
+			VALUES ($1, 'test', 'human:test') RETURNING id`, name).Scan(&id); err != nil {
+			t.Fatalf("seeding person %s: %v", name, err)
+		}
+		people[name] = id
 	}
 	orgs := map[string]string{}
 	for _, name := range []string{"employer", "other"} {
@@ -72,7 +78,7 @@ func seedEmploymentDuplicates(t *testing.T, conn *pgx.Conn, rows []employmentRow
 			                          source, captured_by, created_at)
 			VALUES ('employment', $1, $2, $3, $4::date, 'test', 'human:test', now() - make_interval(mins => $5))
 			RETURNING id`,
-			person, orgs[row.org], row.primary, ended, i).Scan(&id); err != nil {
+			people[row.person], orgs[row.org], row.primary, ended, i).Scan(&id); err != nil {
 			t.Fatalf("seeding employment %q: %v", row.label, err)
 		}
 		ids[row.label] = id
@@ -103,14 +109,24 @@ func TestTheEmploymentDedupeIndexRepairsTheDuplicatesItWouldRefuseToApplyOver(t 
 		// Three live current edges for one pair. The primary survives even
 		// though it is the NEWEST — demoting somebody's recorded employer to
 		// resolve a duplicate would be the repair inventing a fact.
-		{label: "primary", org: "employer", primary: true, survives: true},
-		{label: "duplicate", org: "employer", survives: false},
-		{label: "oldest duplicate", org: "employer", survives: false},
+		{label: "primary", person: "duplicated", org: "employer", primary: true, survives: true, endsPrimary: true},
+		{label: "duplicate", person: "duplicated", org: "employer", survives: false},
+		{label: "oldest duplicate", person: "duplicated", org: "employer", survives: false},
 		// An employment they LEFT at the same company is history, not a
 		// duplicate — the index's predicate excludes it and so does the repair.
-		{label: "former", org: "employer", ended: true, survives: true},
-		// A concurrent job elsewhere is a different pair entirely.
-		{label: "elsewhere", org: "other", survives: true},
+		{label: "former", person: "duplicated", org: "employer", ended: true, survives: true},
+		// A concurrent job elsewhere is a different pair entirely, and it is not
+		// promoted: this person already has a primary employer.
+		{label: "elsewhere", person: "duplicated", org: "other", survives: true},
+
+		// The reported symptom, and the half a unique index alone leaves
+		// standing: one employer, no duplicate, and nothing marked primary.
+		{label: "sole unmarked", person: "unmarked", org: "employer", survives: true, endsPrimary: true},
+
+		// Two current employers and no primary. Which one wins is a question
+		// this migration cannot answer, so it answers neither (#1781).
+		{label: "undecided A", person: "undecided", org: "employer", survives: true},
+		{label: "undecided B", person: "undecided", org: "other", survives: true},
 	}
 	seeded := seedEmploymentDuplicates(t, conn, rows)
 
@@ -119,13 +135,17 @@ func TestTheEmploymentDedupeIndexRepairsTheDuplicatesItWouldRefuseToApplyOver(t 
 	}
 
 	for _, row := range rows {
-		var live bool
+		var live, primary bool
 		if err := conn.QueryRow(ctx,
-			`SELECT archived_at IS NULL FROM relationship WHERE id = $1`, seeded[row.label]).Scan(&live); err != nil {
+			`SELECT archived_at IS NULL, is_current_primary FROM relationship WHERE id = $1`,
+			seeded[row.label]).Scan(&live, &primary); err != nil {
 			t.Fatalf("reading back %q: %v", row.label, err)
 		}
 		if live != row.survives {
 			t.Errorf("%q live = %t, want %t", row.label, live, row.survives)
+		}
+		if primary != row.endsPrimary {
+			t.Errorf("%q current primary = %t, want %t", row.label, primary, row.endsPrimary)
 		}
 	}
 
