@@ -144,6 +144,86 @@ func enrichLegalEntitiesFromProfile(entities []corpusLegalEntity, fields []evide
 	return out
 }
 
+// fillLegalTrioFromCensus is the other direction, and the one that was
+// missing: what the CENSUS proved reaches the profile fields.
+//
+// The two lanes read the same legal page and disagree about what survived.
+// The census reads the whole page and gates each detail with groundedDetail;
+// the profile lane reads a bounded excerpt and gates against the one passage
+// the model cited. So an address the census confirmed was routinely dropped by
+// the profile lane for citing a neighbouring passage — communicode.de had
+// "Wittekindstr. 1a, 45131 Essen" on its entity and no registered_address
+// field at all, which is the state 136 of the demo dataset's 190 companies
+// were in.
+//
+// This adds nothing unevidenced. Every value copied here already passed the
+// census's own no-guess gate against the page that printed it, and it carries
+// that page's URL and evidence with it, so applyLegalGate judges it exactly as
+// it judges a profile-lane field. It fills only what is ABSENT: a field the
+// profile lane produced and the gate kept is the more specific answer and
+// stands.
+//
+// Called AFTER applyLegalGate on purpose. The gate abstains wholesale when the
+// census cannot say which entity the company is, and filling from a census
+// that was just judged untrustworthy would reintroduce exactly what the
+// abstention withheld.
+func fillLegalTrioFromCensus(fields []evidencedField, entities []corpusLegalEntity, pageKind map[string]crmcontracts.SiteReadPageKind, abstained bool) []evidencedField {
+	// One entity, or the company's legal identity is not settled and the
+	// abstention owns this decision rather than us.
+	if abstained || len(entities) != 1 {
+		return fields
+	}
+	entity := entities[0]
+	// Only a legal page speaks for legal identity — the same authority test
+	// applyLegalGate applies, so a census sighting from anywhere else cannot
+	// enter through this door either.
+	if pageKind[entity.SourceURL] != crmcontracts.SiteReadPageKindImpressum || !legalAuthorityPage(entity.SourceURL) {
+		return fields
+	}
+	present := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		present[f.Field] = true
+	}
+	// A FIXED order, not a map's. These fields end up in the proposal whose
+	// JSON is hashed, so iterating a map would give identical evidence a
+	// different hash on every run.
+	out := fields
+	for _, candidate := range []struct {
+		field string
+		value string
+	}{
+		{string(crmcontracts.ColdStartFieldFieldLegalName), entity.Name},
+		{string(crmcontracts.ColdStartFieldFieldRegisteredAddress), entity.RegisteredAddress},
+		{string(crmcontracts.ColdStartFieldFieldRegisterVat), entity.RegisterNumber},
+	} {
+		if present[candidate.field] || strings.TrimSpace(candidate.value) == "" {
+			continue
+		}
+		out = append(out, evidencedField{
+			Field:           candidate.field,
+			Value:           candidate.value,
+			EvidenceSnippet: entity.EvidenceSnippet,
+			SourceURL:       entity.SourceURL,
+			Confidence:      censusFieldConfidence,
+		})
+	}
+	return out
+}
+
+// censusFieldConfidence is what a census-filled field carries.
+//
+// The census does not score: it checks the value against the page that
+// printed it and keeps it or drops it. So this is not a model's number, and
+// the honest question is what a consumer of the field should do with it.
+//
+// 1 is right for the same reason the profile lane's own legal trio arrives at
+// 1: these are the hard-gated, verbatim fields, matched against the page
+// rather than judged. A lower number would read as doubt about a value that
+// was checked more strictly than any scored field, and would fall under the
+// 0.55 cold-start floor that decides whether a human is shown the field at
+// all — withholding evidence the page plainly printed.
+const censusFieldConfidence = 1
+
 // legalEntityDetail counts how much of an entity block was actually
 // printed — the tie-break when the same entity is seen twice.
 func legalEntityDetail(entity corpusLegalEntity) int {

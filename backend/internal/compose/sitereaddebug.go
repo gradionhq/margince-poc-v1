@@ -168,7 +168,10 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 
 	// Read the cause before the enrichment rewrites the census the gate judged.
 	legalWarning := legalAbstentionOf(extraction.merged.entities, extraction.legalCensusIncomplete).warning()
-	mergedFields, _, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+	kinds := pageKindsOf(crawl.Pages)
+	mergedFields, abstained, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, kinds, extraction.legalCensusIncomplete)
+	// What the census proved fills what the profile lane's excerpt missed.
+	mergedFields = fillLegalTrioFromCensus(mergedFields, extraction.merged.entities, kinds, abstained)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)
 	extract.reportDrops(ctx, laneLegal, legalDrops)
 	if legalWarning != "" {
