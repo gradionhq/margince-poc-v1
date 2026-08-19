@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/pkg/extension"
 )
 
 // EmailSender is the OPTIONAL outbound seam a connector implements when its
@@ -58,21 +60,9 @@ type AttachmentCarrier interface {
 	CarriesAttachments() bool
 }
 
-// OutboundFile is one file to transmit, in provider-neutral form. The connector
-// owns the wire encoding, exactly as it does for the body.
-//
-// The identifying fields travel WITH the bytes rather than being looked up at
-// send time, because the outbound record snapshots them: archiving or
-// superseding a document later must not rewrite the history of what was attached
-// to a message that already went out.
-type OutboundFile struct {
-	AttachmentID string
-	Filename     string
-	ContentType  string
-	ByteSize     int64
-	Checksum     string
-	Body         []byte
-}
+// OutboundFile is one file to transmit — the published extension.OutboundFile,
+// aliased for the reason part.go states.
+type OutboundFile = extension.OutboundFile
 
 // EmailMessage is one message to transmit, in provider-NEUTRAL form. The
 // connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
