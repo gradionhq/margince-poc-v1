@@ -105,6 +105,39 @@ const heldDraft: Approval = {
   },
 } as Approval;
 
+// One act's proposals: a site read publishes the company's facts plus a lead per
+// person it found on the team page, all carrying the act's `bundle_id`. Rendered
+// flat this was four questions; the inbox reads it as one.
+const BUNDLE = "018f3a1b-0000-7000-8000-0000000000b1";
+
+const siteFacts: Approval = {
+  ...base,
+  id: "ap-facts",
+  kind: "deepread",
+  bundle_id: BUNDLE,
+  summary: "Deep site read of acme.example: 6 fields, 4 facts from 3 pages",
+  proposed_change: { source_url: "https://acme.example" },
+  expires_at: new Date(Date.now() + 40 * 60 * 60_000).toISOString(),
+} as Approval;
+
+function siteLead(id: string, name: string, expiresInMs: number): Approval {
+  return {
+    ...siteFacts,
+    id,
+    kind: "site_lead",
+    summary: `Lead from acme.example: ${name} — Head of Operations`,
+    proposed_change: { name },
+    expires_at: new Date(Date.now() + expiresInMs).toISOString(),
+  } as Approval;
+}
+
+const siteRead: Approval[] = [
+  siteFacts,
+  siteLead("ap-lead-1", "Anna Weber", 90 * 60_000),
+  siteLead("ap-lead-2", "Kilian Wenzel", 40 * 60 * 60_000),
+  siteLead("ap-lead-3", "Mira Osei", 40 * 60 * 60_000),
+];
+
 function statusOf(url: string): string | null {
   const match = /[?&]status=([^&]+)/.exec(url);
   return match ? match[1] : null;
@@ -114,6 +147,10 @@ type StubConfig = {
   byStatus: Record<string, Approval[]>;
   detail?: Approval;
   post?: () => Response;
+  // What the two bundle routes answer. They report PER MEMBER, so the catalog
+  // needs its own hook here: a story that let the per-row stub answer would
+  // document a decision the route cannot make.
+  bundlePost?: () => Response;
 };
 
 function isDecideUrl(url: string): boolean {
@@ -130,8 +167,19 @@ function isDetailUrl(url: string): boolean {
 function resolveApprovals(
   url: string,
   method: string,
-  { byStatus, detail, post }: StubConfig,
+  { byStatus, detail, post, bundlePost }: StubConfig,
 ): Response {
+  if (method === "POST" && url.includes("/approval-bundles/")) {
+    return bundlePost
+      ? bundlePost()
+      : jsonResponse({
+          bundle_id: BUNDLE,
+          data: siteRead.map((approval) => ({
+            approval: { ...approval, status: "approved" },
+            outcome: "decided",
+          })),
+        });
+  }
   if (method === "POST" && isDecideUrl(url)) {
     return post ? post() : jsonResponse({ ...base, status: "approved" });
   }
@@ -300,4 +348,52 @@ export const AlreadyDecided: Story = {
 // AC-7: the live expiry countdown chip (fixed future expires_at).
 export const LiveCountdown: Story = {
   render: inbox({ byStatus: { pending: [pendingSoon] } }),
+};
+
+// D2/R7: one act as one question. Collapsed, the card says what the act HOLDS
+// (the kinds and how many of each), who staged it, and when it starts losing
+// proposals — the soonest member expiry, named as the first one.
+export const Bundle: Story = {
+  render: inbox({ byStatus: { pending: siteRead } }),
+};
+
+// The members, opened: each one a full row with its own decision cluster,
+// because the bundle routes carry no edit arm and a reader who disagrees with
+// one proposal decides that one where it is.
+export const BundleMembers: Story = {
+  render: inbox({ byStatus: { pending: siteRead } }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByText("The 4 proposals"));
+  },
+};
+
+// A bundle decision is not all-or-nothing: the members were always independent
+// authorities, so the report names what happened to each of them.
+export const BundleOutcomes: Story = {
+  render: inbox({
+    byStatus: { pending: siteRead },
+    bundlePost: () =>
+      jsonResponse({
+        bundle_id: BUNDLE,
+        data: [
+          { approval: siteFacts, outcome: "decided" },
+          { approval: siteRead[1], outcome: "already_decided" },
+          { approval: siteRead[2], outcome: "expired" },
+          { approval: siteRead[3], outcome: "effect_failed" },
+        ],
+      }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Approve all 4" }),
+    );
+    // `screen`, not the canvas: the confirm is portalled to document.body.
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(
+      await within(dialog).findByRole("button", { name: "Accept" }),
+    );
+    await canvas.findByRole("status");
+  },
 };
