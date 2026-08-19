@@ -17,8 +17,7 @@
 // that owned them would be a fourth surface pretending to be a library.
 //
 // It lives in the composition layer because its consumers are compose
-// subpackages that may not import each other (specs/subsystems/drafting.md,
-// "Where it lives").
+// subpackages that may not import each other.
 package draftcore
 
 import (

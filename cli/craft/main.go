@@ -1,6 +1,7 @@
 // Command craft is the code-craftsmanship gate CLI: it reviews a PR against the
 // rubric (review), and — in later subcommands — annotates findings into source
-// markers, runs the residue gate, and evaluates the golden set. See specs/quality/craftsmanship.md.
+// markers, runs the residue gate, and evaluates the golden set. See the
+// Craftsmanship section of AGENTS.md.
 package main
 
 import (

@@ -438,7 +438,6 @@ was entitled to.
 | ADR-0069 | The extension tier |
 | ADR-0107 / A158 | A message names the transport that carried it, separately from its kind |
 | CAP-PARAM-5 / -6 / -7 | Personal-mail domains, the transactional registry, workspace capture settings |
-| `specs/contract/formulas-and-rules.md` §20 | The internal-message rule |
 
 ### Related pages
 

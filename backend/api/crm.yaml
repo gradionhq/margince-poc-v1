@@ -1,13 +1,12 @@
 openapi: 3.1.0
 
 # =============================================================================
-# Margince — V1 Core API Contract (contract-first source of truth)
+# Margince — V1 Core API Contract (the source of truth for the wire)
 # -----------------------------------------------------------------------------
-# This file is THE contract from which Go server stubs + TS client types are
-# generated (P3 contract-first). It mirrors spec/data-model.md field-for-field
-# and encodes the acceptance criteria of features/01-core-objects.md,
-# features/03-reporting-and-scoring.md, features/07-ai-native-moments.md, and
-# the MCP tool surface of 03b-ai-architecture.md.
+# This file IS the contract. Go server stubs and TS client types are generated
+# from it, and the drift gate fails a hand edit of the generated output. Nothing
+# mirrors into this file from anywhere else: change the wire here, and the
+# generated code follows.
 #
 # Conventions (full text in ./README.md):
 #   - Resources are plural nouns (/people, /organizations, /deals, ...).

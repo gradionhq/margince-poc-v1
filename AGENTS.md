@@ -1,33 +1,42 @@
 # AGENTS.md — operating this repo
 
-Margince CRM implementation PoC (WP0 foundation + WP1 core spine), built from the
-sibling spec repo **`margince-foundation`** (contract-first, P3: when this code and
-the spec disagree, the spec wins). Its tree is `specs/` — `specs/subsystems/` holds
-the per-module chapters, `specs/contract/` the normative contract, `specs/adr/` the
-decisions; delivery tracking lives at that repo's root in `tooling/`. See
-[CLAUDE.md](CLAUDE.md#where-the-spec-is-read-before-building) for the full map.
-A session here MAY author and commit spec changes in `margince-foundation` — and
-should when a build need requires a spec change first, since contract-first means
-the spec change lands first, not that somebody else writes it. Ship it through
-that repo's own loop (branch off its `origin/main`, own PR, own gates), and treat
-it as the shared tree it is: branch from `origin/main` rather than whatever is
-checked out, stage by explicit path (never `git add -A` — `DECISIONS.md` is
-routinely mid-edit elsewhere), and take ADR/A-numbers from `origin/main`. A change
-that contradicts a ratified ADR is a discrepancy to raise, not an edit to make.
+Margince CRM implementation PoC (WP0 foundation + WP1 core spine). This is the
+repository the product is built in: the running Go software, its contract, its
+tests, and its documentation. There is no separate specification that outranks
+what is here.
+
+**What decides a question.** In order: the explicit current request from Lars or
+the team; then code, tests, migrations and `backend/api/crm.yaml`, which are what
+the product does today; then the guardrails (security, privacy, agent authority,
+auditability, contract compatibility, licensing, data durability) enforced by
+tests wherever possible; then [docs/](docs/); then the decision records in
+[docs/adr/](docs/adr/), which carry rationale and can be superseded in the same PR
+as the change. Retired material is history and never blocks work on its own.
+[CLAUDE.md](CLAUDE.md#what-decides-a-question-here) has the long form.
+
+**Do not refuse or narrow ordinary product evolution because an older document
+describes a different choice.** Name the conflict and say what it costs. If the
+change touches a guardrail, update the decision alongside the implementation. If
+the call is someone else's, say whose and open a `status: needs-decision` issue.
+
+**This repository is public.** Never refer to a private repository, document, path
+or link — not in code, comments, tests, docs, issues, commit messages or PR
+bodies — and never include local machine paths or secrets.
+`TestPublicTreeCitesNothingPrivate` in `backend/publicreferences_test.go` enforces
+it. A public contributor must be able to follow every instruction this repository
+gives them, so write a rule out here rather than citing somewhere they cannot
+reach. Cite a decision by its number (`ADR-0054`); the record is in
+[docs/adr/](docs/adr/).
 
 **Start at [STATUS.md](STATUS.md)** — open work and the session-pickup point.
 Read its *Open work, in one screen* index first and open only the sections that
 bear on your change; the file is not meant to be read end to end. Update it at
-the end of every working session, and put the session narrative straight into
-[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md) rather than letting it pile up in
-STATUS.md. Route findings as you work: implementation decisions are recorded in the
-commit and PR that makes the change (git history is the record); spec/ticket
-defects are reconciled upstream against the spec (contract-first, P3), never
-worked around in this source; a finding you are NOT fixing now (bug, gap,
+the end of every working session, keeping it to open work — the narrative of what
+you did belongs in the commit and the PR, which is the durable record. Route
+findings as you work: implementation decisions are recorded in the commit and PR
+that makes the change; a decision that binds future work gets a record in
+[docs/adr/](docs/adr/) in the same PR; a finding you are NOT fixing now (bug, gap,
 follow-up task — engineer's call) becomes a GitHub issue in this repo.
-This repo is public — never put private spec paths or local machine paths
-in an issue. Team-internal issue tracking beyond this repo: see the spec
-repo's `tooling/delivery-board.md`.
 
 **Label every issue you file.** Unlabeled means untriaged, so an unlabeled
 issue lies about your own finding. Exactly one `priority:` and exactly one
@@ -44,11 +53,10 @@ issue lies about your own finding. Exactly one `priority:` and exactly one
   `capture` `ci-tests` `contract-api` `deals` `extensions` `finance`
   `frontend` `overlay` `platform` `privacy` `records` `reports`. A doc that is
   wrong about a subsystem takes that subsystem's area.
-- `status: needs-decision` when a human must rule before it is workable;
-  `status: spec-change` when contract-first (P3) puts the spec change first.
-  A `spec-change` issue stays open HERE, linked to the upstream change, as the
-  implementation follow-up — the label sequences the work, it does not hand it
-  away.
+- `status: needs-decision` when a human must rule before it is workable — a
+  technical call or a product one. Say what the options are and which you
+  recommend; an issue that only asks "what should we do?" gives the decider
+  nothing to decide from.
 - Provenance, additive: `bug`, `enhancement`, `security`, `capability-gap`
   (missing capability, not a defect), `fast-track-debt` (shipped fast, gap
   recorded deliberately). These say why the issue exists — keep them.
@@ -233,7 +241,8 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 
 - `internal/shared/` — Tier-0 leaves, stdlib-only (test-enforced):
   `kernel/{ids,events,provenance,principal}`, `apperrors` (the fixed
-  sentinel registry — extend only with the spec's interfaces.md §0), and
+  sentinel registry — extend it only alongside the error contract it
+  implements, never for one call site), and
   `ports/{authz,datasource,mcp,connector,workflow,model,retrieval,extraction,fieldcatalog,jurisdiction}`
   (the frozen seam interfaces + additive provider mechanics).
 - `internal/platform/` — technical plumbing, owns no domain:
@@ -353,8 +362,8 @@ The `backend/internal/{modules,platform,shared}` triad — the DAG is
 - `migrations/core/*` that have shipped — additive migrations only.
 - RLS policies and the `database.WithWorkspaceTx` GUC contract — every
   tenant query goes through it; there is no raw-pool path for tenant data.
-- `internal/shared/apperrors` — the fixed sentinel registry; extend only
-  together with the spec's interfaces.md §0.
+- `internal/shared/apperrors` — the fixed sentinel registry; extend it only
+  alongside the error contract it implements, never for one call site.
 
 ## The write shape (non-negotiable)
 
@@ -375,8 +384,8 @@ scope clauses in `platform/auth`): object denial →
 
 ## Craftsmanship
 
-Match the spec's `specs/quality/craftsmanship.md` (anti-tell catalog T1–T11). The rule
-under every rule:
+The anti-tell catalog T1–T11, in full below — this list is the rule, not a summary
+of one kept elsewhere. The rule under every rule:
 **code that reads best to a human reads best to the next agent that edits it** —
 legibility is the product, not polish.
 

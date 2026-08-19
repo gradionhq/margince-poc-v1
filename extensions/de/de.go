@@ -40,7 +40,7 @@ func (pack) Code() jurisdiction.Code { return "de" }
 // years (ISO 8601 periods), never day counts. Bücher/Abschlüsse (10 yr)
 // are deliberately absent: a CRM holds no books or annual accounts, and
 // a floor no record can carry would be documentation posing as
-// enforcement (reconciliation: margince-foundation#1160).
+// enforcement.
 func (pack) Retention() jurisdiction.Retention { return retention{} }
 
 type retention struct{}
