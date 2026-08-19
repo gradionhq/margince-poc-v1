@@ -6,6 +6,7 @@ package search
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -486,5 +487,54 @@ func TestAnUnknownRelationIsRefusedByNameAndNamesTheOnesThatExist(t *testing.T) 
 	// ...and the hop that answers the question they were asking.
 	if !strings.Contains(message, `"organizations"`) {
 		t.Errorf("the refusal does not name the hop that exists: %s", message)
+	}
+}
+
+// The refusal's list is bounded, and the bound is what says so. A hop count is
+// a product of the record types and join tables a schema declares — not a
+// number this refusal controls — and a refusal that grows with the schema is
+// the defect #1787 describes, where the sentence saying what to fix is the part
+// that gets cut. A truncated list that looked complete would be worse than a
+// long one: a caller would read "these are my hops" and stop.
+func TestTheRefusalsListOfHopsIsBoundedAndSaysWhenItTruncates(t *testing.T) {
+	many := TargetVocabulary{Target: entityPerson}
+	for i := range 20 {
+		many.Relations = append(many.Relations, Relation{Name: fmt.Sprintf("hop%02d", i)})
+	}
+	message := unknownRelation(many, "employment")[0].Message
+	if !strings.Contains(message, "and 8 more") {
+		t.Errorf("a 20-hop vocabulary was rendered without saying what was cut: %s", message)
+	}
+	if strings.Contains(message, `"hop12"`) {
+		t.Errorf("the list ran past its bound: %s", message)
+	}
+	// A record type with no hops at all says so, rather than trailing off after
+	// "it has" — which reads as a rendering fault and not as an answer.
+	none := unknownRelation(TargetVocabulary{Target: entityLead}, "organizations")[0].Message
+	if !strings.Contains(none, "it has none") {
+		t.Errorf("a target with no hops rendered as %q", none)
+	}
+}
+
+// A derivation asked about something that is not a searchable record answers a
+// wiring fault rather than an empty list. An empty list is a real state — a
+// record type no join table reaches — and the two must not look alike.
+func TestJoinRelationsRefusesARecordTypeThisModuleDoesNotSearch(t *testing.T) {
+	schema := newSchemaReads(stubColumns{tables: joinSchema})
+	if _, err := joinRelations(context.Background(), schema, "workspace"); err == nil {
+		t.Fatal("a record type this module does not search derived relations instead of failing")
+	}
+	// The honest empty: lead is searchable and is an arm of activity_link, so
+	// it has a hop; project is an arm of relationship only. Neither is empty
+	// today, so the state is asserted where it exists — a table this record has
+	// no column in contributes nothing rather than erroring.
+	relations, err := joinRelations(context.Background(), schema, entityLead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relation := range relations {
+		if relation.Join.Table == "relationship" {
+			t.Errorf("lead derived a hop through relationship, which has no lead_id column: %+v", relation)
+		}
 	}
 }
