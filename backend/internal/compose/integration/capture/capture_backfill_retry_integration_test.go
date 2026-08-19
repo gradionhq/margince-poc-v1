@@ -68,7 +68,7 @@ func startFlakyBackfill(t *testing.T, e *integration.SearchEnv, faults []error) 
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&flakyConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}, faults: faults})
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	run, err := registry.StartBackfill(grantCtx, "gmail", ids.From[ids.UserKind](e.Rep1), 6, 25, enqueueNothing)
@@ -148,7 +148,7 @@ func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
 	registry.Register(fake)
 	rep := ids.From[ids.UserKind](e.Rep1)
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing)

@@ -2884,6 +2884,8 @@ export const en = {
   // Connected inboxes (Settings → Connections): the "manage in Settings"
   // surface the onboarding copy promises.
   "connectors.title": "Connected inboxes",
+  "connectors.shareAck":
+    "Captured mail becomes readable to colleagues who can see the contact — individual messages can be limited afterwards, and addresses or domains excluded up front.",
   "connectors.sub":
     "Mailboxes capturing into your CRM. Disconnect any one when you need to — already-captured records stay.",
   "connectors.loading": "Loading your connections…",

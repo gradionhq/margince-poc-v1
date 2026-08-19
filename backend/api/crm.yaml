@@ -14248,6 +14248,15 @@ components:
         provider (imap) submits `imap` and answers with the created `connection`. Exactly one
         of `authorize_url` or `connection` is returned.
       properties:
+        share_acknowledged:
+          type: boolean
+          description: |
+            The connecting human's one-time acknowledgment that what this connector captures
+            becomes readable to colleagues who can see the contact (they can limit individual
+            messages afterwards, and exclude addresses or domains up front). Required `true`
+            for every capture provider — the connect refuses with 422 `sharing_not_acknowledged`
+            without it — and recorded on the connection as `share_acknowledged_at` before the
+            first pull.
         redirect_uri: { type: string, format: uri, description: 'App page to return to after OAuth consent (OAuth providers).' }
         return_to:
           type: string

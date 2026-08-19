@@ -136,7 +136,7 @@ func TestCaptureSyncIsIdempotentAndProvenanced(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestCaptureScopeIntersectionRefusesOverScopedConnector(t *testing.T) {
 	registry.Register(&mailFake{scopes: []principal.Scope{principal.ScopeRead, principal.ScopeSend}})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	_, err := registry.Connect(grantCtx, "graph", nil)
+	_, err := registry.Connect(grantCtx, "graph", nil, true)
 	if !errors.Is(err, apperrors.ErrScopeExceeded) {
 		t.Fatalf("over-scoped connector grant → %v, want ErrScopeExceeded", err)
 	}
@@ -228,7 +228,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 	registry.Register(&mailFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +245,7 @@ func TestReconnectUnarchivesTheConnection(t *testing.T) {
 	}
 
 	// Reconnect the same provider for the same human.
-	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("token")); err != nil {
+	if _, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true); err != nil {
 		t.Fatalf("reconnect: %v", err)
 	}
 	views, err := registry.Connections(grantCtx)
@@ -275,7 +275,7 @@ func TestCaptureLinkTargetOutsideScopeRefused(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", nil)
+	connID, err := registry.Connect(grantCtx, "graph", nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}

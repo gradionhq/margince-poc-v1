@@ -13263,6 +13263,14 @@ type ConnectConnectorRequest struct {
 	// A closed enum, never a URL — the server maps it to a fixed path, so it carries no
 	// open-redirect surface. Ignored by credential providers, which never redirect.
 	ReturnTo *ConnectConnectorRequestReturnTo `json:"return_to,omitempty"`
+
+	// ShareAcknowledged The connecting human's one-time acknowledgment that what this connector captures
+	// becomes readable to colleagues who can see the contact (they can limit individual
+	// messages afterwards, and exclude addresses or domains up front). Required `true`
+	// for every capture provider — the connect refuses with 422 `sharing_not_acknowledged`
+	// without it — and recorded on the connection as `share_acknowledged_at` before the
+	// first pull.
+	ShareAcknowledged *bool `json:"share_acknowledged,omitempty"`
 }
 
 // ConnectConnectorRequestReturnTo Which surface the post-consent redirect lands on. Absent means `onboarding`.

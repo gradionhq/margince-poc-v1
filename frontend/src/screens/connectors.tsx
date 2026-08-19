@@ -7,6 +7,7 @@ import { useRoute } from "../app/router";
 import {
   Badge,
   Button,
+  Checkbox,
   EmptyState,
   SectionHeader,
 } from "../design-system/atoms";
@@ -152,11 +153,20 @@ function ConnectorAddPanel({
   pending,
   notConfigured501,
   connectError,
+  shareAck,
+  onShareAck,
   onConnect,
   onImap,
 }: Readonly<{
   addable: Provider[];
   pending: boolean;
+  // The one-time mail-sharing acknowledgment (one sentence, one checkbox):
+  // captured correspondence is workspace-readable by default, and the server
+  // refuses the connect (422 sharing_not_acknowledged) until it is given.
+  // Held by the parent so the OAuth buttons and the IMAP form opener gate on
+  // the same tick.
+  shareAck: boolean;
+  onShareAck: (v: boolean) => void;
   notConfigured501: Provider | null;
   // Why the last connect started from THESE buttons failed, or null. It renders
   // inside this block, under the strip that produced it: a reason reported in a
@@ -172,10 +182,15 @@ function ConnectorAddPanel({
       {(addable.includes("gcal") || addable.includes("gmail")) && (
         <p className="t-small">{t("connectors.googleSeparateNote")}</p>
       )}
+      <Checkbox
+        checked={shareAck}
+        onChange={(e) => onShareAck(e.currentTarget.checked)}
+        label={t("connectors.shareAck")}
+      />
       <div className="connector-add-actions">
         {addable.map((p) =>
           p === "imap" ? (
-            <Button key={p} small onClick={onImap}>
+            <Button key={p} small disabled={!shareAck} onClick={onImap}>
               <Mail aria-hidden /> {t(providerLabel[p])}
             </Button>
           ) : (
@@ -183,7 +198,7 @@ function ConnectorAddPanel({
               key={p}
               small
               variant={p === "gmail" ? "primary" : undefined}
-              disabled={pending}
+              disabled={pending || !shareAck}
               onClick={() => onConnect(p)}
             >
               <Plug aria-hidden /> {t(providerLabel[p])}
@@ -540,6 +555,7 @@ export function ConnectorsCard() {
     null,
   );
   const [imapConnectOpen, setImapConnectOpen] = useState(false);
+  const [shareAck, setShareAck] = useState(false);
   const [notConfigured501, setNotConfigured501] = useState<Provider | null>(
     null,
   );
@@ -555,7 +571,10 @@ export function ConnectorsCard() {
           params: { path: { provider } },
           // Lands the post-consent redirect back on Settings (Task 2's
           // contract field) rather than the default onboarding landing.
-          body: { return_to: "settings" },
+          // share_acknowledged is honest here: the add buttons stay disabled
+          // until the checkbox is ticked, and a RECONNECT re-asserts the
+          // acknowledgment the connection's first connect already recorded.
+          body: { return_to: "settings", share_acknowledged: true },
         },
       );
       // A deployment that never wired this specific provider answers 501
@@ -614,6 +633,8 @@ export function ConnectorsCard() {
     <ConnectorAddPanel
       addable={addable}
       pending={connect.isPending}
+      shareAck={shareAck}
+      onShareAck={setShareAck}
       notConfigured501={notConfigured501}
       connectError={failureOwnedBy(connectFailure, addable)}
       onConnect={(p) => connect.mutate(p)}

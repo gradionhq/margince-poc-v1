@@ -45,6 +45,11 @@ type connectState struct {
 	// landingURL, never a URL — it rides the signed payload so it cannot be
 	// tampered with after the redirect leaves us.
 	ReturnTo string
+	// ShareAck records that the human ticked the mail-sharing acknowledgment
+	// when they started the connect. It rides the signed state because the
+	// callback has no session to re-ask, and the grant refuses without it —
+	// so a state minted before the checkbox existed cannot complete a connect.
+	ShareAck bool
 }
 
 // wireState is the JSON form actually signed — ids.UUID as strings, plus the
@@ -55,6 +60,7 @@ type wireState struct {
 	Provider  string `json:"p"`
 	Nonce     string `json:"n"`
 	ReturnTo  string `json:"rt,omitempty"`
+	ShareAck  bool   `json:"sa,omitempty"`
 	Version   int    `json:"v,omitempty"`
 	Exp       int64  `json:"exp"` // unix seconds
 }
@@ -73,6 +79,7 @@ func (s stateSigner) sign(st connectState, exp time.Time) string {
 		Provider:  st.Provider,
 		Nonce:     st.Nonce,
 		ReturnTo:  st.ReturnTo,
+		ShareAck:  st.ShareAck,
 		Version:   st.Version,
 		Exp:       exp.Unix(),
 	})
@@ -115,7 +122,7 @@ func (s stateSigner) verify(token string, now time.Time) (connectState, error) {
 	}
 	return connectState{
 		Workspace: ws, User: user, Provider: w.Provider,
-		Nonce: w.Nonce, ReturnTo: w.ReturnTo, Version: w.Version,
+		Nonce: w.Nonce, ReturnTo: w.ReturnTo, ShareAck: w.ShareAck, Version: w.Version,
 	}, nil
 }
 

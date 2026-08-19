@@ -2892,6 +2892,8 @@ export const de = {
     "Erweiterungen, die diese Installation mit einem gemeinsamen Zugang betreibt. Was du hier einstellst, gilt für alle.",
 
   "connectors.title": "Verbundene Postfächer",
+  "connectors.shareAck":
+    "Erfasste E-Mails werden für Kolleginnen und Kollegen lesbar, die den Kontakt sehen können — einzelne Nachrichten lassen sich nachträglich einschränken, Adressen und Domains vorab ausschließen.",
   "connectors.sub":
     "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
   "connectors.loading": "Verbindungen werden geladen…",

@@ -24,16 +24,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// Connect grants one connector under the CALLING human's authority. Two
-// guards run here, both at grant time rather than discovered at 3am
-// mid-sync: the granting human must still resolve as live authority, and
-// a connector demanding scopes they do not hold is refused.
+// Connect grants one connector under the CALLING human's authority. Three
+// guards run here, all at grant time rather than discovered at 3am
+// mid-sync: the granting human must still resolve as live authority, a
+// connector demanding scopes they do not hold is refused, and a grant
+// without the mail-sharing acknowledgment is refused — captured
+// correspondence is workspace-readable by default, and that default is a
+// stated choice recorded on the row (share_acknowledged_at) before the
+// first pull. The transports collect the acknowledgment (422 without it);
+// this refusal is the single write point holding the invariant that an
+// unacknowledged connection cannot exist.
 //
 // note: the returned id (and the connectionID threaded through SyncOnce and
 // the sync-state recording) names a capture_connection row, which the kernel
 // does not model as a first-class entity — no kind exists for it, so it stays
 // ids.UUID rather than inventing one.
-func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth) (ids.UUID, error) {
+func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth, shareAcknowledged bool) (ids.UUID, error) {
+	if !shareAcknowledged {
+		return ids.Nil, errors.New("capture: a connector grant needs the mail-sharing acknowledgment — the transport asks for it before calling here")
+	}
 	c, err := r.connector(name)
 	if err != nil {
 		return ids.Nil, err
@@ -250,10 +259,11 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	rebound := rebindsAccount(priorLabel, in.accountLabel)
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO capture_connection (provider, user_id, scopes, credential_ref, status, account_label, provider_scopes)
-		VALUES ($1, $2, $3, $4, 'connected', $5, $6)
+		INSERT INTO capture_connection (provider, user_id, scopes, credential_ref, status, account_label, provider_scopes, share_acknowledged_at)
+		VALUES ($1, $2, $3, $4, 'connected', $5, $6, now())
 		ON CONFLICT (user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
+		              share_acknowledged_at = COALESCE(capture_connection.share_acknowledged_at, now()),
 		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
 		              generation = capture_connection.generation + CASE WHEN $7 THEN 1 ELSE 0 END,
 		              sync_cursor = CASE WHEN $7 THEN NULL ELSE capture_connection.sync_cursor END,

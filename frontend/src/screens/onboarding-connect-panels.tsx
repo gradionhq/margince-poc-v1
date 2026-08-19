@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
-import { Button, Disclosure, Field } from "../design-system/atoms";
+import { Button, Checkbox, Disclosure, Field } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
@@ -159,11 +159,15 @@ export function OAuthConnectPanel({
 }>) {
   const t = useT();
   const copy = OAUTH_COPY[provider];
+  // The one-time mail-sharing acknowledgment: the server refuses the connect
+  // (422 sharing_not_acknowledged) until the human has said yes to captured
+  // correspondence being readable to colleagues who can see the contact.
+  const [shareAck, setShareAck] = useState(false);
   const connect = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/connectors/{provider}/connect", {
         params: { path: { provider } },
-        body: {},
+        body: { share_acknowledged: shareAck },
       });
       if (error) {
         throwProblem(error);
@@ -201,10 +205,15 @@ export function OAuthConnectPanel({
           is wrong with the thing they just pressed. A caution about what a
           button does belongs beside the button, never behind a fold. */}
       <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
+      <Checkbox
+        checked={shareAck}
+        onChange={(e) => setShareAck(e.currentTarget.checked)}
+        label={t("connectors.shareAck")}
+      />
       <div className="ob-connect-dialog-actions">
         <Button
           variant="primary"
-          disabled={connect.isPending}
+          disabled={connect.isPending || !shareAck}
           onClick={() => connect.mutate()}
         >
           {connect.isPending ? (
@@ -402,6 +411,7 @@ export function ImapConnectPanel({
   const [password, setPassword] = useState("");
   const [mailbox, setMailbox] = useState("INBOX");
   const [max, setMax] = useState("30");
+  const [shareAck, setShareAck] = useState(false);
 
   const parsedPort =
     port.trim() === "" ? Number(IMAP_DEFAULT_PORT) : Number(port);
@@ -411,6 +421,7 @@ export function ImapConnectPanel({
       const { data, error } = await api.POST("/connectors/{provider}/connect", {
         params: { path: { provider: "imap" } },
         body: {
+          share_acknowledged: shareAck,
           imap: {
             host: host.trim(),
             port: parsedPort,
@@ -445,6 +456,7 @@ export function ImapConnectPanel({
 
   const parsedMax = max.trim() === "" ? 30 : Number(max);
   const ready =
+    shareAck &&
     host.trim() !== "" &&
     Number.isInteger(parsedPort) &&
     parsedPort >= 1 &&
@@ -550,6 +562,12 @@ export function ImapConnectPanel({
           <ShieldCheck aria-hidden /> {t("ob.s4.imapHint")}
         </p>
       </Disclosure>
+
+      <Checkbox
+        checked={shareAck}
+        onChange={(e) => setShareAck(e.currentTarget.checked)}
+        label={t("connectors.shareAck")}
+      />
 
       {connect.isError && (
         <ConnectWarn

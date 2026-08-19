@@ -39,7 +39,7 @@ func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
 		`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, e.Rep1); err != nil {
 		t.Fatal(err)
 	}
-	_, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
+	_, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("grant from a deactivated human → %v, want ErrNotFound", err)
 	}
@@ -60,7 +60,7 @@ func TestConnectRefusesAGrantFromADeactivatedHuman(t *testing.T) {
 		`UPDATE app_user SET status = 'active' WHERE id = $1`, e.Rep1); err != nil {
 		t.Fatal(err)
 	}
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"))
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("token"), true)
 	if err != nil {
 		t.Fatalf("grant from a live human: %v", err)
 	}

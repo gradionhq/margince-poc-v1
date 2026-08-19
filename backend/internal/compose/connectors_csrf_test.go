@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,8 @@ func TestConcurrentGmailAndGraphConsentDoNotClobberEachOther(t *testing.T) {
 	start := func(t *testing.T, provider string) string {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(http.MethodPost, "/v1/connectors/"+provider+"/connect", nil).WithContext(humanCtx())
+		req := httptest.NewRequest(http.MethodPost, "/v1/connectors/"+provider+"/connect",
+			strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 		h.ConnectConnector(rec, req, crmcontracts.CaptureProvider(provider))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s connect status = %d, want 200 (body %s)", provider, rec.Code, rec.Body)
