@@ -15,17 +15,30 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
+import { en } from "../i18n/en";
 import { AgentTaskbar } from "./agenttaskbar";
-import {
-  LABELS,
-  REVIEW_ONLY,
-  TASK_SAID,
-  VOCABULARY,
-} from "./agenttaskbar-copy";
 import { type GrantSpec, meFixture } from "./mefixture";
 import type { Route } from "./router";
 
-// The bottom taskbar preview reads every one of its right-half facts off the
+// The taskbar's copy lives in the i18n catalogs (`taskbar.*`,
+// `taskbar.task.*`); asserting against `en` directly, rather than a second
+// hardcoded English fixture in this file, is what keeps a case from silently
+// drifting from the catalog it is meant to prove the bar reads.
+const LABELS = en;
+
+/** The full state vocabulary the shared Core primitive can draw. */
+const CORE_STATES = [
+  "dormant",
+  "ingesting",
+  "reasoning",
+  "drafting",
+  "applied",
+  "flagged",
+  "disconnected",
+  "error",
+] as const;
+
+// The bottom taskbar reads every one of its right-half facts off the
 // wire (approvals, connectors, dedupe, AI posture, the served model, the tool
 // catalog, the account's own suggestions) — nothing left standing in for a
 // read that has not answered. Every case here proves the bar draws exactly
@@ -264,7 +277,9 @@ describe("AgentTaskbar", () => {
     await waitFor(() =>
       expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
     );
-    expect(container.querySelector(".tbline")?.textContent).toBe(LABELS.idle);
+    expect(container.querySelector(".tbline")?.textContent).toBe(
+      LABELS["taskbar.idle"],
+    );
   });
 
   it("goes disconnected and names the source when a connector cannot reach it", async () => {
@@ -290,7 +305,9 @@ describe("AgentTaskbar", () => {
       "sales@old-crm.example",
     );
     expect(
-      screen.getByRole("link", { name: LABELS.reconnect }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: LABELS["taskbar.reconnect"] })
+        .getAttribute("href"),
     ).toBe("#/settings/connections");
   });
 
@@ -303,10 +320,12 @@ describe("AgentTaskbar", () => {
       ),
     );
     expect(container.querySelector(".tbline")?.textContent).toBe(
-      LABELS.noModel,
+      LABELS["taskbar.noModel"],
     );
     expect(
-      screen.getByRole("link", { name: LABELS.configure }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: LABELS["taskbar.configure"] })
+        .getAttribute("href"),
     ).toBe("#/settings/ai");
   });
 
@@ -371,26 +390,22 @@ describe("AgentTaskbar", () => {
     await act(() => vi.advanceTimersByTimeAsync(600));
     expect(dock(container).getAttribute("data-core-state")).toBe("error");
     expect(container.querySelector(".tbline")?.textContent).toBe(
-      LABELS.unreachable,
+      LABELS["taskbar.unreachable"],
     );
   });
 
   // `ingesting` derived off a real read in flight must print the honest
-  // "Loading" label — `barLine` no longer consults `REVIEW_ONLY` for a state
-  // the bar reached on its own; only the switcher's override does. A held
-  // connectors read keeps the bar reading long enough for useSteady's
-  // BUSY_ON_MS window to settle without leaning on the real clock.
-  it("derives ingesting from a real read in flight and never prints the invented count", async () => {
+  // "Loading" label. A held connectors read keeps the bar reading long enough
+  // for useSteady's BUSY_ON_MS window to settle without leaning on the real
+  // clock.
+  it("derives ingesting from a real read in flight and prints the honest loading label", async () => {
     vi.useFakeTimers();
     stubTaskbarApi({ connectors: () => new Promise<Response>(() => {}) });
     const { container } = render(ROUTE);
     await act(() => vi.advanceTimersByTimeAsync(600));
     expect(dock(container).getAttribute("data-core-state")).toBe("ingesting");
     expect(container.querySelector(".tbline")?.textContent).toBe(
-      LABELS.reading,
-    );
-    expect(container.querySelector(".tbline")?.textContent).not.toBe(
-      REVIEW_ONLY.ingesting,
+      LABELS["taskbar.reading"],
     );
   });
 
@@ -405,18 +420,20 @@ describe("AgentTaskbar", () => {
     const { container } = render(ROUTE);
     await waitFor(() =>
       expect(container.querySelector(".tbline")?.textContent).toBe(
-        `3 ${LABELS.waiting}`,
+        `3 ${LABELS["taskbar.waiting"]}`,
       ),
     );
     expect(
-      screen.getByRole("link", { name: LABELS.review }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: LABELS["taskbar.review"] })
+        .getAttribute("href"),
     ).toBe("#/inbox");
   });
 
-  // `flagged` is on the invented side of the vocabulary now: the panel still
-  // reports open duplicates as a row, but the bar's own line and CTA stay
-  // silent about them unless a reviewer overrides the state by hand — a count
-  // nobody asked the bar to act on must not read as the bar acting on it.
+  // No read the bar derives from ever produces "flagged": open duplicates
+  // reach the reader only as a panel row, never as the bar's own resting
+  // state or CTA — a count nobody asked the bar to act on must not read as
+  // the bar acting on it.
   it("reports open duplicates only as a panel row, never as the bar's own state or CTA", async () => {
     const user = userEvent.setup();
     stubTaskbarApi({
@@ -427,8 +444,9 @@ describe("AgentTaskbar", () => {
     await waitFor(() =>
       expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
     );
-    expect(container.querySelector(".tbline")?.textContent).toBe(LABELS.idle);
-    expect(screen.queryByRole("link", { name: LABELS.decide })).toBeNull();
+    expect(container.querySelector(".tbline")?.textContent).toBe(
+      LABELS["taskbar.idle"],
+    );
 
     await openPanel(user);
     const row = screen.getByRole("link", { name: /^Duplicate pairs open/ });
@@ -447,7 +465,9 @@ describe("AgentTaskbar", () => {
     await openPanel(user);
     expect(container.querySelector(".tbbadge")).toBeNull();
     expect(
-      screen.queryByRole("link", { name: new RegExp(`^${LABELS.approvals}`) }),
+      screen.queryByRole("link", {
+        name: new RegExp(`^${LABELS["taskbar.approvals"]}`),
+      }),
     ).toBeNull();
   });
 
@@ -467,7 +487,7 @@ describe("AgentTaskbar", () => {
     await waitFor(() =>
       expect(
         screen.queryByRole("link", {
-          name: new RegExp(`^${LABELS.approvals}`),
+          name: new RegExp(`^${LABELS["taskbar.approvals"]}`),
         }),
       ).toBeNull(),
     );
@@ -489,19 +509,6 @@ describe("AgentTaskbar", () => {
     ).toBe("true");
   });
 
-  it("lets a review-only chip override the derived state with its invented line", async () => {
-    const user = userEvent.setup();
-    stubTaskbarApi();
-    const { container } = render(ROUTE);
-    await openPanel(user);
-
-    await user.click(screen.getByRole("button", { name: "reasoning" }));
-    expect(dock(container).getAttribute("data-core-state")).toBe("reasoning");
-    expect(container.querySelector(".tbline")?.textContent).toBe(
-      REVIEW_ONLY.reasoning,
-    );
-  });
-
   it("renders nothing on the full Ask surface and on a railless screen", () => {
     stubTaskbarApi();
     const ai = render({ screen: "ai" });
@@ -519,7 +526,7 @@ describe("AgentTaskbar", () => {
     await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbmeta")?.textContent).toContain(
-        LABELS.unreadable,
+        LABELS["taskbar.unreadable"],
       ),
     );
   });
@@ -531,7 +538,7 @@ describe("AgentTaskbar", () => {
     await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbmeta")?.textContent).toContain(
-        LABELS.noCallsYet,
+        LABELS["taskbar.noCallsYet"],
       ),
     );
   });
@@ -574,13 +581,17 @@ describe("AgentTaskbar", () => {
     const { container } = render(ROUTE);
     await openPanel(user);
     await waitFor(() =>
-      expect(screen.getByText(TASK_SAID.capture_classify)).toBeTruthy(),
+      expect(
+        screen.getByText(LABELS["taskbar.task.capture_classify"]),
+      ).toBeTruthy(),
     );
     expect(container.querySelector(".tbsect")?.textContent).not.toContain(
       "capture_classify",
     );
     expect(
-      screen.getByRole("link", { name: LABELS.fullLog }).getAttribute("href"),
+      screen
+        .getByRole("link", { name: LABELS["taskbar.fullLog"] })
+        .getAttribute("href"),
     ).toBe("#/settings/ai");
   });
 
@@ -623,26 +634,25 @@ describe("AgentTaskbar", () => {
     await openPanel(user);
     await waitFor(() =>
       expect(container.querySelector(".tbsect")?.textContent).toContain(
-        LABELS.nothingHere,
+        LABELS["taskbar.nothingHere"],
       ),
     );
   });
 
   // The Core's own tone rule is the only place a state's colour is declared
-  // (agenttaskbar.css comment above `.tbdock`), so a state added to the
-  // vocabulary with no rule here would silently draw the accent default
-  // instead of its own tone. Only "dormant" is genuinely undocumented — it is
-  // the bar's resting state and carries no attribute rule of its own; every
-  // other member (including "applied", which shares ingesting's jade rule)
-  // has one.
-  it("carries a CSS tone rule for every state in the vocabulary but the resting default", () => {
+  // (agenttaskbar.css comment above `.tbdock`), so a state the Core can carry
+  // with no rule here would silently draw the accent default instead of its
+  // own tone. Only "dormant" is genuinely undocumented — it is the bar's
+  // resting state and carries no attribute rule of its own; every other
+  // member (including "applied", which shares ingesting's jade rule) has one.
+  it("carries a CSS tone rule for every state the Core can carry but the resting default", () => {
     const cssPath = join(
       dirname(fileURLToPath(import.meta.url)),
       "agenttaskbar.css",
     );
     const css = readFileSync(cssPath, "utf8");
     const documentedDefaults = new Set(["dormant"]);
-    for (const state of VOCABULARY) {
+    for (const state of CORE_STATES) {
       if (documentedDefaults.has(state)) continue;
       expect(css).toContain(`data-core-state="${state}"`);
     }

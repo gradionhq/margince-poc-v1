@@ -258,17 +258,6 @@ test("AC-shell-7: the sidebar's search row opens the palette", async ({
   await expect(rail.locator(".navlevel a.navitem")).toHaveCount(10);
 });
 
-test("AC-shell-8: Ask FAB mounts on core screens, never on the AI surface", async ({
-  page,
-}) => {
-  await page.goto("/#/contacts");
-  await expect(page.locator(".askfab")).toBeVisible();
-  await page.goto("/#/deals");
-  await expect(page.locator(".askfab")).toBeVisible();
-  await page.goto("/#/ai");
-  await expect(page.locator(".askfab")).toHaveCount(0);
-});
-
 // The account block carries the two things it is FOR — this person's own account
 // and the way out — and nothing that changes a setting in place: theme and
 // language are preferences and live on Settings → Account. A menu offering a

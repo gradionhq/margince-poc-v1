@@ -17,7 +17,6 @@ import {
   type ExtensionScreenRegistry,
   findExtension,
 } from "./app/extensions";
-import { AskFab } from "./app/fab";
 import {
   CommandPalette,
   useBuiltinCommands,
@@ -25,7 +24,6 @@ import {
 } from "./app/palette";
 import { navigate, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
-import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
 import { Card, EmptyState, SectionHeader } from "./design-system/atoms";
 import { useT } from "./i18n";
 import type { MessageKey } from "./i18n/en";
@@ -561,7 +559,6 @@ function AuthedApp({
   }, [authed, company.isSuccess, described, route.screen]);
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const taskbarPreview = uiPreviewTaskbarEnabled();
   const commands = useBuiltinCommands();
   usePaletteHotkey(useCallback(() => setPaletteOpen((open) => !open), []));
 
@@ -630,14 +627,7 @@ function AuthedApp({
         onClose={() => setPaletteOpen(false)}
         commands={commands}
       />
-      {/* One agent affordance in this corner, never two: the taskbar preview's
-          page half is the same offer the FAB makes, so the switch that draws the
-          bar takes the FAB down (app/ui-preview.ts). */}
-      {taskbarPreview ? (
-        <AgentTaskbar route={route} />
-      ) : (
-        <AskFab route={route} />
-      )}
+      <AgentTaskbar route={route} />
     </>
   );
 }

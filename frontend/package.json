@@ -10,9 +10,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 VITE_UI_PREVIEW_TASKBAR=1 vite",
+    "dev:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 vite",
     "build": "tsc -b && vite build && node scripts/build-mcp-apps.mjs",
-    "build:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 VITE_UI_PREVIEW_TASKBAR=1 pnpm build",
+    "build:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 pnpm build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:ext": "vitest run -c vitest.ext.config.ts",

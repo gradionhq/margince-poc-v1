@@ -3,7 +3,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ChevronUp } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -12,19 +12,14 @@ import {
 } from "../design-system/margince-core";
 import { INTL_LOCALE } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
+import { en, type MessageKey } from "../i18n/en";
 import { useOrganization360 } from "../screens/company360";
 import { useConnectors } from "../screens/connectors";
 import { useDedupeQueue } from "../screens/dedupe";
 import { useEntityName } from "../screens/entityref";
 import { usePendingApprovals } from "../screens/inbox.queries";
 import { type AppActivity, useAppActivity } from "./activity";
-import {
-  LABELS,
-  REVIEW_ONLY,
-  RUNNING,
-  TASK_SAID,
-  VOCABULARY,
-} from "./agenttaskbar-copy";
+import { RUNNING } from "./agenttaskbar-copy";
 import { useAttention } from "./attention";
 import { useAgentTierMap } from "./autonomy";
 import { useCan } from "./capability";
@@ -32,31 +27,24 @@ import { SCREEN_ENTITY } from "./entity";
 import { NAV, RAIL_LESS_SCREENS } from "./nav";
 import { usePopoverDismiss } from "./popover";
 import type { Route } from "./router";
-import { announceTaskbarPreview } from "./ui-preview";
 import "./agenttaskbar.css";
 
-// The agent taskbar — a UI-PREVIEW SURFACE, not a feature (app/ui-preview.ts).
+// The agent taskbar — the shipped agent surface, drawn on every screen.
 //
-// The shipped agent surface is the dock beside the page title
-// (app/agentdock.tsx). This is the competing proposal for the same job: one bar
-// docked at the bottom of the viewport, present on every screen, carrying the
-// Core as its status light.
-//
-// The idea being judged is the SPLIT, which a page-head dock cannot do. Left of
-// the bar is the page you are standing on; right of it is everything else the
-// agent is doing. An agent that reports only global work is a background job
-// with a light on it, and one that reports only the current record is a sidebar
-// — the claim here is that omnipresence means both at once, in one line, at the
-// edge of the screen you are already looking at.
+// One bar docked at the bottom of the viewport, carrying the Core as its
+// status light. Left of the bar is the page you are standing on; right of it
+// is everything else the agent is doing. An agent that reports only global
+// work is a background job with a light on it, and one that reports only the
+// current record is a sidebar — omnipresence means both at once, in one line,
+// at the edge of the screen you are already looking at.
 //
 // EVERYTHING THE BAR REPORTS IS READ FROM THE API: approvals waiting, which
 // sources are unreachable, the model the last call actually ran on, this
 // account's own suggestions. Nothing is a zero standing in for a read that has
 // not answered — a row whose read is pending, or that this seat may not make, is
-// absent instead. The one invented table left is `REVIEW_ONLY`
-// (agenttaskbar-copy.ts): the states no read can reach, offered from the
-// switcher in the panel under a heading that says review-only. The bar never
-// enters one of those on its own.
+// absent instead. The bar reaches every state it shows (dormant, ingesting,
+// reasoning, disconnected, error) on its own, from what it read; nothing here
+// is invented.
 
 type Suggestion = components["schemas"]["Organization360Suggestion"];
 
@@ -192,13 +180,14 @@ function useRecentCalls(): Readonly<{
  * none.
  */
 function modelText(
+  t: ReturnType<typeof useT>,
   read: Readonly<{ allowed: boolean; calls: readonly AiCall[] }>,
 ): string {
   const latest = read.calls[0];
   if (latest) {
     return `${latest.provider}/${latest.served_model}`;
   }
-  return read.allowed ? LABELS.noCallsYet : LABELS.unreadable;
+  return read.allowed ? t("taskbar.noCallsYet") : t("taskbar.unreadable");
 }
 
 /**
@@ -267,8 +256,9 @@ function useRecordRead(route: Route): Readonly<{
 function PageFindings({
   suggestions,
 }: Readonly<{ suggestions: readonly Suggestion[] }>) {
+  const t = useT();
   if (suggestions.length === 0) {
-    return <p className="tbitem tbempty">{LABELS.nothingHere}</p>;
+    return <p className="tbitem tbempty">{t("taskbar.nothingHere")}</p>;
   }
   return (
     <>
@@ -290,13 +280,22 @@ function PageFindings({
  * have you been doing", and five answers it — a sixth turns the panel into a log
  * viewer, which already exists and is better at it.
  */
+/**
+ * Whether the catalog carries this key.
+ *
+ * `task` arrives off the wire, so the key built from it is a guess until the
+ * catalog answers for it. Asking `en` — the catalog every locale mirrors — keeps
+ * the question about a key that exists rather than about a string that looks
+ * like one.
+ */
+function isMessageKey(key: string): key is MessageKey {
+  return Object.hasOwn(en, key);
+}
+
 /** The task in the reader's words, or the token opened up if it is a new one. */
-function saidFor(task: string): string {
-  // `task` comes off the wire, and a bare lookup answers `constructor` from the
-  // prototype chain with a function that React then tries to render.
-  return Object.hasOwn(TASK_SAID, task)
-    ? TASK_SAID[task]
-    : task.replaceAll("_", " ");
+function saidFor(t: ReturnType<typeof useT>, task: string): string {
+  const key = `taskbar.task.${task}`;
+  return isMessageKey(key) ? t(key) : task.replaceAll("_", " ");
 }
 
 /**
@@ -306,10 +305,15 @@ function saidFor(task: string): string {
  * "how long ago" — five rows of `19/08/2026, 10:00` make the reader do the
  * subtraction, five times, to learn that everything happened this morning.
  */
-function agoFor(iso: string, locale: Locale, now: number): string {
+function agoFor(
+  t: ReturnType<typeof useT>,
+  iso: string,
+  locale: Locale,
+  now: number,
+): string {
   const seconds = Math.round((Date.parse(iso) - now) / 1000);
   if (Number.isNaN(seconds) || seconds > -60) {
-    return LABELS.justNow;
+    return t("taskbar.justNow");
   }
   const format = new Intl.RelativeTimeFormat(INTL_LOCALE[locale], {
     numeric: "auto",
@@ -328,29 +332,30 @@ function Recap({
 }: Readonly<{
   recent: Readonly<{ allowed: boolean; calls: readonly AiCall[] }>;
 }>) {
+  const t = useT();
   const { locale } = useLocale();
   // Read once per open, so five rows share one reading of the clock and cannot
   // disagree about what "now" is.
   const now = Date.now();
   if (!recent.allowed) {
-    return <p className="tbitem tbempty">{LABELS.logUnreadable}</p>;
+    return <p className="tbitem tbempty">{t("taskbar.logUnreadable")}</p>;
   }
   if (recent.calls.length === 0) {
-    return <p className="tbitem tbempty">{LABELS.noCallsYet}</p>;
+    return <p className="tbitem tbempty">{t("taskbar.noCallsYet")}</p>;
   }
   return (
     <>
       {recent.calls.map((call) => (
         <p className="tbitem" key={call.id}>
           <span className="tbmark" aria-hidden="true" />
-          {saidFor(call.task)}
+          {saidFor(t, call.task)}
           <span className="tbmuted">
-            {agoFor(call.occurred_at, locale, now)}
+            {agoFor(t, call.occurred_at, locale, now)}
           </span>
         </p>
       ))}
       <a className="tbmore" href={AI_SETTINGS_HREF}>
-        {LABELS.fullLog}
+        {t("taskbar.fullLog")}
       </a>
     </>
   );
@@ -372,7 +377,7 @@ function RuntimeRows({
       {/* The posture leads, because it decides whether anything below it means
           anything: a model name from last week is not a model bound today. */}
       {ai === "unconfigured" && (
-        <span className="tbwarn">{LABELS.noModel}</span>
+        <span className="tbwarn">{t("taskbar.noModel")}</span>
       )}
       {ai === "development" && (
         <span>
@@ -380,22 +385,22 @@ function RuntimeRows({
         </span>
       )}
       <span>
-        {LABELS.model}{" "}
+        {t("taskbar.model")}{" "}
         {model.calls.length > 0 ? (
-          <b>{modelText(model)}</b>
+          <b>{modelText(t, model)}</b>
         ) : (
-          <i>{modelText(model)}</i>
+          <i>{modelText(t, model)}</i>
         )}
       </span>
       {tools > 0 && (
         <span>
-          {LABELS.tools} <b>{tools}</b>
+          {t("taskbar.tools")} <b>{tools}</b>
         </span>
       )}
       {offline.map((source) => (
         <span className="tbconn down" key={source}>
           <i aria-hidden="true" />
-          {`${source} ${LABELS.offline}`}
+          {`${source} ${t("taskbar.offline")}`}
         </span>
       ))}
     </div>
@@ -403,83 +408,63 @@ function RuntimeRows({
 }
 
 function TaskbarPanel({
-  state,
-  setState,
   suggestions,
   signals,
   model,
   panel,
 }: Readonly<{
-  state: MarginceCoreState;
-  setState: (next: MarginceCoreState) => void;
   suggestions: readonly Suggestion[];
   signals: Signals;
   model: Readonly<{ allowed: boolean; calls: readonly AiCall[] }>;
   panel: React.RefObject<HTMLElement | null>;
 }>) {
-  const states = VOCABULARY;
+  const t = useT();
   return (
-    <section className="tbpanel" ref={panel} aria-label={LABELS.region}>
+    <section className="tbpanel" ref={panel} aria-label={t("taskbar.region")}>
       <div className="tbsect">
-        <h4>{LABELS.onThisPage}</h4>
+        <h4>{t("taskbar.onThisPage")}</h4>
         <PageFindings suggestions={suggestions} />
       </div>
       <div className="tbsect">
-        <h4>{LABELS.acrossWorkspace}</h4>
+        <h4>{t("taskbar.acrossWorkspace")}</h4>
         {/* Absent, not zero, while the read has not answered: a count nobody
             computed is the one thing a status surface must not print. */}
         {signals.waiting !== undefined && (
           <a className="tbitem tblink" href="#/inbox">
             <span className="tbmark" aria-hidden="true" />
-            {LABELS.approvals}
+            {t("taskbar.approvals")}
             <span className="tbmuted">{signals.waiting}</span>
           </a>
         )}
         {signals.duplicates !== undefined && (
           <a className="tbitem tblink" href="#/dedupe">
             <span className="tbmark" aria-hidden="true" />
-            {LABELS.duplicatesRow}
+            {t("taskbar.duplicatesRow")}
             <span className="tbmuted">{signals.duplicates}</span>
           </a>
         )}
       </div>
       <div className="tbsect">
-        <h4>{LABELS.recap}</h4>
+        <h4>{t("taskbar.recap")}</h4>
         <Recap recent={model} />
       </div>
       <div className="tbsect">
-        <h4>{LABELS.runtime}</h4>
+        <h4>{t("taskbar.runtime")}</h4>
         <RuntimeRows offline={signals.offline} model={model} ai={signals.ai} />
-      </div>
-      <div className="tbsect tbstates">
-        <h4>{LABELS.states}</h4>
-        <div className="tbchips">
-          {states.map((name) => (
-            <button
-              type="button"
-              key={name}
-              className="tbchip"
-              aria-pressed={name === state}
-              onClick={() => setState(name)}
-            >
-              {name}
-            </button>
-          ))}
-        </div>
       </div>
     </section>
   );
 }
 
 /**
- * The state the bar shows when nobody has overridden it.
+ * The state the bar shows, derived from what it read.
  *
- * Four beats, and it moves between them on its own: at rest, taking something
- * in, working on something, and stopped. That is the whole vocabulary a reader
- * has to learn for a thing that sits on every screen all day — and it is small
- * on purpose. An earlier build lit a fifth beat for each write that landed, and
- * what a reader actually experienced was a check mark flashing at random while
- * they clicked around, which teaches them to stop looking at it.
+ * At rest, taking something in, working on something, cut off, or stopped —
+ * that is the whole vocabulary a reader has to learn for a thing that sits on
+ * every screen all day, and it is small on purpose. An earlier build lit a
+ * beat for each write that landed, and what a reader actually experienced was
+ * a check mark flashing at random while they clicked around, which teaches
+ * them to stop looking at it.
  *
  * The order is severity, then immediacy. A failure outranks everything because
  * it is the only one the reader may have to act on; a source the agent cannot
@@ -507,30 +492,28 @@ function derive(activity: AppActivity, signals: Signals): MarginceCoreState {
 
 /** The one line the collapsed bar carries, for whichever state is showing. */
 function barLine(
+  t: ReturnType<typeof useT>,
   state: MarginceCoreState,
   signals: Signals,
   record: Readonly<{ reading: boolean }>,
   devLine: string,
 ): string {
   if (state === "ingesting") {
-    return record.reading ? LABELS.readingRecord : LABELS.reading;
+    return record.reading ? t("taskbar.readingRecord") : t("taskbar.reading");
   }
   if (state === "reasoning") {
-    return LABELS.working;
+    return t("taskbar.working");
   }
   if (state === "error") {
-    return LABELS.unreachable;
+    return t("taskbar.unreachable");
   }
   if (state === "disconnected") {
     return signals.ai === "unconfigured"
-      ? LABELS.noModel
-      : `${LABELS.cannotReach} ${signals.offline.join(", ")}`;
-  }
-  if (state === "flagged" && signals.duplicates) {
-    return `${signals.duplicates} ${LABELS.duplicates}`;
+      ? t("taskbar.noModel")
+      : `${t("taskbar.cannotReach")} ${signals.offline.join(", ")}`;
   }
   if (signals.waiting !== undefined && signals.waiting > 0) {
-    return `${signals.waiting} ${LABELS.waiting}`;
+    return `${signals.waiting} ${t("taskbar.waiting")}`;
   }
   // A deployment on the development path is not disconnected — it answers — but
   // every answer it gives is invented, and a reader who does not know that is
@@ -540,32 +523,28 @@ function barLine(
   if (signals.ai === "development") {
     return devLine;
   }
-  return LABELS.idle;
+  return t("taskbar.idle");
 }
 
 /** Where the bar sends you, when there is somewhere to send you. */
 function barCta(
+  t: ReturnType<typeof useT>,
   state: MarginceCoreState,
   signals: Signals,
 ): Readonly<{ label: string; href: string }> | null {
   if (state === "disconnected") {
     return signals.ai === "unconfigured"
-      ? { label: LABELS.configure, href: AI_SETTINGS_HREF }
-      : { label: LABELS.reconnect, href: "#/settings/connections" };
-  }
-  if (state === "flagged" && signals.duplicates) {
-    return { label: LABELS.decide, href: "#/dedupe" };
+      ? { label: t("taskbar.configure"), href: AI_SETTINGS_HREF }
+      : { label: t("taskbar.reconnect"), href: "#/settings/connections" };
   }
   if (signals.waiting !== undefined && signals.waiting > 0) {
-    return { label: LABELS.review, href: "#/inbox" };
+    return { label: t("taskbar.review"), href: "#/inbox" };
   }
   return null;
 }
 
 export function AgentTaskbar({ route }: Readonly<{ route: Route }>) {
   const t = useT();
-  // The switcher's choice, and null while the bar is reporting what it read.
-  const [override, setOverride] = useState<MarginceCoreState | null>(null);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLElement>(null);
@@ -574,12 +553,7 @@ export function AgentTaskbar({ route }: Readonly<{ route: Route }>) {
   const record = useRecordRead(route);
   const activity = useAppActivity();
   const scope = useAttention();
-  const state = override ?? derive(activity, signals);
-
-  // Once per session, in the console: a preview surface has to say so where
-  // anyone inspecting the page will find it. In an effect, because a render must
-  // not have side effects.
-  useEffect(announceTaskbarPreview, []);
+  const state = derive(activity, signals);
 
   // Put focus back on the bar only when the panel actually HELD it: an outside
   // click usually lands on something focusable of its own, and pulling focus
@@ -603,13 +577,11 @@ export function AgentTaskbar({ route }: Readonly<{ route: Route }>) {
     return null;
   }
 
-  const cta = barCta(state, signals);
+  const cta = barCta(t, state, signals);
   return (
     <div className={open ? "tbdock open" : "tbdock"} data-core-state={state}>
       {open && (
         <TaskbarPanel
-          state={state}
-          setState={setOverride}
           suggestions={record.suggestions}
           signals={signals}
           model={model}
@@ -626,18 +598,13 @@ export function AgentTaskbar({ route }: Readonly<{ route: Route }>) {
           className="tbhit"
           ref={trigger}
           aria-expanded={open}
-          aria-label={open ? LABELS.collapse : LABELS.expand}
+          aria-label={open ? t("taskbar.collapse") : t("taskbar.expand")}
           onClick={() => setOpen((current) => !current)}
         />
         <MarginceCoreScene state={state} feed={false} className="tborb" />
         <ScopeChip route={route} scope={scope?.label} />
         <span className="tbline">
-          {/* The invented lines belong to the switcher and to nothing else. Read
-              off `state`, they would print "Reading 128 captured items" every
-              time a real query fetched — an invented count over live work, which
-              is the one thing this surface must never do. */}
-          {(override && REVIEW_ONLY[override]) ??
-            barLine(state, signals, record, t("auth.coreDevelopment"))}
+          {barLine(t, state, signals, record, t("auth.coreDevelopment"))}
         </span>
         {cta ? (
           <a className="tbgo" href={cta.href}>
