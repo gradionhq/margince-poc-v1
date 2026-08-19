@@ -299,6 +299,28 @@ describe("AccountMenu", () => {
     expect(row("Sign out").hasAttribute("disabled")).toBe(false);
   });
 
+  // The row re-enables when the request settles either way, so a session that is
+  // still open would otherwise look exactly like one that has ended — and the
+  // next thing the reader does, they do believing they signed out. The server's
+  // own words, in an alert, in the menu they asked from.
+  it("says so when signing out is refused, in the server's own words", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", async () =>
+      Response.json(
+        { title: "Conflict", detail: "Your session is already gone." },
+        {
+          status: 409,
+          headers: { "content-type": "application/problem+json" },
+        },
+      ),
+    );
+    render(<AccountMenu />);
+    await openMenu(user, railTrigger());
+    await user.click(row("Sign out"));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Your session is already gone.");
+  });
+
   // Closed, the panel is not rendered at all — so there is nothing behind the
   // trigger for Tab to land on, and nothing for a screen reader to read out of
   // a menu that is not open.

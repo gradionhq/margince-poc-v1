@@ -34,7 +34,7 @@ import { ThemeToggle } from "./theme-toggle";
  * clock, so no case waits on a real one.
  */
 function stubSystemPreference(prefersDark: boolean) {
-  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const listeners = new Set<() => void>();
   let dark = prefersDark;
   vi.stubGlobal("matchMedia", (query: string) => ({
     // Only the query the theme asks for: a stub answering true to everything
@@ -43,21 +43,21 @@ function stubSystemPreference(prefersDark: boolean) {
       return dark && query === "(prefers-color-scheme: dark)";
     },
     media: query,
-    addEventListener: (
-      _type: string,
-      listener: (event: MediaQueryListEvent) => void,
-    ) => listeners.add(listener),
-    removeEventListener: (
-      _type: string,
-      listener: (event: MediaQueryListEvent) => void,
-    ) => listeners.delete(listener),
+    addEventListener: (_type: string, listener: () => void) =>
+      listeners.add(listener),
+    removeEventListener: (_type: string, listener: () => void) =>
+      listeners.delete(listener),
   }));
   return {
     set(next: boolean) {
       dark = next;
       act(() => {
         for (const listener of [...listeners]) {
-          listener({ matches: next } as MediaQueryListEvent);
+          // No event argument, and none asserted into being: `followSystem`
+          // takes none and reads `systemPrefersDark()` itself, so a hand-built
+          // object standing in for a `MediaQueryListEvent` would be describing a
+          // contract the store does not have.
+          listener();
         }
       });
     },
@@ -109,22 +109,24 @@ const renderTwoToggles = () =>
 
 describe("the theme control", () => {
   it("applies the change to the document and remembers it", async () => {
+    const user = userEvent.setup();
     renderToggle();
     expect(document.documentElement.dataset.theme).toBe("light");
 
-    await userEvent.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("button"));
 
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(window.localStorage.getItem(THEME_KEY)).toBe("dark");
   });
 
   it("keeps every mounted toggle showing the same theme", async () => {
+    const user = userEvent.setup();
     renderTwoToggles();
     const [first, second] = screen.getAllByRole("button");
     expect(first).toHaveAccessibleName(labelForPressTo("dark"));
     expect(second).toHaveAccessibleName(labelForPressTo("dark"));
 
-    await userEvent.click(first);
+    await user.click(first);
 
     // The one that was NOT pressed has to move too — it names the theme the
     // next press would move to, and the document has already moved.
@@ -134,11 +136,12 @@ describe("the theme control", () => {
   });
 
   it("names the theme the press moves to, not the one on screen", async () => {
+    const user = userEvent.setup();
     renderToggle();
     const toggle = screen.getByRole("button");
     expect(toggle).toHaveAccessibleName(labelForPressTo("dark"));
 
-    await userEvent.click(toggle);
+    await user.click(toggle);
 
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(toggle).toHaveAccessibleName(labelForPressTo("light"));
@@ -149,12 +152,13 @@ describe("the theme control", () => {
   // answering with "system" again would leave the button promising a theme it
   // did not deliver.
   it("turns a press from the system default into an explicit choice", async () => {
+    const user = userEvent.setup();
     const machine = stubSystemPreference(true);
     setThemeChoice("system");
     expect(document.documentElement.dataset.theme).toBe("dark");
 
     renderToggle();
-    await userEvent.click(screen.getByRole("button"));
+    await user.click(screen.getByRole("button"));
 
     expect(window.localStorage.getItem(THEME_KEY)).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");

@@ -111,9 +111,9 @@ order. It is **ten items**: Home standing alone, then three labeled groups.
 | Group | Route ids |
 |---|---|
 | *(ungrouped)* | `home` |
-| Records | `contacts`, `companies`, `leads` |
+| Records | `contacts`, `companies`, `leads`, `dedupe` |
 | Work | `deals`, `tasks`, `inbox` |
-| Intelligence | `reports`, `automations`, `ai` |
+| Intelligence | `reports`, `ai` |
 
 The groups are the **expanded sidebar's** own structure. Collapsed, each group
 heading keeps its box and draws a hairline in the same space, so the 64px rail
@@ -279,8 +279,9 @@ workbench. Four things about it are load-bearing rather than stylistic:
 - **One implementation.** A caller passes `state` and never restyles. Sizing
   through the documented `--coreSize` / `--coreGlass` custom properties is
   configuration; anything beyond that is a caller restyling a shared primitive.
-- **The state list is closed** — exactly eight: `idle`, `listening`, `working`,
-  `success`, `attention`, `error`, `quiet`, `unavailable`. Callers use the Core
+- **The state list is closed** — exactly eight: `dormant`, `ingesting`,
+  `reasoning`, `drafting`, `applied`, `flagged`, `disconnected`, `error`. Callers
+  use the Core
   as a *status channel* (a sign-in in flight, a server that cannot be reached),
   and a status channel with an open vocabulary is one nobody can test and no
   second caller can reuse. `progress` is optional and draws the ring only when

@@ -289,3 +289,10 @@
     animation: none;
   }
 }
+
+/* A refused sign-out, stated in the menu it was asked from. It bleeds out
+   through the panel's optical inset like the separators do, so the callout meets
+   both edges instead of floating inside a 5px frame. */
+.acctrowalert {
+  padding: var(--space-1) 0 0;
+}

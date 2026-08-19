@@ -229,6 +229,7 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
   // screen reader via aria-label in BOTH states, and the visible tooltip must
   // appear on keyboard focus (not hover alone) and be dismissible with Escape.
   it("keeps the accessible name when collapsed and shows a dismissible tooltip on focus", async () => {
+    const user = userEvent.setup();
     render(<WorkspaceRail route={{ screen: "home" }} collapsed />);
     const pipeline = screen.getByRole("link", { name: "Pipeline" });
     expect(screen.queryByRole("tooltip")).toBeNull();
@@ -237,26 +238,31 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     const tip = await screen.findByRole("tooltip");
     expect(tip.textContent).toBe("Pipeline");
 
-    await userEvent.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).toBeNull();
     // Escape dismisses the tooltip without moving focus (WCAG 1.4.13).
     expect(document.activeElement).toBe(pipeline);
   });
 
   // WCAG 1.4.13 also requires the tooltip be HOVERABLE: reaching for it must not
-  // dismiss it. The tooltip is a descendant of the row it belongs to, so moving
-  // the pointer onto it never fires the row's mouseleave. As a sibling it would
-  // vanish under the cursor, and no assertion on its text would notice.
+  // dismiss it. What makes that true is CONTAINMENT — the tooltip is a descendant
+  // of the row it belongs to, so a pointer moving onto it never leaves the row —
+  // and containment is what this asserts. A sibling tooltip would vanish under
+  // the cursor and no assertion on its text would notice.
+  //
+  // The hover itself is deliberately NOT simulated: user-event dispatches
+  // `mouseleave` on the row when the pointer moves to a child of it, which a
+  // browser does not do, so a pass there would measure the simulator and a
+  // failure would report a defect that is not in the product.
   it("nests the collapsed tooltip inside its own row so hovering it cannot dismiss it", async () => {
+    const user = userEvent.setup();
     render(<WorkspaceRail route={{ screen: "home" }} collapsed />);
     const pipeline = screen.getByRole("link", { name: "Pipeline" });
 
-    await userEvent.hover(pipeline);
+    await user.hover(pipeline);
     const tip = await screen.findByRole("tooltip");
     expect(pipeline.contains(tip)).toBe(true);
-
-    await userEvent.hover(tip);
-    expect(screen.queryByRole("tooltip")).not.toBeNull();
+    expect(tip.parentElement).toBe(pipeline);
   });
 
   // On a phone the four bar tabs are the only rows rendered, so a route living
@@ -281,6 +287,7 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
   // aria-current itself. Two elements claiming the current page is worse than
   // the visual-only state this replaced.
   it("hands the current-page claim back to the real row once the sheet is open", async () => {
+    const user = userEvent.setup();
     // The sheet exists only at phone width — the control that opens it is not
     // rendered above the breakpoint, and the rail closes any sheet it finds
     // itself holding there.
@@ -288,7 +295,7 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     const { container } = render(
       <WorkspaceRail route={{ screen: "reports" }} />,
     );
-    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("button", { name: "More" }));
     expect(
       container.querySelector(".railmore")?.getAttribute("aria-current"),
     ).toBeNull();
@@ -316,14 +323,15 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
   // to the control that opened it rather than onto <body> — and only then: a rail
   // that merely mounts with a row focused must keep that focus where it is.
   it("hands focus back to More when the sheet is dismissed from inside it", async () => {
+    const user = userEvent.setup();
     stubPhoneViewport();
     render(<WorkspaceRail route={{ screen: "home" }} />);
-    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    await user.click(screen.getByRole("button", { name: "More" }));
     expect(document.activeElement).toBe(
       screen.getByRole("link", { name: "Home" }),
     );
 
-    await userEvent.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "More" }),
     );
@@ -415,12 +423,13 @@ describe("Rail levels (a section's entries as the second level)", () => {
   // came from is remembered above it. A rail on its own always answers "home",
   // which is the case below and would hide this one.
   it("walks out of the section to the route the reader came from", async () => {
+    const user = userEvent.setup();
     window.location.hash = "#/reports";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     expect(screen.getByRole("link", { name: "Reports" })).toBeTruthy();
 
     navigate({ screen: "settings", id: "account" });
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: "Back to Destinations" }),
     );
     expect(window.location.hash).toBe("#/reports");
@@ -468,9 +477,10 @@ describe("Rail levels (a section's entries as the second level)", () => {
   // nowhere — there is no origin to return them to, and home is the one place
   // the app can honestly send them.
   it("falls back home when the reader deep-linked into the section", async () => {
+    const user = userEvent.setup();
     window.location.hash = "#/settings/account";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    await userEvent.click(
+    await user.click(
       await screen.findByRole("button", { name: "Back to Destinations" }),
     );
     expect(window.location.hash).toBe("#/home");
@@ -544,21 +554,21 @@ describe("Rail levels (a section's entries as the second level)", () => {
   // address is what names the level above. It is also what the control is named
   // for — the section's list, not the entry whose children are on screen.
   it("lands on the parent entry's own address from a level below the section", async () => {
+    const user = userEvent.setup();
     render(
       <WorkspaceRail
         route={{ screen: "settings", id: "deep", id2: "deeper" }}
         section={fixtureSection("deep")}
       />,
     );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Back to Settings" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Back to Settings" }));
     expect(window.location.hash).toBe("#/settings/deep");
   });
 
   // AC-shell-1d holds at every depth, and there is ONE tooltip in the sidebar:
   // moving between two entries of a level must not leave the first one open.
   it("shows one tooltip at a time on the collapsed level", async () => {
+    const user = userEvent.setup();
     render(
       <WorkspaceRail
         route={{ screen: "settings", id: "account" }}
@@ -584,7 +594,7 @@ describe("Rail levels (a section's entries as the second level)", () => {
     );
     expect(screen.getAllByRole("tooltip")).toHaveLength(1);
 
-    await userEvent.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
     expect(screen.queryByRole("tooltip")).toBeNull();
     // Escape dismisses the tooltip without moving focus (WCAG 1.4.13).
     expect(document.activeElement).toBe(privacyEntry);

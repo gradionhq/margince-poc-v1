@@ -167,6 +167,7 @@ export const vi = {
   "ask.inputAria": "Câu hỏi của bạn",
   "ask.placeholder": "Hỏi về những gì bạn đang xem…",
   "ask.send": "Hỏi",
+  "ask.sendEmpty": "Hãy viết câu hỏi trước.",
 
   "explain.open": "Giải thích con số này",
   "explain.title": "Con số này được dựng thế nào",
@@ -1982,7 +1983,7 @@ export const vi = {
   "explain.sources": "Các dòng nguồn",
 
   "ai.sub": "mang Agent của riêng bạn — được quản trị bằng hợp đồng hai bậc",
-  "ai.fromPalette": "Từ bảng lệnh",
+  "ai.carriedQuestion": "Câu hỏi của bạn",
   "ai.tiers": "Một Agent được phép làm gì",
   "ai.tierAutoExecute": "Đọc và soạn nháp chạy ngay.",
   "ai.tierAutoExecuteDetail":

@@ -10,8 +10,9 @@ import { MarginceCoreScene } from "../design-system/margince-core";
 import { useT } from "../i18n";
 import { useAgentTierMap } from "./autonomy";
 import { useRouteSubject } from "./pagemeta";
+import { ASK_QUERY_KEY } from "./palette";
 import { usePopoverDismiss } from "./popover";
-import type { Route } from "./router";
+import { navigate, type Route } from "./router";
 import "./agentdock.css";
 
 // The agent dock: the Margince Core floating at the foot of the content column,
@@ -67,6 +68,22 @@ function tierCounts(map: Record<string, string>): {
 function AskComposer({ route }: Readonly<{ route: Route }>) {
   const t = useT();
   const context = useRouteSubject(route);
+  const [question, setQuestion] = useState("");
+  const asked = question.trim();
+  // The question goes where the product already carries one: the Ask surface
+  // reads `ASK_QUERY_KEY` on mount and prints what it was handed
+  // (screens/ai.tsx), which is the same seam the palette's own "ask" command
+  // uses. There is no chat backend behind either of them and this invents none —
+  // what it does is take the reader, and their sentence, to the surface the
+  // answer will come from.
+  const send = () => {
+    if (!asked) {
+      return;
+    }
+    // NOSONAR: persisted value is a trimmed plain string from a controlled input, consumed as text (never eval'd or rendered as HTML)
+    sessionStorage.setItem(ASK_QUERY_KEY, asked);
+    navigate({ screen: "ai" });
+  };
   return (
     // Named, so a screen reader landing inside the panel knows which of its
     // parts it is standing in: the composer is the one part of this panel that
@@ -78,8 +95,19 @@ function AskComposer({ route }: Readonly<{ route: Route }>) {
         aria-label={t("ask.inputAria")}
         placeholder={t("ask.placeholder")}
         rows={3}
+        value={question}
+        onChange={(event) => setQuestion(event.target.value)}
       />
-      <Button variant="primary" small>
+      {/* Refused while there is nothing to send, and it says which — a primary
+          button that accepts a press and does nothing is the same defect as one
+          wired to nothing at all. */}
+      <Button
+        variant="primary"
+        small
+        disabled={!asked}
+        reason={asked ? undefined : t("ask.sendEmpty")}
+        onClick={send}
+      >
         {t("ask.send")}
       </Button>
     </section>

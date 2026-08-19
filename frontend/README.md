@@ -105,7 +105,7 @@ default.
   StagedProposal) — never stacked under a field again. The migration is real but
   partial: the company record page consumes the mark today while the other record
   screens still render the older primitives directly. Then the **Margince Core**
-  (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed nine-state
+  (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed eight-state
   vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
   callers pass `state` and size it through `--coreSize` / `--coreGlass` and
   never restyle it), `motion.ts` (reduced motion jumps to the END state, never

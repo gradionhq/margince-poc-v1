@@ -266,9 +266,10 @@ describe("Section switcher (the page title at phone width)", () => {
   });
 
   it("opens the section's entries with the current one marked", async () => {
+    const user = userEvent.setup();
     stubPhoneViewport();
     render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
     const dialog = screen.getByRole("dialog");
@@ -294,12 +295,13 @@ describe("Section switcher (the page title at phone width)", () => {
   });
 
   it("navigates and closes itself when an entry is picked", async () => {
+    const user = userEvent.setup();
     stubPhoneViewport();
     render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
-    await userEvent.click(
+    await user.click(
       within(screen.getByRole("dialog")).getByRole("link", { name: "Account" }),
     );
     // The sheet covers the page it just navigated to, so it goes with the tap.
@@ -310,12 +312,13 @@ describe("Section switcher (the page title at phone width)", () => {
   // A full-screen sheet has no backdrop left to click, and a touch reader has no
   // Escape: the way out has to be a control inside it.
   it("closes from a control in the sheet", async () => {
+    const user = userEvent.setup();
     stubPhoneViewport();
     render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
-    await userEvent.click(
+    await user.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
-    await userEvent.click(
+    await user.click(
       within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -605,6 +608,7 @@ describe("Shell", () => {
 // has carried no account affordance since the sidebar became destinations only.
 describe("Sign-out (AS-1)", () => {
   it("posts /auth/logout and clears the query cache on click", async () => {
+    const user = userEvent.setup();
     let loggedOut = false;
     vi.stubGlobal(
       "fetch",
@@ -629,8 +633,8 @@ describe("Sign-out (AS-1)", () => {
     renderWith(client, <Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     expect(client.getQueryData(["me"])).toBeTruthy();
     // Sign-out lives inside the account menu, so it takes opening first.
-    await userEvent.click(screen.getByRole("button", { name: /Account$/ }));
-    await userEvent.click(screen.getByText("Sign out"));
+    await user.click(screen.getByRole("button", { name: /Account$/ }));
+    await user.click(screen.getByText("Sign out"));
     // POST fired AND the whole cache was cleared — the ["me"] entry is gone,
     // so the auth gate re-probes → 401 → login. This assertion bites: it fails
     // if `onSuccess: () => queryClient.clear()` is removed from useLogout.
@@ -643,6 +647,7 @@ describe("Sign-out (AS-1)", () => {
   // next human to sign in here must not be offered a connection they never
   // started, with their own passports on the consent screen.
   it("discards a pending connection so the next sign-in is not offered it", async () => {
+    const user = userEvent.setup();
     let loggedOut = false;
     vi.stubGlobal(
       "fetch",
@@ -665,8 +670,8 @@ describe("Sign-out (AS-1)", () => {
     });
     window.location.hash = "#/deals";
     renderWith(newClient(), <Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    await userEvent.click(screen.getByRole("button", { name: /Account$/ }));
-    await userEvent.click(screen.getByText("Sign out"));
+    await user.click(screen.getByRole("button", { name: /Account$/ }));
+    await user.click(screen.getByText("Sign out"));
     await waitFor(() => expect(loggedOut).toBe(true));
     await waitFor(() => expect(readPendingAuthorize()).toBeNull());
   });
@@ -678,6 +683,7 @@ describe("Sign-out (AS-1)", () => {
   // lands the user back on the login screen, driven by a real /v1/me re-probe —
   // not merely that the cache entry disappeared.
   it("drives the AuthGate back to the login screen after sign-out (bites on stale-cache regressions)", async () => {
+    const user = userEvent.setup();
     let loggedOut = false;
     let meCalls = 0;
     vi.stubGlobal("localStorage", memoryStorage());
@@ -716,8 +722,8 @@ describe("Sign-out (AS-1)", () => {
     const account = await screen.findByRole("button", { name: /Account$/ });
     expect(meCalls).toBe(1);
 
-    await userEvent.click(account);
-    await userEvent.click(screen.getByText("Sign out"));
+    await user.click(account);
+    await user.click(screen.getByText("Sign out"));
 
     // The gate must re-probe /v1/me (not just drop the cache entry) and,
     // seeing 401, render the auth (signup/login) screen — the rail must be

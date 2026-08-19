@@ -71,12 +71,15 @@ function useCrumbs(route: Route, section?: NavSection): readonly Crumb[] {
   if (unit) {
     // A composed unit lives under Settings — it is offered from the page
     // holding the credential it is configured with, and has no index of its own.
+    // Its leaf is the SUBJECT, like every other leaf here: the name the unit
+    // carries is resolved once, in pagemeta, so the trail and the agent below it
+    // cannot disagree about what this page is.
     return [
       {
         label: t(OFF_RAIL_TITLE_KEYS.settings),
         href: routeHash({ screen: SETTINGS_SCREEN }),
       },
-      { label: unit.name },
+      { label: subject },
     ];
   }
   if (inSection) {

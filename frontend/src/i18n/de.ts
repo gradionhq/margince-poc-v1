@@ -160,6 +160,7 @@ export const de = {
   "ask.inputAria": "Deine Frage",
   "ask.placeholder": "Frag zu dem, was du gerade offen hast…",
   "ask.send": "Fragen",
+  "ask.sendEmpty": "Formuliere zuerst eine Frage.",
 
   "explain.open": "Diese Zahl erklären",
   "explain.title": "So setzt sich die Zahl zusammen",
@@ -2004,7 +2005,7 @@ export const de = {
   "explain.sources": "Quellzeilen",
 
   "ai.sub": "bring deinen eigenen Agenten mit — geregelt über die zwei Stufen",
-  "ai.fromPalette": "Aus der Palette",
+  "ai.carriedQuestion": "Deine Frage",
   "ai.tiers": "Was ein Agent darf",
   "ai.tierAutoExecute": "Lesen & Entwerfen läuft sofort.",
   "ai.tierAutoExecuteDetail":

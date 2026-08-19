@@ -171,6 +171,7 @@ export const en = {
   "ask.inputAria": "Your question",
   "ask.placeholder": "Ask about what you're looking at…",
   "ask.send": "Ask",
+  "ask.sendEmpty": "Write a question first.",
 
   "explain.open": "Explain this number",
   "explain.title": "How this number is built",
@@ -2005,7 +2006,7 @@ export const en = {
   "explain.sources": "Source rows",
 
   "ai.sub": "bring your own agent — governed by the two-tier contract",
-  "ai.fromPalette": "From the palette",
+  "ai.carriedQuestion": "Your question",
   "ai.tiers": "What an agent may do",
   "ai.tierAutoExecute": "Read & draft run instantly.",
   "ai.tierAutoExecuteDetail":

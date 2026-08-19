@@ -1394,7 +1394,12 @@
      survives a resize and outranks a bare `.rail` selector — without it a reader
      who left the sidebar collapsed opened the sheet to a centred glyph with no
      seat count and nothing saying what it was. */
-  .rail.sheetopen .railfoot {
+  /* `:has(*)` carried through: the bar hides this foot at this width and the
+     sheet brings it back, but only when there IS a reading in it. Without it the
+     re-show outranks the empty-foot guard above by one class, and a reader
+     without `license:read` — for whom `RailLicense` renders nothing — opened the
+     sheet to the bare rule and 12px of band that guard exists to prevent. */
+  .rail.sheetopen .railfoot:has(*) {
     display: block;
     margin: var(--space-3) calc(-1 * var(--space-2)) 0;
     padding: var(--space-3) var(--space-2) 0;

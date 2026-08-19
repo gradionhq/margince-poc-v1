@@ -2,6 +2,7 @@ import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { useEntityName } from "../screens/entityref";
 import { SCREEN_ENTITY } from "./entity";
+import { EXTENSION_SCREEN, findExtension } from "./extensions";
 import { NAV, type NavLevelEntry, type NavSection } from "./nav";
 import type { Route } from "./router";
 
@@ -95,6 +96,13 @@ export function sectionHead(
 export function useRouteSubject(route: Route): string {
   const t = useT();
   const navItem = NAV.find((item) => item.screen === route.screen);
+  // A composed unit's page is named by the UNIT, which is not in `NAV` and has
+  // no title key: without this the subject fell through to `shell.unknownPage`
+  // while the trail two inches above it printed the unit's name, and the agent
+  // offered to answer questions about "Unknown page" on a page the product
+  // knows perfectly well.
+  const unit =
+    route.screen === EXTENSION_SCREEN ? findExtension(route.id) : null;
   // A record kind, and only then: an id segment that names no record is a
   // screen's own state — the settings tab, for one — and the subject is still
   // the page.
@@ -105,6 +113,9 @@ export function useRouteSubject(route: Route): string {
   );
   if (recordKind && route.id) {
     return name ?? (reading === "failed" ? t("ref.nameLoadFailed") : route.id);
+  }
+  if (unit) {
+    return unit.name;
   }
   return resolveTitle(route.screen, navItem?.labelKey, t);
 }

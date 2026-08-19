@@ -8,12 +8,13 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { AgentDock } from "./agentdock";
+import { ASK_QUERY_KEY } from "./palette";
 import type { Route } from "./router";
 
 // The agent dock, floating at the foot of the content column. Three promises
@@ -90,9 +91,12 @@ const render = (
 
 // The trigger's accessible name leads with who the agent is and carries the
 // state line (and, when there is one, the waiting count) after it.
-const openDock = async () => {
+// One `userEvent.setup()` per test, threaded through here rather than reached for
+// from the module: the instance carries that test's pointer and keyboard state,
+// and a module-level call quietly makes a fresh one for every interaction.
+const openDock = async (user: UserEvent) => {
   const trigger = screen.getByRole("button", { name: /^Margince AI/ });
-  await userEvent.click(trigger);
+  await user.click(trigger);
   return trigger;
 };
 
@@ -144,12 +148,13 @@ describe("AgentDock", () => {
   });
 
   it("opens the panel on the trigger without the opening click closing it again", async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <AgentDock route={ROUTE} approvalsWaiting={3} />,
     );
     expect(container.querySelector(".agentpanel")).toBeNull();
 
-    const trigger = await openDock();
+    const trigger = await openDock(user);
     // Dismissal listens on the document, so a listener armed during the click
     // would see that same click bubble up and shut the panel on the way out.
     const panel = container.querySelector(".agentpanel");
@@ -160,27 +165,29 @@ describe("AgentDock", () => {
   });
 
   it("closes on a click outside itself", async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <AgentDock route={ROUTE} approvalsWaiting={3} />,
     );
-    await openDock();
+    await openDock(user);
     expect(container.querySelector(".agentpanel")).not.toBeNull();
 
-    await userEvent.click(document.body);
+    await user.click(document.body);
     expect(container.querySelector(".agentpanel")).toBeNull();
   });
 
   it("hands focus back to the trigger when Escape closes it", async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <AgentDock route={ROUTE} approvalsWaiting={3} />,
     );
-    const trigger = await openDock();
+    const trigger = await openDock(user);
     // Standing inside the panel, the way a keyboard user arrives at a row.
     const ask = screen.getByRole("link", { name: "Ask Margince" });
     ask.focus();
     expect(document.activeElement).toBe(ask);
 
-    await userEvent.keyboard("{Escape}");
+    await user.keyboard("{Escape}");
     expect(container.querySelector(".agentpanel")).toBeNull();
     // Not the body: dismissing unmounts the focused row, and focus left on the
     // body restarts the next Tab at the top of the page.
@@ -191,8 +198,9 @@ describe("AgentDock", () => {
   // the link to the surface where anything wider is asked. Reversed, the link
   // reads as the only way to ask and the composer under it as an afterthought.
   it("puts the scoped composer above the link to the full Ask surface", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
-    await openDock();
+    await openDock(user);
     const ask = screen.getByRole("link", { name: "Ask Margince" });
     expect(ask.getAttribute("href")).toBe("#/ai");
     expect(
@@ -203,8 +211,9 @@ describe("AgentDock", () => {
   });
 
   it("sends the waiting count to the approvals inbox that holds it", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
-    await openDock();
+    await openDock(user);
     const row = screen.getByRole("link", { name: /^Approvals waiting/ });
     expect(row.getAttribute("href")).toBe("#/inbox");
     expect(row.querySelector(".agentvalue")?.textContent).toBe("3");
@@ -213,18 +222,20 @@ describe("AgentDock", () => {
   // Zero waiting is a live answer, not a missing one: the row stays and prints
   // it. Only the at-rest badge treats zero as nothing to say.
   it("keeps the approvals row for a loaded zero", async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <AgentDock route={ROUTE} approvalsWaiting={0} />,
     );
-    await openDock();
+    await openDock(user);
     const row = screen.getByRole("link", { name: /^Approvals waiting/ });
     expect(row.querySelector(".agentvalue")?.textContent).toBe("0");
     expect(container.querySelector(".agentwait")).toBeNull();
   });
 
   it("summarises the tool catalog by tier and links where it is governed", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
-    await openDock();
+    await openDock(user);
     const row = screen.getByRole("link", { name: /^Agent tools/ });
     expect(row.getAttribute("href")).toBe("#/settings/agents");
     expect(row.querySelector(".agentvalue")?.textContent).toBe(
@@ -237,8 +248,9 @@ describe("AgentDock", () => {
   // read, and each case is asserted against a panel where the OTHER row is
   // present — absence has to be that row's own, not the panel failing to open.
   it("omits the approvals row rather than standing in a zero for an unread count", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={ROUTE} />);
-    await openDock();
+    await openDock(user);
     expect(
       screen.queryByRole("link", { name: /^Approvals waiting/ }),
     ).toBeNull();
@@ -246,6 +258,7 @@ describe("AgentDock", () => {
   });
 
   it("omits the tool row rather than reporting an empty catalog it has not read", async () => {
+    const user = userEvent.setup();
     // No cache entry to read, so the hook goes to the wire; the request is
     // answered with the failure that leaves the catalog unread, and the row has
     // to stay away both before and after that answer lands.
@@ -259,7 +272,7 @@ describe("AgentDock", () => {
     vi.stubGlobal("fetch", unavailable);
 
     render(<AgentDock route={ROUTE} approvalsWaiting={3} />, null);
-    await openDock();
+    await openDock(user);
     expect(screen.queryByRole("link", { name: /^Agent tools/ })).toBeNull();
 
     await waitFor(() => expect(unavailable).toHaveBeenCalled());
@@ -274,8 +287,9 @@ describe("AgentDock", () => {
   // announced-only — clipped to `.sr-only` it labels the block for a screen
   // reader and leaves everyone else looking at invented numbers.
   it("marks the example block before the values a reader would take as real", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
-    await openDock();
+    await openDock(user);
 
     const marker = screen.getByText("Example data");
     expect(marker.className).not.toContain("sr-only");
@@ -303,8 +317,9 @@ describe("AgentDock", () => {
 // the component they describe.
 describe("the record-scoped ask (AC-shell-8)", () => {
   it("names the screen the dock was opened on", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={{ screen: "deals" }} />);
-    await openDock();
+    await openDock(user);
     expect(screen.getByText("Ask about Pipeline")).toBeTruthy();
   });
 
@@ -313,13 +328,48 @@ describe("the record-scoped ask (AC-shell-8)", () => {
   // so the agent offered to answer questions about `01a01811-c847-…` while the
   // trail two inches above it said "Carol Wagner".
   it("names the record when there is one, over the screen holding it", async () => {
+    const user = userEvent.setup();
     render(
       <AgentDock route={{ screen: "companies", id: "brandt" }} />,
       CATALOG,
       { "organization:brandt": "Brandt Logistik GmbH" },
     );
-    await openDock();
+    await openDock(user);
     expect(screen.getByText("Ask about Brandt Logistik GmbH")).toBeTruthy();
+  });
+
+  // The composer's Send goes somewhere: the question is handed to the Ask
+  // surface through the seam the palette's own ask command uses, and the reader
+  // goes with it. A primary button on permanent chrome that accepts a press and
+  // does nothing is the defect this pins.
+  it("hands the question to the Ask surface and takes the reader there", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/deals";
+    sessionStorage.removeItem(ASK_QUERY_KEY);
+    render(<AgentDock route={{ screen: "deals" }} />);
+    await openDock(user);
+    await user.type(
+      screen.getByRole("textbox", { name: "Your question" }),
+      "  which deals slipped?  ",
+    );
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+    expect(sessionStorage.getItem(ASK_QUERY_KEY)).toBe("which deals slipped?");
+    expect(window.location.hash).toBe("#/ai");
+  });
+
+  // Nothing typed, nothing to send — and the button says which rather than
+  // taking a press and dropping it.
+  it("refuses an empty question and says why", async () => {
+    const user = userEvent.setup();
+    render(<AgentDock route={{ screen: "deals" }} />);
+    await openDock(user);
+    const send = screen.getByRole("button", { name: "Ask" });
+    expect(send.hasAttribute("disabled")).toBe(true);
+    const reason = send.getAttribute("aria-describedby");
+    expect(reason).toBeTruthy();
+    expect(document.getElementById(reason ?? "")?.textContent).toBe(
+      "Write a question first.",
+    );
   });
 
   // A read still in flight: the id is not a name, but it is true, and it is what
@@ -332,9 +382,10 @@ describe("the record-scoped ask (AC-shell-8)", () => {
   // name did not load, which is the case BELOW, not this one. A read that never
   // answers is what "has not resolved" means, so that is what this hands it.
   it("falls back to the record id while the name is still coming", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     render(<AgentDock route={{ screen: "companies", id: "brandt" }} />);
-    await openDock();
+    await openDock(user);
     expect(screen.getByText("Ask about brandt")).toBeTruthy();
   });
 
@@ -342,9 +393,10 @@ describe("the record-scoped ask (AC-shell-8)", () => {
   // the id: painting it for a refused or failed read states as settled fact a
   // question nothing answered (screens/entityref.tsx).
   it("says the name did not load when the read failed, and never the id", async () => {
+    const user = userEvent.setup();
     vi.stubGlobal("fetch", () => Promise.reject(new Error("offline")));
     render(<AgentDock route={{ screen: "companies", id: "brandt" }} />);
-    await openDock();
+    await openDock(user);
     await waitFor(() =>
       expect(screen.getByText("Ask about Name didn't load")).toBeTruthy(),
     );
@@ -355,8 +407,9 @@ describe("the record-scoped ask (AC-shell-8)", () => {
   // one place the panel says so, which is why it ships with the composer rather
   // than near it.
   it("carries the load-bearing scope copy alongside the input and its verb", async () => {
+    const user = userEvent.setup();
     render(<AgentDock route={{ screen: "home" }} />);
-    await openDock();
+    await openDock(user);
     expect(
       screen.getByText("Your agent reads only what you can see."),
     ).toBeTruthy();
@@ -369,6 +422,7 @@ describe("the record-scoped ask (AC-shell-8)", () => {
   // one floating AI element the shell has — so its absence must be the
   // composer's own, not the panel failing to open.
   it("offers no composer on the full Ask surface, and still reports what is waiting", async () => {
+    const user = userEvent.setup();
     const { container } = render(
       <AgentDock route={{ screen: "ai" }} approvalsWaiting={3} />,
     );
@@ -376,7 +430,7 @@ describe("the record-scoped ask (AC-shell-8)", () => {
       "3 Approvals waiting",
     );
 
-    await openDock();
+    await openDock(user);
     expect(container.querySelector(".agentask")).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Your question" })).toBeNull();
     expect(screen.getByRole("link", { name: "Ask Margince" })).toBeTruthy();

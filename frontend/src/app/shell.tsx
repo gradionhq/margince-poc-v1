@@ -767,16 +767,26 @@ export function Shell({
   // on the platform, and a composer is exactly where a reader would reach for it.
   useEffect(() => {
     function onKeyDown(event: globalThis.KeyboardEvent) {
+      // The chord EXACTLY: one platform modifier and no others. Accepting any
+      // combination that merely included Meta or Ctrl took Cmd+Shift+B — which
+      // is bold-with-a-selection in most editors, and something of its own in
+      // the browser — and swallowed it with preventDefault.
+      const platformKey = event.metaKey !== event.ctrlKey;
       if (
-        !(event.metaKey || event.ctrlKey) ||
+        !platformKey ||
+        event.altKey ||
+        event.shiftKey ||
         event.key.toLowerCase() !== "b"
       ) {
         return;
       }
-      const target = event.target as HTMLElement | null;
+      // `instanceof` rather than an assertion: an event target is an
+      // `EventTarget`, and focus genuinely can sit on an SVGElement, which has
+      // no `isContentEditable` at all.
+      const target = event.target;
       if (
-        target?.isContentEditable ||
-        /^(INPUT|TEXTAREA)$/.test(target?.tagName ?? "")
+        target instanceof HTMLElement &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA)$/.test(target.tagName))
       ) {
         return;
       }

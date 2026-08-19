@@ -10,8 +10,9 @@ import {
 } from "react";
 import type { components } from "../api/schema";
 import { Avatar } from "../design-system/atoms";
+import { Callout } from "../design-system/callout";
 import { useT } from "../i18n";
-import { useLogout, useMe } from "../screens/common";
+import { problemMessageOf, useLogout, useMe } from "../screens/common";
 import { SETTINGS_SCREEN } from "../screens/settings";
 import { usePopoverDismiss } from "./popover";
 import { routeHash } from "./router";
@@ -155,19 +156,34 @@ function SignOutRow({ seat }: Readonly<{ seat?: RowSeat }>) {
   const t = useT();
   const logout = useLogout();
   return (
-    <button
-      type="button"
-      className="acctrow"
-      role={seat ? "menuitem" : undefined}
-      tabIndex={seat?.tabIndex}
-      ref={seat?.ref}
-      onFocus={seat?.onFocus}
-      disabled={logout.isPending}
-      onClick={() => logout.mutate()}
-    >
-      <LogOut size={15} aria-hidden />
-      {t("shell.signOutAria")}
-    </button>
+    <>
+      <button
+        type="button"
+        className="acctrow"
+        role={seat ? "menuitem" : undefined}
+        tabIndex={seat?.tabIndex}
+        ref={seat?.ref}
+        onFocus={seat?.onFocus}
+        disabled={logout.isPending}
+        onClick={() => logout.mutate()}
+      >
+        <LogOut size={15} aria-hidden />
+        {t("shell.signOutAria")}
+      </button>
+      {/* A refused sign-out is the one failure here a reader must not have to
+          infer. The row re-enables when the request settles either way, so
+          without this a session that is still open looks exactly like one that
+          has ended — and the next thing the reader does, they do believing they
+          have signed out. `role="none"`: a menu's children are its items, and an
+          alert is not one. */}
+      {logout.isError && (
+        <div className="acctrowalert" role="none">
+          <Callout tone="danger" live="alert">
+            {problemMessageOf(logout.error, t)}
+          </Callout>
+        </div>
+      )}
+    </>
   );
 }
 
