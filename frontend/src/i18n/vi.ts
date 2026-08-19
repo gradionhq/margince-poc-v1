@@ -379,6 +379,7 @@ export const vi = {
   "table.rangeLoaded": "{first}–{last} trong {count} {unit} đã tải",
   "unit.contacts": "liên hệ",
   "unit.companies": "công ty",
+  "unit.deals": "thương vụ",
   "unit.leads": "khách hàng tiềm năng",
   "unit.partners": "đối tác",
   "unit.products": "sản phẩm",
@@ -5129,4 +5130,9 @@ export const vi = {
     "\u0110ang t\u1ea3i c\u00e1c tr\u01b0\u1eddng c\u00f3 th\u1ec3 l\u1ecdc\u2026",
   "filters.noFields":
     "Lo\u1ea1i b\u1ea3n ghi n\u00e0y kh\u00f4ng c\u00f3 tr\u01b0\u1eddng n\u00e0o l\u1ecdc \u0111\u01b0\u1ee3c.",
+  "filters.resultsTitle": "B\u1ea3n ghi kh\u1edbp",
+  "filters.resultsCaption":
+    "Trang \u0111\u1ea7u c\u1ee7a k\u1ebft qu\u1ea3 kh\u1edbp \u2014 \u0111\u1ee7 \u0111\u1ec3 ki\u1ec3m tra b\u1ed9 l\u1ecdc, kh\u00f4ng ph\u1ea3i to\u00e0n b\u1ed9.",
+  "filters.noMatches":
+    "Kh\u00f4ng c\u00f3 b\u1ea3n ghi n\u00e0o kh\u1edbp b\u1ed9 l\u1ecdc n\u00e0y.",
 } as const satisfies Record<MessageKey, string>;

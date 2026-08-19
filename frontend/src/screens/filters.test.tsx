@@ -42,7 +42,11 @@ const DEAL_VOCAB = {
 
 /** Every request the screen made, so a test can assert what it asked rather than
  *  inferring it from what rendered. */
-function mount(preview?: { match_count: number }) {
+function mount(preview?: {
+  match_count: number;
+  columns?: readonly string[];
+  rows?: readonly Record<string, unknown>[];
+}) {
   const seen: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -64,8 +68,8 @@ function mount(preview?: { match_count: number }) {
         return json({
           resource: "person",
           match_count: preview?.match_count ?? 0,
-          columns: ["id"],
-          rows: [],
+          columns: preview?.columns ?? ["id"],
+          rows: preview?.rows ?? [],
           truncated: false,
         });
       }
@@ -118,6 +122,38 @@ it("asks for no preview until a clause is complete", async () => {
   expect(seen.some((url) => url.includes("/filters/preview"))).toBe(false);
   // And the count says nothing has been asked, which is NOT the same as zero.
   expect(screen.getByText("Add a clause to see what it selects")).toBeTruthy();
+  // Nor is there a results table: an empty one would say "no records match this
+  // filter" about a filter nobody has written.
+  expect(screen.queryByText("Matching records")).toBeNull();
+});
+
+// Which columns get chosen is proved directly against `previewColumnNames`; what
+// this asserts is the wiring — that the rows behind the count actually arrive on
+// the screen, keyed to the object being filtered.
+it("shows the rows behind the count", async () => {
+  const { wrapper } = mount({
+    match_count: 1,
+    columns: ["id", "full_name", "city", "created_at"],
+    rows: [
+      {
+        id: "p1",
+        full_name: "Ann Lee",
+        city: "Berlin",
+        created_at: "2026-08-01T00:00:00Z",
+      },
+    ],
+  });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await screen.findByRole("button", { name: "Add clause" });
+  await user.click(screen.getByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+
+  // The identity column, and the row behind the count — a number alone cannot be
+  // checked, which is what AC-5's table is for.
+  expect(await screen.findByText("Ann Lee")).toBeTruthy();
+  expect(screen.getByRole("columnheader", { name: /full name/ })).toBeTruthy();
 });
 
 it("says how many match once a clause is complete", async () => {

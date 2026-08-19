@@ -214,3 +214,32 @@ function hasUsableOperand(op: FilterOp, value: LeafValue): boolean {
       return !Array.isArray(value) && value !== "";
   }
 }
+
+/**
+ * The fields this tree names, in the order a reader wrote them, each once.
+ *
+ * It lives here because it is a question about the tree, and the tree's shape is
+ * this module's business — a caller walking `and`/`or` itself would be the second
+ * place that knows how a group nests.
+ *
+ * Reading order rather than sorted: the clause somebody wrote first is the one
+ * they were thinking about, so a surface deriving columns from this shows the
+ * field they led with on the left. Deduped because naming a field twice — a range
+ * across two clauses — is one column, not two.
+ */
+export function fieldsNamed(tree: Node): string[] {
+  const seen = new Set<string>();
+  const walk = (node: Node) => {
+    if (!isGroup(node)) {
+      if (node.field !== "") {
+        seen.add(node.field);
+      }
+      return;
+    }
+    for (const child of node.children) {
+      walk(child);
+    }
+  };
+  walk(tree);
+  return [...seen];
+}

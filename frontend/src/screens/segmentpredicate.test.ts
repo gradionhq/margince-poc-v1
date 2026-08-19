@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   addToGroup,
   encode,
+  fieldsNamed,
   type Group,
   isComplete,
   isGroup,
@@ -206,5 +207,48 @@ describe("knowing when a tree is worth sending", () => {
     expect(isComplete(newGroup("and", [newLeaf("cf_score", "gte", 0)]))).toBe(
       true,
     );
+  });
+});
+
+// A surface deriving columns from the filter reads this, so what it answers has
+// to survive the shapes a real tree takes: nesting, a field named twice across
+// two clauses, and a half-written leaf that names nothing yet.
+describe("fieldsNamed", () => {
+  it("reads every depth, in the order the clauses were written", () => {
+    const tree = newGroup("and", [
+      newLeaf("city", "eq", "Berlin"),
+      newGroup("or", [
+        newLeaf("cf_tier", "in", ["gold"]),
+        newGroup("and", [newLeaf("status", "eq", "open")]),
+      ]),
+    ]);
+
+    expect(fieldsNamed(tree)).toEqual(["city", "cf_tier", "status"]);
+  });
+
+  it("names a field once however many clauses use it", () => {
+    // A range is two clauses over one field, and a column list built from this
+    // would otherwise carry that column twice.
+    const tree = newGroup("and", [
+      newLeaf("cf_score", "gte", 10),
+      newLeaf("cf_score", "lte", 90),
+    ]);
+
+    expect(fieldsNamed(tree)).toEqual(["cf_score"]);
+  });
+
+  it("skips a leaf that names no field yet", () => {
+    // The state a freshly added clause is in: it exists, but there is nothing
+    // for it to show a column of.
+    const tree = newGroup("and", [
+      newLeaf("", "eq", ""),
+      newLeaf("city", "eq", "Berlin"),
+    ]);
+
+    expect(fieldsNamed(tree)).toEqual(["city"]);
+  });
+
+  it("answers nothing for an empty tree", () => {
+    expect(fieldsNamed(newGroup("and"))).toEqual([]);
   });
 });

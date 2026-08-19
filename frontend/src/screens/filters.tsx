@@ -26,8 +26,9 @@ import {
   useFilterPreview,
   useFilterVocabulary,
 } from "./filterdata";
+import { FilterResults } from "./filterresults";
 import "./filters.css";
-import { type Node, newGroup } from "./segmentpredicate";
+import { fieldsNamed, type Node, newGroup } from "./segmentpredicate";
 
 /**
  * The three object tabs AC-1 names, and the record type each reads.
@@ -55,6 +56,13 @@ const MATCH_LABEL: Record<ObjectTab, MessageKey> = {
   contacts: "filters.matchContacts",
   companies: "filters.matchCompanies",
   deals: "filters.matchDeals",
+};
+
+/** The plural noun the results table counts and names its empty state by. */
+const UNIT_LABEL: Record<ObjectTab, MessageKey> = {
+  contacts: "unit.contacts",
+  companies: "unit.companies",
+  deals: "unit.deals",
 };
 
 /** A resource this screen can address, or the default when the route names none. */
@@ -136,6 +144,26 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
           />
         </SurfaceState>
       </Card>
+
+      {/* Only once something has been asked. An empty table under an unasked
+          filter would say "no records match this filter" about a filter nobody
+          wrote — the same falsehood the count avoids by showing no number, and
+          the reason both read from the same `data === undefined`. */}
+      {preview.data !== undefined && (
+        <Card>
+          <SectionHeader level={2} title={t("filters.resultsTitle")} />
+          <FilterResults
+            preview={preview.data}
+            fields={vocabulary.data?.fields ?? []}
+            named={fieldsNamed(tree)}
+            unit={t(UNIT_LABEL[tab])}
+            // Per object, so switching tabs does not hand a deal's table the
+            // widths a reader dragged for a contact's columns.
+            widthsKey={`filter-preview-${tab}`}
+            pending={preview.isFetching}
+          />
+        </Card>
+      )}
     </div>
   );
 }
