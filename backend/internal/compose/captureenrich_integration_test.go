@@ -56,7 +56,7 @@ func seedEnrichPerson(t *testing.T, e *integration.Env, email, body string) ids.
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO person_email (person_id, email, email_type, is_primary, source, captured_by)
-			VALUES ( $1, $2, 'work', true, 'gmail:seed', 'connector:gmail')`, person, email); err != nil {
+			VALUES ($1, $2, 'work', true, 'gmail:seed', 'connector:gmail')`, person, email); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -67,7 +67,7 @@ func seedEnrichPerson(t *testing.T, e *integration.Env, email, body string) ids.
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, activity, person)
+			VALUES ($1, 'person', $2)`, activity, person)
 		return err
 	})
 	if err != nil {
@@ -150,7 +150,7 @@ func TestSignatureEnrichPass(t *testing.T) {
 			}
 			_, err := tx.Exec(ctx, `
 				INSERT INTO activity_link (activity_id, entity_type, person_id)
-				VALUES ( $1, 'person', $2)`, newer, person)
+				VALUES ($1, 'person', $2)`, newer, person)
 			return err
 		})
 		if err != nil {

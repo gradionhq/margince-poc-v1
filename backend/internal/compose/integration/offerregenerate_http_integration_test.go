@@ -75,7 +75,7 @@ func seedDealContextActivity(t *testing.T, e *apptest.AppEnv, wsID, dealID, subj
 		t.Fatalf("seed deal context activity: %v", err)
 	}
 	if _, err := e.Owner.Exec(context.Background(),
-		`INSERT INTO activity_link (activity_id, entity_type, deal_id) VALUES ( $1, 'deal', $2)`, activityID, dealID); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, deal_id) VALUES ($1, 'deal', $2)`, activityID, dealID); err != nil {
 		t.Fatalf("link deal context activity: %v", err)
 	}
 	return "activity:" + activityID.String()

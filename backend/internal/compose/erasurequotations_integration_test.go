@@ -56,12 +56,12 @@ func transcriptSubject(t *testing.T, e *integration.Env) (ids.PersonID, ids.UUID
 	person := e.SeedPerson(t, "Mara Kessler", nil)
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, 'mara.kessler@example.com', true, 'test', 'human:seed')`, person)
+		VALUES ($1, 'mara.kessler@example.com', true, 'test', 'human:seed')`, person)
 
 	activityID := seedTranscript(t, e, "1: Tom: Where did we land on pricing?\n2: "+quotedTranscriptLine)
 	e.WsExec(t, `
 		INSERT INTO activity_link (activity_id, entity_type, person_id)
-		VALUES ( $1, 'person', $2)`, activityID, person)
+		VALUES ($1, 'person', $2)`, activityID, person)
 	e.WsExec(t, `
 		INSERT INTO transcript_read (id, activity_id, status, line_count, requested_by, started_at, finished_at)
 		VALUES ($1, $2, 'done', 2, 'human:seed', now(), now())`, ids.NewV7(), activityID)
@@ -192,7 +192,7 @@ func TestErasureLeavesTheQuotationOfAMeetingItMayNotDestroy(t *testing.T) {
 	const addr = "mara.kessler@example.com"
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, $2, true, 'test', 'human:seed')`, subject, addr)
+		VALUES ($1, $2, true, 'test', 'human:seed')`, subject, addr)
 	colleague := e.SeedPerson(t, "Bob Ferrer", nil)
 
 	quote := "Tom: loop in " + addr + " on the renewal."
@@ -200,7 +200,7 @@ func TestErasureLeavesTheQuotationOfAMeetingItMayNotDestroy(t *testing.T) {
 	for _, participant := range []any{subject, colleague} {
 		e.WsExec(t, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, shared, participant)
+			VALUES ($1, 'person', $2)`, shared, participant)
 	}
 	approvalID := stageQuotingProposal(t, e, shared, quote, "Loop in the renewal contact")
 
@@ -293,7 +293,7 @@ func TestSubjectAccessWithholdsAQuotationFromARecordTheSubjectHasNoPartIn(t *tes
 	const addr = "mara.kessler@example.com"
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-		VALUES ( $1, $2, true, 'test', 'human:seed')`, subject, addr)
+		VALUES ($1, $2, true, 'test', 'human:seed')`, subject, addr)
 
 	const theirsAlone = "Tom: Bob, hold the line at list price - Contoso got thirty percent and nobody is to know."
 	elsewhere := seedTranscript(t, e, "1: "+theirsAlone)

@@ -99,7 +99,7 @@ func (s *Store) applySignatureField(ctx context.Context, tx pgx.Tx, personID ids
 	// first verdict wins — a later pass can never overwrite it.
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO person_profile_field (person_id, field, value, evidence_snippet, source_ref, confidence, source, captured_by)
-		VALUES ( $1, $2, $3, $4, $5, $6, $7, $8)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		ON CONFLICT (person_id, field) DO NOTHING`,
 		personID, f.Name, value, f.Evidence, sourceRef, f.Confidence, enrichSource, enrichCapturedBy)
 	if err != nil {

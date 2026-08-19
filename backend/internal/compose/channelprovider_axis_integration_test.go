@@ -102,7 +102,7 @@ func TestActivityChannelProviderFKRefusesAnUnregisteredProvider(t *testing.T) {
 
 	_, err := integration.OwnerConn(t).Exec(context.Background(), `
 		INSERT INTO activity (kind, channel_provider, source, captured_by)
-		VALUES ( 'message', 'no_such_transport', 'manual', 'test')`)
+		VALUES ('message', 'no_such_transport', 'manual', 'test')`)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "activity_channel_provider_fkey" {
 		t.Fatalf("insert failed with %v, want a foreign_key_violation on activity_channel_provider_fkey specifically — "+

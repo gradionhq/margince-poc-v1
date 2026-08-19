@@ -120,7 +120,7 @@ func TestStatutoryFloorShieldsCorrespondenceFromDestruction(t *testing.T) {
 		for _, a := range []ids.UUID{email, janEmail, message} {
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO activity_link (activity_id, entity_type, deal_id)
-				VALUES ( $1, 'deal', $2)`, a, deal); err != nil {
+				VALUES ($1, 'deal', $2)`, a, deal); err != nil {
 				return err
 			}
 		}

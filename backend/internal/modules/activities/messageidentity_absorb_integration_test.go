@@ -123,7 +123,7 @@ func (e *sendEnv) link(t *testing.T, activityID ids.ActivityID, entityType strin
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO activity_link (activity_id, entity_type, person_id, project_id)
-		VALUES ( $1, $2,
+		VALUES ($1, $2,
 		        CASE WHEN $2 = 'person'  THEN $3::uuid END,
 		        CASE WHEN $2 = 'project' THEN $3::uuid END)`, activityID, entityType, target); err != nil {
 		t.Fatalf("linking the activity to a %s: %v", entityType, err)

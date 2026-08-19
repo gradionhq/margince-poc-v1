@@ -366,7 +366,7 @@ func seedPersonEmail(t *testing.T, e *integration.Env, person ids.UUID, email st
 	t.Helper()
 	e.WsExec(t, `
 		INSERT INTO person_email (person_id, email, source, captured_by)
-		VALUES ( $1, $2, 'manual', 'user:test')`,
+		VALUES ($1, $2, 'manual', 'user:test')`,
 		person, email)
 }
 

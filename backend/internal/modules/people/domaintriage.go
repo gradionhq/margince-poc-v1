@@ -153,7 +153,7 @@ func readDispositionTx(ctx context.Context, tx pgx.Tx, domain string) (DomainDis
 func recordPendingDispositionTx(ctx context.Context, tx pgx.Tx, domain string, ownerID ids.UUID) (bool, error) {
 	tag, err := tx.Exec(ctx, `
 		INSERT INTO organization_domain_disposition (domain, status, owner_id)
-		VALUES ( $1, 'pending', $2)
+		VALUES ($1, 'pending', $2)
 		ON CONFLICT (domain) DO NOTHING`,
 		domain, ownerID)
 	if err != nil {

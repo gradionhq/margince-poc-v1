@@ -45,7 +45,7 @@ func (e *dedupeEnv) seedInteraction(t *testing.T, personID ids.PersonID, at time
 		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, id, personID)
+			VALUES ($1, 'person', $2)`, id, personID)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding an interaction: %v", err)

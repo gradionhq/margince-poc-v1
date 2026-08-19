@@ -111,7 +111,7 @@ func (e *reconcileEnv) seedTask(t *testing.T, dealID ids.UUID, done bool) ids.UU
 func (e *reconcileEnv) linkActivity(t *testing.T, activityID, dealID ids.UUID) {
 	t.Helper()
 	if _, err := e.owner.Exec(context.Background(),
-		`INSERT INTO activity_link (activity_id, entity_type, deal_id) VALUES ( $1, 'deal', $2)`, activityID, dealID); err != nil {
+		`INSERT INTO activity_link (activity_id, entity_type, deal_id) VALUES ($1, 'deal', $2)`, activityID, dealID); err != nil {
 		t.Fatalf("link activity to deal: %v", err)
 	}
 }

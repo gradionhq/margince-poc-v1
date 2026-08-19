@@ -56,24 +56,24 @@ func TestErasureRemovesTheSubjectFromTheRelationshipGraph(t *testing.T) {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO person (full_name, owner_id, source, captured_by, visibility)
-			VALUES ( 'Erase Me', $1, 'manual', 'human:test', 'workspace')
+			VALUES ('Erase Me', $1, 'manual', 'human:test', 'workspace')
 			RETURNING id`, e.Rep1).Scan(&person); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO person_email (person_id, email, is_primary, source, captured_by)
-			VALUES ( $1, $2, true, 'manual', 'human:test')`, person, subjectEmail); err != nil {
+			VALUES ($1, $2, true, 'manual', 'human:test')`, person, subjectEmail); err != nil {
 			return err
 		}
 		if err := tx.QueryRow(ctx, `
 			INSERT INTO activity (kind, subject, direction, occurred_at, source, captured_by)
-			VALUES ( 'email', 'Angebot', 'inbound', $1, 'manual', 'human:test')
+			VALUES ('email', 'Angebot', 'inbound', $1, 'manual', 'human:test')
 			RETURNING id`, now.AddDate(0, 0, -1)).Scan(&activityID); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, user_id, role)
-			VALUES ( $1, $2, 'to')`, activityID, e.Rep1); err != nil {
+			VALUES ($1, $2, 'to')`, activityID, e.Rep1); err != nil {
 			return err
 		}
 		// The subject appears twice: as a resolved person, and — on a second
@@ -81,12 +81,12 @@ func TestErasureRemovesTheSubjectFromTheRelationshipGraph(t *testing.T) {
 		// never became a record.
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_participant (activity_id, person_id, address, role)
-			VALUES ( $1, $2, $3, 'from')`, activityID, person, subjectEmail); err != nil {
+			VALUES ($1, $2, $3, 'from')`, activityID, person, subjectEmail); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO activity_link (activity_id, entity_type, person_id)
-			VALUES ( $1, 'person', $2)`, activityID, person); err != nil {
+			VALUES ($1, 'person', $2)`, activityID, person); err != nil {
 			return err
 		}
 		return nil

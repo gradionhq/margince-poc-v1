@@ -37,7 +37,7 @@ func seedUnansweredOutbound(t *testing.T, e *integration.Env, org ids.UUID) {
 		VALUES ($1, 'email', 'outbound', 'Proposal — following up',
 		        '2026-05-10T09:00:00Z', '2026-05-10T09:00:00Z', 'manual', 'human:x')`)
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-		VALUES ( $1, 'organization', $2)`, sent, org)
+		VALUES ($1, 'organization', $2)`, sent, org)
 }
 
 // The rules must look PAST the section page cap.
@@ -66,7 +66,7 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 			t.Fatalf("seeding note %d: %v", i, err)
 		}
 		e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, organization_id)
-			VALUES ( $1, 'organization', $2)`, note, org.UUID)
+			VALUES ($1, 'organization', $2)`, note, org.UUID)
 	}
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), org)
@@ -233,7 +233,7 @@ func TestNoNextStepSeesATaskThePageDoesNot(t *testing.T) {
 		t.Fatalf("seeding the task: %v", err)
 	}
 	e.WsExec(t, `INSERT INTO activity_link (activity_id, entity_type, deal_id)
-		VALUES ( $1, 'deal', $2)`, task, deal)
+		VALUES ($1, 'deal', $2)`, task, deal)
 
 	view, err := svc.Assemble(rep, org)
 	if err != nil {

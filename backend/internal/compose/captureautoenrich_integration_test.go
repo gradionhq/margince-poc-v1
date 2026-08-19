@@ -90,7 +90,7 @@ func insertDomainOrg(t *testing.T, e *integration.Env, domain string) ids.Organi
 		}
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization_domain (organization_id, domain, is_primary, source, captured_by)
-			VALUES ( $1, $2, true, 'connector:gmail', 'connector:gmail')`, orgID, domain)
+			VALUES ($1, $2, true, 'connector:gmail', 'connector:gmail')`, orgID, domain)
 		return err
 	}); err != nil {
 		t.Fatal(err)
