@@ -22,8 +22,9 @@ the call is someone else's, say whose and open a `status: needs-decision` issue.
 **This repository is public.** Never refer to a private repository, document, path
 or link — not in code, comments, tests, docs, issues, commit messages or PR
 bodies — and never include local machine paths or secrets.
-`TestPublicTreeCitesNothingPrivate` in `backend/publicreferences_test.go` enforces
-it. A public contributor must be able to follow every instruction this repository
+`TestPublicTreeCitesNothingPrivate` in `backend/publicreferences_test.go` catches
+the part of that a test can catch: private references in tracked source and prose
+files. Commit messages, PR bodies, secrets and machine paths are on you. A public contributor must be able to follow every instruction this repository
 gives them, so write a rule out here rather than citing somewhere they cannot
 reach. Cite a decision by its number (`ADR-0054`); the record is in
 [docs/adr/](docs/adr/).

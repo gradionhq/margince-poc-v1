@@ -50,9 +50,7 @@ product.
 
 ## This repository is public
 
-Everything here is readable by anyone. Two obligations follow, and both are
-enforced by `TestPublicTreeCitesNothingPrivate` in
-`backend/publicreferences_test.go`:
+Everything here is readable by anyone. Two obligations follow:
 
 - **Never refer to a private repository, document, path or link** — not in code,
   comments, tests, docs, issues, commit messages or PR bodies. A public
@@ -60,6 +58,13 @@ enforced by `TestPublicTreeCitesNothingPrivate` in
   them. If a rule matters, write the rule out here rather than citing somewhere
   they cannot reach.
 - **Never include local machine paths or secrets.**
+
+`TestPublicTreeCitesNothingPrivate` in `backend/publicreferences_test.go` catches
+the part of this a test can catch: a private repository name, a `specs/` path or
+a `foundation#NNNN` reference in any tracked source or prose file. It does not
+read commit messages or PR bodies, and it has no pattern for a secret or a
+machine path — those stay your judgement, and the secret-scan gate is the only
+other net under them.
 
 Cite a decision by its number (`ADR-0054`) and keep the record in
 [docs/adr/](docs/adr/), which is public and part of this tree.

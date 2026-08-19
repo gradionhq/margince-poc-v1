@@ -74,8 +74,10 @@ func TestPublicTreeCitesNothingPrivate(t *testing.T) {
 			continue
 		}
 		// This file names the patterns it bans, so scanning it would fail on
-		// its own source. Nothing else is exempt.
-		if filepath.Base(rel) == "publicreferences_test.go" {
+		// its own source. The exemption is the exact path, not the basename: a
+		// second file called publicreferences_test.go anywhere else in the tree
+		// is scanned like everything else.
+		if rel == "backend/publicreferences_test.go" {
 			continue
 		}
 		assertFileCitesNothingPrivate(t, rel)
