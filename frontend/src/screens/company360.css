@@ -770,8 +770,18 @@
 .fin-value-danger {
   color: var(--danger);
 }
+/* The median sentence and the shape it is drawn from, read as one reading:
+   the sparkline sits under its own label rather than beside a second one. */
 .fin-behaviour {
   margin-bottom: var(--space-3);
+}
+.fin-behaviour p {
+  margin: 0;
+}
+/* Overdue as a share of open. The Meter carries its own vertical rhythm, so
+   this block only has to keep the figures row off it. */
+.fin-share {
+  margin-bottom: var(--space-2);
 }
 .fin-table {
   font-size: 12.5px;

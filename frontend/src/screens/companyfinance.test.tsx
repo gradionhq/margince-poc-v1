@@ -155,3 +155,59 @@ describe("how late an invoice was, counted in whole days", () => {
     expect(screen.getByText("3 days overdue")).toBeTruthy();
   });
 });
+
+describe("the two readings the card draws as shapes", () => {
+  function withSummary(patch: Partial<FinanceSummary>) {
+    stub({ ...CONNECTED, ...patch });
+    render(<CompanyFinanceCard orgId="o-1" lifecycle="customer" />);
+  }
+
+  it("draws the payment habit's shape beside the median that summarises it", async () => {
+    withSummary({ median_days_after_due: 4, payment_behaviour: [1, 3, 9] });
+    expect(await screen.findByText("Typically 4 days after due")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Days late per settled invoice, oldest first"),
+    ).toBeTruthy();
+  });
+
+  it("draws no line from a single settled invoice, and still states the median", async () => {
+    withSummary({ median_days_after_due: 4, payment_behaviour: [1] });
+    expect(await screen.findByText("Typically 4 days after due")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Days late per settled invoice, oldest first"),
+    ).toBeNull();
+  });
+
+  it("draws overdue as a share of what is open", async () => {
+    withSummary({
+      open_balance: { amount_minor: 400_000, currency: "EUR" },
+      overdue: { amount_minor: 100_000, currency: "EUR" },
+    });
+    expect(await screen.findByText("25% of open is overdue")).toBeTruthy();
+    const meter = screen.getByLabelText("Overdue share of the open balance");
+    expect(meter.getAttribute("aria-valuenow")).toBe("100000");
+    expect(meter.getAttribute("aria-valuemax")).toBe("400000");
+  });
+
+  it("draws no share when the two halves are in different currencies", async () => {
+    withSummary({
+      open_balance: { amount_minor: 400_000, currency: "EUR" },
+      overdue: { amount_minor: 100_000, currency: "USD" },
+    });
+    expect(await screen.findByText("€186,420.00")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Overdue share of the open balance"),
+    ).toBeNull();
+  });
+
+  it("draws no share when nothing is open to be a share of", async () => {
+    withSummary({
+      open_balance: { amount_minor: 0, currency: "EUR" },
+      overdue: { amount_minor: 0, currency: "EUR" },
+    });
+    expect(await screen.findByText("€186,420.00")).toBeTruthy();
+    expect(
+      screen.queryByLabelText("Overdue share of the open balance"),
+    ).toBeNull();
+  });
+});

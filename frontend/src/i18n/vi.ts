@@ -804,6 +804,10 @@ export const vi = {
   "finance.openBalance": "Còn nợ",
   "finance.overdue": "Quá hạn",
   "finance.behaviour": "Hành vi thanh toán",
+  "finance.behaviourShape":
+    "Số ngày trễ trên mỗi hóa đơn đã thanh toán, cũ nhất trước",
+  "finance.overdueShare": "{percent}% số dư đang mở đã quá hạn",
+  "finance.overdueShareLabel": "Tỷ lệ quá hạn trên số dư đang mở",
   "finance.medianAfterDue": "Thường {days} ngày sau hạn",
   "finance.medianEarly": "Thường sớm {days} ngày",
   "finance.col.invoice": "Hóa đơn",

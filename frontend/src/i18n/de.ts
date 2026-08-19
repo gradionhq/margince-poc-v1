@@ -812,6 +812,10 @@ export const de = {
   "finance.openBalance": "Offen",
   "finance.overdue": "Überfällig",
   "finance.behaviour": "Zahlungsverhalten",
+  "finance.behaviourShape":
+    "Verzugstage je beglichener Rechnung, älteste zuerst",
+  "finance.overdueShare": "{percent} % des Offenen sind überfällig",
+  "finance.overdueShareLabel": "Überfälliger Anteil am offenen Saldo",
   "finance.medianAfterDue": "Typisch {days} Tage nach Fälligkeit",
   "finance.medianEarly": "Typisch {days} Tage früher",
   "finance.col.invoice": "Rechnung",

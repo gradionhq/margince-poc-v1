@@ -3,6 +3,7 @@ import type { components } from "../api/schema";
 import { Badge, Button } from "../design-system/atoms";
 import { Eyebrow } from "../design-system/eyebrow";
 import { Panel, PanelBody } from "../design-system/panel";
+import { Meter, Sparkline } from "../design-system/readings";
 import { type SectionState, SurfaceState } from "../design-system/surfacestate";
 import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -184,6 +185,7 @@ function FinanceBody({ summary }: Readonly<{ summary: FinanceSummary }>) {
           tone={(summary.overdue?.amount_minor ?? 0) > 0 ? "danger" : undefined}
         />
       </div>
+      <OverdueShare summary={summary} />
       <PaymentBehaviour summary={summary} />
       <RecentInvoices summary={summary} />
     </>
@@ -229,19 +231,68 @@ function FinanceFigure({
   );
 }
 
-// How they pay, as a number. No sparkline: `payment_behaviour`'s series is
-// its own reading and nothing on this panel draws a shape from it — the
-// median line beside it is the figure the panel actually backs.
+// How they pay: the median as a sentence, and the settled invoices behind it
+// as the shape of that habit. The series is days late per settled invoice,
+// oldest first, so a line climbing to the right is a customer slipping — the
+// one thing a median cannot say, because averaging is what hides it.
+//
+// Either half can stand alone. The median without a series is a habit stated
+// with too few invoices to draw; a series without a median cannot happen
+// under the server's sample floor, but drawing what arrived beats deciding
+// the panel is empty on the strength of the other field.
 function PaymentBehaviour({ summary }: Readonly<{ summary: FinanceSummary }>) {
   const t = useT();
-  if (summary.median_days_after_due == null) {
+  const series = summary.payment_behaviour ?? [];
+  if (summary.median_days_after_due == null && series.length < 2) {
     return null;
   }
   return (
-    <p className="fin-behaviour">
-      <Eyebrow>{t("finance.behaviour")}</Eyebrow>{" "}
-      {medianDaysLabel(summary.median_days_after_due, t)}
-    </p>
+    <div className="fin-behaviour">
+      <p>
+        <Eyebrow>{t("finance.behaviour")}</Eyebrow>{" "}
+        {summary.median_days_after_due == null
+          ? null
+          : medianDaysLabel(summary.median_days_after_due, t)}
+      </p>
+      <Sparkline points={series} label={t("finance.behaviourShape")} />
+    </div>
+  );
+}
+
+// The overdue figure as a share of what is open — the same two numbers the row
+// above states, drawn as the one proportion they make together.
+//
+// Drawn only when the server sent both halves in the SAME currency: a bar
+// whose fill and track are denominated differently is a proportion of nothing.
+// A zero or absent open balance is the same refusal for the same reason —
+// there is no whole for the share to be a share of, and a full bar over "€0
+// open" would read as an account entirely in arrears.
+//
+// No `tone`: the default gradient fades toward `--away` at the high end, which
+// is exactly this reading's meaning. The tone variants are for a bar whose LOW
+// end is the bad one, and this one's high end is.
+function OverdueShare({ summary }: Readonly<{ summary: FinanceSummary }>) {
+  const t = useT();
+  const open = summary.open_balance;
+  const overdue = summary.overdue;
+  if (
+    open?.amount_minor == null ||
+    overdue?.amount_minor == null ||
+    open.currency !== overdue.currency ||
+    open.amount_minor <= 0
+  ) {
+    return null;
+  }
+  const percent = Math.round((overdue.amount_minor / open.amount_minor) * 100);
+  return (
+    <div className="fin-share">
+      <Eyebrow>{t("finance.overdueShare", { percent })}</Eyebrow>
+      <Meter
+        value={overdue.amount_minor}
+        max={open.amount_minor}
+        label={t("finance.overdueShareLabel")}
+      />
+    </div>
   );
 }
 
