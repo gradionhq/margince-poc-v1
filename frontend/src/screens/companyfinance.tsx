@@ -330,10 +330,20 @@ function FinanceLede({
 // The open balance as its two halves in ONE currency: what is overdue, and
 // the whole it is part of.
 //
-// Null unless the server sent both halves in the SAME currency and something
-// is actually open. A proportion whose parts are denominated differently is a
-// proportion of nothing, and a full bar over "€0 open" would read as an
-// account entirely in arrears rather than as an account that owes us nothing.
+// Null unless the halves make a proportion at all. Different currencies is a
+// proportion of nothing. Nothing open would put a full bar over "€0 open",
+// which reads as an account entirely in arrears rather than one that owes us
+// nothing. And overdue ABOVE open is not a share that has run high, it is two
+// figures that contradict each other: the mirror says money is late that it
+// also says is not outstanding.
+//
+// The third case is refused rather than clamped because clamping picks a
+// winner between two figures the panel cannot choose between, and picks it
+// silently — a bar pinned at 100% beside a sentence reading "115% of
+// everything open" is the same disagreement with a coat of paint. The overdue
+// figure above still draws: it is what the mirror reported, and it is the one
+// number a reader can act on. What refuses is only the claim about a
+// relationship between the two.
 type OpenSplit = { overdue: number; open: number; currency: string };
 
 function openSplitOf(summary: FinanceSummary): OpenSplit | null {
@@ -344,7 +354,8 @@ function openSplitOf(summary: FinanceSummary): OpenSplit | null {
     !open.currency ||
     overdue?.amount_minor == null ||
     open.currency !== overdue.currency ||
-    open.amount_minor <= 0
+    open.amount_minor <= 0 ||
+    overdue.amount_minor > open.amount_minor
   ) {
     return null;
   }

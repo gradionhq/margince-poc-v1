@@ -215,6 +215,21 @@ describe("the two readings the card draws as shapes", () => {
     ).toBeNull();
   });
 
+  it("draws no bar when the mirror says more is overdue than is open", async () => {
+    // Two figures that contradict each other are not a share that has run
+    // high. The overdue figure still draws — it is what the mirror reported —
+    // but the claim about its relationship to the open balance does not.
+    withSummary({
+      open_balance: { amount_minor: 100_000, currency: "EUR" },
+      overdue: { amount_minor: 115_000, currency: "EUR" },
+    });
+    expect(await screen.findByText("€1,150.00")).toBeTruthy();
+    expect(screen.queryByText(/% of everything open/)).toBeNull();
+    expect(
+      screen.queryByLabelText("Overdue share of the open balance"),
+    ).toBeNull();
+  });
+
   it("draws no bar when nothing is open to be a share of", async () => {
     withSummary({
       open_balance: { amount_minor: 0, currency: "EUR" },
