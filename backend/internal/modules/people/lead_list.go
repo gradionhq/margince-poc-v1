@@ -94,7 +94,7 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 				where = append(where, storekit.SQLf(leadScoreColumn+" >= $%d", arg(*in.MinScore)))
 			}
 			if in.Source != nil {
-				where = append(where, storekit.SQLf(leadSourceColumn+" = $%d", arg(*in.Source)))
+				where = append(where, leadSourceClause(*in.Source, arg))
 			}
 			if in.SLAState != nil {
 				where = append(where, slaStateClause(policy, *in.SLAState, arg))

@@ -1216,6 +1216,61 @@ export const vi = {
   "lead.source.import": "Nhập dữ liệu",
   "lead.source.crawl": "Nghiên cứu web",
   "lead.source.unknown": "Nguồn không rõ",
+  "lead.sourceFromConnector":
+    "Do một kết nối ghi vào — giữ nguồn riêng của nó.",
+  "leadSources.title": "Nguồn khách hàng tiềm năng",
+  "leadSources.sub":
+    "Khách hàng tiềm năng đến từ đâu. Dùng trong biểu mẫu tạo mới, làm bộ lọc và trong điểm số.",
+  "leadSources.readOnly":
+    "Chỉ tài khoản quản trị hoặc vận hành mới thay đổi danh sách này.",
+  "leadSources.labelFor": "Nhãn của nguồn {key}",
+  "leadSources.intentFor": "Trọng số của {label}",
+  "leadSources.intent": "Trọng số",
+  "leadSources.intent.high": "Quan tâm cao",
+  "leadSources.intent.neutral": "Trung lập",
+  "leadSources.intent.low": "Quan tâm thấp",
+  "leadSources.intentHint":
+    "Cao cộng điểm, Thấp trừ điểm; thay đổi áp dụng ở lần tính lại tiếp theo của mỗi khách hàng tiềm năng.",
+  "leadSources.leadCount": "{count} khách hàng tiềm năng",
+  "leadSources.builtIn": "có sẵn",
+  "leadSources.builtInKept":
+    "Nguồn có sẵn có thể đổi tên và tắt, không xóa được.",
+  "leadSources.inUse":
+    "{count} khách hàng tiềm năng dùng nguồn này — hãy tắt thay vì xóa.",
+  "leadSources.deactivateInstead": "hãy tắt thay vì xóa",
+  "leadSources.activeFor": "{label} đang bật",
+  "leadSources.remove": "Xóa",
+  "leadSources.removeTitle": "Xóa nguồn này?",
+  "leadSources.removeBody":
+    '"{label}" không được khách hàng tiềm năng nào dùng và sẽ biến mất khỏi danh sách.',
+  "leadSources.newLabel": "Nguồn mới",
+  "leadSources.newPlaceholder": "Hội chợ",
+  "leadSources.add": "Thêm nguồn",
+  "leadSources.discoveredSub":
+    "Từ tích hợp và nhập liệu — giá trị có trên khách hàng tiềm năng nhưng chưa có trong danh sách. Thêm vào để đặt nhãn và trọng số.",
+  "leadSources.adopt": "Thêm vào danh sách",
+  "leadReasons.title": "Lý do loại",
+  "leadReasons.sub":
+    "Điều nhân viên chọn khi bỏ một khách hàng tiềm năng. Lý do hiển thị trên hồ sơ và lọc được.",
+  "leadReasons.labelFor": "Nhãn của lý do {label}",
+  "leadReasons.leadCount": "{count} khách hàng tiềm năng",
+  "leadReasons.inUse":
+    "{count} khách hàng tiềm năng mang lý do này — hãy tắt thay vì xóa.",
+  "leadReasons.newLabel": "Lý do mới",
+  "leadReasons.add": "Thêm lý do",
+  "leadReasons.removeTitle": "Xóa lý do này?",
+  "leadReasons.removeBody":
+    '"{label}" không được khách hàng tiềm năng nào dùng và sẽ biến mất khỏi danh sách.',
+  "leadHandling.title": "Xử lý khách hàng tiềm năng",
+  "leadHandling.sub": "Cách cài đặt này xử lý một khách hàng tiềm năng mới.",
+  "leadHandling.firstResponse": "Mục tiêu phản hồi đầu tiên",
+  "leadHandling.firstResponseHint":
+    "Mặc định tắt. Khi bật, mọi khách hàng tiềm năng đang mở có hạn phản hồi, danh sách có thêm chế độ xem Quá hạn và các mục quá hạn xếp trước.",
+  "leadHandling.targetMinutes": "Mục tiêu (phút)",
+  "leadHandling.targetOutOfRange":
+    "Nhập số phút nguyên từ 15 đến 10080 (7 ngày).",
+  "leadHandling.targetHint":
+    "Khách hàng tiềm năng được chờ bao lâu cho phản hồi đầu tiên sau khi được phân (hoặc tạo). Từ 15 phút đến 7 ngày.",
   "lead.boardCount": "{count} lead",
   "lead.duplicateFound": "Đã có lead với email hoặc hồ sơ LinkedIn này.",
   "lead.promote": "Chuyển thành contact",

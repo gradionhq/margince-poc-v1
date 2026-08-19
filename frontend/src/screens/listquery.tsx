@@ -84,13 +84,22 @@ export type ListPage<Row> = {
   page: { next_cursor: string | null; has_more: boolean };
 };
 
+/**
+ * One value a filter chip offers: named by a message key when the vocabulary
+ * is the screen's own, or by the server's text when it is an administered list
+ * (lead sources, for one) the screen only relays.
+ */
+export type FilterOption =
+  | { value: string; label: MessageKey }
+  | { value: string; text: string };
+
 /** A filter chip, declared in the screen's own message keys. */
 export type FilterSpec = {
   key: string;
   label: MessageKey;
   /** The "no filter" entry, which is also how a chosen value is cleared. */
   allLabel: MessageKey;
-  options: { value: string; label: MessageKey }[];
+  options: FilterOption[];
 };
 
 /** A saved view: a named sort + filter preset, shown as a tab. */
@@ -458,7 +467,7 @@ function translateChip(chip: FilterSpec, t: Translate): ListChip {
     allLabel: t(chip.allLabel),
     options: chip.options.map((option) => ({
       value: option.value,
-      label: t(option.label),
+      label: "text" in option ? option.text : t(option.label),
     })),
   };
 }

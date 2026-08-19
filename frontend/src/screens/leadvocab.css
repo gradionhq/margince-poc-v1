@@ -1,0 +1,61 @@
+/* Settings → Data model: the two lead vocabularies and the lead-handling
+   posture. One list shape for both vocabularies, so a source row and a reason
+   row line up under each other. */
+
+.lead-vocab-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 var(--space-4);
+}
+
+/* A row is one record: label (editable), its key, what it is worth, how many
+   leads carry it, and its flags. It wraps on a narrow column rather than
+   squeezing the label it is about. */
+.lead-vocab-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border-subtle, transparent);
+}
+
+.lead-vocab-row > .lead-vocab-rename {
+  flex: 1 1 180px;
+  width: auto;
+}
+
+.lead-vocab-key {
+  flex: 0 0 auto;
+}
+
+.lead-vocab-count {
+  flex: 0 0 auto;
+  min-width: 6ch;
+}
+
+.lead-vocab-flags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* The add row reads as one line: label, intent, submit. */
+.lead-vocab-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+
+.lead-vocab-add > .field:first-child {
+  flex: 1 1 200px;
+}
+
+.lead-handling {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 32rem;
+}

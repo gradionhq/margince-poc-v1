@@ -14,6 +14,7 @@ import { formatDateTime } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { problemMessageOf, throwProblem } from "./common";
+import { sourceLabelFor } from "./leadsources";
 
 type Lead = components["schemas"]["Lead"];
 
@@ -89,29 +90,6 @@ export function FirstResponseLine({ lead }: Readonly<{ lead: Lead }>) {
   );
 }
 
-export const LEAD_SOURCES = [
-  { value: "manual", label: "lead.source.manual" },
-  { value: "inbound", label: "lead.source.inbound" },
-  { value: "webform", label: "lead.source.webform" },
-  { value: "referral", label: "lead.source.referral" },
-  { value: "import", label: "lead.source.import" },
-  { value: "crawl", label: "lead.source.crawl" },
-] as const;
-
-export function sourceLabel(
-  source: string | null | undefined,
-  t: ReturnType<typeof useT>,
-): string {
-  if (!source) return t("lead.shortfall.noSource");
-  const known = LEAD_SOURCES.find((option) => option.value === source);
-  if (known) return t(known.label);
-  const parts = source.split(":").filter(Boolean);
-  const meaningful = parts[0] === "connector" ? parts[1] : parts[0];
-  return meaningful
-    ? meaningful.charAt(0).toUpperCase() + meaningful.slice(1)
-    : t("lead.source.unknown");
-}
-
 const LEAD_BOARD_STAGES = [
   { stage: "new", label: "lead.statusNew" },
   { stage: "contacted", label: "lead.statusContacted" },
@@ -156,7 +134,7 @@ function LeadCard({
         {lead.title && <span>{lead.title}</span>}
       </span>
       <span className="deal-meta">
-        <span>{sourceLabel(lead.source, t)}</span>
+        <span>{sourceLabelFor(lead, undefined, t)}</span>
         <span>
           {lead.next_task_subject ?? t("lead.noNextTask")}
           {lead.open_task_count
