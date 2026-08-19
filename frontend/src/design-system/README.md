@@ -47,7 +47,7 @@ arrive through props, translated by the caller with `t()`.
 | `MoneyInput` | An amount with its currency, formatted at the presentation edge | `moneyinput.tsx` | ✅ |
 | **`FileDropzone` / `FileDropzoneControl`** | **Choosing ONE file, by drop and by click, from a single control. The `<input type="file">` is the control and the zone is chrome stretched over it, so the keyboard path is the real one rather than a handler imitating it — a bare drop target excludes everyone not holding a mouse. Nothing else in the zone is interactive and only the label text is `pointer-events: none`; inheriting that onto the input made the whole zone unclickable while every jsdom test still passed. `emptyLabel` belongs to the caller because only the caller knows what it is asking for. An empty selection never fires `onPick` (cancelling a picker is not the act of clearing a field), and the input's value is cleared after every pick, or re-choosing the same path fires no event at all. **`FileDropzone` brings its own `Field`; a caller that renders more inside one — the contract form lists the paper already filed above the zone — takes `FileDropzoneControl` and passes the `Field`'s control props down, so one input keeps one label** | `filedropzone.tsx` | ✅ |
 | `SegmentedControl` | A small closed set of options, all visible at once | `atoms.tsx` | ✅ |
-| **`Switch`** | **A setting that writes when you flip it. A `Checkbox` states an intent something later submits; this IS the action, which is why it announces `role="switch"` and takes a `pending` state — the same refusal semantics as `Button`'s, `aria-disabled` and a mark rather than a dimmed control, with `disabled` and `reason` both outranking it. No `busyLabel` here: no surface has needed one, and a prop with no caller is an API nobody has tested. A filter over a list is neither — that is a pressed button** | `switch.tsx` | ✅ |
+| **`Switch`** | **A setting that writes when you flip it. A `Checkbox` states an intent something later submits; this IS the action, which is why it announces `role="switch"` and takes a `pending` state — the same refusal semantics as `Button`'s, `aria-disabled` and a mark rather than a dimmed control, with `disabled` and `reason` both outranking it. `reason` refuses the flip on its own and no `disabled={false}` beside it takes that back, exactly as on `Button`: it is the sentence for a change this reader may not make, so the control under it is one they cannot flip. No `busyLabel` here: no surface has needed one, and a prop with no caller is an API nobody has tested. A filter over a list is neither — that is a pressed button** | `switch.tsx` | ✅ |
 | **`Callout`** | **What a surface says about ITSELF, in four closed tones: `info` carries no urgency, `warn` says something will go wrong if you do nothing, `danger` says something is wrong or about to be irreversible, `success` confirms it landed. Never content, and never the only signal — the words carry the meaning** | `callout.tsx` | ✅ |
 | **`FactList`** | **Label→value pairs a reader scans rather than edits. Rows arrive as an array so a caller drops absent facts: an empty value claims we know it and it is blank, which is not the same as not knowing** | `factlist.tsx` | ✅ |
 | `RecordPicker` | Search → candidates → pick, for choosing an existing record | `recordpicker.tsx` | ✅ |
@@ -146,8 +146,11 @@ a message line: it already knows that withheld, unavailable and unsupported are
 three different sentences, and that only `empty` may claim there is none.
 
 Three more things carry this properly and are worth copying. `Switch`'s
-`reason` prop renders the explanation **and** points the control at it with
-`aria-describedby`. `Button`'s `reason` does the same for an ACTION — it
+`reason` prop renders the explanation, points the control at it with
+`aria-describedby`, **and refuses the flip by itself** — the caller does not
+owe it a `disabled` beside it and cannot cancel it with one, because a sentence
+saying a setting is not yours to change, over a switch that changes it, is a
+denial the reader disproves with one click. `Button`'s `reason` does the same for an ACTION — it
 disables the button, renders the sentence beside it and wires
 `aria-describedby` — because a `title` on a disabled button is announced by no
 screen reader and a disabled button cannot be focused, so a reason living only
@@ -166,7 +169,7 @@ the wrong thing about what their next click does.
 That pairing is also the answer for a **stateful** control a permission denies —
 one that is the only place a reader can see the setting's current value. Absent
 would hide a granted read; withholding the surface would hide the fact. A
-disabled `Switch` carrying `reason` shows the state, refuses the change, and says
+`Switch` carrying `reason` shows the state, refuses the change, and says
 why, with the explanation attached to the control rather than sitting beside it.
 
 ## Seeing them

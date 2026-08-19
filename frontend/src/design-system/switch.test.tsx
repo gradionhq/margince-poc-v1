@@ -88,6 +88,66 @@ describe("Switch", () => {
     expect(text).toContain("Only an admin or ops can change this.");
   });
 
+  // `reason` is the sentence for a change this reader may not make, so the
+  // control it sits under has to be one they cannot flip. Spelling that as two
+  // independent props left the refusal advisory: a caller stating why the
+  // setting is locked, and no `disabled` beside it, shipped a live switch that
+  // announced its own denial and then wrote anyway. `Button` reads the same
+  // way — one contract, one spelling.
+  describe("the refusal contract does not wait for a second prop", () => {
+    it("refuses the flip on the reason alone, and says why from the control", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          reason="Only an admin or ops can change this."
+          onChange={() => undefined}
+        />,
+      );
+      const control = screen.getByRole("switch", { name: "Auto-enrich" });
+      expect(control.hasAttribute("disabled")).toBe(true);
+      // Inert is half a refusal. A reader who cannot see the dimmed track has
+      // only this pointer to the sentence explaining it.
+      const described = control.getAttribute("aria-describedby");
+      expect(described).toBeTruthy();
+      expect(document.getElementById(described ?? "")?.textContent).toBe(
+        "Only an admin or ops can change this.",
+      );
+    });
+
+    it("writes nothing when a refused switch is clicked", async () => {
+      const user = userEvent.setup();
+      const onChange = vi.fn();
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          reason="Only an admin or ops can change this."
+          onChange={onChange}
+        />,
+      );
+      await user.click(screen.getByRole("switch", { name: "Auto-enrich" }));
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("stays refused when the caller passes disabled={false}", () => {
+      render(
+        <Switch
+          label="Auto-enrich"
+          checked
+          reason="Only an admin or ops can change this."
+          disabled={false}
+          onChange={() => undefined}
+        />,
+      );
+      expect(
+        screen
+          .getByRole("switch", { name: "Auto-enrich" })
+          .hasAttribute("disabled"),
+      ).toBe(true);
+    });
+  });
+
   it("names nothing it did not render", () => {
     render(
       <Switch label="Auto-enrich" checked={false} onChange={() => undefined} />,
