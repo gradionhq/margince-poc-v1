@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Fragment, type ReactElement } from "react";
+import { Fragment, type ReactElement, useId } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -76,20 +76,38 @@ export function CompanyPrimaryActions({
   composerOpen: boolean;
   onComposerOpen: (open: boolean) => void;
 }>) {
-  // Archived records take no new activity: the write is refused server-side,
-  // so offering the verb would only produce a modal that fails on save.
-  if (org.archived_at) {
-    return null;
-  }
+  const t = useT();
+  const archivedId = useId();
+  // An archived record takes no new activity — the write is refused
+  // server-side — so all three verbs are refused rather than removed. Removing
+  // them told a reader nothing: an absent button reads as a build without the
+  // feature, and this account has the feature and will not accept it. One
+  // sentence for the three of them, because it is one fact about the record.
+  const archived = org.archived_at ? archivedId : undefined;
   return (
     <>
-      <WriteEmailAction org={org} open={composerOpen} onOpen={onComposerOpen} />
-      <LogActivityAction entityType="organization" entityId={org.id} />
+      {archived && (
+        <p className="t-caption" id={archivedId}>
+          {t("record.archivedReadOnly")}
+        </p>
+      )}
+      <WriteEmailAction
+        org={org}
+        open={composerOpen}
+        onOpen={onComposerOpen}
+        disabledReasonId={archived}
+      />
+      <LogActivityAction
+        entityType="organization"
+        entityId={org.id}
+        disabledReasonId={archived}
+      />
       <LogActivityAction
         entityType="organization"
         entityId={org.id}
         initialKind="task"
         triggerLabel="log.addTask"
+        disabledReasonId={archived}
       />
     </>
   );
@@ -103,15 +121,21 @@ function WriteEmailAction({
   org,
   open,
   onOpen,
+  disabledReasonId,
 }: Readonly<{
   org: Organization;
   open: boolean;
   onOpen: (open: boolean) => void;
+  disabledReasonId?: string;
 }>) {
   const t = useT();
   return (
     <>
-      <Button variant="primary" onClick={() => onOpen(true)}>
+      <Button
+        variant="primary"
+        reasonId={disabledReasonId}
+        onClick={() => onOpen(true)}
+      >
         {t("co.writeEmail")}
       </Button>
       {open && (
@@ -340,7 +364,14 @@ export function CompanyOwnerControl({
 function CompanyEditAction({
   org,
   overlay,
-}: Readonly<{ org: Organization; overlay: boolean }>) {
+  disabledReasonId,
+}: Readonly<{
+  org: Organization;
+  overlay: boolean;
+  // Passed straight to EditAction: the id of the sentence saying why this
+  // account takes no edits, when it does not.
+  disabledReasonId?: string;
+}>) {
   const t = useT();
   const cf = useObjectCustomFields("organization");
   const roster = useRoster("user", true);
@@ -365,6 +396,7 @@ function CompanyEditAction({
   }
   return (
     <EditAction
+      disabledReasonId={disabledReasonId}
       label={t("record.edit")}
       notice={overlay ? t("overlay.partialWriteBack") : undefined}
       fields={[
@@ -438,10 +470,16 @@ export function CompanyActionBadges({
   const t = useT();
   const overlay = useSorMode() === "overlay";
   // An archived record is read-only: the backend rejects edit/merge/archive
-  // on a non-live row (there is no unarchive path), so those items would only
-  // 404. Its history stays readable — what happened to a record is exactly
-  // what a reader wants after it has been put away.
-  const writable = !org.archived_at;
+  // on a non-live row (there is no unarchive path). The verbs stay VISIBLE
+  // and refused rather than disappearing (STATE-4a) — a control blocked by
+  // the record's STATE says why, because the reason is the information and a
+  // missing button reads as a build without the feature. Its history stays
+  // readable — what happened to a record is exactly what a reader wants after
+  // it has been put away.
+  //
+  // Undefined on a live account, which is what leaves those verbs pressable.
+  const archivedReasonId = useId();
+  const refusedByArchive = org.archived_at ? archivedReasonId : undefined;
   return (
     <>
       {/* What the company IS to us. Where it STANDS is a separate question,
@@ -455,106 +493,120 @@ export function CompanyActionBadges({
         </Badge>
       ))}
       {org.archived_at && <Badge tone="warn">{t("record.archived")}</Badge>}
-      {/* An archived record read from a mirror offers nothing at all: every
-          write is refused and the history is a native read the mirror has no
-          row for. Rendering the trigger anyway would open an empty popover. */}
-      {(writable || !overlay) && (
-        <OverflowMenu label={t("record.moreActions")}>
-          {writable && <CompanyEditAction org={org} overlay={overlay} />}
-          {/* Merge has no incumbent-first projection — the seam refuses it
+      {/* The trigger is unconditional because the menu always holds something
+          to say: an archived account's verbs are refused rather than dropped,
+          and the sentence refusing them travels with them. Only a panel with
+          no items at all would be worth hiding. */}
+      <OverflowMenu label={t("record.moreActions")}>
+        {/* Stated ONCE at the head of the menu it refuses, so the items below
+            point at this element by id rather than each printing the same
+            line. It sits here rather than in the page's header band because
+            the band belongs to the caller (organizations.tsx) while these
+            verbs and their one reason belong together. */}
+        {org.archived_at && (
+          <p id={archivedReasonId} className="t-caption">
+            {t("record.archivedReadOnly")}
+          </p>
+        )}
+        <CompanyEditAction
+          org={org}
+          overlay={overlay}
+          disabledReasonId={refusedByArchive}
+        />
+        {/* Merge has no incumbent-first projection — the seam refuses it
             outright (overlay/provider_writes.go Merge) — unlike
-            edit/archive above, which it serves, so it stays hidden here. */}
-          {writable && !overlay && (
-            <MergeAction
-              label={t("merge.org")}
-              sourceId={org.id}
-              sourceName={org.display_name}
-              searchTargets={searchOrgTargets}
-              merge={async (targetId) => {
-                const { data, error } = await api.POST(
-                  "/organizations/{id}/merge",
-                  {
-                    params: {
-                      path: { id: org.id },
-                      ...ifMatch(requireVersion(org.version)),
-                    },
-                    body: { target_id: targetId },
+            edit/archive above, which it serves, so it stays hidden here.
+            Unsupported is the OTHER cause STATE-4a sorts, and absence is
+            its answer: there is no fact about this account to report. */}
+        {!overlay && (
+          <MergeAction
+            disabledReasonId={refusedByArchive}
+            label={t("merge.org")}
+            sourceId={org.id}
+            sourceName={org.display_name}
+            searchTargets={searchOrgTargets}
+            merge={async (targetId) => {
+              const { data, error } = await api.POST(
+                "/organizations/{id}/merge",
+                {
+                  params: {
+                    path: { id: org.id },
+                    ...ifMatch(requireVersion(org.version)),
                   },
-                );
-                if (error) {
-                  throwProblem(error, t);
-                }
-                return data;
-              }}
-              invalidate="organizations"
-              recordKey="organization"
-              survivorRoute={(targetId) => ({
-                screen: "companies",
-                id: targetId,
-              })}
-            />
-          )}
-          {writable && (
-            <ArchiveAction
-              label={t("record.archive")}
-              confirmText={t("record.archiveConfirm")}
-              archive={async () => {
-                const { data, error } = await api.DELETE(
-                  "/organizations/{id}",
-                  {
-                    params: { path: { id: org.id } },
-                  },
-                );
-                if (error) {
-                  throwProblem(error);
-                }
-                return data;
-              }}
-              invalidate="organizations"
-              recordKey="organization"
-              onArchived={() => navigate({ screen: "companies" })}
-            />
-          )}
-          {/* A record grant probes the native row via auth.EnsureLinkTarget,
+                  body: { target_id: targetId },
+                },
+              );
+              if (error) {
+                throwProblem(error, t);
+              }
+              return data;
+            }}
+            invalidate="organizations"
+            recordKey="organization"
+            survivorRoute={(targetId) => ({
+              screen: "companies",
+              id: targetId,
+            })}
+          />
+        )}
+        <ArchiveAction
+          disabledReasonId={refusedByArchive}
+          label={t("record.archive")}
+          confirmText={t("record.archiveConfirm")}
+          archive={async () => {
+            const { data, error } = await api.DELETE("/organizations/{id}", {
+              params: { path: { id: org.id } },
+            });
+            if (error) {
+              throwProblem(error);
+            }
+            return data;
+          }}
+          invalidate="organizations"
+          recordKey="organization"
+          onArchived={() => navigate({ screen: "companies" })}
+        />
+        {/* A record grant probes the native row via auth.EnsureLinkTarget,
             which a mirrored record has no row for — sharing stays hidden
             in overlay regardless of record type (see deals.tsx's
             DealBadges). */}
-          {writable && !overlay && (
-            <ShareAction recordType="organization" recordId={org.id} />
-          )}
-          {/* The way in to the partner programme for an account that has none.
+        {!overlay && (
+          <ShareAction
+            recordType="organization"
+            recordId={org.id}
+            disabledReasonId={refusedByArchive}
+          />
+        )}
+        {/* The way in to the partner programme for an account that has none.
             The tab only shows once there IS one, so without this the first
             partner row would be unreachable — this is the same form, asked
             for rather than offered. */}
-          {writable &&
-            !overlay &&
-            !(org.relationship_types ?? []).includes("partner") && (
-              <Button small onClick={onSetUpPartner}>
-                {t("org.partnerSetUp")}
-              </Button>
-            )}
-          {/* The audit spine: who changed this record and when. It reads as an
+        {!overlay && !(org.relationship_types ?? []).includes("partner") && (
+          <Button small reasonId={refusedByArchive} onClick={onSetUpPartner}>
+            {t("org.partnerSetUp")}
+          </Button>
+        )}
+        {/* The audit spine: who changed this record and when. It reads as an
             inspection of the record rather than part of its story, so it sits
             with the other rare verbs instead of beside the account's own
             timeline. */}
-          {!overlay && (
-            <Button
-              small
-              data-testid="company-full-history"
-              onClick={onOpenHistory}
-            >
-              {t("record.fullHistory")}
-            </Button>
-          )}
-          {/* The account's own waiting decisions. It reads as a count in the
+        {!overlay && (
+          <Button
+            small
+            data-testid="company-full-history"
+            onClick={onOpenHistory}
+          >
+            {t("record.fullHistory")}
+          </Button>
+        )}
+        {/* The account's own waiting decisions. It reads as a count in the
               header, which is a state, and this is the verb that answers it —
               so it sits with the other rare verbs rather than as a chip beside
               the account's name. Absent when nothing waits. */}
-          {onOpenDecisions && (
-            <DecisionsChip view={view} onOpen={onOpenDecisions} />
-          )}
-        </OverflowMenu>
-      )}
+        {onOpenDecisions && (
+          <DecisionsChip view={view} onOpen={onOpenDecisions} />
+        )}
+      </OverflowMenu>
     </>
   );
 }

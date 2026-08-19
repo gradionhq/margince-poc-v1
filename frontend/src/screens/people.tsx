@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -437,6 +437,10 @@ type PersonTab = (typeof PERSON_TABS)[number];
 export function PersonScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const cf = useObjectCustomFields("person");
+  // ONE sentence about this contact being archived, minted here and pointed at
+  // by every verb the archive refuses. Said once for the page rather than
+  // beside each of four buttons.
+  const archivedReasonId = useId();
   const [tab, setTab] = useState<PersonTab>("overview");
   const personQuery = useQuery({
     queryKey: ["person", id],
@@ -485,116 +489,136 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                     <EntityRef kind="lead" id={person.converted_from_lead_id} />
                   </Badge>
                 )}
-                {person.archived_at ? (
-                  // An archived record is read-only: the backend rejects
-                  // edit/merge/archive on a non-live row (there is no
-                  // unarchive path), so offering those buttons would only
-                  // 404. The badge is the whole affordance.
+                {person.archived_at && (
                   <Badge tone="warn">{t("record.archived")}</Badge>
-                ) : (
-                  <>
-                    <EditAction
-                      label={t("record.edit")}
-                      notice={
-                        overlay ? t("overlay.partialWriteBack") : undefined
+                )}
+                {/* An archived record is read-only: the backend rejects
+                    edit/merge/archive on a non-live row (there is no
+                    unarchive path). The verbs stay VISIBLE and refused,
+                    pointing at the page's one sentence about the archive
+                    (STATE-4a): a missing control says nothing about the
+                    record, while a refused one names the reason. */}
+                <EditAction
+                  disabledReasonId={
+                    person.archived_at ? archivedReasonId : undefined
+                  }
+                  label={t("record.edit")}
+                  notice={overlay ? t("overlay.partialWriteBack") : undefined}
+                  fields={[...personEditFields, ...cf.formFields]}
+                  record={{
+                    id: person.id,
+                    version: person.version,
+                    full_name: person.full_name,
+                    first_name: person.first_name ?? "",
+                    last_name: person.last_name ?? "",
+                    title: person.title ?? "",
+                    "social.linkedin": stringField(person.social?.linkedin),
+                    ...cf.recordSlice(person),
+                  }}
+                  update={async (values) => {
+                    const { data, error } = await api.PATCH("/people/{id}", {
+                      params: {
+                        path: { id },
+                        ...ifMatch(requireVersion(person.version)),
+                      },
+                      body: {
+                        ...mapPersonUpdate(values),
+                        ...cf.toBody(values),
+                      },
+                    });
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="people"
+                  recordKey="person"
+                />
+                {/* Merge has no incumbent-first projection — the seam
+                    refuses it outright (overlay/provider_writes.go
+                    Merge) — unlike edit/archive below, which it
+                    serves, so it stays hidden here. */}
+                {!overlay && (
+                  <MergeAction
+                    disabledReasonId={
+                      person.archived_at ? archivedReasonId : undefined
+                    }
+                    label={t("merge.person")}
+                    sourceId={person.id}
+                    sourceName={person.full_name}
+                    searchTargets={searchPeopleTargets}
+                    merge={async (targetId) => {
+                      const { data, error } = await api.POST(
+                        "/people/{id}/merge",
+                        {
+                          params: {
+                            path: { id: person.id },
+                            ...ifMatch(requireVersion(person.version)),
+                          },
+                          body: { target_id: targetId },
+                        },
+                      );
+                      if (error) {
+                        throwProblem(error, t);
                       }
-                      fields={[...personEditFields, ...cf.formFields]}
-                      record={{
-                        id: person.id,
-                        version: person.version,
-                        full_name: person.full_name,
-                        first_name: person.first_name ?? "",
-                        last_name: person.last_name ?? "",
-                        title: person.title ?? "",
-                        "social.linkedin": stringField(person.social?.linkedin),
-                        ...cf.recordSlice(person),
-                      }}
-                      update={async (values) => {
-                        const { data, error } = await api.PATCH(
-                          "/people/{id}",
-                          {
-                            params: {
-                              path: { id },
-                              ...ifMatch(requireVersion(person.version)),
-                            },
-                            body: {
-                              ...mapPersonUpdate(values),
-                              ...cf.toBody(values),
-                            },
-                          },
-                        );
-                        if (error) {
-                          throwProblem(error);
-                        }
-                        return data;
-                      }}
-                      invalidate="people"
-                      recordKey="person"
-                    />
-                    {/* Merge has no incumbent-first projection — the seam
-                        refuses it outright (overlay/provider_writes.go
-                        Merge) — unlike edit/archive below, which it
-                        serves, so it stays hidden here. */}
-                    {!overlay && (
-                      <MergeAction
-                        label={t("merge.person")}
-                        sourceId={person.id}
-                        sourceName={person.full_name}
-                        searchTargets={searchPeopleTargets}
-                        merge={async (targetId) => {
-                          const { data, error } = await api.POST(
-                            "/people/{id}/merge",
-                            {
-                              params: {
-                                path: { id: person.id },
-                                ...ifMatch(requireVersion(person.version)),
-                              },
-                              body: { target_id: targetId },
-                            },
-                          );
-                          if (error) {
-                            throwProblem(error, t);
-                          }
-                          return data;
-                        }}
-                        invalidate="people"
-                        recordKey="person"
-                        survivorRoute={(targetId) => ({
-                          screen: "contacts",
-                          id: targetId,
-                        })}
-                      />
-                    )}
-                    <ArchiveAction
-                      label={t("record.archive")}
-                      confirmText={t("record.archiveConfirm")}
-                      archive={async () => {
-                        const { data, error } = await api.DELETE(
-                          "/people/{id}",
-                          {
-                            params: { path: { id } },
-                          },
-                        );
-                        if (error) {
-                          throwProblem(error);
-                        }
-                        return data;
-                      }}
-                      invalidate="people"
-                      recordKey="person"
-                      onArchived={() => navigate({ screen: "contacts" })}
-                    />
-                    {/* A record grant probes the native row via
-                        auth.EnsureLinkTarget, which a mirrored record has
-                        no row for — sharing stays hidden in overlay
-                        regardless of record type (see deals.tsx's
-                        DealBadges). */}
-                    {!overlay && (
-                      <ShareAction recordType="person" recordId={person.id} />
-                    )}
-                  </>
+                      return data;
+                    }}
+                    invalidate="people"
+                    recordKey="person"
+                    survivorRoute={(targetId) => ({
+                      screen: "contacts",
+                      id: targetId,
+                    })}
+                  />
+                )}
+                <ArchiveAction
+                  disabledReasonId={
+                    person.archived_at ? archivedReasonId : undefined
+                  }
+                  label={t("record.archive")}
+                  confirmText={t("record.archiveConfirm")}
+                  archive={async () => {
+                    const { data, error } = await api.DELETE("/people/{id}", {
+                      params: { path: { id } },
+                    });
+                    if (error) {
+                      throwProblem(error);
+                    }
+                    return data;
+                  }}
+                  invalidate="people"
+                  recordKey="person"
+                  onArchived={() => navigate({ screen: "contacts" })}
+                />
+                {/* A record grant probes the native row via
+                    auth.EnsureLinkTarget, which a mirrored record has
+                    no row for — sharing stays hidden in overlay
+                    regardless of record type (see deals.tsx's
+                    DealBadges). */}
+                {!overlay && (
+                  <ShareAction
+                    recordType="person"
+                    recordId={person.id}
+                    disabledReasonId={
+                      person.archived_at ? archivedReasonId : undefined
+                    }
+                  />
                 )}
               </>
+            }
+            // The archive is a fact about the whole record, so it is stated
+            // once across the header rather than repeated beside each verb it
+            // refuses. The rail says the same thing about its own inline
+            // edits (personrail.tsx) off this same key, so the two cannot
+            // drift into two spellings of one fact. Absent while the contact
+            // is live: a line always reserved would read as a record with
+            // something to say about itself and nothing said.
+            band={
+              person.archived_at ? (
+                <p id={archivedReasonId} className="t-caption">
+                  {t("person.rail.archivedReadOnly")}
+                </p>
+              ) : undefined
             }
             timeline={
               timelineQuery.isSuccess

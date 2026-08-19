@@ -7,7 +7,9 @@ import {
 import {
   type Dispatch,
   type DragEvent,
+  type ReactNode,
   type SetStateAction,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -1420,6 +1422,7 @@ function ReopenAction({
   dealId,
   dealVersion,
   openStages,
+  disabledReasonId,
 }: Readonly<{
   dealId: string;
   // The version the header this button sits in was rendered from, so the reopen
@@ -1428,6 +1431,11 @@ function ReopenAction({
   // and a fresh one would be the wrong answer anyway.
   dealVersion: number | undefined;
   openStages: Stage[];
+  // The id of the sentence saying why this reopen is refused, when it is.
+  // STATE-4a: a control blocked by the record's STATE rather than by a
+  // permission stays visible and says why, because the reason is the
+  // information and hiding the control hides a fact the reader needs.
+  disabledReasonId?: string;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1462,7 +1470,12 @@ function ReopenAction({
   });
   return (
     <>
-      <Button small data-testid="reopen-open" onClick={() => setOpen(true)}>
+      <Button
+        small
+        reasonId={disabledReasonId}
+        data-testid="reopen-open"
+        onClick={() => setOpen(true)}
+      >
         {t("deal.reopen")}
       </Button>
       <Modal
@@ -1523,18 +1536,26 @@ function ReopenAction({
 
 // The status badge plus the edit/archive affordances — split out of
 // DealScreen's render so the record-view callback stays readably small. An
-// archived deal is read-only (no edit/merge/archive path exists server-side
-// for a non-live row), so it renders the status badge alone.
+// archived deal is read-only (no edit/archive/advance path exists server-side
+// for a non-live row), so its verbs render REFUSED rather than missing: the
+// page's one sentence about the archive says why, and each of them points at
+// it (STATE-4a). A missing control says nothing about the deal, while a
+// refused one names the reason.
 function DealBadges({
   deal,
   orgs,
   meId,
   openStages,
+  archivedReasonId,
 }: Readonly<{
   deal: Deal;
   orgs: { id: string; display_name: string }[];
   meId: string;
   openStages: Stage[];
+  // The id of the page's sentence about this deal being archived. Every verb
+  // the archive refuses points at that one element instead of printing the
+  // same line four times.
+  archivedReasonId: string;
 }>) {
   const t = useT();
   const cf = useObjectCustomFields("deal");
@@ -1547,13 +1568,14 @@ function DealBadges({
   // has no row in, so the grant 404s — overlay visibility is governed by
   // mirror_visibility, which record_grant does not feed.
   const overlay = useSorMode() === "overlay";
-  if (deal.archived_at != null) {
-    return <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>;
-  }
+  // One fact refuses every write below, so it is named once. Undefined while
+  // the deal is live, which is what leaves the verbs pressable.
+  const refusedByArchive = deal.archived_at ? archivedReasonId : undefined;
   return (
     <>
       <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
       <EditAction
+        disabledReasonId={refusedByArchive}
         label={t("deal.edit")}
         notice={overlay ? t("overlay.partialWriteBack") : undefined}
         fields={[
@@ -1606,6 +1628,7 @@ function DealBadges({
         recordKey="deal"
       />
       <ArchiveAction
+        disabledReasonId={refusedByArchive}
         label={t("deal.archive")}
         confirmText={t("deal.archiveConfirm")}
         archive={async () => {
@@ -1621,12 +1644,22 @@ function DealBadges({
         recordKey="deal"
         onArchived={() => navigate({ screen: "deals" })}
       />
-      {!overlay && <ShareAction recordType="deal" recordId={deal.id} />}
+      {!overlay && (
+        <ShareAction
+          recordType="deal"
+          recordId={deal.id}
+          disabledReasonId={refusedByArchive}
+        />
+      )}
+      {/* Reopen answers a CLOSED deal, so an open one has no reason to be
+          told about it — absent, not refused. An archived closed deal keeps
+          it, refused: the reader came asking whether this can come back. */}
       {!overlay && (deal.status === "won" || deal.status === "lost") && (
         <ReopenAction
           dealId={deal.id}
           dealVersion={deal.version}
           openStages={openStages}
+          disabledReasonId={refusedByArchive}
         />
       )}
     </>
@@ -1908,10 +1941,34 @@ function DealOverviewPane({
   );
 }
 
+// The page's ONE sentence about this deal being archived, said across the
+// whole header rather than repeated beside each of the four verbs the archive
+// refuses. Nothing at all while the deal is live — `undefined` rather than an
+// element that renders null, because RecordView reserves the band's space for
+// anything it is handed, and a page that always kept the gap would read as a
+// record with something to say about itself and nothing said.
+function archivedDealBand(
+  deal: Deal,
+  reasonId: string,
+  t: ReturnType<typeof useT>,
+): ReactNode | undefined {
+  if (deal.archived_at == null) {
+    return undefined;
+  }
+  return (
+    <p id={reasonId} className="t-caption">
+      {t("deal.archivedReadOnly")}
+    </p>
+  );
+}
+
 export function DealScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();
+  // Minted here because the band that carries the sentence and the verbs that
+  // point at it are two different slots of the same header.
+  const archivedReasonId = useId();
   const [tab, setTab] = useState<DealTab>("overview");
   const dealQuery = useQuery({
     queryKey: ["deal", id],
@@ -2056,8 +2113,10 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   orgs={orgs.data?.data ?? []}
                   meId={me.data?.user.id ?? ""}
                   openStages={openStages}
+                  archivedReasonId={archivedReasonId}
                 />
               }
+              band={archivedDealBand(deal, archivedReasonId, t)}
               timeline={
                 timelineQuery.isSuccess
                   ? activityTimeline(
