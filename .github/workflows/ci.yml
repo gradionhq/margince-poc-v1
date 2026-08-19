@@ -30,12 +30,15 @@ on:
 # 9-minute gate into a two-hour one and starve every PR lane behind them. A
 # verdict that lands hours after the merge gates nothing.
 #
-# `cancel-in-progress: false` is the trap here rather than the safe choice: it
-# protects the RUNNING lane, and a group holds at most one QUEUED run, so each
-# new merge evicts the run queued behind the current lane — reported `cancelled`
-# with zero jobs, which is indistinguishable from a green skip on every
-# dashboard, and it is the TIP that gets dropped. Cancelling makes the surviving
-# lane the newest one by construction.
+# `cancel-in-progress: false` is not the conservative setting it reads as, which
+# is the trap worth stating where the next reader will look: it protects the run
+# already RUNNING, and a group holds ONE pending run, so an arriving merge
+# cancels the pending one and takes its place. The superseded merge is reported
+# `cancelled` with zero jobs — indistinguishable from a green skip on every
+# dashboard — while the tip still waits out a lane gating an older tree.
+# `queue: max` lifts that pending limit to 100 and would gate every commit, but
+# it cannot be combined with cancellation, and it puts the tip's verdict behind
+# every lane ahead of it: the latency this setting exists to remove.
 #
 # main is a linear history of squash merges, so the tip's tree contains every
 # merge below it and "main is green" stays a true statement about all of them.
