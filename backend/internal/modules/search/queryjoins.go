@@ -38,11 +38,17 @@ import (
 // this file exists to avoid; a two-entry list of tables that a test holds
 // against the schema is not that.
 var joinTables = []joinTable{
-	// Every legal row pairs a person with one arm: employment is
+	// Every kind this hub reaches pairs a person with one arm: employment is
 	// person+organization, deal_stakeholder is person+deal,
-	// project_stakeholder is person+project (core 0007, 0131). The partner
-	// kinds are the exception and pair organization with counterparty_org_id,
-	// which joinTargets does not read — see there.
+	// project_stakeholder is person+project (core 0007, 0131).
+	//
+	// It does NOT reach every legal row. The partner kinds (partner_of,
+	// referred_by, co_sell_with) pair organization_id with counterparty_org_id
+	// and require person_id IS NULL, so they are an organization↔organization
+	// edge with no person in it — a shape one hub cannot express, on a column
+	// arms cannot read. Those rows stay untraversable, which is stated here and
+	// gated by TestAReferenceNamedForItsRoleYieldsNoHop rather than left to be
+	// rediscovered.
 	{table: "relationship", hub: personRef},
 	// activity_id is NOT NULL and exactly one arm is set, which the table's
 	// own activity_link_shape CHECK enforces arm by arm (core 0008, 0038).
@@ -53,6 +59,13 @@ var joinTables = []joinTable{
 // The linter asks for the constant; what makes it worth having is that a
 // misspelling in the hub declaration would silently derive no hops at all.
 const personRef = entityPerson + relationSuffix
+
+// The two lifecycle columns a join table may carry, spelled once because the
+// derivation reads them and the statement names them.
+const (
+	columnArchivedAt = "archived_at"
+	columnEndedAt    = "ended_at"
+)
 
 // joinTable is one declared edge table: its name, and the column every legal
 // row fills.
@@ -94,6 +107,9 @@ var notAnEdge = map[string]string{
 		"DECISION about it, and nothing traverses from one record to another through it",
 	"person_signature_enrich_state": "enrichment bookkeeping keyed by the activity a signature was read " +
 		"from — a cursor over work, not a statement about the two records",
+	"attachment": "a file, which is a record in its own right. Its extra references are the " +
+		"ROLL-UP READ PATH core 0195 declares them to be — the primary parent still owns the " +
+		"file's visibility — so they denormalize one record's parentage rather than relating two",
 	"contract": "a finance record in its own right. Its references are the scalar kind any record " +
 		"declares; they are untraversable only because contract is not a searchable record type, " +
 		"which is a different question from this one",
@@ -102,15 +118,23 @@ var notAnEdge = map[string]string{
 // JoinEdge is the resolved third spelling: the table the edge lives in and the
 // two columns that reach the records at its ends.
 //
-// Archivable is read off the join table's own columns rather than assumed:
-// `relationship` carries `archived_at` and an archived employment must not
-// carry a hop, while `activity_link` has no such column and a clause naming
-// one would be a database error on every plan that traversed it.
+// Both guards are read off the join table's own columns rather than assumed.
+// `relationship` carries them and `activity_link` carries neither, and a clause
+// naming a column a table does not have is a database error on every plan that
+// traverses it — not a narrower answer.
+//
+// They are two guards because they answer two different questions.
+// Archived is DELETED: the edge was recorded in error, or the row was swept.
+// Ended is LEFT: the edge was true and stopped being true, which is the
+// ordinary end of a job and leaves the row in place. Filtering only the first
+// is what makes a company a person left go on reading as where they work —
+// the same conflation #1789 fixed on the write side of this column.
 type JoinEdge struct {
 	Table      string
 	From       string
 	To         string
 	Archivable bool
+	Ends       bool
 }
 
 // joinRelations answers the hops one record type reaches through a join table.
@@ -148,7 +172,8 @@ func joinRelations(ctx context.Context, schema *schemaReads, entity string) ([]R
 					Table:      join.table,
 					From:       edge.from,
 					To:         edge.to,
-					Archivable: stored.holds("archived_at"),
+					Archivable: stored.holds(columnArchivedAt),
+					Ends:       stored.holds(columnEndedAt),
 				},
 			})
 		}
@@ -225,7 +250,20 @@ func joinVia(table, from, to string) string {
 // (`organization` → `deals`) and either direction of a join edge
 // (`person` → `organizations`). A second pluralization rule beside this one is
 // how a vocabulary comes to answer to two names for one hop.
-func pluralRelationName(entity string) string { return entity + "s" }
+func pluralRelationName(entity string) string {
+	if plural, irregular := irregularPlurals[entity]; irregular {
+		return plural
+	}
+	return entity + "s"
+}
+
+// irregularPlurals holds the record types whose name does not pluralize by
+// adding an s. `activitys` is what the naive rule produces, and it reached the
+// vocabulary the moment a join edge gave `activity` its first inverse hop —
+// before that, no record declared a scalar activity_id, so the rule was never
+// asked. A name a caller has to misspell to use is a worse answer than a
+// missing hop.
+var irregularPlurals = map[string]string{entityActivity: "activities"}
 
 // mergeRelations keeps ONE relation per name, and a direct edge wins.
 //
@@ -259,13 +297,32 @@ func mergeRelations(direct, joined []Relation) []Relation {
 // membership, and which of several edges connected the two records is not a
 // question the hop's evidence claims to answer.
 //
-// The tenant is not named. Every table this reaches is under FORCE RLS, so the
-// subquery is bounded by the same GUC the outer read is — naming workspace_id
-// here would be a second, weaker copy of that boundary.
+// The tenant is not named, and the reason is not RLS: ADR-0091 retired every
+// policy (core 0217) and dropped workspace_id from both join tables (the
+// activity-spine and records sweeps). One installation serves one organization,
+// so there is no tenant predicate anywhere on this read — the outer statement
+// and the lateral hop carry none either. What bounds this subquery is what
+// bounds them: the caller's row scope and object RBAC, applied to the records at
+// each end. Naming a column these tables no longer have would not be a stronger
+// boundary; it would not compile.
 func joinEdgeCondition(edge JoinEdge) string {
 	where := []string{fmt.Sprintf("j.%s = t.id", sanitize(edge.From))}
 	if edge.Archivable {
-		where = append(where, "j.archived_at IS NULL")
+		where = append(where, "j."+columnArchivedAt+" IS NULL")
+	}
+	if edge.Ends {
+		// A hop is CURRENT membership, which is what every other reader of this
+		// column in the tree means by it (compose/introseams.go,
+		// compose/network/persongraphaccount.go). "People at this company"
+		// answering with the ones who left would be wrong in the direction that
+		// costs something: a stale contact is acted on, a missing one is asked
+		// about.
+		//
+		// A FUTURE ended_at is a notice period, and it is still current — the
+		// person works there until the date arrives. Compared against the
+		// DATABASE's clock, because the row is dated by it and a comparison
+		// against any other would disagree with it near midnight.
+		where = append(where, fmt.Sprintf("(j.%s IS NULL OR j.%s > current_date)", columnEndedAt, columnEndedAt))
 	}
 	return fmt.Sprintf("h.id IN (SELECT j.%s FROM %s j WHERE %s)",
 		sanitize(edge.To), sanitize(edge.Table), strings.Join(where, " AND "))

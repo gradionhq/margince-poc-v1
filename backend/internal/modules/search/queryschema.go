@@ -115,10 +115,10 @@ type querySchemaField struct {
 	Ops  []string `json:"ops"`
 }
 
-// querySchemaRelation is Relation's wire form, and a direct conversion of it
-// — a hop has nothing to hide from a caller. The conversion is deliberate:
-// adding a member to Relation without deciding whether callers should see it
-// stops compiling here.
+// querySchemaRelation is one published hop. Its members are named explicitly
+// where the vocabulary is rendered, so what this document carries stays a
+// decision rather than whatever Relation happens to hold: a join edge's
+// execution detail is on Relation and is deliberately not published here.
 type querySchemaRelation struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`

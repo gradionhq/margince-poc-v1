@@ -14,9 +14,11 @@ package integration
 // refusal, and a validated plan must never produce one.
 //
 // The row scope is the other half. A hop is a read of the record it lands on,
-// and the join table is under the same FORCE RLS as everything else; a caller
-// who cannot see the organization must not be able to select a person through
-// it, or the employment table becomes a channel onto rows the scope hides.
+// so a caller who cannot see the organization must not be able to select a
+// person through it, or the employment table becomes a channel onto rows the
+// scope hides. That is what bounds this read — ADR-0091 retired RLS (core 0217)
+// and dropped workspace_id from both join tables, so row scope and object RBAC
+// are the boundary rather than a tenant predicate.
 
 import (
 	"fmt"
@@ -31,6 +33,8 @@ type employmentFixture struct {
 	rep1Org, rep3Org           ids.UUID
 	atRep1Org, atRep3Org       ids.UUID
 	formerlyAtRep1Org          ids.UUID
+	leftRep1Org                ids.UUID
+	servingNoticeAtRep1Org     ids.UUID
 	activityAboutRep1OrgPerson ids.UUID
 }
 
@@ -42,22 +46,27 @@ func (q *queryEnv) seedEmployments(t *testing.T) employmentFixture {
 	f.rep3Org = q.SeedID(t, `INSERT INTO organization (id, owner_id, display_name, address_city, source, captured_by)
 		VALUES ($1, $2, 'Hamburg Logistik', 'Hamburg', 'manual', 'human:x')`, q.Rep3)
 
-	employ := func(name string, owner, org ids.UUID, archived bool) ids.UUID {
+	// archivedAt and endedAt are SQL expressions rather than bound parameters so
+	// a case can seed `now()` and `current_date + 30` — the DATABASE's clock,
+	// which is the one the hop compares against. A time computed here would
+	// disagree with it whenever the two machines do.
+	employ := func(name string, owner, org ids.UUID, archivedAt, endedAt string) ids.UUID {
 		person := q.SeedID(t, `INSERT INTO person (id, full_name, owner_id, source, captured_by)
 			VALUES ($1, $2, $3, 'manual', 'human:x')`, name, owner)
-		archivedAt := "NULL"
-		if archived {
-			archivedAt = "now()"
-		}
 		q.SeedID(t, fmt.Sprintf(`INSERT INTO relationship
-			(id, kind, person_id, organization_id, source, captured_by, archived_at)
-			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x', %s)`, archivedAt),
+			(id, kind, person_id, organization_id, source, captured_by, archived_at, ended_at)
+			VALUES ($1, 'employment', $2, $3, 'manual', 'human:x', %s, %s)`, archivedAt, endedAt),
 			person, org)
 		return person
 	}
-	f.atRep1Org = employ("Ronny Stuttgart", q.Rep1, f.rep1Org, false)
-	f.atRep3Org = employ("Hanna Hamburg", q.Rep3, f.rep3Org, false)
-	f.formerlyAtRep1Org = employ("Lars Leaver", q.Rep1, f.rep1Org, true)
+	f.atRep1Org = employ("Ronny Stuttgart", q.Rep1, f.rep1Org, "NULL", "NULL")
+	f.atRep3Org = employ("Hanna Hamburg", q.Rep3, f.rep3Org, "NULL", "NULL")
+	f.formerlyAtRep1Org = employ("Lars Leaver", q.Rep1, f.rep1Org, "now()", "NULL")
+	// LEFT, not deleted: the row stays, which is the ordinary end of a job and
+	// the state archived_at alone does not describe.
+	f.leftRep1Org = employ("Mona Moved-On", q.Rep1, f.rep1Org, "NULL", "current_date - 30")
+	// Serving out a notice period. Still employed until the date arrives.
+	f.servingNoticeAtRep1Org = employ("Nils Notice", q.Rep1, f.rep1Org, "NULL", "current_date + 30")
 
 	// One activity, linked to the person at rep1's organization, so the other
 	// join table is exercised on the same corpus.
@@ -98,7 +107,17 @@ func TestAPersonIsSelectedByTheirEmployersAttributes(t *testing.T) {
 	// carry the hop, and nothing else in the statement would exclude it — the
 	// hop's own archived_at is the ORGANIZATION's.
 	if found[f.formerlyAtRep1Org] {
-		t.Error("an archived employment still selected its person, so a job somebody left reads as current")
+		t.Error("an archived employment still selected its person")
+	}
+	// The state archived_at does not cover, and the one that actually happens:
+	// the person left and the row stayed. Filtering only archival is what makes
+	// a company somebody left go on reading as where they work.
+	if found[f.leftRep1Org] {
+		t.Error("a person who left still answers as staff of the company they left")
+	}
+	// A future ended_at is a notice period. They still work there.
+	if !found[f.servingNoticeAtRep1Org] {
+		t.Error("a person serving out their notice was dropped, though their employment has not ended yet")
 	}
 }
 

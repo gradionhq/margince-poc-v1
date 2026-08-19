@@ -30,10 +30,11 @@ var joinSchema = map[string][]StoredColumn{
 	// column the derivation must NOT read.
 	"relationship": columnsOf("id:uuid", "kind", "person_id:uuid", "organization_id:uuid",
 		"counterparty_org_id:uuid", "deal_id:uuid", "project_id:uuid",
-		"archived_at:timestamp with time zone"),
-	// core 0008 + 0038. No archived_at, and no project_id.
+		"archived_at:timestamp with time zone", "started_at:date", "ended_at:date"),
+	// core 0008 + 0038 + 0131. Five arms, and no archived_at.
 	"activity_link": columnsOf("id:uuid", "activity_id:uuid", "entity_type",
-		"person_id:uuid", "organization_id:uuid", "deal_id:uuid", "lead_id:uuid"),
+		"person_id:uuid", "organization_id:uuid", "deal_id:uuid", "lead_id:uuid",
+		"project_id:uuid"),
 }
 
 // relationsOf resolves one record type's vocabulary against joinSchema and
@@ -96,7 +97,7 @@ func TestAPersonTraversesToTheirEmployerAndAnOrganizationToItsPeople(t *testing.
 // derived vocabulary with a blind spot looks complete while saying so.
 func TestAnActivityTraversesToEveryRecordItLinks(t *testing.T) {
 	relations := relationsOf(t, entityActivity)
-	for _, want := range []string{"persons", "organizations", "deals", "leads"} {
+	for _, want := range []string{"persons", "organizations", "deals", "leads", "projects"} {
 		relation, ok := relations[want]
 		if !ok {
 			t.Errorf("activity has no hop %q; it has %v", want, slices.Sorted(maps.Keys(relations)))
@@ -106,11 +107,21 @@ func TestAnActivityTraversesToEveryRecordItLinks(t *testing.T) {
 			t.Errorf("activity → %s does not run through activity_link: %+v", want, relation.Join)
 		}
 	}
-	// activity_link has no project_id (core 0008 + 0038 never added one), so a
-	// hop to it must not be advertised. A relation the executor cannot build is
-	// worse than a missing one: a caller can see a missing hop.
-	if _, published := relations["projects"]; published {
-		t.Error("activity publishes a hop to projects, which activity_link has no column for")
+	// All five arms, and the fifth is why this is a list rather than a spot
+	// check: 0131 added the project arm to a table 0038 had already widened
+	// once, and a derivation that hard-coded the arms it was written against
+	// would still pass a test written against the same stale list.
+	if len(relations) != 5 {
+		t.Errorf("activity publishes %d hops, not the five arms activity_link declares: %v",
+			len(relations), slices.Sorted(maps.Keys(relations)))
+	}
+	// The name a caller has to type. The naive plural rule produces `activitys`,
+	// which reached the vocabulary the moment a join edge gave activity its
+	// first inverse hop.
+	fromProject := relationsOf(t, entityProject)
+	if _, ok := fromProject["activities"]; !ok {
+		t.Errorf("project's hop back to its timeline is misnamed; it has %v",
+			slices.Sorted(maps.Keys(fromProject)))
 	}
 }
 
@@ -124,7 +135,7 @@ func TestAJoinHopIsPublishedOnlyWhenBothColumnsAreThere(t *testing.T) {
 	}
 	// The employment edge, with the far side taken away.
 	narrowed["relationship"] = columnsOf("id:uuid", "kind", "person_id:uuid",
-		"archived_at:timestamp with time zone")
+		"archived_at:timestamp with time zone", "ended_at:date")
 	resolver := NewVocabularyResolver().WithColumnReader(stubColumns{tables: narrowed})
 	vocab, err := resolver.Resolve(readerFor(entityPerson, entityOrganization), entityPerson)
 	if err != nil {
@@ -181,21 +192,34 @@ func TestAJoinEdgeIsNeverReadAsAnInverseOne(t *testing.T) {
 // An archived edge carries no hop where the join table records one, and the
 // clause is absent where it does not — `activity_link` has no archived_at, and
 // naming one would be a database error on every plan that traversed it.
-func TestAJoinHopReadsArchivalOffTheTableRatherThanAssumingIt(t *testing.T) {
+func TestAJoinHopReadsItsLifecycleGuardsOffTheTableRatherThanAssumingThem(t *testing.T) {
 	employment := relationsOf(t, entityPerson)["organizations"]
-	if employment.Join == nil || !employment.Join.Archivable {
-		t.Fatalf("the employment edge does not know relationship carries archived_at: %+v", employment.Join)
+	if employment.Join == nil || !employment.Join.Archivable || !employment.Join.Ends {
+		t.Fatalf("the employment edge does not know what relationship's lifecycle columns are: %+v",
+			employment.Join)
 	}
-	if !strings.Contains(joinEdgeCondition(*employment.Join), "j.archived_at IS NULL") {
-		t.Error("an archived employment still carries a hop")
+	condition := joinEdgeCondition(*employment.Join)
+	// Deleted, and left. Two questions, and filtering only the first is what
+	// makes a company a person left go on reading as where they work.
+	if !strings.Contains(condition, "j.archived_at IS NULL") {
+		t.Errorf("an archived employment still carries a hop: %s", condition)
+	}
+	if !strings.Contains(condition, "j.ended_at IS NULL OR j.ended_at > current_date") {
+		t.Errorf("a job the person left still carries a hop: %s", condition)
+	}
+	// A future ended_at is a notice period and is still current, so the
+	// comparison is against a date rather than a presence check.
+	if strings.Contains(condition, "j.ended_at IS NULL)") {
+		t.Errorf("the hop drops a person serving out their notice: %s", condition)
 	}
 
 	link := relationsOf(t, entityActivity)["persons"]
-	if link.Join == nil || link.Join.Archivable {
-		t.Fatalf("the activity link edge invented an archived_at column: %+v", link.Join)
+	if link.Join == nil || link.Join.Archivable || link.Join.Ends {
+		t.Fatalf("the activity link edge invented a lifecycle column: %+v", link.Join)
 	}
-	if strings.Contains(joinEdgeCondition(*link.Join), "archived_at") {
-		t.Error("the activity_link hop names a column that table does not have")
+	if linked := joinEdgeCondition(*link.Join); strings.Contains(linked, "archived_at") ||
+		strings.Contains(linked, "ended_at") {
+		t.Errorf("the activity_link hop names a column that table does not have: %s", linked)
 	}
 }
 
@@ -251,7 +275,7 @@ func TestAReferenceNamedForItsRoleYieldsNoHop(t *testing.T) {
 		"person":       joinSchema["person"],
 		"organization": joinSchema["organization"],
 		"relationship": columnsOf("id:uuid", "kind", "person_id:uuid", "counterparty_org_id:uuid",
-			"archived_at:timestamp with time zone"),
+			"archived_at:timestamp with time zone", "ended_at:date"),
 		"activity_link": columnsOf("id:uuid", "activity_id:uuid"),
 	}
 	schema := newSchemaReads(stubColumns{tables: roleNamed})
@@ -347,14 +371,37 @@ func mustJoinRelations(t *testing.T, record string) []Relation {
 // holds; those are the scalar edges the contract already declares.
 func joinTablesInMigrations(t *testing.T) map[string][]string {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join("..", "..", "..", "migrations", "core", "*.up.sql"))
-	if err != nil {
-		t.Fatalf("listing the core migrations: %v", err)
+	// BOTH namespaces (ADR-0017). A join table added by a custom migration is a
+	// join table, and a census that read only core would hand it the silence
+	// this gate exists to refuse.
+	var files []string
+	for _, namespace := range []string{"core", "custom"} {
+		found, err := filepath.Glob(filepath.Join("..", "..", "..", "migrations", namespace, "*.up.sql"))
+		if err != nil {
+			t.Fatalf("listing the %s migrations: %v", namespace, err)
+		}
+		files = append(files, found...)
 	}
 	slices.Sort(files)
 	create := regexp.MustCompile(`(?is)CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\((.*?)\n\);`)
-	add := regexp.MustCompile(`(?i)ALTER TABLE (\w+) ADD COLUMN (?:IF NOT EXISTS )?(\w+)\s+uuid`)
-	reference := regexp.MustCompile(`(?m)^\s*(\w+_id)\s+uuid`)
+	// One ALTER TABLE may add several columns, comma-separated across lines —
+	// which is the form core 0195 uses to give `attachment` four record
+	// references at once. Matching only `ALTER TABLE x ADD COLUMN y uuid` on a
+	// single line saw none of them, so the table needed no verdict: a census
+	// that misses the repository's own DDL is not a census.
+	alter := regexp.MustCompile(`(?is)ALTER TABLE (?:IF EXISTS )?(\w+)\s(.*?);`)
+	added := regexp.MustCompile(`(?i)ADD COLUMN (?:IF NOT EXISTS )?(\w+)\s+uuid`)
+	// Case-insensitive, like its sibling above: a CREATE TABLE declaring
+	// `person_id UUID` is the same column, and a census that reads only one
+	// casing is a census with a spelling in it.
+	reference := regexp.MustCompile(`(?im)^\s*(\w+_id)\s+uuid`)
+	// A line comment may contain a semicolon, and this repository's do — core
+	// 0195's explanation of the attachment roll-up says "keeps owning its
+	// visibility; this makes". Matching a statement as "up to the next
+	// semicolon" over the raw text therefore ENDED that ALTER four columns
+	// early and the table went uncounted. Stripping comments first is what
+	// makes the statement boundary the statement's.
+	comment := regexp.MustCompile(`--[^\n]*`)
 
 	references := map[string]map[string]bool{}
 	note := func(table, column string) {
@@ -368,17 +415,20 @@ func joinTablesInMigrations(t *testing.T) map[string][]string {
 		references[table][record] = true
 	}
 	for _, file := range files {
-		body, err := os.ReadFile(file)
+		raw, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatalf("reading %s: %v", file, err)
 		}
-		for _, m := range create.FindAllStringSubmatch(string(body), -1) {
+		body := comment.ReplaceAllString(string(raw), "")
+		for _, m := range create.FindAllStringSubmatch(body, -1) {
 			for _, column := range reference.FindAllStringSubmatch(m[2], -1) {
 				note(m[1], column[1])
 			}
 		}
-		for _, m := range add.FindAllStringSubmatch(string(body), -1) {
-			note(m[1], m[2])
+		for _, statement := range alter.FindAllStringSubmatch(body, -1) {
+			for _, column := range added.FindAllStringSubmatch(statement[2], -1) {
+				note(statement[1], column[1])
+			}
 		}
 	}
 

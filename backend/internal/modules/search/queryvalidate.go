@@ -139,13 +139,19 @@ func checkSimilarity(similarTo string) []apperrors.FieldRefusal {
 // mapped to a target only after the vocabulary exists — so this asks for
 // every record type SOME relation of that name could reach, which is at most
 // one per searchable entity and in practice one.
+//
+// The plural is pluralRelationName's and not a second spelling of it. It was a
+// second spelling once, and the two agreed only because every plural in the
+// vocabulary happened to be formed by adding an s: the day one was not, the
+// hop resolved in the vocabulary and then narrowed to nothing, which refuses a
+// name the schema document publishes.
 func hopTargets(plan Plan) []string {
 	if plan.Traverse == nil {
 		return nil
 	}
 	var targets []string
 	for entity := range contractRecords {
-		if plan.Traverse.Relation == entity || plan.Traverse.Relation == entity+"s" {
+		if plan.Traverse.Relation == entity || plan.Traverse.Relation == pluralRelationName(entity) {
 			targets = append(targets, entity)
 		}
 	}
