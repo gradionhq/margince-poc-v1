@@ -250,6 +250,23 @@ export function CompanyLifecycleControl({
   );
 }
 
+// What to call an owner the roster's answer does not name, in the three
+// readings that answer has. "No longer in the user list" is a claim about a
+// read that came back WITHOUT them: over a read still in flight it reports the
+// owner as departed on the evidence of nothing having arrived, and over a read
+// that failed it turns a 403 or a dropped connection into a fact about who owns
+// the account. Shared by every control here that names the current owner, so
+// one of them cannot go on making the claim after the others stopped.
+function unresolvedOwnerLabel(
+  roster: Readonly<{ isPending: boolean; isError: boolean }>,
+  t: ReturnType<typeof useT>,
+): string {
+  if (roster.isPending) {
+    return t("common.loading");
+  }
+  return roster.isError ? t("ref.nameLoadFailed") : t("co.owner.notInRoster");
+}
+
 // Exported for the same reason as useCompanyFieldPatch/useCompanyReadOnlyReason
 // above: the rail's Details grid edits the SAME field through the SAME
 // roster read, the SAME not-in-roster fallback and the SAME
@@ -274,14 +291,12 @@ export function CompanyOwnerControl({
   // The account's current owner may sit outside the roster's one page — a big
   // workspace, a deactivated user — and a select whose current value is not an
   // option renders blank. Naming them keeps the control honest about who owns
-  // it today even when it cannot resolve them. Which sentence is honest depends
-  // on whether the roster has answered: "no longer in the user list" is a claim
-  // about a settled read, and stating it over one still in flight says the
-  // owner is gone when all that is known is that nothing has come back yet.
+  // it today even when it cannot resolve them; which sentence is honest is
+  // `unresolvedOwnerLabel`'s question, not this one's.
   if (org.owner_id && !owners.some((user) => user.value === org.owner_id)) {
     owners.unshift({
       value: org.owner_id,
-      label: roster.isPending ? t("common.loading") : t("co.owner.notInRoster"),
+      label: unresolvedOwnerLabel(roster, t),
     });
   }
   // "Unowned" is offered only while the account IS unowned. `owner_id` cannot
@@ -314,7 +329,7 @@ export function CompanyOwnerControl({
         }
         return (
           owners.find((user) => user.value === value)?.label ??
-          t("co.owner.notInRoster")
+          unresolvedOwnerLabel(roster, t)
         );
       }}
       onSave={(next) => patch({ owner_id: next })}
@@ -339,9 +354,14 @@ function CompanyEditAction({
   // The roster is one page of 200. An owner outside it — a big workspace, a
   // deactivated user — would leave the prefilled select showing a blank it
   // cannot resolve, and since the select is required once an owner is set,
-  // saving anything else would then force a reassignment nobody asked for.
+  // saving anything else would then force a reassignment nobody asked for. The
+  // form names them exactly as the header does, off the same three readings:
+  // the same roster read cannot be a departure here and a refusal there.
   if (org.owner_id && !owners.some((user) => user.id === org.owner_id)) {
-    owners.push({ id: org.owner_id, display_name: t("co.owner.notInRoster") });
+    owners.push({
+      id: org.owner_id,
+      display_name: unresolvedOwnerLabel(roster, t),
+    });
   }
   return (
     <EditAction

@@ -15,11 +15,13 @@ import { EntityRef } from "./entityref";
 // EntityRef (P-4 UUID-legibility): a cross-record reference resolves the
 // target's id to its display name and backlinks to its 360.
 //
-// A reference with no name has two readings and they are different facts. A
+// A reference with no name has three readings and they are different facts. A
 // read still in flight is going to answer; an id the roster's one page cannot
-// name (#1247) never will. Painting the id for both made every page load show
-// a uuid for a moment, and a uuid a reader sees for a moment reads as corrupt
-// data rather than as a page still loading.
+// name (#1247), or one the API answers 404 for, never will; a read that came
+// back 403 or 500 answered nothing at all. Painting the id for all three made
+// every page load show a uuid for a moment — which a reader takes for corrupt
+// data rather than for a page still loading — and made a refused read look
+// exactly like a record that genuinely carries no name.
 
 afterEach(() => {
   cleanup();
@@ -113,13 +115,56 @@ describe("EntityRef", () => {
   });
 
   it("falls back to the id (no link) once the lookup has settled without a name", async () => {
+    // The record answers; it simply carries no display name. That is the one
+    // reading the id belongs to, and the answer has to come back for it.
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => jsonResponse({}, 404)),
+      vi.fn(async () => jsonResponse({ id: "o-nameless" })),
     );
-    render(<EntityRef kind="organization" id="o-404" />);
-    await waitFor(() => expect(screen.getByText("o-404")).toBeTruthy());
-    expect(screen.queryByRole("button", { name: "o-404" })).toBeNull();
+    render(<EntityRef kind="organization" id="o-nameless" />);
+    await waitFor(() => expect(screen.getByText("o-nameless")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "o-nameless" })).toBeNull();
+  });
+
+  it("says the name could not be read when the record lookup fails, and never links it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ title: "Forbidden" }, 403)),
+    );
+    render(<EntityRef kind="organization" id="o-403" />);
+
+    expect(await screen.findByText("Name didn't load")).toBeTruthy();
+    // Painting the id here would report the reference as settled: a reader
+    // cannot tell a record with no name from one they were refused, and the
+    // second is the one worth acting on.
+    expect(screen.queryByText("o-403")).toBeNull();
+    // A name that failed to load is not a safe link target either.
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("keeps the id when the record is gone or hidden from this reader", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ code: "not_found" }, 404)),
+    );
+    render(<EntityRef kind="deal" id="d-gone" />);
+
+    // A 404 is an answer: row-scope hides a record it will not admit exists,
+    // and retrying produces the same one. The id is what a reader is left to
+    // trace, so this is the settled reading rather than the failed one.
+    await waitFor(() => expect(screen.getByText("d-gone")).toBeTruthy());
+    expect(screen.queryByText("Name didn't load")).toBeNull();
+  });
+
+  it("says the name could not be read when the roster lookup fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ title: "Server error" }, 500)),
+    );
+    render(<EntityRef kind="user" id="u-500" />);
+
+    expect(await screen.findByText("Name didn't load")).toBeTruthy();
+    expect(screen.queryByText("u-500")).toBeNull();
   });
 
   it("says a name is on its way while the record read is in flight, and shows the id only once it has settled", async () => {
@@ -141,7 +186,7 @@ describe("EntityRef", () => {
     expect(screen.queryByText("o-slow")).toBeNull();
 
     for (const resolve of answer) {
-      resolve(jsonResponse({}, 404));
+      resolve(jsonResponse({ id: "o-slow" }));
     }
 
     // Settled, the id is what is left, and it is a fact a reader can trace —
@@ -284,5 +329,43 @@ describe("EntityRef", () => {
     // the caller cannot list the roster.
     expect(await screen.findByText("Lars Jankowfsky")).toBeTruthy();
     expect(fetched).toHaveLength(0);
+  });
+
+  it("looks the record up when the supplied name is only whitespace, rather than linking a label nobody can read", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/organizations/o-1")) {
+          return jsonResponse({ id: "o-1", display_name: "Brandt GmbH" });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="organization" id="o-1" name="   " />);
+
+    // Whitespace is the caller saying it has nothing, exactly as an empty
+    // string is. Taken at face value it becomes a button with no readable
+    // label — a link a reader can neither read nor find.
+    expect(
+      await screen.findByRole("button", { name: "Brandt GmbH" }),
+    ).toBeTruthy();
+  });
+
+  it("looks the user up when the supplied name is only whitespace", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.url.includes("/users")) {
+          return jsonResponse({
+            data: [{ id: "u-1", display_name: "Priya Shah" }],
+            page: { next_cursor: null, has_more: false },
+          });
+        }
+        return jsonResponse({}, 404);
+      }),
+    );
+    render(<EntityRef kind="user" id="u-1" name=" " />);
+
+    expect(await screen.findByText("Priya Shah")).toBeTruthy();
   });
 });

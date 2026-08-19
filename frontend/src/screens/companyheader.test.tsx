@@ -1,10 +1,12 @@
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { CompanyIdentityLine } from "./companyheader";
+import { CompanyActionBadges, CompanyIdentityLine } from "./companyheader";
 
 // Who wrote the record, beside when it was written. The tag has always been able
 // to name the author — `ProvenanceTag` takes a `renderUser` — and the header has
@@ -84,6 +86,29 @@ function stubRosterInFlight(): Array<(response: Response) => void> {
   return answer;
 }
 
+// /me answers, /users is refused — the reading a reader gets when the roster
+// read comes back with nothing to say about anyone.
+function stubRosterRefused() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (request: Request) => {
+      if (new URL(request.url).pathname.endsWith("/me")) {
+        return new Response(
+          JSON.stringify({
+            user: { id: "u-reader", display_name: "The Reader" },
+            allow: {},
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ title: "Forbidden", status: 403 }), {
+        status: 403,
+        headers: { "content-type": "application/problem+json" },
+      });
+    }),
+  );
+}
+
 // The tag is one span carrying "typed by" and the name as sibling text nodes, so
 // the reading a human gets is the span's whole text — asserting on the name alone
 // would pass on markup that never says what the name is doing there.
@@ -95,17 +120,19 @@ function provenanceText(): string {
   return tag.textContent?.replace(/\s+/g, " ").trim() ?? "";
 }
 
-function renderLine() {
+function renderInApp(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">
-        <CompanyIdentityLine org={ORG} />
-      </LocaleProvider>
+      <LocaleProvider initial="en">{ui}</LocaleProvider>
     </QueryClientProvider>,
   );
+}
+
+function renderLine() {
+  renderInApp(<CompanyIdentityLine org={ORG} />);
 }
 
 describe("who wrote this record", () => {
@@ -173,6 +200,20 @@ describe("who owns this record", () => {
     expect(await screen.findByText("Mira Voss")).toBeTruthy();
   });
 
+  it("does not call the owner gone when the roster read failed", async () => {
+    stubRosterRefused();
+    renderLine();
+
+    // A refused read excludes nobody. Reading it as "no longer in the user
+    // list" turns a 403 into a fact about who owns this account, which is the
+    // one thing this control is here to get right.
+    expect(await screen.findByText("Name didn't load")).toBeTruthy();
+    expect(
+      screen.queryByText("Current owner (no longer in the user list)"),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("u-owner");
+  });
+
   it("says the owner is outside the user list once the roster has answered without them", async () => {
     stub([]);
     renderLine();
@@ -183,5 +224,33 @@ describe("who owns this record", () => {
     // An owner the roster cannot name is still not shown as a uuid: waiting
     // will not resolve them, and their id answers no question a reader has.
     expect(document.body.textContent).not.toContain("u-owner");
+  });
+});
+
+// The edit form prefills the same owner off the same roster read, so it made
+// the same claim one control over: a reader who opened the form to check what
+// the header said was told "no longer in the user list" a second time, by a
+// read that had excluded nobody.
+describe("the owner the edit form prefills", () => {
+  it("does not call the owner gone when the roster read failed", async () => {
+    stubRosterRefused();
+    const user = userEvent.setup();
+    renderInApp(
+      <CompanyActionBadges
+        org={ORG}
+        onOpenHistory={() => undefined}
+        onSetUpPartner={() => undefined}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "More actions" }),
+    );
+    await user.click(await screen.findByTestId("edit-record"));
+
+    expect(await screen.findByText("Name didn't load")).toBeTruthy();
+    expect(
+      screen.queryByText("Current owner (no longer in the user list)"),
+    ).toBeNull();
   });
 });

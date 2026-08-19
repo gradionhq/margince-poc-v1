@@ -641,10 +641,17 @@ const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
 // this principal cannot read) falls back to the id in mono rather than to
 // nothing.
 function RecordName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
-  const name = useEntityName(kind, id);
+  const t = useT();
+  const { name, reading } = useEntityName(kind, id);
+  // A read that never arrived says so. The trail used to print the id for a
+  // failed read exactly as it does for a record that has no name, so a 403 on
+  // the crumb was indistinguishable from a record whose display field is blank
+  // — and the id, being the thing a reader cannot act on, is the worst of the
+  // three things it could have said.
+  //
   // Truncated to keep the trail on one line, so the tooltip is what carries a
   // name too long for it.
-  const text = name ?? id;
+  const text = name ?? (reading === "failed" ? t("ref.nameLoadFailed") : id);
   const tip = useTruncationTooltip<HTMLSpanElement>(text);
   return (
     <span

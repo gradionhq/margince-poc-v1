@@ -333,6 +333,11 @@ export const en = {
   "common.empty": "Nothing here yet.",
   "common.saving": "Saving…",
   "common.loading": "Loading…",
+  // A reference whose name READ failed, which is not the same as a record that
+  // has no name: the id stays reachable through the title, and the reference
+  // never becomes a link, because a name that did not load cannot be trusted as
+  // a destination.
+  "ref.nameLoadFailed": "Name didn't load",
 
   // The app-level boundary's fallback. It says what happened and what to do
   // next, and nothing about the error itself: a render throw carries our own

@@ -167,9 +167,14 @@ function EnrichedField({
         >
           {editing ? (
             <>
+              {/* Pending is not refusal: the write the reader just started keeps
+                  their focus, while an empty draft is the one thing that really
+                  is refused. Disabling on both would move focus off the control
+                  they pressed, at the moment they are waiting on it. */}
               <Button
                 small
-                disabled={record.isPending || draft.trim() === ""}
+                pending={record.isPending}
+                disabled={draft.trim() === ""}
                 onClick={() =>
                   record.mutate({ verdict: "corrected", value: draft.trim() })
                 }
