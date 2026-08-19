@@ -651,7 +651,9 @@ function SetRoleAction({
           person_id: contact.person_id,
           deal_id: dealId,
           role: picked,
-          is_current_primary: false,
+          // Not sent: the flag is an EMPLOYMENT fact and this edge is a deal
+          // stakeholder, so the literal said nothing and only stood in the way
+          // of a gate that can now assert no screen states it by hand.
           source: "manual",
         },
       });
@@ -1127,12 +1129,23 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
 export function CommercialPanel({
   view,
   titleAction,
+  extra,
   onAllDeals,
   loading = false,
 }: Readonly<{
   view?: Organization360;
   // The "new deal" verb, gated by the caller on the record being writable.
   titleAction?: ReactNode;
+  // What else belongs to this account's commercial standing but is not read
+  // off its deals — the overview hands in what it is already under contract
+  // for, rather than a second card repeating "the commercial picture" under
+  // its own heading.
+  //
+  // Rendered OUTSIDE the deals branch below, unlike DealsCard's slot of the
+  // same name: the two readings answer to different grants, and a reader who
+  // may see contracts and not deals would otherwise lose theirs to somebody
+  // else's permission.
+  extra?: ReactNode;
   onAllDeals?: () => void;
   // The composite read's own pending flag — see sectionState's own doc.
   loading?: boolean;
@@ -1170,6 +1183,10 @@ export function CommercialPanel({
         ) : undefined
       }
     >
+      {/* Before the pipeline, and before the panel's own deals footer: what
+          the account is already signed for frames the deals that are still
+          moving, and the Deals tab reads in that order too. */}
+      {extra}
       {state === "ready" && deals ? (
         <>
           <PanelBody className="co-figures">
@@ -2027,7 +2044,7 @@ export function AskSection({
   // account with nothing to say — the same distinction every card here keeps.
   const readable = Array.isArray(answer?.sentences) ? answer : undefined;
   return (
-    <section className="co-part co-ask" aria-label={t("co.ask.title")}>
+    <section className="co-part" aria-label={t("co.ask.title")}>
       <Eyebrow as="h3">{t("co.ask.title")}</Eyebrow>
       <p className="co-ask-questions">
         {QUESTIONS.map((question) => (

@@ -38,6 +38,7 @@ var singlePurposeTools = []string{
 	"promote_lead", "disqualify_lead", "advance_project_phase", "advance_deal",
 	"merge_records", "enrich",
 	"log_activity", "draft_email", "relink_activity", "run_report",
+	"decide_approval", "decide_approval_bundle",
 }
 
 // contractBodies is each route's own minimal request body, as crm.yaml declares
@@ -73,6 +74,14 @@ var contractBodies = map[string]string{
 	// and nothing out of the body, which is exactly the claim a real plan
 	// travelling through it makes checkable.
 	"runReport": `{"filters":{"period":"last_quarter"},"group_by":["source"]}`,
+	// The four decision routes, for the same reason: each declares an optional
+	// body carrying the reason a human wrote, and each decoder reads its
+	// verdict off the OPERATION rather than out of it — a claim worth making
+	// against the body the route really produces.
+	"approveApproval":       `{"reason":"the customer asked for it"}`,
+	"rejectApproval":        `{"reason":"not this quarter"}`,
+	"approveApprovalBundle": `{"reason":"all six corrections check out"}`,
+	"rejectApprovalBundle":  `{"reason":"the run misread the thread"}`,
 }
 
 // What a registration does not say: that the decoder bound to a route can
@@ -336,5 +345,50 @@ func TestAChannelReplyOnANonChannelAnchorStagesNothing(t *testing.T) {
 	}
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("a reply on a non-channel anchor answered %d, want %d", rec.Code, http.StatusUnprocessableEntity)
+	}
+}
+
+// The verdict a decision decoder produces comes off the operation, and the two
+// operations that mean YES are named rather than inferred. Written that way
+// round on purpose: a verb this table has never heard of decides nothing, which
+// discards a proposal instead of performing one.
+func TestADecisionDecoderReadsItsVerdictOffTheOperation(t *testing.T) {
+	cases := []struct {
+		route, op string
+		approve   bool
+	}{
+		{"POST /v1/approvals/{id}/approve", opApproveApproval, true},
+		{"POST /v1/approvals/{id}/reject", opRejectApproval, false},
+		{"POST /v1/approval-bundles/{bundle_id}/approve", opApproveApprovalBundle, true},
+		{"POST /v1/approval-bundles/{bundle_id}/reject", opRejectApprovalBundle, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.op, func(t *testing.T) {
+			if got := approvesApproval(tc.op); got != tc.approve {
+				t.Fatalf("approvesApproval(%s) = %v, want %v", tc.op, got, tc.approve)
+			}
+			decode := restCommands[tc.op]
+			call, err := decode(agentPolicies[tc.route], restCommandDeps{},
+				syntheticOperandRequest(tc.route, ids.NewV7()), []byte(`{"reason":"because"}`))
+			if err != nil {
+				t.Fatalf("decoding %s answered %v", tc.op, err)
+			}
+			subject, err := agents.StageSubject(context.Background(), call)
+			if err != nil {
+				t.Fatalf("staging the decoded decision answered %v", err)
+			}
+			verdict := "Approve"
+			if !tc.approve {
+				verdict = "Reject"
+			}
+			if !strings.HasPrefix(subject.Summary, verdict) {
+				t.Errorf("%s stages %q, which does not open with %q", tc.op, subject.Summary, verdict)
+			}
+		})
+	}
+	// And a verb nothing declares falls to the safe answer rather than the
+	// destructive one.
+	if approvesApproval("approveSomethingElse") {
+		t.Error("an unknown operation was read as an approval — an unrecognised verb must not release anything")
 	}
 }

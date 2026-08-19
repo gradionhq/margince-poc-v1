@@ -274,9 +274,8 @@ func TestOrgRollupRestrictedNodeDisclosedAndGrantRestores(t *testing.T) {
 			pre.RestrictedExcluded)
 	}
 
-	e.WsExec(t, `INSERT INTO record_grant (workspace_id, record_type, record_id, subject_type, subject_id, access, granted_by)
-		VALUES ($1, 'organization', $2, 'user', $3, 'read', $3)`,
-		e.WS, child, e.Rep1)
+	e.WsExec(t, `INSERT INTO record_grant (record_type, record_id, subject_type, subject_id, access, granted_by)
+		VALUES ('organization', $1, 'user', $2, 'read', $2)`, child, e.Rep1)
 
 	post, err := compose.OrgHierarchyRollup(rep, e.Pool, root, "tree", time.Now)
 	if err != nil {

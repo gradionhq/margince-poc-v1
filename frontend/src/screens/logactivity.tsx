@@ -298,6 +298,7 @@ export function LogActivityAction({
   initialKind,
   openOnMount,
   triggerLabel,
+  disabledReasonId,
   onClose,
 }: Readonly<{
   entityType: EntityKind;
@@ -314,6 +315,11 @@ export function LogActivityAction({
   // own verb; two buttons both reading "Log activity" is a toolbar that has
   // stopped telling the reader anything.
   triggerLabel?: MessageKey;
+  // The sentence that refuses this verb, already on the page. A record that
+  // takes no new activity must still SHOW the verb it will not accept — a
+  // reader who cannot tell "this record is archived" from "this build has no
+  // such button" learns nothing from the absence.
+  disabledReasonId?: string;
   onClose?: () => void;
 }>) {
   const t = useT();
@@ -330,7 +336,7 @@ export function LogActivityAction({
   return (
     <>
       {!openOnMount && (
-        <Button small onClick={() => setOpen(true)}>
+        <Button small reasonId={disabledReasonId} onClick={() => setOpen(true)}>
           {t(triggerLabel ?? "log.title")}
         </Button>
       )}

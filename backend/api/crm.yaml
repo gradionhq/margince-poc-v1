@@ -7505,6 +7505,12 @@ paths:
         Lists confirm-first items proposed by agents/AI moments (cold-start accept,
         transcript proposal, overnight reconciliation, drafted sends, deal advances).
         Each item carries the proposed change + evidence + confidence (features/07 §8).
+
+        The list is what the CALLER may decide, never the whole table: an item whose
+        target they cannot see, or whose effect they could not perform, is absent
+        rather than listed-and-refused. A pending item past its expiry reads as
+        expired here without waiting for a sweep.
+      x-mcp-tool: { verb: list_approvals, tier: auto_execute, scope: read }
       parameters:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
@@ -7555,6 +7561,11 @@ paths:
       tags: [Approvals]
       operationId: getApproval
       summary: Get a single approval item (full proposed diff + evidence).
+      description: |
+        The staged change in full, with the evidence it was formed on. An item this
+        caller could not decide answers `404`, exactly as an out-of-scope record
+        does — the same existence-hiding the inbox list applies.
+      x-mcp-tool: { verb: read_approval, tier: auto_execute, scope: read }
       responses:
         '200':
           description: The approval item.
@@ -7569,13 +7580,19 @@ paths:
     post:
       tags: [Approvals]
       operationId: approveApproval
-      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
-      x-agent-access: human-only
       summary: Approve a staged action (commits it; mints the approval token).
       description: |
         Approving commits the proposed change in one audit transaction. The (optionally
         edited) payload is what executes. Returns the approval with the resulting entity ref
         + the `approval_token` that authorized the downstream 🟡 operation.
+
+        A passport acting for a human decides here on that human's own authority
+        (ADR-0055): the decision demands the RBAC the staged effect itself needs, the
+        row-scope visibility of its target, and the granting human's seat, and it
+        spends the passport scope the release spends — `write`, plus `send` where
+        approving puts a message on the wire. A `read` passport reads this inbox and
+        is refused the decision.
+      x-mcp-tool: { verb: decide_approval, tier: auto_execute, scope: write }
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -7607,9 +7624,12 @@ paths:
     post:
       tags: [Approvals]
       operationId: rejectApproval
-      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
-      x-agent-access: human-only
       summary: Reject a staged action (discards it; nothing commits).
+      description: |
+        A rejection is a decision, not a free action: it demands exactly the authority
+        approving demands, and is recorded the same way. Governed for a passport
+        identically to `approveApproval`.
+      x-mcp-tool: { verb: decide_approval, tier: auto_execute, scope: write }
       requestBody:
         required: false
         content:
@@ -7638,8 +7658,7 @@ paths:
     post:
       tags: [Approvals]
       operationId: approveApprovalBundle
-      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
-      x-agent-access: human-only
+      x-mcp-tool: { verb: decide_approval_bundle, tier: auto_execute, scope: write }
       summary: Approve every still-pending member of one bundle.
       description: |
         A bundle is the set of proposals ONE act staged together; it is a grouping, never a
@@ -7673,8 +7692,7 @@ paths:
     post:
       tags: [Approvals]
       operationId: rejectApprovalBundle
-      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
-      x-agent-access: human-only
+      x-mcp-tool: { verb: decide_approval_bundle, tier: auto_execute, scope: write }
       summary: Reject every still-pending member of one bundle; no records change.
       description: |
         The rejecting half of `approveApprovalBundle`, with the same per-member semantics: a
@@ -17994,7 +18012,11 @@ components:
         deal_id: { type: [string, 'null'], format: uuid }
         project_id: { type: [string, 'null'], format: uuid }
         role: { type: [string, 'null'] }
-        is_current_primary: { type: boolean, default: false }
+        # No `default`. The server decides this field when it is OMITTED — an
+        # employment for somebody with no other current one becomes their
+        # primary — so declaring a default would tell every generated client to
+        # materialize `false` and state a decision its caller never made.
+        is_current_primary: { type: boolean }
         started_at: { type: [string, 'null'], format: date }
         ended_at: { type: [string, 'null'], format: date }
         source: { type: string }

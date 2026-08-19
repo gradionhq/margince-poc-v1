@@ -84,7 +84,7 @@ describe("BuildScene", () => {
     const onDone = vi.fn();
     withLocale(<BuildScene onDone={onDone} durationMs={1200} />);
     const scene = screen.getByRole("status", {
-      name: "Assembling your workspace",
+      name: "Assembling your organization",
     });
 
     expect(scene).not.toHaveClass("is-leaving");
@@ -165,10 +165,12 @@ describe("BuildScene", () => {
 
     // A blocking scene that says nothing to a screen reader is a dead end.
     const scene = screen.getByRole("status", {
-      name: "Assembling your workspace",
+      name: "Assembling your organization",
     });
     expect(scene).toBeInTheDocument();
-    expect(screen.getByText("Assembling your workspace")).toBeInTheDocument();
+    expect(
+      screen.getByText("Assembling your organization"),
+    ).toBeInTheDocument();
 
     // The word is readable through the real wordmark's accessible name...
     expect(screen.getByRole("img", { name: "Margince" })).toBeInTheDocument();

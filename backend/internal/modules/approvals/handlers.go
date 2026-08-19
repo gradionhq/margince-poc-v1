@@ -24,23 +24,26 @@ type Handlers struct {
 
 func NewHandlers(svc *Service) Handlers { return Handlers{svc: svc} }
 
-// WithLateEffect registers a follow-on executor for one staging kind after the
-// handlers are already built, taking a builder because most such executors need
-// the very service they are registered on in order to redeem.
+// WithLateEffects hands this surface's service to a caller that registers
+// follow-on executors on it, after the handlers are already built.
 //
-// It exists for an effect whose DEPENDENCIES are not knowable at construction
+// It exists for effects whose DEPENDENCIES are not knowable at construction
 // time. The held-draft release sends through the configured activities store,
-// and that store is assembled from server options applied after this surface
-// is built — registering it early would bind a bare one and quietly send mail
-// with no signature and no unsubscribe header. A wiring that looks present and
-// is under-configured is worse than one that is absent, because nothing fails.
+// and that store is assembled from server options applied after this surface is
+// built — registering it early would bind a bare one and quietly send mail with
+// no signature and no unsubscribe header. A wiring that looks present and is
+// under-configured is worse than one that is absent, because nothing fails.
+//
+// It takes an APPLIER rather than one kind at a time because the same set has to
+// reach a second service: the governed tool surface decides through its own
+// engine, and a kind registered on one of the two is a decision the other marks
+// approved and never performs. One function, called with either service.
 //
 // Effects whose dependencies ARE available at construction time keep using
 // Service.WithEffect at the registration list; this is not a second way to do
 // the same thing.
-func (h Handlers) WithLateEffect(kind string, build func(*Service) ApprovedEffect, check ReleasePrecheck) Handlers {
-	h.svc.WithEffect(kind, build(h.svc))
-	h.svc.WithPrecheck(kind, check)
+func (h Handlers) WithLateEffects(apply func(*Service)) Handlers {
+	apply(h.svc)
 	return h
 }
 
@@ -57,14 +60,10 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 		httperr.Write(w, r, invalid)
 		return
 	}
-	rows, page, err := h.svc.List(r.Context(), in)
+	data, page, err := h.svc.ListWire(r.Context(), in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
-	}
-	data := make([]crmcontracts.Approval, 0, len(rows))
-	for _, a := range rows {
-		data = append(data, h.wire(a))
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
 		Data: data,
@@ -114,12 +113,12 @@ func listInput(params crmcontracts.ListApprovalsParams) (ListInput, *httperr.Det
 }
 
 func (h Handlers) GetApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	a, err := h.svc.Get(r.Context(), pathID[ids.ApprovalKind](id))
+	a, err := h.svc.GetWire(r.Context(), pathID[ids.ApprovalKind](id))
 	if err != nil {
 		writeErr(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, h.wire(a))
+	httperr.WriteJSON(w, http.StatusOK, a)
 }
 
 func (h Handlers) ApproveApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ApproveApprovalParams) {
@@ -200,17 +199,10 @@ func (h Handlers) decideBundle(w http.ResponseWriter, r *http.Request, bundleID 
 	if r.Body != nil && r.ContentLength != 0 && !httperr.Decode(w, r, &req) {
 		return
 	}
-	members, err := h.svc.DecideBundle(r.Context(), ids.UUID(bundleID), approve, req.Reason)
+	data, err := h.svc.DecideBundleWire(r.Context(), ids.UUID(bundleID), approve, req.Reason)
 	if err != nil {
 		writeErr(w, r, err)
 		return
-	}
-	data := make([]crmcontracts.ApprovalBundleMember, 0, len(members))
-	for _, member := range members {
-		data = append(data, crmcontracts.ApprovalBundleMember{
-			Approval: h.wire(member.Approval),
-			Outcome:  crmcontracts.ApprovalBundleMemberOutcome(member.Outcome),
-		})
 	}
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ApprovalBundleDecision{BundleId: bundleID, Data: data})
 }

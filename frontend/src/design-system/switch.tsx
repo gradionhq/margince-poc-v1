@@ -37,6 +37,11 @@ import "./switch.css";
  * than sitting beside the control as decoration); or the flip they just made
  * is still being written (`pending`, which needs no words and must not look
  * like either of the other two).
+ *
+ * Two of those three refuse the flip, and `reason` does it on its own: a
+ * sentence explaining why a reader may not change a setting they then can
+ * change is worse than silence, because they read the denial, flip it anyway,
+ * and only the server says no.
  */
 export function Switch({
   label,
@@ -65,7 +70,12 @@ export function Switch({
   checked: boolean | undefined;
   onChange: (next: boolean) => void;
   disabled?: boolean;
-  /** Why it cannot be changed. Rendered, and announced with the control. */
+  /**
+   * Why it cannot be changed. Rendered, announced with the control through
+   * `aria-describedby`, and refusing the flip by itself — a caller does not
+   * have to remember `disabled` beside it, and cannot defeat it by passing
+   * `disabled={false}`. `Button.reason` carries the same contract.
+   */
   reason?: ReactNode;
   /**
    * Whether the flip the reader just made is still being written.
@@ -94,12 +104,18 @@ export function Switch({
   // back on click, so what a reader hears and what the next write carries can
   // never disagree.
   const on = checked === true;
+  // A stated reason IS a refusal, not a note beside one, and it holds whatever
+  // the caller passes for `disabled` — the same reading `Button` gives its own
+  // `reason`. Left as two independent props, a caller who said why the setting
+  // was locked and stopped there shipped a live switch that announced its own
+  // denial and then wrote anyway.
+  const refused = reason !== undefined;
   // Refusal beats busy in both its spellings, exactly as `Button` reads it. A
   // switch carrying `reason` is one this reader may not change, so drawing the
   // mark beside a sentence that says "your seat cannot change this" would tell
   // them their write is going through and that they were never allowed to make
   // it, in the same row.
-  const busy = pending === true && disabled !== true && reason === undefined;
+  const busy = pending === true && disabled !== true && !refused;
 
   return (
     <div className="switchrow">
@@ -116,7 +132,7 @@ export function Switch({
         // nothing saying so.
         aria-checked={on}
         aria-describedby={describedBy}
-        disabled={disabled}
+        disabled={disabled || refused}
         className="switchcontrol"
         data-testid={testId}
         // A second flip while the first is still being written would send a

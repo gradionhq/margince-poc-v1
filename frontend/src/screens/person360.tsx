@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -16,6 +15,7 @@ import type { ConfidenceLevel } from "../design-system/trust";
 import { useT } from "../i18n";
 import { provenanceOf, throwProblem } from "./common";
 import { dealRoleLabel } from "./company360";
+import { currentEmployer, formerEmployers } from "./employmentcurrency";
 import { EntityRef } from "./entityref";
 
 export type Person360 = components["schemas"]["Person360"];
@@ -88,7 +88,7 @@ export function ThinState({
   onLogActivity,
 }: Readonly<{ view: Person360; onLogActivity?: () => void }>) {
   const t = useT();
-  const employer = view.employments?.data.find((e) => e.is_current_primary);
+  const employer = currentEmployer(view.employments?.data);
   const email = view.person.emails?.[0]?.email;
 
   // The remediation is chosen by what is MISSING, so the page offers the one
@@ -261,10 +261,8 @@ export function IdentityRail({
   const byField = new Map<string, ProfileField>(
     (view.profile_fields ?? []).map((f) => [f.field, f]),
   );
-  const current = view.employments?.data.find((e) => e.is_current_primary);
-  const former = (view.employments?.data ?? []).filter(
-    (e) => !e.is_current_primary,
-  );
+  const current = currentEmployer(view.employments?.data);
+  const former = formerEmployers(view.employments?.data);
 
   return (
     <>

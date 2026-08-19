@@ -84,12 +84,12 @@ func SetupSearch(t *testing.T) *SearchEnv {
 		}
 	}
 	for _, tm := range []ids.UUID{e.Team1, e.Team2} {
-		if _, err := owner.Exec(ctx, `INSERT INTO team (id, workspace_id, name) VALUES ($1, $2, $3)`, tm, e.WS, tm.String()); err != nil {
+		if _, err := owner.Exec(ctx, `INSERT INTO team (id, name) VALUES ($1, $2)`, tm, tm.String()); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for u, tm := range map[ids.UUID]ids.UUID{e.Rep1: e.Team1, e.Rep3: e.Team2} {
-		if _, err := owner.Exec(ctx, `INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($1, $2, $3)`, e.WS, tm, u); err != nil {
+		if _, err := owner.Exec(ctx, `INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`, tm, u); err != nil {
 			t.Fatal(err)
 		}
 	}

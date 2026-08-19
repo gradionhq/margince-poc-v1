@@ -129,18 +129,18 @@ BEGIN
 
   -- A team with admin + Rep One as members, so the roster picker and the
   -- "who has access" list have a demonstrable, non-trivial membership.
-  INSERT INTO team (workspace_id, name)
-  VALUES (ws, 'DACH Sales')
+  INSERT INTO team (name)
+  VALUES ('DACH Sales')
   ON CONFLICT (name) DO NOTHING;
 
   SELECT id INTO dach_team_id
     FROM team
-    WHERE workspace_id = ws AND name = 'DACH Sales';
+    WHERE name = 'DACH Sales';
 
-  INSERT INTO team_membership (workspace_id, team_id, user_id)
+  INSERT INTO team_membership (team_id, user_id)
   VALUES
-    (ws, dach_team_id, admin_id),
-    (ws, dach_team_id, rep_id)
+    (dach_team_id, admin_id),
+    (dach_team_id, rep_id)
   ON CONFLICT (team_id, user_id) DO NOTHING;
 
   -- A seat with no role_assignment has NO permissions — every object check

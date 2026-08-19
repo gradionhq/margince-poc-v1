@@ -31,56 +31,92 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function stub(body: unknown, status = 200) {
+// The session and the installation read that the upload in this tab's header
+// band makes. Answered from fixtures rather than left to the attachment body,
+// because /me rejects a payload with no `user` and a malformed session renders
+// every control refused for a reason none of these tests is about.
+const SESSION = {
+  user: { id: "u-1", email: "rep@example.com", name: "Demo Rep" },
+  authorization: {
+    seat_type: "full",
+    objects: { person: { update: true } },
+  },
+};
+
+const INSTALLATION = {
+  name: "Demo",
+  timezone: "Europe/Berlin",
+  base_currency: "EUR",
+  base_currency_locked: false,
+  max_upload_bytes: 26_214_400,
+};
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+/**
+ * A stub that answers the tab's OWN reads through `handler` and everything the
+ * header's upload asks for from the fixtures above.
+ *
+ * Only a request the tab itself made reaches `lastRequest`: the scoping tests
+ * read it to prove which person was asked about, and a session probe landing
+ * there would answer a question nobody asked.
+ */
+function stubTab(handler: (request: Request) => Promise<Response> | Response) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
+      const { pathname } = new URL(request.url);
+      if (pathname.endsWith("/me")) {
+        return json(SESSION);
+      }
+      if (pathname.endsWith("/installation/settings")) {
+        return json(INSTALLATION);
+      }
       lastRequest = request;
-      return new Response(JSON.stringify(body), {
-        status,
-        headers: { "content-type": "application/json" },
-      });
+      return handler(request);
     }),
   );
+}
+
+function stub(body: unknown, status = 200) {
+  stubTab(() => json(body, status));
 }
 
 // A cursor-paginated library: the first page hands back the cursor the second
 // one is only reachable with, so a test that renders the second page has
 // proven the walk, not just the button.
 function stubTwoPages() {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (request: Request) => {
-      lastRequest = request;
-      const cursor = new URL(request.url).searchParams.get("cursor");
-      const body =
-        cursor === "cur-2"
-          ? {
-              data: [
-                attachment({
-                  id: "f-2",
-                  entity_id: "p-1",
-                  filename: "older.pdf",
-                }),
-              ],
-              page: { has_more: false, next_cursor: null },
-            }
-          : {
-              data: [
-                attachment({
-                  id: "f-1",
-                  entity_id: "p-1",
-                  filename: "newest.pdf",
-                }),
-              ],
-              page: { has_more: true, next_cursor: "cur-2" },
-            };
-      return new Response(JSON.stringify(body), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
-    }),
-  );
+  stubTab((request) => {
+    const cursor = new URL(request.url).searchParams.get("cursor");
+    return json(
+      cursor === "cur-2"
+        ? {
+            data: [
+              attachment({
+                id: "f-2",
+                entity_id: "p-1",
+                filename: "older.pdf",
+              }),
+            ],
+            page: { has_more: false, next_cursor: null },
+          }
+        : {
+            data: [
+              attachment({
+                id: "f-1",
+                entity_id: "p-1",
+                filename: "newest.pdf",
+              }),
+            ],
+            page: { has_more: true, next_cursor: "cur-2" },
+          },
+    );
+  });
 }
 
 let lastRequest: Request | undefined;
@@ -270,33 +306,20 @@ describe("the person's files tab", () => {
     // refusing a press is the walk being out; it becoming pressable again is
     // the failure having landed, and only then is the tab worth asking.
     const secondPage = heldPage();
-    let call = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        call += 1;
-        if (call === 1) {
-          return new Response(
-            JSON.stringify({
-              data: [
-                attachment({
-                  id: "f-1",
-                  entity_id: "p-1",
-                  filename: "newest.pdf",
-                }),
-              ],
-              page: { has_more: true, next_cursor: "cur-2" },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        await secondPage.arrival;
-        return new Response(JSON.stringify({ title: "Error" }), {
-          status: 500,
-          headers: { "content-type": "application/json" },
+    let page = 0;
+    stubTab(async () => {
+      page += 1;
+      if (page === 1) {
+        return json({
+          data: [
+            attachment({ id: "f-1", entity_id: "p-1", filename: "newest.pdf" }),
+          ],
+          page: { has_more: true, next_cursor: "cur-2" },
         });
-      }),
-    );
+      }
+      await secondPage.arrival;
+      return json({ title: "Error" }, 500);
+    });
     const user = userEvent.setup();
     show(<PersonFilesTab personId="p-1" />);
 
@@ -314,6 +337,52 @@ describe("the person's files tab", () => {
     // the button is still there to try the same page again.
     expect(screen.getByRole("link", { name: "newest.pdf" })).toBeTruthy();
     expect(screen.queryByText("This section did not load.")).toBeNull();
+  });
+
+  it("files an uploaded document against this contact, from this tab", async () => {
+    // Both request shapes reach one stub: the generated client hands `fetch` a
+    // whole Request, and the multipart upload calls it the plain way.
+    const uploads: FormData[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        // The multipart upload is answered FIRST, because it is the one call
+        // made with a relative path — `new URL("/v1/attachments")` throws, so
+        // parsing before this branch would fail the request under test.
+        if (init?.body instanceof FormData) {
+          uploads.push(init.body);
+          return json({ id: "att-1", filename: "cv.pdf" }, 201);
+        }
+        const request = input instanceof Request ? input : null;
+        const { pathname } = new URL(request ? request.url : String(input));
+        if (pathname.endsWith("/me")) {
+          return json(SESSION);
+        }
+        if (pathname.endsWith("/installation/settings")) {
+          return json(INSTALLATION);
+        }
+        return json({ data: [], page: { has_more: false } });
+      }),
+    );
+    const user = userEvent.setup();
+    show(<PersonFilesTab personId="p-7" />);
+
+    // The verb the tab shipped without: a reader who wants a CV on a contact
+    // had to reach the upload from the account's library and change its parent.
+    await user.click(
+      await screen.findByRole("button", { name: "Add a document" }),
+    );
+    await user.upload(
+      screen.getByLabelText(/File/),
+      new File(["…"], "cv.pdf", { type: "application/pdf" }),
+    );
+    const submit = screen.getByRole("button", { name: "Upload" });
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false));
+    await user.click(submit);
+
+    await waitFor(() => expect(uploads).toHaveLength(1));
+    expect(uploads[0].get("entity_type")).toBe("person");
+    expect(uploads[0].get("entity_id")).toBe("p-7");
   });
 
   it("scopes the request to the person whose files these are", async () => {

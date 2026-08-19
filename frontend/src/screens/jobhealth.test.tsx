@@ -133,7 +133,7 @@ afterEach(() => {
 });
 
 describe("JobHealthCard", () => {
-  it("reports every state of every kind, and which rows carry no workspace", async () => {
+  it("reports every state of every kind, and which rows carry no organization", async () => {
     stubRoutes();
     render(<JobHealthCard />);
     // All four counts, zeros included: "0 dead" is the reassurance an operator
@@ -151,7 +151,7 @@ describe("JobHealthCard", () => {
     // The dispatcher row is separated from the workspace's own work, and says
     // whose counts they are.
     expect(screen.getByText("retention_sweep_dispatch")).toBeInTheDocument();
-    expect(screen.getByText(/carry no workspace/i)).toBeInTheDocument();
+    expect(screen.getByText(/carry no organization/i)).toBeInTheDocument();
     // The stall signal, in a unit that survives the sub-hour case: 4500s reads as
     // one hour, never format.ts's "0 hr" flooring — and in the singular, which is
     // the whole reason the four duration keys carry a .one form.

@@ -158,8 +158,11 @@ describe("connections card", () => {
     render(<ConnectionsCard orgId={ROOT} />);
 
     const list = await screen.findByRole("list");
-    // An unnamed record reads as its id, never as a blank row or a dead link.
-    expect(within(list).getByTitle("p-1").textContent).toBe("p-1");
+    // An unnamed record reads as its id, never as a blank row or a dead link —
+    // once the lookup that could have named it has settled. Awaited rather than
+    // read on the spot, because the pending window now says so instead of
+    // painting an id the read may yet replace.
+    expect((await within(list).findByTitle("p-1")).textContent).toBe("p-1");
     expect(within(list).queryByRole("button", { name: "" })).toBeNull();
   });
 

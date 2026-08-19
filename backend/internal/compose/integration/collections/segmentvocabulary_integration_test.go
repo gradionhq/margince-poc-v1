@@ -744,3 +744,145 @@ func TestACatalogueReadFailureIsNeverMisreportedAsAFilterMistake(t *testing.T) {
 		t.Fatalf("a catalogue failure was dressed up as a filter validation error: %v", pred)
 	}
 }
+
+// memberIDs reads a list's live membership as a set, for the scenarios whose
+// answer is more than one record. assertSoleMember above covers the single-row
+// case and says so more sharply; this is its plural sibling, not a replacement.
+func memberIDs(t *testing.T, f fixture, listID ids.ListID) map[ids.UUID]bool {
+	t.Helper()
+	rows, _, err := f.lists.ListMembers(f.ctx, listID, 50, "")
+	if err != nil {
+		t.Fatalf("list members: %v", err)
+	}
+	got := make(map[ids.UUID]bool, len(rows))
+	for _, row := range rows {
+		got[row.EntityID] = true
+	}
+	return got
+}
+
+// dealForCustomer seeds one deal against one organization through the real
+// writer, so the organization_id the filter joins on is the one CreateDeal
+// itself stamps.
+func (f fixture) dealForCustomer(
+	t *testing.T, name string, pipeline ids.PipelineID, stage ids.StageID, org *ids.OrganizationID,
+) ids.UUID {
+	t.Helper()
+	deal, err := f.e.Deals.CreateDeal(f.ctx, dealsmod.CreateDealInput{
+		Name: name, PipelineID: pipeline, StageID: stage, OrganizationID: org, Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create deal %q: %v", name, err)
+	}
+	return ids.UUID(deal.Id)
+}
+
+// customerOrg seeds one organization with (or without) an industry.
+func (f fixture) customerOrg(t *testing.T, name string, industry *string) ids.OrganizationID {
+	t.Helper()
+	org, err := f.people.CreateOrganization(f.ctx, peoplemod.CreateOrganizationInput{
+		DisplayName: name, Industry: industry, Source: "manual",
+	})
+	if err != nil {
+		t.Fatalf("create organization %q: %v", name, err)
+	}
+	return ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+}
+
+// "Show me the pipeline for manufacturing" — a deal filtered by an attribute of
+// the company it belongs to, which is a correlated join and therefore something
+// only the real database can prove. The unit lane can check the SQL text; only
+// this can check which deals come back.
+func TestADealFilterReachesTheCustomersIndustry(t *testing.T) {
+	f := setupFixture(t)
+	pipeline, open, _ := integration.DealFixture(t, f.e)
+	manufacturing, services := "manufacturing", "services"
+
+	inManufacturing := f.dealForCustomer(t, "Factory renewal", pipeline, open,
+		orgPtr(f.customerOrg(t, "Vulcan Works", &manufacturing)))
+	f.dealForCustomer(t, "Agency retainer", pipeline, open,
+		orgPtr(f.customerOrg(t, "Bright Consulting", &services)))
+
+	list, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "manufacturing pipeline", EntityType: "deal", ListType: "dynamic",
+		Definition: map[string]any{
+			"field": "organization_industry", "op": "eq", "value": manufacturing,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	assertSoleMember(t, f, list.ID, inManufacturing)
+}
+
+// `exists: false` on a linked field asks about the COLUMN, and the answer spans
+// both ways a deal can fail to have a known industry: a customer with none, and
+// no customer at all. Pinned because the row reading — "does a linked
+// organization exist" — is the plausible wrong one, and it would silently drop
+// every deal whose company simply has no industry recorded.
+func TestAnUnknownCustomerIndustryCoversBothWaysItCanBeUnknown(t *testing.T) {
+	f := setupFixture(t)
+	pipeline, open, _ := integration.DealFixture(t, f.e)
+	known := "manufacturing"
+
+	customerWithNoIndustry := f.dealForCustomer(t, "Unclassified account", pipeline, open,
+		orgPtr(f.customerOrg(t, "Quiet Holdings", nil)))
+	noCustomerAtAll := f.dealForCustomer(t, "Inbound, unattributed", pipeline, open, nil)
+	classified := f.dealForCustomer(t, "Factory renewal", pipeline, open,
+		orgPtr(f.customerOrg(t, "Vulcan Works", &known)))
+
+	list, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "customer industry unknown", EntityType: "deal", ListType: "dynamic",
+		Definition: map[string]any{
+			"field": "organization_industry", "op": "exists", "value": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+
+	got := memberIDs(t, f, list.ID)
+	if !got[customerWithNoIndustry] {
+		t.Error("a deal whose customer has no industry is not counted as unknown")
+	}
+	if !got[noCustomerAtAll] {
+		t.Error("a deal with no customer at all is not counted as unknown")
+	}
+	if got[classified] {
+		t.Error("a deal whose customer HAS an industry is reported as unknown")
+	}
+}
+
+// Archiving the customer does not move the deal out of the filter.
+//
+// The organization's own segment engine excludes archived and anchor rows,
+// because those answer "which of our accounts are segment MEMBERS". This leaf
+// answers a fact about the company a deal belongs to, and archiving does not
+// change that fact — so the exclusion is deliberately NOT carried over. Without
+// this test that decision is a comment; with it, re-adding the base clause fails
+// here instead of quietly moving somebody's pipeline figure.
+func TestArchivingTheCustomerLeavesItsDealsInTheIndustryFilter(t *testing.T) {
+	f := setupFixture(t)
+	pipeline, open, _ := integration.DealFixture(t, f.e)
+	manufacturing := "manufacturing"
+	org := f.customerOrg(t, "Vulcan Works", &manufacturing)
+	deal := f.dealForCustomer(t, "Factory renewal", pipeline, open, orgPtr(org))
+
+	list, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
+		Name: "manufacturing pipeline, archived customer", EntityType: "deal", ListType: "dynamic",
+		Definition: map[string]any{
+			"field": "organization_industry", "op": "eq", "value": manufacturing,
+		},
+	})
+	if err != nil {
+		t.Fatalf("create list: %v", err)
+	}
+	assertSoleMember(t, f, list.ID, deal)
+
+	if _, err := f.people.ArchiveOrganization(f.ctx, org); err != nil {
+		t.Fatalf("archive organization: %v", err)
+	}
+	assertSoleMember(t, f, list.ID, deal)
+}
+
+func orgPtr(id ids.OrganizationID) *ids.OrganizationID { return &id }

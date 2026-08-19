@@ -13,7 +13,8 @@ the store mechanics step 3 relies on, see
    - `x-mcp-tool: { verb, record_type, tier: auto_execute|confirmation_required|dynamic,
      scope: read|draft|write|send|enrich }` — exposes it as a governed agent tool at that
      autonomy tier, consuming that passport cap; or
-   - `x-agent-access: human-only` (rejects agent principals — e.g. approvals, consent) or
+   - `x-agent-access: human-only` (rejects agent principals — e.g. consent, DSR,
+     passport issuance) or
      `auth-bootstrap` (login/session machinery).
 
    The generator **fails** on a mutating op with neither, so an un-tiered endpoint cannot ship.

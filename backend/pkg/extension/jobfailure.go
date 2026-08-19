@@ -24,12 +24,20 @@ package extension
 // relaxed. A class is a token and two fixed sentences the unit WROTE, declared
 // as inert data next to its tools and its jobs; nothing a remote party said can
 // reach the column through it, because nothing a remote party said is in it.
+//
+// A NAME IS NOT A DISPOSITION, which is the second thing this file owns. Failure
+// and Reschedule carry the same class and ask for opposite outcomes — one spends
+// the job's attempts and becomes dead work an operator is shown, the other
+// reschedules the same tick and shows nobody anything. A unit chooses between
+// them by whether the failure needs a human at all, and a provider nobody can
+// reach is the case that needs none.
 
 import (
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -214,6 +222,56 @@ func Failure(class FailureClass, cause error) error {
 	return &classifiedFailure{class: class, cause: cause}
 }
 
+// Reschedule marks a cause as a declared class whose right disposition is to RUN
+// THIS TICK AGAIN LATER rather than to fail.
+//
+// A provider that cannot be reached is the case it exists for, and the disposition
+// matters as much as the classification does. Failing spends the child's attempts
+// and discards the row, which at a poll's cadence manufactures one piece of dead
+// work per tick for the length of an outage — each of them raising a banner that
+// says the work will not happen without intervention, about work that needs none.
+// The cursor did not move, so the next reachable tick walks the same region and
+// nothing is lost.
+//
+// A UNIT CANNOT SPELL THIS ITSELF. The queue's own postponement is River's
+// JobSnooze, and an extension unit is a separate module that may import only the
+// allowlisted pkg/extension surface — so this is the tier-safe way to ask for it,
+// and the job seam is what turns the request into the queue's own control return.
+//
+// `in` is how long to wait. It is a REQUEST like the class is: the seam bounds it
+// before the queue sees it, because a tick that scheduled itself a year out would
+// have removed its own work from every screen that shows live jobs without
+// failing anything an operator could find.
+//
+// The class travels exactly as Failure's does, and is subject to the same rule:
+// only a class this installation registered for the failing kind is honoured. A
+// unit that forgot to declare one gets the ordinary failure path, which is the
+// disposition it had before this existed.
+//
+// A nil cause answers nil, for the reason Failure's does: there is no failure to
+// reschedule, and inventing one would postpone a tick that succeeded.
+func Reschedule(class FailureClass, in time.Duration, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return &classifiedFailure{class: class, cause: cause, retryIn: in, reschedule: true}
+}
+
+// RescheduleAfter reports the delay a failure asked to be retried after, and
+// whether it asked at all.
+//
+// It reads through wrapping for the reason FailureClassOf does — a tick adds
+// context on the way out of a call stack — and it answers about the SAME
+// outermost value FailureClassOf answers about, so a caller cannot honour one
+// value's class and another value's disposition.
+func RescheduleAfter(err error) (time.Duration, bool) {
+	var classified *classifiedFailure
+	if errors.As(err, &classified) && classified.reschedule {
+		return classified.retryIn, true
+	}
+	return 0, false
+}
+
 // classifiedFailure carries the unit's class alongside its cause.
 //
 // Error() names the class token and the cause, which is what a process LOG
@@ -224,6 +282,13 @@ func Failure(class FailureClass, cause error) error {
 type classifiedFailure struct {
 	class FailureClass
 	cause error
+	// reschedule and retryIn are the DISPOSITION half, set only by Reschedule.
+	// They are separate fields rather than a sentinel duration because zero is a
+	// delay a unit may legitimately ask for — "as soon as the queue will have me"
+	// — and reading it as "did not ask" would turn a postponement into a dead row
+	// at exactly the moment the unit was being most explicit.
+	reschedule bool
+	retryIn    time.Duration
 }
 
 func (f *classifiedFailure) Error() string {

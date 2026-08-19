@@ -62,7 +62,10 @@ func (w *siteDeepReadWorker) gateLegalCensus(ctx context.Context, args SiteDeepR
 	// The gate answers THAT it abstained; a human is owed WHY, so the cause is
 	// read from the same census the gate votes on.
 	warning := legalAbstentionOf(extraction.merged.entities, extraction.legalCensusIncomplete).warning()
-	mergedFields, _, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+	kinds := pageKindsOf(crawl.Pages)
+	mergedFields, abstained, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, kinds, extraction.legalCensusIncomplete)
+	// What the census proved fills what the profile lane's excerpt missed.
+	mergedFields = fillLegalTrioFromCensus(mergedFields, extraction.merged.entities, kinds, abstained)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)
 	if warning != "" {

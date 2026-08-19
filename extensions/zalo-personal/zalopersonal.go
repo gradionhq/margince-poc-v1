@@ -152,7 +152,18 @@ func New() extension.Extension {
 		Jobs: []extension.Job{
 			{Name: "poll_inbox", Handle: pollInbox},
 		},
-		Migrations: migrations,
+		// The ways the job above fails, in this unit's own words
+		// (failureclasses.go). Declaring them is what lets an operator reading a
+		// dead job see that Zalo was unreachable rather than that the failure
+		// could not be classified — and it is also what gives a fleet-wide outage
+		// something to travel under, so the tick can postpone itself instead of
+		// manufacturing one dead row a minute.
+		//
+		// The list is named rather than inlined because the same values are what
+		// failureClass answers, so the declared set and the returned class cannot
+		// become two sets.
+		FailureClasses: failureClasses,
+		Migrations:     migrations,
 	}
 }
 

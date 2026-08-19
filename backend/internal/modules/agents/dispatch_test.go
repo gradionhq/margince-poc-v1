@@ -55,9 +55,13 @@ func TestExplainKeepsSentinelGuidance(t *testing.T) {
 		err  error
 		want string
 	}{
-		{fmt.Errorf("advance: %w", apperrors.ErrRequiresApproval), "human approval"},
+		{fmt.Errorf("advance: %w", apperrors.ErrRequiresApproval), "a person answers it"},
 		{fmt.Errorf("scope: %w", apperrors.ErrScopeExceeded), "scope"},
-		{fmt.Errorf("rbac: %w", apperrors.ErrPermissionDenied), "not permitted"},
+		// "Refused on authority" rather than "not permitted": the same sentinel
+		// now carries two bounds — what the human may do, and what they lent
+		// this credential — and a summary naming only the first would send a
+		// caller to ask for permissions they already hold.
+		{fmt.Errorf("rbac: %w", apperrors.ErrPermissionDenied), "Refused on authority"},
 		{fmt.Errorf("row: %w", apperrors.ErrNotFound), "No such record"},
 		{fmt.Errorf("cas: %w", apperrors.ErrVersionSkew), "changed since it was read"},
 		{fmt.Errorf("token: %w", apperrors.ErrApprovalTokenInvalid), "approval token"},

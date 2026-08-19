@@ -105,13 +105,17 @@ func pollFleet(ctx context.Context, rt extension.Runtime, open openFunc) error {
 	if err != nil {
 		return err
 	}
-	var failures int
+	// The failed members' CLASSES, not just how many failed. A tick that reports
+	// only a count cannot say whether one outage took everybody down or several
+	// unrelated things did, and those are the two situations an operator has to
+	// tell apart before deciding whether there is anything to chase at all.
+	var failed []extension.FailureClass
 	for _, conn := range members {
 		memberCtx, done := context.WithTimeout(ctx, perMemberBudget)
 		turn, pollErr := pollMember(memberCtx, rt, conn, open)
 		done()
 		if pollErr != nil {
-			failures++
+			failed = append(failed, failureClass(pollErr))
 		}
 		// On the TICK's context, not the member's: the member's is exactly what
 		// may have just expired, and this write must not be lost — it carries
@@ -121,16 +125,22 @@ func pollFleet(ctx context.Context, rt extension.Runtime, open openFunc) error {
 			return noted
 		}
 	}
-	if failures > 0 && failures == len(members) {
+	if len(failed) > 0 && len(failed) == len(members) {
 		// Every member failing is not one person's problem: it is this
 		// installation's egress or Zalo being down, and a tick that answered
 		// success would leave a fleet-wide outage with no signal anywhere but
 		// the rows.
 		//
+		// CLASSIFIED, and with a disposition of its own (pollfailure.go). A bare
+		// error here reached the job seam as the unclassified substitute — the very
+		// sentence the failure vocabulary exists to stop printing — and, having no
+		// class to travel under, spent the child's attempts and left one dead row
+		// per tick for the length of an outage no human can help with.
+		//
 		// REPORTED BEFORE THE SWEEP BELOW, so a housekeeping failure cannot stand
 		// in front of a fleet-wide outage and make it look like a database
 		// problem.
-		return fmt.Errorf("zalo-personal: all %d connection(s) failed this tick", failures)
+		return fleetFailure(ctx, failed)
 	}
 	// The markers are swept on the tick because the only thing that makes one
 	// worth keeping is a drain that might still read the message it names, and the
@@ -188,8 +198,13 @@ func capturingMembers(ctx context.Context, rt extension.Runtime) ([]connection, 
 // failed turn still carries whatever the cursor reached and the class the row
 // should now show, because recordTurn writes it either way.
 type pollOutcome struct {
-	status     string
-	errorClass string
+	status string
+	// failure is the class the row should now show, as the declared value rather
+	// than its token: the row stores the token and the job surface renders the
+	// sentences, and they are two halves of one declared class (failureclasses.go)
+	// so neither surface can drift into a vocabulary of its own. A clean turn
+	// leaves it zero, which recordTurn writes as NULL.
+	failure extension.FailureClass
 	// landed reports whether this turn produced at least one record. It is what
 	// decides the member's next cadence, and it is deliberately NOT "did the drain
 	// return frames": a drain full of already-seen messages, echoes of the CRM's own
@@ -211,7 +226,7 @@ type pollOutcome struct {
 // advanceCursors before this is ever reached, so a systemic failure halfway
 // through a drain does not un-land the messages before it.
 func (o pollOutcome) refused(status string, cause error) pollOutcome {
-	o.status, o.errorClass, o.failed = status, failureClass(cause), true
+	o.status, o.failure, o.failed = status, failureClass(cause), true
 	return o
 }
 

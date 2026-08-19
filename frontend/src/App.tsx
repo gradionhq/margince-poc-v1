@@ -108,6 +108,11 @@ const DedupeScreen = lazy(
     import("./screens/dedupe").then((m) => ({ default: m.DedupeScreen })),
   ),
 );
+const FiltersScreen = lazy(
+  routed(() =>
+    import("./screens/filters").then((m) => ({ default: m.FiltersScreen })),
+  ),
+);
 const HomeScreen = lazy(
   routed(() =>
     import("./screens/home").then((m) => ({ default: m.HomeScreen })),
@@ -365,6 +370,10 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     ai: () => <AskAiScreen />,
     settings: ({ id }) => <SettingsScreen tab={id} />,
     dedupe: () => <DedupeScreen />,
+    // The object rides the URL so a filter surface can be linked to; an
+    // unknown segment falls back to contacts inside the screen rather than
+    // rendering a page with no vocabulary to offer.
+    filters: ({ id }) => <FiltersScreen id={id} />,
     offers: ({ id }) =>
       id ? (
         <OfferScreen id={id} />

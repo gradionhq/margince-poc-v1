@@ -118,13 +118,27 @@ func extensionMemberConsented(ctx context.Context, pool *pgxpool.Pool, unit stri
 	}
 	var consented bool
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		// The join to app_user is the scope, and it is load-bearing rather than
+		// decorative. extension_secret carried a tenant until ADR-0091 §8 phase
+		// D and does not now, so without this the read answers about a member of
+		// SOME installation — a consent row saying "that person asked us to act
+		// for them" about somebody this installation cannot act for at all.
+		//
+		// The consequence is not a leak, because the authority read below still
+		// refuses: it is a WRONGLY CLASSIFIED refusal. Consent would answer yes,
+		// the ingest would walk on, and the unit would be handed "the core could
+		// not land this record" — an unclassified failure it can neither act on
+		// nor report — for a question that had a clean ErrForbidden two steps
+		// earlier. app_user is where the tenant still lives, so that is where
+		// the scope comes from.
 		return tx.QueryRow(ctx, `
 			SELECT EXISTS (
-				SELECT 1 FROM extension_secret
-				WHERE extension_name = $1
-				  AND workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-				  AND user_id = $2
-				  AND key = ANY($3)
+				SELECT 1 FROM extension_secret s
+				  JOIN app_user u ON u.id = s.user_id
+				WHERE s.extension_name = $1
+				  AND s.user_id = $2
+				  AND s.key = ANY($3)
+				  AND u.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 			)`, unit, member, declared).Scan(&consented)
 	})
 	if err != nil {

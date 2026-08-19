@@ -288,15 +288,19 @@ func TestLinkLeafGoldenSQLPerOperator(t *testing.T) {
 			[]any{[]string{tagUUID, ownerUUID}},
 		},
 		{
+			// The nullability test is on the COLUMN, not the row. For a tag it
+			// changes nothing — taggable.tag_id is NOT NULL — and it is what
+			// makes exists mean the same thing on a link that carries a
+			// nullable column.
 			"exists true carries any tag and binds nothing",
 			leaf("tag", OpExists, true),
-			fmt.Sprintf(wrapper, "TRUE"),
+			fmt.Sprintf(wrapper, "tg.tag_id IS NOT NULL"),
 			nil,
 		},
 		{
 			"exists false finds the untagged",
 			leaf("tag", OpExists, false),
-			"NOT " + fmt.Sprintf(wrapper, "TRUE"),
+			"NOT " + fmt.Sprintf(wrapper, "tg.tag_id IS NOT NULL"),
 			nil,
 		},
 	}
@@ -351,7 +355,7 @@ func TestLinkLeafNestsInsideAGroup(t *testing.T) {
 	want := "(EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = 'person'" +
 		" AND tg.entity_id = t.id AND tg.tag_id = $1)" +
 		" OR NOT EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = 'person'" +
-		" AND tg.entity_id = t.id AND TRUE))"
+		" AND tg.entity_id = t.id AND tg.tag_id IS NOT NULL))"
 	if sql != want {
 		t.Errorf("sql = %q, want %q", sql, want)
 	}
@@ -406,7 +410,7 @@ func TestEveryOperatorInTheMatrixIsAlsoInTheReadingOrder(t *testing.T) {
 				t.Errorf("%s admits operator %q and operatorOrder omits it, so OperatorsFor never reports it and no vocabulary can offer it", fieldType, op)
 			}
 		}
-		if got, want := len(OperatorsFor(fieldType)), len(admitted); got != want {
+		if got, want := len(OperatorsFor(Field{Type: fieldType})), len(admitted); got != want {
 			t.Errorf("OperatorsFor(%s) answers %d operators, the matrix admits %d", fieldType, got, want)
 		}
 	}
@@ -415,4 +419,79 @@ func TestEveryOperatorInTheMatrixIsAlsoInTheReadingOrder(t *testing.T) {
 			t.Errorf("operatorOrder carries %q that no field type admits, so it is dead vocabulary", op)
 		}
 	}
+}
+
+// operandFor answers a valid operand for one type and operator, so the gate
+// below fails on the OPERATOR question and never on the value.
+//
+// It is keyed by type rather than shared, because a wrong operand answers
+// CodeFilterValueInvalid — which is not CodeFilterOpNotAllowed, so a
+// "this operator compiles" assertion would pass on a value the engine never
+// accepted and prove nothing about the operator.
+func operandFor(t FieldType, op string) any { //craft:ignore naked-any mirrors Predicate.Value, schemaless by contract
+	if op == OpExists {
+		return true
+	}
+	scalar := map[FieldType]any{
+		FieldText:     "manufacturing",
+		FieldPicklist: "customer",
+		FieldID:       ownerUUID,
+		FieldNumber:   float64(40),
+		FieldCurrency: float64(1000),
+		FieldDate:     "2026-08-19",
+		FieldBoolean:  true,
+	}[t]
+	if op == OpIn {
+		return []any{scalar}
+	}
+	return scalar
+}
+
+// A linked field advertises exactly the operators it can compile.
+//
+// The two halves of that claim live in different places — linkOperators narrows
+// what OperatorsFor offers, and compileLinkLeaf's switch decides what actually
+// builds — and nothing else in the tree can see both. Left apart they drift the
+// way this arc has already paid for once: a text column reached through a link
+// would advertise `contains`, a picker would offer it, and the engine would
+// answer a 422 the caller could not have predicted.
+//
+// Derived from the engine's own maps rather than a written-out list, so a new
+// FieldType or a new operator is covered the day it is added.
+func TestALinkedFieldAdvertisesExactlyWhatItCanCompile(t *testing.T) {
+	const wrapper = "EXISTS (SELECT 1 FROM organization o WHERE o.id = t.organization_id AND %s)"
+	for fieldType, admitted := range operatorsByType {
+		linked := Field{Expr: "o.industry", Type: fieldType, Link: wrapper}
+		offered := make(map[string]bool)
+		for _, op := range OperatorsFor(linked) {
+			offered[op] = true
+		}
+		for _, op := range operatorOrder {
+			if !admitted[op] {
+				continue
+			}
+			var args []any
+			arg := func(v any) int { args = append(args, v); return len(args) }
+			_, err := CompilePredicate(
+				leaf("industry", op, operandFor(fieldType, op)),
+				map[string]Field{"industry": linked},
+				arg,
+			)
+			refused := isOpNotAllowed(err)
+			if offered[op] && refused {
+				t.Errorf("a linked %s field offers %q and the compiler refuses it: a picker would put a caller in a 422 they could not predict", fieldType, op)
+			}
+			if !offered[op] && !refused {
+				t.Errorf("a linked %s field compiles %q and no surface offers it: the capability is unreachable, so either linkOperators or the compiler is wrong", fieldType, op)
+			}
+			if err != nil && !refused {
+				t.Errorf("linked %s %q failed on something other than the operator: %v", fieldType, op, err)
+			}
+		}
+	}
+}
+
+func isOpNotAllowed(err error) bool {
+	var predicateErr *PredicateError
+	return errors.As(err, &predicateErr) && predicateErr.Code == CodeFilterOpNotAllowed
 }

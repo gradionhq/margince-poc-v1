@@ -50,8 +50,13 @@ describe("the published frontend surface", () => {
       "Field",
       "RecordPicker",
       "SectionHeader",
+      // SegmentedControl and TokenInput: a unit could offer a closed choice only
+      // as a dropdown, and could collect a list only as comma-separated text.
+      // Both already existed in core; neither was reachable from a unit.
+      "SegmentedControl",
       "Select",
       "TextInput",
+      "TokenInput",
       "TokenList",
     ]);
     expect(Object.keys(apiSurface).sort()).toEqual([

@@ -409,11 +409,8 @@
 
 /* Ask Margince: the questions sit on one wrapping row above the answer, and
    the answer reuses the brief's prose styling — the same kind of text, so the
-   same rendering. */
-.co-ask {
-  padding: 12px 14px;
-  margin-bottom: var(--space-3);
-}
+   same rendering. The part draws no box of its own: it is one section inside
+   the assistant panel's body, which already owns the padding around it. */
 .co-ask-questions {
   display: flex;
   flex-wrap: wrap;
@@ -441,21 +438,6 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--r-full);
-}
-
-/* One assistant panel, three parts. The disclosure line sits under the title
-   so a reader knows what wrote everything below it before they read any of
-   it — stated once for the panel, not repeated per part (WDS-TRUST-6). */
-.co-assistant {
-  margin-bottom: var(--space-3);
-}
-.co-assistant-disclosure {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  margin-bottom: var(--space-3);
-  color: var(--textMeta);
 }
 
 /* Facts read from the site. The rhythm is tighter than the profile card above
@@ -1016,8 +998,7 @@
 /* A card title NAMES its card; it is not competing with the record's name.
    The shared .section-header h2 is 15px/600 in --textPrimary — the page's
    loudest voice, spent once per panel. */
-.co-card .section-header h2,
-.co-assistant .section-header h2 {
+.co-card .section-header h2 {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   color: var(--textContent);
@@ -1025,8 +1006,7 @@
 
 /* One radius and one padding for every card on the record, whichever
    component drew it. */
-.co-card,
-.co-assistant {
+.co-card {
   border-radius: var(--r-sm);
   padding: var(--space-5);
 }

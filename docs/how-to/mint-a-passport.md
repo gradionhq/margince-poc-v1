@@ -39,7 +39,10 @@ is capped at 2160 (90 days).
 - **REST**: send it as `Authorization: Bearer mgp_…` against the same
   `/v1` surface. The identical governance applies on both transports: 🟢
   mutations execute with agent-stamped provenance, 🟡 mutations stage an
-  approval, human-only governance routes refuse agent principals.
+  approval, human-only governance routes refuse agent principals. A passport
+  carrying `write` can also answer what is waiting — `list_approvals`,
+  `read_approval` and `decide_approval` — under its human's own authority; one
+  minted `read` only reads the queue.
 
 ## Revoke
 

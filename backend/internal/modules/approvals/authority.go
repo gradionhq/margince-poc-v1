@@ -11,7 +11,6 @@ package approvals
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 
@@ -45,6 +44,13 @@ type grantRequirement struct {
 // kind half-governed with nothing saying so. Compose owns the registration
 // spelling; the compose-side waiver fitness tests bind the two together.
 const kindLinkedInMatch = "linkedin_match"
+
+// kindHeldDraft is an automation-composed reply held for the rep it was written
+// for. Named rather than spelled: this module makes three separate statements
+// about it — the grants deciding it needs, that approving it SENDS, and what
+// the release files the message under — and a typo across them would leave the
+// kind half-governed with nothing saying so.
+const kindHeldDraft = "held_draft"
 
 // KindScheduledSendHeld is the card a stopped scheduled message raises for the
 // rep who scheduled it (ADR-0104 §5). Exported because compose stages it and
@@ -208,7 +214,7 @@ var decisionGrants = map[string][]grantRequirement{
 	// automation composed is still a message this human is putting their name
 	// on, and "an automation wrote it" is not a reason to release it on
 	// weaker authority than typing it would have taken.
-	"held_draft": {{objectActivity, principal.ActionCreate}},
+	kindHeldDraft: {{objectActivity, principal.ActionCreate}},
 }
 
 // targetResolvedGrants are the kinds whose decision grant is not fixed by the
@@ -413,19 +419,6 @@ func DecisionGrantObjects(kind, targetType string) ([]string, error) {
 		objects = append(objects, g.Object)
 	}
 	return objects, nil
-}
-
-// humanOnly guards the inbox and the decision: an agent approving its own
-// staged action would collapse the whole tier model.
-func humanOnly(ctx context.Context) error {
-	p, ok := principal.Actor(ctx)
-	if !ok {
-		return errors.New("crmapprovals: no actor bound to context")
-	}
-	if p.Type != principal.PrincipalHuman {
-		return fmt.Errorf("approvals are decided by humans: %w", apperrors.ErrPermissionDenied)
-	}
-	return nil
 }
 
 // KindHasDecisionGrants reports whether a stageable kind carries a

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { useCan } from "../app/capability";
@@ -25,6 +25,7 @@ import {
   EvidenceMark,
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
+import type { ListChip } from "../design-system/listsurface";
 import { sectionState } from "../design-system/surfacestate";
 import {
   AutonomyDot,
@@ -35,6 +36,7 @@ import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { taskWriteKeys } from "./activitykeys";
+import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   problemMessageOf,
@@ -556,6 +558,20 @@ export function CompaniesScreen() {
   const viewerId = useViewerId();
   const ownerChips = useOwnerChips();
   const savedViews = useSavedViewTabs("organizations");
+  // Beside the owner dial rather than in `chips`, and the reason is the option
+  // labels. A `chips` entry runs every label through `t()`, so its options must
+  // be message keys — and a size band is a numeral range that reads identically
+  // in English, German and Vietnamese. Seven keys whose three translations all
+  // coincide would be noise standing in for meaning. The dial's own name still
+  // needs translating, which is what `t()` is doing here.
+  const sizeChip: readonly ListChip[] = [
+    {
+      key: "size_band",
+      label: t("org.sizeBand"),
+      allLabel: t("org.filterSizeBandAll"),
+      options: SIZE_BAND_OPTIONS.map((value) => ({ value, label: value })),
+    },
+  ];
 
   return (
     <div className="wrap">
@@ -683,7 +699,7 @@ export function CompaniesScreen() {
         tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
-        dataChips={ownerChips}
+        dataChips={[...ownerChips, ...sizeChip]}
         chips={[
           {
             key: "lifecycle",
@@ -1974,6 +1990,7 @@ function CompanyPage({
   onTab: (next: CompanyTab) => void;
 }>) {
   const t = useT();
+  const archivedReasonId = useId();
   // ONE composer, opened two ways. Anchored on a timeline message it answers
   // that message; anchored on a person it starts a new one and grounds on the
   // account instead of a thread (ADR-0087 §1). Two pieces of state would let
@@ -2056,16 +2073,27 @@ function CompanyPage({
       // own story below the fold before a word of it was read.
       actions={
         <>
+          {/* One sentence for the whole strip. Both action groups below refuse
+              for the same reason, so the reason belongs to the page rather than
+              to whichever group is drawing — stated in each, an archived
+              account said the same thing twice as soon as the menu opened. */}
+          {org.archived_at && (
+            <p className="t-caption" id={archivedReasonId}>
+              {t("record.archivedReadOnly")}
+            </p>
+          )}
           <CompanyPrimaryActions
             org={org}
             composerOpen={writingEmail}
             onComposerOpen={setWritingEmail}
+            archivedReasonId={archivedReasonId}
           />
           {/* Last in the row, after the verbs it holds the remainder of: a
               menu of everything-else read as the first thing to press when it
               led them. */}
           <CompanyActionBadges
             org={org}
+            archivedReasonId={archivedReasonId}
             view={view}
             onOpenHistory={() => setAuditOpen(true)}
             onSetUpPartner={() => onTab("partner")}
@@ -2448,6 +2476,20 @@ function CompanyOverviewStack({
         enabled={!overlay}
         onOpenRecord={onOpenRecord}
       />
+      {/* Directly under the brief, because it asks about the same reading: the
+          three prepared questions are the ones the brief answers in prose, and
+          both are written server-side from this reader's own 360 and cite
+          records through the same receipt. Four panels of figures between them
+          would leave a reader to discover at the foot of the page that they
+          could have asked at the top.
+          Gated exactly as the brief is: overlay mirrors hold none of the
+          records an answer would have to be written from, so the question is
+          not offered rather than asked and refused. */}
+      <AssistantPanel
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={onOpenRecord}
+      />
       {!overlay && (
         <>
           {/* What this account is worth to us. GrowthFitPanel IS a Panel —
@@ -2460,8 +2502,16 @@ function CompanyOverviewStack({
             enabled={!overlay}
             onOpenRecord={onOpenRecord}
           />
-          {/* The commercial picture: the pipeline's own lifetime figures,
-              then the open deals themselves. */}
+          {/* The commercial picture: what the account is already under
+              contract for, then the pipeline's own lifetime figures, then the
+              open deals themselves.
+              The contract block is the SAME component the Deals tab draws
+              (CompanyContractState), not a second reading of the same money
+              and dates — an account's contracted value and its renewal must
+              not be able to say two things on two tabs, and one renderer is
+              the only way that cannot happen. It leads for the same reason it
+              leads there: what is signed frames the deals that are still
+              moving. */}
           <CommercialPanel
             view={view}
             titleAction={
@@ -2469,6 +2519,7 @@ function CompanyOverviewStack({
                 <NewDealAction orgId={org.id} orgName={org.display_name} />
               )
             }
+            extra={<CompanyContractState view={view} />}
             onAllDeals={onAllDeals}
             loading={loading}
           />

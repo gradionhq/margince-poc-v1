@@ -134,11 +134,9 @@ func runSiteReadDebug(ctx context.Context, args []string, stdout io.Writer) erro
 	if err != nil {
 		return err
 	}
-	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
-	if err != nil {
+	if _, err := httpserver.InstallProcessLogger(stdout, cfg.logLevel, cfg.logFormat); err != nil {
 		return err
 	}
-	slog.SetDefault(slog.New(handler))
 
 	profileBrain, factBrain, triageBrain, banner, err := compose.SiteReadDebugBrain(cfg.routingPath, cfg.modelSpec, cfg.fakeBrain)
 	if err != nil {

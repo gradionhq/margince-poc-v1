@@ -186,7 +186,7 @@ func SubjectIdentifiers(ctx context.Context, tx pgx.Tx, personID string) (provid
 		  LEFT JOIN organization_domain d
 		    ON d.organization_id = o.id AND d.is_primary AND d.archived_at IS NULL
 		 WHERE r.kind = 'employment' AND r.person_id = $1
-		   AND r.is_current_primary AND r.archived_at IS NULL
+		   AND `+CurrentPrimaryEmploymentSQL("r")+` AND r.archived_at IS NULL
 		 LIMIT 1`, personID).
 		Scan(&id.CompanyName, &id.CompanyDomain); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return provider.PersonIdentifiers{}, fmt.Errorf("people: reading the subject's employer: %w", err)

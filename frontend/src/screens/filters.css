@@ -1,0 +1,63 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion
+ *
+ * The Filters & views screen. Layout only — every colour and space is a token. */
+
+.filters-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.filters-count-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filters-count {
+  font-weight: 600;
+  color: var(--textContent);
+  /* Tabular figures so the number does not shift the badge beside it as the
+   * count crosses a digit — a count that recomputes on every keystroke would
+   * otherwise nudge the row on each edit. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* A count being recomputed is the LAST answer, dimmed — not a spinner. It reads
+ * as "this is a moment behind", which is true, where a spinner reads as "there
+ * is no answer", which is not. */
+.filters-count[data-stale="true"] {
+  color: var(--textMuted);
+}
+
+/* No complete clause yet: not a number at all, because zero would claim nothing
+ * matches when in fact nothing has been asked. */
+.filters-count-unasked {
+  font-weight: 400;
+  color: var(--textMuted);
+}
+
+/* The export sits under the builder, because it takes the filter as its
+ * argument. Empty until the filter is one the engine would accept, so it holds
+ * no space of its own then. */
+.filters-export-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filters-export-row:not(:empty) {
+  margin-top: var(--space-4);
+}
+
+/* An export that failed, beside the button that failed — a reader waiting for a
+ * file has to be told there isn't one. It wraps rather than clipping: the reason
+ * comes from the server and can be a full sentence, and a truncated reason is
+ * one a reader cannot act on. */
+.filters-export-error {
+  color: var(--danger);
+  font-weight: var(--fw-medium);
+}

@@ -28,6 +28,20 @@ export default meta;
 
 type Story = StoryObj<typeof MergeAction>;
 
+const SOURCE = {
+  label: "Merge into…",
+  sourceId: "p-1",
+  sourceName: "Anna Weber",
+  searchTargets: () => Promise.resolve([{ id: "p-2", name: "Otto Fischer" }]),
+  merge: (targetId: string) => Promise.resolve({ id: targetId }),
+  invalidate: "people",
+  recordKey: "person",
+  survivorRoute: (targetId: string) => ({
+    screen: "contacts" as const,
+    id: targetId,
+  }),
+};
+
 export const TargetPicked: Story = {
   // The merge dialog mounts record chrome that reads the session, so the probe
   // has to be routed — an unrouted one fails every grant closed and renders a
@@ -35,16 +49,7 @@ export const TargetPicked: Story = {
   beforeEach: () => {
     installFetchStub({ "GET /me": meRoute({ person: ["read", "update"] }) });
   },
-  args: {
-    label: "Merge into…",
-    sourceId: "p-1",
-    sourceName: "Anna Weber",
-    searchTargets: () => Promise.resolve([{ id: "p-2", name: "Otto Fischer" }]),
-    merge: (targetId: string) => Promise.resolve({ id: targetId }),
-    invalidate: "people",
-    recordKey: "person",
-    survivorRoute: (targetId: string) => ({ screen: "contacts", id: targetId }),
-  },
+  args: SOURCE,
   play: async ({ canvasElement }) => {
     // The trigger is in the canvas; everything after it is inside the merge
     // Modal, which portals to document.body — so the picker is reached through
@@ -55,4 +60,23 @@ export const TargetPicked: Story = {
     await new Promise((resolve) => setTimeout(resolve, 400));
     await userEvent.click(await screen.findByText("Otto Fischer"));
   },
+};
+
+// An archived source cannot be folded into anything — a refusal by the
+// record's STATE, so the verb stays and says why (STATE-4a). The sentence
+// lives on the page that owns the record, and the control points at it, which
+// is the half a `title` on a disabled button cannot do.
+export const RefusedByArchive: Story = {
+  beforeEach: () => {
+    installFetchStub({ "GET /me": meRoute({ person: ["read", "update"] }) });
+  },
+  args: { ...SOURCE, disabledReasonId: "merge-refusal" },
+  render: (args) => (
+    <>
+      <MergeAction {...args} />
+      <p id="merge-refusal" className="t-caption">
+        This contact is archived. Restore them to change anything here.
+      </p>
+    </>
+  ),
 };

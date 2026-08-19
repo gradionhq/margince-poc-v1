@@ -92,9 +92,9 @@ func TestRosterReadsUsersAndTeams(t *testing.T) {
 		t, e, wsA,
 		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'rep@example.com', 'Rep One')`, rep, wsA),
 		stmt(`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, 'bob@example.com', 'Bob Two')`, bob, wsA),
-		stmt(`INSERT INTO team (id, workspace_id, name) VALUES ($1, $2, 'Deal Desk')`, deskTeam, wsA),
-		stmt(`INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($2, $1, $3)`, deskTeam, wsA, rep),
-		stmt(`INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($2, $1, $3)`, deskTeam, wsA, bob),
+		stmt(`INSERT INTO team (id, name) VALUES ($1, 'Deal Desk')`, deskTeam),
+		stmt(`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`, deskTeam, rep),
+		stmt(`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`, deskTeam, bob),
 	)
 
 	// A second tenant with its own member — its rows must never surface

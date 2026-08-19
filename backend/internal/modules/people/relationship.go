@@ -14,7 +14,7 @@ package people
 import (
 	"context"
 	"errors"
-	"strings"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -143,14 +143,21 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 		}
 		// One current primary employer per person: demote the incumbent
 		// inside the same transaction rather than failing the write. An
-		// employment that arrives already ended claims nothing, so it displaces
-		// nobody — see the insert below, which refuses it the flag.
+		// employment that arrives already OVER claims nothing, so it displaces
+		// nobody — see the insert below, which refuses it the flag. A future
+		// end date is a notice period and DOES displace: they work there.
+		//
+		// That last test is in the statement, not in Go, so it reads the same
+		// clock the insert below reads. A Go-side comparison would answer a
+		// different question on a server in a different timezone from the
+		// database, and the two would disagree about exactly one day.
 		if in.Kind == "employment" && in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
-			in.EndedAt == nil && in.PersonID != nil {
+			in.PersonID != nil {
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
-				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL`,
-				*in.PersonID); err != nil {
+				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL
+				  AND `+EmploymentIsCurrentSQL("$2::date"),
+				*in.PersonID, in.EndedAt); err != nil {
 				return err
 			}
 		}
@@ -179,8 +186,8 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 			        coalesce($8, $1 = 'employment' AND NOT EXISTS (
 			          SELECT 1 FROM relationship
 			           WHERE kind = 'employment' AND person_id = $2 AND archived_at IS NULL
-			             AND (ended_at IS NULL OR is_current_primary)))
-			          AND ($1 <> 'employment' OR $10::date IS NULL),
+			             AND (`+EmploymentIsCurrentSQL("ended_at")+` OR is_current_primary)))
+			          AND ($1 <> 'employment' OR `+EmploymentIsCurrentSQL("$10::date")+`),
 			        $9, $10, $11, $12)
 			RETURNING `+relationshipColumns,
 			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID, in.ProjectID,
@@ -234,6 +241,33 @@ type UpdateRelationshipInput struct {
 	IfVersion        *int64
 }
 
+// lockPersonForEmployment serializes every writer of one person's employment
+// flags, which is what the demote-then-grant pair below needs to be one unit.
+// Without it two patches on DIFFERENT employments of the same person each read
+// "no primary elsewhere" and each grant the flag, and the second commit answers
+// 409 on uq_rel_current_primary_employer — the same race the create path already
+// closed, reached through the other verb.
+//
+// Silent for anything that is not an employment: a deal stakeholder or a partner
+// edge shares none of this state, and taking a person lock for one would
+// serialize writes that never contend.
+func lockPersonForEmployment(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var personID *ids.PersonID
+	err := tx.QueryRow(ctx,
+		`SELECT person_id FROM relationship WHERE id = $1 AND kind = 'employment'`, id).Scan(&personID)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		// Not an employment, or gone. Either way the row lock below is what
+		// reports it, and it reports it the same way it always has.
+		return nil
+	case err != nil:
+		return fmt.Errorf("people: reading the employment's person for the write lock: %w", err)
+	case personID == nil:
+		return nil
+	}
+	return storekit.LockWriteIdentity(ctx, tx, "employment", personID.String())
+}
+
 func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRelationshipInput) (relationshipRow, error) {
 	if err := auth.Require(ctx, "relationship", principal.ActionUpdate); err != nil {
 		return relationshipRow{}, err
@@ -242,6 +276,21 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		// The row lock makes the state read and the update below one
 		// race-free unit.
+		// The per-person lock comes FIRST, before the row lock, and that order is
+		// the whole reason it is taken from an unlocked peek rather than from the
+		// row this patch is about. Create takes the advisory lock and then touches
+		// rows; if this path took the row lock first and the advisory second, a
+		// create holding the advisory and waiting on a row would deadlock against
+		// an update holding that row and waiting on the advisory.
+		//
+		// An unlocked read is enough to supply the KEY because a patch cannot move
+		// an edge's endpoints — person_id is immutable here, so the value cannot
+		// change under the lock it selects. Anything else about the row is read
+		// again below, under the row lock, which is what makes that read
+		// authoritative.
+		if err := lockPersonForEmployment(ctx, tx, id); err != nil {
+			return err
+		}
 		if _, err := storekit.LockRow(ctx, tx, "relationship", id, storekit.LiveOnly); err != nil {
 			return err
 		}
@@ -257,17 +306,24 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 		if in.IfVersion != nil && *in.IfVersion != current.Version {
 			return apperrors.ErrVersionSkew
 		}
-		// Not for an employment this patch leaves ended, and not for one that
-		// already was: the UPDATE below refuses such a row the flag, so
-		// demoting the incumbent for it would clear the person's primary
-		// employer and put nothing in its place.
+		// The incumbent is demoted only when the patched row will actually HOLD
+		// the flag, so this statement asks the SAME question as the UPDATE below
+		// that grants it — one predicate, EmploymentIsCurrentSQL, read against the
+		// database's clock in both. Spell the rule a second time here (a Go-side
+		// `current.EndedAt == nil`, say) and the two answers part company over a
+		// notice period: this row keeps the flag, the incumbent keeps it too, and
+		// uq_rel_current_primary_employer 409s a patch the create path honours.
 		if in.IsCurrentPrimary != nil && *in.IsCurrentPrimary &&
-			in.EndedAt == nil && current.EndedAt == nil &&
 			current.Kind == "employment" && current.PersonID != nil {
 			if _, err := tx.Exec(ctx, `
 				UPDATE relationship SET is_current_primary = false
-				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary AND archived_at IS NULL AND id <> $2`,
-				*current.PersonID, id); err != nil {
+				WHERE kind = 'employment' AND person_id = $1 AND is_current_primary
+				  AND archived_at IS NULL AND id <> $2
+				  AND EXISTS (
+					SELECT 1 FROM relationship patched
+					 WHERE patched.id = $2
+					   AND `+EmploymentIsCurrentSQL("coalesce($3, patched.ended_at)")+`)`,
+				*current.PersonID, id, in.EndedAt); err != nil {
 				return err
 			}
 		}
@@ -276,11 +332,12 @@ func (s *Store) UpdateRelationship(ctx context.Context, id ids.UUID, in UpdateRe
 			  role = coalesce($2, role),
 			  -- An employment somebody has LEFT is not their CURRENT primary
 			  -- one, whichever half of the patch makes it so: ending the job
-			  -- clears the flag, and setting the flag on a job already ended
+			  -- clears the flag, and setting the flag on a job already over
 			  -- does not take. Written against the row rather than as a Go
-			  -- condition, so the two halves cannot drift apart.
+			  -- condition, so the two halves cannot drift apart. LEFT, not
+			  -- "has a date" — see EmploymentIsCurrentSQL.
 			  is_current_primary = coalesce($3, is_current_primary)
-			    AND (kind <> 'employment' OR coalesce($5, ended_at) IS NULL),
+			    AND (kind <> 'employment' OR `+EmploymentIsCurrentSQL("coalesce($5, ended_at)")+`),
 			  started_at = coalesce($4, started_at),
 			  ended_at = coalesce($5, ended_at)
 			WHERE id = $1
@@ -323,27 +380,6 @@ func (s *Store) ArchiveRelationship(ctx context.Context, id ids.UUID) (relations
 		}
 		return emitRelationshipChange(ctx, tx, "archive", out)
 	})
-	return out, err
-}
-
-// visibleRelationship loads one edge under the endpoint-visibility rule
-// — absence and out-of-scope read identically (existence-hiding).
-func (s *Store) visibleRelationship(ctx context.Context, tx pgx.Tx, id ids.UUID) (relationshipRow, error) {
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	idPos := arg(id)
-	scope, err := auth.RelationshipEndpointScope(ctx, "r", arg)
-	if err != nil {
-		return relationshipRow{}, err
-	}
-	sql := storekit.SQLf(`SELECT %s FROM relationship r WHERE r.id = $%d`, aliased(relationshipColumns, "r"), idPos)
-	if scope != "" {
-		sql += " AND " + scope
-	}
-	out, err := scanRelationship(tx.QueryRow(ctx, sql, args...))
-	if errors.Is(err, pgx.ErrNoRows) {
-		return relationshipRow{}, apperrors.ErrNotFound
-	}
 	return out, err
 }
 
@@ -395,79 +431,4 @@ func relationshipUpdatedPayload(anchorObject string, changedFields map[string]an
 	default: // organization
 		return crmcontracts.PublicEventOrganizationUpdated{ChangedFields: changedFields}
 	}
-}
-
-// EnsureDealVisible probes a deal id under the caller's row scope —
-// the deal-scoped stakeholder view needs the anchor's own answer when
-// the edge list is empty (owned SQL on the deal row).
-func (s *Store) EnsureDealVisible(ctx context.Context, dealID ids.DealID) error {
-	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
-		return err
-	}
-	return s.tx(ctx, func(tx pgx.Tx) error {
-		// EnsureLinkTarget, not EnsureVisible: the anchor must EXIST for
-		// everyone — unbounded actors skip only the scope half.
-		return auth.EnsureLinkTarget(ctx, tx, "deal", dealID.UUID)
-	})
-}
-
-// aliased qualifies a comma-separated column list with a table alias.
-func aliased(columns, alias string) string {
-	parts := strings.Split(columns, ",")
-	for i, part := range parts {
-		parts[i] = alias + "." + strings.TrimSpace(part)
-	}
-	return strings.Join(parts, ", ")
-}
-
-// GetRelationship reads one edge under the endpoint-visibility rule, in its own
-// transaction — the entry point the datasource seam needs, since every other
-// caller of visibleRelationship already holds a transaction of its own.
-//
-// The seam needs it for three verbs and not only for a read tool: create_record
-// reads the edge back after writing it, and archive_record reads the target
-// BEFORE staging, to summarize for the human who will approve. Without this the
-// edge would commit and the tool would report a read-back failure — a false
-// failure with a real side effect — and the 🟡 archive could not even stage.
-//
-// The RBAC gate is the read one, not the anchor's update one that the mutating
-// verbs also demand: reading an edge discloses its endpoints, which is what
-// `relationship` read governs. Absence and out-of-scope answer identically.
-func (s *Store) GetRelationship(ctx context.Context, id ids.UUID) (relationshipRow, error) {
-	if err := auth.Require(ctx, "relationship", principal.ActionRead); err != nil {
-		return relationshipRow{}, err
-	}
-	var out relationshipRow
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		row, err := s.visibleRelationship(ctx, tx, id)
-		if err != nil {
-			return err
-		}
-		// Live only, matching every other record type's Read (which passes
-		// storekit.LiveOnly). visibleRelationship deliberately does NOT filter —
-		// Update locks live-only itself and Archive's own WHERE clause does the
-		// work — so the filter belongs here, or an archived edge would go on
-		// being served by the one verb whose whole job is to say what the record
-		// currently is. Post-filtering is safe: the row already passed this
-		// caller's endpoint scope, so nothing about it is disclosed by the check.
-		if row.ArchivedAt != nil {
-			return apperrors.ErrNotFound
-		}
-		out = row
-		return nil
-	})
-	return out, err
-}
-
-// EnsureProjectVisible probes a project id under the caller's row scope —
-// the project-scoped stakeholder view needs the anchor's own answer when
-// the edge list is empty, so "no stakeholders yet" and "no such project"
-// stay distinguishable without disclosing either.
-func (s *Store) EnsureProjectVisible(ctx context.Context, projectID ids.ProjectID) error {
-	if err := auth.Require(ctx, projectObjectName, principal.ActionRead); err != nil {
-		return err
-	}
-	return s.tx(ctx, func(tx pgx.Tx) error {
-		return auth.EnsureLinkTarget(ctx, tx, projectObjectName, projectID.UUID)
-	})
 }

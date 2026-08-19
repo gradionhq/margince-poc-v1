@@ -1,4 +1,5 @@
-import { Badge, Card } from "../design-system/atoms";
+import { Badge } from "../design-system/atoms";
+import { Panel, PanelBody } from "../design-system/panel";
 import { useT } from "../i18n";
 import { AskSection } from "./company360";
 
@@ -11,6 +12,11 @@ import { AskSection } from "./company360";
  * restates the screen is worse than no summary: it spends the reader's trust
  * and returns nothing. The account's actual reading is the brief at the top of
  * the page, which says what the records mean and what to do about it.
+ *
+ * A Panel, like every other section of the overview column it stands in. Drawn
+ * as a `Card` it was the one box on that column with no header band, which
+ * reads as a control from a different product rather than as one more part of
+ * this record.
  */
 export function AssistantPanel({
   orgId,
@@ -26,14 +32,21 @@ export function AssistantPanel({
     return null;
   }
   return (
-    <Card className="co-assistant" title={t("co.assistant.title")}>
-      {/* The disclosure is the badge. The sentence beside it explained the
-          panel's own epistemology to a reader who came here to sell
-          something, which is the UI talking about itself. */}
-      <p className="co-assistant-disclosure">
-        <Badge tone="ai">{t("co.assistant.aiTag")}</Badge>
-      </p>
-      <AskSection orgId={orgId} enabled={enabled} onOpenRecord={onOpenRecord} />
-    </Card>
+    <Panel
+      title={t("co.assistant.title")}
+      // The disclosure is the badge, and it rides in the header band so it is
+      // read before anything under it. The sentence that used to sit beside it
+      // explained the panel's own epistemology to a reader who came here to
+      // sell something, which is the UI talking about itself.
+      titleAction={<Badge tone="ai">{t("co.assistant.aiTag")}</Badge>}
+    >
+      <PanelBody>
+        <AskSection
+          orgId={orgId}
+          enabled={enabled}
+          onOpenRecord={onOpenRecord}
+        />
+      </PanelBody>
+    </Panel>
   );
 }

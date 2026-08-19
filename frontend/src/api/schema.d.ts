@@ -5012,6 +5012,11 @@ export interface paths {
          * @description Lists confirm-first items proposed by agents/AI moments (cold-start accept,
          *     transcript proposal, overnight reconciliation, drafted sends, deal advances).
          *     Each item carries the proposed change + evidence + confidence (features/07 §8).
+         *
+         *     The list is what the CALLER may decide, never the whole table: an item whose
+         *     target they cannot see, or whose effect they could not perform, is absent
+         *     rather than listed-and-refused. A pending item past its expiry reads as
+         *     expired here without waiting for a sweep.
          */
         get: operations["listApprovals"];
         put?: never;
@@ -5032,7 +5037,12 @@ export interface paths {
             };
             cookie?: never;
         };
-        /** Get a single approval item (full proposed diff + evidence). */
+        /**
+         * Get a single approval item (full proposed diff + evidence).
+         * @description The staged change in full, with the evidence it was formed on. An item this
+         *     caller could not decide answers `404`, exactly as an out-of-scope record
+         *     does — the same existence-hiding the inbox list applies.
+         */
         get: operations["getApproval"];
         put?: never;
         post?: never;
@@ -5059,6 +5069,13 @@ export interface paths {
          * @description Approving commits the proposed change in one audit transaction. The (optionally
          *     edited) payload is what executes. Returns the approval with the resulting entity ref
          *     + the `approval_token` that authorized the downstream 🟡 operation.
+         *
+         *     A passport acting for a human decides here on that human's own authority
+         *     (ADR-0055): the decision demands the RBAC the staged effect itself needs, the
+         *     row-scope visibility of its target, and the granting human's seat, and it
+         *     spends the passport scope the release spends — `write`, plus `send` where
+         *     approving puts a message on the wire. A `read` passport reads this inbox and
+         *     is refused the decision.
          */
         post: operations["approveApproval"];
         delete?: never;
@@ -5079,7 +5096,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Reject a staged action (discards it; nothing commits). */
+        /**
+         * Reject a staged action (discards it; nothing commits).
+         * @description A rejection is a decision, not a free action: it demands exactly the authority
+         *     approving demands, and is recorded the same way. Governed for a passport
+         *     identically to `approveApproval`.
+         */
         post: operations["rejectApproval"];
         delete?: never;
         options?: never;
@@ -12499,8 +12521,7 @@ export interface components {
             /** Format: uuid */
             project_id?: string | null;
             role?: string | null;
-            /** @default false */
-            is_current_primary: boolean;
+            is_current_primary?: boolean;
             /** Format: date */
             started_at?: string | null;
             /** Format: date */

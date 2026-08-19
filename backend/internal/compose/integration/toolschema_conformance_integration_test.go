@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -90,6 +91,12 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 	// rep before reading it: read_brief never ranks, and an unassembled brief
 	// answers not-found rather than an empty queue.
 	snapshotBriefRun(ctx, t, e)
+
+	// One waiting proposal for the queue tools, staged through the engine that
+	// stages every other one. The verdict below is a REJECTION: it exercises the
+	// same answer shape and releases nothing, so the sweep does not perform a
+	// deal write as a side effect of checking a schema.
+	waiting := stageOneProposal(ctx, t, e, deal)
 
 	calls := []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
@@ -174,6 +181,10 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 		{"merge_records", `{"record_type":"person","source_id":"` + duplicate.String() +
 			`","target_id":"` + person.String() + `"}`},
 		{"advance_project_phase", `{"project_id":"` + project.String() + `","to_phase":"pursuing"}`},
+		// The confirm-first queue read back through its own doors.
+		{"list_approvals", `{}`},
+		{"read_approval", `{"staged_action_id":"` + waiting.String() + `"}`},
+		{"decide_approval", `{"staged_action_id":"` + waiting.String() + `","decision":"reject"}`},
 	}
 	assertEveryRegisteredToolIsAccountedFor(t, registry, calls)
 
@@ -215,7 +226,30 @@ var unreachableInThisLane = gatekit.Waive(map[string]string{
 	"draft_email":          "needs a drafting model path",
 	"draft_follow_ups_for": "needs a drafting model path",
 	"enrich":               "needs a crawl runner and a model path",
+	// A bundle is minted by a producer that stages several proposals as one act
+	// (a site read), never by a caller — so there is no bundle_id to answer here
+	// without standing that producer up.
+	"decide_approval_bundle": "needs a multi-proposal producer to mint a bundle",
 })
+
+// stageOneProposal puts a single proposal in the queue through the approvals
+// engine itself — the writer every producer uses — rather than an INSERT, so
+// what the queue tools read back is a row production would have written.
+func stageOneProposal(ctx context.Context, t *testing.T, e *Env, deal ids.UUID) ids.ApprovalID {
+	t.Helper()
+	staged, err := approvals.NewService(compose.InstallationDB(e.Pool)).Stage(ctx, approvals.StageInput{
+		Kind:           "close_date_correction",
+		ProposedChange: json.RawMessage(`{"expected_close_date":"2026-12-31"}`),
+		DiffHash:       ids.NewV7().String(),
+		TargetType:     "deal",
+		TargetID:       deal,
+		Summary:        "Move the expected close date to 2026-12-31",
+	})
+	if err != nil {
+		t.Fatalf("staging a proposal for the queue tools: %v", err)
+	}
+	return staged
+}
 
 // assertEveryRegisteredToolIsAccountedFor is what makes AC-MCP-7's "every
 // registered tool" true rather than aspirational.

@@ -22,7 +22,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -202,11 +201,9 @@ func runAITaskProbe(ctx context.Context, args []string, stdout io.Writer) error 
 	if err != nil {
 		return err
 	}
-	handler, err := httpserver.LogHandler(stdout, cfg.logLevel, cfg.logFormat)
-	if err != nil {
+	if _, err := httpserver.InstallProcessLogger(stdout, cfg.logLevel, cfg.logFormat); err != nil {
 		return err
 	}
-	slog.SetDefault(slog.New(handler))
 
 	// The census is what turns a site name into runnable code, so every verb
 	// but fetch needs it before it can do anything.

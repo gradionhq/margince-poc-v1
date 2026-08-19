@@ -779,7 +779,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     await page.getByRole("button", { name: "Trennen" }).click();
     await expect(
       page.getByText(
-        "Dies löscht die gespiegelten Daten und schaltet den Workspace zurück auf native Datensätze.",
+        "Dies löscht die gespiegelten Daten und schaltet die Organisation zurück auf native Datensätze.",
         { exact: false },
       ),
     ).toBeVisible();

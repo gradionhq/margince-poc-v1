@@ -69,7 +69,7 @@ func (s *Service) DecideEdited(ctx context.Context, id ids.ApprovalID, edited js
 }
 
 func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, reason *string, edited json.RawMessage) (row, error) {
-	if err := humanOnly(ctx); err != nil {
+	if err := actingForAHuman(ctx); err != nil {
 		return row{}, err
 	}
 	p, _ := principal.Actor(ctx)
@@ -225,6 +225,14 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 	}
 	if !visible {
 		return row{}, apperrors.ErrNotFound
+	}
+	// After visibility, so a caller who cannot see this row is told it is absent
+	// rather than that their credential is short a cap — the existence-hiding
+	// this module keeps everywhere. Before the status check, because what a
+	// credential may release is a question about the credential and not about
+	// how far this particular proposal has got.
+	if err := agentMayDecide(p, a, approve); err != nil {
+		return row{}, err
 	}
 	if st := a.effectiveStatus(s.now()); st != "pending" {
 		return row{}, &AlreadyDecidedError{Status: st}

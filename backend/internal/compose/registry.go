@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -46,7 +47,7 @@ func NewRegistryFor(db *database.DB, send SendPath) *agents.Registry {
 	// The gate resolves seats through identity, and identity binds the same
 	// handle: a registry built for a named workspace must not admit through a
 	// service that resolves a different one.
-	return registryWithGate(db, auth.NewGate(identity.NewServiceFor(db)), nil, nil, send, companyEnricher{}, nil)
+	return registryWithGate(db, auth.NewGate(identity.NewServiceFor(db)), nil, nil, send, companyEnricher{}, nil, slog.Default())
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
@@ -54,14 +55,14 @@ func NewRegistryFor(db *database.DB, send SendPath) *agents.Registry {
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
 func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
-	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
+	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil, slog.Default())
 }
 
 func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil)
+		return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send, companyEnricher{}, nil, slog.Default())
 	}
-	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil)
+	return registryWithGate(InstallationDB(pool), auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send, companyEnricher{}, nil, slog.Default())
 }
 
 // registryWithGate composes the tool surface. The quota charger arrives as
@@ -78,7 +79,7 @@ func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumben
 // model path has none, and the offline fake binds no embeddings model — and
 // every path that can lose the vector lane says so on the wire rather than
 // serving a lexically-ranked page under a semantic label.
-func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, opts ...agents.RegistryOption) *agents.Registry {
+func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath, enricher agents.CompanyEnricher, embedder search.Embedder, log *slog.Logger, opts ...agents.RegistryOption) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -114,7 +115,16 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// two answers, which is what ADR-0055 exists to prevent.
 	opts = append(opts, withContractTierFloor(),
 		agents.WithIdempotency(toolIdempotency(pool)), agents.WithReplayReader(provider))
-	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(InstallationDB(pool))}, gate, opts...)
+	// ONE approvals service for both directions of the 🟡 loop, and it is the
+	// service that carries the follow-on EFFECTS. Staging can run on a bare
+	// engine — it writes a proposal and nothing else — but deciding cannot: a
+	// kind whose release the engine does not know about would be marked approved
+	// and never performed, so a held message would read as sent and stay held.
+	// The HTTP door decides on an effects-registered service for exactly this
+	// reason (approvalsHandlersWithEffects); here approvalQueue refuses at boot
+	// an engine that could decide a kind it cannot release.
+	approvalsSvc := decidingApprovalsService(pool, send, log)
+	registry := agents.NewRegistry(approvalsAdapter{svc: approvalsSvc}, gate, opts...)
 	// The guards take the Dispatcher as an overlayModeChecker — the interface
 	// whose method IS the uncached read, so no wiring here can hand them the
 	// cached mode. See overlayModeChecker for why that distinction is typed.
@@ -145,6 +155,10 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// so it rides its own seam rather than the datasource one — and that seam
 	// needs the overlay guard the record verbs get from the Dispatcher for free.
 	agents.RegisterPipelineTool(registry, nativeOnlyPipelines(sorMode, pipelineLister(pool)))
+	// The confirm-first queue, read and answered from the same conversation a
+	// call was staged in. Nothing here decides anything the person behind the
+	// passport could not decide in the app.
+	agents.RegisterApprovalTools(registry, approvalQueue(approvalsSvc))
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))), reportToolCatalog())
 	// The governed workspace query. It takes the provider as well as the runner
 	// because the two halves of an answer come from different places: the plan
@@ -292,6 +306,28 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 			"generated_at": outcome.GeneratedAt,
 		})
 	}
+}
+
+// decidingApprovalsService builds the approvals engine the TOOL surface decides
+// through: the registration list plus the send-dependent releases.
+//
+// Both halves or neither. The list alone leaves held_draft — the one kind whose
+// release is a send — with no executor on this engine, so approving one here
+// would commit the decision, answer the caller success, and leave the message
+// held forever. The HTTP inbox gets the same two halves at a different moment
+// (applySendPath), because its surface is built before the send path is
+// assembled and this one is built after.
+// The process logger rides along for the reason the HTTP door takes one: a
+// bundle member whose effect fails AFTER its decision has committed is reported
+// to the caller by outcome alone, so the cause has nowhere to go but the log —
+// and this is the door where the wire carries the least.
+func decidingApprovalsService(pool *pgxpool.Pool, send SendPath, log *slog.Logger) *approvals.Service {
+	svc := approvalsServiceWithEffects(pool)
+	registerLateApprovalEffects(svc, pool, send)
+	if log != nil {
+		svc = svc.WithLogger(log)
+	}
+	return svc
 }
 
 // approvalsAdapter maps the tool surface's staging/redemption dependency

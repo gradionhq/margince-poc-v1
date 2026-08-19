@@ -90,6 +90,10 @@ func (r *Registry) Register(t mcp.Tool) {
 		panic(fmt.Sprintf("crmagents: %s declares no Version — every result carries it as schema_version, "+
 			"and an empty one tells a client the shape can never be compared", spec.Name))
 	}
+	if err := assertNoRequiredReservedArgument(spec); err != nil {
+		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
+		panic("crmagents: " + err.Error())
+	}
 	if err := assertObjectSchemas(spec); err != nil {
 		//craft:ignore panic-in-domain composition-time registration assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: " + err.Error())
@@ -320,4 +324,41 @@ func spliceRetryKey(inputSchema json.RawMessage) (json.RawMessage, error) {
 		return nil, fmt.Errorf("cannot encode the spliced schema: %w", err)
 	}
 	return sealed, nil
+}
+
+// assertNoRequiredReservedArgument refuses a tool that cannot be called at all.
+//
+// The surface owns two argument names and pops both from every call before a
+// handler runs (reserved.go): `approval_id` asserts that a human released this
+// exact call, and `idempotency_key` asks for it to be safe to repeat. A 🟡 tool
+// ADVERTISING approval_id is right and expected — that is how a caller learns
+// what to send on the retry — so the defect is not declaring one. It is
+// REQUIRING one: the member is gone by the time the argument check reads the
+// call, so every caller is refused for omitting exactly what they sent, and no
+// argument they could construct would satisfy it.
+//
+// Caught at boot because there is no call that would reveal it. The tool answers
+// "`approval_id` is required" to a caller who supplied it, which reads as a
+// caller mistake and can be retried forever.
+func assertNoRequiredReservedArgument(spec mcp.ToolSpec) error {
+	var shape struct {
+		Required []string `json:"required"`
+	}
+	if len(spec.InputSchema) == 0 {
+		return nil
+	}
+	// A schema that does not parse is assertObjectSchemas's answer to give, with
+	// the better message; there is nothing for this check to add.
+	//nolint:nilerr // the unreadable-schema refusal belongs to assertObjectSchemas, which runs right after this
+	if err := json.Unmarshal(spec.InputSchema, &shape); err != nil {
+		return nil
+	}
+	for _, field := range shape.Required {
+		if field == approvalIDArg || field == idempotencyKeyArg {
+			return fmt.Errorf("%s requires `%s`, which the surface pops from every call before the tool "+
+				"sees it — every caller would be refused for omitting what they sent. Name the tool's own "+
+				"argument something else", spec.Name, field)
+		}
+	}
+	return nil
 }

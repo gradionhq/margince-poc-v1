@@ -6,7 +6,9 @@ package jobs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/riverqueue/river"
 
@@ -103,6 +105,9 @@ func faultFor(ctx context.Context, kind string, err error) error {
 	// classification it would have had anyway.
 	if class, ok := extension.FailureClassOf(err); ok {
 		if registered, found := registeredFailureClass(kind, class); found {
+			if in, asked := extension.RescheduleAfter(err); asked {
+				return rescheduleFor(ctx, kind, registered.Class, in, err)
+			}
 			// THE CAUSE STILL GOES TO THE LOG. Classifying a failure says what
 			// KIND of thing went wrong; it does not say which host did not
 			// resolve, and that detail is the diagnosis — the thing this seam
@@ -128,36 +133,149 @@ func faultFor(ctx context.Context, kind string, err error) error {
 	return &fault{sentence: unrecognised, cause: err}
 }
 
+// The bounds a requested postponement is held to before it reaches the queue.
+//
+// A delay is a REQUEST from a unit, exactly as a class is, and this is the half
+// of the seam that makes the request safe to honour.
+//
+// WHAT THE CEILING PROTECTS, said precisely, because the imprecise version is
+// checkably false: a postponed row is `scheduled`, and `scheduled` IS counted —
+// health.go's waitingStates and the queue-depth gauge both include it, so a row
+// postponed for a year still shows up as one piece of waiting work. What it
+// escapes is the AGE reading. Every "how long has this waited" measurement in
+// this package filters `scheduled_at <= now()`, correctly, because nothing
+// scheduled for the future is late — so a far-future delay produces a count
+// nobody can age, forever, and "waiting: 1" is what a healthy idle tick looks
+// like too. The ceiling keeps the delay inside the window where a stuck
+// postponement eventually becomes measurable instead of permanently plausible.
+//
+// The floor carries two jobs. River PANICS on a negative duration, so a unit
+// that computed one from a clock — a deadline already past, a subtraction that
+// went the wrong way — would take the worker process down rather than fail a
+// tick, and a bound is the only place that can be caught once for everybody.
+// Zero is not a panic but is River's "run me immediately", which for a failing
+// tick is a spin against a provider that is already refusing; a second is long
+// enough not to be one and short enough that no unit meaning "as soon as
+// possible" is meaningfully denied.
+//
+// A CALLER STAYING UNDER THE CEILING IS NOT LEFT TO PROSE. It used to say the
+// ceiling "sits well above any cadence a connector declares", which was a claim
+// about one day's tree that nothing enforced — and it hid the inversion it was
+// meant to reassure about, since a unit declaring a cadence above this bound
+// reconciles its delay against that cadence perfectly and then gets clamped to
+// less, polling a refusing provider harder during an outage than in health.
+// backend/pollcadenceparity_test.go reads this bound out of this file and holds
+// every postponing unit under it.
+const (
+	minRescheduleDelay = time.Second
+	maxRescheduleDelay = 15 * time.Minute
+)
+
+// rescheduleFor turns a unit's postponement request into the queue's own control
+// return.
+//
+// WARN, not ERROR, and the level is the message. A postponed tick is not a
+// failure: nothing was lost, nothing is owed an operator, and logging it at the
+// level a dead job uses would put a routine outage in the same lane as work that
+// needs a human. It is logged at all because a connector that has been
+// postponing itself for a day is a fact somebody eventually needs, and it is the
+// one fact a snooze leaves nowhere else — River records no attempt error for a
+// snooze, so this line and the unit's own row are the whole trail.
+func rescheduleFor(ctx context.Context, kind, class string, in time.Duration, err error) error {
+	delay := min(max(in, minRescheduleDelay), maxRescheduleDelay)
+	attrs := append(faultLogAttrs(ctx, kind, class, err), "retry_in", delay.String())
+	// A CLAMPED REQUEST SAYS SO. The bounds exist to catch a unit that computed a
+	// delay wrong, and a clamp that logged only its own result made that mistake
+	// invisible: a unit asking for 72 hours and a unit asking for fifteen minutes
+	// produced byte-identical output, so the one thing the bound was written to
+	// notice left no trace anywhere. The request is carried only when it differs,
+	// because a field that repeats retry_in on every healthy line is noise the
+	// clamped case then hides in.
+	if delay != in {
+		attrs = append(attrs, "requested", in.String())
+	}
+	slog.WarnContext(ctx, "jobs: a worker postponed its own tick rather than failing", attrs...)
+	return river.JobSnooze(delay)
+}
+
 // faultLogAttrs is what every fault log line carries, spelled once so the three
 // branches cannot describe the same failure three different ways.
 //
-// The correlation id and the workspace are read off the context and attached
-// EXPLICITLY rather than left to the handler. slog.ErrorContext only enriches a
-// record if the DEFAULT handler happens to be correlation-aware, and no process
-// role installs one: cmd/worker builds a correlation-aware logger and passes it
-// around, while slog.Default() keeps the bare handler. So a line that relied on
-// the handler carried neither value, whichever context it was given — which is
-// the whole reason a caller is asked to pass the tick's own context.
+// THE CORRELATION ID IS THE HANDLER'S, and it is not attached here. It used to
+// be, because no process role installed its own handler as the default and a
+// package-level slog call therefore reached a bare one that enriched nothing —
+// so the id had to be attached by hand or it appeared on no fault line at all.
+// Every serving role now installs a correlation-aware default
+// (httpserver.InstallProcessLogger), which makes the hand-attachment not merely
+// redundant but wrong: both halves would stamp the same key and a JSON line
+// would carry correlation_id twice. One thing stamps it, and it is the handler
+// that stamps it for every other package-level call in the tree.
+//
+// THE WORKSPACE STILL IS attached here, because nothing else knows it. The
+// handler reads the correlation id off the context and only that; a job's
+// workspace is this seam's to say.
 //
 // An absent value is OMITTED rather than logged empty. A dispatcher has no
 // workspace and the two kindless entry points have no kind; an empty attr would
 // assert a value the failure does not have, and a reader filtering on it would
 // match every one of them.
 func faultLogAttrs(ctx context.Context, kind, class string, err error) []any {
-	attrs := make([]any, 0, 8)
+	attrs := make([]any, 0, 6)
 	if kind != "" {
 		attrs = append(attrs, "kind", kind)
 	}
 	if class != "" {
 		attrs = append(attrs, "class", class)
 	}
-	if id, ok := principal.CorrelationID(ctx); ok {
-		attrs = append(attrs, "correlation_id", id.String())
-	}
 	if ws, ok := principal.WorkspaceID(ctx); ok {
 		attrs = append(attrs, "workspace_id", ws.String())
 	}
-	return append(attrs, "err", err)
+	return append(attrs, errorAttr(err))
+}
+
+// errorAttr renders the cause as a STRUCTURED GROUP rather than one formatted
+// string, because this log line is the only place the cause is allowed to be
+// detailed and a collector should not have to parse prose to use it.
+//
+// WHY THE DETAIL IS SAFE HERE and nowhere else: river_job.errors is unscoped and
+// fleet-visible, which is the whole reason Fault substitutes a fixed sentence
+// before the queue sees the error. The process log is the other side of that
+// trade — its audience and its retention are the operator's own — so this is
+// where the cause is supposed to be legible.
+//
+// THE TYPE CHAIN IS THE FIELD THAT EARNS ITS PLACE, and it is not in the
+// message. The branch that most needs this line is the unclassified one, whose
+// stored sentence says only that the diagnosis is in the process log — and what
+// the reader of that line needs is which error a unit returned, so it can be
+// given a class. err.Error() answers what the provider said; the chain answers
+// which code said it. The same holds for a postponement, which River records no
+// attempt error for at all, so this line is the entire trail.
+//
+// Outermost first, matching the order errors.As resolves in, and bounded by the
+// wrapping depth an error actually has — a chain is walked with Unwrap and stops
+// where the wrapping stops.
+func errorAttr(err error) slog.Attr {
+	return slog.Group("error",
+		slog.String("message", err.Error()),
+		slog.String("type", fmt.Sprintf("%T", err)),
+		slog.Any("chain", causeTypes(err)),
+	)
+}
+
+// causeTypes names the Go type of every layer of a wrapped error, outermost
+// first, so an operator reading a fault line can find the code that produced it.
+//
+// It follows single-cause Unwrap only. An errors.Join tree has no single next
+// layer, and a reader that flattened one would present siblings as a chain of
+// causes — a claim about which failure produced which that the tree does not
+// make. Such an error stops the walk at itself, where its own type and its
+// message (which carries every joined cause's text) are already recorded.
+func causeTypes(err error) []string {
+	types := make([]string, 0, 4)
+	for at := err; at != nil; at = errors.Unwrap(at) {
+		types = append(types, fmt.Sprintf("%T", at))
+	}
+	return types
 }
 
 // VettedSentence reports whether s is a sentence Fault itself would have

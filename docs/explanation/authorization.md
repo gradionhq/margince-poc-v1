@@ -80,12 +80,26 @@ An action's autonomy tier is **declared once in the contract** (`x-mcp-tool: { t
 - **🟡 `confirmation_required`** — outbound / irreversible actions (send, merge, archive, close a deal, …) **stage a
   confirm-first approval** that a human decides in the inbox; the agent then redeems the decision by
   re-issuing the same call.
-- **Human-only** routes (approvals, consent, DSR) **refuse an agent principal outright**.
+- **Human-only** routes (consent, DSR, passport issuance, pipeline configuration) **refuse an agent
+  principal outright** — each one would let a credential widen what a credential may do.
 - A mutating operation carrying **no tier is default-denied** for agents (the agent-policy generator
   refuses to ship an un-tiered mutation in the first place — see
   [contract-first.md](contract-first.md)).
 
-Approving is always human-only, and an agent never exceeds the granting human's live authority.
+**Deciding an approval is not in that class** (ADR-0055). A passport is a credential a human minted
+and can revoke, carrying that human's own seat, grants and row scope, so answering a staged proposal
+on it is that person answering — from the conversation the call was staged in rather than only from
+the web app. What bounds the answer is what bounds them: the RBAC the staged effect itself needs,
+row-scope visibility of its target, the seat ceiling, expiry — plus the caps they chose to lend,
+because a decision spends what the release spends. A `read` passport lists the queue and is refused
+the decision; releasing a held message spends `send`; and no passport answers its own volume step-up,
+which is the one decision `on_behalf_of` cannot make safe. An agent never exceeds the granting
+human's live authority.
+
+The premise is that a person is behind the call, so the surface where nobody is — a scheduled,
+unattended run — cannot reach the decide verbs at all: the runner's catalog allowlist is gated
+against them by name, because a run that could answer its own staged calls would walk through the
+confirm-first tier by itself.
 
 Alongside the tier, the same annotation declares the **passport scope** the operation consumes
 (`x-mcp-tool: { scope: read|draft|write|send|enrich }`). The two are independent gates and neither

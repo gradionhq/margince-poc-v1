@@ -257,8 +257,8 @@ func TestAContactAddedLaterMeetsTheGhostThatWasWaiting(t *testing.T) {
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			  (owner_user_id, full_name, normalized_name, email, source)
+			VALUES (
 			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep1)
 		return err
 	}); err != nil {
@@ -326,8 +326,8 @@ func TestTheSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T) {
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			  (owner_user_id, full_name, normalized_name, email, source)
+			VALUES (
 			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep3)
 		return err
 	}); err != nil {
@@ -393,8 +393,8 @@ func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name, email, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			  (owner_user_id, full_name, normalized_name, email, source)
+			VALUES (
 			        $1, 'Dana Buyer', 'dana buyer', 'dana@acme.test', 'csv_export')`, e.Rep3)
 		return err
 	}); err != nil {
@@ -408,8 +408,8 @@ func TestThePerPersonSweepNeverMatchesOutsideTheGhostOwnersRowScope(t *testing.T
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name, source)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			  (owner_user_id, full_name, normalized_name, source)
+			VALUES (
 			        $1, 'Someone Else', 'someone else', 'csv_export')`, e.Rep2)
 		return err
 	}); err != nil {

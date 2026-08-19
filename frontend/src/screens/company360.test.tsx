@@ -2168,15 +2168,27 @@ describe("company view — the account's primary actions", () => {
     ).toBeTruthy();
   });
 
-  it("offers neither on an archived company", async () => {
+  it("refuses both on an archived company, over one stated reason", async () => {
     stub(view(), 200, { ...org, archived_at: "2026-07-01T09:00:00Z" });
     renderCompany();
     await screen.findByRole("complementary", { name: "Context" });
 
-    // The server refuses a write against a retired record, so the button would
-    // only open a form that fails on save.
-    expect(screen.queryByRole("button", { name: "Log activity" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add task" })).toBeNull();
+    // The server refuses a write against a retired record — but REMOVING the
+    // verb told a reader nothing, because an absent button reads as a build
+    // without the feature. Both are offered and refused, and both point at the
+    // one sentence that says what is true of the record.
+    const log = await screen.findByRole("button", { name: "Log activity" });
+    const task = await screen.findByRole("button", { name: "Add task" });
+    expect(log.hasAttribute("disabled")).toBe(true);
+    expect(task.hasAttribute("disabled")).toBe(true);
+
+    const reasonId = log.getAttribute("aria-describedby");
+    expect(reasonId).toBeTruthy();
+    // One fact about the record, said once: the two verbs share the sentence.
+    expect(task.getAttribute("aria-describedby")).toBe(reasonId);
+    expect(document.getElementById(reasonId ?? "")?.textContent).toContain(
+      "archived",
+    );
   });
 });
 

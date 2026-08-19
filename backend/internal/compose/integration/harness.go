@@ -89,14 +89,14 @@ func Setup(t *testing.T) *Env {
 	}
 	for _, team := range []ids.UUID{e.Team1, e.Team2} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO team (id, workspace_id, name) VALUES ($1, $2, $3)`, team, e.WS, team.String()); err != nil {
+			`INSERT INTO team (id, name) VALUES ($1, $2)`, team, team.String()); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for user, team := range map[ids.UUID]ids.UUID{e.Rep1: e.Team1, e.Rep2: e.Team1, e.Rep3: e.Team2} {
 		if _, err := owner.Exec(ctx,
-			`INSERT INTO team_membership (workspace_id, team_id, user_id) VALUES ($1, $2, $3)`,
-			e.WS, team, user); err != nil {
+			`INSERT INTO team_membership (team_id, user_id) VALUES ($1, $2)`,
+			team, user); err != nil {
 			t.Fatal(err)
 		}
 	}
