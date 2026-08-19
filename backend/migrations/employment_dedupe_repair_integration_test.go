@@ -44,7 +44,7 @@ func seedEmploymentDuplicates(t *testing.T, conn *pgx.Conn, rows []employmentRow
 	t.Helper()
 	ctx := context.Background()
 	people := map[string]string{}
-	for _, name := range []string{"duplicated", "unmarked", "undecided"} {
+	for _, name := range []string{"duplicated", "unmarked", "undecided", "stale primary"} {
 		var id string
 		if err := conn.QueryRow(ctx, `
 			INSERT INTO person (full_name, source, captured_by)
@@ -127,6 +127,14 @@ func TestTheEmploymentDedupeIndexRepairsTheDuplicatesItWouldRefuseToApplyOver(t 
 		// this migration cannot answer, so it answers neither (#1781).
 		{label: "undecided A", person: "undecided", org: "employer", survives: true},
 		{label: "undecided B", person: "undecided", org: "other", survives: true},
+
+		// The state a deployed database is actually in: until this migration
+		// nothing cleared the flag when an employment ended, so somebody's
+		// former employer still reads as where they work — and blocks the
+		// promotion of the job they DO hold, because the primary index is keyed
+		// on the person alone.
+		{label: "left but still flagged", person: "stale primary", org: "other", primary: true, ended: true, survives: true},
+		{label: "the job they hold", person: "stale primary", org: "employer", survives: true, endsPrimary: true},
 	}
 	seeded := seedEmploymentDuplicates(t, conn, rows)
 

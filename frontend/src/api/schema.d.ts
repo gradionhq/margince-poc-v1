@@ -3211,9 +3211,12 @@ export interface paths {
         /**
          * Create a relationship edge (employment or deal stakeholder).
          * @description `employment` requires person_id + organization_id; `deal_stakeholder` requires
-         *     deal_id + person_id. At most one current-primary employer per person, and a
-         *     person's only current employment is that one. An employment they already
-         *     hold is refused 409: end the existing one before recording a new one.
+         *     deal_id + person_id. An employment they already hold is refused 409: end the
+         *     existing one before recording a new one. At most one current-primary employer
+         *     per person; `is_current_primary` is decided here only when you OMIT it — an
+         *     employment for somebody with no other current one then becomes their primary
+         *     — and an employment that has already ended never takes the flag. Send the
+         *     field to decide it yourself; a later PATCH always wins over both.
          */
         post: operations["createRelationship"];
         delete?: never;

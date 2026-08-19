@@ -38,7 +38,7 @@ func TestOrganizationCounts_ListAndSingleReadAgreeWithTheEdges(t *testing.T) {
 		orgID := ids.From[ids.OrganizationKind](org)
 		if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
 			Kind: "employment", PersonID: &personID, OrganizationID: &orgID,
-			IsCurrentPrimary: ended == nil, EndedAt: ended, Source: "manual",
+			IsCurrentPrimary: boolPtr(ended == nil), EndedAt: ended, Source: "manual",
 		}); err != nil {
 			t.Fatalf("seeding the employment edge: %v", err)
 		}
@@ -97,7 +97,7 @@ func TestOrganizationCounts_UngatedRoleSeesContactsButNoDealCount(t *testing.T) 
 	pID := ids.From[ids.PersonKind](staff)
 	oID := ids.From[ids.OrganizationKind](acme)
 	if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
-		Kind: "employment", PersonID: &pID, OrganizationID: &oID, IsCurrentPrimary: true, Source: "manual",
+		Kind: "employment", PersonID: &pID, OrganizationID: &oID, IsCurrentPrimary: boolPtr(true), Source: "manual",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestOrganizationCounts_FollowTheCallersRowScope(t *testing.T) {
 		orgID := ids.From[ids.OrganizationKind](acme)
 		if _, err := e.People.CreateRelationship(e.Admin(), people.CreateRelationshipInput{
 			Kind: "employment", PersonID: &personID, OrganizationID: &orgID,
-			IsCurrentPrimary: true, Source: "manual",
+			IsCurrentPrimary: boolPtr(true), Source: "manual",
 		}); err != nil {
 			t.Fatalf("seeding the employment edge: %v", err)
 		}

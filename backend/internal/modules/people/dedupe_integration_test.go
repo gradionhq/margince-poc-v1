@@ -127,9 +127,13 @@ func (e *dedupeEnv) seedEmployedPerson(ctx context.Context, t *testing.T, name, 
 	}
 	personID := ids.From[ids.PersonKind](ids.UUID(person.Id))
 	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
+	// Stated, not left to the store's own rule: this seed is about the person
+	// HAVING a current employer, so it says so rather than relying on a
+	// derivation another test could change.
+	primary := true
 	if _, err := e.store.CreateRelationship(ctx, CreateRelationshipInput{
 		Kind: "employment", PersonID: &personID, OrganizationID: &orgID,
-		IsCurrentPrimary: true, Source: "manual",
+		IsCurrentPrimary: &primary, Source: "manual",
 	}); err != nil {
 		t.Fatalf("seed employment: %v", err)
 	}

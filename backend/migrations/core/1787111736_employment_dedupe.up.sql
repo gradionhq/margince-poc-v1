@@ -16,6 +16,36 @@
 -- the old one. The two kinds differ because re-employment is real and
 -- re-stakeholding is not; the divergence is the decision, not a copy-paste slip.
 
+-- WRITERS OUT FIRST, for the whole migration. The repair below and the index
+-- at the bottom are two statements, and dbmigrate's advisory lock coordinates
+-- only other MIGRATION runners: an application replica still serving traffic
+-- holds ROW EXCLUSIVE, which the repair's UPDATE does not conflict with. It
+-- could therefore insert a fresh duplicate for a pair the repair had just
+-- cleared, and CREATE UNIQUE INDEX would abort on a row that did not exist
+-- when the migration started. That is the ordinary rolling deploy — the new
+-- container migrates at boot while the old one is still up.
+--
+-- SHARE ROW EXCLUSIVE, not EXCLUSIVE: it blocks INSERT/UPDATE/DELETE and lets
+-- readers through, which is the smallest lock that closes the window.
+LOCK TABLE relationship IN SHARE ROW EXCLUSIVE MODE;
+
+-- An employment somebody has LEFT is not their CURRENT primary one, and until
+-- this migration nothing enforced that: UpdateRelationship carried the flag
+-- through an `ended_at` patch untouched, so a deployed database holds rows that
+-- are ended and still flagged. They are not cosmetic. Every reader of the
+-- column filters on the flag ALONE — the person-by-employer list, the account
+-- contact count, enrichment's employer lookup and the auto-enrich sweep — so
+-- such a row still counts its person at a company they left.
+--
+-- It also has to run BEFORE the promotion at the bottom, which cannot promote
+-- past a live primary flag without violating uq_rel_current_primary_employer.
+-- Leaving these rows would therefore leave the person the report is about with
+-- an employer they left and no current one, which is the defect wearing a
+-- different face.
+UPDATE relationship SET is_current_primary = false
+ WHERE kind = 'employment' AND is_current_primary
+   AND ended_at IS NOT NULL AND archived_at IS NULL;
+
 -- The repair half. CREATE UNIQUE INDEX fails outright on a database that
 -- already holds duplicates, and at least one live installation does — so the
 -- index cannot ship without this, or applying it bricks that deployment.
@@ -41,12 +71,16 @@ UPDATE relationship SET archived_at = now()
 -- has it promoted. Without this the defect is fixed for everything written from
 -- here and left standing in exactly the rows that produced the report.
 --
--- Only where the answer is unambiguous. The NOT EXISTS excludes a person who
--- has another current employment (which of two employers is primary is a
--- question nothing here can answer) and one who already holds a live primary
--- flag on an ended row (promoting past it would violate
--- uq_rel_current_primary_employer). It runs after the dedupe above so an
+-- Only where the answer is unambiguous: the NOT EXISTS excludes a person who has
+-- another current employment, because which of two employers is primary is a
+-- question nothing here can answer. It runs after the dedupe above so an
 -- archived duplicate no longer counts as a second current employment.
+--
+-- Its `OR o.is_current_primary` arm reads as dead now that the step at the top
+-- has cleared every ended-and-flagged row, and it is not: it is the same
+-- predicate the store's insert uses, and it is what keeps this statement from
+-- ever violating uq_rel_current_primary_employer if a flagged row survives for
+-- a reason this migration did not anticipate.
 UPDATE relationship r SET is_current_primary = true
  WHERE r.kind = 'employment' AND r.ended_at IS NULL AND r.archived_at IS NULL
    AND NOT r.is_current_primary

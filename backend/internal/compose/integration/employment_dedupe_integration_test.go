@@ -144,6 +144,32 @@ func TestAPersonsOnlyCurrentEmploymentIsTheirPrimaryOne(t *testing.T) {
 	}
 }
 
+// The store decides the flag only for a caller who left it out. A request that
+// SENDS false is a person unticking "current employer" in the rail, and
+// deriving over it would hand back the opposite of what they chose.
+func TestAnExplicitlyUnsetPrimaryFlagIsHonouredOnTheOnlyEmployment(t *testing.T) {
+	e := setupRelationships(t)
+
+	status, first, primary, _ := e.employment(t, e.orgID, apptest.AnyMap{
+		"role": "cto", "is_current_primary": false,
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("employment with the flag explicitly unset → %d", status)
+	}
+	if primary {
+		t.Error("a request that said is_current_primary=false got true back — the derivation overrode the caller")
+	}
+
+	// The choice sticks. Nothing later re-derives it, so the person keeps the
+	// employer they recorded and no primary flag until somebody says otherwise.
+	if status := e.Call(t, "PATCH", "/v1/relationships/"+first, apptest.AnyMap{"role": "ceo"}, nil, nil); status != http.StatusOK {
+		t.Fatalf("patching an unrelated field → %d", status)
+	}
+	if e.isPrimary(t, first) {
+		t.Error("editing the role re-derived the flag the caller had explicitly unset")
+	}
+}
+
 // An employment recorded as already over is history being backfilled. Promoting
 // it would tell every reader the person currently works somewhere they left —
 // and asking for it to be primary must not cost them the employer they have.

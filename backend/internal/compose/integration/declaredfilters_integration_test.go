@@ -431,7 +431,7 @@ func TestThePersonListNarrowsToOneEmployer(t *testing.T) {
 			Kind:             "employment",
 			PersonID:         &personID,
 			OrganizationID:   &orgID,
-			IsCurrentPrimary: ended == nil,
+			IsCurrentPrimary: boolPtr(ended == nil),
 			EndedAt:          ended,
 			Source:           "manual",
 		}); err != nil {
