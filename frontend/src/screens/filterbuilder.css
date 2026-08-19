@@ -1,0 +1,67 @@
+/* SPDX-License-Identifier: BUSL-1.1
+ * SPDX-FileCopyrightText: 2026 Gradion
+ *
+ * The predicate builder's layout. Nesting is shown with an indent and a rule
+ * rather than a box inside a box: a group four deep drawn as four nested cards
+ * reads as four surfaces, and the reader loses which clause belongs to which
+ * join. One line down the left says the same thing in less ink. */
+
+.filter-builder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* A nested group carries the indent and the rule; the root has neither, so the
+ * first level does not look like it is inside something. */
+.filter-group[data-depth]:not([data-depth="1"]) {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--borderSubtle);
+}
+
+.filter-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.filter-group-children {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.filter-group-empty {
+  margin: 0;
+  color: var(--textMuted);
+  font-size: var(--fs-sm);
+}
+
+.filter-group-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* One clause on one line where the width allows, wrapping to its own rows on a
+ * narrow viewport rather than compressing three controls into unusable widths.
+ * The value control is the one that grows: the field and operator are closed
+ * sets whose widest option is known, and a value is not. */
+.filter-clause {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filter-clause > .token-input,
+.filter-clause > .input {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
