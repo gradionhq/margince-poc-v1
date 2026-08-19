@@ -138,8 +138,8 @@ func DeclaredTypeDisagreement(declared, sniffed string) string {
 	return base
 }
 
-// SafeFilename makes a sender-supplied name safe to store and show. It is
-// presentational only: nothing opens a file by this name, and the object key is
+// SafeFilename makes a sender-supplied name safe to store and show
+// (DOC-PARAM-8). It is presentational only: nothing opens a file by this name, and the object key is
 // generated elsewhere.
 //
 // Three classes go, and each is a real attack rather than tidiness. Path

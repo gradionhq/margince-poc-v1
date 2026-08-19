@@ -57,7 +57,7 @@ var waivedEnvelopeFields = gatekit.Waive(map[string]string{
 		"published sniff/sanitize pair and the four published inbound bounds), so this is no " +
 		"longer a capability gap — it is a deliberate hold: the field lands in the PR of the " +
 		"first unit that fills it, because a published frozen field with no caller freezes a " +
-		"shape no unit has exercised (#1195)",
+		"shape no unit has exercised",
 	"PartDrops": "the breadcrumb for refused attachments, held with Parts for the same reason " +
 		"and landing in the same PR — a drop cannot exist while what it accounts for does not",
 	"Fields": "the envelope's `any`. The published surface is typed instead — Record.Activity — so a unit cannot hand the sink a shape it does not switch on",

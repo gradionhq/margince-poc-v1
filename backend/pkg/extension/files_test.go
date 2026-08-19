@@ -70,7 +70,9 @@ func TestDeclaredTypeDisagreementKeepsOnlyTheDisagreement(t *testing.T) {
 	}
 }
 
-// Three classes of character go, and each is an attack rather than tidiness.
+// DOC-PARAM-8: a sender-supplied name is never a path, never rewrites a log
+// line, and never renders as an extension it does not have. Three classes of
+// character go, and each is an attack rather than tidiness.
 func TestSafeFilenameRemovesPathControlAndBidiCharacters(t *testing.T) {
 	for _, c := range []struct{ name, in, want string }{
 		{"path separators", "../../etc/passwd", "....etcpasswd"},
@@ -109,5 +111,44 @@ func TestSafeFilenameTruncatesVisiblyAndOnARuneBoundary(t *testing.T) {
 	}
 	if !utf8.ValidString(multibyte) {
 		t.Errorf("a cut multi-byte name %q is not valid UTF-8", multibyte)
+	}
+}
+
+// The four bounds are pinned to their VALUES, not to a symbol. Comparing the
+// published constant to the alias that is defined as it — which is how mail
+// declares its four — compiles to `20 != 20` and can only fail by panicking.
+// A number is what a reader of a receipt, an operator sizing a queue, and a
+// future channel producer all depend on, so the number is what is asserted.
+func TestTheInboundBoundsAreTheNumbersEveryProducerWasPromised(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		got, want int
+	}{
+		{"files kept", extension.MaxInboundFiles, 20},
+		{"files examined", extension.MaxInboundFilesExamined, 200},
+		{"bytes per file", extension.MaxInboundFileBytes, 25 << 20},
+		{"bytes per message", extension.MaxInboundMessageBytes, 50 << 20},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: bound is %d, was %d — changing it changes what every "+
+				"producer may hold in memory, so it is a decision, not an edit", c.name, c.got, c.want)
+		}
+	}
+}
+
+// The aggregate bound is what makes InboundFile.Body safe to hold in memory,
+// and it is only doing that job while it is SMALLER than the per-file bound
+// times the file count. Raise it to or past that product and the aggregate
+// still exists, still reads as a bound, and constrains nothing: one message
+// could hold 500 MiB of bodies at once.
+//
+// This is the one relationship between the four numbers that is load-bearing,
+// and the one an edit to any single constant can silently break.
+func TestTheAggregateBoundActuallyBoundsTheSumOfTheFiles(t *testing.T) {
+	product := extension.MaxInboundFiles * extension.MaxInboundFileBytes
+	if extension.MaxInboundMessageBytes >= product {
+		t.Errorf("MaxInboundMessageBytes is %d and the per-file bounds license %d: "+
+			"the aggregate constrains nothing, and InboundFile.Body is no longer bounded by it",
+			extension.MaxInboundMessageBytes, product)
 	}
 }

@@ -124,8 +124,12 @@ A unit may import only `backend/pkg/**`, and only the packages that opt in. Thre
 
 - **`pkg/extension`** — the declaration types (`Extension`, the self-validating `Name`/`Version`) and
   every capability contract that rides on them: `Tool`, `Channel`, `IngressSource` and `Record`,
-  `MergeKey`, `Subscription`, `Job`, `SecretsRequest`, and the per-invocation `Runtime`. One package
-  across several files; the marker is per-package, not per-file.
+  `MergeKey`, `Subscription`, `Job`, `SecretsRequest`, and the per-invocation `Runtime`. It also
+  carries the file types a unit and a core connector must share — `InboundFile`, `FileDrop`,
+  `OutboundFile`, the four `MaxInbound*` bounds, and the `SniffContentType`/`SafeFilename` pair every
+  producer of an inbound file calls — so what a file is, what it is called and how large it may be
+  are decided once rather than per producer. One package across several files; the marker is
+  per-package, not per-file.
 - **`pkg/extension/jurisdiction`** — the jurisdiction-pack contract (`Pack`, `Retention`,
   `RetentionClass`, the closed class/anchor vocabularies, the calendar `Period`).
 - **`pkg/extension/crm`** — the shapes a unit passes to and receives from `tx.Core()`, the governed
@@ -478,6 +482,8 @@ the whole path).
 | The declaration type (`Extension`, `Name`, `Version`) | `backend/pkg/extension/extension.go` |
 | The jurisdiction-pack contract | `backend/pkg/extension/jurisdiction/jurisdiction.go` |
 | The ingress record, its bounds, and the merge-key vocabulary | `backend/pkg/extension/ingress.go`, `mergekey.go` |
+| The file types, the inbound bounds, and the sniff/sanitize pair | `backend/pkg/extension/files.go` |
+| The core aliases of the file types | `backend/internal/shared/ports/connector/part.go`, `outbound.go` |
 | The channel contract (`Channel`, `MessageSender`, `ConnectionLiveChecker`) | `backend/pkg/extension/channel.go` |
 | The ingress gate and the send path the core drives | `backend/internal/compose/extingress.go`, `extchannelsend.go` |
 | Channel-provider registration and the core-collision check | `backend/internal/compose/channelprovider.go` |
