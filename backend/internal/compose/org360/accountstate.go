@@ -43,7 +43,7 @@ func (a *assembly) readLastTouch() error {
 	}
 	args := []any{a.orgID.UUID}
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	scope, err := auth.ActivityScopeClause(a.ctx, "a", arg)
+	scope, err := auth.ActivityDiscoverClause(a.ctx, "a", arg)
 	if err != nil {
 		return err
 	}
@@ -360,7 +360,7 @@ func (a *assembly) lastMeetingAt() (*time.Time, error) {
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(a.orgID.UUID)
 	nowPos := arg(a.now)
-	activityScope, err := auth.ActivityScopeClause(a.ctx, "a", arg)
+	activityScope, err := auth.ActivityDiscoverClause(a.ctx, "a", arg)
 	if err != nil {
 		return nil, err
 	}

@@ -223,7 +223,7 @@ func edgeReceipts(ctx context.Context, tx pgx.Tx, userID, personID ids.UUID) ([]
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	userPos, personPos := arg(userID), arg(personID)
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return nil, err
 	}

@@ -343,7 +343,7 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[str
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		switch table {
 		case tableActivity:
-			return auth.EnsureActivityVisibleLive(ctx, tx, id)
+			return auth.EnsureActivityContentVisibleLive(ctx, tx, id)
 		case tableSignal:
 			// A signal has no owner column but is scoped through its subject
 			// entity; "no owner_id" is never on its own a reason to skip.

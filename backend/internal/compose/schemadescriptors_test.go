@@ -85,8 +85,8 @@ func TestEverySchemaDescriptorCanBeRowScopedByTheReportPath(t *testing.T) {
 		arg := func(v any) int { args = append(args, v); return len(args) }
 		if obj.Type == datasource.EntityActivity {
 			// The timeline scopes through its links, not an owner_id column;
-			// runAdHocPlan switches to ActivityScopeClause for exactly this entity.
-			if _, err := auth.ActivityScopeClause(ctx, "t", arg); err != nil {
+			// runAdHocPlan switches to ActivityContentClause for exactly this entity.
+			if _, err := auth.ActivityContentClause(ctx, "t", arg); err != nil {
 				t.Errorf("activity descriptor cannot be row-scoped: %v", err)
 			}
 			continue

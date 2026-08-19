@@ -62,7 +62,7 @@ func nextMeetingSection(
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
 	nowPos := arg(now)
-	activityScope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	activityScope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return nil, err
 	}

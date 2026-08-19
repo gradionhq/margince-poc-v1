@@ -291,6 +291,9 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// discloses an activity its reader could not already open.
 	"activity_participant.activity_id": "child row: written only beside the activity itself, inside the transaction that mints it",
 	"activity_participant.person_id":   "server-derived: the counterparty the ensure chokepoint resolved, or a link the activities store already gated",
+	// The named audience of a limited activity. Written only by the audience
+	// endpoint, which has put the activity through the content gate first.
+	"activity_audience_member.activity_id": "child row: written only by the audience endpoint, beside the audience column it qualifies, after auth.EnsureActivityContentVisible",
 	// The interaction projection (CG-DDL-1) holds no fact of its own: every
 	// row is folded from activity_participant rows by the consumer, and no
 	// request body ever names a person here. Reads of it carry the person
@@ -318,12 +321,12 @@ var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// The transcript a reading was made of. Client-supplied — it is the routed
 	// id of the activity the rep pressed "read for next steps" on — and gated
 	// on the way in: StartTranscriptReadQueued resolves it through the module's
-	// own readActivity, which composes auth.ActivityScopeClause, so a
+	// own readActivity, which composes auth.ActivityContentClause, so a
 	// transcript the caller cannot see answers ErrNotFound before any row is
 	// written. Every later read of the run record (GetTranscriptRead,
 	// LatestTranscriptRead, ReadTranscript) re-probes the same way rather than
 	// trusting the stored pointer.
-	"transcript_read.activity_id": "client-supplied and gated: every path resolves the activity through readActivity's ActivityScopeClause walk, so an unseeable transcript is ErrNotFound rather than a readable run record",
+	"transcript_read.activity_id": "client-supplied and gated: every path resolves the activity through readActivity's ActivityContentClause walk, so an unseeable transcript is ErrNotFound rather than a readable run record",
 	// The retention floor's evidence (A165, migration 0289). Both columns are
 	// SERVER-DERIVED and neither has a writer yet — the table shipped ahead of
 	// the pass that fills it (#1557). activity_id is the record being held, and

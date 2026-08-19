@@ -289,7 +289,7 @@ func TestTheAccountLibraryPagesPastThePinnedGroup(t *testing.T) {
 // contracts shelf and has no way to know the file is there.
 //
 // Its visibility is the link walk, not a row-scope clause over its own columns,
-// so the arm has to use auth.ActivityScopeClause. This asserts both halves: the
+// so the arm has to use auth.ActivityContentClause. This asserts both halves: the
 // file appears for a reader who can open the activity, and does not for one who
 // cannot.
 func TestAnActivityBorneFileReachesTheLibraryAndStaysGated(t *testing.T) {

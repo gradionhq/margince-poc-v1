@@ -34,7 +34,7 @@ only borrows from is [relationship-graph.md](relationship-graph.md).
      └──────────┬──────────────────────────┘                   │
                 │   every branch of BOTH arms:                 │
                 │   auth.Require(entity, read)  ← denied type contributes no branch
-                │   + ScopeClause / ActivityScopeClause        │
+                │   + ScopeClause / ActivityContentClause        │
                 │   + archived_at IS NULL                      │
                 ▼                                              ▼
             ┌──────────────── RRF fusion (k = 60) ────────────────┐
@@ -96,7 +96,7 @@ set — it is compiled into the query that produces it:
   denied, the answer is an empty page — not a 403 that would disclose which types
   exist.
 - **Row scope rides the same branch.** `auth.ScopeClauseFor` (or
-  `auth.ActivityScopeClause` for the activity branch's link walk) is appended to
+  `auth.ActivityContentClause` for the activity branch's link walk) is appended to
   that branch's `WHERE`, in the same `database.WithWorkspaceTx` transaction that
   binds the RLS GUC. Both arms use the identical helper — fusion adds no
   visibility of its own.

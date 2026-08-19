@@ -314,7 +314,7 @@ type threading struct {
 // stores no References column; a deep thread's middle ancestors are lost,
 // which costs nothing to the join and only some clients' visual nesting.
 func anchorThreading(ctx context.Context, tx pgx.Tx, id ids.ActivityID, messageID string) (threading, error) {
-	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
+	if err := auth.EnsureActivityContentVisible(ctx, tx, id.UUID); err != nil {
 		return threading{}, err
 	}
 	var kind, parent, root string

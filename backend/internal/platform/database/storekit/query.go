@@ -71,7 +71,7 @@ func (q Query) predicateWhere(ctx context.Context, p Predicate) (string, []any, 
 
 	var scope string
 	if q.ActivityWalk {
-		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
+		scope, err = auth.ActivityContentClause(ctx, "t", arg)
 	} else {
 		scope, err = auth.ScopeClauseFor(ctx, q.Table, "t", arg)
 	}

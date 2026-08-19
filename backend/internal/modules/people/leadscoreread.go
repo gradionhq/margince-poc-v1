@@ -207,7 +207,7 @@ func visibleActivityIDs(ctx context.Context, tx pgx.Tx, want []ids.ActivityID) (
 		args = append(args, v)
 		return len(args)
 	}
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
 	if err != nil {
 		return nil, err
 	}

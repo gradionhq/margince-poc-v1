@@ -94,7 +94,7 @@ func buildReportWhere(ctx context.Context, spec reportSpec, req reportRequest, a
 	var scope string
 	var err error
 	if spec.activityWalk {
-		scope, err = auth.ActivityScopeClause(ctx, "t", arg)
+		scope, err = auth.ActivityContentClause(ctx, "t", arg)
 	} else {
 		scope, err = auth.ScopeClauseFor(ctx, string(spec.entity), "t", arg)
 	}

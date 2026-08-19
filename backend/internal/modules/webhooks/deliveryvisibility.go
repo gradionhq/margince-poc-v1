@@ -162,7 +162,7 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		})
 	case "activity":
 		return s.rowScopedVisible(ctx, "activity", func(c context.Context, tx pgx.Tx) error {
-			return auth.EnsureActivityVisible(c, tx, entityID)
+			return auth.EnsureActivityContentVisible(c, tx, entityID)
 		})
 	case "signal":
 		return s.rowScopedVisible(ctx, "signal", func(c context.Context, tx pgx.Tx) error {

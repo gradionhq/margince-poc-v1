@@ -114,7 +114,7 @@ func TestAnActivityTheReaderCanSeeKeepsItsLink(t *testing.T) {
 	me := ids.NewV7()
 	// The person is owned by the READER, so an own-scoped reader reaches the
 	// activity through it. A workspace-scoped reader would prove nothing here:
-	// ActivityScopeClause returns an empty clause for an unbounded principal and
+	// ActivityDiscoverClause returns an empty clause for an unbounded principal and
 	// hideUnreadableLinks returns before the probe ever runs — so a probe that
 	// matched nothing at all would still satisfy both tests in this file.
 	seedTracedActivityOwnedBy(memberContext(ctx, ws, me), t, db, me, me, "linked-2")

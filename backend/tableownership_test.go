@@ -137,6 +137,10 @@ var tableOwners = map[string]string{
 	// activity_link for the same reason they belong together — it is part of
 	// what an activity IS, not a graph artifact derived from one.
 	"activity_participant": "internal/modules/activities",
+	// The named readers of an activity whose audience a human limited to
+	// `selected`; it is written by the audience endpoint in the same
+	// transaction as the column it qualifies.
+	"activity_audience_member": "internal/modules/activities",
 	// CG-DDL-1: the interaction projection. Owned by search per the ratified
 	// module answer (ADR-0078 §2) — the graph capability lives inside the
 	// search module, and a sibling would have to import its traversal

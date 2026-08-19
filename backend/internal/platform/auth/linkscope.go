@@ -10,7 +10,8 @@ package auth
 // exactly one spelling).
 //
 //   - MAY I READ THIS ACTIVITY: yes if ANY of its links points at a record
-//     I can see (ActivityScopeClause, inheritedscope.go).
+//     I can see (ActivityDiscoverClause, inheritedscope.go), and MAY I
+//     READ IT when its audience is limited (ActivityContentClause).
 //   - MAY I BE TOLD WHAT IT IS ABOUT: per link, because the any-link answer
 //     above does not license disclosing the other records it touches.
 
@@ -62,7 +63,7 @@ const (
 
 // linkTargetTables names every record type an activity_link points at, in
 // the order the disjunction below walks them. Both this projection and the
-// activity gate (ActivityScopeClause, inheritedscope.go) decide whether they
+// activity gate (ActivityDiscoverClause, inheritedscope.go) decide whether they
 // may skip their clause by asking UnboundedFor (rowscope.go) over this set, so
 // a record type that gains capture privacy tightens both at once.
 var linkTargetTables = []string{tablePerson, tableOrganization, tableDeal, tableLead, tableProject}

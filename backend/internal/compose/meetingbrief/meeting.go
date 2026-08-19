@@ -81,7 +81,7 @@ func (a attendeeRow) firstTime() bool { return a.LastTouch == nil }
 // would be a brief about a conversation that has already happened — the reader
 // would prepare for a room nobody booked.
 func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (meeting, error) {
-	if err := auth.EnsureActivityVisibleLive(ctx, tx, activityID); err != nil {
+	if err := auth.EnsureActivityContentVisibleLive(ctx, tx, activityID); err != nil {
 		return meeting{}, err
 	}
 	var args []any
@@ -100,7 +100,7 @@ func (s *Service) readMeeting(ctx context.Context, tx pgx.Tx, activityID ids.UUI
 	// reports when an attendee last spoke to us using a conversation this
 	// caller may not open — the timing, and the fact that any correspondence
 	// exists at all, are both disclosures the scope exists to prevent.
-	touchScope, err := auth.ActivityScopeClause(ctx, "pa", arg)
+	touchScope, err := auth.ActivityDiscoverClause(ctx, "pa", arg)
 	if err != nil {
 		return meeting{}, err
 	}

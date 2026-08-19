@@ -72,6 +72,10 @@ func TestRowScopeAllDoesNotClearCapturePrivacy(t *testing.T) {
 		t.Error("UnboundedFor(admin, deal) = false: deal carries no visibility " +
 			"column, so an admin still reads it unfiltered")
 	}
+	if UnboundedFor(human(principal.RowScopeTeam), "person") {
+		t.Error("UnboundedFor(rep, person) = true: a rep would skip the clause and " +
+			"read a colleague's unpromoted captured contacts")
+	}
 	// Unbounded itself is an admission test several engines gate on and
 	// must keep answering for the scope tier alone.
 	if !Unbounded(admin) {
@@ -141,19 +145,20 @@ func TestTheOwnerPredicateIsTotal(t *testing.T) {
 func TestSubjectRightsPredicateDropsOnlyTheCapturePrivacyArm(t *testing.T) {
 	// Art. 15 and Art. 17 owe the subject everything the controller holds,
 	// including an unpromoted capture. The crossing lifts capture privacy
-	// and nothing else — the caller's own/team scope still binds, so a rep
-	// with person.delete cannot erase a colleague's person.
+	// and nothing else: a person is workspace-readable anyway (tableclass.go),
+	// so the subject-rights read renders TRUE, while a commercial table keeps
+	// the caller's own/team scope. Erasure's WRITE arm is the write-authority
+	// probe, which still binds (writescope.go).
 	p := human(principal.RowScopeTeam)
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	sql := predicateFor(p, "person", arg, withoutCapturePrivacy)("t")
-
-	if strings.Contains(sql, "visibility") {
-		t.Errorf("the subject-rights predicate still applies capture privacy, "+
-			"so a SAR would silently omit an unpromoted captured person: %s", sql)
+	if sql := predicateFor(p, "person", arg, withoutCapturePrivacy)("t"); sql != "TRUE" {
+		t.Errorf("the subject-rights person predicate = %q, want TRUE: it either still "+
+			"applies capture privacy (a SAR would omit an unpromoted capture) or narrows "+
+			"a workspace-readable record", sql)
 	}
-	if !strings.Contains(sql, "t.owner_id") {
-		t.Errorf("the subject-rights predicate dropped the owner scope too; a rep "+
-			"could reach a colleague's records: %s", sql)
+	if sql := predicateFor(p, "project", arg, withoutCapturePrivacy)("t"); !strings.Contains(sql, "t.owner_id") {
+		t.Errorf("the subject-rights project predicate dropped the owner scope; a rep "+
+			"could reach a colleague's projects: %s", sql)
 	}
 }

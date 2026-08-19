@@ -341,13 +341,13 @@ func resolvePreviewRecipe(ctx context.Context, catalog fieldcatalog.Reader, stor
 // scopeClause resolves the RIGHT row-visibility clause for def.table:
 // activity carries no owner_id (auth.ScopeClauseFor's ownerScopedTables
 // does not — and must not — include it), its visibility instead
-// inheriting from whatever it links to (auth.ActivityScopeClause's own
+// inheriting from whatever it links to (auth.ActivityContentClause's own
 // doc) — the SAME link-walk rule the activities timeline and people's
 // promotion-evidence check both enforce (ADR-0054 §8: one spelling).
 // Every other previewed table is a plain owner-scoped resource.
 func (def previewDef) scopeClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
 	if def.table == "activity" {
-		return auth.ActivityScopeClause(ctx, alias, arg)
+		return auth.ActivityContentClause(ctx, alias, arg)
 	}
 	return auth.ScopeClauseFor(ctx, def.table, alias, arg)
 }

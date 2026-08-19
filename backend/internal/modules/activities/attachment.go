@@ -55,7 +55,7 @@ const (
 // single-row visibility gate. Out of scope reads as ErrNotFound.
 func ensureAttachmentParentVisible(ctx context.Context, tx pgx.Tx, entityType string, id ids.UUID) error {
 	if entityType == "activity" {
-		return auth.EnsureActivityVisible(ctx, tx, id)
+		return auth.EnsureActivityContentVisible(ctx, tx, id)
 	}
 	return auth.EnsureVisible(ctx, tx, entityType, id)
 }

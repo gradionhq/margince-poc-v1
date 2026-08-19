@@ -254,7 +254,7 @@ func TestFieldHistoryPaginationPreservesRowBoundaries(t *testing.T) {
 
 // TestFieldHistoryForActivityDispatchesToLinkWalkVisibility covers
 // entity_type=activity specifically: activity carries no owner_id, so its
-// row-scope goes through the link-walk (auth.EnsureActivityVisible), never
+// row-scope goes through the link-walk (auth.EnsureActivityContentVisible), never
 // the generic owner-scoped auth.EnsureVisible, which does not even know
 // the "activity" table.
 func TestFieldHistoryForActivityDispatchesToLinkWalkVisibility(t *testing.T) {

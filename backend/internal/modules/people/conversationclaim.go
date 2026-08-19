@@ -99,7 +99,7 @@ func (s *Store) RecordConversationClaim(ctx context.Context, in ClaimInput) (crm
 		// Activities are reachability-scoped rather than row-scoped, so they
 		// have their own probe. Live, not merely visible: a claim must not
 		// quote a message that has since been archived.
-		if err := auth.EnsureActivityVisibleLive(ctx, tx, in.ActivityID); err != nil {
+		if err := auth.EnsureActivityContentVisibleLive(ctx, tx, in.ActivityID); err != nil {
 			return err
 		}
 		var id ids.UUID
@@ -159,7 +159,7 @@ func (s *Store) ClaimsForPerson(ctx context.Context, tx pgx.Tx, personID ids.Per
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return nil, err
 	}

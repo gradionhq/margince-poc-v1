@@ -195,7 +195,7 @@ func TestThePersonLinkIsWhatThePersonCreationRungReads(t *testing.T) {
 func TestReadingPipelineFactsTakesTheRowScopeNotJustTheGrant(t *testing.T) {
 	// The object grant and the row scope are two different gates, and the
 	// sibling below only removes the first. Every principal there is
-	// RowScopeAll, against which EnsureActivityVisible is a no-op by
+	// RowScopeAll, against which EnsureActivityContentVisible is a no-op by
 	// construction — so deleting that call left nothing red.
 	//
 	// This is the other half: the grant is HELD, and the activity is linked to a

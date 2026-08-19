@@ -230,7 +230,7 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	anchorPos := arg(anchorID)
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	scope, err := auth.ActivityContentClause(ctx, "a", arg)
 	if err != nil {
 		return nil, nil, nil, err
 	}

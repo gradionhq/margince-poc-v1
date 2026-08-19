@@ -35,7 +35,7 @@ package integration
 // the SAME read the built Tasks screen performs today
 // (frontend/src/screens/tasks.tsx: GET /activities?kind=task), which
 // resolves to activities.Store.ListActivities scoped by
-// auth.ActivityScopeClause — an activity is visible to a viewer when ANY
+// auth.ActivityDiscoverClause — an activity is discoverable to a viewer when ANY
 // entity it links to is visible under that viewer's own row-scope. This
 // suite asserts against that real scope clause (not a tautological
 // "the list is non-empty"): Sam's own read must surface the reminder,

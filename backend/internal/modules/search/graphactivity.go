@@ -211,7 +211,7 @@ func (s *Store) assembleActivityWithin(ctx context.Context, tx pgx.Tx, activityI
 // an event the caller cannot see yields the same not-found any other anchor
 // gives, never a leak of who was in someone else's meeting.
 //
-// EnsureActivityVisibleLive, not EnsureActivityVisible: this serves stored
+// EnsureActivityContentVisibleLive, not EnsureActivityContentVisible: this serves stored
 // content, so an archived event must not answer and an unbounded actor does
 // not skip the existence probe.
 func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graphItem, error) {
@@ -221,7 +221,7 @@ func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graph
 	if err := auth.Require(ctx, string(datasource.EntityActivity), principal.ActionRead); err != nil {
 		return graphItem{}, err
 	}
-	if err := auth.EnsureActivityVisibleLive(ctx, tx, activityID); err != nil {
+	if err := auth.EnsureActivityContentVisibleLive(ctx, tx, activityID); err != nil {
 		return graphItem{}, err
 	}
 	var title, kind string
@@ -248,7 +248,7 @@ func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graph
 // activitySubjects resolves the records an event is about, best subject first.
 //
 // Every candidate is visibility-probed individually. The anchor's own scope is
-// the ANY-link rule (auth.ActivityScopeClause), so a meeting linked to one deal
+// the ANY-link rule (auth.ActivityContentClause), so a meeting linked to one deal
 // the caller owns and one they do not is readable while the second deal is not:
 // dereferencing widens context, never authority.
 func activitySubjects(ctx context.Context, tx pgx.Tx, activityID ids.UUID) ([]activitySubject, error) {

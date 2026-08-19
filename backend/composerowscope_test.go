@@ -104,7 +104,9 @@ var rowScopeSpellings = map[string]bool{
 	"OwnerPredicate": true, "VisiblePredicate": true,
 	"EnsureVisible": true, "EnsureVisibleLive": true, "EnsureVisibleForSubjectRights": true,
 	"EnsureLinkTarget": true, "VisibleTo": true, "LinkTargetVisibleClause": true,
-	"ActivityScopeClause": true, "EnsureActivityVisible": true, "EnsureActivityVisibleLive": true,
+	"ActivityDiscoverClause": true, "ActivityContentClause": true,
+	"EnsureActivityVisible": true, "EnsureActivityVisibleLive": true,
+	"EnsureActivityContentVisible": true, "EnsureActivityContentVisibleLive": true,
 	"SignalScopeClause": true, "EnsureSignalVisible": true, "EnsureSignalVisibleLive": true,
 	"RelationshipEndpointScope": true, "EnsureRelationshipVisible": true,
 }

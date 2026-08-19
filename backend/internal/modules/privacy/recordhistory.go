@@ -242,10 +242,10 @@ func ListRecordHistory(ctx context.Context, db *database.DB, f RecordHistoryFilt
 	page := RecordHistoryPage{Entries: []RecordHistoryEntry{}}
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		// activity carries no owner_id — it row-scopes through its links,
-		// so its visibility check dispatches to EnsureActivityVisible.
+		// so its visibility check dispatches to EnsureActivityContentVisible.
 		var visErr error
 		if f.EntityType == entityTypeActivity {
-			visErr = auth.EnsureActivityVisible(ctx, tx, f.EntityID)
+			visErr = auth.EnsureActivityContentVisible(ctx, tx, f.EntityID)
 		} else {
 			visErr = auth.EnsureVisible(ctx, tx, f.EntityType, f.EntityID)
 		}

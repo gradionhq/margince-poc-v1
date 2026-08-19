@@ -288,6 +288,21 @@ func (e *Env) SeedDeal(t *testing.T, name string, pipeline ids.PipelineID, stage
 	return ids.UUID(d.Id)
 }
 
+// MakeCapturePrivate turns a seeded person or organization into a
+// capture-private row — `visibility='owner'`, owned by the given user — the
+// state a connector leaves an unpromoted contact in. Person, organization,
+// lead and deal are otherwise readable by every seat of the workspace, so
+// this is the ONE way a test still has to put an identity row out of a
+// caller's read scope; a test about row scope on a commercial table seeds a
+// project instead.
+func (e *Env) MakeCapturePrivate(t *testing.T, table string, id, owner ids.UUID) {
+	t.Helper()
+	if table != "person" && table != "organization" {
+		t.Fatalf("MakeCapturePrivate: %s carries no visibility column", table)
+	}
+	e.WsExec(t, `UPDATE `+table+` SET visibility = 'owner', owner_id = $2 WHERE id = $1`, id, owner)
+}
+
 // WsExec runs one setup statement in a workspace-bound transaction (RLS is
 // FORCED, so the GUC must be set even for the owner-less test pool).
 func (e *Env) WsExec(t *testing.T, sql string, args ...any) {

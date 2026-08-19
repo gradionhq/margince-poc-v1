@@ -326,13 +326,13 @@ const activityColumns = `a.id, a.kind, a.channel_provider, a.subject, a.body, a.
 // carries the row scope itself. An activity has no owner_id and the
 // workspace predicate bounds only the tenant, so its scope exists solely
 // as the link-walk in
-// auth.ActivityScopeClause — a probe a call site can forget, and three
+// auth.ActivityContentClause — a probe a call site can forget, and three
 // lifecycle mutators did. Anything that returns a record is a read, so the
 // gate lives here: an out-of-scope id reads as ErrNotFound, the same answer
 // a missing row gives, whether the caller is getting, updating, archiving
 // or relinking.
 func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
-	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
+	if err := auth.EnsureActivityContentVisible(ctx, tx, id.UUID); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	q := `SELECT ` + activityColumns + ` FROM activity a WHERE a.id = $1`

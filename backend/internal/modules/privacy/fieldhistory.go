@@ -158,12 +158,12 @@ func ListFieldHistory(ctx context.Context, db *database.DB, f FieldHistoryFilter
 	err := db.Tx(ctx, func(tx pgx.Tx) error {
 		// activity carries no owner_id — it row-scopes through its
 		// links (the entities it is attached to), so its visibility
-		// check dispatches to EnsureActivityVisible; every other entity
+		// check dispatches to EnsureActivityContentVisible; every other entity
 		// type in fieldHistoryEntityTypes is owner-scoped and goes
 		// through the generic EnsureVisible.
 		var visErr error
 		if f.EntityType == entityTypeActivity {
-			visErr = auth.EnsureActivityVisible(ctx, tx, f.EntityID)
+			visErr = auth.EnsureActivityContentVisible(ctx, tx, f.EntityID)
 		} else {
 			visErr = auth.EnsureVisible(ctx, tx, f.EntityType, f.EntityID)
 		}
