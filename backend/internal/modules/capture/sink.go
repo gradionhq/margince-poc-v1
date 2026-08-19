@@ -19,7 +19,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/pipelinetrace"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -132,7 +131,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	// dropped says why, when a gate above the raw store kept the message out;
 	// it is the skip's sentence to the connector, so it names the rule, never
 	// an address.
-	dropped := "all participants are on the workspace's own domains"
+	var dropped string
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
 		// A channel record's account id IS personal data, and THIS transaction is
 		// the one that makes it durable — so the erasure is excluded here, under
@@ -142,41 +141,17 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 			return err
 		}
 
-		// The internal gate runs BEFORE the raw store, which is the whole point:
-		// raw capture is append-once evidence, so a message that gets that far
-		// has been kept whatever happens next. Colleague correspondence is not
-		// evidence of a customer relationship — it is two employees talking, and
-		// the CRM was never asked to hold it.
-		skip, err := s.internalOnlyTx(ctx, tx, rec)
+		// The pre-store gates run BEFORE the raw store, which is the whole
+		// point: raw capture is append-once evidence, so a message that gets
+		// that far has been kept whatever happens next.
+		drop, err := s.dropBeforeStoreTx(ctx, tx, rec)
 		if err != nil {
 			return err
 		}
-		if skip {
+		if drop != "" {
 			internalOnly = true
-			if err := s.logBreadcrumbTx(ctx, tx, actionCaptureInternalDropped, rec, reasonInternalOnly); err != nil {
-				return err
-			}
-			// The member's own answer to "why did this never appear". The
-			// breadcrumb above is the operator's and says nothing about whose
-			// mailbox this was; this says it was theirs and that the drop was
-			// deliberate.
-			return s.traceTx(ctx, tx, rec, pipelinetrace.StageInternalDrop, TraceInternal, reasonInternalOnly)
-		}
-		// The exclusion lists, on the same footing and for the same reason: a
-		// message the workspace or this mailbox's owner ruled out is not the
-		// CRM's to hold, and the breadcrumb and trace name the kind of rule,
-		// never the address it matched.
-		excluded, err := excludedTx(ctx, tx, rec)
-		if err != nil {
-			return err
-		}
-		if excluded != "" {
-			internalOnly = true
-			dropped = "a capture exclusion rule keeps this message out (" + excluded + ")"
-			if err := s.logBreadcrumbTx(ctx, tx, actionCaptureExcluded, rec, excluded); err != nil {
-				return err
-			}
-			return s.traceTx(ctx, tx, rec, pipelinetrace.StageInternalDrop, TraceSuppressed, excluded)
+			dropped = drop
+			return nil
 		}
 
 		if err := storeRawCapture(ctx, tx, rec); err != nil {
@@ -230,35 +205,6 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		}
 	}
 	return ref, nil
-}
-
-// storeRawCapture appends the provider's original bytes under the natural
-// key. Raw capture is EVIDENCE: append-once, never rewritten. A replay
-// carrying different bytes for the same natural key keeps the original —
-// silently replacing provenance would gut lineage and forensic replay. A
-// record that arrived with no original stores nothing.
-func storeRawCapture(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord) error {
-	if len(rec.Raw) == 0 {
-		return nil
-	}
-	payload := rec.Raw
-	if !json.Valid(payload) {
-		// Non-JSON originals are stored as a JSON string so the
-		// column type never rejects a provider's format.
-		encoded, err := json.Marshal(string(rec.Raw))
-		if err != nil {
-			return err
-		}
-		payload = encoded
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO raw_capture (source_system, source_id, payload)
-		VALUES ($1, $2, $3)
-		ON CONFLICT (source_system, source_id) DO NOTHING`,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, payload); err != nil {
-		return fmt.Errorf("capture: raw store: %w", err)
-	}
-	return nil
 }
 
 // captureActivity lands one activity: upsert on the natural key, links,
