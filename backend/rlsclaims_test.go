@@ -44,7 +44,11 @@ import (
 var rlsClaim = regexp.MustCompile(`(?i)\bRLS[ -](?:scope|bound|confine|restrict|isolate|enforce|govern|gate|bind|keep|constrain|protect)(?:s|d|es|ed)?\b` +
 	`|\bRLS already\b` +
 	`|\b(?:scoped|bounded|confined|restricted|isolated|gated|governed|protected|filtered)[ -]by[ -]RLS\b` +
-	`|\bFORCE RLS (?:doesn't|does not|do not|don't)\b`)
+	`|\bFORCE RLS (?:doesn't|does not|do not|don't)\b` +
+	// The prose form a decision record reaches for. A migrated record said
+	// "tenant isolation through row-level security" and no pattern above
+	// matched it, because every one of them keys on the abbreviation.
+	`|(?i)\btenant isolation (?:through|through the|via|by|using) row.level security\b`)
 
 // TestTheRLSClaimPatternCatchesTheSpellingsThisTreeGrew pins the pattern
 // against the real phrasings the 2026-08 sweep removed, and against the
@@ -81,7 +85,12 @@ func TestTheRLSClaimPatternCatchesTheSpellingsThisTreeGrew(t *testing.T) {
 
 // TestNoGoSourceClaimsRLSStillScopesARead walks the same hand-written trees the
 // license notice covers — derived from the tree, so a new file is enrolled the
-// moment it exists.
+// moment it exists — and the decision records under docs/adr/ alongside them.
+//
+// The name says Go source because that is where the sweep started. It reads
+// prose too: a decision record ratified row-level security as the live tenant
+// control months after 0217 retired it, and a Go-only gate had nothing to say
+// about it. The name is kept because the shipped record of that sweep cites it.
 func TestNoGoSourceClaimsRLSStillScopesARead(t *testing.T) {
 	var claims []string
 	checked := 0
@@ -120,8 +129,29 @@ func TestNoGoSourceClaimsRLSStillScopesARead(t *testing.T) {
 			t.Fatalf("walking %s: %v", tree.root, err)
 		}
 	}
+	// Decision records make the same claim in prose, and until this was added
+	// they were not scanned at all: a migrated record ratified row-level
+	// security as the live tenant control months after 0217 retired it, and
+	// every Go-only gate passed it.
+	records, err := filepath.Glob("../docs/adr/ADR-*.md")
+	if err != nil {
+		t.Fatalf("listing decision records: %v", err)
+	}
+	for _, path := range records {
+		b, err := os.ReadFile(path) // #nosec G304 -- path comes from a glob over the tracked docs tree
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		checked++
+		for i, line := range strings.Split(string(b), "\n") {
+			if rlsClaim.MatchString(line) {
+				claims = append(claims, filepath.ToSlash(path)+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
+			}
+		}
+	}
+
 	if checked == 0 {
-		t.Fatal("the sweep read no Go file — a gate that scans nothing passes exactly like a clean one")
+		t.Fatal("the sweep read no file — a gate that scans nothing passes exactly like a clean one")
 	}
 	if len(claims) > 0 {
 		t.Errorf("%d line(s) credit RLS with a guarantee core 0217 retired. "+
