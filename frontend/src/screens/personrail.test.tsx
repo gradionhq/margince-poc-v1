@@ -164,7 +164,7 @@ function json(body: unknown): Response {
 // Every body this rail POSTs, in order, so a test can assert what was SENT
 // rather than what the component happened to render afterwards. The employment
 // modal's whole contract with the server is the shape of one request.
-const sent: Array<{ path: string; body: unknown }> = [];
+const sent: Array<{ method: string; path: string; body: unknown }> = [];
 
 function mount(view: Person360) {
   sent.length = 0;
@@ -179,13 +179,13 @@ function mount(view: Person360) {
       // on the Request and reading it needs a clone — consuming the original
       // would leave the real call with an empty body.
       const request = input instanceof Request ? input : null;
-      const method = request?.method ?? init?.method;
-      if (method === "POST") {
+      const method = request?.method ?? init?.method ?? "GET";
+      if (method === "POST" || method === "PATCH") {
         const raw = request
           ? await request.clone().text()
           : String(init?.body ?? "");
         if (raw !== "") {
-          sent.push({ path: url.pathname, body: JSON.parse(raw) });
+          sent.push({ method, path: url.pathname, body: JSON.parse(raw) });
         }
       }
       // The session probe is the one route that must answer a real body: an
@@ -193,6 +193,19 @@ function mount(view: Person360) {
       // affordances the rail draws and nothing about its readings.
       if (url.pathname.endsWith("/me")) {
         return json(meFixture({ allow: { person: ["read", "update"] } }));
+      }
+      // Every write to an employment row pins If-Match, and the version comes
+      // from this list read. Answering it empty is not a neutral stub: the rail
+      // refuses to write unpinned, so an empty list turns a "mark as ended"
+      // click into a refusal and no request at all.
+      if (method === "GET" && url.pathname.endsWith("/relationships")) {
+        return json({
+          data: (view.employments?.data ?? []).map((employment) => ({
+            id: employment.relationship_id,
+            version: 3,
+          })),
+          page,
+        });
       }
       // The employer picker searches organizations; without a candidate the
       // modal's Save stays disabled and there is no request to inspect.
@@ -514,11 +527,11 @@ describe("the sibling sections governed by their own grants", () => {
 });
 
 // What the modal SENDS, and whether the box the reader looked at agreed with it.
-// The first attempt at this omitted the field for an untouched box, which fixed
-// the server-side rule and broke something worse: the reader saw "not their
-// current employer" unticked, saved, and got the opposite — with no way to say
-// "no" except ticking and unticking again. So the box states an answer from the
-// start, and the answer it states is the one the record takes.
+// The two must never part company. A modal that omits the field for a box the
+// reader never touched leaves the server to decide, and the server's answer can
+// be the opposite of the unticked box on screen — leaving no way to say "no"
+// except ticking and unticking again. So the box states an answer from the
+// moment it opens, and the answer it states is the one the record takes.
 describe("adding a company", () => {
   // Its own instance per test, and told about the fake timers this suite
   // installs: a shared one carries pointer and keyboard state between tests, so
@@ -573,8 +586,9 @@ describe("adding a company", () => {
         );
       }
     });
-    const post = sent.find((request) =>
-      request.path.endsWith("/relationships"),
+    const post = sent.find(
+      (request) =>
+        request.method === "POST" && request.path.endsWith("/relationships"),
     );
     return asObject(post?.body, "the posted employment");
   }
@@ -585,9 +599,8 @@ describe("adding a company", () => {
     await screen.findByRole("button", { name: "Add company" });
     await user.click(screen.getByRole("button", { name: "Add company" }));
 
-    // The state the reader sees BEFORE touching anything. This is the assertion
-    // the omit-when-untouched version could not make: it showed unticked and
-    // wrote primary.
+    // The state the reader sees BEFORE touching anything — the reading that a
+    // modal deciding the field only on interaction cannot honour.
     expect(currentEmployerTicked()).toBe(true);
 
     await user.type(screen.getByRole("searchbox"), "emp");
@@ -644,5 +657,134 @@ describe("adding a company", () => {
     await user.click(screen.getByRole("button", { name: "Add company" }));
 
     expect(currentEmployerTicked()).toBe(false);
+  });
+});
+
+// The rail sorts the employer somebody still holds to the top and marks it
+// current, and "ending" a job writes today as its last day. Both readings turn
+// on the same rule as the server's: a job is still theirs until its last day has
+// PASSED, so a notice period is not a departure and today's date is.
+describe("which employer is the current one", () => {
+  function withEmployments(
+    rows: Array<{
+      relationship_id: string;
+      organization_name: string;
+      is_current_primary: boolean;
+      ended_at: string | null;
+    }>,
+  ): Person360 {
+    return {
+      ...granted,
+      employments: {
+        data: rows.map((row) => ({
+          relationship_id: row.relationship_id,
+          organization_id: `o-${row.relationship_id}`,
+          organization_name: row.organization_name,
+          role: "Head of Fleet",
+          is_current_primary: row.is_current_primary,
+          started_at: "2022-03-01T00:00:00Z",
+          ended_at: row.ended_at,
+        })),
+        page,
+      },
+    };
+  }
+
+  // NOW is pinned to 2026-08-18, so these are a fortnight either side of it.
+  const future = "2026-09-01";
+  const past = "2026-08-04";
+
+  function employerOrder(): string[] {
+    return Array.from(
+      section("Companies").querySelectorAll(".pe-employment-org"),
+    ).map((node) => node.textContent ?? "");
+  }
+
+  it("puts the job they still hold first, notice period and all", async () => {
+    mount(
+      withEmployments([
+        {
+          relationship_id: "rel-old",
+          organization_name: "Former GmbH",
+          is_current_primary: false,
+          ended_at: past,
+        },
+        {
+          relationship_id: "rel-now",
+          organization_name: "Notice GmbH",
+          is_current_primary: true,
+          ended_at: future,
+        },
+      ]),
+    );
+    await screen.findByText("Notice GmbH");
+
+    const [first, second] = employerOrder();
+    expect(first).toContain("Notice GmbH");
+    // Serving notice is still the current job, so the row says so.
+    expect(first).toContain("current");
+    expect(second).toContain("Former GmbH");
+    expect(second).not.toContain("current");
+  });
+
+  it("stops calling it current once the last day has passed", async () => {
+    // The flag still says this employer is the primary one — the record of WHICH
+    // employer it was is not rewritten when the date passes. Currency is derived
+    // from the date, so the marker goes even though the flag stayed.
+    mount(
+      withEmployments([
+        {
+          relationship_id: "rel-gone",
+          organization_name: "Former GmbH",
+          is_current_primary: true,
+          ended_at: past,
+        },
+        {
+          relationship_id: "rel-older",
+          organization_name: "Earlier GmbH",
+          is_current_primary: false,
+          ended_at: past,
+        },
+      ]),
+    );
+    await screen.findByText("Former GmbH");
+
+    // Nobody is current here, so the section marks nobody — a flag left over
+    // from a job that has ended must not outrank a row that never claimed one.
+    for (const row of employerOrder()) {
+      expect(row).not.toContain("current");
+    }
+  });
+
+  it("ends an employment as of today, not tomorrow", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    mount(
+      withEmployments([
+        {
+          relationship_id: "rel-now",
+          organization_name: "Brandt Automotive GmbH",
+          is_current_primary: true,
+          ended_at: null,
+        },
+      ]),
+    );
+    await screen.findByText("Brandt Automotive GmbH");
+
+    await user.click(screen.getByRole("button", { name: "More actions" }));
+    await user.click(screen.getByRole("button", { name: "Mark as ended" }));
+
+    await waitFor(() => {
+      expect(sent.some((request) => request.method === "PATCH")).toBe(true);
+    });
+    const patch = sent.find((request) => request.method === "PATCH");
+    const body = patch?.body;
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new Error(
+        `the end-employment patch was not a JSON object: ${JSON.stringify(body)}`,
+      );
+    }
+    // The LOCAL date, formatted by hand. Reaching for toISOString() here would
+    // send yesterday's date to anybody west of UTC for most of their working day.
+    expect((body as Record<string, unknown>).ended_at).toBe("2026-08-18");
   });
 });
