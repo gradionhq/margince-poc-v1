@@ -28,6 +28,15 @@
 -- the modules issue (a person's employment list, an account's contact count),
 -- and the planner picks between them.
 
+-- The build takes SHARE on `relationship`, which blocks every writer to it for
+-- the duration. lock_timeout bounds only the WAIT for that lock, not the build:
+-- without it, one long-open transaction holding a conflicting lock leaves this
+-- migration queued forever and every write to the table queued behind it — the
+-- deploy the index is meant to improve becomes the deploy that stalls the table.
+-- Three seconds, matching core/0139, 0147 and 0165: take it in a quiet moment
+-- or fail fast and loud so an operator retries in one.
+SET LOCAL lock_timeout = '3s';
+
 CREATE INDEX idx_rel_traverse_person ON relationship (person_id)
   WHERE archived_at IS NULL;
 CREATE INDEX idx_rel_traverse_organization ON relationship (organization_id)
