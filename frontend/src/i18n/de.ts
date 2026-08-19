@@ -7,12 +7,14 @@ import type { MessageKey } from "./en";
 export const de = {
   "theme.toDark": "Dunkles Design",
   "theme.toLight": "Helles Design",
-  // Die beiden Designs als Optionen einer Auswahl: Einstellungen → Konto zeigt
-  // beide gleichzeitig, also heißt jede so, wie sie IST, und nicht danach, was
+  // Die drei Auswahlmöglichkeiten fürs Erscheinungsbild: das Kontomenü zeigt
+  // alle gleichzeitig, also heißt jede so, wie sie IST, und nicht danach, was
   // ein Klick tut. Die beiden Labels darüber bleiben die Namen des reinen
-  // Icon-Schalters auf Anmeldung und Onboarding.
+  // Icon-Schalters auf Anmeldung und Onboarding. "System" benennt das Gerät,
+  // dessen Einstellung übernommen wird, kein drittes Aussehen.
   "theme.light": "Hell",
   "theme.dark": "Dunkel",
+  "theme.system": "System",
 
   "trust.accept": "Übernehmen",
   "trust.edit": "Bearbeiten",
@@ -79,12 +81,18 @@ export const de = {
   "shell.railAria": "Hauptnavigation",
   "shell.skipToContent": "Zum Inhalt springen",
   "shell.logoAria": "Margince",
-  "shell.search": "Suche",
+  "shell.searchEverything": "Alles durchsuchen…",
+  "shell.breadcrumbAria": "Navigationspfad",
+  "shell.approvals": "Freigaben",
+  "shell.license.seats": "{used}/{granted} Sitze",
+  "shell.license.none": "Keine Lizenz",
+  "shell.license.refused": "Lizenz abgelehnt",
+  "shell.license.aria": "Lizenz und Sitze",
+  "shell.approvalsWaiting": "Freigaben — {count} offen",
   "shell.signOutAria": "Abmelden",
   "shell.collapse": "Seitenleiste einklappen",
   "shell.expand": "Seitenleiste ausklappen",
   "shell.accountAria": "Konto",
-  "shell.account": "Konto",
   "shell.theme": "Design",
   "shell.more": "Mehr",
   "shell.unknownPage": "Nicht gefunden",
@@ -145,7 +153,6 @@ export const de = {
   "action.readCompany": "Firma einlesen",
   "action.booking": "Buchungsseite",
 
-  "fab.open": "Dazu fragen",
   "fab.close": "Schließen",
   "fab.panelAria": "Zu diesem Datensatz fragen",
   "fab.context": "Frage zu {context}",

@@ -160,8 +160,8 @@ describe("LeadsScreen + LeadScreen (B-EP09.10b, §3.5 segregation)", () => {
   });
 
   // The app shell yields its page heading on a record route (app/shell.tsx:
-  // PageHead prints the trail and nothing at heading level), so the lead's own
-  // surface is the only thing that can name this page.
+  // PageTitle renders nothing there, and the trail stands in the top bar), so
+  // the lead's own surface is the only thing that can name this page.
   it("names the page after the lead, at heading level one", async () => {
     stubFetch(async () => jsonResponse(lead));
     render(<LeadScreen id="l-1" />);

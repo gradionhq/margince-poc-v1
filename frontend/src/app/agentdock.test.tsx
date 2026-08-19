@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from "node:fs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
@@ -13,12 +14,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { AgentDock } from "./agentdock";
+import type { Route } from "./router";
 
-// The agent dock at the right edge of the page head. Two promises run through
-// every case here: what it SHOWS at each density (the resting line, the badge
-// for what is waiting, the panel behind the click), and what it may CLAIM — the
-// runtime knows routing is configured and has proved nothing about a provider
-// being reachable, so no surface of the dock is allowed to read as liveness.
+// The agent dock, floating at the foot of the content column. Three promises
+// run through the cases here: what it SHOWS at each density (the resting line,
+// the badge for what is waiting, the panel behind the click); what it may CLAIM
+// — the runtime knows routing is configured and has proved nothing about a
+// provider being reachable, so no surface of the dock is allowed to read as
+// liveness; and what it OFFERS — the record-scoped ask it absorbed from the
+// "Ask about this" FAB (B-EP09.6, AC-shell-8), whose scope copy is the limit on
+// what any answer can be drawn from.
+
+// Every case that is not about the route itself stands on one, and a list
+// screen is the ordinary one: the composer is present and names its screen.
+const ROUTE: Route = { screen: "deals" };
 
 afterEach(() => {
   cleanup();
@@ -53,12 +62,24 @@ const CATALOG: ToolCatalog = {
 // ["agent-tools"], so the envelope GET /agent-tools returns is written straight
 // into that entry and the panel renders from the same snapshot the app does.
 // `null` leaves the entry empty — the state before the catalog has arrived.
-const render = (ui: ReactNode, catalog: ToolCatalog | null = CATALOG) => {
+const render = (
+  ui: ReactNode,
+  catalog: ToolCatalog | null = CATALOG,
+  // Record names the app has already read. The composer names what it will be
+  // asked ABOUT, and that answer is a read (app/pagemeta.ts) — seeded here the
+  // way the app holds it, so a case can show the resolved name and the case
+  // beside it can show what stands in while nothing has resolved.
+  names: Readonly<Record<string, string>> = {},
+) => {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   if (catalog) {
     client.setQueryData(["agent-tools"], catalog);
+  }
+  for (const [key, name] of Object.entries(names)) {
+    const [kind, id] = key.split(":");
+    client.setQueryData([kind, "ref", id], name);
   }
   return rtlRender(
     <QueryClientProvider client={client}>
@@ -81,7 +102,7 @@ const LIVENESS = /connected|online|live|running|healthy/i;
 
 describe("AgentDock", () => {
   it("says who the agent is and what state it is in, and never that it is live", () => {
-    const { container } = render(<AgentDock />);
+    const { container } = render(<AgentDock route={ROUTE} />);
     const trigger = screen.getByRole("button", { name: /^Margince AI/ });
     expect(container.querySelector(".agentdocktrigger")).toBe(trigger);
     expect(within(trigger).getByText("Margince AI")).toBeTruthy();
@@ -97,19 +118,21 @@ describe("AgentDock", () => {
   });
 
   it("carries no count badge when nothing is waiting", () => {
-    const unloaded = render(<AgentDock />);
+    const unloaded = render(<AgentDock route={ROUTE} />);
     expect(unloaded.container.querySelector(".agentwait")).toBeNull();
     cleanup();
 
     // Nor for a loaded zero: a badge is what wants attention, and zero does not.
-    const empty = render(<AgentDock approvalsWaiting={0} />);
+    const empty = render(<AgentDock route={ROUTE} approvalsWaiting={0} />);
     expect(empty.container.querySelector(".agentwait")).toBeNull();
   });
 
   // A badge only a sighted user can count is half a signal, so the count is part
   // of the trigger's own name rather than a bare number beside it.
   it("shows a waiting count at rest and says what it counts", () => {
-    const { container } = render(<AgentDock approvalsWaiting={3} />);
+    const { container } = render(
+      <AgentDock route={ROUTE} approvalsWaiting={3} />,
+    );
     const badge = container.querySelector(".agentwait");
     expect(badge?.textContent).toBe("3 Approvals waiting");
     expect(badge?.querySelector(".sr-only")?.textContent).toBe(
@@ -121,7 +144,9 @@ describe("AgentDock", () => {
   });
 
   it("opens the panel on the trigger without the opening click closing it again", async () => {
-    const { container } = render(<AgentDock approvalsWaiting={3} />);
+    const { container } = render(
+      <AgentDock route={ROUTE} approvalsWaiting={3} />,
+    );
     expect(container.querySelector(".agentpanel")).toBeNull();
 
     const trigger = await openDock();
@@ -135,7 +160,9 @@ describe("AgentDock", () => {
   });
 
   it("closes on a click outside itself", async () => {
-    const { container } = render(<AgentDock approvalsWaiting={3} />);
+    const { container } = render(
+      <AgentDock route={ROUTE} approvalsWaiting={3} />,
+    );
     await openDock();
     expect(container.querySelector(".agentpanel")).not.toBeNull();
 
@@ -144,7 +171,9 @@ describe("AgentDock", () => {
   });
 
   it("hands focus back to the trigger when Escape closes it", async () => {
-    const { container } = render(<AgentDock approvalsWaiting={3} />);
+    const { container } = render(
+      <AgentDock route={ROUTE} approvalsWaiting={3} />,
+    );
     const trigger = await openDock();
     // Standing inside the panel, the way a keyboard user arrives at a row.
     const ask = screen.getByRole("link", { name: "Ask Margince" });
@@ -158,16 +187,23 @@ describe("AgentDock", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("leads the panel with the surface where you talk to the agent", async () => {
-    render(<AgentDock approvalsWaiting={3} />);
+  // Narrowest first: the question about the record you are standing on, then
+  // the link to the surface where anything wider is asked. Reversed, the link
+  // reads as the only way to ask and the composer under it as an afterthought.
+  it("puts the scoped composer above the link to the full Ask surface", async () => {
+    render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
     await openDock();
+    const ask = screen.getByRole("link", { name: "Ask Margince" });
+    expect(ask.getAttribute("href")).toBe("#/ai");
     expect(
-      screen.getByRole("link", { name: "Ask Margince" }).getAttribute("href"),
-    ).toBe("#/ai");
+      screen
+        .getByRole("textbox", { name: "Your question" })
+        .compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeGreaterThan(0);
   });
 
   it("sends the waiting count to the approvals inbox that holds it", async () => {
-    render(<AgentDock approvalsWaiting={3} />);
+    render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
     await openDock();
     const row = screen.getByRole("link", { name: /^Approvals waiting/ });
     expect(row.getAttribute("href")).toBe("#/inbox");
@@ -177,7 +213,9 @@ describe("AgentDock", () => {
   // Zero waiting is a live answer, not a missing one: the row stays and prints
   // it. Only the at-rest badge treats zero as nothing to say.
   it("keeps the approvals row for a loaded zero", async () => {
-    const { container } = render(<AgentDock approvalsWaiting={0} />);
+    const { container } = render(
+      <AgentDock route={ROUTE} approvalsWaiting={0} />,
+    );
     await openDock();
     const row = screen.getByRole("link", { name: /^Approvals waiting/ });
     expect(row.querySelector(".agentvalue")?.textContent).toBe("0");
@@ -185,7 +223,7 @@ describe("AgentDock", () => {
   });
 
   it("summarises the tool catalog by tier and links where it is governed", async () => {
-    render(<AgentDock approvalsWaiting={3} />);
+    render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
     await openDock();
     const row = screen.getByRole("link", { name: /^Agent tools/ });
     expect(row.getAttribute("href")).toBe("#/settings/agents");
@@ -199,7 +237,7 @@ describe("AgentDock", () => {
   // read, and each case is asserted against a panel where the OTHER row is
   // present — absence has to be that row's own, not the panel failing to open.
   it("omits the approvals row rather than standing in a zero for an unread count", async () => {
-    render(<AgentDock />);
+    render(<AgentDock route={ROUTE} />);
     await openDock();
     expect(
       screen.queryByRole("link", { name: /^Approvals waiting/ }),
@@ -220,7 +258,7 @@ describe("AgentDock", () => {
     );
     vi.stubGlobal("fetch", unavailable);
 
-    render(<AgentDock approvalsWaiting={3} />, null);
+    render(<AgentDock route={ROUTE} approvalsWaiting={3} />, null);
     await openDock();
     expect(screen.queryByRole("link", { name: /^Agent tools/ })).toBeNull();
 
@@ -236,7 +274,7 @@ describe("AgentDock", () => {
   // announced-only — clipped to `.sr-only` it labels the block for a screen
   // reader and leaves everyone else looking at invented numbers.
   it("marks the example block before the values a reader would take as real", async () => {
-    render(<AgentDock approvalsWaiting={3} />);
+    render(<AgentDock route={ROUTE} approvalsWaiting={3} />);
     await openDock();
 
     const marker = screen.getByText("Example data");
@@ -256,5 +294,134 @@ describe("AgentDock", () => {
       marker.compareDocumentPosition(screen.getByText("Local + cloud")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeGreaterThan(0);
+  });
+});
+
+// The composer the dock absorbed from the "Ask about this" FAB (B-EP09.6,
+// AC-shell-8). The acceptance criterion did not go away when the FAB did, only
+// the element carrying it — these cases moved here from palette.test.tsx with
+// the component they describe.
+describe("the record-scoped ask (AC-shell-8)", () => {
+  it("names the screen the dock was opened on", async () => {
+    render(<AgentDock route={{ screen: "deals" }} />);
+    await openDock();
+    expect(screen.getByText("Ask about Pipeline")).toBeTruthy();
+  });
+
+  // The record by NAME, in the same words the trail at the top of the window
+  // uses. The dock resolved this separately once and printed the route's raw id,
+  // so the agent offered to answer questions about `01a01811-c847-…` while the
+  // trail two inches above it said "Carol Wagner".
+  it("names the record when there is one, over the screen holding it", async () => {
+    render(
+      <AgentDock route={{ screen: "companies", id: "brandt" }} />,
+      CATALOG,
+      { "organization:brandt": "Brandt Logistik GmbH" },
+    );
+    await openDock();
+    expect(screen.getByText("Ask about Brandt Logistik GmbH")).toBeTruthy();
+  });
+
+  // Loading, or a record this principal cannot read: the id is not a name, but
+  // it is true, and it is what the reader can quote when they ask why the answer
+  // was refused. A composer that named nothing would be a question about the
+  // whole product.
+  it("falls back to the record id when the name has not resolved", async () => {
+    render(<AgentDock route={{ screen: "companies", id: "brandt" }} />);
+    await openDock();
+    expect(screen.getByText("Ask about brandt")).toBeTruthy();
+  });
+
+  // The agent reads only the RBAC ∩ Passport intersection. This sentence is the
+  // one place the panel says so, which is why it ships with the composer rather
+  // than near it.
+  it("carries the load-bearing scope copy alongside the input and its verb", async () => {
+    render(<AgentDock route={{ screen: "home" }} />);
+    await openDock();
+    expect(
+      screen.getByText("Your agent reads only what you can see."),
+    ).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Your question" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
+  });
+
+  // On the full Ask surface a scoped composer would offer to ask about the page
+  // the reader is already asking on. The DOCK still renders there — it is the
+  // one floating AI element the shell has — so its absence must be the
+  // composer's own, not the panel failing to open.
+  it("offers no composer on the full Ask surface, and still reports what is waiting", async () => {
+    const { container } = render(
+      <AgentDock route={{ screen: "ai" }} approvalsWaiting={3} />,
+    );
+    expect(container.querySelector(".agentwait")?.textContent).toBe(
+      "3 Approvals waiting",
+    );
+
+    await openDock();
+    expect(container.querySelector(".agentask")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Your question" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Ask Margince" })).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: /^Approvals waiting/ }),
+    ).toBeTruthy();
+  });
+});
+
+// Where the dock STANDS is a promise too: it floats at the foot of the content
+// column, so its panel has to open upward or fall off the bottom of the page,
+// and on a phone it has to clear the floating navigation bar sharing that
+// ledge. jsdom cannot answer any of that — vitest does not apply the imported
+// stylesheet, so getComputedStyle reports the UA default for every rule in it.
+// The stylesheet is the artefact that decides these, so the stylesheet is what
+// is read, the same shape the design-system conformance suite uses.
+//
+// Read from disk rather than imported: vitest runs with `css: false`, so an
+// imported stylesheet — `?raw` included — arrives as an empty string. The path
+// is relative to the frontend package, which is vitest's root; `import.meta.url`
+// is no help because under the jsdom environment it is an http: URL.
+const STYLESHEET = readFileSync("src/app/agentdock.css", "utf8").replace(
+  /\/\*[\s\S]*?\*\//g,
+  "",
+);
+
+const ruleFor = (selector: string): string => {
+  const start = STYLESHEET.indexOf(`${selector} {`);
+  expect(start, `no \`${selector}\` rule in agentdock.css`).toBeGreaterThan(-1);
+  return STYLESHEET.slice(start, STYLESHEET.indexOf("}", start));
+};
+
+describe("where the dock stands", () => {
+  it("floats centred on the foot of the column it is positioned against", () => {
+    const dock = ruleFor(".agentdock");
+    expect(dock).toContain("position: absolute");
+    expect(dock).toContain("left: 50%");
+    expect(dock).toContain("transform: translateX(-50%)");
+    expect(dock).toContain("bottom: var(--space-6)");
+  });
+
+  it("opens the panel upward from the trigger, not down off the page", () => {
+    const panel = ruleFor(".agentpanel");
+    expect(panel).toContain("bottom: calc(100% +");
+    // `top` and `bottom` together would stretch the panel between them and
+    // silently override the height its content asked for.
+    expect(panel).not.toMatch(/\btop:/);
+    expect(panel).toContain("left: 50%");
+    // A panel wider than the viewport is a panel with a piece missing.
+    expect(panel).toContain("max-width: calc(100vw - 2 * var(--space-4))");
+  });
+
+  it("stands clear of the phone layout's floating bottom bar", () => {
+    // That bar sits on `max(var(--space-2), env(safe-area-inset-bottom))` and is
+    // ~56px tall, so the dock owes it both a fixed clearance and the inset the
+    // bar has already spent.
+    const offset =
+      /bottom:\s*calc\((\d+)px \+ env\(safe-area-inset-bottom\)\)/.exec(
+        STYLESHEET,
+      );
+    expect(
+      offset,
+      "no phone-width bottom offset in agentdock.css",
+    ).not.toBeNull();
+    expect(Number(offset?.[1])).toBeGreaterThanOrEqual(76);
   });
 });

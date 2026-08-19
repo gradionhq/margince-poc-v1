@@ -38,7 +38,6 @@ import { isEntityKind } from "../app/entity";
 import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
-import { setTheme, THEMES, useTheme } from "../app/theme";
 import {
   Avatar,
   Badge,
@@ -48,7 +47,6 @@ import {
   Field,
   Modal,
   SectionHeader,
-  SegmentedControl,
   Skeleton,
   Textarea,
   TextInput,
@@ -759,18 +757,6 @@ function IdentityCard() {
   );
 }
 
-/**
- * This person's own preferences: how the product looks, and which language it
- * reads in.
- *
- * They sit beside the identity card because that is what they belong to — a
- * reader looking for their theme looks under their own account, not under an
- * account MENU in the sidebar, which is for the three places it can take you.
- * Both controls drive the state the rest of the app already reads (`app/theme.ts`
- * and the locale context), so nothing here is a second source of truth: the
- * theme survives a reload because that store persists it, and the language lasts
- * as long as the session does because the context is where it lives.
- */
 // The sign-off appended below every message this member sends.
 //
 // It lives beside identity rather than under the composer because it is who
@@ -856,9 +842,20 @@ function EmailSignatureCard() {
   );
 }
 
+/**
+ * This person's own preferences, minus the one that is chosen elsewhere.
+ *
+ * Appearance is picked from the ACCOUNT MENU: it is the setting a reader
+ * changes most often and from wherever they happen to be standing, so it lives
+ * where they already are rather than three screens away. This card keeps the
+ * preferences that are not appearance, and it sits beside the identity card
+ * because that is what they belong to. Each control drives state the rest of
+ * the app already reads, so nothing here is a second source of truth: the
+ * language lasts as long as the session does because the locale context is
+ * where it lives.
+ */
 function PreferencesCard() {
   const t = useT();
-  const [theme] = useTheme();
   const { locale, setLocale } = useLocale();
   return (
     <Panel title={t("settings.preferences")}>
@@ -867,22 +864,6 @@ function PreferencesCard() {
           {t("settings.preferencesSub")}
         </p>
         <div className="form-stack">
-          {/* Not a `Field`: a SegmentedControl is a `fieldset`, and a <label for>
-              pointing at one names nothing. So the name rides on the control
-              itself and this line is the eye's copy of it — the same words, which
-              is what WCAG 2.5.3 asks of a voice user who says what they can read.
-              `settings-intrinsic`: two words wide is what this control IS, and
-              a `.field` column would otherwise stretch it across the page. */}
-          <div className="field settings-intrinsic">
-            <span className="t-label">{t("shell.theme")}</span>
-            <SegmentedControl
-              options={THEMES}
-              value={theme}
-              onChange={setTheme}
-              label={t("shell.theme")}
-              labels={{ light: t("theme.light"), dark: t("theme.dark") }}
-            />
-          </div>
           <Field label={t("locale.switchLabel")} className="settings-intrinsic">
             {(control) => (
               <Select

@@ -249,9 +249,9 @@
 
 /* A bare icon affordance that is NOT a .btn: no fill, no border, no label —
    the verb a row offers where a full button would be louder than the row it
-   sits in. It lived only as `.askfab-head .iconbtn` in the shell's own sheet,
-   so the four call sites outside that FAB rendered a preflight-reset native
-   button: no padding, no hover, no focus ring, and no hit target at all. */
+   sits in. It lived only as one panel's own rule in the shell's sheet, so the
+   four call sites outside that panel rendered a preflight-reset native button:
+   no padding, no hover, no focus ring, and no hit target at all. */
 .iconbtn {
   display: inline-flex;
   align-items: center;

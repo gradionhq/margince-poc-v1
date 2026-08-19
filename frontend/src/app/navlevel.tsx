@@ -237,7 +237,7 @@ function NavLevelRow({
       className={active ? "navitem active" : "navitem"}
       href={navLevelHref(level.path, entry.id)}
       aria-label={label}
-      aria-current={active ? "page" : undefined}
+      aria-current={active ? (level.ancestor ? "true" : "page") : undefined}
       onMouseEnter={() => state.onTip(key)}
       onMouseLeave={() => state.onTip(null)}
       onFocus={() => state.onTip(key)}

@@ -1,17 +1,39 @@
-/* ===== The agent dock: the Core and its honest status, at the right edge of
- * the page head, with the numbers one click behind it. =====
+/* ===== The agent dock: the Core and its honest status, floating at the foot
+ * of the content column, with the ask composer and the numbers one click
+ * behind it. =====
  *
- * It stands beside the page's h1 on the page ground, and the head itself is
- * borderless — so the resting dock carries the lightest container that still
- * reads as one object: a hairline pill on the elevated surface, no shadow. A
- * shadowed card here would out-rank the heading it sits next to, which is the
- * one thing on that row that must win. The shadow belongs to the panel, which
- * is a layer above the page and says so.
+ * It is positioned against `.main` rather than the viewport, so it centres on
+ * the column it belongs to and moves with the sidebar instead of drifting
+ * off-centre when the sidebar opens.
+ *
+ * It hovers OVER the page rather than sitting in a row of it, so it takes the
+ * chrome a floating object needs to read as one: a hairline border, an elevated
+ * ground, and a shadow to stand on. (The dock used to sit beside the page's h1
+ * and deliberately went without the shadow there — a shadowed pill would have
+ * out-ranked the heading beside it. Nothing shares its row now.)
  */
 .agentdock {
-  position: relative;
-  /* The head row sizes to its title; the dock never stretches it. */
-  flex: none;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: var(--space-6);
+  /* The layer a floating affordance belongs on: above everything the page
+     itself draws, and UNDER the phone sheet and its scrim (shell.css, 29/30)
+     and the modal/palette overlay (atoms.css, 50). A dock that stayed lit over
+     a dimmed page would read as the one thing still live while a modal was
+     open. This is also the dock's own stacking context, so the panel's z-index
+     below is local to it and cannot out-rank any of those either. */
+  z-index: 28;
+  /* What the panel opening upward cannot have: the dock's own bottom offset,
+     the 40px trigger it opens from, the gap above that trigger, and a margin at
+     the top of the page. Declared here and restated at phone width, because the
+     first term is the one that changes there. */
+  --agentDockReserve: calc(
+    var(--space-6) +
+    40px +
+    var(--space-2) +
+    var(--space-6)
+  );
 }
 
 .agentdocktrigger {
@@ -23,6 +45,7 @@
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-full);
   background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
   font-family: var(--f-body);
   cursor: pointer;
   transition:
@@ -125,15 +148,26 @@
   transform: rotate(180deg);
 }
 
-/* ===== the panel ===== */
+/* ===== the panel =====
+ *
+ * It opens UPWARD — `bottom`, never `top` — because the dock stands at the foot
+ * of the column and the only room is above it, and it is centred on the trigger
+ * so the two read as one object rather than a card that happens to be nearby.
+ */
 .agentpanel {
   position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  bottom: calc(100% + var(--space-2));
+  left: 50%;
+  transform: translateX(-50%);
   width: 320px;
   /* A panel wider than the viewport is a panel with a piece missing; on a
      narrow window it gives up its width before its content. */
   max-width: calc(100vw - 2 * var(--space-4));
+  /* The column clips its overflow, so a panel taller than the room above the
+     dock would lose its head off the top of the page rather than grow past it.
+     It scrolls inside itself instead. */
+  max-height: calc(100vh - var(--agentDockReserve));
+  overflow-y: auto;
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -142,17 +176,23 @@
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-pop);
-  z-index: 60;
+  /* Local to `.agentdock`'s stacking context — above the trigger it grew out
+     of, and nothing more than that. */
+  z-index: 1;
   animation: agentpanel-in 0.16s ease-out;
 }
+/* The entry travels the way the panel opens: up out of the trigger. Both frames
+   restate translateX(-50%) because `transform` is one property — an animation
+   naming only translateY would drop the centring for the length of the
+   animation and the panel would jump into place. */
 @keyframes agentpanel-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateX(-50%) translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateX(-50%) translateY(0);
   }
 }
 /* Every movement in the dock — the chevron's reveal and the panel's entry —
@@ -177,6 +217,29 @@
 }
 .agentpanelhead .agentstate {
   font-size: var(--fs-meta);
+}
+
+/* ===== the record-scoped ask =====
+ *
+ * The composer the "Ask about this" FAB used to carry, on the dock that
+ * absorbed it. It leads the panel's body because it is the narrowest thing here
+ * — a question about the record you are standing on — and the full Ask surface
+ * below it only reads as "wider than this" once this is visible.
+ */
+.agentask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Tinted, because this sentence is not a caption on the composer — it is the
+   limit on what the answer can be drawn from (RBAC ∩ Passport), and it has to
+   survive being skimmed. */
+.agentaskscope {
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--r-sm);
+  background: var(--aiLight);
+  color: var(--aiText);
 }
 
 /* The one thing the dock is FOR: the surface where you actually talk to it. */
@@ -278,11 +341,24 @@
   font-size: var(--fs-meta);
 }
 
-/* At phone width the head row wraps and the dock sits under the title, so the
-   panel opens against the page's left edge rather than off the right of it. */
+/* At phone width the navigation is a floating bar on the same bottom ledge
+   (shell.css: `bottom: max(var(--space-2), env(safe-area-inset-bottom))`, about
+   56px tall), so the dock has to stand clear ABOVE it rather than land on top
+   of it. 76px carries the bar plus a visible gap, and the safe-area inset is
+   added rather than max()-ed because the bar has already consumed it — on a
+   phone with a home indicator the dock owes that clearance a second time. */
 @media (max-width: 700px) {
-  .agentpanel {
-    right: auto;
-    left: 0;
+  .agentdock {
+    bottom: calc(76px + env(safe-area-inset-bottom));
+    /* The same four terms as above, with the bottom offset this rule just
+       raised — a reserve left at the desktop figure would let the panel run off
+       the top of a phone screen by exactly the difference. */
+    --agentDockReserve: calc(
+      76px +
+      env(safe-area-inset-bottom) +
+      40px +
+      var(--space-2) +
+      var(--space-6)
+    );
   }
 }

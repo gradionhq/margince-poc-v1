@@ -116,7 +116,8 @@ default.
   groups — a label is presentation and never a route id: `deals` presents as
   Pipeline, `inbox` as Approvals, `ai` as Ask Margince), `theme.ts` (light/dark
   resolved and applied BEFORE React mounts, so an unauthenticated screen can be
-  dark at all), the hash router, the ⌘K palette, and the Ask FAB. See
+  dark at all), the hash router, the ⌘K palette, and the agent dock (the one floating AI
+  affordance, carrying the record-scoped ask). See
   [docs/explanation/frontend-architecture.md](../docs/explanation/frontend-architecture.md).
 - `src/screens/` — one file per surface, or one directory when a surface is a
   state machine (`onboarding-conversation/`); unbuilt routes render the honest

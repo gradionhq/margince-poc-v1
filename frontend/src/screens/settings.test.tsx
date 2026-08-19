@@ -119,10 +119,7 @@ const render = (ui: ReactNode) => {
 // offered renders the real rail — the production wiring, not a copy of it — and
 // a claim about a tab's content renders the screen.
 const railFor = (tab?: string) => (
-  <SettingsRail
-    route={{ screen: "settings", id: tab }}
-    onOpenSearch={() => undefined}
-  />
+  <SettingsRail route={{ screen: "settings", id: tab }} />
 );
 
 const renderNav = (tab?: string) => render(railFor(tab));
@@ -147,28 +144,22 @@ describe("SettingsScreen RBAC surfaces", () => {
     expect(screen.queryByText("admin")).toBeNull();
   });
 
-  // Theme and language are this person's own preferences, so the Account tab is
-  // where they are offered — the sidebar's account menu carries destinations.
-  // The theme choice has to reach the document AND storage: on the document
-  // because that is what repaints, in storage because that is what survives a
-  // reload.
-  it("offers the theme on the Account tab, and a choice reaches the document and storage", async () => {
-    const user = userEvent.setup();
+  // Appearance is chosen from the account menu, not from here: it is the
+  // setting a reader changes most often and from wherever they are standing.
+  // Language stays, so the claim is that the card lost ONE control rather than
+  // that Preferences went away — and it is made against the rendered page,
+  // because an import that no longer exists is not evidence about what a reader
+  // sees.
+  it("offers no theme control on the Account tab", async () => {
     render(<SettingsScreen />);
     await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
 
-    const dark = screen.getByRole("button", { name: "Dark" });
-    await user.click(dark);
-    expect(document.documentElement.dataset.theme).toBe("dark");
-    expect(globalThis.localStorage.getItem("margince.theme")).toBe("dark");
-    expect(dark.getAttribute("aria-pressed")).toBe("true");
-
-    // Put it back. The theme is document-wide state held in theme.ts's own
-    // store, which neither cleanup() nor the localStorage clear reaches, so
-    // leaving it flipped would hand every later test a theme that depends on
-    // the order the file happened to run in.
-    await user.click(screen.getByRole("button", { name: "Light" }));
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(screen.getByText("Preferences")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Language" })).toBeTruthy();
+    for (const name of ["Light", "Dark", "System", "Theme"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+      expect(screen.queryByRole("group", { name })).toBeNull();
+    }
   });
 
   it("switches the language from the Account tab, through the design-system select", async () => {
@@ -1009,10 +1000,12 @@ describe("SettingsScreen Organization group", () => {
     // rather than a case — every gated member is gone here, and those two stay.
     vi.stubGlobal("fetch", orgNavBackend({ roles: ["rep"] }));
     renderNav();
-    // /me has to have SETTLED before an emptiness claim means anything: a nav
-    // read mid-flight is empty for every principal.
-    await screen.findByText("test@example.test");
-    expect(navTabs()).toEqual(MEMBER_TABS);
+    // /me has to have SETTLED before this claim means anything: a nav read
+    // mid-flight is empty for every principal. Waiting on the two entries
+    // themselves is what proves it settled — the sidebar no longer prints the
+    // signed-in address, which is what this used to wait for, because the
+    // account block moved to the top bar.
+    await waitFor(() => expect(navTabs()).toEqual(MEMBER_TABS));
   });
 
   it.each(DATA_MODEL_READS)(

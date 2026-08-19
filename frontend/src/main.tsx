@@ -6,7 +6,7 @@ import { api } from "./api/client";
 import { AttentionProvider } from "./app/attention";
 import { AppErrorBoundary } from "./app/errorboundary";
 import { createQueryClient } from "./app/queryclient";
-import { applyTheme, resolveTheme } from "./app/theme";
+import { startTheme } from "./app/theme";
 import { LocaleProvider } from "./i18n";
 import "./app.css";
 
@@ -18,7 +18,13 @@ const queryClient = createQueryClient();
 // ignored a dark-mode reader entirely, and inherited a stale attribute after a
 // sign-out. Setting it here also avoids a light-to-dark flash on reload for a
 // reader who has chosen dark.
-applyTheme(resolveTheme());
+//
+// It also starts the `prefers-color-scheme` subscription that a reader whose
+// choice is "system" is asking for. That belongs at boot rather than to the
+// first mounted theme control, because the account menu renders its control
+// only while it is open — a tab nobody opened the menu in would otherwise stay
+// deaf to the switch.
+startTheme();
 
 // A 403 is the server disagreeing with the capability snapshot the UI is
 // rendering from — either the grants changed under a live session (a role

@@ -51,8 +51,8 @@ it, so a `?utm=…` never leaks into a screen name.
 ```text
  src/design-system/     tokens.css → brand.css → base.css
                         → atoms → trust → the Core primitive → composed
- src/app/               shell + rail + top bar, hash router, ⌘K palette,
-                        Ask FAB, theme, capability, banners
+ src/app/               shell = sidebar + top bar + page title, hash router,
+                        ⌘K palette, agent dock, theme, capability, banners
  src/screens/           one file per surface (a directory when the surface
                         is a state machine)
  src/i18n/  src/format/ the presentation edge: copy, money, dates, zones
@@ -74,9 +74,13 @@ it, so a `?utm=…` never leaks into a screen name.
   the reduced-motion rule — reduced motion jumps to the END state, never to
   nothing. `conformance.test.ts` is the drift gate over the whole tree.
 - **`src/app/`** — the application chrome and the things that are true on every
-  screen: `shell.tsx` (rail + top bar), `nav.ts` (the canonical destination
-  list), `router.tsx` (hash routing), `palette.tsx` (⌘K), `fab.tsx` (the
-  record-aware Ask panel), `theme.ts`, `capability.ts`, and the shell-level
+  screen: `shell.tsx` (the frame, the sidebar and the page's own heading),
+  `topbar.tsx` (the session strip: collapse control, breadcrumb, search,
+  account), `pagemeta.ts` (what both of them know about a page before it
+  renders), `nav.ts` (the canonical destination list), `router.tsx` (hash
+  routing), `palette.tsx` (⌘K), `agentdock.tsx` (the floating agent, which also
+  carries the record-scoped Ask panel), `theme.ts`, `capability.ts`, and the
+  shell-level
   advisories (`economybanner.tsx`, `embedreindexbanner.tsx`,
   `resumeconnectbanner.tsx`).
 - **`src/screens/`** — **one file per surface.** A surface earns a *directory*
@@ -187,11 +191,18 @@ website/deck surfaces. It is not the app chrome. A contributor styling a new
 panel from those tokens is styling the marketing field by mistake.
 
 **Both appearances ship, and the theme resolves before React mounts.**
-`main.tsx` calls `applyTheme(resolveTheme())` above `createRoot(...).render(...)`.
-The resolution lives in `src/app/theme.ts` and nowhere else: an explicit choice
-(`margince.theme` in `localStorage`) wins, otherwise the OS
-`prefers-color-scheme`. `useTheme` inside `TopBar` owns *changing* the theme;
-`theme.ts` owns *deciding and applying* it.
+`main.tsx` calls `startTheme()` above `createRoot(...).render(...)`. The
+resolution lives in `src/app/theme.ts` and nowhere else: an explicit choice
+(`margince.theme` in `localStorage`, `light` or `dark`) wins, otherwise the OS
+`prefers-color-scheme`.
+
+A third value, `system`, is a standing instruction to keep following the OS, and
+it is what an install that has never chosen resolves as — so is any value the
+build cannot name. While it is the choice, `theme.ts` holds a
+`prefers-color-scheme` subscription and repaints an open tab when the machine
+changes its mind; an explicit choice drops it. `startTheme()` is what arms that
+at boot rather than the first mounted control, because the account menu — which
+owns the three-way chooser — renders its control only while it is open.
 
 That split exists because the theme used to be owned entirely by the
 authenticated chrome, and the failure was specific: every unauthenticated
@@ -333,10 +344,11 @@ frontend lane is separate from the Go merge gate and needs node + pnpm. Run
 | The API seam + generated contract types | `frontend/src/api/{client.ts,schema.d.ts,public-events.ts}` |
 | Boot: theme, query client, 403 handling | `frontend/src/main.tsx` |
 | Route → screen, the auth gate, the onboarding gate | `frontend/src/App.tsx` |
-| Shell, rail, top bar, account menu | `frontend/src/app/{shell.tsx,shell.css}` |
+| Shell frame, sidebar, page heading | `frontend/src/app/{shell.tsx,shell.css}` |
+| Top bar: breadcrumb, search, account | `frontend/src/app/{topbar.tsx,topbar.css,account.tsx}` |
 | The canonical nav, badges, mobile set, rail-less set | `frontend/src/app/nav.ts` |
 | Hash router | `frontend/src/app/router.tsx` |
-| ⌘K palette, Ask FAB | `frontend/src/app/{palette.tsx,fab.tsx}` |
+| ⌘K palette, the floating agent | `frontend/src/app/{palette.tsx,agentdock.tsx}` |
 | Theme resolution and persistence | `frontend/src/app/theme.ts` |
 | Tokens (canonical) / derived roles / base controls | `frontend/src/design-system/{tokens.css,brand.css,base.css}` |
 | Atoms, trust vocabulary, composed surfaces | `frontend/src/design-system/{atoms,trust,composed}.tsx` |

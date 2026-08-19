@@ -1,991 +1,100 @@
 /** @vitest-environment jsdom */
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import {
-  cleanup,
-  fireEvent,
-  render as rtlRender,
-  screen,
-  waitFor,
-  within,
-} from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Database, ShieldCheck, UserRound } from "lucide-react";
-import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { Button } from "../design-system/atoms";
-import { LocaleProvider } from "../i18n";
-import type { NavSection } from "./nav";
+import { memoryStorage } from "../testing/appharness";
 import {
   clearPendingAuthorize,
   readPendingAuthorize,
   stashPendingAuthorize,
 } from "./pendingauthorize";
-import { navigate, parseHash, type Route } from "./router";
-import { PageHead, Shell, WorkspaceRail } from "./shell";
+import { parseHash, type Route } from "./router";
+import { PageTitle, Shell } from "./shell";
+import {
+  fixtureSection,
+  ignoreSearch,
+  newClient,
+  render,
+  renderWith,
+  stubPhoneViewport,
+} from "./testing/shellharness";
 
-function memoryStorage(): Storage {
-  const map = new Map<string, string>();
-  return {
-    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key, value) => {
-      map.set(key, String(value));
+// A composed installation, because the vanilla registry is empty by
+// construction — the two branches that YIELD to a surface naming itself (a
+// record's, a unit's) could otherwise only ever be exercised on one of them.
+// The descriptor shape is the generator's, the same one App.extscreen.test.tsx
+// hands the same lookup.
+vi.mock("@composition/extensions", () => ({
+  extensions: [
+    {
+      name: "notes",
+      verbs: [
+        {
+          operationId: "notesList",
+          route: "/ext/notes/list",
+          method: "POST",
+          title: "List demo notes",
+          version: "1.0.0",
+          rbacObject: "ext_notes_note",
+        },
+      ],
     },
-    removeItem: (key) => {
-      map.delete(key);
-    },
-    clear: () => map.clear(),
-    key: (index) => Array.from(map.keys())[index] ?? null,
-    get length() {
-      return map.size;
-    },
-  };
-}
+  ],
+}));
 
-// B-EP09.4 acceptance, for what the SHELL itself owns: the canonical 10-item
-// nav in order (AC-shell-1b — Automations left it for Settings → AI and the
-// dedupe queue took the slot, which is a UI divergence on the founder's
-// back-fill list), at most
-// one active item tracking the route (AC-shell-2), badges only on the attention
-// screens and only from live counts (AC-shell-1e), 44x44 collapsed targets with
-// a dismissible tooltip (AC-shell-1c/1d), the sidebar's search row (AC-shell-7),
-// the page head that names the screen, and the rail-less exceptions.
+// B-EP09.4 acceptance, for what the SHELL composes — the page's own name, and
+// the chrome the shell mounts around whatever screen is on.
 //
-// The account block and the agent dock are components of their own now, and
-// their behaviour is proved where they live (account.test.tsx,
-// agentdock.test.tsx). What is asserted here is that the shell MOUNTS them in
-// the places it promises, and feeds them the counts it already has: the account
-// block at the sidebar foot, the agent beside the page title.
-
-// Only what a level hides needs the shell's real stylesheet in the document
-// (see mountShellStyles); it outlives cleanup(), so it is taken down here.
-let shellStyles: HTMLStyleElement | undefined;
+// PageTitle is the third piece of the chrome: a heading inside the scroller
+// above the content it names, the one line under it that some screens need,
+// whatever the screen itself asked to put beside them, and at phone width the
+// switcher that reaches a section's entries (the sidebar shows the destinations
+// there instead). It yields whole on a surface that names itself — a record, a
+// composed unit's screen — or the document would offer two page titles.
+//
+// What the SHELL itself owes: body[data-screen], exactly one element claiming
+// the page on every route, the reading-column policy, the top bar mounted above
+// the scroller with the page's name inside it, ⌘B reaching the state behind the
+// bar's toggle, the agent dock once at the foot of the content column, and no
+// chrome at all on the rail-less surfaces. Sign-out closes the file, driven
+// through the whole shell because the account menu is only reachable through the
+// chrome that mounts it.
+//
+// The SIDEBAR — the destinations, the badges, the collapsed tooltips, the phone
+// bar and a section's entries as a second level — is rail.test.tsx's. The TOP
+// BAR's own trail, search affordance and collapse toggle are topbar.test.tsx's,
+// and the account menu and the agent dock are proved where they live
+// (account.test.tsx, agentdock.test.tsx). What is asserted here is that the
+// shell MOUNTS them in the places it promises, and feeds them the counts it
+// already has.
 
 afterEach(() => {
   cleanup();
-  shellStyles?.remove();
-  shellStyles = undefined;
   window.location.hash = "";
   vi.unstubAllGlobals();
+  // The sidebar remembers its width in localStorage, which jsdom keeps for the
+  // whole file: without this a case that collapses the sidebar hands the next
+  // one a collapsed shell, and the next one's failure names a control that is
+  // simply in its other state. Cleared after the unstub, so it clears the real
+  // storage rather than a stub that is about to be thrown away.
+  window.localStorage.clear();
   clearPendingAuthorize();
 });
 
-const newClient = () =>
-  new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-const renderWith = (client: QueryClient, ui: ReactNode) =>
-  rtlRender(
-    <QueryClientProvider client={client}>
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
-  );
-
-const render = (ui: ReactNode) => renderWith(newClient(), ui);
-
-// The rail cannot render without a way to open the palette. Cases that are not
-// about search pass a handler that records nothing; the search cases pass a spy.
-const ignoreSearch = () => undefined;
-// The collapse control is minted only when the shell hands the rail a toggle, so
-// a case that needs it on screen supplies one that records nothing.
-const ignoreToggle = () => undefined;
-
-// Phone width, for the chrome that has to KNOW it rather than merely be laid out
-// by it (app/viewport.ts). jsdom's own window answers every media query with
-// false, so the wide arrangement is what every other case here renders — which is
-// the honest default and exactly what the desktop assertions rely on.
-//
-// Only the QUERY the app asks for matches: a stub that answered true to
-// everything would also tell the theme the reader prefers a dark one.
-function stubPhoneViewport(): void {
-  vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query === "(max-width: 700px)",
-    media: query,
-    addEventListener: () => undefined,
-    removeEventListener: () => undefined,
-  }));
-}
-
-// The route id never changes with a label: `deals` presents as Pipeline and
-// `inbox` as Approvals, which names a governance surface rather than a mailbox.
-const CANONICAL_ORDER = [
-  "Home",
-  "Contacts",
-  "Companies",
-  "Leads",
-  "Duplicates",
-  "Pipeline",
-  "Tasks",
-  "Approvals",
-  "Reports",
-  "Ask Margince",
-];
-
-describe("WorkspaceRail (AC-shell-1/2)", () => {
-  it("renders the canonical 10 items in order, logomark → home", () => {
-    render(
-      <WorkspaceRail route={{ screen: "deals" }} onOpenSearch={ignoreSearch} />,
-    );
-    const brand = within(
-      screen.getByRole("navigation", { name: "Primary navigation" }),
-    ).getByRole("link", {
-      name: "Margince",
-    });
-    expect(brand.getAttribute("href")).toBe("#/home");
-    // The DESTINATIONS are the level's own rows, so they are counted there: the
-    // brand above it and the foot's Settings door are neither of them, and each
-    // is asserted where it belongs.
-    expect(levelLabels()).toEqual(CANONICAL_ORDER);
-    // The mark leads them, which is what "logomark → home" means.
-    const home = screen.getByRole("link", { name: "Home" });
-    expect(
-      brand.compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeGreaterThan(0);
-  });
-
-  it("groups the items under Records / Work / Intelligence when expanded", () => {
-    render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    const headings = screen
-      .getAllByRole("heading", { level: 2 })
-      .map((heading) => heading.textContent);
-    expect(headings).toEqual(["Records", "Work", "Intelligence"]);
-  });
-
-  it("marks exactly one item active, matching the route", () => {
-    render(
-      <WorkspaceRail route={{ screen: "deals" }} onOpenSearch={ignoreSearch} />,
-    );
-    const active = screen
-      .getAllByRole("link")
-      .filter((link) => link.getAttribute("aria-current") === "page");
-    expect(active).toHaveLength(1);
-    expect(active[0].getAttribute("aria-label")).toBe("Pipeline");
-  });
-
-  // Settings is a DOOR rather than one of the ten destinations, so none of the
-  // level's rows can carry it — and with no section mounted there is no tab row
-  // to carry it either. The door itself answers, which is what keeps the
-  // document's "exactly ONE current page" true rather than silent. (In the app
-  // a settings route mounts SettingsRail, which supplies the section, and the
-  // reader's own tab row is current instead — the case below it.)
-  it("marks the Settings door current on a settings route with no section", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings" }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const active = screen
-      .getAllByRole("link")
-      .filter((link) => link.getAttribute("aria-current") === "page");
-    expect(active).toHaveLength(1);
-    expect(active[0].getAttribute("aria-label")).toBe("Settings");
-  });
-
-  // A composed unit's screen has no row in the rail — it is offered from
-  // Settings — so the Settings door is what says where the reader is. This is a
-  // RENDER assertion on purpose: the route→activeId half is a string that
-  // resolves to a rendered element or to nothing at all, and a data-level test
-  // reads identically either way. It read identically for a whole release once
-  // already, which is why this one exists.
-  it("marks the Settings door current on a composed unit's screen", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "ext", id: "dispact-connector" }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const active = screen
-      .getAllByRole("link")
-      .filter((link) => link.getAttribute("aria-current") === "page");
-    expect(active).toHaveLength(1);
-    expect(active[0].getAttribute("aria-label")).toBe("Settings");
-  });
-
-  // The other direction, and the one a wrong predicate breaks silently: a
-  // destination that HAS a row keeps it, and the door does not claim a second
-  // current page beside it.
-  it("leaves the Settings door quiet on a destination that has its own row", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "reports" }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const active = screen
-      .getAllByRole("link")
-      .filter((link) => link.getAttribute("aria-current") === "page");
-    expect(active).toHaveLength(1);
-    expect(active[0].getAttribute("aria-label")).toBe("Reports");
-  });
-
-  it("renders count badges only for provided positive counts", () => {
-    const { container } = render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        counts={{ tasks: 4, inbox: 0 }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const badges = container.querySelectorAll(".count");
-    expect(badges).toHaveLength(1);
-    expect(badges[0].textContent).toBe("4");
-  });
-
-  // AC-shell-1e: a badge counts only what wants attention. Pipeline and Leads
-  // carry no badge even when a count is supplied — this bites if BADGE_SCREENS
-  // is dropped and every screen starts rendering ambient totals again.
-  it("ignores counts for screens that are not attention surfaces", () => {
-    const { container } = render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        counts={{ deals: 13, leads: 7, contacts: 248 }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(container.querySelectorAll(".count")).toHaveLength(0);
-  });
-
-  // AC-shell-1c/1d: collapsed items are icon-only, so the label must reach a
-  // screen reader via aria-label in BOTH states, and the visible tooltip must
-  // appear on keyboard focus (not hover alone) and be dismissible with Escape.
-  it("keeps the accessible name when collapsed and shows a dismissible tooltip on focus", async () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        collapsed
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const pipeline = screen.getByRole("link", { name: "Pipeline" });
-    expect(screen.queryByRole("tooltip")).toBeNull();
-
-    pipeline.focus();
-    const tip = await screen.findByRole("tooltip");
-    expect(tip.textContent).toBe("Pipeline");
-
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).toBeNull();
-    // Escape dismisses the tooltip without moving focus (WCAG 1.4.13).
-    expect(document.activeElement).toBe(pipeline);
-  });
-
-  // WCAG 1.4.13 also requires the tooltip be HOVERABLE: reaching for it must not
-  // dismiss it. The tooltip is a descendant of the row it belongs to, so moving
-  // the pointer onto it never fires the row's mouseleave. As a sibling it would
-  // vanish under the cursor, and no assertion on its text would notice.
-  it("nests the collapsed tooltip inside its own row so hovering it cannot dismiss it", async () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        collapsed
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const pipeline = screen.getByRole("link", { name: "Pipeline" });
-
-    await userEvent.hover(pipeline);
-    const tip = await screen.findByRole("tooltip");
-    expect(pipeline.contains(tip)).toBe(true);
-
-    await userEvent.hover(tip);
-    expect(screen.queryByRole("tooltip")).not.toBeNull();
-  });
-
-  // On a phone the four bar tabs are the only rows rendered, so a route living
-  // in the More sheet has nothing to carry the current-destination state. More
-  // carries it instead, or the bar shows no active tab at all.
-  it("marks More as the active tab for a destination the phone bar hides", () => {
-    const sheeted = render(
-      <WorkspaceRail
-        route={{ screen: "reports" }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const more = sheeted.container.querySelector(".railmore.active");
-    expect(more).not.toBeNull();
-    // Announced, not merely tinted: the hidden route's own link is out of the
-    // accessibility tree at phone width, so More has to report the current page.
-    expect(more?.getAttribute("aria-current")).toBe("page");
-    cleanup();
-
-    const onBar = render(
-      <WorkspaceRail
-        route={{ screen: "contacts" }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const inactive = onBar.container.querySelector(".railmore");
-    expect(inactive?.className).not.toContain("active");
-    expect(inactive?.getAttribute("aria-current")).toBeNull();
-  });
-
-  // Open, the sheet renders the real row for that route, which carries
-  // aria-current itself. Two elements claiming the current page is worse than
-  // the visual-only state this replaced.
-  it("hands the current-page claim back to the real row once the sheet is open", async () => {
-    // The sheet exists only at phone width — the control that opens it is not
-    // rendered above the breakpoint, and the rail closes any sheet it finds
-    // itself holding there.
-    stubPhoneViewport();
-    const { container } = render(
-      <WorkspaceRail
-        route={{ screen: "reports" }}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    await userEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(
-      container.querySelector(".railmore")?.getAttribute("aria-current"),
-    ).toBeNull();
-    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
-  });
-
-  // The sheet is the phone's whole sidebar, and a popover anchored to the rail's
-  // foot has nowhere to open at the bottom of the viewport: the account rows the
-  // menu hides were unreachable there. Open, the foot IS the rows.
-  it("puts the account rows in the sheet instead of the menu that cannot open", async () => {
-    stubPhoneViewport();
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    expect(screen.getByRole("button", { name: /Account$/ })).toBeTruthy();
-
-    await userEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.queryByRole("button", { name: /Account$/ })).toBeNull();
-    // Scoped to the rows themselves: the foot's Settings door leads to the same
-    // address, and this claim is about what the SHEET offers when the menu that
-    // normally hides these rows cannot open.
-    const rows = container.querySelector<HTMLElement>(".accountrows");
-    if (!rows) {
-      throw new Error("the open sheet rendered no account rows");
-    }
-    // Reachable without opening anything, in the order the menu offers them.
-    expect(
-      within(rows).getByRole("link", { name: "Account" }).getAttribute("href"),
-    ).toBe("#/settings/account");
-    // And no second row into settings generally: it would land on the same page
-    // the Account row does, since settings opens on its first entry.
-    expect(within(rows).queryByRole("link", { name: "Settings" })).toBeNull();
-    expect(within(rows).getByRole("button", { name: "Sign out" })).toBeTruthy();
-  });
-
-  // The sheet takes focus when it opens, so dismissing it from INSIDE (Escape, a
-  // click outside) leaves focus on a row that is about to be gone. It goes back
-  // to the control that opened it rather than onto <body> — and only then: a rail
-  // that merely mounts with a row focused must keep that focus where it is.
-  it("hands focus back to More when the sheet is dismissed from inside it", async () => {
-    stubPhoneViewport();
-    render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    await userEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(document.activeElement).toBe(
-      screen.getByRole("link", { name: "Home" }),
-    );
-
-    await userEvent.keyboard("{Escape}");
-    expect(document.activeElement).toBe(
-      screen.getByRole("button", { name: "More" }),
-    );
-  });
-
-  it("renders the collapse control with the state it will move to", () => {
-    const onToggle = vi.fn();
-    render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        onToggle={onToggle}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const toggle = screen.getByRole("button", { name: "Collapse sidebar" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    toggle.click();
-    expect(onToggle).toHaveBeenCalled();
-  });
-
-  // Who is signed in belongs to the session, not to a screen, so the sidebar
-  // carries it — at the foot, below the destinations. The menu's own behaviour
-  // is proved in account.test.tsx; what the rail promises is that the block is
-  // there and is the ONE account affordance in the chrome.
-  it("mounts the account block at the sidebar foot", () => {
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    const account = screen.getByRole("button", { name: /Account$/ });
-    expect(container.querySelector(".railfoot")?.contains(account)).toBe(true);
-    expect(screen.getAllByRole("button", { name: /Account$/ })).toHaveLength(1);
-  });
-
-  // The way INTO Settings. Without a row here the level could only be entered
-  // from inside the account menu's popover, so a reader who walked out of the
-  // section had no way back in that did not start with opening a menu.
-  it("offers Settings at the foot, above the account block", () => {
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    const door = screen.getByRole("link", { name: "Settings" });
-    expect(door.getAttribute("href")).toBe("#/settings");
-    const foot = container.querySelector(".railfoot");
-    expect(foot?.contains(door)).toBe(true);
-    // Above the person it belongs to, and NOT one of the destinations: the level
-    // above still lists exactly the canonical ten.
-    const account = screen.getByRole("button", { name: /Account$/ });
-    expect(
-      door.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeGreaterThan(0);
-    expect(levelLabels()).toEqual(CANONICAL_ORDER);
-  });
-
-  // The door yields to the level whenever the level can answer: standing inside
-  // the section, the reader's own entry is on screen and current, and a door
-  // claiming the page beside it would be the second claim. It speaks only where
-  // no row can (the two cases above) — one current page either way, which is
-  // the invariant the door is silent for, not silence itself.
-  it("yields the current-page claim to the reader's own settings entry", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const door = screen.getByRole("link", { name: "Settings" });
-    expect(door.getAttribute("aria-current")).toBeNull();
-    expect(door.className).not.toContain("active");
-    const current = document.querySelectorAll('[aria-current="page"]');
-    expect(current).toHaveLength(1);
-    expect(current[0].getAttribute("aria-label")).toBe("Account");
-  });
-
-  // Collapsed the door is a glyph like every other row, so it owes the same
-  // tooltip contract — and its own tooltip key, or focusing it would light up
-  // whichever destination shared the key. There is never more than one open.
-  it("shows the collapsed door a dismissible tooltip of its own", async () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        collapsed
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const door = screen.getByRole("link", { name: "Settings" });
-    const home = screen.getByRole("link", { name: "Home" });
-    expect(screen.queryByRole("tooltip")).toBeNull();
-
-    door.focus();
-    await waitFor(() =>
-      expect(screen.getByRole("tooltip").textContent).toBe("Settings"),
-    );
-    expect(door.contains(screen.getByRole("tooltip"))).toBe(true);
-
-    home.focus();
-    await waitFor(() =>
-      expect(screen.getByRole("tooltip").textContent).toBe("Home"),
-    );
-    expect(screen.getAllByRole("tooltip")).toHaveLength(1);
-
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).toBeNull();
-    expect(document.activeElement).toBe(home);
-  });
-});
-
-// The sidebar's SECOND level (and its third). A section route replaces the ten
-// destinations with the section's entries rather than hanging them off it: one
-// level at a time, with the way back up in the panel.
-//
-// The fixture below is a section with a THIRD level under one of its entries.
-// Settings — the only real section the app ships — is two levels deep, so
-// nothing in production would prove the renderer takes its depth from the data
-// rather than from a hard-coded pair of levels.
-function fixtureSection(activeId?: string): NavSection {
-  return {
-    screen: "settings",
-    titleKey: "nav.settings",
-    activeId,
-    groups: [
-      {
-        headingKey: "settings.group.you",
-        items: [
-          { id: "account", labelKey: "settings.tab.account", icon: UserRound },
-        ],
-      },
-      {
-        headingKey: "settings.group.org",
-        items: [
-          {
-            // The child level is SYNTHETIC: no settings entry publishes children,
-            // so nothing in production proves the renderer takes its depth from the
-            // data. The parent and child deliberately borrow labels rather than
-            // entry IDS — `#/settings/privacy/data-model` would name two real
-            // sibling entries as parent and child, which the settings level does
-            // not publish and a reader would take for the real shape.
-            id: "deep",
-            labelKey: "settings.tab.privacy",
-            icon: ShieldCheck,
-            children: [
-              {
-                id: "deeper",
-                labelKey: "settings.tab.data-model",
-                icon: Database,
-              },
-            ],
-          },
-        ],
-      },
-    ],
-  };
-}
-
-// The rows of whatever level the panel is showing — the ten destinations, or a
-// section's entries. Scoped to `.navlevel` rather than to the whole nav, because
-// the brand above the level and the Settings door in the foot are not places the
-// level leads: a claim about the level's inventory must not move when either of
-// them does.
-const levelLabels = () => {
-  const level = document.querySelector<HTMLElement>(".navlevel");
-  if (!level) {
-    throw new Error("the rail rendered no navigation level at all");
-  }
-  return within(level)
-    .getAllByRole("link")
-    .map((link) => link.getAttribute("aria-label"));
-};
-
-// What a level does to the rail's head is CSS, and nothing applies a stylesheet
-// in this environment unless it is in the document. It is the SHELL's own
-// stylesheet that goes in — a rule copied into the test would prove only that
-// the copy says what the test says. The phone block does not apply: these
-// queries are widths, and the window here is wider than 700px.
-const SHELL_CSS = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "shell.css"),
-  "utf8",
-);
-
-function mountShellStyles(): HTMLStyleElement {
-  const style = document.createElement("style");
-  style.textContent = SHELL_CSS;
-  document.head.append(style);
-  return style;
-}
-
-// A row that is not in the rail at all is not the same thing as a hidden one,
-// and must not read as one: the head keeps its elements and the level takes
-// their space.
-function railDisplay(container: HTMLElement, selector: string): string {
-  const node = container.querySelector(selector);
-  if (!node) {
-    throw new Error(`${selector} is missing from the rail entirely`);
-  }
-  return getComputedStyle(node).display;
-}
-
-describe("Rail levels (a section's entries as the second level)", () => {
-  it("replaces the destinations with the section's entries, one current", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    // The destinations are GONE, not pushed below a second list: 64px cannot
-    // carry two levels and 252px carrying both is a list of twenty places to go.
-    expect(screen.queryByRole("link", { name: "Pipeline" })).toBeNull();
-    expect(levelLabels()).toEqual(["Account", "Privacy & audit"]);
-    expect(
-      screen
-        .getByRole("link", { name: "Privacy & audit" })
-        .getAttribute("href"),
-    ).toBe("#/settings/deep");
-    // Exactly one row claims the current page, and it is the entry the SECTION
-    // resolved — the screen owns that answer, fallbacks included.
-    const current = document.querySelectorAll('[aria-current="page"]');
-    expect(current).toHaveLength(1);
-    expect(current[0].getAttribute("aria-label")).toBe("Account");
-  });
-
-  // The level names itself at heading level 2, so its group labels move down to
-  // 3 — the outline reads Settings → You / Organization, and the rail's
-  // own destinations keep level 2 for their groups on every other route.
-  it("names the level at heading level 2 and its groups at 3", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Settings"]);
-    expect(
-      screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent),
-    ).toEqual(["You", "Organization"]);
-  });
-
-  // A section belongs to ONE screen. Without this the fixture's entries would
-  // leak onto every route, which is exactly what the canonical-ten assertions
-  // above would then be lying about.
-  it("ignores a section that belongs to another screen", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        section={fixtureSection("deep")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(levelLabels()).toEqual(CANONICAL_ORDER);
-  });
-
-  // The control READS one word at every depth — the reader knows what they
-  // walked down from — while its accessible name still says where it leads.
-  // WCAG 2.5.3 holds because "Back" is contained in "Back to Destinations".
-  it("reads Back and is named for the level it leads to", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const back = screen.getByRole("button", { name: "Back to Destinations" });
-    expect(back.querySelector(".navlabel")?.textContent).toBe("Back");
-  });
-
-  // Walking back changes the ADDRESS. Climbing in the panel's own state left the
-  // reader on `#/settings/<tab>` with the destinations on screen, and the only
-  // way back into the section was the address they were already standing on — so
-  // nothing re-rendered and the level could not be reached again.
-  //
-  // Through the whole SHELL, because that is the only thing that can prove it:
-  // the rail on a section route is a different component (SettingsRail), mounted
-  // on the way into the level and gone again on the way out, so where the reader
-  // came from is remembered above it. A rail on its own always answers "home",
-  // which is the case below and would hide this one.
-  it("walks out of the section to the route the reader came from", async () => {
-    window.location.hash = "#/reports";
-    render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    expect(screen.getByRole("link", { name: "Reports" })).toBeTruthy();
-
-    navigate({ screen: "settings", id: "account" });
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Back to Destinations" }),
-    );
-    expect(window.location.hash).toBe("#/reports");
-    // The panel is derived from the address, so the destinations arrive with it —
-    // and they take the focus the level's own rows gave up rather than leaving
-    // the document on <body>.
-    await waitFor(() => expect(levelLabels()).toEqual(CANONICAL_ORDER));
-    expect(document.activeElement).toBe(
-      screen.getByRole("link", { name: "Home" }),
-    );
-  });
-
-  // The walk asks for focus at the address it is GOING to, and the route it is
-  // going to arrives on a hashchange that lands a task later. Anything that
-  // re-renders the section's own rail in that gap — a query settling, a popover
-  // closing — must not be handed the focus meant for the destinations: it would
-  // spend it on a row it is about to unmount, and the document would end on
-  // <body> with the sidebar lost. The re-render below is that gap, made
-  // deterministic.
-  it("keeps the arriving level's focus when the section re-renders mid-walk", async () => {
-    window.location.hash = "#/reports";
-    render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    navigate({ screen: "settings", id: "account" });
-    const back = await screen.findByRole("button", {
-      name: "Back to Destinations",
-    });
-
-    back.click();
-    // The gap: the address has changed but the hashchange has not been delivered,
-    // and the section's rail re-renders for a reason of its own (a pointer landing
-    // on a row is the cheapest one to stage).
-    fireEvent.mouseEnter(screen.getByRole("link", { name: "Account" }));
-    // Still inside the section: its own first row must not have taken the focus.
-    expect(document.activeElement).not.toBe(
-      screen.getByRole("link", { name: "Account" }),
-    );
-
-    await waitFor(() => expect(levelLabels()).toEqual(CANONICAL_ORDER));
-    expect(document.activeElement).toBe(
-      screen.getByRole("link", { name: "Home" }),
-    );
-  });
-
-  // A reader who typed the address, or followed a link into it, walked down from
-  // nowhere — there is no origin to return them to, and home is the one place
-  // the app can honestly send them.
-  it("falls back home when the reader deep-linked into the section", async () => {
-    window.location.hash = "#/settings/account";
-    render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
-    await userEvent.click(
-      await screen.findByRole("button", { name: "Back to Destinations" }),
-    );
-    expect(window.location.hash).toBe("#/home");
-  });
-
-  // The level's rows take the brand's WORDS — the mark alone stands for the
-  // product here — and nothing else: the search row STAYS, because ⌘K is
-  // invisible to anyone who does not already know it and a level that hid the row
-  // had no search affordance in it at all.
-  it("hides the brand words but keeps the search row while a level is shown", () => {
-    shellStyles = mountShellStyles();
-    const { container } = render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onToggle={ignoreToggle}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(railDisplay(container, ".ws-name")).toBe("none");
-    expect(railDisplay(container, ".railsearchwrap")).not.toBe("none");
-    expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
-    // The mark stays, and with it both jobs it holds — the link home and the
-    // sidebar's collapse affordance. A head reduced to a dead box would take
-    // them with it.
-    expect(railDisplay(container, ".ws-chip")).not.toBe("none");
-    expect(screen.getByRole("link", { name: "Margince" })).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Collapse sidebar" }),
-    ).toBeTruthy();
-  });
-
-  // The other half of the same rule: outside a level the head is the head. The
-  // brand assertion alone is satisfied by a rail that hides the words everywhere,
-  // or by one that hides them nowhere.
-  it("keeps the brand words and the search row on a route with no level", () => {
-    shellStyles = mountShellStyles();
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    expect(railDisplay(container, ".ws-name")).not.toBe("none");
-    expect(railDisplay(container, ".railsearchwrap")).not.toBe("none");
-  });
-
-  // An entry that HAS children opens them: standing on it, the panel shows the
-  // level it leads to rather than the list it came from. Nothing carries the
-  // current page there until a child is addressed — the same as any list a
-  // reader has just been handed.
-  it("opens an entry's children as soon as the route stands on that entry", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "deep" }}
-        section={fixtureSection("deep")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(levelLabels()).toEqual(["Data model"]);
-    expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Privacy & audit"]);
-  });
-
-  it("renders a third level from the data, addressed under the entry that opens it", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "deep", id2: "deeper" }}
-        section={fixtureSection("deep")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    // The child level: only the entry's children, addressed under it.
-    expect(levelLabels()).toEqual(["Data model"]);
-    expect(
-      screen.getByRole("link", { name: "Data model" }).getAttribute("href"),
-    ).toBe("#/settings/deep/deeper");
-    expect(
-      screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent),
-    ).toEqual(["Privacy & audit"]);
-  });
-
-  // One step at a time, and the step is an ADDRESS: below the section's own
-  // level the way back leads to the entry the reader drilled through, whose own
-  // address is what names the level above. It is also what the control is named
-  // for — the section's list, not the entry whose children are on screen.
-  it("lands on the parent entry's own address from a level below the section", async () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "deep", id2: "deeper" }}
-        section={fixtureSection("deep")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "Back to Settings" }),
-    );
-    expect(window.location.hash).toBe("#/settings/deep");
-  });
-
-  // AC-shell-1d holds at every depth, and there is ONE tooltip in the sidebar:
-  // moving between two entries of a level must not leave the first one open.
-  it("shows one tooltip at a time on the collapsed level", async () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        collapsed
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const account = screen.getByRole("link", { name: "Account" });
-    const privacyEntry = screen.getByRole("link", { name: "Privacy & audit" });
-    expect(screen.queryByRole("tooltip")).toBeNull();
-
-    account.focus();
-    // waitFor on the TEXT, not findAllByRole on the role: a tooltip left over
-    // from the previous row satisfies the role query on its first poll, so a
-    // "one tooltip" assertion could pass while showing the wrong one.
-    await waitFor(() =>
-      expect(screen.getByRole("tooltip").textContent).toBe("Account"),
-    );
-
-    privacyEntry.focus();
-    await waitFor(() =>
-      expect(screen.getByRole("tooltip").textContent).toBe("Privacy & audit"),
-    );
-    expect(screen.getAllByRole("tooltip")).toHaveLength(1);
-
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).toBeNull();
-    // Escape dismisses the tooltip without moving focus (WCAG 1.4.13).
-    expect(document.activeElement).toBe(privacyEntry);
-  });
-
-  // At phone width the panel is a bar of four destinations, and it keeps them on
-  // a section route: handing the bar to a section lost every destination, made
-  // switching entries More → scroll → tap, and left a bar holding two controls.
-  // The section is reached from the page head there instead.
-  it("keeps the destinations on the phone bar, even on a section route", async () => {
-    stubPhoneViewport();
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(levelLabels()).toEqual(CANONICAL_ORDER);
-    // No level at all: no entries, no way back up, and no `leveled` arrangement
-    // for the bar to be rearranged by.
-    expect(screen.queryByRole("link", { name: "Privacy & audit" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Back/ })).toBeNull();
-    expect(
-      screen.getByRole("navigation", { name: "Primary navigation" }).className,
-    ).not.toContain("leveled");
-
-    // And the sheet is what it was before levels existed: the destinations plus
-    // the account rows.
-    await userEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(levelLabels()).toEqual(CANONICAL_ORDER);
-    expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
-  });
-
-  // The other half: above the breakpoint the level is exactly what it was. Either
-  // assertion alone is satisfied by a rail that ignores every section, or by one
-  // that ignores the width.
-  it("still walks into the section above the phone breakpoint", () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "settings", id: "account" }}
-        section={fixtureSection("account")}
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    expect(levelLabels()).toEqual(["Account", "Privacy & audit"]);
-    expect(
-      screen.getByRole("navigation", { name: "Primary navigation" }).className,
-    ).toContain("leveled");
-  });
-});
-
-// AC-shell-7: ONE search affordance, and it is the sidebar's first row. It is a
-// button, not a field — it opens the palette and never accepts inline typing.
-describe("Rail search (AC-shell-7)", () => {
-  it("opens the palette and never takes the query itself", async () => {
-    const onOpenSearch = vi.fn();
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={onOpenSearch} />,
-    );
-    await userEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(onOpenSearch).toHaveBeenCalledTimes(1);
-    // A field here would be a second search that answers to nothing: the
-    // palette owns the query, the row only opens it.
-    expect(within(container).queryByRole("textbox")).toBeNull();
-  });
-
-  it("leads the destinations rather than joining them", () => {
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    const search = screen.getByRole("button", { name: "Search" });
-    const home = screen.getByRole("link", { name: "Home" });
-    // First in the reading order, and not an eleventh place to go: the level
-    // under it still lists exactly the canonical ten.
-    expect(
-      search.compareDocumentPosition(home) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeGreaterThan(0);
-    expect(levelLabels()).toHaveLength(CANONICAL_ORDER.length);
-    expect(container.querySelector(".railsearch")?.tagName).toBe("BUTTON");
-  });
-
-  // The shortcut cap is a hint about how else to get here, not a second name:
-  // a reader who says "Search" must reach it, and none of them should be made
-  // to spell out ⌘K. `name: "Search"` is an exact match on the computed name,
-  // so a kbd that leaked into it would fail this.
-  it("is named for what it does, with the shortcut kept out of that name", () => {
-    const { container } = render(
-      <WorkspaceRail route={{ screen: "home" }} onOpenSearch={ignoreSearch} />,
-    );
-    expect(screen.getByRole("button", { name: "Search" })).toBeTruthy();
-    expect(
-      container.querySelector(".railsearch kbd")?.getAttribute("aria-hidden"),
-    ).toBe("true");
-  });
-
-  // Collapsed the row is a glyph, so it needs the same tooltip contract the
-  // destinations have — and its own tooltip key, or focusing search would light
-  // up whichever destination shared the key.
-  it("keeps its name and shows a dismissible tooltip on the collapsed rail", async () => {
-    render(
-      <WorkspaceRail
-        route={{ screen: "home" }}
-        collapsed
-        onOpenSearch={ignoreSearch}
-      />,
-    );
-    const search = screen.getByRole("button", { name: "Search" });
-    expect(screen.queryByRole("tooltip")).toBeNull();
-
-    search.focus();
-    const tips = await screen.findAllByRole("tooltip");
-    expect(tips).toHaveLength(1);
-    expect(tips[0].textContent).toBe("Search");
-    expect(search.contains(tips[0])).toBe(true);
-
-    await userEvent.keyboard("{Escape}");
-    expect(screen.queryByRole("tooltip")).toBeNull();
-    expect(document.activeElement).toBe(search);
-  });
-});
-
-// The page head replaced the top bar: the screen's own name as a real heading,
-// and beside it only what is true of the whole product.
-describe("PageHead", () => {
+// The page's own name, standing INSIDE the scroller above the content it names.
+// It is what is left of the old page head once the trail, the system-of-record
+// chip and the agent moved out of it: a heading, the one line under it that some
+// screens need, and whatever the screen itself asked to put beside them.
+describe("PageTitle", () => {
   it("names the screen in a level-1 heading", () => {
-    render(<PageHead route={{ screen: "deals" }} />);
+    render(<PageTitle route={{ screen: "deals" }} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Pipeline" }),
     ).toBeTruthy();
-    // No record, so nothing to go back to — the heading is the whole title.
+    // The name, not a way anywhere: the trail is the top bar's and is the only
+    // thing here that links.
     expect(screen.queryByRole("link", { name: "Pipeline" })).toBeNull();
   });
 
@@ -993,7 +102,7 @@ describe("PageHead", () => {
   // a new off-rail route landing in the router without a title key — the old
   // fallback rendered the raw screen slug.
   it("resolves a title for off-rail routes instead of the raw slug", () => {
-    render(<PageHead route={{ screen: "partners" }} />);
+    render(<PageTitle route={{ screen: "partners" }} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Partners" }),
     ).toBeTruthy();
@@ -1003,7 +112,7 @@ describe("PageHead", () => {
   // put whatever the reader typed in the page's heading, which reads as a page
   // by that name existing.
   it("names an unknown route rather than echoing the hash", () => {
-    render(<PageHead route={parseHash("#/nope")} />);
+    render(<PageTitle route={parseHash("#/nope")} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Not found" }),
     ).toBeTruthy();
@@ -1011,25 +120,25 @@ describe("PageHead", () => {
   });
 
   // An extension route the installation does NOT answer keeps the unknown-page
-  // heading, and that is the deliberate half of the head's yield to a unit: the
-  // yield is conditioned on the descriptor resolving, so a hand-typed
-  // `#/ext/<anything>` is an unknown page here exactly as it is under the head,
-  // where the screen says so in words. This is the vanilla registry, where EVERY
-  // unit route is unknown — the composed half is pinned in App.extscreen.test.tsx.
+  // heading, and that is the deliberate half of the yield to a unit below: the
+  // yield is conditioned on the DESCRIPTOR resolving, so a hand-typed
+  // `#/ext/<anything>` is an unknown page here exactly as it is on the screen
+  // under it, which says so in words. A surface that will not name itself must
+  // not be left with no name at all.
   it("names an extension route this installation did not compose", () => {
-    render(<PageHead route={{ screen: "ext", id: "notes" }} />);
+    render(<PageTitle route={{ screen: "ext", id: "ghost" }} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Not found" }),
     ).toBeTruthy();
-    expect(document.body.textContent).not.toContain("notes");
+    expect(document.body.textContent).not.toContain("ghost");
   });
 
   // A page whose name alone does not say what it is for carries one quiet line
-  // under the heading, and the head is where it belongs: a screen that printed
-  // its own subtitle had to print its own title above it to hang it on, and the
+  // under the heading, and this is where it belongs: a screen that printed its
+  // own subtitle had to print its own title above it to hang it on, and the
   // shell was already printing that title.
   it("prints the page's subtitle under the heading", () => {
-    const { container } = render(<PageHead route={{ screen: "inbox" }} />);
+    const { container } = render(<PageTitle route={{ screen: "inbox" }} />);
     const heading = screen.getByRole("heading", {
       level: 1,
       name: "Approvals",
@@ -1038,81 +147,55 @@ describe("PageHead", () => {
     expect(sub?.textContent).toBe(
       "everything staged, waiting on your call — nothing runs without it",
     );
-    // Directly under the name it explains, in the title column — not in the
-    // aside beside the SoR chip, where it would read as product chrome.
+    // Directly under the name it explains, inside the title's own text column —
+    // not beside the actions, where it would read as product chrome.
     expect(heading.nextElementSibling).toBe(sub);
-    expect(container.querySelector(".pagetitle")?.contains(sub)).toBe(true);
+    expect(container.querySelector(".pagetitle-text")?.contains(sub)).toBe(
+      true,
+    );
   });
 
-  // Only the screens the map names. Most headings say what the page is for on
-  // their own, and a subtitle there is a line of copy nobody needed to read.
+  // Only the screens PAGE_SUB_KEYS names. Most headings say what the page is for
+  // on their own, and a subtitle there is a line of copy nobody needed to read.
   it("prints no subtitle on a screen the map does not name", () => {
-    const { container } = render(<PageHead route={{ screen: "deals" }} />);
+    const { container } = render(<PageTitle route={{ screen: "deals" }} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Pipeline" }),
     ).toBeTruthy();
     expect(container.querySelector(".pagesub")).toBeNull();
   });
 
-  // The subtitle belongs to the branch that prints an h1. Where the head yields
-  // — a record route, showing the trail instead — a line under that trail would
-  // describe the LIST the trail leads back to rather than the record on screen.
+  // A record names itself: its surface prints the identity block, and that is
+  // the page's one h1. This yields whole — no heading, no subtitle, no element
+  // at all — or the document would offer two page titles for the same record.
+  // Where the reader came from is the top bar's trail (topbar.test.tsx).
   //
-  // No record screen carries a subtitle key today (the map names `inbox` and
-  // `ai`, and neither has a record segment), so what this pins is the structure:
-  // the crumb branch renders no subtitle element at all. Give a record screen a
-  // subtitle and this is the case that says where it may not appear.
-  it("prints no subtitle on a record route, where the trail stands instead", () => {
+  // No record screen carries a subtitle key today (the map names `inbox`, `ai`
+  // and `dedupe`, and none has a record segment), so what the subtitle half pins
+  // is the structure. Give a record screen a subtitle and this is the case that
+  // says where it may not appear.
+  it("renders nothing at all on a record route", () => {
     const client = newClient();
     client.setQueryData(["person", "ref", "p-anna"], "Anna Weber");
     const { container } = renderWith(
       client,
-      <PageHead route={{ screen: "contacts", id: "p-anna" }} />,
+      <PageTitle route={{ screen: "contacts", id: "p-anna" }} />,
     );
-    expect(container.querySelector(".pagecrumb")?.textContent).toContain(
-      "Anna Weber",
-    );
+    expect(container.querySelector(".pagetitle")).toBeNull();
+    expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0);
     expect(container.querySelector(".pagesub")).toBeNull();
   });
 
-  // A record names itself: its surface prints the identity block, and that is
-  // the page's one h1. The head yields — it prints the trail that leads here
-  // and nothing at heading level, or the document would offer two page titles
-  // for the same record.
-  it("yields the heading to the record and prints the trail that leads there", () => {
-    const client = newClient();
-    client.setQueryData(["person", "ref", "p-anna"], "Anna Weber");
-    const { container } = renderWith(
-      client,
-      <PageHead route={{ screen: "contacts", id: "p-anna" }} />,
-    );
-
-    expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0);
-    const crumb = container.querySelector(".pagecrumb");
-    expect(crumb?.textContent).toContain("Anna Weber");
-    // The section is the way BACK to the list, which is the only navigation a
-    // reader standing on the record still needs.
-    const back = screen.getByRole("link", { name: "Contacts" });
-    expect(crumb?.contains(back)).toBe(true);
-    expect(back.getAttribute("href")).toBe("#/contacts");
-  });
-
-  // Loading, or a record this principal cannot read: the id is not a name, but
-  // it is true, and it is what the reader can quote. A blank trail is not.
-  it("falls back to the record id when the name cannot be resolved", () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 404 })),
-    );
+  // The other surface that names itself: a composed unit's screen. It yields on
+  // the DESCRIPTOR resolving, which is what separates this from the uncomposed
+  // route above — the two cases have to be asserted together, or a yield that
+  // fires on the screen slug alone passes one of them.
+  it("renders nothing at all on a composed unit's route", () => {
     const { container } = render(
-      <PageHead route={{ screen: "contacts", id: "p-anna" }} />,
+      <PageTitle route={{ screen: "ext", id: "notes" }} />,
     );
-    // In mono, so the reader can see it is an identifier and not somebody's
-    // name. An id too long for the trail is revealed by the truncation tooltip,
-    // which has its own suite (design-system/tooltip.test.tsx) — the trail's own
-    // promise is that the id is what stands here at all.
-    const raw = container.querySelector(".pagecrumb .t-mono");
-    expect(raw?.textContent).toBe("p-anna");
+    expect(container.querySelector(".pagetitle")).toBeNull();
+    expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0);
   });
 
   // An id segment that names no record is the screen's own state, not a record:
@@ -1121,31 +204,27 @@ describe("PageHead", () => {
   // reader as the name of the page they are on.
   it("keeps a screen's own id segment out of the page's name", () => {
     const { container } = render(
-      <PageHead route={{ screen: "settings", id: "deep" }} />,
+      <PageTitle route={{ screen: "settings", id: "deep" }} />,
     );
     expect(
       screen.getByRole("heading", { level: 1, name: "Settings" }),
     ).toBeTruthy();
-    expect(container.querySelector(".pagecrumb")).toBeNull();
-    expect(container.textContent).not.toContain("privacy");
+    expect(container.textContent).not.toContain("deep");
   });
 
-  // Nothing but the title, the SoR chip (silent in native mode) and the agent
-  // dock. The dock's own trigger is the ONE control the head mints for itself;
-  // any other button appearing here without a caller asking for it is chrome
-  // creeping back into the space the top bar used to occupy.
+  // The title is a NAME and nothing else. Every control the old page head minted
+  // for itself — the search, the collapse toggle, the agent's trigger — belongs
+  // to the top bar or to the dock now, and a button appearing here without a
+  // caller asking for it is chrome creeping back into the content column.
   it("carries no control the screen did not ask for", () => {
-    render(<PageHead route={{ screen: "deals" }} />);
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]).toBe(
-      screen.getByRole("button", { name: /^Margince AI/ }),
-    );
+    render(<PageTitle route={{ screen: "deals" }} />);
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
 
   it("renders the screen actions it is given, beside the title", () => {
     const { container } = render(
-      <PageHead
+      <PageTitle
         route={{ screen: "deals" }}
         // The design system's control, not a hand-rolled button: what a screen
         // actually passes here comes from there, and a test that supplies its
@@ -1154,75 +233,55 @@ describe("PageHead", () => {
       />,
     );
     const action = screen.getByRole("button", { name: "New deal" });
-    expect(container.querySelector(".pageaside")?.contains(action)).toBe(true);
-  });
-
-  // The agent is true of the product, not of the screen, so it rides beside the
-  // title rather than in the sidebar. Its own claims are proved in
-  // agentdock.test.tsx; that it is mounted here is the shell's promise.
-  it("carries the agent beside the title", () => {
-    const { container } = render(<PageHead route={{ screen: "deals" }} />);
-    const dock = screen.getByRole("button", { name: /^Margince AI/ });
-    expect(container.querySelector(".pageaside")?.contains(dock)).toBe(true);
-  });
-
-  // The counts the head is given are the rail's counts, and the dock reads the
-  // approvals one out of them. Without the pass-through the agent is silent
-  // about work that the sidebar is already badging two columns away.
-  it("hands the approvals count on to the agent", () => {
-    const { container } = render(
-      <PageHead route={{ screen: "deals" }} counts={{ tasks: 9, inbox: 5 }} />,
-    );
-    // The inbox count specifically — tasks sits first in the same record and
-    // carries a different number, so a head reading any count would show 9.
-    expect(container.querySelector(".agentwait")?.textContent).toBe(
-      "5 Approvals waiting",
-    );
+    expect(
+      container.querySelector(".pagetitle-actions")?.contains(action),
+    ).toBe(true);
   });
 });
 
-// The page head's half of the phone model: the sidebar shows the destinations
-// there, so a section's own entries are reached from here.
-describe("Section switcher (the page head at phone width)", () => {
+// The page title's half of the phone model: the sidebar shows the destinations
+// there, so a section's own entries are reached from here — a control under the
+// page's name, never a second name for it.
+describe("Section switcher (the page title at phone width)", () => {
   const deepRoute: Route = { screen: "settings", id: "deep" };
 
-  // Above the breakpoint the sidebar's level carries the section, so the head
+  // Above the breakpoint the sidebar's level carries the section, so the title
   // names the ENTRY and mints no control at all — a switcher there would be a
   // second copy of the navigation already on screen beside it.
   it("renders no switcher above the phone breakpoint", () => {
-    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
+    render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
     expect(
       screen.getByRole("heading", { level: 1, name: "Privacy & audit" }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /change section/ })).toBeNull();
   });
 
-  // At phone width the pair swaps: the heading names the section — nothing else
-  // on screen does — and the switcher names the entry and opens the others.
-  it("names the section and hands the entry to the switcher at phone width", () => {
+  // At phone width the switcher IS the heading: the control names the page and
+  // opens the others, so nothing above it repeats that name. The page is still
+  // named exactly once at heading level, and the trail in the top bar is the only
+  // other place it appears — the same arithmetic as every other route.
+  it("stands as the page's heading at phone width", () => {
     stubPhoneViewport();
-    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
-    expect(
-      screen.getByRole("heading", { level: 1, name: "Settings" }),
-    ).toBeTruthy();
+    render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
+    const heading = screen.getByRole("heading", { level: 1 });
     const switcher = screen.getByRole("button", {
       name: "Privacy & audit — change section",
     });
+    expect(heading.contains(switcher)).toBe(true);
     // The visible word is the entry, and it is part of the name (WCAG 2.5.3), so
     // a reader driving the app by voice says what they can see.
     expect(switcher.textContent).toContain("Privacy & audit");
     expect(switcher.getAttribute("aria-expanded")).toBe("false");
-    // Under the head, not inside it: the head is the page's title and the two
-    // things true of the whole product, and a control that changes which page you
-    // are on is none of those — it belongs to the column it switches.
-    expect(document.querySelector(".pagehead")?.contains(switcher)).toBe(false);
+    // One heading, and the entry's name is in it once — not once in a heading
+    // and again in a control under it.
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     // Closed, it claims nothing: it is a control that opens a list, not a page.
     expect(document.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
   });
 
   it("opens the section's entries with the current one marked", async () => {
     stubPhoneViewport();
-    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
+    render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
     await userEvent.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
@@ -1250,7 +309,7 @@ describe("Section switcher (the page head at phone width)", () => {
 
   it("navigates and closes itself when an entry is picked", async () => {
     stubPhoneViewport();
-    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
+    render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
     await userEvent.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
@@ -1266,7 +325,7 @@ describe("Section switcher (the page head at phone width)", () => {
   // Escape: the way out has to be a control inside it.
   it("closes from a control in the sheet", async () => {
     stubPhoneViewport();
-    render(<PageHead route={deepRoute} section={fixtureSection("deep")} />);
+    render(<PageTitle route={deepRoute} section={fixtureSection("deep")} />);
     await userEvent.click(
       screen.getByRole("button", { name: "Privacy & audit — change section" }),
     );
@@ -1282,7 +341,10 @@ describe("Section switcher (the page head at phone width)", () => {
   it("ignores a section that belongs to another screen", () => {
     stubPhoneViewport();
     render(
-      <PageHead route={{ screen: "deals" }} section={fixtureSection("deep")} />,
+      <PageTitle
+        route={{ screen: "deals" }}
+        section={fixtureSection("deep")}
+      />,
     );
     expect(
       screen.getByRole("heading", { level: 1, name: "Pipeline" }),
@@ -1296,6 +358,46 @@ describe("Shell", () => {
     window.location.hash = "#/reports";
     render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     expect(document.body.dataset.screen).toBe("reports");
+  });
+
+  // ONE element claims the page, on every route — and where two elements could
+  // claim it, they must be claiming the SAME page. On a record route they would
+  // not: the sidebar's row marks the list the record was opened from, and a list
+  // is not the page. So the row yields to `aria-current="true"` there (current in
+  // this set) and the trail's last stop keeps `page`.
+  it("claims the page exactly once on a record, with the sidebar's row yielding", () => {
+    window.location.hash = "#/contacts/p-anna";
+    const client = newClient();
+    client.setQueryData(["person", "ref", "p-anna"], "Anna Weber");
+    const { container } = renderWith(
+      client,
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const claims = container.querySelectorAll('[aria-current="page"]');
+    expect(claims).toHaveLength(1);
+    expect(claims[0].textContent).toBe("Anna Weber");
+    const row = container.querySelector("nav.rail a.navitem.active");
+    expect(row?.textContent).toBe("Contacts");
+    expect(row?.getAttribute("aria-current")).toBe("true");
+  });
+
+  // On the list itself the row IS the page, so it keeps the stronger claim and
+  // agrees with the trail beside it. Two elements naming one page is what a
+  // breadcrumb and a navigation row are for; two naming different pages is the
+  // case above.
+  it("lets the sidebar's row claim the page on the list it names", () => {
+    window.location.hash = "#/contacts";
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const claims = [...container.querySelectorAll('[aria-current="page"]')];
+    expect(claims.map((claim) => claim.textContent)).toEqual([
+      "Contacts",
+      "Contacts",
+    ]);
+    expect(
+      container.querySelector("nav.rail a.navitem.active")?.textContent,
+    ).toBe("Contacts");
   });
 
   // The a11y hole this restructure closes: the page's name used to be a span in
@@ -1361,9 +463,92 @@ describe("Shell", () => {
       <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
     );
     expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0);
-    // What it shows instead: the trail back to the list this record is in.
-    const back = container.querySelector(".pagecrumb .pageback");
-    expect(back?.getAttribute("href")).toBe("#/contacts");
+    expect(container.querySelector(".pagetitle")).toBeNull();
+    // What says where the reader is instead: the top bar's trail, leading back
+    // to the list this record was opened from. Its own rules are in
+    // topbar.test.tsx; that the shell still shows one here is the shell's.
+    const trail = screen.getByRole("navigation", { name: "Breadcrumb" });
+    expect(
+      within(trail)
+        .getByRole("link", { name: "Contacts" })
+        .getAttribute("href"),
+    ).toBe("#/contacts");
+  });
+
+  // The three pieces in the order the page is read: the bar is the first row of
+  // <main> and stays put, the name is inside the scroller and goes with the
+  // page. A title that drifted into the bar would scroll away with nothing; a
+  // bar inside the scroller would take the trail off screen on a long page.
+  it("mounts the top bar above the scroller and the page's name inside it", () => {
+    window.location.hash = "#/contacts";
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const main = container.querySelector("main");
+    const bar = container.querySelector<HTMLElement>(".topbar");
+    const scroller = container.querySelector(".scroll");
+    expect(main?.firstElementChild).toBe(bar);
+    expect(scroller?.contains(bar)).toBe(false);
+    const title = container.querySelector(".pagetitle");
+    expect(scroller?.contains(title ?? null)).toBe(true);
+    // And the bar's own passengers are mounted, which is all the shell owes
+    // them: their behaviour is account.test.tsx's and sormodechip.test.tsx's.
+    expect(
+      within(bar ?? container).getByRole("button", { name: "Account" }),
+    ).toBeTruthy();
+  });
+
+  // ⌘B / Ctrl B, the chord the toggle's tooltip has advertised since the sidebar
+  // had a toggle. It moves the SAME state the toggle reports, which is why the
+  // assertion is on the control's own name rather than on a class: a shortcut
+  // wired to a second copy of the state would flip the panel and leave the
+  // control lying about it.
+  it("toggles the sidebar from the keyboard", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/contacts";
+    render(<Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
+    expect(
+      screen.getByRole("button", { name: "Collapse sidebar" }),
+    ).toBeTruthy();
+
+    await user.keyboard("{Meta>}b{/Meta}");
+    expect(
+      await screen.findByRole("button", { name: "Expand sidebar" }),
+    ).toBeTruthy();
+  });
+
+  // The same chord is bold in every editor on the platform, and a composer is
+  // exactly where a reader reaches for it. Typed into a field, it belongs to the
+  // field — the sidebar must not move under someone writing a sentence.
+  it("leaves the sidebar alone while a text field has focus", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/contacts";
+    render(
+      <Shell onOpenSearch={ignoreSearch}>
+        <input aria-label="Note" />
+      </Shell>,
+    );
+
+    await user.click(screen.getByRole("textbox", { name: "Note" }));
+    await user.keyboard("{Meta>}b{/Meta}");
+    expect(
+      screen.getByRole("button", { name: "Collapse sidebar" }),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Expand sidebar" })).toBeNull();
+  });
+
+  // The agent floats at the foot of the content column on every railed screen —
+  // ONE floating affordance, positioned against `.main` so it centres on the
+  // column it belongs to rather than on the viewport. Its own claims are
+  // agentdock.test.tsx's; that it is mounted here, once, is the shell's.
+  it("mounts the agent dock once, as the last thing in the content column", () => {
+    window.location.hash = "#/contacts";
+    const { container } = render(
+      <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
+    );
+    const docks = container.querySelectorAll(".agentdock");
+    expect(docks).toHaveLength(1);
+    expect(container.querySelector("main")?.lastElementChild).toBe(docks[0]);
   });
 
   it("renders rail-less for the documented exceptions (AC-shell layout exception)", () => {
@@ -1372,14 +557,18 @@ describe("Shell", () => {
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  // A rail-less surface carries its own chrome, so the shell contributes no
-  // heading of its own there — the screen's h1 is the only one.
-  it("contributes no page head to a rail-less surface", () => {
+  // A rail-less surface carries its own chrome, so the shell contributes none of
+  // its own there: no bar, no heading, and no agent either — a floating dock on
+  // the consent screen would be the app reaching into a page a human is reading
+  // apart from the app.
+  it("contributes no chrome at all to a rail-less surface", () => {
     window.location.hash = "#/book";
     const { container } = render(
       <Shell onOpenSearch={ignoreSearch}>{null}</Shell>,
     );
-    expect(container.querySelector(".pagehead")).toBeNull();
+    expect(container.querySelector(".topbar")).toBeNull();
+    expect(container.querySelector(".pagetitle")).toBeNull();
+    expect(container.querySelector(".agentdock")).toBeNull();
   });
 
   // The consent screen is where a human hands an agent their own authority —
@@ -1391,20 +580,26 @@ describe("Shell", () => {
     expect(screen.queryByRole("navigation")).toBeNull();
   });
 
-  // One number, two surfaces: the rail badges what is waiting and the agent
-  // beside the title reports the same thing. They read the counts the shell was
-  // given, so a head that is not handed them leaves the two disagreeing.
-  it("gives the page head the counts the rail badges", () => {
+  // One number, two surfaces: the rail badges what is waiting and the agent at
+  // the foot of the column reports the same thing. Both read the counts the
+  // shell was given, so a dock that is not handed them leaves the two
+  // disagreeing. The approvals count specifically — tasks sits first in the same
+  // record and carries a different number, so a dock reading any count shows 9.
+  it("gives the agent dock the count the rail badges", () => {
     window.location.hash = "#/contacts";
     const { container } = render(
-      <Shell counts={{ inbox: 7 }} onOpenSearch={ignoreSearch}>
+      <Shell counts={{ tasks: 9, inbox: 7 }} onOpenSearch={ignoreSearch}>
         {null}
       </Shell>,
     );
-    expect(container.querySelector(".rail .count")?.textContent).toBe("7");
-    expect(container.querySelector(".agentwait")?.textContent).toBe(
-      "7 Approvals waiting",
-    );
+    expect(
+      Array.from(container.querySelectorAll(".rail .count")).map(
+        (badge) => badge.textContent,
+      ),
+    ).toEqual(["9", "7"]);
+    const dock = container.querySelector(".agentdock");
+    expect(dock?.textContent).toContain("7");
+    expect(dock?.textContent).not.toContain("9");
   });
 
   it("renders the rail on core screens", () => {
@@ -1416,10 +611,12 @@ describe("Shell", () => {
   });
 });
 
-// Sign-out is reached from the account menu at the sidebar foot. What the menu
-// does with focus and layers is account.test.tsx's; what is proved here is that
-// the shell's copy of it actually ends the session — the mutation, the cache,
-// and the gate that follows them.
+// Sign-out is reached from the account menu in the top bar. What the menu does
+// with focus and layers is account.test.tsx's; what is proved here is that the
+// shell's copy of it actually ends the session — the mutation, the cache, and
+// the gate that follows them. Driven through the whole SHELL because the menu is
+// only reachable through the chrome that mounts it: a rail rendered on its own
+// has carried no account affordance since the sidebar became destinations only.
 describe("Sign-out (AS-1)", () => {
   it("posts /auth/logout and clears the query cache on click", async () => {
     let loggedOut = false;
@@ -1442,14 +639,12 @@ describe("Sign-out (AS-1)", () => {
     // gate re-probe hangs off this exact entry going away (queryClient.clear()).
     const client = newClient();
     client.setQueryData(["me"], { user: { id: "u1", email: "ada@acme.test" } });
-    renderWith(
-      client,
-      <WorkspaceRail route={{ screen: "deals" }} onOpenSearch={ignoreSearch} />,
-    );
+    window.location.hash = "#/deals";
+    renderWith(client, <Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     expect(client.getQueryData(["me"])).toBeTruthy();
     // Sign-out lives inside the account menu, so it takes opening first.
     await userEvent.click(screen.getByRole("button", { name: /Account$/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByText("Sign out"));
     // POST fired AND the whole cache was cleared — the ["me"] entry is gone,
     // so the auth gate re-probes → 401 → login. This assertion bites: it fails
     // if `onSuccess: () => queryClient.clear()` is removed from useLogout.
@@ -1482,12 +677,10 @@ describe("Sign-out (AS-1)", () => {
       url: "/oauth/authorize?client_id=night&scope=read",
       clientName: "Claude Code",
     });
-    renderWith(
-      newClient(),
-      <WorkspaceRail route={{ screen: "deals" }} onOpenSearch={ignoreSearch} />,
-    );
+    window.location.hash = "#/deals";
+    renderWith(newClient(), <Shell onOpenSearch={ignoreSearch}>{null}</Shell>);
     await userEvent.click(screen.getByRole("button", { name: /Account$/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByText("Sign out"));
     await waitFor(() => expect(loggedOut).toBe(true));
     await waitFor(() => expect(readPendingAuthorize()).toBeNull());
   });
@@ -1538,7 +731,7 @@ describe("Sign-out (AS-1)", () => {
     expect(meCalls).toBe(1);
 
     await userEvent.click(account);
-    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await userEvent.click(screen.getByText("Sign out"));
 
     // The gate must re-probe /v1/me (not just drop the cache entry) and,
     // seeing 401, render the auth (signup/login) screen — the rail must be

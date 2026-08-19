@@ -23,7 +23,8 @@ import {
 import type { NavSection } from "./nav";
 import { CommandPalette, useBuiltinCommands } from "./palette";
 import type { Route } from "./router";
-import { PageHead, Shell, WorkspaceRail } from "./shell";
+import { PageTitle, Shell, WorkspaceRail } from "./shell";
+import { TopBar } from "./topbar";
 
 // fullscreen: the shell sizes itself to the viewport, so Storybook's default
 // canvas padding would clip the sidebar foot and misrepresent the layout — and
@@ -73,7 +74,7 @@ function SeedInstallation({ children }: Readonly<{ children: ReactNode }>) {
 /**
  * The search row wired to the thing it actually opens.
  *
- * `onOpenSearch` is not a decorative prop: the sidebar's first row is the only
+ * `onOpenSearch` is not a decorative prop: the top bar's field is the only
  * pointer route into the command palette, so a story that stubbed it would show
  * a control that does nothing and prove nothing. The app mounts the palette
  * beside the shell (App.tsx) — so does this, off the same builtin command list.
@@ -145,10 +146,14 @@ function SidebarExample({
         route={{ screen: "deals" }}
         counts={{ inbox: 12, tasks: 4 }}
         collapsed={collapsed}
-        onToggle={() => setCollapsed((current) => !current)}
-        onOpenSearch={openSearch}
       />
       <main className="main">
+        <TopBar
+          route={{ screen: "deals" }}
+          collapsed={collapsed}
+          onToggle={() => setCollapsed((current) => !current)}
+          onOpenSearch={openSearch}
+        />
         <div className="scroll" />
       </main>
       {palette}
@@ -249,9 +254,9 @@ const SETTINGS_SECTION: NavSection = {
 // where the story put it. Each depth below is therefore a story of its own,
 // which is also how a reviewer sees them side by side.
 //
-// A level takes the brand's words for its rows and nothing else: the search row
-// is still there, so the palette is wired here exactly as it is above — a row
-// that opened nothing would misrepresent the one visible way to search.
+// A level takes the brand's words for its rows and nothing else. The search and
+// the collapse control belong to the top bar above, so the story renders that bar
+// too — a panel shown without it would be a picture of half the chrome.
 function LevelExample({
   initiallyCollapsed,
   tab = "general",
@@ -266,10 +271,15 @@ function LevelExample({
         section={{ ...SETTINGS_SECTION, activeId: tab }}
         counts={{ inbox: 12, tasks: 4 }}
         collapsed={collapsed}
-        onToggle={() => setCollapsed((current) => !current)}
-        onOpenSearch={openSearch}
       />
       <main className="main">
+        <TopBar
+          route={{ screen: "settings", id: tab, id2: sub }}
+          section={{ ...SETTINGS_SECTION, activeId: tab }}
+          collapsed={collapsed}
+          onToggle={() => setCollapsed((current) => !current)}
+          onOpenSearch={openSearch}
+        />
         <div className="scroll" />
       </main>
       {palette}
@@ -355,11 +365,16 @@ function PhoneSectionExample() {
         route={route}
         section={SETTINGS_SECTION}
         counts={{ inbox: 12, tasks: 4 }}
-        onOpenSearch={openSearch}
       />
       <main className="main">
-        <PageHead route={route} section={SETTINGS_SECTION} />
+        <TopBar
+          route={route}
+          section={SETTINGS_SECTION}
+          collapsed={false}
+          onOpenSearch={openSearch}
+        />
         <div className="scroll">
+          <PageTitle route={route} section={SETTINGS_SECTION} />
           <div className="wrap">
             <Card as="div">Content</Card>
           </div>

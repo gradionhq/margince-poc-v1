@@ -10,7 +10,11 @@
  * success stays a brighter grass-green than the brand emerald on purpose.
  */
 :root {
-  --bgPage: #fbfcfb;
+  /* Under evaluation: a hair warmer and pinker than the #FBFCFB the mockups
+     carry, to see what it does to the contrast between the page's ground and the
+     white panels standing on it. Revert or ratify — tokens.test.ts pins whichever
+     value is the design's answer. */
+  --bgPage: #fbf9fa;
   --bgElevated: #ffffff;
   --bgCard: #eef1f0;
   --bgHover: #f3f6f4;

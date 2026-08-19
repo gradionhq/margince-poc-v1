@@ -16,11 +16,13 @@ import type { MessageKey } from "./en";
 export const vi = {
   "theme.toDark": "Giao diện tối",
   "theme.toLight": "Giao diện sáng",
-  // Hai giao diện là hai lựa chọn của một nhóm — Cài đặt → Tài khoản hiện cả hai
-  // cùng lúc, nên mỗi nhãn nói nó LÀ gì chứ không nói cú nhấp làm gì. Hai nhãn
-  // phía trên là tên của nút chỉ có biểu tượng trên trang đăng nhập và onboarding.
+  // Ba lựa chọn giao diện — menu tài khoản hiện cả ba cùng lúc, nên mỗi nhãn nói
+  // nó LÀ gì chứ không nói cú nhấp làm gì. Hai nhãn phía trên là tên của nút chỉ
+  // có biểu tượng trên trang đăng nhập và onboarding. "Theo hệ thống" gọi tên
+  // chiếc máy mà giao diện đi theo, không phải một kiểu hiển thị thứ ba.
   "theme.light": "Sáng",
   "theme.dark": "Tối",
+  "theme.system": "Theo hệ thống",
 
   "trust.accept": "Chấp nhận",
   "trust.edit": "Sửa",
@@ -87,12 +89,18 @@ export const vi = {
   "shell.railAria": "Điều hướng chính",
   "shell.skipToContent": "Bỏ qua tới nội dung",
   "shell.logoAria": "Margince",
-  "shell.search": "Tìm kiếm",
+  "shell.searchEverything": "Tìm kiếm mọi thứ…",
+  "shell.breadcrumbAria": "Đường dẫn",
+  "shell.approvals": "Phê duyệt",
+  "shell.license.seats": "{used}/{granted} chỗ",
+  "shell.license.none": "Chưa có giấy phép",
+  "shell.license.refused": "Giấy phép bị từ chối",
+  "shell.license.aria": "Giấy phép và số chỗ",
+  "shell.approvalsWaiting": "Phê duyệt — {count} đang chờ",
   "shell.signOutAria": "Đăng xuất",
   "shell.collapse": "Thu gọn thanh bên",
   "shell.expand": "Mở rộng thanh bên",
   "shell.accountAria": "Tài khoản",
-  "shell.account": "Tài khoản",
   "shell.theme": "Giao diện",
   "shell.more": "Thêm",
   "shell.unknownPage": "Không tìm thấy",
@@ -152,7 +160,6 @@ export const vi = {
   "action.readCompany": "Đọc một công ty",
   "action.booking": "Trang đặt lịch",
 
-  "fab.open": "Hỏi về mục này",
   "fab.close": "Đóng",
   "fab.panelAria": "Hỏi về bản ghi này",
   "fab.context": "Hỏi về {context}",

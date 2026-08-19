@@ -58,6 +58,13 @@ export type NavTrailLevel = {
   titleKey?: MessageKey;
   groups: readonly NavLevelGroup[];
   activeId?: string;
+  // Whether the active row IS the page, or only the section the page sits in.
+  // A record route makes its list's row active while the page is the record —
+  // and the trail in the top bar is what names that page, and claims it. Two
+  // elements claiming `aria-current="page"` for different things is worse than
+  // one claiming a little less, so a row that is only an ancestor says
+  // `aria-current="true"` instead: current in this set, not the page.
+  ancestor?: boolean;
   path: readonly string[];
   badgeIds?: ReadonlySet<string>;
   barIds?: ReadonlySet<string>;
@@ -117,7 +124,11 @@ export function navTrail(
   // claims the page itself (app/shell.tsx).
   activeId: string = route.screen,
 ): readonly NavTrailLevel[] {
-  const trail: NavTrailLevel[] = [{ ...top, activeId }];
+  // A segment under the screen means the page is something the screen holds —
+  // a record, a unit — rather than the screen itself.
+  const trail: NavTrailLevel[] = [
+    { ...top, activeId, ancestor: route.id !== undefined },
+  ];
   if (!section || section.screen !== route.screen) {
     return trail;
   }

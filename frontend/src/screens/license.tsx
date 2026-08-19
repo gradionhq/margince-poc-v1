@@ -35,9 +35,23 @@ import { LicenseHolderCard } from "./licenseholder";
 
 type LicenseEntitlement = components["schemas"]["LicenseEntitlement"];
 
-function useLicenseEntitlement() {
+/**
+ * What the license grants and how much of it is used.
+ *
+ * Exported because the shell's own foot reports the same posture (app/shell.tsx)
+ * — one query key, so the strip and this screen can never disagree about how many
+ * seats are in use, and the second reader pays no second request.
+ */
+export function useLicenseEntitlement(enabled = true) {
   return useQuery({
     queryKey: ["installation-license"],
+    // A principal without `license:read` would get a 403 on every route. The
+    // caller that knows the grant passes it, and the request is never made.
+    enabled,
+    // The posture changes when somebody is invited or a license is replaced, not
+    // between two page opens. The chrome reads it on every route, so a short
+    // staleTime would put a request behind every navigation.
+    staleTime: 5 * 60_000,
     queryFn: async () => {
       const { data, error, response } = await api.GET("/installation/license");
       if (error || !response.ok) {

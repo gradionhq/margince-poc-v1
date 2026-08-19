@@ -357,9 +357,8 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
   // spares an element that declares a role `Card` cannot express: the component
   // admits `role="status"` and nothing else, on purpose — a card must not be
   // able to claim it is a modal — so a surface that has to announce itself as a
-  // `dialog` (app/fab.tsx's anchored panel) or a `note`
-  // (design-system/explain.tsx's popover) has no component to reach for. Both
-  // say so in-source where they do it. The exemption reads the role's LITERAL
+  // `dialog` or a `note` (design-system/explain.tsx's popover) has no component
+  // to reach for. Such a surface says so in-source where it does it. The exemption reads the role's LITERAL
   // value and compares it exactly to `status`. A role the source computes
   // (`role={role}`) is NOT an exemption: the gate cannot know what it evaluates
   // to, so it asks rather than assumes — an unreadable role that waved the card
