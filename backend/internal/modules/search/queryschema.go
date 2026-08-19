@@ -115,10 +115,10 @@ type querySchemaField struct {
 	Ops  []string `json:"ops"`
 }
 
-// querySchemaRelation is Relation's wire form, and a direct conversion of it
-// — a hop has nothing to hide from a caller. The conversion is deliberate:
-// adding a member to Relation without deciding whether callers should see it
-// stops compiling here.
+// querySchemaRelation is one published hop. Its members are named explicitly
+// where the vocabulary is rendered, so what this document carries stays a
+// decision rather than whatever Relation happens to hold: a join edge's
+// execution detail is on Relation and is deliberately not published here.
 type querySchemaRelation struct {
 	Name   string `json:"name"`
 	Target string `json:"target"`
@@ -172,7 +172,11 @@ func querySchemaTargetOf(target TargetVocabulary) querySchemaTarget {
 		out.Fields = append(out.Fields, querySchemaField{Name: f.Name, Kind: string(f.Kind), Ops: f.Ops})
 	}
 	for _, r := range target.Relations {
-		out.Relations = append(out.Relations, querySchemaRelation(r))
+		// Named member by member rather than converted from Relation, so what
+		// this document publishes stays a decision. A conversion tracked the
+		// internal struct silently, which is how the join edge's execution
+		// detail would have been published the moment it was added.
+		out.Relations = append(out.Relations, querySchemaRelation{Name: r.Name, Target: r.Target, Via: r.Via})
 	}
 	return out
 }

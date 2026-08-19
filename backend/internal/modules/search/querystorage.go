@@ -166,26 +166,48 @@ func newSchemaReads(reader ColumnReader) *schemaReads {
 
 // of answers one record type's storage, reading it at most once per resolve.
 func (s *schemaReads) of(ctx context.Context, entity string) (*storage, error) {
-	if cached, ok := s.byName[entity]; ok {
-		return cached, nil
-	}
-	stored, err := storageFor(ctx, s.reader, entity)
-	if err != nil {
-		return nil, err
-	}
-	s.byName[entity] = stored
-	return stored, nil
-}
-
-// storageFor reads one record type's columns through the seam, or the
-// unfiltered pass-through when no reader is wired.
-func storageFor(ctx context.Context, reader ColumnReader, entity string) (*storage, error) {
-	if reader == nil {
-		return unfilteredStorage(), nil
-	}
 	table, ok := tableFor(entity)
 	if !ok {
 		return nil, fmt.Errorf("search: %q is not a searchable record type", entity)
+	}
+	return s.ofTable(ctx, table)
+}
+
+// ofTable answers one TABLE's storage, for the reads that are not about a
+// record type: a join table carries an edge between two records and is not one
+// itself, so it has no entity name to be asked under.
+//
+// The memo is keyed by table rather than by entity for the same reason. Two
+// record types cannot share a table today, so the two keyings agree — but a
+// cache keyed by the name the CALLER used rather than by the thing read is one
+// alias away from answering a second table's columns.
+func (s *schemaReads) ofTable(ctx context.Context, table string) (*storage, error) {
+	if cached, ok := s.byName[table]; ok {
+		return cached, nil
+	}
+	stored, err := storageOf(ctx, s.reader, table)
+	if err != nil {
+		return nil, err
+	}
+	s.byName[table] = stored
+	return stored, nil
+}
+
+// storageFor reads one record type's columns, for the callers that hold an
+// entity name rather than a table.
+func storageFor(ctx context.Context, reader ColumnReader, entity string) (*storage, error) {
+	table, ok := tableFor(entity)
+	if !ok {
+		return nil, fmt.Errorf("search: %q is not a searchable record type", entity)
+	}
+	return storageOf(ctx, reader, table)
+}
+
+// storageOf reads one table's columns through the seam, or the unfiltered
+// pass-through when no reader is wired.
+func storageOf(ctx context.Context, reader ColumnReader, table string) (*storage, error) {
+	if reader == nil {
+		return unfilteredStorage(), nil
 	}
 	columns, err := reader.Columns(ctx, table)
 	if err != nil {
@@ -208,6 +230,18 @@ func (s *storage) answers(field Field) bool {
 	}
 	_, ok := s.locate(field)
 	return ok
+}
+
+// holds reports whether the table really has a column of this name.
+//
+// It asks a narrower question than answers(): no kind, no flattening, no
+// vocabulary. A join edge is derived from the PRESENCE of two reference
+// columns, and the unfiltered pass-through must answer false here rather than
+// true — an unwired deployment knows of no columns at all, and a join edge has
+// no contract spelling to fall back on the way a field does.
+func (s *storage) holds(column string) bool {
+	_, exists := s.kinds[column]
+	return exists
 }
 
 // locate resolves a vocabulary field onto a column that can answer it under

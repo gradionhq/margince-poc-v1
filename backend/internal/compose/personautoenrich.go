@@ -227,7 +227,7 @@ func (g *PersonAutoEnrich) employerOf(ctx context.Context, tx pgx.Tx, personID i
 	var orgID ids.OrganizationID
 	err := tx.QueryRow(ctx, `
 		SELECT organization_id FROM relationship
-		WHERE person_id = $1 AND kind = 'employment' AND is_current_primary
+		WHERE person_id = $1 AND kind = 'employment' AND `+people.CurrentPrimaryEmploymentSQL("")+`
 		  AND archived_at IS NULL AND organization_id IS NOT NULL
 		LIMIT 1`, personID).Scan(&orgID)
 	if err != nil {
