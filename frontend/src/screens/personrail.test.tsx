@@ -515,10 +515,17 @@ describe("the sibling sections governed by their own grants", () => {
 // "no" except ticking and unticking again. So the box states an answer from the
 // start, and the answer it states is the one the record takes.
 describe("adding a company", () => {
-  async function openAndPickEmployer() {
-    await userEvent.click(screen.getByRole("button", { name: "Add company" }));
-    await userEvent.type(screen.getByRole("searchbox"), "emp");
-    await userEvent.click(await screen.findByText("Employer GmbH"));
+  // Its own instance per test, and told about the fake timers this suite
+  // installs: a shared one carries pointer and keyboard state between tests, so
+  // the second test to run would inherit the first one's.
+  function driver() {
+    return userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  }
+
+  async function openAndPickEmployer(user: ReturnType<typeof driver>) {
+    await user.click(screen.getByRole("button", { name: "Add company" }));
+    await user.type(screen.getByRole("searchbox"), "emp");
+    await user.click(await screen.findByText("Employer GmbH"));
   }
 
   // `.checked` directly rather than a jest-dom matcher: this suite does not
@@ -528,6 +535,16 @@ describe("adding a company", () => {
       name: "This is their current employer",
     });
     return (box as HTMLInputElement).checked;
+  }
+
+  // Narrowed, not asserted: the recorded body is `unknown` because it came off
+  // the wire, and casting it would be this suite claiming a shape it has not
+  // checked — which is the whole class of thing these tests exist to catch.
+  function asObject(body: unknown, t: string): Record<string, unknown> {
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new Error(`${t} was not a JSON object: ${JSON.stringify(body)}`);
+    }
+    return { ...body };
   }
 
   async function employmentBody(): Promise<Record<string, unknown>> {
@@ -544,35 +561,37 @@ describe("adding a company", () => {
     const post = sent.find((request) =>
       request.path.endsWith("/relationships"),
     );
-    return (post?.body ?? {}) as Record<string, unknown>;
+    return asObject(post?.body, "the posted employment");
   }
 
   it("starts ticked for somebody with no current job, and sends that", async () => {
+    const user = driver();
     mount(emptyButGranted);
     await screen.findByRole("button", { name: "Add company" });
-    await userEvent.click(screen.getByRole("button", { name: "Add company" }));
+    await user.click(screen.getByRole("button", { name: "Add company" }));
 
     // The state the reader sees BEFORE touching anything. This is the assertion
     // the omit-when-untouched version could not make: it showed unticked and
     // wrote primary.
     expect(currentEmployerTicked()).toBe(true);
 
-    await userEvent.type(screen.getByRole("searchbox"), "emp");
-    await userEvent.click(await screen.findByText("Employer GmbH"));
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user.type(screen.getByRole("searchbox"), "emp");
+    await user.click(await screen.findByText("Employer GmbH"));
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     expect((await employmentBody()).is_current_primary).toBe(true);
   });
 
   it("lets the reader say no, and sends that", async () => {
+    const user = driver();
     mount(emptyButGranted);
     await screen.findByRole("button", { name: "Add company" });
-    await openAndPickEmployer();
-    await userEvent.click(
+    await openAndPickEmployer(user);
+    await user.click(
       screen.getByRole("checkbox", { name: "This is their current employer" }),
     );
     expect(currentEmployerTicked()).toBe(false);
-    await userEvent.click(screen.getByRole("button", { name: "Create" }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
 
     // `false`, not absent. A reader who unticks a box has decided, and the
     // server must not derive over them.
@@ -585,9 +604,10 @@ describe("adding a company", () => {
     // The other half of the default, and the reason it is read off the rows
     // rather than hardcoded: which of two employers is the main one is not
     // this modal's to assume.
+    const user = driver();
     mount(granted);
     await screen.findByRole("button", { name: "Add company" });
-    await userEvent.click(screen.getByRole("button", { name: "Add company" }));
+    await user.click(screen.getByRole("button", { name: "Add company" }));
 
     expect(currentEmployerTicked()).toBe(false);
   });
