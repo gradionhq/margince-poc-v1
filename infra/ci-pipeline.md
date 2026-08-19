@@ -286,7 +286,7 @@ Wiring details:
 
 ## The other workflows
 
-`ci.yml` is the merge gate. Three workflows sit beside it, deliberately outside it:
+`ci.yml` is the merge gate. Five workflows sit beside it, deliberately outside it:
 
 - **`scheduled.yml`** — daily on `main`, the checks whose answer changes when
   nothing is being merged. `ci.yml` asks "is this diff sound?" and runs because a
@@ -328,7 +328,9 @@ Wiring details:
   release versioned `1970.<build>` (the year pinned to the epoch while the
   flow is a PoC, so these releases order below any real dated release; the
   build is the workflow run number) in the dist service of the constellation
-  deployment at test.margince.com — not a GitHub release: the release-management CLI cuts the
+  deployment at test.margince.com. A constellation release is a server
+  deployment, which GitHub does not host, so this is not a GitHub release —
+  with one exception, the desktop bundles, below. The release-management CLI cuts the
   incremental patch over the push's range and uploads it with `draft-release`
   together with the three source-tree SBOMs regenerated at the release commit
   (`make sbom` — the dist service verifies the SBOMs attest every file the
@@ -375,3 +377,28 @@ Wiring details:
   release instead of the push's `before` is what closes that
   ([#1798](https://github.com/gradionhq/margince-poc-v1/issues/1798)). Not a
   gate — it never blocks a merge.
+
+  **On a manual dispatch only**, three further jobs attach the desktop bundles
+  to a **GitHub** release under the same `1970.<build>` version, which is the
+  page a person browses to download a build: `desktop-macos` and
+  `desktop-windows` are *called*, not copied — the same reusable workflows the
+  pull-request check runs, so a release bundle cannot differ from the bundle CI
+  blessed — and `github-release` re-names the two artifacts after the version,
+  re-zips the Windows tree that `download-artifact` expanded, and creates the
+  release as a **prerelease** (a `1970.*` build must not present itself as the
+  product's latest). It carries the only `contents: write` in the workflow. It
+  needs `draft` and the two build jobs but deliberately **not** `publish`: the
+  dist completeness gate is about the patch and the SBOMs, so a dist-side
+  failure must not withhold bundles that already built correctly. Ordinary
+  merges to `main` skip all three — each bundle compiles Postgres from source,
+  and a merge answers no new question about it.
+- **`desktop-macos.yml` / `desktop-windows.yml`** — build the self-contained
+  desktop folder for their own platform, which is the only platform it can be
+  built on: pgvector has no build system but `nmake` against MSVC, the event bus
+  needs MSYS2, and the macOS half rewrites every Mach-O load command to `@rpath`
+  and re-signs each patched file. Path-scoped to `desktop/**` on pull requests
+  so an ordinary change never pays for a Postgres compile, plus manual dispatch,
+  plus `workflow_call` from `release.yml`. Neither is a required check. The
+  macOS lane uploads a **tarball** because `upload-artifact` does not preserve
+  the executable bit, and a `margince` a tester cannot run is worse than no
+  artifact; the Windows lane has no such bit and uploads the folder.

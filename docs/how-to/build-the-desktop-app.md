@@ -34,18 +34,38 @@ no `~/Library`, no `%APPDATA%`.
 
 ## Or download one already built
 
-Each platform has a CI lane that builds the folder and publishes it, so testing
-a bundle needs no toolchain at all — and the runner IS the proof the lane still
-works, since neither half can be built on the other platform.
+Two places, for two different needs.
+
+### A release, for a build meant to be kept
+
+The [releases page](https://github.com/gradionhq/margince-poc-v1/releases)
+carries both bundles as assets on every release that was cut with them —
+`margince-macos-<version>.tar.gz` and `margince-windows-<version>.zip` — with
+the first-launch steps in the release notes. Release assets do not expire, which
+is the difference that matters: pick a version, download its build.
+
+Cutting one is a manual dispatch of the **Release** workflow from the Actions
+tab. Ordinary merges to main do not build desktop bundles — each one compiles
+Postgres from source, and a merge answers no new question about it — so a
+downloadable build exists because somebody decided it should.
+
+### A run artifact, for testing a change
+
+Each platform also has a CI lane that publishes the folder as a run artifact, so
+testing a branch needs no toolchain at all — and the runner IS the proof the lane
+still works, since neither half can be built on the other platform. These expire
+after 14 days.
 
 | Workflow | Runner | Artifact |
 |---|---|---|
 | `desktop-macos` | `macos-latest` (Apple silicon) | `margince-macos-<sha>` — a **tarball**, because artifact upload does not preserve the executable bit |
 | `desktop-windows` | `windows-latest` (x64) | `margince-windows-<sha>` — a plain folder |
 
-Both run automatically when `desktop/**` changes on a pull request, and by hand
-from the Actions tab once they are on the default branch. Download from the run
-page, or:
+Both run automatically when `desktop/**` changes on a pull request, by hand from
+the Actions tab, and as reusable workflows called by **Release** when it is
+cutting a downloadable build — the same lane either way, so a release bundle
+cannot differ from the one a pull request was checked against. Download from the
+run page, or:
 
 ```
 gh run download <run-id> -n margince-macos-<sha>

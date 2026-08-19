@@ -6,10 +6,14 @@
 # execute it, so this runner IS the Windows host — the only place the scripts are
 # proved rather than reasoned about.
 #
-# Manual only (workflow_dispatch). It is NOT a required check and never gates a
-# merge: it downloads a 310 MB PostgreSQL archive and compiles Redis, which is
-# not something to spend on every push. Run it when the lane changes, or when
-# someone needs a build to test.
+# Path-scoped on pull requests, plus manual dispatch, plus called by release.yml
+# when a release is cutting a downloadable bundle. It is NOT a required check and
+# never gates a merge: it downloads a 310 MB PostgreSQL archive and compiles
+# Redis, which is not something to spend on every push. Run it when the lane
+# changes, or when someone needs a build to test.
+#
+# Being reused rather than copied is what keeps a release bundle identical to the
+# bundle a pull request was checked against.
 name: desktop-windows
 
 on:
@@ -29,6 +33,21 @@ on:
       ref:
         description: Branch, tag or SHA to build
         required: false
+  # Called by release.yml, so a release's downloadable bundle is built by THIS
+  # lane and not by a second copy of it. A copy would drift, and the drift shows
+  # up as a release bundle differing from the one the pull-request check blessed.
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build
+        required: false
+        type: string
+      version:
+        description: >-
+          Names the artifact when a release asked for this build. Defaults to the
+          commit, which is what an ad-hoc build wants.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -90,7 +109,7 @@ jobs:
       - name: Publish the portable folder
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: margince-windows-${{ github.sha }}
+          name: margince-windows-${{ inputs.version || github.sha }}
           path: build/desktop/margince-windows
           if-no-files-found: error
           retention-days: 14

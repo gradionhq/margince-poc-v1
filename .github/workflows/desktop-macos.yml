@@ -11,6 +11,10 @@
 # its assert_min_os check, the Mach-O filter in the assembly step, installing
 # frontend dependencies at the workspace root), and a build lane nothing executes
 # is a lane whose green is an assertion.
+#
+# release.yml calls this workflow when a release is cutting a downloadable
+# bundle, rather than carrying a copy of the build: a copy would drift, and the
+# drift would show up as a release bundle differing from the one CI blessed.
 name: desktop-macos
 
 on:
@@ -29,6 +33,21 @@ on:
       ref:
         description: Branch, tag or SHA to build
         required: false
+  # Called by release.yml, so a release's downloadable bundle is built by THIS
+  # lane and not by a second copy of it. A copy would drift, and the drift shows
+  # up as a release bundle differing from the one the pull-request check blessed.
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch, tag or SHA to build
+        required: false
+        type: string
+      version:
+        description: >-
+          Names the artifact when a release asked for this build. Defaults to the
+          commit, which is what an ad-hoc build wants.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -84,7 +103,7 @@ jobs:
       - name: Publish the portable folder
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: margince-macos-${{ github.sha }}
+          name: margince-macos-${{ inputs.version || github.sha }}
           path: margince-macos.tar.gz
           if-no-files-found: error
           retention-days: 14
