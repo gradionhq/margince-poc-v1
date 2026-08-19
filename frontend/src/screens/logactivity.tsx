@@ -12,7 +12,7 @@ import {
   TextInput,
 } from "../design-system/atoms";
 import { Select } from "../design-system/select";
-import { dueInstant } from "../format/calendarday";
+import { calendarDay, dueInstant } from "../format/calendarday";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { entityTimelineKeys, taskWriteKeys } from "./activitykeys";
@@ -54,6 +54,16 @@ const EMPTY_DRAFT: ActivityDraft = {
 // any future line citation at a timestamp instead of what was said.
 const ACCEPTED_TRANSCRIPT_EXTENSION = ".txt";
 
+// The writer's own calendar day. A task's due date starts here the moment the
+// kind becomes task — the day that WOULD apply is shown in the field instead
+// of being assumed at submit behind an empty box.
+function todayDay(): string {
+  return calendarDay(
+    new Date(),
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+  );
+}
+
 /**
  * LogActivityForm is the composer itself, without a frame, so the same fields
  * serve the standing card on the person and deal screens and the modal the
@@ -74,8 +84,14 @@ export function LogActivityForm({
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
-  const [draft, setDraft] = useState<ActivityDraft>(
-    initialKind ? { ...EMPTY_DRAFT, kind: initialKind } : EMPTY_DRAFT,
+  const [draft, setDraft] = useState<ActivityDraft>(() =>
+    initialKind
+      ? {
+          ...EMPTY_DRAFT,
+          kind: initialKind,
+          dueAt: initialKind === "task" ? todayDay() : "",
+        }
+      : EMPTY_DRAFT,
   );
   const [fileError, setFileError] = useState<string | null>(null);
 
@@ -159,9 +175,17 @@ export function LogActivityForm({
               ]}
               value={draft.kind}
               onChange={(value) =>
-                setField({
-                  kind:
-                    value === "task" || value === "meeting" ? value : "note",
+                setDraft((current) => {
+                  const kind =
+                    value === "task" || value === "meeting" ? value : "note";
+                  // Becoming a task fills the empty due date with today — the
+                  // likeliest answer, standing where the writer can change it.
+                  // A date the writer already picked is never overwritten.
+                  const dueAt =
+                    kind === "task" && current.dueAt === ""
+                      ? todayDay()
+                      : current.dueAt;
+                  return { ...current, kind, dueAt };
                 })
               }
             />
@@ -173,7 +197,10 @@ export function LogActivityForm({
             `hidden` would do the same thing by another name (it is
             display:none). Disabled keeps the row's height AND shows the reader
             that the field exists and why it is not theirs to fill yet. */}
-        <Field label={t("log.dueAt")}>
+        <Field
+          label={t("log.dueAt")}
+          hint={draft.kind === "task" ? undefined : t("log.dueAtHint")}
+        >
           {(control) => (
             <TextInput
               {...control}
@@ -181,6 +208,10 @@ export function LogActivityForm({
               value={draft.dueAt}
               disabled={draft.kind !== "task"}
               onChange={(event) => setField({ dueAt: event.target.value })}
+              // A native date input opens its calendar only from the tiny
+              // icon; a click on the value just places a caret. Opening on
+              // any click is what a writer reaching for "the date" expects.
+              onClick={(event) => event.currentTarget.showPicker?.()}
             />
           )}
         </Field>

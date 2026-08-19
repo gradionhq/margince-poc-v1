@@ -2016,6 +2016,7 @@ export const en = {
   "log.transcriptUploadFailed":
     "Could not read that file — try pasting the text instead.",
   "log.dueAt": "Due date",
+  "log.dueAtHint": "Tasks only",
   "log.save": "Log",
   "log.saving": "Logging…",
 

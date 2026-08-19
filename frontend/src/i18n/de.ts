@@ -2021,6 +2021,7 @@ export const de = {
   "log.subject": "Betreff",
   "log.body": "Details",
   "log.dueAt": "Fällig am",
+  "log.dueAtHint": "Nur bei Aufgaben",
   "log.save": "Erfassen",
   "log.saving": "Wird erfasst…",
 
