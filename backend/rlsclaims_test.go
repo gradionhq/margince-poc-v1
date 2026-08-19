@@ -133,6 +133,12 @@ func TestNoGoSourceClaimsRLSStillScopesARead(t *testing.T) {
 	// they were not scanned at all: a migrated record ratified row-level
 	// security as the live tenant control months after 0217 retired it, and
 	// every Go-only gate passed it.
+	//
+	// Prose is scanned per PARAGRAPH, not per line. Markdown wraps at 80
+	// columns wherever the words fall, so the record that caused this split
+	// "tenant" from "isolation through row-level security" across two lines and
+	// a line-by-line sweep matched neither half. A gate that a line break
+	// defeats is one the next author defeats by accident.
 	records, err := filepath.Glob("../docs/adr/ADR-*.md")
 	if err != nil {
 		t.Fatalf("listing decision records: %v", err)
@@ -143,9 +149,9 @@ func TestNoGoSourceClaimsRLSStillScopesARead(t *testing.T) {
 			t.Fatalf("reading %s: %v", path, err)
 		}
 		checked++
-		for i, line := range strings.Split(string(b), "\n") {
-			if rlsClaim.MatchString(line) {
-				claims = append(claims, filepath.ToSlash(path)+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
+		for _, para := range prosePargraphs(string(b)) {
+			if rlsClaim.MatchString(para.text) {
+				claims = append(claims, filepath.ToSlash(path)+":"+strconv.Itoa(para.line)+": "+para.text)
 			}
 		}
 	}
@@ -159,5 +165,87 @@ func TestNoGoSourceClaimsRLSStillScopesARead(t *testing.T) {
 			"clauses in platform/auth, or A107/ADR-0061's single organization — and if the answer is "+
 			"\"nothing does\", that is a defect to fix rather than a comment to reword:\n\t%s",
 			len(claims), strings.Join(claims, "\n\t"))
+	}
+}
+
+// paragraph is one blank-line-delimited block of prose, flattened to a single
+// line, with the source line its first line came from so a finding is still
+// navigable.
+type paragraph struct {
+	text string
+	line int
+}
+
+// prosePargraphs joins wrapped lines so a claim split across a line break is
+// still one string to match against. Fenced code blocks are skipped: a sample
+// inside one is an illustration, not an assertion about this repository.
+func prosePargraphs(body string) []paragraph {
+	var out []paragraph
+	var cur []string
+	start, fenced := 0, false
+
+	flush := func() {
+		if len(cur) > 0 {
+			out = append(out, paragraph{text: strings.Join(cur, " "), line: start})
+			cur = nil
+		}
+	}
+
+	for i, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			flush()
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			flush()
+			continue
+		}
+		if len(cur) == 0 {
+			start = i + 1
+		}
+		cur = append(cur, strings.TrimSpace(line))
+	}
+	flush()
+	return out
+}
+
+// TestTheProseSweepSurvivesALineWrap pins the shape that defeated the first
+// version of this gate. The record that prompted it wrapped at 80 columns
+// between "tenant" and "isolation through row-level security", so every
+// line-by-line match failed while the claim sat in plain sight. The wrap is
+// reproduced verbatim below: reflow it onto one line and this test stops
+// proving anything, which is why it is written out rather than generated.
+func TestTheProseSweepSurvivesALineWrap(t *testing.T) {
+	wrapped := "test red, so the change cannot merge. The controls covered this way are tenant\n" +
+		"isolation through row-level security, the rule that an agent's permissions never\n" +
+		"exceed those of the human who granted them.\n"
+
+	for _, line := range strings.Split(wrapped, "\n") {
+		if rlsClaim.MatchString(line) {
+			t.Fatalf("a single line already matches, so this fixture no longer pins the wrap: %q", line)
+		}
+	}
+
+	paras := prosePargraphs(wrapped)
+	if len(paras) != 1 {
+		t.Fatalf("expected the three lines to join into one paragraph, got %d", len(paras))
+	}
+	if !rlsClaim.MatchString(paras[0].text) {
+		t.Error("the joined paragraph does not match the claim pattern — a wrapped claim would ship unnoticed")
+	}
+}
+
+// TestTheProseSweepIgnoresFencedCode keeps the gate from failing an honest
+// record that quotes the retired mechanism inside a code sample.
+func TestTheProseSweepIgnoresFencedCode(t *testing.T) {
+	body := "Prose above.\n\n```sql\n-- tenant isolation through row-level security, as it was\n```\n\nProse below.\n"
+	for _, p := range prosePargraphs(body) {
+		if rlsClaim.MatchString(p.text) {
+			t.Errorf("a fenced sample was scanned as an assertion: %q", p.text)
+		}
 	}
 }
