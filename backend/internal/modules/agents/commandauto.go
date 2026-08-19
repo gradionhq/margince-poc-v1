@@ -236,6 +236,8 @@ type DecideApprovalCommand struct {
 }
 
 // NewDecideApprovalCall binds one decision to the resolver that speaks it.
+//
+//nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewDecideApprovalCall(cmd DecideApprovalCommand) GovernedCall {
 	return bind[DecideApprovalCommand](decideApprovalResolver{}, cmd)
 }
@@ -268,6 +270,8 @@ type DecideBundleCommand struct {
 }
 
 // NewDecideBundleCall binds one bundle decision to its resolver.
+//
+//nolint:ireturn // the call IS the product: a resolver named concretely here is exactly the thing that must not leave this package
 func NewDecideBundleCall(cmd DecideBundleCommand) GovernedCall {
 	return bind[DecideBundleCommand](decideBundleResolver{}, cmd)
 }

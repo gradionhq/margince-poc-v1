@@ -172,15 +172,20 @@ func TestActingForAHumanAdmitsAPassportAndRefusesWhatNobodyLent(t *testing.T) {
 		want  bool // admitted
 	}{
 		{"a human in their own seat", &principal.Principal{
-			Type: principal.PrincipalHuman, ID: "human:test", UserID: ids.NewV7()}, true},
+			Type: principal.PrincipalHuman, ID: "human:test", UserID: ids.NewV7(),
+		}, true},
 		{"a passport minted by a human", &principal.Principal{
-			Type: principal.PrincipalAgent, ID: "agent:test", UserID: lender, OnBehalfOf: lender}, true},
+			Type: principal.PrincipalAgent, ID: "agent:test", UserID: lender, OnBehalfOf: lender,
+		}, true},
 		{"a passport naming nobody", &principal.Principal{
-			Type: principal.PrincipalAgent, ID: "agent:unlent"}, false},
+			Type: principal.PrincipalAgent, ID: "agent:unlent",
+		}, false},
 		{"the system principal", &principal.Principal{
-			Type: principal.PrincipalSystem, ID: "system"}, false},
+			Type: principal.PrincipalSystem, ID: "system",
+		}, false},
 		{"a connector", &principal.Principal{
-			Type: principal.PrincipalConnector, ID: "connector:imap"}, false},
+			Type: principal.PrincipalConnector, ID: "connector:imap",
+		}, false},
 		{"no actor at all", nil, false},
 	}
 	for _, tc := range cases {
@@ -210,8 +215,10 @@ func TestActingForAHumanAdmitsAPassportAndRefusesWhatNobodyLent(t *testing.T) {
 // ScopeSet at all, so the rule must not answer anything for them.
 func TestAgentReleaseSpendsTheCapsTheReleaseSpends(t *testing.T) {
 	agent := func(scopes ...principal.Scope) principal.Principal {
-		return principal.Principal{Type: principal.PrincipalAgent, ID: "agent:test",
-			OnBehalfOf: ids.NewV7(), Scopes: principal.NewScopeSet(scopes...)}
+		return principal.Principal{
+			Type: principal.PrincipalAgent, ID: "agent:test",
+			OnBehalfOf: ids.NewV7(), Scopes: principal.NewScopeSet(scopes...),
+		}
 	}
 	cases := []struct {
 		name    string
@@ -229,7 +236,8 @@ func TestAgentReleaseSpendsTheCapsTheReleaseSpends(t *testing.T) {
 		{"no passport answers its own step-up", agent(principal.ScopeWrite, principal.ScopeSend), KindQuotaRelease, true, false},
 		{"not even to decline it", agent(principal.ScopeWrite), KindQuotaRelease, false, false},
 		{"a human is bounded by their seat, not by caps", principal.Principal{
-			Type: principal.PrincipalHuman, UserID: ids.NewV7()}, "held_draft", true, true},
+			Type: principal.PrincipalHuman, UserID: ids.NewV7(),
+		}, "held_draft", true, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

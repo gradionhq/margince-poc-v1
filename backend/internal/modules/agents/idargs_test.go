@@ -172,6 +172,26 @@ func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, Enric
 // with the seam probe underneath. fullRegistry passes nil seams, which is
 // enough to read specs and panics the moment a handler runs; this walk runs
 // handlers.
+// seamProbeInbox answers every queue door by reaching its seam, so a walk that
+// runs handlers proves the arguments got there rather than stopping short.
+type seamProbeInbox struct{}
+
+func (seamProbeInbox) ListApprovals(context.Context, ApprovalQuery) (ApprovalPage, error) {
+	return ApprovalPage{}, errSeamReached
+}
+
+func (seamProbeInbox) ReadApproval(context.Context, ids.UUID) (StagedApproval, error) {
+	return StagedApproval{}, errSeamReached
+}
+
+func (seamProbeInbox) DecideApproval(context.Context, ids.UUID, bool, string) (StagedApproval, error) {
+	return StagedApproval{}, errSeamReached
+}
+
+func (seamProbeInbox) DecideApprovalBundle(context.Context, ids.UUID, bool, string) ([]DecidedMember, error) {
+	return nil, errSeamReached
+}
+
 func idProbeDispatcher(t *testing.T) *Dispatcher {
 	t.Helper()
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))
@@ -213,6 +233,7 @@ func idProbeDispatcher(t *testing.T) *Dispatcher {
 	RegisterBriefTool(r, func(context.Context) (ReadBriefResult, error) {
 		return ReadBriefResult{}, errSeamReached
 	})
+	RegisterApprovalTools(r, seamProbeInbox{})
 	return NewDispatcher(r, bindAuthenticated, "margince-crm", "test").
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }

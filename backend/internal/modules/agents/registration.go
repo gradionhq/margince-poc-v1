@@ -347,9 +347,10 @@ func assertNoRequiredReservedArgument(spec mcp.ToolSpec) error {
 	if len(spec.InputSchema) == 0 {
 		return nil
 	}
+	// A schema that does not parse is assertObjectSchemas's answer to give, with
+	// the better message; there is nothing for this check to add.
+	//nolint:nilerr // the unreadable-schema refusal belongs to assertObjectSchemas, which runs right after this
 	if err := json.Unmarshal(spec.InputSchema, &shape); err != nil {
-		// A schema that does not parse is assertObjectSchemas's answer to give,
-		// with the better message; there is nothing for this check to add.
 		return nil
 	}
 	for _, field := range shape.Required {

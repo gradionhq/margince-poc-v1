@@ -196,6 +196,7 @@ func fullRegistry(t *testing.T) *Registry {
 	})
 	RegisterListTool(r, nil, probeVocabulary{})
 	RegisterBriefTool(r, briefOf(0))
+	RegisterApprovalTools(r, &fakeInbox{})
 	return r
 }
 

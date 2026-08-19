@@ -33,7 +33,7 @@ func stagedFixture() crmcontracts.Approval {
 // what read_approval answers. A queue that carried every payload would spend a
 // run's window on documents nobody asked to see.
 func TestTheListingCarriesTheSummaryAndNotTheStagedDocument(t *testing.T) {
-	listed := stagedApproval(stagedFixture(), false)
+	listed := stagedActionFrom(stagedFixture(), false)
 	if listed.Summary == "" {
 		t.Error("the listed item carries no sentence a person could answer from")
 	}
@@ -43,7 +43,7 @@ func TestTheListingCarriesTheSummaryAndNotTheStagedDocument(t *testing.T) {
 	if listed.Evidence != nil {
 		t.Errorf("the listing carries evidence: %v", listed.Evidence)
 	}
-	read := stagedApproval(stagedFixture(), true)
+	read := stagedActionFrom(stagedFixture(), true)
 	if len(read.ProposedChange) == 0 || len(read.Evidence) == 0 {
 		t.Error("read_approval answered without the change or the evidence it was formed on")
 	}
@@ -53,7 +53,7 @@ func TestTheListingCarriesTheSummaryAndNotTheStagedDocument(t *testing.T) {
 // carrying these as values would publish 00000000-0000-… on every proposal that
 // has none — and a caller reading decided_by would be told a nobody answered it.
 func TestAnAbsentIdIsAbsentAndNotAZeroUUID(t *testing.T) {
-	encoded, err := json.Marshal(stagedApproval(stagedFixture(), true))
+	encoded, err := json.Marshal(stagedActionFrom(stagedFixture(), true))
 	if err != nil {
 		t.Fatalf("encoding a staged action: %v", err)
 	}

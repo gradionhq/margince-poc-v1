@@ -200,11 +200,21 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	// The two decisions, over four routes. They are the only entries here whose
 	// command names no target record, and the resolver says why: the row a
 	// decision acts on is an approval, which is the authority object itself.
-	"approveApproval":       decideApprovalCommand,
-	"rejectApproval":        decideApprovalCommand,
-	"approveApprovalBundle": decideBundleCommand,
-	"rejectApprovalBundle":  decideBundleCommand,
+	opApproveApproval:       decideApprovalCommand,
+	opRejectApproval:        decideApprovalCommand,
+	opApproveApprovalBundle: decideBundleCommand,
+	opRejectApprovalBundle:  decideBundleCommand,
 }
+
+// The four decision operationIds, spelled once. The verdict is read OFF the
+// operation (agentcommandauto.go's approvesApproval), so a typo in one of these
+// would not fail to compile — it would decide the other way.
+const (
+	opApproveApproval       = "approveApproval"
+	opRejectApproval        = "rejectApproval"
+	opApproveApprovalBundle = "approveApprovalBundle"
+	opRejectApprovalBundle  = "rejectApprovalBundle"
+)
 
 // archiveCommand decodes one DELETE /v1/<collection>/{id} into the archive
 // command.

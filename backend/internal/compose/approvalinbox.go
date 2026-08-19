@@ -58,7 +58,7 @@ func (i approvalInbox) ListApprovals(ctx context.Context, q agents.ApprovalQuery
 	for _, a := range rows {
 		// Without the staged payload: a listing is scanned to choose, and the
 		// payloads are whole emails. read_approval is the door onto one.
-		out.Approvals = append(out.Approvals, stagedApproval(a, false))
+		out.Approvals = append(out.Approvals, stagedActionFrom(a, false))
 	}
 	return out, nil
 }
@@ -69,7 +69,7 @@ func (i approvalInbox) ReadApproval(ctx context.Context, stagedActionID ids.UUID
 	if err != nil {
 		return agents.StagedApproval{}, err
 	}
-	return stagedApproval(a, true), nil
+	return stagedActionFrom(a, true), nil
 }
 
 // DecideApproval carries one person's verdict to the engine.
@@ -78,7 +78,7 @@ func (i approvalInbox) DecideApproval(ctx context.Context, stagedActionID ids.UU
 	if err != nil {
 		return agents.StagedApproval{}, err
 	}
-	return stagedApproval(a, true), nil
+	return stagedActionFrom(a, true), nil
 }
 
 // DecideApprovalBundle carries the verdict to every member of one act.
@@ -90,7 +90,7 @@ func (i approvalInbox) DecideApprovalBundle(ctx context.Context, bundleID ids.UU
 	out := make([]agents.DecidedMember, 0, len(members))
 	for _, member := range members {
 		out = append(out, agents.DecidedMember{
-			StagedApproval: stagedApproval(member.Approval, true),
+			StagedApproval: stagedActionFrom(member.Approval, true),
 			Outcome:        string(member.Outcome),
 		})
 	}
@@ -107,12 +107,13 @@ func decisionReason(reason string) *string {
 	return &reason
 }
 
-// stagedApproval maps the contract shape onto the tool surface's.
+// stagedActionFrom maps the contract shape onto the tool surface's, which calls
+// a pending proposal a staged action.
 //
 // withPayload carries the staged change and the evidence it was formed on. The
 // listing leaves both behind rather than repeating every proposal's whole
 // document into a transcript later prompts of the same run carry.
-func stagedApproval(a crmcontracts.Approval, withPayload bool) agents.StagedApproval {
+func stagedActionFrom(a crmcontracts.Approval, withPayload bool) agents.StagedApproval {
 	out := agents.StagedApproval{
 		StagedActionID: ids.UUID(a.Id),
 		Kind:           a.Kind,

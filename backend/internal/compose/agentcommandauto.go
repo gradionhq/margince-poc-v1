@@ -88,6 +88,8 @@ func runReportCommand(_ agentPolicy, _ restCommandDeps, r *http.Request, _ []byt
 // decideApprovalCommand decodes a decision on ONE staged proposal. The verdict
 // is read off the route rather than the body: approve and reject are two
 // operations over one decision, and the body carries only the reason.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
 func decideApprovalCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := pathOperand(r, "id")
 	if err != nil {
@@ -103,6 +105,8 @@ func decideApprovalCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, 
 }
 
 // decideBundleCommand decodes the same decision given to a whole act.
+//
+//nolint:ireturn // a decoder's whole product is the erased command-and-resolver pair restCommands is typed by
 func decideBundleCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, _ []byte) (agents.GovernedCall, error) {
 	id, err := pathOperand(r, "bundle_id")
 	if err != nil {
@@ -122,5 +126,5 @@ func decideBundleCommand(pol agentPolicy, _ restCommandDeps, r *http.Request, _ 
 // operation this table has never heard of decides nothing: an unknown verb
 // falls to reject, which discards a proposal instead of performing one.
 func approvesApproval(op string) bool {
-	return op == "approveApproval" || op == "approveApprovalBundle"
+	return op == opApproveApproval || op == opApproveApprovalBundle
 }

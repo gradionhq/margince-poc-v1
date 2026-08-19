@@ -124,7 +124,7 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 	// — the reasoning that took them out of the map above would no longer hold,
 	// and nothing else would notice.
 	for route, op := range map[string]string{
-		"POST /v1/approvals/{id}/approve":               "approveApproval",
+		"POST /v1/approvals/{id}/approve":               opApproveApproval,
 		"POST /v1/approvals/{id}/reject":                "rejectApproval",
 		"POST /v1/approval-bundles/{bundle_id}/approve": "approveApprovalBundle",
 		"POST /v1/approval-bundles/{bundle_id}/reject":  "rejectApprovalBundle",
