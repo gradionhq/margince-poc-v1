@@ -23,9 +23,21 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const COMPANY = { record: "organization", id: "o-1" } as const;
+const CONTACT = { record: "person", id: "p-1" } as const;
+
 const DEAL = {
   id: "deal-1",
   name: "Pallet Handling Programme — Graz",
+  organization_id: "o-1",
+  status: "open",
+};
+
+// A deal on the SECOND page of the account's deals — the one a flat, capped
+// Select could never offer, and the reason the picker walks the pages.
+const OLDER_DEAL = {
+  id: "deal-99",
+  name: "Wash cycle retrofit — Graz plant",
   organization_id: "o-1",
   status: "open",
 };
@@ -35,20 +47,20 @@ const DEAL = {
 // reason the test was not testing.
 const USER = { id: "u-1", email: "rep@example.com", name: "Demo Rep" };
 
+const GRANTS = {
+  deal: { update: true },
+  organization: { update: true },
+  person: { update: true },
+};
+
 const FULL_SEAT = {
   user: USER,
-  authorization: {
-    seat_type: "full",
-    objects: { deal: { update: true }, organization: { update: true } },
-  },
+  authorization: { seat_type: "full", objects: GRANTS },
 };
 
 const READ_SEAT = {
   user: USER,
-  authorization: {
-    seat_type: "read",
-    objects: { deal: { update: true }, organization: { update: true } },
-  },
+  authorization: { seat_type: "read", objects: GRANTS },
 };
 
 type Recorded = { url: string; method: string; body: unknown };
@@ -77,6 +89,8 @@ function stubApi(
     // Refuses the installation read outright — the other way the client can end
     // up without a limit.
     settingsStatus?: number;
+    // Refuses the deal read, so the picker has a failure to report.
+    dealsStatus?: number;
   } = {},
 ) {
   const calls: Recorded[] = [];
@@ -118,7 +132,22 @@ function stubApi(
         });
       }
       if (url.includes("/v1/deals")) {
-        return json({ data: [DEAL], page: { next_cursor: null } });
+        if (options.dealsStatus) {
+          return json(
+            { title: "The deal list is unavailable", status: 500 },
+            options.dealsStatus,
+          );
+        }
+        // TWO pages, walked by cursor. The second one holds a deal that no
+        // single request offers, which is the whole point of the walk: the flat
+        // Select this replaced could not reach it at any page size.
+        const cursor = new URL(url).searchParams.get("cursor");
+        return cursor === "page-2"
+          ? json({ data: [OLDER_DEAL], page: { has_more: false } })
+          : json({
+              data: [DEAL],
+              page: { has_more: true, next_cursor: "page-2" },
+            });
       }
       if (url.includes("/metadata")) {
         if (options.metadataThrows) {
@@ -167,7 +196,7 @@ function dialog(open: boolean, onClose = () => {}) {
   return (
     <QueryClientProvider client={shared}>
       <LocaleProvider initial="en">
-        <AddDocumentDialog orgId="o-1" open={open} onClose={onClose} />
+        <AddDocumentDialog anchor={COMPANY} open={open} onClose={onClose} />
       </LocaleProvider>
     </QueryClientProvider>
   );
@@ -191,7 +220,7 @@ function Hosted() {
     <>
       <Button onClick={() => setOpen(true)}>reopen</Button>
       <AddDocumentDialog
-        orgId="o-1"
+        anchor={COMPANY}
         open={open}
         onClose={() => setOpen(false)}
       />
@@ -248,6 +277,22 @@ function uploadedForm(calls: Recorded[]): FormData {
  * file is chosen lands on a disabled control and does nothing — a test that
  * skipped this wait would assert against an upload that was never attempted.
  */
+/**
+ * Choose "A deal", search for one by name, and pick it.
+ *
+ * The candidate is awaited rather than assumed: RecordPicker debounces the
+ * typed term, and every page the walk reads is a request — so the button only
+ * exists once the walk that found it has come back.
+ */
+async function pickDeal(user: UserEvent, term: string, name: RegExp) {
+  await user.click(screen.getByRole("radio", { name: /A deal/ }));
+  await user.type(
+    screen.getByRole("searchbox", { name: /Search this account/ }),
+    term,
+  );
+  await user.click(await screen.findByRole("button", { name }));
+}
+
 async function pressUpload(user: UserEvent) {
   const submit = screen.getByRole("button", { name: "Upload" });
   await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false));
@@ -275,11 +320,7 @@ describe("adding a document from the account", () => {
     const calls = stubApi(FULL_SEAT);
     show();
 
-    await pickOption(
-      user,
-      await screen.findByRole("combobox", { name: /About/ }),
-      "Pallet Handling Programme — Graz",
-    );
+    await pickDeal(user, "pallet", /Pallet Handling Programme/);
     await user.upload(screen.getByLabelText(/File/), orderForm());
     await pressUpload(user);
 
@@ -287,6 +328,110 @@ describe("adding a document from the account", () => {
     const sent = uploadedForm(calls);
     expect(sent.get("entity_type")).toBe("deal");
     expect(sent.get("entity_id")).toBe("deal-1");
+  });
+
+  it("reaches a deal on a later page, which no single request offers", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT);
+    show();
+
+    // `/deals` carries no text query, so the words are matched over pages this
+    // dialog walks. A deal past the first page is exactly the one the capped
+    // Select could not offer at any size.
+    await pickDeal(user, "wash", /Wash cycle retrofit/);
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+
+    await waitFor(() => expect(uploadedForm(calls)).toBeTruthy());
+    expect(uploadedForm(calls).get("entity_id")).toBe("deal-99");
+    // The walk continued with the cursor the first page handed back, rather
+    // than asking the same question twice with a larger limit.
+    const walked = calls.filter((call) => call.url.includes("/v1/deals"));
+    expect(
+      walked.some(
+        (call) => new URL(call.url).searchParams.get("cursor") === "page-2",
+      ),
+    ).toBe(true);
+  });
+
+  it("says how far the deal search reaches, before the reader fails to find something", async () => {
+    const user = userEvent.setup();
+    stubApi(FULL_SEAT);
+    show();
+
+    await user.click(screen.getByRole("radio", { name: /A deal/ }));
+
+    // An unfound deal and a deal that does not exist read identically, so the
+    // control states its own reach rather than leaving the reader to conclude
+    // the account has no such deal.
+    expect(
+      screen.getByText(/covers this account's 2000 newest deals/),
+    ).toBeTruthy();
+  });
+
+  it("refuses the upload while the chosen filing has no deal, rather than falling back to the company", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT);
+    show();
+
+    await user.click(screen.getByRole("radio", { name: /A deal/ }));
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+
+    // Filing it against the company instead would put the document somewhere
+    // the reader did not choose — and only a deal's documents can be read for
+    // deal fields, so the fallback is a silent downgrade.
+    const submit = screen.getByRole("button", { name: "Upload" });
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(true));
+    expect(
+      screen.getByText("Pick the deal to file this against."),
+    ).toBeTruthy();
+    await user.click(submit);
+    expect(uploads(calls)).toHaveLength(0);
+  });
+
+  it("reports a failed deal search in the picker rather than offering nothing", async () => {
+    const user = userEvent.setup();
+    stubApi(FULL_SEAT, { dealsStatus: 500 });
+    show();
+
+    await user.click(screen.getByRole("radio", { name: /A deal/ }));
+    await user.type(
+      screen.getByRole("searchbox", { name: /Search this account/ }),
+      "graz",
+    );
+
+    // An empty candidate list would say "this account has no such deal", which
+    // is a claim about the account made from a request that failed.
+    expect(
+      await screen.findByText("The deal list is unavailable"),
+    ).toBeTruthy();
+  });
+
+  it("asks nothing about deals when the dialog was opened from a contact", async () => {
+    const user = userEvent.setup();
+    const calls = stubApi(FULL_SEAT);
+    shared = client();
+    render(
+      <QueryClientProvider client={shared}>
+        <LocaleProvider initial="en">
+          <AddDocumentDialog anchor={CONTACT} open onClose={() => {}} />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+
+    // A deal hangs off a company and nothing on a contact's page names one, so
+    // the question has no second answer — and a control whose one option is the
+    // record you are already on is a control that asks nothing.
+    expect(screen.queryByRole("radio", { name: /A deal/ })).toBeNull();
+    await user.upload(screen.getByLabelText(/File/), orderForm());
+    await pressUpload(user);
+
+    await waitFor(() => expect(uploadedForm(calls)).toBeTruthy());
+    const sent = uploadedForm(calls);
+    expect(sent.get("entity_type")).toBe("person");
+    expect(sent.get("entity_id")).toBe("p-1");
+    // Nothing asked the account's deals about a contact's file.
+    expect(calls.some((call) => call.url.includes("/v1/deals"))).toBe(false);
   });
 
   it("sends the category and title as a second request, because the upload cannot carry them", async () => {
@@ -300,7 +445,7 @@ describe("adding a document from the account", () => {
         }
       >
         <LocaleProvider initial="en">
-          <AddDocumentDialog orgId="o-1" open onClose={closed} />
+          <AddDocumentDialog anchor={COMPANY} open onClose={closed} />
         </LocaleProvider>
       </QueryClientProvider>,
     );
@@ -403,28 +548,6 @@ describe("adding a document from the account", () => {
     // claim about markup rather than about behaviour.
     await user.click(screen.getByRole("button", { name: "Upload" }));
     expect(calls.some((call) => call.method === "POST")).toBe(false);
-  });
-
-  it("says the deals could not be loaded rather than silently offering only the company", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const url = input instanceof Request ? input.url : String(input);
-        if (url.includes("/v1/deals")) {
-          return new Response(JSON.stringify({ title: "Server error" }), {
-            status: 500,
-            headers: { "content-type": "application/json" },
-          });
-        }
-        return new Response(JSON.stringify(FULL_SEAT), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
-      }),
-    );
-    show();
-
-    expect(await screen.findByText(/deals could not be loaded/)).toBeTruthy();
   });
 
   it("refuses a second press while the first upload is still in flight", async () => {

@@ -17,6 +17,15 @@ export type Approval = components["schemas"]["Approval"];
 export type ApprovalStatus = "pending" | "approved" | "rejected";
 export type ApprovalPage = { data: Approval[] };
 
+// What one bundle decision did, member by member. The route answers 200 with a
+// per-member outcome rather than a single verdict, because the members were
+// always independent authorities: one that expired, one somebody else already
+// answered and one whose follow-on change failed each report for themselves
+// while their siblings decide normally.
+export type BundleDecision = components["schemas"]["ApprovalBundleDecision"];
+export type BundleOutcome =
+  components["schemas"]["ApprovalBundleMember"]["outcome"];
+
 // A single page tops out at 50 (the server's page cap) — a 51st pending
 // approval, or decided history past 50 rows, must still be reachable. The
 // pending/decided partition below (and the expired salvage inside it) needs

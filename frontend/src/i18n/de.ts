@@ -1394,6 +1394,8 @@ export const de = {
   "deal.archive": "Deal archivieren",
   "deal.archiveConfirm":
     "Durch das Archivieren wird dieser Deal aus der aktiven Pipeline entfernt. Dies kann in der Oberfläche nicht rückgängig gemacht werden.",
+  "deal.archivedReadOnly":
+    "Dieser Deal ist archiviert und nimmt keine Änderungen an.",
   "deal.reopen": "Wieder öffnen",
   "deal.reopenPick": "Diesen Deal in eine offene Phase zurücksetzen",
   "deal.reopenConfirm": "Wieder öffnen",
@@ -1504,6 +1506,31 @@ export const de = {
   "inbox.status.approved": "Genehmigt",
   "inbox.status.rejected": "Abgelehnt",
   "inbox.status.expired": "Abgelaufen",
+
+  "inbox.bundle.why":
+    "Eine Aktion hat diese {count} Vorschläge zusammen vorgemerkt. Entscheide sie in einem Zug oder öffne sie und entscheide einzeln.",
+  "inbox.bundle.members": "Die {count} Vorschläge",
+  "inbox.bundle.approveAll": "Alle {count} genehmigen",
+  "inbox.bundle.rejectAll": "Alle {count} ablehnen",
+  "inbox.bundle.approveAllConfirm":
+    "Jeder Vorschlag wird weiterhin für sich entschieden: einer, der abgelaufen ist oder den jemand schon beantwortet hat, wird zurückgemeldet statt überschrieben — die übrigen gehen durch.",
+  "inbox.bundle.rejectReasonHint":
+    "Wird bei jedem abgelehnten Vorschlag festgehalten und mit den Personen geteilt, für die sie vorgemerkt wurden.",
+  "inbox.bundle.expiresIn": "erster läuft ab in {countdown}",
+  "inbox.bundle.result.approved": "{count} genehmigt",
+  "inbox.bundle.result.rejected": "{count} abgelehnt",
+  "inbox.bundle.result.alreadyDecided.one":
+    "{count} war bereits entschieden und bleibt, wie es war.",
+  "inbox.bundle.result.alreadyDecided.other":
+    "{count} waren bereits entschieden und bleiben, wie sie waren.",
+  "inbox.bundle.result.expired.one":
+    "{count} war schon abgelaufen — merke es neu vor, um zu entscheiden.",
+  "inbox.bundle.result.expired.other":
+    "{count} waren schon abgelaufen — merke sie neu vor, um zu entscheiden.",
+  "inbox.bundle.result.effectFailed.one":
+    "{count} wurde genehmigt, aber die Änderung ist nicht angekommen — dieser Datensatz ist unverändert.",
+  "inbox.bundle.result.effectFailed.other":
+    "{count} wurden genehmigt, aber die Änderungen sind nicht angekommen — diese Datensätze sind unverändert.",
 
   "home.brief": "Morgenbriefing",
   "home.sub": "aus echten Signalen sortiert — Vorgemerktes zuerst",
@@ -1769,6 +1796,10 @@ export const de = {
   "docs.add.aboutHint":
     "Ein Dokument an einem Deal kann für Deal-Felder gelesen werden, eines an der Firma nicht.",
   "docs.add.thisCompany": "Diese Firma",
+  "docs.add.aDeal": "Ein Deal",
+  "docs.add.dealSearch": "Deals dieses Accounts durchsuchen",
+  "docs.add.dealSearchReach":
+    "Die Suche erfasst die {deals} neuesten Deals dieses Accounts und zeigt die ersten {matches} Treffer. Ein älterer Deal lässt sich hier nicht auswählen.",
   "docs.add.category": "Kategorie",
   "docs.add.name": "Titel",
   "docs.add.nameHint":
@@ -1780,6 +1811,8 @@ export const de = {
   "docs.add.submit": "Hochladen",
   "docs.add.uploading": "Wird hochgeladen…",
   "docs.add.errNoFile": "Wählen Sie eine Datei zum Hochladen.",
+  "docs.add.errNoDeal":
+    "Wählen Sie den Deal, dem das Dokument zugeordnet werden soll.",
   "docs.add.errRefused":
     "Sie dürfen zu diesem Datensatz keine Dokumente hinzufügen.",
   "docs.add.errInFlight": "Dieses Dokument wird noch hochgeladen.",
@@ -1791,8 +1824,6 @@ export const de = {
   "docs.add.partialTitle": "Hochgeladen, aber nicht eingeordnet",
   "docs.add.partial":
     "Die Datei liegt am Datensatz und steht unten in der Liste. Nur Kategorie und Titel wurden nicht gespeichert, sie ist daher unter Sonstiges abgelegt.",
-  "docs.add.dealsFailed":
-    "Die Deals dieses Accounts konnten nicht geladen werden; das Dokument kann daher nur der Firma zugeordnet werden.",
 
   // Das Panel für die abgelegte Dokumentenlesung (RD-AC-N-2/-3). Drei Zustände,
   // die auch in den Worten getrennt bleiben müssen: noch keine Antwort, gelesen
@@ -2870,6 +2901,39 @@ export const de = {
   "consumerMail.baselinePlaceholder": "gmail.com",
   "consumerMail.baselineNone": "Keine mitgelieferte Domain passt.",
   "consumerMail.baselineMore": "Die ersten {shown} von {matched} Treffern.",
+
+  "blockedDomains.title": "Abgelehnte Domains",
+  "blockedDomains.sub":
+    "Welchen Domains diese Installation die Firma verweigert und was das jeweils entschieden hat — ein Modellurteil, eine Heuristik oder ein Mensch. Eine Domain wieder zuzulassen stellt die Firmenfrage neu, statt nur eine Markierung zu entfernen.",
+  "blockedDomains.domainLabel": "Domain",
+  "blockedDomains.domainPlaceholder": "anbieter.example",
+  "blockedDomains.admissionLabel": "Entscheidung",
+  "blockedDomains.admission.suppressed": "Nie eine Firma",
+  "blockedDomains.admission.admitted": "Zugelassen, und zwar dauerhaft",
+  "blockedDomains.reasonLabel": "Begründung",
+  "blockedDomains.reasonHint":
+    "Ein Satz, mit dem jemand später etwas anfangen kann.",
+  "blockedDomains.reasonPlaceholder":
+    "ein Werkzeug, das wir nutzen — kein Kunde",
+  "blockedDomains.save": "Entscheidung speichern",
+  "blockedDomains.stored": "Gespeichert: {domain} — {admission}.",
+  "blockedDomains.adminOnly":
+    "Nur Admin- oder Ops-Plätze dürfen eine Domain-Entscheidung ändern. Die Liste selbst darfst du lesen.",
+  "blockedDomains.none":
+    "Bisher wurde keiner Domain die Firma verweigert. Urteile über Massenversender landen von selbst hier, ebenso alles, was du selbst ablehnst.",
+  "blockedDomains.unit": "Domain-Entscheidungen",
+  "blockedDomains.openCompany": "die Firma",
+  "blockedDomains.col.domain": "Domain",
+  "blockedDomains.col.admission": "Entscheidung",
+  "blockedDomains.col.source": "Entschieden von",
+  "blockedDomains.col.reason": "Begründung",
+  "blockedDomains.col.decided": "Wann",
+  "blockedDomains.col.revise": "Ändern",
+  "blockedDomains.source.verdict": "Ein Modellurteil",
+  "blockedDomains.source.heuristic": "Eine Heuristik",
+  "blockedDomains.source.human": "Ein Mensch",
+  "blockedDomains.rowAdmit": "Diese zulassen",
+  "blockedDomains.rowRefuse": "Diese ablehnen",
 
   "ob.s4.googleFailed": "Die Google-Verbindung wurde nicht abgeschlossen",
   "ob.s4.imapHost": "IMAP-Host",
@@ -4815,7 +4879,7 @@ export const de = {
   "person.research.capturedBy": "Erfasst von",
   "person.action.email": "E-Mail",
   "person.action.call": "Anrufen",
-  "person.action.book": "Termin",
+  "person.action.meetings": "Termine ansehen",
   "person.action.addTask": "Aufgabe",
   "person.action.research": "Recherche",
   "person.action.more": "Weitere Aktionen",

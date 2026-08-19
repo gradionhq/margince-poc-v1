@@ -1405,6 +1405,7 @@ export const en = {
   "deal.archive": "Archive deal",
   "deal.archiveConfirm":
     "Archiving removes this deal from the active pipeline. This cannot be undone from the UI.",
+  "deal.archivedReadOnly": "This deal is archived and takes no changes.",
   "deal.reopen": "Reopen",
   "deal.reopenPick": "Move this deal back to an open stage",
   "deal.reopenConfirm": "Reopen",
@@ -1511,6 +1512,36 @@ export const en = {
   "inbox.status.approved": "Approved",
   "inbox.status.rejected": "Rejected",
   "inbox.status.expired": "Expired",
+
+  // One act's proposals, read as one question (a site read publishes the
+  // company's facts plus a lead per person on the team page). The count is
+  // always two or more — a bundle of one is drawn as an ordinary row — so these
+  // sentences need no singular form; the per-member report does, because any
+  // one of its outcomes can hold a single proposal.
+  "inbox.bundle.why":
+    "One action staged these {count} proposals together. Answer them all at once, or open them and decide one at a time.",
+  "inbox.bundle.members": "The {count} proposals",
+  "inbox.bundle.approveAll": "Approve all {count}",
+  "inbox.bundle.rejectAll": "Reject all {count}",
+  "inbox.bundle.approveAllConfirm":
+    "Every proposal is still decided on its own: one that has lapsed, or that somebody has already answered, is reported back rather than overwritten, and the rest go through.",
+  "inbox.bundle.rejectReasonHint":
+    "Recorded on every proposal this rejects, and shared with the people they were staged for.",
+  "inbox.bundle.expiresIn": "first expires in {countdown}",
+  "inbox.bundle.result.approved": "{count} approved",
+  "inbox.bundle.result.rejected": "{count} rejected",
+  "inbox.bundle.result.alreadyDecided.one":
+    "{count} already carried a verdict, which stands as it was.",
+  "inbox.bundle.result.alreadyDecided.other":
+    "{count} already carried verdicts, which stand as they were.",
+  "inbox.bundle.result.expired.one":
+    "{count} had already lapsed — propose it again to decide it.",
+  "inbox.bundle.result.expired.other":
+    "{count} had already lapsed — propose them again to decide them.",
+  "inbox.bundle.result.effectFailed.one":
+    "{count} was approved, but its change did not land — that record is unchanged.",
+  "inbox.bundle.result.effectFailed.other":
+    "{count} were approved, but their changes did not land — those records are unchanged.",
 
   "home.brief": "Morning brief",
   "home.sub": "ranked from live signals — staged actions first",
@@ -1772,6 +1803,10 @@ export const en = {
   "docs.add.aboutHint":
     "A document on a deal can be read for deal fields; one on the company cannot.",
   "docs.add.thisCompany": "This company",
+  "docs.add.aDeal": "A deal",
+  "docs.add.dealSearch": "Search this account's deals",
+  "docs.add.dealSearchReach":
+    "The search covers this account's {deals} newest deals and offers the first {matches} matches. A deal older than those cannot be picked here.",
   "docs.add.category": "Category",
   "docs.add.name": "Title",
   "docs.add.nameHint": "Optional. Left blank, the row shows the filename.",
@@ -1782,6 +1817,7 @@ export const en = {
   "docs.add.submit": "Upload",
   "docs.add.uploading": "Uploading…",
   "docs.add.errNoFile": "Choose a file to upload.",
+  "docs.add.errNoDeal": "Pick the deal to file this against.",
   "docs.add.errRefused": "You may not add documents to this record.",
   "docs.add.errInFlight": "This document is still uploading.",
   "docs.add.errTooLarge":
@@ -1791,8 +1827,6 @@ export const en = {
   "docs.add.partialTitle": "Uploaded, but not filed",
   "docs.add.partial":
     "The file is on the record and listed below. Only its category and title were not saved, so it is filed under Other.",
-  "docs.add.dealsFailed":
-    "This account's deals could not be loaded, so the document can only be filed against the company.",
 
   // The staged-document-reading panel (RD-AC-N-2/-3). Three states that must
   // stay apart in the words as well as in the data: not answered yet, answered
@@ -2865,6 +2899,38 @@ export const en = {
   "consumerMail.baselineNone": "No shipped domain matches.",
   "consumerMail.baselineMore":
     "Showing the first {shown} of {matched} matches.",
+
+  "blockedDomains.title": "Refused domains",
+  "blockedDomains.sub":
+    "Which domains this installation refuses a company, and what decided each one — a model verdict, a heuristic, or a person. Letting a domain back in re-opens the company question rather than merely clearing a flag.",
+  "blockedDomains.domainLabel": "Domain",
+  "blockedDomains.domainPlaceholder": "vendor.example",
+  "blockedDomains.admissionLabel": "Decision",
+  "blockedDomains.admission.suppressed": "Never a company",
+  "blockedDomains.admission.admitted": "Allowed, and kept",
+  "blockedDomains.reasonLabel": "Why",
+  "blockedDomains.reasonHint":
+    "One sentence somebody reviewing this later can act on.",
+  "blockedDomains.reasonPlaceholder": "a tool we use, not a customer",
+  "blockedDomains.save": "Save decision",
+  "blockedDomains.stored": "Stored: {domain} — {admission}.",
+  "blockedDomains.adminOnly":
+    "Only an admin or ops seat may change a domain decision. The list itself is yours to read.",
+  "blockedDomains.none":
+    "No domain has been refused a company yet. Bulk-sender verdicts land here on their own, and so does anything you refuse by hand.",
+  "blockedDomains.unit": "domain decisions",
+  "blockedDomains.openCompany": "the company",
+  "blockedDomains.col.domain": "Domain",
+  "blockedDomains.col.admission": "Decision",
+  "blockedDomains.col.source": "Decided by",
+  "blockedDomains.col.reason": "Why",
+  "blockedDomains.col.decided": "When",
+  "blockedDomains.col.revise": "Change",
+  "blockedDomains.source.verdict": "A model verdict",
+  "blockedDomains.source.heuristic": "A heuristic",
+  "blockedDomains.source.human": "A person",
+  "blockedDomains.rowAdmit": "Allow this one",
+  "blockedDomains.rowRefuse": "Refuse this one",
 
   "ob.s4.googleFailed": "The Google connection didn't complete",
   "ob.s4.imapHost": "IMAP host",
@@ -4822,7 +4888,7 @@ export const en = {
   "person.research.capturedBy": "Captured by",
   "person.action.email": "Email",
   "person.action.call": "Call",
-  "person.action.book": "Book",
+  "person.action.meetings": "See meetings",
   "person.action.addTask": "Add task",
   "person.action.research": "Research",
   "person.action.more": "More actions",

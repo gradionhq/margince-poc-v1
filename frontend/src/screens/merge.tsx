@@ -30,6 +30,7 @@ export function MergeAction<Survivor extends { id: string }>({
   invalidate,
   recordKey,
   survivorRoute,
+  disabledReasonId,
 }: Readonly<{
   label: string;
   sourceId: string;
@@ -44,6 +45,14 @@ export function MergeAction<Survivor extends { id: string }>({
   invalidate: string;
   recordKey: string;
   survivorRoute: (targetId: string) => Route;
+  // Why this merge is unavailable, when it is: the id of an element on the
+  // page already carrying the sentence. STATE-4a settles the absent-vs-
+  // disabled question by CAUSE — a merge blocked by the source record's
+  // STATE, an archived row the server will not fold into anything, stays
+  // visible and disabled WITH the reason, because the reason is the
+  // information and hiding the control hides a fact the reader needs. The
+  // overlay refusal below is the other cause and keeps the other answer.
+  disabledReasonId?: string;
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -120,7 +129,12 @@ export function MergeAction<Survivor extends { id: string }>({
 
   return (
     <>
-      <Button small onClick={() => setOpen(true)} data-testid="merge-record">
+      <Button
+        small
+        reasonId={disabledReasonId}
+        onClick={() => setOpen(true)}
+        data-testid="merge-record"
+      >
         {label}
       </Button>
       <Modal open={open} onClose={close} labelledBy={headingId}>

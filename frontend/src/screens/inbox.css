@@ -1,0 +1,62 @@
+/* The approval inbox's one grouped surface: a bundle — the proposals ONE act
+   staged together — drawn as a single card with its members inside it. */
+
+/* The queue itself, clearing the tabs above it. A class rather than a margin on
+   each branch: the pending and the decided list are one rhythm, and two inline
+   copies of it is how they drift apart. */
+.approval-queue {
+  margin-top: var(--space-3);
+}
+
+/* Staged, like the rows it holds, so a reader can tell it apart from a card of
+   persisted facts — but with a SOLID border on the ordinary card ground. A
+   second dashed, AI-tinted box wrapped around dashed, AI-tinted rows reads as a
+   render glitch rather than as containment. */
+.approval-bundle {
+  border: 1.5px solid var(--aiMed);
+  margin-bottom: var(--space-3);
+}
+
+/* Who staged the act, and when it starts losing proposals. Wraps, because a
+   provenance tag and a countdown are both unbounded strings in some locales. */
+.approval-bundle-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* The line under the subject: what the group IS and how to answer it. Close to
+   the headline it explains — a full line of air between the two would read as a
+   second, unrelated fact — and demoted by size rather than by ink. */
+.approval-bundle-why {
+  margin-top: var(--space-1);
+  color: var(--textContent);
+}
+
+.approval-bundle-error {
+  margin-top: var(--space-2);
+  color: var(--danger);
+}
+
+/* The disclosure sits at the FOOT of a card that already carries its own
+   padding, so it keeps its rule above and drops the standing bottom margin it
+   uses between record-page sections. */
+.approval-bundle .approval-bundle-open {
+  margin-top: var(--space-3);
+  margin-bottom: 0;
+}
+
+/* The members are a list so the group's size and boundaries reach a reader who
+   is hearing the page; the markers are what would be noise, not the semantics. */
+.approval-bundle-members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The per-member report of a bundle decision, which outlives the card that made
+   it: it sits above the queue the decision has just changed. */
+.approval-bundle-result {
+  margin-top: var(--space-3);
+}

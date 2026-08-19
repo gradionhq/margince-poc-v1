@@ -3,7 +3,6 @@ import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
-import { Button } from "../../design-system/atoms";
 import { useLocale, useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
 import {
@@ -23,7 +22,12 @@ import {
 } from "../onboarding";
 import { OnboardingGate } from "../onboarding-gate";
 import type { SuggestedCompanyChange } from "../onboarding-read";
-import type { ArtifactMode, FindingHighlight } from "./artifact";
+import type {
+  ArtifactMode,
+  ConfirmRefusal,
+  FindingHighlight,
+  RefusalRetry,
+} from "./artifact";
 import { CompanyActArtifact } from "./artifact";
 import {
   draftWithLegalEntity,
@@ -91,10 +95,6 @@ function initialDraft(profile: CompanyProfile | null): CompanyDraft {
 // Which server state a confirm 409 named — see the state declaration in the
 // driver for what each one means to the reader.
 type ConfirmNotice = "skew" | "notReady" | "checkFailed";
-
-// What a notice offers the reader instead of the Continue button: the one
-// look that can turn the state it describes into a different one.
-type NoticeRetry = Readonly<{ run: () => void; busy: boolean }>;
 
 // Whether the version pair the next confirm would quote is the one this read
 // carries — the whole question a readiness re-check has to answer about the
@@ -793,8 +793,9 @@ export function CompanyAct({
   // The generic "I could not save that: {detail}" banner, but ONLY for a
   // confirm failure this driver has not already turned into something more
   // useful: `confirmNotice` covers version_skew (a fresh fetch is already in
-  // flight; the thread's own alert says so) and the other two documented
-  // 409s, so this stays null for those rather than doubling the message.
+  // flight; the pane's own refusal notice says so) and the other two
+  // documented 409s, so this stays null for those rather than doubling the
+  // message.
   // `already_confirmed` is the one refusal that carries no notice while it
   // resolves — its whole recovery is the company lookup — and that lookup
   // ends either in the review's exit or in the "checkFailed" notice, so a
@@ -810,15 +811,33 @@ export function CompanyAct({
   // "notReady" the re-check is the reader's ONLY route, because Continue is
   // blocked, and for "checkFailed" the load is the only thing that can turn
   // "I could not load it" into the company itself.
-  const noticeRetries: Readonly<Record<ConfirmNotice, NoticeRetry | null>> = {
+  const noticeRetries: Readonly<Record<ConfirmNotice, RefusalRetry | null>> = {
     skew: skewStuck
       ? { run: refreshAfterSkew, busy: awaitingProposalRefresh }
       : null,
     notReady: { run: recheckReadiness, busy: awaitingReadinessCheck },
     checkFailed: { run: loadConfirmedCompany, busy: awaitingCompanyLoad },
   };
-  const noticeRetry =
-    confirmNotice === null ? null : noticeRetries[confirmNotice];
+  // A confirm 409 this driver already turned into a next step rather than a
+  // bare failure — see the `confirm` mutation's onError, refreshAfterSkew,
+  // recheckReadiness and loadConfirmedCompany for which server state each one
+  // names, and why none of them is "fix your input and press the same button
+  // again".
+  //
+  // It travels to the WORK SURFACE, not to the transcript beside it. The
+  // control that earned the refusal is on the board, and the rail is a
+  // scroller the reader pressing Continue is not looking at — a sentence
+  // there explained the block to nobody, which is how two rejections
+  // thirteen seconds apart read as a button that had simply stopped working.
+  // One copy, on the pane: the same sentence in two places only makes the
+  // reader decide which of them is about their press.
+  const refusal: ConfirmRefusal | null =
+    confirmNotice === null
+      ? null
+      : {
+          message: t(confirmNoticeKey(confirmNotice, skewStuck)),
+          retry: noticeRetries[confirmNotice],
+        };
   const reviewScene =
     state.phase === "co.review" && reviewProposal ? (
       <div className="ob-scene">
@@ -896,6 +915,7 @@ export function CompanyAct({
             confirmBlocked
           }
           saveError={confirmBannerMessage}
+          refusal={refusal}
         />
       }
     >
@@ -1031,34 +1051,8 @@ export function CompanyAct({
               />
             </div>
           )}
-          {/* A confirm 409 this driver already turned into a next step
-              rather than a bare failure — see the `confirm` mutation's
-              onError, refreshAfterSkew, recheckReadiness and
-              loadConfirmedCompany for which server state each one names, and
-              why none is "fix your input and press the same button again".
-              Each carries the look that could end it (see noticeRetry), and
-              where Continue is blocked that look is the route forward. */}
-          {confirmNotice !== null && (
-            <div role="alert">
-              <NarrationBubble
-                entry={{
-                  kind: "narration",
-                  id: `confirm:${confirmNotice}${skewStuck ? ":stuck" : ""}`,
-                  i18nKey: confirmNoticeKey(confirmNotice, skewStuck),
-                }}
-              />
-              {noticeRetry !== null && (
-                <Button
-                  small
-                  variant="ghost"
-                  onClick={noticeRetry.run}
-                  disabled={noticeRetry.busy}
-                >
-                  {t("common.retry")}
-                </Button>
-              )}
-            </div>
-          )}
+          {/* A refused confirm says so on the work surface, beside the
+              control that earned it — see `refusal` above. */}
         </ConversationThread>
       </div>
     </ConversationWorkbench>

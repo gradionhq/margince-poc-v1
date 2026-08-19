@@ -864,7 +864,7 @@ describe("PersonScreen — relationship-strength card (P-4)", () => {
 });
 
 describe("PersonScreen — archived is read-only (P-3)", () => {
-  it("hides edit/merge/archive and shows the Archived badge on an archived person", async () => {
+  it("keeps edit/merge/archive/share visible but refused, each reachable from the one sentence naming the archive", async () => {
     stubFetch(async (url) => {
       if (url.includes("/activities")) {
         return jsonResponse({ data: [] });
@@ -874,9 +874,22 @@ describe("PersonScreen — archived is read-only (P-3)", () => {
     render(<PersonScreen id="p-1" />);
 
     await waitFor(() => expect(screen.getByText("Archived")).toBeTruthy());
-    expect(screen.queryByTestId("edit-record")).toBeNull();
-    expect(screen.queryByTestId("merge-record")).toBeNull();
-    expect(screen.queryByTestId("archive-record")).toBeNull();
+    const refused = [
+      screen.getByTestId("edit-record"),
+      screen.getByTestId("merge-record"),
+      screen.getByTestId("archive-record"),
+      screen.getByTestId("share-record"),
+    ];
+    for (const control of refused) {
+      expect(control.hasAttribute("disabled")).toBe(true);
+      // The reason has to be reachable FROM the control: a disabled button
+      // cannot be focused and a `title` on it is announced by nobody, so a
+      // sentence the control does not point at reaches no reader who needed it.
+      const describedBy = control.getAttribute("aria-describedby");
+      expect(document.getElementById(describedBy ?? "")?.textContent).toBe(
+        "This contact is archived. Restore them to change anything here.",
+      );
+    }
   });
 });
 
