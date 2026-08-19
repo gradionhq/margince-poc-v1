@@ -33,7 +33,7 @@ var (
 )
 
 func TestUserInvitedPayload(t *testing.T) {
-	payload := userInvitedPayload(payloadTestUserID, "manager", payloadTestActorID)
+	payload := userInvitedPayload(payloadTestUserID, "manager", payloadTestActorID, nil)
 
 	if !reflect.DeepEqual(payload.EventType(), "user.invited") {
 		t.Errorf("got %v, want %v", payload.EventType(), "user.invited")

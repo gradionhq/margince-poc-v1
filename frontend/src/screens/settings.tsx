@@ -121,6 +121,7 @@ import { ProductsAdmin } from "./products";
 import { FxRatesCard, ModelCostsCard } from "./rates";
 import { RestrictedRecordsCard } from "./restrictedrecords";
 import { RetentionCard } from "./retention";
+import { TeamsCard } from "./users-access";
 import { UsersAdminCard } from "./users-admin";
 import { VoiceDnaCard } from "./voice-dna";
 import { WebhooksCard } from "./webhooks";
@@ -235,6 +236,9 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <UsersAdminCard />
+          {/* Who may edit whose records is a matter of team membership now
+              that every seat reads every customer record. */}
+          <TeamsCard />
           {/* Beside the member list because it answers the same question one
               level up: that card says which role a person holds, this one says
               what a role may reach. */}

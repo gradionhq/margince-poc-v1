@@ -71,6 +71,7 @@ var workspaceLevelEntities = map[string]struct{}{
 	"stage":                   {},
 	"audit":                   {},
 	"user":                    {},
+	"team":                    {},
 	"passport":                {},
 	"onboarding_wizard_state": {},
 	"incumbent_connection":    {},

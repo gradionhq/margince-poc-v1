@@ -267,6 +267,7 @@ var catalog = map[string]struct {
 	"user.deactivated":          {identityStreamEntity, 1},
 	"user.reactivated":          {identityStreamEntity, 1},
 	"role.changed":              {identityStreamEntity, 1},
+	"team.changed":              {identityStreamEntity, 1},
 	"passport.revoked":          {identityStreamEntity, 1},
 	"onboarding.state_changed":  {identityStreamEntity, 1},
 

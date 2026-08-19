@@ -6051,6 +6051,48 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/users/access-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a seat with this role and these teams will see and may do.
+         * @description Computed from the evaluated policy — the same role documents, field masks and read
+         *     classes the gates read — so the invite screen shows the truth rather than a second
+         *     interpretation. Admin only.
+         */
+        post: operations["previewAccess"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/users/{id}/access": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** What this member sees and may do today, from their roles and teams. */
+        get: operations["getUserAccess"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/users/{id}/role": {
         parameters: {
             query?: never;
@@ -6326,8 +6368,55 @@ export interface paths {
          */
         get: operations["listTeams"];
         put?: never;
+        /** Create a team. Admin only. */
+        post: operations["createTeam"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/teams/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        /** Rename, archive or restore a team. Admin only. */
+        patch: operations["updateTeam"];
+        trace?: never;
+    };
+    "/teams/{id}/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put a member on a team. Admin only; idempotent.
+         * @description Membership resolves `row_scope: team` and team shares from the next request on. Members of
+         *     the team may edit records owned by anyone on it.
+         */
+        put: operations["addTeamMember"];
+        post?: never;
+        /** Take a member off a team. Admin only; idempotent. */
+        delete: operations["removeTeamMember"];
         options?: never;
         head?: never;
         patch?: never;
@@ -15104,6 +15193,47 @@ export interface components {
              * @enum {string}
              */
             role: "admin" | "management" | "manager" | "rep" | "read_only" | "ops";
+            /** @description The teams the member joins on arrival, in the same transaction as the seat and the role. A team-scoped role (`manager`, `rep`) with no team sees and edits only its own records; the access preview says what a given role + teams will see before the invite is sent. */
+            team_ids?: string[];
+        };
+        AccessPreviewRequest: {
+            /** @enum {string} */
+            role: "admin" | "management" | "manager" | "rep" | "read_only" | "ops";
+            team_ids?: string[];
+        };
+        /** @description What a seat with this role and these teams may do — computed by the server from the evaluated policy, the same one the gates read, so the screen never interprets the role a second way. Used before an invite (`POST /users/access-preview`) and for an existing member (`GET /users/{id}/access`). */
+        AccessPreview: {
+            role: string;
+            /** @enum {string} */
+            row_scope: "own" | "team" | "all";
+            /**
+             * @description Customer identity (person, organization, lead, deal) is readable by every seat that holds the object grant; row scope governs projects and writes.
+             * @enum {string}
+             */
+            identity_read?: "workspace";
+            objects: {
+                [key: string]: {
+                    create: boolean;
+                    read: boolean;
+                    update: boolean;
+                    delete: boolean;
+                };
+            };
+            field_masks: {
+                object: string;
+                field: string;
+                /** @enum {string} */
+                condition: "always" | "outside_write_authority";
+            }[];
+            teams: components["schemas"]["Team"][];
+        };
+        CreateTeamRequest: {
+            name: string;
+        };
+        UpdateTeamRequest: {
+            name?: string;
+            /** @description true archives the team (its memberships stop resolving row scope and shares); false restores it. */
+            archived?: boolean;
         };
         /** @description A single-use set-password link, returned exactly once and never retrievable again. The server stores only the token's hash, so a lost link is re-issued, never recovered. */
         IssuePasswordLinkResponse: {
@@ -28984,6 +29114,59 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    previewAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccessPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description The access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getUserAccess: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The access. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccessPreview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     changeUserRole: {
         parameters: {
             query?: never;
@@ -29298,6 +29481,116 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    createTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description The team. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateTeam: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTeamRequest"];
+            };
+        };
+        responses: {
+            /** @description The team. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Team"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    addTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description On the team. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    removeTeamMember: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Off the team. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listVoiceProfiles: {

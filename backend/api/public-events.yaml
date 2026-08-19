@@ -96,6 +96,7 @@ components:
         - user.deactivated
         - user.reactivated
         - role.changed
+        - team.changed
         - passport.revoked
         - onboarding.state_changed
         - mirror.conflict
@@ -2058,6 +2059,12 @@ components:
           type: string
           format: uuid
           description: The admin who issued the invite.
+        team_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: The teams the member joined on arrival, when the invite named any.
       additionalProperties: false
 
     PublicEventUserPasswordLinkIssued:
@@ -2142,6 +2149,37 @@ components:
           type: string
           format: uuid
           description: The admin who reactivated the member.
+      additionalProperties: false
+
+    PublicEventTeamChanged:
+      type: object
+      x-event-type: team.changed
+      x-entity-type: team
+      x-version: 1
+      description: >-
+        Payload for team.changed — a team was created, renamed, archived or
+        restored, or a member was put on or taken off it (identity/teams.go).
+        Membership is what resolves `row_scope: team` and team shares, so a
+        subscriber that caches who-sees-what re-reads on this.
+      required:
+        - team_id
+        - change
+        - by
+      properties:
+        team_id:
+          type: string
+          format: uuid
+        change:
+          type: string
+          enum: [created, renamed, archived, restored, member_added, member_removed]
+        user_id:
+          type: string
+          format: uuid
+          description: The member put on or taken off the team (the membership changes only).
+        by:
+          type: string
+          format: uuid
+          description: The admin who made the change.
       additionalProperties: false
 
     PublicEventRoleChanged:

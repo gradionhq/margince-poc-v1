@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // userStatusActive is the app_user.status an invited/reactivated member holds;
@@ -65,6 +66,9 @@ type InviteUserInput struct {
 	Email       string
 	DisplayName string
 	Role        string
+	// TeamIDs are the teams the member joins on arrival, in the same
+	// transaction as the seat and the role.
+	TeamIDs []ids.UUID
 }
 
 // InviteUser provisions a new active member with the one target system role and
@@ -118,6 +122,9 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			wsID, roleID, newUserID); err != nil {
 			return err
 		}
+		if err := joinTeamsTx(ctx, tx, newUserID.UUID, in.TeamIDs); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO auth_token (user_id, purpose, token_hash, expires_at)
 			 VALUES ($1, 'password_reset', $2, now() + $3::interval)`,
@@ -125,12 +132,12 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 			return err
 		}
 		auditID, err := storekit.Audit(ctx, tx, "create", "user", newUserID.UUID,
-			nil, map[string]any{"email": in.Email, "role": in.Role, userAuditKeyStatus: userStatusActive})
+			nil, map[string]any{"email": in.Email, "role": in.Role, "team_ids": in.TeamIDs, userAuditKeyStatus: userStatusActive})
 		if err != nil {
 			return err
 		}
 		return storekit.EmitEvent(ctx, tx, auditID, newUserID.UUID,
-			userInvitedPayload(newUserID, in.Role, actor.UserID))
+			userInvitedPayload(newUserID, in.Role, actor.UserID, in.TeamIDs))
 	})
 	if err != nil {
 		return ids.UserID{}, "", err
@@ -139,12 +146,40 @@ func (s *Service) InviteUser(ctx context.Context, actor Identity, in InviteUserI
 }
 
 // userInvitedPayload builds user.invited's typed payload.
-func userInvitedPayload(userID ids.UserID, role string, by ids.UserID) crmcontracts.PublicEventUserInvited {
-	return crmcontracts.PublicEventUserInvited{
+func userInvitedPayload(userID ids.UserID, role string, by ids.UserID, teams []ids.UUID) crmcontracts.PublicEventUserInvited {
+	out := crmcontracts.PublicEventUserInvited{
 		UserId: openapi_types.UUID(userID.UUID),
 		Role:   role,
 		By:     openapi_types.UUID(by.UUID),
 	}
+	if len(teams) > 0 {
+		wire := make([]openapi_types.UUID, 0, len(teams))
+		for _, t := range teams {
+			wire = append(wire, openapi_types.UUID(t))
+		}
+		out.TeamIds = &wire
+	}
+	return out
+}
+
+// joinTeamsTx puts a new member on the teams the invite named. Every team
+// must exist and be live — an invite naming a team that is not there is a
+// mistake to surface, not a membership to drop silently.
+func joinTeamsTx(ctx context.Context, tx pgx.Tx, userID ids.UUID, teams []ids.UUID) error {
+	for _, teamID := range teams {
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO team_membership (team_id, user_id)
+			SELECT id, $2 FROM team WHERE id = $1 AND archived_at IS NULL
+			ON CONFLICT (team_id, user_id) DO NOTHING`, teamID, userID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return &values.ParseError{Field: "team_ids", Code: "unknown_team",
+				Message: "team " + teamID.String() + " does not exist or is archived"}
+		}
+	}
+	return nil
 }
 
 // ReactivateUser returns a deactivated member to 'active' so they may sign in

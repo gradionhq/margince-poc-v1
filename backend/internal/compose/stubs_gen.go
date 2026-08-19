@@ -1515,12 +1515,36 @@ func (stubs) ListTeams(w nethttp.ResponseWriter, r *nethttp.Request, params crmc
 	httperr.NotImplemented(w, r, "ListTeams")
 }
 
+func (stubs) CreateTeam(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "CreateTeam")
+}
+
+func (stubs) UpdateTeam(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "UpdateTeam")
+}
+
+func (stubs) RemoveTeamMember(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, userId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "RemoveTeamMember")
+}
+
+func (stubs) AddTeamMember(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, userId openapi_types.UUID) {
+	httperr.NotImplemented(w, r, "AddTeamMember")
+}
+
 func (stubs) ListUsers(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListUsersParams) {
 	httperr.NotImplemented(w, r, "ListUsers")
 }
 
 func (stubs) InviteUser(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "InviteUser")
+}
+
+func (stubs) PreviewAccess(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "PreviewAccess")
+}
+
+func (stubs) GetUserAccess(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetUserAccess")
 }
 
 func (stubs) DeactivateUser(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
