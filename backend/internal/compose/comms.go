@@ -74,7 +74,7 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	if c.draft != nil {
 		return c.draft.DraftEmail(ctx, anchor, intent)
 	}
-	activity, err := c.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
+	activity, err := c.store.GetActivityContent(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
 		return "", "", err
 	}

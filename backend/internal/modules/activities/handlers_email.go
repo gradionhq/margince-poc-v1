@@ -135,7 +135,7 @@ func (h Handlers) prepareEmailDraft(ctx context.Context, anchor ids.UUID, intent
 		subject, body, err := h.emailDrafter.DraftEmail(ctx, anchor, intent)
 		return DraftResult{Subject: subject, Body: body}, err
 	}
-	activity, err := h.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
+	activity, err := h.store.GetActivityContent(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
 		return DraftResult{}, err
 	}

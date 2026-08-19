@@ -129,11 +129,22 @@ var dueThreadsQuery = `
 			       -- whatever its links say, and belongs to the mailbox owner
 			       -- behind its provenance (connector:<name>:<uuid>) — the one
 			       -- reader the content gate always admits.
+			       --
+			       -- A thread whose private messages answer to DIFFERENT
+			       -- owners has no one reader every message admits; naming
+			       -- one of them would hand that person the others' content
+			       -- through the summary. It names nobody, and the WHERE below
+			       -- then refuses it.
 			       bool_and(coalesce(vis.shared, true) AND a.audience = 'workspace') AS shared,
-			       min(coalesce(vis.private_owner,
+			       CASE WHEN count(DISTINCT coalesce(vis.private_owner,
 			                    CASE WHEN a.audience <> 'workspace'
 			                         THEN substring(a.captured_by from '([0-9a-f-]{36})$')
-			                    END)) AS private_owner
+			                    END)) > 1 THEN NULL
+			            ELSE min(coalesce(vis.private_owner,
+			                    CASE WHEN a.audience <> 'workspace'
+			                         THEN substring(a.captured_by from '([0-9a-f-]{36})$')
+			                    END))
+			       END AS private_owner
 			  FROM activity a
 			  LEFT JOIN (` + activities.OrgReachSet() + `) ro ON ro.activity_id = a.id
 			  -- Who may read this message, asked of the records it is filed

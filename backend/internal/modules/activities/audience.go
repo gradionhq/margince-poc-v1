@@ -194,6 +194,22 @@ func readActivityContent(ctx context.Context, tx pgx.Tx, id ids.ActivityID, arch
 	return readActivity(ctx, tx, id, archived)
 }
 
+// GetActivityContent is GetActivity for a caller about to USE the content —
+// draft a reply, quote the thread — rather than show the row: a limited
+// conversation the caller may discover answers ErrNotFound here, never a row
+// with its text blanked that a model would then write a reply to.
+func (s *Store) GetActivityContent(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
+	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	var out crmcontracts.Activity
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		out, err = readActivityContent(ctx, tx, id, archived)
+		return err
+	})
+	return out, err
+}
+
 // InvalidAudienceError is a malformed audience write: an unknown audience, a
 // member set the contract does not admit, or a subject that does not exist.
 type InvalidAudienceError struct {

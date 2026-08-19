@@ -162,7 +162,15 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 	// the audience's call, answered per row (content_state). The free text
 	// of a limited conversation is blanked by the scan, never selected into
 	// the response.
-	scope, err := auth.ActivityDiscoverClause(ctx, "a", arg)
+	gate := auth.ActivityDiscoverClause
+	if filtersOnContent(in) {
+		// A filter over the subject, the body or the thread key is a READ
+		// of them: a withheld row that matched would tell the caller what it
+		// says through has_more and the page boundary. Such a list is
+		// content-gated, so a limited row is simply not there.
+		gate = auth.ActivityContentClause
+	}
+	scope, err := gate(ctx, "a", arg)
 	if err != nil {
 		return "", nil, "", nil, err
 	}
@@ -227,4 +235,10 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 		where = append(where, sprintf("(a.occurred_at, a.id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
 	return join, where, content, args, nil
+}
+
+// filtersOnContent reports whether the list narrows on fields a withheld row
+// does not disclose.
+func filtersOnContent(in ListActivitiesInput) bool {
+	return (in.ThreadKey != nil && *in.ThreadKey != "") || (in.Query != nil && *in.Query != "")
 }

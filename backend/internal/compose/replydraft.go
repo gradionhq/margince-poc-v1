@@ -116,7 +116,7 @@ func (d replyDrafter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 // profile exists, with the deterministic anti-AI floor on top; without one,
 // the plain model draft is unchanged (clean fallback per drafting.md).
 func (d replyDrafter) DraftEmailWithProvenance(ctx context.Context, anchor ids.UUID, intent string) (activities.DraftResult, error) {
-	activity, err := d.store.GetActivity(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
+	activity, err := d.store.GetActivityContent(ctx, ids.From[ids.ActivityKind](anchor), storekit.LiveOnly)
 	if err != nil {
 		return activities.DraftResult{}, err
 	}
