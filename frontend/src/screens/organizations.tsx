@@ -25,6 +25,7 @@ import {
   EvidenceMark,
   type EvidenceMarkSource,
 } from "../design-system/evidencemark";
+import type { ListChip } from "../design-system/listsurface";
 import { sectionState } from "../design-system/surfacestate";
 import {
   AutonomyDot,
@@ -557,6 +558,20 @@ export function CompaniesScreen() {
   const viewerId = useViewerId();
   const ownerChips = useOwnerChips();
   const savedViews = useSavedViewTabs("organizations");
+  // Beside the owner dial rather than in `chips`, and the reason is the option
+  // labels. A `chips` entry runs every label through `t()`, so its options must
+  // be message keys — and a size band is a numeral range that reads identically
+  // in English, German and Vietnamese. Seven keys whose three translations all
+  // coincide would be noise standing in for meaning. The dial's own name still
+  // needs translating, which is what `t()` is doing here.
+  const sizeChip: readonly ListChip[] = [
+    {
+      key: "size_band",
+      label: t("org.sizeBand"),
+      allLabel: t("org.filterSizeBandAll"),
+      options: SIZE_BAND_OPTIONS.map((value) => ({ value, label: value })),
+    },
+  ];
 
   return (
     <div className="wrap">
@@ -684,7 +699,7 @@ export function CompaniesScreen() {
         tools={<SaveViewAction resource="organizations" query={state.query} />}
         rowKey={(org) => org.id}
         rowRoute={(org) => ({ screen: "companies", id: org.id })}
-        dataChips={ownerChips}
+        dataChips={[...ownerChips, ...sizeChip]}
         chips={[
           {
             key: "lifecycle",

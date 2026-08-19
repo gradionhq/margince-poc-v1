@@ -602,6 +602,34 @@ describe("CompaniesScreen — list dials reach the server (P-14)", () => {
     );
   });
 
+  it("narrows to one company size through the server", async () => {
+    const user = userEvent.setup();
+    const { urls } = stubFetch(async () => emptyPage());
+    render(<CompaniesScreen />);
+    await waitFor(() => expect(urls.length).toBeGreaterThan(0));
+
+    await user.click(await screen.findByRole("button", { name: "Filter" }));
+    await user.click(screen.getByRole("button", { name: "Company size" }));
+    await user.click(screen.getByRole("button", { name: "51-200" }));
+
+    // The wire's own parameter name and the band as written. A dial that sent
+    // anything else would be ignored by the server, which answers the WHOLE
+    // list with 200 OK — a filter that reads as working and is not.
+    // The parsed parameter, not a substring of the URL: `includes` would also
+    // accept a longer value that merely starts this way, so it asserts less than
+    // it appears to — and it would keep passing if the band set ever grew one.
+    await waitFor(() =>
+      expect(
+        urls.some(
+          (url) =>
+            new URL(url, window.location.origin).searchParams.get(
+              "size_band",
+            ) === "51-200",
+        ),
+      ).toBe(true),
+    );
+  });
+
   it("reads whole rendered pages at whatever size the reader picked", async () => {
     const user = userEvent.setup();
     const { urls } = stubFetch(async () => emptyPage());

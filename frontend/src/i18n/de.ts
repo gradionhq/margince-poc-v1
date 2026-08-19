@@ -557,6 +557,7 @@ export const de = {
   "list.viewProspects": "Interessenten",
   "org.filterLifecycleAll": "Alle Phasen",
   "org.filterRelTypeAll": "Alle Typen",
+  "org.filterSizeBandAll": "Alle Größen",
   "person.consent": "Einwilligung",
   "consent.grant": "Erteilen",
   "consent.withdraw": "Widerrufen",
@@ -594,6 +595,7 @@ export const de = {
   // die die abgelöste Einstufung mit einem Wert beantworten wollte.
   "org.lifecycle": "Account-Status",
   "org.relationshipTypes": "Beziehung zu uns",
+  "org.sizeBand": "Unternehmensgröße",
   "org.lifecycle.unknown": "Nicht eingeschätzt",
   "org.lifecycle.target": "Zielkunde",
   "org.lifecycle.prospect": "Interessent",
