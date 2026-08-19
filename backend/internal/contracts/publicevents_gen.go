@@ -72,6 +72,36 @@ func (e PublicEventRetentionRestrictedAction) Valid() bool {
 	}
 }
 
+// Defines values for PublicEventTeamChangedChange.
+const (
+	Archived      PublicEventTeamChangedChange = "archived"
+	Created       PublicEventTeamChangedChange = "created"
+	MemberAdded   PublicEventTeamChangedChange = "member_added"
+	MemberRemoved PublicEventTeamChangedChange = "member_removed"
+	Renamed       PublicEventTeamChangedChange = "renamed"
+	Restored      PublicEventTeamChangedChange = "restored"
+)
+
+// Valid indicates whether the value is a known member of the PublicEventTeamChangedChange enum.
+func (e PublicEventTeamChangedChange) Valid() bool {
+	switch e {
+	case Archived:
+		return true
+	case Created:
+		return true
+	case MemberAdded:
+		return true
+	case MemberRemoved:
+		return true
+	case Renamed:
+		return true
+	case Restored:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SubscribableEventType.
 const (
 	ActivityArchived          SubscribableEventType = "activity.archived"
@@ -145,6 +175,7 @@ const (
 	StageArchived             SubscribableEventType = "stage.archived"
 	StageCreated              SubscribableEventType = "stage.created"
 	StageUpdated              SubscribableEventType = "stage.updated"
+	TeamChanged               SubscribableEventType = "team.changed"
 	UserDeactivated           SubscribableEventType = "user.deactivated"
 	UserInvited               SubscribableEventType = "user.invited"
 	UserPasswordLinkIssued    SubscribableEventType = "user.password_link_issued"
@@ -302,6 +333,8 @@ func (e SubscribableEventType) Valid() bool {
 	case StageCreated:
 		return true
 	case StageUpdated:
+		return true
+	case TeamChanged:
 		return true
 	case UserDeactivated:
 		return true
@@ -1215,6 +1248,20 @@ type PublicEventStageUpdated struct {
 	WinProbability *int `json:"win_probability,omitempty"`
 }
 
+// PublicEventTeamChanged Payload for team.changed — a team was created, renamed, archived or restored, or a member was put on or taken off it (identity/teams.go). Membership is what resolves `row_scope: team` and team shares, so a subscriber that caches who-sees-what re-reads on this.
+type PublicEventTeamChanged struct {
+	// By The admin who made the change.
+	By     openapi_types.UUID           `json:"by"`
+	Change PublicEventTeamChangedChange `json:"change"`
+	TeamId openapi_types.UUID           `json:"team_id"`
+
+	// UserId The member put on or taken off the team (the membership changes only).
+	UserId *openapi_types.UUID `json:"user_id,omitempty"`
+}
+
+// PublicEventTeamChangedChange defines model for PublicEventTeamChanged.Change.
+type PublicEventTeamChangedChange string
+
 // PublicEventUserDeactivated Payload for user.deactivated — a member's sessions and passports were hard-revoked (identity/users.go's DeactivateUser). reason is the operator-supplied free text, absent when none was given.
 type PublicEventUserDeactivated struct {
 	// By The admin who deactivated the member.
@@ -1234,6 +1281,9 @@ type PublicEventUserInvited struct {
 
 	// Role The single system role key granted to the new member.
 	Role string `json:"role"`
+
+	// TeamIds The teams the member joined on arrival, when the invite named any.
+	TeamIds *[]openapi_types.UUID `json:"team_ids,omitempty"`
 
 	// UserId The invited member.
 	UserId openapi_types.UUID `json:"user_id"`
@@ -1691,6 +1741,10 @@ func (PublicEventStageUpdated) EventType() string { return "stage.updated" }
 
 func (PublicEventStageUpdated) EntityType() string { return "stage" }
 
+func (PublicEventTeamChanged) EventType() string { return "team.changed" }
+
+func (PublicEventTeamChanged) EntityType() string { return "team" }
+
 func (PublicEventUserDeactivated) EventType() string { return "user.deactivated" }
 
 func (PublicEventUserDeactivated) EntityType() string { return "user" }
@@ -1812,6 +1866,7 @@ var PublicEventVersions = map[string]int{
 	"stage.archived":               1,
 	"stage.created":                1,
 	"stage.updated":                1,
+	"team.changed":                 1,
 	"user.deactivated":             1,
 	"user.invited":                 1,
 	"user.password_link_issued":    1,

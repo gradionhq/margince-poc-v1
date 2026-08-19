@@ -9249,6 +9249,51 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /users/access-preview:
+    post:
+      tags: [Identity]
+      operationId: previewAccess
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: What a seat with this role and these teams will see and may do.
+      description: |
+        Computed from the evaluated policy — the same role documents, field masks and read
+        classes the gates read — so the invite screen shows the truth rather than a second
+        interpretation. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AccessPreviewRequest' }
+      responses:
+        '200':
+          description: The access.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessPreview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /users/{id}/access:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Identity]
+      operationId: getUserAccess
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: What this member sees and may do today, from their roles and teams.
+      responses:
+        '200':
+          description: The access.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccessPreview' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /users/{id}/role:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -9622,6 +9667,86 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TeamListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [Identity]
+      operationId: createTeam
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Create a team. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTeamRequest' }
+      responses:
+        '201':
+          description: The team.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /teams/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Identity]
+      operationId: updateTeam
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Rename, archive or restore a team. Admin only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateTeamRequest' }
+      responses:
+        '200':
+          description: The team.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Team' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /teams/{id}/members/{userId}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - name: userId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Identity]
+      operationId: addTeamMember
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Put a member on a team. Admin only; idempotent.
+      description: |
+        Membership resolves `row_scope: team` and team shares from the next request on. Members of
+        the team may edit records owned by anyone on it.
+      responses:
+        '204': { description: On the team. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Identity]
+      operationId: removeTeamMember
+      x-agent-access: human-only
+      security: [ { cookieAuth: [] } ]
+      summary: Take a member off a team. Admin only; idempotent.
+      responses:
+        '204': { description: Off the team. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # =========================================================================
   # VOICE — owner-private Voice DNA management (ADR-0066).
@@ -20660,6 +20785,76 @@ components:
             the product names on purpose — `manager` displays as "Team Lead",
             `rep` as "Member"; `management` is the whole-organization seat that
             holds no admin power.
+        team_ids:
+          type: array
+          maxItems: 20
+          items: { type: string, format: uuid }
+          description: >-
+            The teams the member joins on arrival, in the same transaction as the seat and the
+            role. A team-scoped role (`manager`, `rep`) with no team sees and edits only its own
+            records; the access preview says what a given role + teams will see before the invite
+            is sent.
+
+    AccessPreviewRequest:
+      type: object
+      required: [role]
+      properties:
+        role:
+          type: string
+          enum: [admin, management, manager, rep, read_only, ops]
+        team_ids:
+          type: array
+          maxItems: 20
+          items: { type: string, format: uuid }
+    AccessPreview:
+      type: object
+      description: >-
+        What a seat with this role and these teams may do — computed by the server from the
+        evaluated policy, the same one the gates read, so the screen never interprets the role
+        a second way. Used before an invite (`POST /users/access-preview`) and for an existing
+        member (`GET /users/{id}/access`).
+      required: [role, row_scope, objects, field_masks, teams]
+      properties:
+        role: { type: string }
+        row_scope: { type: string, enum: [own, team, all] }
+        identity_read:
+          type: string
+          enum: [workspace]
+          description: >-
+            Customer identity (person, organization, lead, deal) is readable by every seat that
+            holds the object grant; row scope governs projects and writes.
+        objects:
+          type: object
+          additionalProperties:
+            type: object
+            required: [create, read, update, delete]
+            properties:
+              create: { type: boolean }
+              read: { type: boolean }
+              update: { type: boolean }
+              delete: { type: boolean }
+        field_masks:
+          type: array
+          items:
+            type: object
+            required: [object, field, condition]
+            properties:
+              object: { type: string }
+              field: { type: string }
+              condition: { type: string, enum: [always, outside_write_authority] }
+        teams:
+          type: array
+          items: { $ref: '#/components/schemas/Team' }
+    CreateTeamRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+    UpdateTeamRequest:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        archived: { type: boolean, description: 'true archives the team (its memberships stop resolving row scope and shares); false restores it.' }
 
     IssuePasswordLinkResponse:
       type: object

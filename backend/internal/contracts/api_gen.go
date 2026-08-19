@@ -111,6 +111,90 @@ func (e AcceptedExtractionFieldProvenance) Valid() bool {
 	}
 }
 
+// Defines values for AccessPreviewFieldMasksCondition.
+const (
+	Always                AccessPreviewFieldMasksCondition = "always"
+	OutsideWriteAuthority AccessPreviewFieldMasksCondition = "outside_write_authority"
+)
+
+// Valid indicates whether the value is a known member of the AccessPreviewFieldMasksCondition enum.
+func (e AccessPreviewFieldMasksCondition) Valid() bool {
+	switch e {
+	case Always:
+		return true
+	case OutsideWriteAuthority:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessPreviewIdentityRead.
+const (
+	AccessPreviewIdentityReadWorkspace AccessPreviewIdentityRead = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the AccessPreviewIdentityRead enum.
+func (e AccessPreviewIdentityRead) Valid() bool {
+	switch e {
+	case AccessPreviewIdentityReadWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessPreviewRowScope.
+const (
+	AccessPreviewRowScopeAll  AccessPreviewRowScope = "all"
+	AccessPreviewRowScopeOwn  AccessPreviewRowScope = "own"
+	AccessPreviewRowScopeTeam AccessPreviewRowScope = "team"
+)
+
+// Valid indicates whether the value is a known member of the AccessPreviewRowScope enum.
+func (e AccessPreviewRowScope) Valid() bool {
+	switch e {
+	case AccessPreviewRowScopeAll:
+		return true
+	case AccessPreviewRowScopeOwn:
+		return true
+	case AccessPreviewRowScopeTeam:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessPreviewRequestRole.
+const (
+	AccessPreviewRequestRoleAdmin      AccessPreviewRequestRole = "admin"
+	AccessPreviewRequestRoleManagement AccessPreviewRequestRole = "management"
+	AccessPreviewRequestRoleManager    AccessPreviewRequestRole = "manager"
+	AccessPreviewRequestRoleOps        AccessPreviewRequestRole = "ops"
+	AccessPreviewRequestRoleReadOnly   AccessPreviewRequestRole = "read_only"
+	AccessPreviewRequestRoleRep        AccessPreviewRequestRole = "rep"
+)
+
+// Valid indicates whether the value is a known member of the AccessPreviewRequestRole enum.
+func (e AccessPreviewRequestRole) Valid() bool {
+	switch e {
+	case AccessPreviewRequestRoleAdmin:
+		return true
+	case AccessPreviewRequestRoleManagement:
+		return true
+	case AccessPreviewRequestRoleManager:
+		return true
+	case AccessPreviewRequestRoleOps:
+		return true
+	case AccessPreviewRequestRoleReadOnly:
+		return true
+	case AccessPreviewRequestRoleRep:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AccountDraftReasonKind.
 const (
 	AccountDraftReasonKindCommitment   AccountDraftReasonKind = "commitment"
@@ -4829,22 +4913,22 @@ func (e ListMemberEntityType) Valid() bool {
 
 // Defines values for MeResponsePassportScopes.
 const (
-	ActWithApproval    MeResponsePassportScopes = "act_with_approval"
-	AutoExecuteLowRisk MeResponsePassportScopes = "auto_execute_low_risk"
-	DraftOnly          MeResponsePassportScopes = "draft_only"
-	ReadOnly           MeResponsePassportScopes = "read_only"
+	MeResponsePassportScopesActWithApproval    MeResponsePassportScopes = "act_with_approval"
+	MeResponsePassportScopesAutoExecuteLowRisk MeResponsePassportScopes = "auto_execute_low_risk"
+	MeResponsePassportScopesDraftOnly          MeResponsePassportScopes = "draft_only"
+	MeResponsePassportScopesReadOnly           MeResponsePassportScopes = "read_only"
 )
 
 // Valid indicates whether the value is a known member of the MeResponsePassportScopes enum.
 func (e MeResponsePassportScopes) Valid() bool {
 	switch e {
-	case ActWithApproval:
+	case MeResponsePassportScopesActWithApproval:
 		return true
-	case AutoExecuteLowRisk:
+	case MeResponsePassportScopesAutoExecuteLowRisk:
 		return true
-	case DraftOnly:
+	case MeResponsePassportScopesDraftOnly:
 		return true
-	case ReadOnly:
+	case MeResponsePassportScopesReadOnly:
 		return true
 	default:
 		return false
@@ -11136,6 +11220,45 @@ type AcceptedExtractionField struct {
 // AcceptedExtractionFieldProvenance defines model for AcceptedExtractionField.Provenance.
 type AcceptedExtractionFieldProvenance string
 
+// AccessPreview What a seat with this role and these teams may do — computed by the server from the evaluated policy, the same one the gates read, so the screen never interprets the role a second way. Used before an invite (`POST /users/access-preview`) and for an existing member (`GET /users/{id}/access`).
+type AccessPreview struct {
+	FieldMasks []struct {
+		Condition AccessPreviewFieldMasksCondition `json:"condition"`
+		Field     string                           `json:"field"`
+		Object    string                           `json:"object"`
+	} `json:"field_masks"`
+
+	// IdentityRead Customer identity (person, organization, lead, deal) is readable by every seat that holds the object grant; row scope governs projects and writes.
+	IdentityRead *AccessPreviewIdentityRead `json:"identity_read,omitempty"`
+	Objects      map[string]struct {
+		Create bool `json:"create"`
+		Delete bool `json:"delete"`
+		Read   bool `json:"read"`
+		Update bool `json:"update"`
+	} `json:"objects"`
+	Role     string                `json:"role"`
+	RowScope AccessPreviewRowScope `json:"row_scope"`
+	Teams    []Team                `json:"teams"`
+}
+
+// AccessPreviewFieldMasksCondition defines model for AccessPreview.FieldMasks.Condition.
+type AccessPreviewFieldMasksCondition string
+
+// AccessPreviewIdentityRead Customer identity (person, organization, lead, deal) is readable by every seat that holds the object grant; row scope governs projects and writes.
+type AccessPreviewIdentityRead string
+
+// AccessPreviewRowScope defines model for AccessPreview.RowScope.
+type AccessPreviewRowScope string
+
+// AccessPreviewRequest defines model for AccessPreviewRequest.
+type AccessPreviewRequest struct {
+	Role    AccessPreviewRequestRole `json:"role"`
+	TeamIds *[]openapi_types.UUID    `json:"team_ids,omitempty"`
+}
+
+// AccessPreviewRequestRole defines model for AccessPreviewRequest.Role.
+type AccessPreviewRequestRole string
+
 // AccountDraftReason One thing the draft was written from, named so the reader can check it rather than
 // take the draft on trust. Structured rather than a phrase, because the composer
 // renders the same reason twice — once in the "Based on" line and once as a chip —
@@ -14007,6 +14130,11 @@ type CreateTagRequest struct {
 	Name  string  `json:"name"`
 }
 
+// CreateTeamRequest defines model for CreateTeamRequest.
+type CreateTeamRequest struct {
+	Name string `json:"name"`
+}
+
 // CreateVoiceBuildRequest defines model for CreateVoiceBuildRequest.
 type CreateVoiceBuildRequest struct {
 	Reason CreateVoiceBuildRequestReason `json:"reason"`
@@ -15030,6 +15158,9 @@ type InviteUserRequest struct {
 
 	// Role System role key (ADR-0110). Keys are wire vocabulary and diverge from the product names on purpose — `manager` displays as "Team Lead", `rep` as "Member"; `management` is the whole-organization seat that holds no admin power.
 	Role InviteUserRequestRole `json:"role"`
+
+	// TeamIds The teams the member joins on arrival, in the same transaction as the seat and the role. A team-scoped role (`manager`, `rep`) with no team sees and edits only its own records; the access preview says what a given role + teams will see before the invite is sent.
+	TeamIds *[]openapi_types.UUID `json:"team_ids,omitempty"`
 }
 
 // InviteUserRequestRole System role key (ADR-0110). Keys are wire vocabulary and diverge from the product names on purpose — `manager` displays as "Team Lead", `rep` as "Member"; `management` is the whole-organization seat that holds no admin power.
@@ -20954,6 +21085,13 @@ type UpdateStageRequest struct {
 // UpdateStageRequestSemantic defines model for UpdateStageRequest.Semantic.
 type UpdateStageRequestSemantic string
 
+// UpdateTeamRequest defines model for UpdateTeamRequest.
+type UpdateTeamRequest struct {
+	// Archived true archives the team (its memberships stop resolving row scope and shares); false restores it.
+	Archived *bool   `json:"archived,omitempty"`
+	Name     *string `json:"name,omitempty"`
+}
+
 // UpdateVoiceCorpusSourceRequest defines model for UpdateVoiceCorpusSourceRequest.
 type UpdateVoiceCorpusSourceRequest struct {
 	Included *bool    `json:"included,omitempty"`
@@ -25599,8 +25737,17 @@ type CreateTagJSONRequestBody = CreateTagRequest
 // ApplyTagJSONRequestBody defines body for ApplyTag for application/json ContentType.
 type ApplyTagJSONRequestBody = ApplyTagRequest
 
+// CreateTeamJSONRequestBody defines body for CreateTeam for application/json ContentType.
+type CreateTeamJSONRequestBody = CreateTeamRequest
+
+// UpdateTeamJSONRequestBody defines body for UpdateTeam for application/json ContentType.
+type UpdateTeamJSONRequestBody = UpdateTeamRequest
+
 // InviteUserJSONRequestBody defines body for InviteUser for application/json ContentType.
 type InviteUserJSONRequestBody = InviteUserRequest
+
+// PreviewAccessJSONRequestBody defines body for PreviewAccess for application/json ContentType.
+type PreviewAccessJSONRequestBody = AccessPreviewRequest
 
 // DeactivateUserJSONRequestBody defines body for DeactivateUser for application/json ContentType.
 type DeactivateUserJSONRequestBody = DeactivateUserRequest
@@ -32827,12 +32974,30 @@ type ServerInterface interface {
 	// List workspace teams — cursor-paginated. Read-only.
 	// (GET /teams)
 	ListTeams(w http.ResponseWriter, r *http.Request, params ListTeamsParams)
+	// Create a team. Admin only.
+	// (POST /teams)
+	CreateTeam(w http.ResponseWriter, r *http.Request)
+	// Rename, archive or restore a team. Admin only.
+	// (PATCH /teams/{id})
+	UpdateTeam(w http.ResponseWriter, r *http.Request, id Id)
+	// Take a member off a team. Admin only; idempotent.
+	// (DELETE /teams/{id}/members/{userId})
+	RemoveTeamMember(w http.ResponseWriter, r *http.Request, id Id, userId openapi_types.UUID)
+	// Put a member on a team. Admin only; idempotent.
+	// (PUT /teams/{id}/members/{userId})
+	AddTeamMember(w http.ResponseWriter, r *http.Request, id Id, userId openapi_types.UUID)
 	// List workspace members (roster) — cursor-paginated. Read-only.
 	// (GET /users)
 	ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams)
 	// Invite a new member. Admin-only, human-only.
 	// (POST /users)
 	InviteUser(w http.ResponseWriter, r *http.Request)
+	// What a seat with this role and these teams will see and may do.
+	// (POST /users/access-preview)
+	PreviewAccess(w http.ResponseWriter, r *http.Request)
+	// What this member sees and may do today, from their roles and teams.
+	// (GET /users/{id}/access)
+	GetUserAccess(w http.ResponseWriter, r *http.Request, id Id)
 	// Deactivate a member and revoke their live access. Admin-only, human-only.
 	// (POST /users/{id}/deactivate)
 	DeactivateUser(w http.ResponseWriter, r *http.Request, id Id)
@@ -35188,6 +35353,30 @@ func (_ Unimplemented) ListTeams(w http.ResponseWriter, r *http.Request, params 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Create a team. Admin only.
+// (POST /teams)
+func (_ Unimplemented) CreateTeam(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename, archive or restore a team. Admin only.
+// (PATCH /teams/{id})
+func (_ Unimplemented) UpdateTeam(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Take a member off a team. Admin only; idempotent.
+// (DELETE /teams/{id}/members/{userId})
+func (_ Unimplemented) RemoveTeamMember(w http.ResponseWriter, r *http.Request, id Id, userId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Put a member on a team. Admin only; idempotent.
+// (PUT /teams/{id}/members/{userId})
+func (_ Unimplemented) AddTeamMember(w http.ResponseWriter, r *http.Request, id Id, userId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List workspace members (roster) — cursor-paginated. Read-only.
 // (GET /users)
 func (_ Unimplemented) ListUsers(w http.ResponseWriter, r *http.Request, params ListUsersParams) {
@@ -35197,6 +35386,18 @@ func (_ Unimplemented) ListUsers(w http.ResponseWriter, r *http.Request, params 
 // Invite a new member. Admin-only, human-only.
 // (POST /users)
 func (_ Unimplemented) InviteUser(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What a seat with this role and these teams will see and may do.
+// (POST /users/access-preview)
+func (_ Unimplemented) PreviewAccess(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// What this member sees and may do today, from their roles and teams.
+// (GET /users/{id}/access)
+func (_ Unimplemented) GetUserAccess(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -52161,6 +52362,140 @@ func (siw *ServerInterfaceWrapper) ListTeams(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// CreateTeam operation middleware
+func (siw *ServerInterfaceWrapper) CreateTeam(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateTeam(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateTeam operation middleware
+func (siw *ServerInterfaceWrapper) UpdateTeam(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateTeam(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveTeamMember operation middleware
+func (siw *ServerInterfaceWrapper) RemoveTeamMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveTeamMember(w, r, id, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddTeamMember operation middleware
+func (siw *ServerInterfaceWrapper) AddTeamMember(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "userId" -------------
+	var userId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", chi.URLParam(r, "userId"), &userId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "userId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddTeamMember(w, r, id, userId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListUsers operation middleware
 func (siw *ServerInterfaceWrapper) ListUsers(w http.ResponseWriter, r *http.Request) {
 
@@ -52254,6 +52589,58 @@ func (siw *ServerInterfaceWrapper) InviteUser(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.InviteUser(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewAccess operation middleware
+func (siw *ServerInterfaceWrapper) PreviewAccess(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewAccess(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUserAccess operation middleware
+func (siw *ServerInterfaceWrapper) GetUserAccess(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserAccess(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -55289,10 +55676,28 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/teams", wrapper.ListTeams)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/teams", wrapper.CreateTeam)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/teams/{id}", wrapper.UpdateTeam)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/teams/{id}/members/{userId}", wrapper.RemoveTeamMember)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/teams/{id}/members/{userId}", wrapper.AddTeamMember)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users", wrapper.ListUsers)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/users", wrapper.InviteUser)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/users/access-preview", wrapper.PreviewAccess)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/users/{id}/access", wrapper.GetUserAccess)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/users/{id}/deactivate", wrapper.DeactivateUser)

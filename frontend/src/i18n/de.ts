@@ -4407,6 +4407,38 @@ export const de = {
   "users.empty": "Noch keine Mitglieder.",
   "users.adminOnly": "Mitglieder verwalten können nur Admins.",
   "users.inviteTitle": "Mitglied einladen",
+  "users.teamsLabel": "Teams",
+  "users.noTeamsYet": "Noch keine Teams.",
+  "users.teamsTitle": "Teams",
+  "users.teamsSub":
+    "Wer welche Datensätze bearbeiten darf: Mitglieder eines Teams bearbeiten die Datensätze aller Teammitglieder. Lesen dürfen Kunden, Kontakte, Leads und Deals alle.",
+  "users.teamMembers": "{count} Mitglieder",
+  "users.archiveTeam": "Team {name} archivieren",
+  "users.newTeamLabel": "Neues Team",
+  "users.newTeamPlaceholder": "z. B. DACH Sales",
+  "users.createTeam": "Team anlegen",
+  "users.access.title": "Das sieht dieses Mitglied",
+  "users.access.identity":
+    "Liest alle Kontakte, Firmen, Leads und Deals der Organisation.",
+  "users.access.writesAll": "Bearbeitet alle Datensätze.",
+  "users.access.writesTeam":
+    "Bearbeitet eigene Datensätze und die der Teams {teams}.",
+  "users.access.writesTeamNone":
+    "Bearbeitet nur eigene Datensätze — noch keinem Team zugeordnet.",
+  "users.access.writesOwn": "Bearbeitet nur eigene Datensätze.",
+  "users.access.none": "kein Zugriff",
+  "users.access.read": "lesen",
+  "users.access.write": "schreiben",
+  "users.access.delete": "löschen",
+  "users.access.object.person": "Kontakte",
+  "users.access.object.organization": "Firmen",
+  "users.access.object.lead": "Leads",
+  "users.access.object.deal": "Deals",
+  "users.access.object.project": "Projekte",
+  "users.access.mask": "{field} ist ausgeblendet {when}.",
+  "users.access.maskAlways": "immer",
+  "users.access.maskOutside":
+    "bei Datensätzen, die nicht bearbeitet werden dürfen",
   "users.inviteSub":
     "Jemanden zu dieser Installation hinzufügen und die Rolle wählen, mit der sie oder er startet.",
   "users.membersTitle": "Mitglieder",

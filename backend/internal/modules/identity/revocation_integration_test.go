@@ -500,3 +500,113 @@ func TestTheRepRoleCarriesTheDealAmountMask(t *testing.T) {
 		t.Errorf("a manager's field masks = %+v, want none", asManager.Permissions.FieldMasks)
 	}
 }
+
+// Teams are administered: created, renamed, archived, and membership put on
+// and taken off — each an audited write with team.changed. An invite joins
+// the teams it names in the same transaction, and the access preview answers
+// from the evaluated policy: the role's grants and row scope, the masks the
+// role carries, and the teams, for a seat that does not exist yet and for one
+// that does.
+func TestTeamsAreAdministeredAndTheAccessPreviewTellsTheTruth(t *testing.T) {
+	e := setupRevocationEnv(t, "teams")
+	ctx := e.wsCtx(e.admin)
+
+	team, err := e.svc.CreateTeam(ctx, e.admin, "  DACH Sales ")
+	if err != nil || team.Name != "DACH Sales" {
+		t.Fatalf("create team: %+v %v", team, err)
+	}
+	if _, err := e.svc.CreateTeam(ctx, e.admin, "DACH Sales"); !errors.Is(err, apperrors.ErrConflict) {
+		t.Errorf("a second team with the same name → %v, want ErrConflict", err)
+	}
+	if _, err := e.svc.CreateTeam(e.wsCtx(e.member), e.member, "Shadow"); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a non-admin creating a team → %v, want ErrPermissionDenied", err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); err != nil {
+		t.Fatalf("add member: %v", err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); err != nil {
+		t.Errorf("adding an existing member again → %v, want a no-op", err)
+	}
+	if err := e.svc.SetTeamMember(e.wsCtx(e.member), e.member, team.ID, e.member.UserID.UUID, false); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a non-admin changing membership → %v, want ErrPermissionDenied", err)
+	}
+	if _, err := e.svc.PreviewAccess(e.wsCtx(e.member), e.member, "admin", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("a non-admin previewing access → %v, want ErrPermissionDenied", err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, false); err != nil {
+		t.Errorf("removing a member → %v", err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); err != nil {
+		t.Fatalf("re-adding the member: %v", err)
+	}
+	var members int
+	if err := e.owner.QueryRow(context.Background(), `SELECT count(*) FROM team_membership WHERE team_id = $1`, team.ID).Scan(&members); err != nil || members != 1 {
+		t.Errorf("memberships = %d (%v), want 1", members, err)
+	}
+	renamed, err := e.svc.UpdateTeam(ctx, e.admin, team.ID, UpdateTeamInput{Name: strPtr("DACH")})
+	if err != nil || renamed.Name != "DACH" {
+		t.Errorf("rename → %+v %v", renamed, err)
+	}
+	if n := len(e.identityEvents(t, "team.changed", team.ID)); n != 5 {
+		t.Errorf("%d team.changed events, want 5 (created, member_added, member_removed, member_added, renamed)", n)
+	}
+
+	// Preview for a seat that does not exist yet.
+	preview, err := e.svc.PreviewAccess(ctx, e.admin, "rep", []ids.UUID{team.ID})
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if preview.Permissions.RowScope != principal.RowScopeTeam || !preview.Permissions.Allows("deal", principal.ActionRead) {
+		t.Errorf("rep preview = scope %s deal.read %v, want team scope with deal.read", preview.Permissions.RowScope, preview.Permissions.Allows("deal", principal.ActionRead))
+	}
+	if len(preview.Permissions.FieldMasks) != 1 || preview.Permissions.FieldMasks[0].Field != "amount_minor" {
+		t.Errorf("rep preview masks = %+v, want the deal amount mask", preview.Permissions.FieldMasks)
+	}
+	if len(preview.Teams) != 1 || preview.Teams[0].Name != "DACH" {
+		t.Errorf("rep preview teams = %+v, want DACH", preview.Teams)
+	}
+	if _, err := e.svc.PreviewAccess(ctx, e.admin, "rep", []ids.UUID{ids.NewV7()}); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("preview with an unknown team → %v, want ErrNotFound", err)
+	}
+
+	// An invite joins the team on arrival; the member's access says so.
+	invited, _, err := e.svc.InviteUser(ctx, e.admin, InviteUserInput{
+		Email: "new@authz.test", DisplayName: "New Rep", Role: "rep", TeamIDs: []ids.UUID{team.ID},
+	})
+	if err != nil {
+		t.Fatalf("invite with team: %v", err)
+	}
+	access, err := e.svc.UserAccess(ctx, e.admin, invited)
+	if err != nil || len(access.Teams) != 1 || access.Role != "rep" {
+		t.Errorf("invited member's access = %+v %v, want rep on DACH", access, err)
+	}
+	if _, _, err := e.svc.InviteUser(ctx, e.admin, InviteUserInput{
+		Email: "other@authz.test", DisplayName: "Other", Role: "rep", TeamIDs: []ids.UUID{ids.NewV7()},
+	}); err == nil {
+		t.Error("an invite naming an unknown team was accepted")
+	}
+
+	// Archiving keeps the rows; the team stops resolving.
+	if _, err := e.svc.UpdateTeam(ctx, e.admin, team.ID, UpdateTeamInput{Archived: boolPtr(true)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.svc.SetTeamMember(ctx, e.admin, team.ID, e.member.UserID.UUID, true); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("adding to an archived team → %v, want ErrNotFound", err)
+	}
+	// The membership rows survive the archive, and stop resolving: the
+	// member's access names no team until the team is restored.
+	archivedAccess, err := e.svc.UserAccess(ctx, e.admin, invited)
+	if err != nil || len(archivedAccess.Teams) != 0 {
+		t.Errorf("access while the team is archived = %d teams (%v), want none", len(archivedAccess.Teams), err)
+	}
+	if _, err := e.svc.UpdateTeam(ctx, e.admin, team.ID, UpdateTeamInput{Archived: boolPtr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	restoredAccess, err := e.svc.UserAccess(ctx, e.admin, invited)
+	if err != nil || len(restoredAccess.Teams) != 1 {
+		t.Errorf("access after restoring the team = %d teams (%v), want the one", len(restoredAccess.Teams), err)
+	}
+}
+
+func strPtr(s string) *string { return &s }
+func boolPtr(b bool) *bool    { return &b }

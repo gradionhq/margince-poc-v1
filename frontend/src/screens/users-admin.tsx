@@ -3,7 +3,13 @@ import { UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, Button, EmptyState, TextInput } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  EmptyState,
+  TextInput,
+} from "../design-system/atoms";
 import { Callout } from "../design-system/callout";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import { Panel, PanelBody } from "../design-system/panel";
@@ -13,6 +19,8 @@ import { problemMessageOf, QueryGate, throwProblem, useMe } from "./common";
 import "./users-admin.css";
 import { useHoldsAdminRole } from "../app/capability";
 import { isOption } from "../app/options";
+import { useRoster } from "./entityref";
+import { AccessPreviewPanel } from "./users-access";
 import { PasswordLinkModal, usePasswordLink } from "./users-password-link";
 
 type User = components["schemas"]["User"];
@@ -189,7 +197,9 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<Role>("rep");
+  const [teamIds, setTeamIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const teams = useRoster("team", true);
   // Where no email channel exists the invite alone leaves a member who cannot
   // sign in, so the dialog opens straight away and mints the link. The member
   // row keeps its own action, which is what makes a dismissed dialog
@@ -199,10 +209,19 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
   );
   const passwordLink = usePasswordLink();
 
+  // The team set rides as the mutation's variable rather than through the
+  // closure: react-query re-arms a mutation's options in a passive effect,
+  // so a click in that window would otherwise invite with the PREVIOUS
+  // selection — granting or omitting authority the admin did not choose.
   const invite = useMutation({
-    mutationFn: async (): Promise<string> => {
+    mutationFn: async (teams: string[]): Promise<string> => {
       const { data, error: err } = await api.POST("/users", {
-        body: { email: email.trim(), display_name: name.trim(), role },
+        body: {
+          email: email.trim(),
+          display_name: name.trim(),
+          role,
+          team_ids: teams,
+        },
       });
       if (err) {
         throwProblem(err);
@@ -214,6 +233,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
       setEmail("");
       setName("");
       setRole("rep");
+      setTeamIds([]);
       setError(null);
       qc.invalidateQueries({ queryKey: ["users-admin"] });
       if (canIssueLink) {
@@ -239,7 +259,7 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
           onSubmit={(e) => {
             e.preventDefault();
             if (canInvite) {
-              invite.mutate();
+              invite.mutate(teamIds);
             }
           }}
         >
@@ -264,6 +284,35 @@ function InviteForm({ canIssueLink }: Readonly<{ canIssueLink: boolean }>) {
             }}
             options={roleOptions(t)}
           />
+          {/* The teams the member joins on arrival. A team-scoped role with
+              no team edits only its own records, and the preview below says
+              so before the invite goes out. */}
+          <fieldset className="users-invite-teams">
+            <legend className="t-caption">{t("users.teamsLabel")}</legend>
+            {(teams.data ?? []).flatMap((entry) =>
+              "name" in entry ? (
+                <Checkbox
+                  key={entry.id}
+                  className="t-body"
+                  label={entry.name}
+                  checked={teamIds.includes(entry.id)}
+                  onChange={(event) =>
+                    setTeamIds((current) =>
+                      event.target.checked
+                        ? [...current, entry.id]
+                        : current.filter((id) => id !== entry.id),
+                    )
+                  }
+                />
+              ) : (
+                []
+              ),
+            )}
+            {teams.data && teams.data.length === 0 && (
+              <p className="t-small">{t("users.noTeamsYet")}</p>
+            )}
+          </fieldset>
+          <AccessPreviewPanel role={role} teamIds={teamIds} />
           <Button variant="primary" small type="submit" disabled={!canInvite}>
             <UserPlus aria-hidden /> {t("users.invite")}
           </Button>
