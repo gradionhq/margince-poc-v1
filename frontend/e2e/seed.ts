@@ -1112,18 +1112,28 @@ export async function mockApi(
       );
     }
     if (path === "/deals" && method === "GET") {
-      return json(page(deals));
+      // The LIST reflects the writes too. A detail read that shows the advance
+      // while the list still shows the old stage is a fixture disagreeing with
+      // itself, and the board reads the list.
+      return json(
+        page(deals.map((deal) => ({ ...deal, ...dealPatches[deal.id] }))),
+      );
     }
     if (path.startsWith("/deals/") && path.endsWith("/advance")) {
-      // A write answers with the row it wrote, so the version has moved. Echoing
-      // the seed's version would hand the client a stale precondition for its
-      // next write and call it fresh.
-      return json({
-        ...deals[0],
+      // A write is REMEMBERED, not just answered. The handler used to return a
+      // moved stage and version while every later read still served the seed —
+      // so a re-read after an advance handed the client the old version, and the
+      // next write would have sent it back as a precondition the server had
+      // already superseded. The advance is the one write whose whole point is
+      // that the row moved.
+      const advanced = deals.find((deal) => path.includes(deal.id)) ?? deals[0];
+      dealPatches[advanced.id] = {
+        ...dealPatches[advanced.id],
         stage_id: "s4",
         status: "won",
-        version: deals[0].version + 1,
-      });
+        version: (dealPatches[advanced.id]?.version ?? advanced.version) + 1,
+      };
+      return json({ ...advanced, ...dealPatches[advanced.id] });
     }
     if (path.startsWith("/deals/") && path.endsWith("/stakeholders")) {
       return json(page([]));
