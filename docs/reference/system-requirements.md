@@ -1,27 +1,28 @@
 # System requirements
 
-What an installation needs to run. Two deployment shapes are supported:
-**single node** (every service on one host) and **separate nodes** (api /
-worker / web / database on hosts of their own). Both run the same images and
-the same configuration.
+This page tells you what an installation needs. Two deployment shapes are
+possible: **single node** and **separate nodes**. On a single node, all
+services run on one host. With separate nodes, the api, the worker, the web
+server and the database each run on their own host. The two shapes use the
+same images and the same configuration.
 
-The sizing below assumes the AI lanes are bound to a cloud provider. Running a
-model on the installation's own hardware needs substantially more memory and
-possibly a GPU, and is not sized here.
+The sizes below apply when the AI lanes use a cloud provider. A model on the
+installation's own hardware needs much more memory and possibly a GPU. This
+page does not give sizes for that configuration.
 
 ## Software
 
 | Requirement | Notes |
 |---|---|
-| **Postgres 16** with **pgvector** ≥ 0.5.0 | The `vector` extension is not trusted, so a superuser installs it once (`scripts/deploy/db-bootstrap.sql`). |
-| **Redis 7.0 - 7.2** | Streams with consumer groups. **Valkey** is compatible and should work but is not officially tested. |
-| **A TLS-terminating reverse proxy** | api and web must be served under one hostname. |
-| **Correct system clock** | Retention, automation triggers and job scheduling are time-driven. |
-| S3-compatible object store | Optional. Absent, attachments and company logos are unavailable; nothing else changes. |
-| Outbound HTTPS | Optional, per feature. Core CRM, authentication and license validation work fully offline. |
+| **Postgres 16** with **pgvector** ≥ 0.5.0 | The `vector` extension is not trusted. A superuser must install it one time (`scripts/deploy/db-bootstrap.sql`). |
+| **Redis 7.0 to 7.2** | Streams with consumer groups are necessary. **Valkey** is compatible, but we do not test it. |
+| **A reverse proxy that terminates TLS** | Serve the api and the web under one hostname. |
+| **A correct system clock** | Retention, automation triggers and job schedules use the system time. |
+| An S3-compatible object store | Optional. Without an object store, attachments and company logos are not available. All other functions continue. |
+| Outbound HTTPS | Optional, for some features. The core CRM, authentication and license validation operate fully offline. |
 
-The api, worker and web containers hold no persistent local state — all durable
-state is in Postgres, Redis and the object store.
+The api, worker and web containers keep no permanent local state. Postgres,
+Redis and the object store keep all permanent state.
 
 ## Volume tiers
 
@@ -30,15 +31,16 @@ state is in Postgres, Redis and the object store.
 | **Small** | 10,000 | 1,000 | 20,000 |
 | **Mid-market** | 250,000 | 10,000 | 500,000 |
 
-Pick the tier by contact count. The second question is whether AI-powered
-search and retrieval is enabled: the embedding store is roughly twenty times
-the size of the CRM data itself, so it moves the numbers more than the tier
-does. That ratio assumes the default 1536-dimension embedding width; the store
-scales linearly with the configured `dimensions`.
+Select the tier by the number of contacts. Then decide if AI search and
+retrieval is on. The embedding store is approximately 20 times the size of
+the CRM data. Thus this option changes the numbers more than the tier does.
+The ratio applies to the default embedding width of 1536 dimensions. The
+store size increases linearly with the configured `dimensions`.
 
 ## Single node
 
-Everything on one host. Containerized or not makes no difference.
+All services run on one host. Containers are optional. The sizes do not
+change.
 
 | Tier | Retrieval | vCPU | RAM | Disk |
 |---|---|---|---|---|
@@ -47,65 +49,68 @@ Everything on one host. Containerized or not makes no difference.
 | Mid-market | off | 4 | 8 GB | 50 GB |
 | Mid-market | on | 8 | 32 GB | 200 GB |
 
-- **Set `shared_buffers` explicitly.** Postgres defaults assume it owns the
-  machine; here it shares memory with the application processes. Left at a
-  value sized for a dedicated host, the node swaps, and it presents as slow
-  page loads rather than as a misconfiguration.
-- **Restart is downtime.** The api applies migrations at boot, so this shape
-  has no rolling upgrade, and every service shares one failure domain.
+- **Set `shared_buffers` manually.** The Postgres defaults expect a dedicated
+  machine. Here, Postgres shares the memory with the application processes.
+  If the value stays at a dedicated-host size, the node swaps. The symptom is
+  slow page loads, not an error message.
+- **A restart causes downtime.** The api applies the migrations at boot.
+  Thus this shape has no rolling upgrade. All services share one failure
+  domain.
 
 ## Separate nodes
 
 | Node | vCPU | RAM |
 |---|---|---|
-| **Postgres** | 2 (small) – 8 (mid-market) | 4 GB (small) – 32 GB (mid-market, retrieval on) |
-| **api** | 2 | 2 GB per replica |
-| **worker** | 2 | 4 GB per replica |
+| **Postgres** | 2 (small) to 8 (mid-market) | 4 GB (small) to 32 GB (mid-market, retrieval on) |
+| **api** | 2 | 2 GB for each replica |
+| **worker** | 2 | 4 GB for each replica |
 | **web** | 1 | 512 MB |
 | **Redis / Valkey** | 1 | 2 GB |
 
-Database disk follows the single-node table above; the other nodes need none.
+For the database disk, use the single-node table above. The other nodes do
+not need disk space.
 
-- **Put the api in the same availability zone as the database.** Round-trip
-  latency is on the critical path of every page load. Cross-region placement
-  degrades the product and more CPU does not compensate.
-- Redis and the object store must be reachable from both the api and the
-  worker.
+- **Put the api in the same availability zone as the database.** Each page
+  load waits for the round-trip latency. A placement across regions makes the
+  product slow. More CPU does not correct this.
+- Make sure that the api and the worker can connect to Redis and to the
+  object store.
 
 ## Database settings
 
-- **`max_connections`**: allow **40** for one api and one worker, plus **19**
-  per additional api replica and **16** per additional worker replica, plus
-  headroom for maintenance and monitoring sessions.
-- **Connection poolers must run in transaction mode.** The tenant boundary is
-  bound per transaction; statement pooling breaks it, and session pooling
-  wastes the pool.
-- **Provision four times the steady-state data size**, to cover write-ahead
-  logging, bloat and index rebuilds. Size backups on top of that.
-- **Growth is bounded by the retention posture.** The default policy
-  anonymizes and erases aging records on a yearly ladder. An installation
-  configured with `retain_only` never deletes anything and must be sized on
-  its own retention horizon.
+- **`max_connections`**: permit **40** connections for one api and one
+  worker. Add **19** for each additional api replica. Add **16** for each
+  additional worker replica. Add headroom for maintenance and monitoring
+  sessions.
+- **Operate connection poolers in transaction mode.** The tenant boundary
+  binds to one transaction. Statement pooling breaks the boundary. Session
+  pooling wastes the pool.
+- **Provision four times the steady-state data size.** This covers
+  write-ahead logs, bloat and index rebuilds. Add space for backups.
+- **The retention posture limits growth.** The default policy makes aging
+  records anonymous and erases them on a yearly ladder. An installation with
+  `retain_only` never deletes data. Size such an installation on its own
+  retention horizon.
 
 ## Network
 
-api and web sit behind one reverse proxy under **one hostname** — the web
-application, the MCP client handshake and the OAuth consent flow all depend on
-it.
+The api and the web sit behind one reverse proxy with **one hostname**. The
+web application, the MCP client handshake and the OAuth consent flow need
+this.
 
-Outbound access is needed only per feature: the bound AI provider, the FX and
-model-price sources, the Gmail / Microsoft capture connectors, outbound webhook
-subscribers, and the SMTP relay. An air-gapped installation is supported; a
-missing AI key disables the AI lanes and leaves the rest of the product
-working.
+Only some features need outbound access: the AI provider, the FX and
+model-price sources, the Gmail / Microsoft capture connectors, outbound
+webhook subscribers, and the SMTP relay. An air-gapped installation is
+possible. Without an AI key, the AI lanes stop, and the other functions
+continue.
 
 ## Availability
 
-The api and the worker both scale to multiple replicas without configuration:
-concurrent api instances divide the event backlog rather than duplicating it,
-simultaneous starts cannot race the schema migration, and scheduled jobs run
-once cluster-wide regardless of how many workers are up.
+The api and the worker scale to multiple replicas without configuration.
+Concurrent api instances divide the event backlog. They do not duplicate it.
+Simultaneous starts cannot cause a race on the schema migration. Scheduled
+jobs run one time in the cluster, independent of the number of workers.
 
 ## Browsers
 
-Current versions of Chrome, Edge, Firefox and Safari.
+Use a current version of Chrome, Edge, Firefox or Safari.
