@@ -45,7 +45,9 @@ high-risk use.
   `extensions/de/de.go` is the German pack. `scripts/check-no-jurisdiction.sh` fails the build if a jurisdiction
   string appears in core code.
 - Model calls are metered per call and the payloads are captured only on an
-  explicit opt-in — see ADR-0064 and
+  explicit opt-in. Captured payloads live in their own table, separate from the
+  spend meter, so the content can age out on its own schedule without taking
+  the billing history with it; the switch is in
   `backend/internal/platform/deployconfig/deployconfig.go`.
 
 ## History

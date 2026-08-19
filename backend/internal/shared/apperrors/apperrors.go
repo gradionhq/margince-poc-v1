@@ -155,7 +155,7 @@ var (
 var ErrBaseCurrencyLocked = errors.New("base currency is locked by frozen conversion rates")
 
 // ErrRetentionHold is the statutory-restriction sentinel (interfaces.md §0,
-// A165/ADR-0114, A167/ADR-0116): a delete or mutation of a record held under
+// A165/ADR-0114, A167/ADR-0114): a delete or mutation of a record held under
 // a retention obligation, refused for EVERY role including admin because the
 // immutability is a data-layer guarantee no seat clears (DEPACK-AC-5a). It
 // says nobody may, until a date — distinct from ErrPermissionDenied (you may

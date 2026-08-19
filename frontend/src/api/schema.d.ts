@@ -16383,7 +16383,7 @@ export interface components {
                 id: string;
                 name: string;
             }[];
-            /** @description Which fields the erasure emptied on this record (A167/ADR-0116). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values. */
+            /** @description Which fields the erasure emptied on this record (A167/ADR-0114). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values. */
             redacted_fields?: string[];
         };
         /** @description The installation's retention posture (GCS-PARAM-6). */

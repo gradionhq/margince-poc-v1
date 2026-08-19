@@ -43,8 +43,10 @@ keyless
 - `backend/license_test.go` (`TestEveryHandWrittenGoFileCarriesTheLicenseHeader`)
   keeps the BUSL-1.1 SPDX header on every hand-written Go file, which is the
   "do not strip notices" half of honest labeling.
-- `CONTRIBUTING.md` and ADR-0046 govern the contribution path that feeds the
-  reviewed source this conformity claim rests on.
+- `CONTRIBUTING.md` governs the contribution path this conformity claim rests
+  on: every commit carries a `Signed-off-by` trailer under the Developer
+  Certificate of Origin, and an author must be able to explain any line on
+  request, however it was produced.
 
 ## History
 

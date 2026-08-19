@@ -19191,7 +19191,7 @@ type RestrictedRecord struct {
 	// Reason The retention class that holds it (e.g. commercial_correspondence), plus the statutory basis. Never free text from a user.
 	Reason string `json:"reason"`
 
-	// RedactedFields Which fields the erasure emptied on this record (A167/ADR-0116). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values.
+	// RedactedFields Which fields the erasure emptied on this record (A167/ADR-0114). A redacted field and an empty one are otherwise the same absence, and only the first is something the controller must be able to state. Names columns, never values.
 	RedactedFields *[]string `json:"redacted_fields,omitempty"`
 
 	// RestrictedAt When the erasure request was suspended and the record restricted.

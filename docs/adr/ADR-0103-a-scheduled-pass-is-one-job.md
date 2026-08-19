@@ -63,7 +63,10 @@ declaration to express one pass.
   operator disclosure before a spend that deleting the array around it would
   have taken silently.
 - `backend/internal/compose/jobmetrics.go` renders a job's workspace as a
-  metric label, admitted by ADR-0080. That label goes when the fan-out does.
+  metric label. It is the one place a `workspace_id` label is admitted, because
+  the operator question the job queue raises — is one workspace's work backing
+  up — is dashboard-shaped, and one installation serves one organization so the
+  cardinality is bounded. That label goes when the fan-out does.
 
 ## What is not built
 

@@ -7394,7 +7394,7 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
 
-  # ------------------ /dedupe (DH-EXT-1/2, ADR-0062) ------------------------
+  # ------------------------------ /dedupe ---------------------------------
   # The dedupe review queue over dedupe_candidate (DH-DDL-1): confidence-
   # sorted open pairs with their detection-time evidence snapshot (DH-N-8).
   # `merge` executes the owner's merge verb server-side (one merge in the
@@ -20552,7 +20552,7 @@ components:
           # so `login` is not here. `export` stays — the DSR person export is entity-bound.
           # capture skip is NOT here either — it is a system_log 'capture_skip' event.
           # `restrict`/`pin` are the statutory-retention verbs (A165/ADR-0114,
-          # A167/ADR-0116, migration 0287): an erasure shielded a record under the
+          # A167/ADR-0114, migration 0287): an erasure shielded a record under the
           # floor instead of destroying it, and an administrator placed a record
           # under the floor the derivation could not see. `resolve` was in the DDL
           # since 0047 and missing here — a row a strict client could not decode.
@@ -20593,7 +20593,7 @@ components:
         data: { type: array, items: { $ref: '#/components/schemas/FieldHistoryEntry' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
-    # ---- Custom fields (CUSTOM-FIELDS-WIRE-1..5, A46/ADR-0002 Amendment 2) ----
+    # ---------- Custom fields (CUSTOM-FIELDS-WIRE-1..5) ----------------------
     CustomField:
       type: object
       description: |
@@ -22195,7 +22195,7 @@ components:
         redacted_fields:
           type: array
           description: >-
-            Which fields the erasure emptied on this record (A167/ADR-0116).
+            Which fields the erasure emptied on this record (A167/ADR-0114).
             A redacted field and an empty one are otherwise the same absence,
             and only the first is something the controller must be able to
             state. Names columns, never values.

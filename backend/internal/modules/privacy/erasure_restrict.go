@@ -25,7 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// Audit verbs of the restriction lifecycle (0287, A167/ADR-0116 §6): an
+// Audit verbs of the restriction lifecycle (0287, A167/ADR-0114 §6): an
 // erasure shielded a record instead of destroying it; the window elapsed and
 // the sweep completed the suspended erasure.
 const (

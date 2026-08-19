@@ -3,7 +3,7 @@
 
 package activities
 
-// Stamping a deal's correspondence as commercial (A165/ADR-0114, A167/ADR-0116).
+// Stamping a deal's correspondence as commercial (A165/ADR-0114, A167/ADR-0114).
 //
 // This module owns `activity`, so the write lives here; deals calls it through
 // a seam compose injects, because a module never imports a sibling (ADR-0054).

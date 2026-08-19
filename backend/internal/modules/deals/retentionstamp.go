@@ -3,7 +3,7 @@
 
 package deals
 
-// The commercial-correspondence stamp seam (A165/ADR-0114, A167/ADR-0116).
+// The commercial-correspondence stamp seam (A165/ADR-0114, A167/ADR-0114).
 //
 // When a deal reaches a commercial conclusion, the correspondence already
 // filed against it becomes a Handelsbrief and must be shielded from Art. 17

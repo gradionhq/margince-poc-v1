@@ -56,7 +56,7 @@ func correspondenceFloorPredicate(intervalArg, anchorArg int) string {
 	// fails the whole policy — so a single restricted row left in a selector
 	// would stop every later scope, every night, and a compliance engine that
 	// has silently stopped running looks exactly like one with nothing to do
-	// (A167/ADR-0116). The expiry sweep reaches these rows by its own
+	// (A167/ADR-0114). The expiry sweep reaches these rows by its own
 	// selector, which is the only path that may.
 	return `AND a.restricted_at IS NULL
 		  AND NOT (` + handelsbriefShielded(intervalArg, anchorArg) + `)`

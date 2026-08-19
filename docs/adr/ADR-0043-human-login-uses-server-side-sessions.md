@@ -60,6 +60,6 @@ Two claims in the source have not shipped. Multi-factor authentication and
 SAML/OIDC single sign-on are described there as delivered; the identity
 module contains neither, and `GET /auth/capabilities` exists precisely so
 the login UI does not advertise them. The source also says every
-authentication event lands in `audit_log`; ADR-0060 moved the non-record
-events to `system_log`, and `backend/internal/modules/identity/service.go`
-writes the `login` entry there.
+authentication event lands in `audit_log`. `audit_log` records only changes to
+records, so a login — which changes none — goes to `system_log` instead;
+`backend/internal/modules/identity/service.go` writes the `login` entry there.

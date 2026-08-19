@@ -34,7 +34,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// Audit verbs of the controller's two decisions (0287, A167/ADR-0116 §6).
+// Audit verbs of the controller's two decisions (0287, A167/ADR-0114 §6).
 const (
 	actionRelease = "release"
 	actionPin     = "pin"
@@ -282,7 +282,7 @@ func ParseStatedReason(reason string) (StatedReason, error) {
 //
 // The deciding user's DISPLAY NAME is read here and frozen into the evidence,
 // because a deactivated or deleted account must not turn an attributed
-// decision into an anonymous one (A167/ADR-0116 §3). Reading it needs the
+// decision into an anonymous one (A167/ADR-0114 §3). Reading it needs the
 // transaction, so the caller passes one.
 func admitRestrictionDecision(ctx context.Context, tx pgx.Tx, reason StatedReason) (restrictionDecision, error) {
 	actor, ok := principal.Actor(ctx)

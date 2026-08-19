@@ -5,7 +5,7 @@
 
 package integration
 
-// The commercial-correspondence stamp (A165/ADR-0114, A167/ADR-0116).
+// The commercial-correspondence stamp (A165/ADR-0114, A167/ADR-0114).
 //
 // The floor now asks whether an activity is a Handelsbrief — correspondence
 // about an actual commercial transaction — and answers from a stamp written

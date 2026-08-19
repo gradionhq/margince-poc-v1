@@ -87,7 +87,7 @@ const parkedByPrivacyScrub = "content removed by a privacy scrub before this mes
 // scrub that rewrote that would falsify the send log.
 //
 // redacted_fields records which of those columns actually held something
-// (A167/ADR-0116 §4): the row must be able to say "the recipients were
+// (A167/ADR-0114 §4): the row must be able to say "the recipients were
 // removed" as distinct from "there never were any", and only the first is a
 // statement the controller owes the subject. Read from the row's OLD values,
 // which is what an UPDATE's SET list sees.
