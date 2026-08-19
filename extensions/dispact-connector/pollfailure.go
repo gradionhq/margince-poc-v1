@@ -41,7 +41,7 @@ import (
 // rest. Nothing is common to them, so there is no single outage to chase, and the
 // remedy sends the operator to the per-connection classes that do have specific
 // answers.
-func fleetFailure(failed []extension.FailureClass) error {
+func fleetFailure(ctx context.Context, failed []extension.FailureClass) error {
 	cause := fmt.Errorf("dispact: all %d connection(s) failed this tick", len(failed))
 	shared := failed[0]
 	for _, class := range failed[1:] {
@@ -49,7 +49,7 @@ func fleetFailure(failed []extension.FailureClass) error {
 			return extension.Failure(classEveryMemberFailed, cause)
 		}
 	}
-	return dispositionFor(shared, cause)
+	return dispositionFor(ctx, shared, cause)
 }
 
 // pollRetryDelay is how long a tick postpones itself for when NO member could
@@ -60,8 +60,12 @@ func fleetFailure(failed []extension.FailureClass) error {
 // uniqueness window covers, so while it waits the dispatcher's next insert for
 // this workspace collapses into it. The postponement therefore REPLACES the tick
 // it would have raced, and asking for the cadence is asking for exactly the
-// rhythm the connector already has — an outage changes what a tick reports, not
-// how often it runs.
+// rhythm the connector already has. Said
+// exactly: the delay runs from the FAILURE rather than from the schedule, so
+// during an outage the effective interval is the cadence plus however long a tick
+// spends discovering it cannot reach anybody — strictly slower than health, never
+// faster. Slower is the safe direction and the margin is minutes against a
+// retention window of days.
 //
 // It is deliberately NOT a backoff. The cursor did not move, so what a slower
 // poll buys is a later recovery in exchange for one saved request every two
@@ -95,8 +99,26 @@ const pollRetryDelay = 120 * time.Second
 // different reasons is not an outage waiting to clear, it is several problems
 // with several owners, and postponing it would be this unit quietly deciding not
 // to tell any of them.
-func dispositionFor(class extension.FailureClass, cause error) error {
-	if class.Class == classProviderUnavailable.Class {
+//
+// A TICK WHOSE OWN CONTEXT IS DONE IS REFUSED, and this arm is the reason
+// dispositionFor takes a context at all. The classification is still right —
+// nothing was reached — but the disposition is not. A tick that ran out of wall
+// clock did not meet an outage: it met its own window, because there is more work
+// here than the window holds, and every later tick spends the same window and
+// expires in the same place. Postponing that hides a fan-out that can NEVER
+// finish behind a row that looks like it is waiting patiently, with no dead work
+// and no error column anywhere to say otherwise; it needs a wider timeout or a
+// smaller fan-out, and a human to choose. A CANCELLED context is a role shutting
+// down, and postponing that delays the next poll by a whole cadence on every
+// restart.
+// The tick's context is asked rather than the cause, because the cause cannot
+// answer: the transport formats what the HTTP client said as TEXT, so a deadline
+// is not reachable through errors.Is by the time it arrives here. Asking the
+// context is also the more precise question — it separates OUR clock running out
+// from a provider that accepts a connection and then hangs, and only the first is
+// a fact about this installation.
+func dispositionFor(ctx context.Context, class extension.FailureClass, cause error) error {
+	if class.Class == classProviderUnavailable.Class && ctx.Err() == nil {
 		return extension.Reschedule(class, pollRetryDelay, cause)
 	}
 	return extension.Failure(class, cause)

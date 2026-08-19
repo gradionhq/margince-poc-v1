@@ -109,3 +109,47 @@ func TestRescheduleAfterIgnoresAnUnrelatedError(t *testing.T) {
 		t.Fatalf("RescheduleAfter(nil) = (%s, true), want no request", in)
 	}
 }
+
+// TestTheOUTERMOSTWrapperDecidesTheDisposition.
+//
+// Both accessors run their own errors.As from the same error and each takes the
+// FIRST *classifiedFailure in the chain, so they always resolve the same value and
+// the outermost wins for both. Nothing pinned it, and this is the one place where
+// getting it wrong is silent and serious: an implementation that read "through
+// wrapping" literally — hunting the chain for any value with a reschedule request
+// — would turn a rejected credential wrapped around a transient one into a
+// forever-postponement, with every other test in this package still green.
+//
+// The nesting is not hypothetical. A tick classifies at the point it knows, and a
+// caller above it classifies again for the operation as a whole; the outer call is
+// the one that saw everything, which is why it decides both the name and the
+// disposition rather than one each.
+func TestTheOUTERMOSTWrapperDecidesTheDisposition(t *testing.T) {
+	needsAHuman := FailureClass{
+		Class:    "token_rejected",
+		Sentence: "the stored credential was refused",
+		Remedy:   "Re-authorize the connection.",
+	}
+	cause := errors.New("dial tcp: no such host")
+
+	// A plain failure OUTSIDE a postponement: the outer call decided a human is
+	// needed, so the tick fails. This is the arm that must not leak a postponement.
+	outerFails := Failure(needsAHuman, Reschedule(unreachable, time.Minute, cause))
+	if in, asked := RescheduleAfter(outerFails); asked {
+		t.Fatalf("RescheduleAfter = (%s, true) for a failure wrapping a postponement — the inner request must not survive a caller that decided somebody is needed", in)
+	}
+	if class, _ := FailureClassOf(outerFails); class != needsAHuman {
+		t.Fatalf("FailureClassOf = %q, want the outer %q — the name and the disposition must come from the same value", class.Class, needsAHuman.Class)
+	}
+
+	// And the other way round: a postponement outside a plain failure postpones,
+	// under the OUTER class, so neither accessor reads a different value than the
+	// other.
+	outerPostpones := Reschedule(unreachable, time.Minute, Failure(needsAHuman, cause))
+	if _, asked := RescheduleAfter(outerPostpones); !asked {
+		t.Fatal("RescheduleAfter found no request on a postponement wrapping a failure")
+	}
+	if class, _ := FailureClassOf(outerPostpones); class != unreachable {
+		t.Fatalf("FailureClassOf = %q, want the outer %q", class.Class, unreachable.Class)
+	}
+}

@@ -157,9 +157,14 @@ func faultFor(ctx context.Context, kind string, err error) error {
 // enough not to be one and short enough that no unit meaning "as soon as
 // possible" is meaningfully denied.
 //
-// The ceiling sits well above any cadence a connector declares (both shipped
-// units poll at 120s), so clamping is what a mistake meets rather than something
-// an honest caller has to design around.
+// A CALLER STAYING UNDER THE CEILING IS NOT LEFT TO PROSE. It used to say the
+// ceiling "sits well above any cadence a connector declares", which was a claim
+// about one day's tree that nothing enforced — and it hid the inversion it was
+// meant to reassure about, since a unit declaring a cadence above this bound
+// reconciles its delay against that cadence perfectly and then gets clamped to
+// less, polling a refusing provider harder during an outage than in health.
+// backend/pollcadenceparity_test.go reads this bound out of this file and holds
+// every postponing unit under it.
 const (
 	minRescheduleDelay = time.Second
 	maxRescheduleDelay = 15 * time.Minute

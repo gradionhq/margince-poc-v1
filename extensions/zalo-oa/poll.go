@@ -55,7 +55,16 @@ func pollConnection(ctx context.Context, rt extension.Runtime, dial clientFactor
 	}
 	token, current, err := usableToken(ctx, rt, grants, *conn, now())
 	if err != nil {
-		return credentialOutcome(ctx, rt, *conn, err)
+		// ON `current`, NOT on the row this tick read. usableToken answers the
+		// connection as it stands on every one of its error paths — released,
+		// parked, or untouched — and a renewal it attempted has bumped the version
+		// twice (claim, release) with no version predicate of its own. Handing the
+		// stale read to noteFailure means its `WHERE version =` misses, isNoRows
+		// swallows it, and NOTHING is written: no class on the row, no audit row,
+		// no outbox row. That was survivable while every path here failed and left
+		// a dead job to read; it is not survivable now that one of them postpones,
+		// because the row is then the only trail there is.
+		return credentialOutcome(ctx, rt, current, err)
 	}
 	api := dial(token.AccessToken)
 	// The account is re-read every tick rather than trusted from connect time,

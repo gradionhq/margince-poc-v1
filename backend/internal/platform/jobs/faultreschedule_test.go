@@ -56,13 +56,19 @@ func TestATransientFailurePostponesTheTickInsteadOfFailingIt(t *testing.T) {
 	}
 }
 
-// TestAPostponementPublishesNothingIntoTheFailureColumn.
+// TestAPostponementCarriesNoneOfTheCausesTextOutOfTheSeam.
 //
-// River records no attempt error for a snooze, so nothing the cause said should
-// be reachable through what the worker returns either. This is the same
-// obligation the sentence substitution carries on the failing path, checked on
-// the path that has no substitution to do it.
-func TestAPostponementPublishesNothingIntoTheFailureColumn(t *testing.T) {
+// STATED HONESTLY, because the obvious reading over-claims: this cannot fail
+// today. river.JobSnooze drops the cause entirely, so what comes back is River's
+// own fixed string and no assertion about it could go red.
+//
+// It is a REGRESSION GUARD, and the regression is plausible rather than exotic:
+// the failing path in this file wraps its cause (`&fault{sentence, cause}`) so
+// that errors.Is keeps working downstream, and the natural next edit to
+// rescheduleFor is to do the same — `fmt.Errorf("...: %w", err)` around the
+// snooze — which would put a provider's own text back onto a worker's return with
+// nothing in between. That is what this pins.
+func TestAPostponementCarriesNoneOfTheCausesTextOutOfTheSeam(t *testing.T) {
 	t.Cleanup(resetComposedFailureClasses)
 	registerForTest(t, transientClass)
 

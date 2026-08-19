@@ -89,7 +89,7 @@ func pollFleet(ctx context.Context, rt extension.Runtime, dial clientFactory) er
 		// installation's egress, or the provider being down, and a tick that
 		// answered success would leave a fleet-wide outage with no signal
 		// anywhere but the rows.
-		return fleetFailure(failed)
+		return fleetFailure(ctx, failed)
 	}
 	return nil
 }

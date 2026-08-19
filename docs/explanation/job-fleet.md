@@ -378,8 +378,10 @@ plus the unit's own row are the entire trail.
 Both shipped connectors ask for their **dispatcher's own cadence** (120s), and the match is the
 design. A postponed child sits in `scheduled`, one of the states the fan-out's uniqueness window
 covers, so while it waits the dispatcher's next insert for that workspace collapses into it — the
-postponement *replaces* the tick it would have raced. An outage therefore changes what a tick reports,
-not how often it runs.
+postponement *replaces* the tick it would have raced. Said exactly: the delay runs from the *failure*
+rather than from the schedule, so during an outage the effective interval is the cadence plus however
+long a tick spends discovering it cannot reach anybody — strictly slower than health, never faster,
+which is the safe direction against a retention window measured in days.
 
 It is deliberately **not a backoff**, and that is a decision about loss rather than about politeness.
 For these connectors poll liveness is a *data-integrity* concern rather than a freshness one — Zalo
