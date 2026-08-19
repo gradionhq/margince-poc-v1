@@ -11,9 +11,12 @@ package compose
 // X-Approval-Token header. The generated agentPolicies table (from the
 // contract's x-mcp-tool / x-agent-access annotations) is the op→tier map;
 // a mutating route with no entry is REFUSED for agents (fail-closed), and
-// human-only governance operations (approval decisions, consent, DSR,
-// pipeline/stage config) reject an agent outright — an agent may stage a
-// 🟡 action but never approve one, including its own.
+// human-only governance operations (consent, DSR, pipeline/stage config,
+// passport issuance) reject an agent outright — each would let a
+// credential widen what a credential may do. Deciding an approval is not
+// one of them (ADR-0055): a passport answers on its human's authority,
+// bounded by the caps they lent, and never answers the proposal it made
+// itself (approvals.agentMayDecide).
 //
 // Human callers never enter this path: their authority is RBAC at the
 // store, and a human's direct call is itself the approval.
@@ -176,7 +179,8 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
 	if pol.Access != accessTool {
-		// human-only governance (self-approval class) and the
+		// human-only governance (the credential class: lending authority,
+		// recording consent, moving what the tiers read) and the
 		// session/bootstrap machinery: an agent principal is rejected
 		// outright, whatever its scope or seat.
 		httperr.Write(w, r, fmt.Errorf(

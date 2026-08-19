@@ -19,6 +19,8 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"slices"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -30,6 +32,32 @@ import (
 
 // approvalInbox is the tool surface's read/decide door onto the queue.
 type approvalInbox struct{ svc *approvals.Service }
+
+// approvalQueue builds that door, and refuses at BOOT an engine that could
+// decide a kind it cannot release.
+//
+// The failure it prevents has no symptom at the call: approving a held draft on
+// an engine with no executor for it commits the decision, answers the caller
+// success, and leaves the message held forever — the card reads approved and
+// nothing else ever happens. The send-dependent releases are registered late,
+// from the assembled send path, which is precisely the registration a second
+// door onto the same engine forgets (registry.go builds one; applySendPath
+// gives the inbox handlers the other).
+//
+// A panic rather than a refusal at call time, for the reason Registry.Register
+// panics: this is composition wiring, and a deployment that got it wrong should
+// not start.
+func approvalQueue(svc *approvals.Service) approvalInbox {
+	releasable := svc.EffectKinds()
+	for kind := range lateApprovalEffects {
+		if !slices.Contains(releasable, kind) {
+			//craft:ignore panic-in-domain composition-time wiring assertion — fires only while cmd wiring runs, never on a request path
+			panic(fmt.Sprintf("compose: the tool surface would decide %s on an engine that cannot release it — "+
+				"a decision would commit, answer success, and perform nothing", kind))
+		}
+	}
+	return approvalInbox{svc: svc}
+}
 
 // ListApprovals answers the caller's own decidable queue.
 //

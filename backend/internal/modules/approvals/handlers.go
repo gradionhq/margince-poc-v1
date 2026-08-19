@@ -24,23 +24,26 @@ type Handlers struct {
 
 func NewHandlers(svc *Service) Handlers { return Handlers{svc: svc} }
 
-// WithLateEffect registers a follow-on executor for one staging kind after the
-// handlers are already built, taking a builder because most such executors need
-// the very service they are registered on in order to redeem.
+// WithLateEffects hands this surface's service to a caller that registers
+// follow-on executors on it, after the handlers are already built.
 //
-// It exists for an effect whose DEPENDENCIES are not knowable at construction
+// It exists for effects whose DEPENDENCIES are not knowable at construction
 // time. The held-draft release sends through the configured activities store,
-// and that store is assembled from server options applied after this surface
-// is built — registering it early would bind a bare one and quietly send mail
-// with no signature and no unsubscribe header. A wiring that looks present and
-// is under-configured is worse than one that is absent, because nothing fails.
+// and that store is assembled from server options applied after this surface is
+// built — registering it early would bind a bare one and quietly send mail with
+// no signature and no unsubscribe header. A wiring that looks present and is
+// under-configured is worse than one that is absent, because nothing fails.
+//
+// It takes an APPLIER rather than one kind at a time because the same set has to
+// reach a second service: the governed tool surface decides through its own
+// engine, and a kind registered on one of the two is a decision the other marks
+// approved and never performs. One function, called with either service.
 //
 // Effects whose dependencies ARE available at construction time keep using
 // Service.WithEffect at the registration list; this is not a second way to do
 // the same thing.
-func (h Handlers) WithLateEffect(kind string, build func(*Service) ApprovedEffect, check ReleasePrecheck) Handlers {
-	h.svc.WithEffect(kind, build(h.svc))
-	h.svc.WithPrecheck(kind, check)
+func (h Handlers) WithLateEffects(apply func(*Service)) Handlers {
+	apply(h.svc)
 	return h
 }
 

@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -83,8 +84,23 @@ var sendingKinds = map[string]bool{
 	KindScheduledSendHeld: true,
 }
 
-// agentReleaseSpends bounds what a PASSPORT may release, given that
-// actingForAHuman has already admitted it as somebody's agent.
+// ReleaseSends reports whether APPROVING this kind puts a message on the wire at
+// the moment of decision, which is the classification agentMayDecide charges the
+// send cap on.
+//
+// Exported for the composition gate rather than for a caller: this module cannot
+// see which effects the composition root registers, so it cannot tell that a new
+// held-message kind has arrived — and the failure is silent, a credential whose
+// human withheld `send` releasing a send. The census lives where both halves are
+// visible (compose), and this is how it asks.
+func ReleaseSends(kind string) bool { return sendingKinds[kind] }
+
+// agentMayDecide bounds what a PASSPORT may do to one staged proposal, given
+// that actingForAHuman has already admitted it as somebody's agent.
+//
+// Two questions, one place, because they fail the same way if either is missed:
+// a credential must not release what its human did not lend it, and it must not
+// be the thing that confirms its own proposal.
 //
 // A human decides on the strength of their seat and their grants; an agent
 // decides on the strength of a credential a human minted with a fixed set of
@@ -99,10 +115,29 @@ var sendingKinds = map[string]bool{
 //
 // A human principal carries no ScopeSet at all (scopes are a passport's shape,
 // not a seat's), so this answers nothing for them and must not be asked.
-func agentReleaseSpends(p principal.Principal, kind string, approve bool) error {
+func agentMayDecide(p principal.Principal, a row, approve bool) error {
 	if p.Type != principal.PrincipalAgent {
 		return nil
 	}
+	// THE PROPOSER DOES NOT CONFIRM ITS OWN PROPOSAL. A 🟡 call is refused so a
+	// person sees what the agent wanted before it happens; a credential that
+	// could then approve the row it just staged and re-issue the call has walked
+	// through the tier by itself, and the confirmation was of nothing.
+	//
+	// Only the release. Rejecting a proposal you made discards it, which is the
+	// one answer that cannot escalate — an agent that changes its mind should be
+	// able to take its own request off somebody's desk rather than leave it
+	// there.
+	//
+	// It binds the CREDENTIAL and not the person, which is what makes it a rule
+	// rather than an obstacle: the same human answers this in the app, or on a
+	// credential they had to be present to mint. What it stops is the loop that
+	// needs nobody at all.
+	if approve && a.PassportID != nil && p.PassportID != ids.Nil && a.PassportID.UUID == p.PassportID {
+		return fmt.Errorf("this credential proposed the action, so it does not also release it — "+
+			"the person it acts for answers it in the CRM: %w", apperrors.ErrPermissionDenied)
+	}
+	kind := a.Kind
 	// A step-up is a question ABOUT this credential — how much of what it may
 	// already read it may be handed (§2.4) — and it is the one decision no
 	// on_behalf_of makes safe to delegate. The window exists because a human set

@@ -168,10 +168,6 @@ func (seamProbeLifecycle) EnrichCompany(context.Context, ids.UUID, string, Enric
 	return nil, errSeamReached
 }
 
-// idProbeDispatcher is the whole product surface behind the real dispatcher,
-// with the seam probe underneath. fullRegistry passes nil seams, which is
-// enough to read specs and panics the moment a handler runs; this walk runs
-// handlers.
 // seamProbeInbox answers every queue door by reaching its seam, so a walk that
 // runs handlers proves the arguments got there rather than stopping short.
 type seamProbeInbox struct{}
@@ -192,6 +188,10 @@ func (seamProbeInbox) DecideApprovalBundle(context.Context, ids.UUID, bool, stri
 	return nil, errSeamReached
 }
 
+// idProbeDispatcher is the whole product surface behind the real dispatcher,
+// with the seam probe underneath. fullRegistry passes nil seams, which is
+// enough to read specs and panics the moment a handler runs; this walk runs
+// handlers.
 func idProbeDispatcher(t *testing.T) *Dispatcher {
 	t.Helper()
 	r := NewRegistry(nil, auth.NewGate(fullSeatAuthority{}))

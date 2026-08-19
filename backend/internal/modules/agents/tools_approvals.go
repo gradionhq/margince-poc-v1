@@ -160,6 +160,9 @@ func (t listApprovalsTool) Handle(ctx context.Context, in json.RawMessage) (json
 	// Converted rather than copied field by field: the wire shape and the seam's
 	// query are the same four members, and a conversion cannot silently drop the
 	// fifth somebody adds to one of them.
+	if err := knownStatus(args.Status); err != nil {
+		return nil, err
+	}
 	page, err := t.inbox.ListApprovals(ctx, ApprovalQuery(args))
 	if err != nil {
 		return nil, err
@@ -300,6 +303,28 @@ func (t decideBundleTool) Handle(ctx context.Context, in json.RawMessage) (json.
 		members = []DecidedMember{}
 	}
 	return json.Marshal(decideBundleAnswer{Members: members})
+}
+
+// knownStatus refuses a filter this queue has no such thing as.
+//
+// An unknown status is not an empty queue, and that is the whole reason it
+// cannot be passed through: the answer to a filter nobody serves is
+// `{"approvals":[]}`, which this tool's own handler tells a caller to read as
+// "nothing is waiting". A model asking for `expired` — a word the surface hands
+// back on a lapsed item — would be told the queue is clear.
+//
+// Checked here rather than trusted to the schema's enum: that enum is what a
+// CLIENT validates against, and this surface is reachable by callers that never
+// read it.
+func knownStatus(status string) error {
+	switch status {
+	case "", "pending", "approved", "rejected":
+		return nil
+	default:
+		return &BadArgsError{Cause: fmt.Errorf(
+			"`status` is %q; it is pending, approved or rejected. A proposal that lapsed reads as "+
+				"expired among the pending ones — it is not a filter of its own", status)}
+	}
 }
 
 // verdict reads the one argument that decides which way this call goes.

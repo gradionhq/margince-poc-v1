@@ -139,16 +139,9 @@ func (s *Server) applySendPath(pool *pgxpool.Pool) {
 		WithRecipientDirectory(recipientDirectory{}).
 		WithSendAuthority(send.SendAuthority).
 		WithDraftOutcome(send.DraftOutcome)
-	decisions := s.approvalsHandlers
-	for kind, late := range lateApprovalEffects {
-		store, gate := sendStore(pool, send), consentGateFor(pool)
-		decisions = decisions.WithLateEffect(kind,
-			func(svc *approvals.Service) approvals.ApprovedEffect {
-				return late.effect(svc, store, gate, send.Delivery)
-			},
-			late.precheck(store, gate, send.Delivery))
-	}
-	s.approvalsHandlers = decisions
+	s.approvalsHandlers = s.approvalsHandlers.WithLateEffects(func(svc *approvals.Service) {
+		registerLateApprovalEffects(svc, pool, send)
+	})
 }
 
 // consentGateFor is the ONE spelling of the send path's consent authority.
@@ -189,6 +182,24 @@ type lateApprovalEffect struct {
 // applySendPath registers exactly these kinds and the version-pin census gate
 // enumerates exactly these keys. A waiver for a late-registered kind would
 // otherwise read as a waiver for a kind nothing stages.
+// registerLateApprovalEffects puts the send-dependent releases onto ONE approvals
+// engine, and is called once per engine that can DECIDE.
+//
+// There are two of those, not one: the inbox handlers and the governed tool
+// surface, which composes its own engine (registry.go). A kind registered on
+// only one of them is the silent half-effect this whole file exists to prevent,
+// wearing a different face — the decision commits, the card reads approved, and
+// the message it was holding is never sent. So the loop lives here and the
+// callers differ only in which engine they hand it.
+func registerLateApprovalEffects(svc *approvals.Service, pool *pgxpool.Pool, send SendPath) {
+	send = send.withPoolDefaults(pool)
+	store, gate := sendStore(pool, send), consentGateFor(pool)
+	for kind, late := range lateApprovalEffects {
+		svc.WithEffect(kind, late.effect(svc, store, gate, send.Delivery))
+		svc.WithPrecheck(kind, late.precheck(store, gate, send.Delivery))
+	}
+}
+
 var lateApprovalEffects = map[string]lateApprovalEffect{
 	automation.HeldDraftKind: {
 		effect:   heldDraftReleaseEffect,

@@ -123,10 +123,13 @@ func answered[T any](t *testing.T, out string) T {
 	return envelope.Data
 }
 
-// The whole round trip on one credential.
+// The whole round trip, on the credentials it really takes: the one that
+// proposed the action sees it and reads it, a SECOND one answers it, and the
+// first redeems what was released. The split is the rule, not the harness — a
+// credential does not confirm its own proposal.
 func TestAStagedCallIsSeenAndAnsweredFromTheConversationThatStagedIt(t *testing.T) {
 	q := setupQueue(t)
-	invoke := q.invoker(t, q.mintPassport(t, "deciding agent", "read", "write"))
+	invoke := q.invoker(t, q.mintPassport(t, "proposing agent", "read", "write"))
 	personID, approvalID := q.stageAnArchive(t, invoke, "Queue Subject")
 
 	// SEE IT. The proposal the agent could not perform is in the queue it can
@@ -183,9 +186,17 @@ func TestAStagedCallIsSeenAndAnsweredFromTheConversationThatStagedIt(t *testing.
 		t.Error("read_approval answered without the change it proposes — there is nothing to decide from")
 	}
 
-	// ANSWER IT, and the answer is the PERSON's: decided_by is the human who
-	// lent the credential, never the credential.
-	if _, err = invoke("decide_approval", `{"staged_action_id":"`+approvalID.String()+`","decision":"approve"}`); err != nil {
+	// THE PROPOSER DOES NOT ANSWER IT. Approving the row it staged would be the
+	// confirm-first act performed on itself.
+	answer := `{"staged_action_id":"` + approvalID.String() + `","decision":"approve"}`
+	if _, err = invoke("decide_approval", answer); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("the proposer approving its own proposal → %v, want ErrPermissionDenied", err)
+	}
+
+	// ANSWER IT on another of the same human's credentials, and the answer is
+	// the PERSON's: decided_by is the human who lent it, never the credential.
+	decider := q.invoker(t, q.mintPassport(t, "deciding agent", "read", "write"))
+	if _, err = decider("decide_approval", answer); err != nil {
 		t.Fatalf("decide_approval → %v", err)
 	}
 	var status string
@@ -203,8 +214,9 @@ func TestAStagedCallIsSeenAndAnsweredFromTheConversationThatStagedIt(t *testing.
 		t.Error("the decision was recorded against somebody other than the person who lent the passport")
 	}
 
-	// REDEEM IT. Approving does not perform the agent's own staged call — the
-	// agent re-issues it — and that is what the tool's copy tells a caller.
+	// REDEEM IT, on the credential that staged it: approving does not perform an
+	// agent's staged call, the agent re-issues it, and the approval fits only
+	// the caller it was staged by.
 	if _, err = invoke("archive_record",
 		`{"record_type":"person","id":"`+personID+`","approval_id":"`+approvalID.String()+`"}`); err != nil {
 		t.Fatalf("the released retry → %v", err)

@@ -113,7 +113,7 @@ func (s *Service) decideBundleInTx(ctx context.Context, tx pgx.Tx, p principal.P
 	if err != nil {
 		return nil, err
 	}
-	mine, err := decidableMembers(ctx, tx, p, rows)
+	mine, err := decidableMembers(ctx, tx, p, rows, approve)
 	if err != nil {
 		return nil, err
 	}
@@ -146,14 +146,22 @@ func (s *Service) decideBundleInTx(ctx context.Context, tx pgx.Tx, p principal.P
 // the same predicate the inbox and a single decision use. A member outside their
 // authority is invisible here exactly as it is there — never a refusal, which
 // would confirm it exists.
-func decidableMembers(ctx context.Context, tx pgx.Tx, p principal.Principal, rows []row) ([]row, error) {
+//
+// "Could decide one at a time" includes what a PASSPORT may spend on it, which
+// is why the verdict is a parameter. Left to the decision itself that refusal
+// would leave the transaction — every sibling verdict rolled back over one
+// member the caller was never going to release. A bundle of five corrections
+// and one held message, answered by a credential carrying no send cap, decides
+// the five and leaves the message where it was, which is what deciding "on its
+// own terms" means everywhere else in this file.
+func decidableMembers(ctx context.Context, tx pgx.Tx, p principal.Principal, rows []row, approve bool) ([]row, error) {
 	mine := make([]row, 0, len(rows))
 	for _, a := range rows {
 		visible, err := decidable(ctx, tx, p, a)
 		if err != nil {
 			return nil, err
 		}
-		if visible {
+		if visible && agentMayDecide(p, a, approve) == nil {
 			mine = append(mine, a)
 		}
 	}
