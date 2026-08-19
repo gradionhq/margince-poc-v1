@@ -1220,6 +1220,58 @@ export const de = {
   "lead.source.import": "Import",
   "lead.source.crawl": "Webrecherche",
   "lead.source.unknown": "Unbekannte Quelle",
+  "lead.sourceFromConnector":
+    "Von einer Integration geschrieben — behält ihre eigene Quelle.",
+  "leadSources.title": "Lead-Quellen",
+  "leadSources.sub":
+    "Woher Leads kommen. Wird im Formular „Neuer Lead“, als Filter und vom Score verwendet.",
+  "leadSources.readOnly": "Nur ein Admin- oder Ops-Sitz ändert diese Liste.",
+  "leadSources.labelFor": "Bezeichnung der Quelle {key}",
+  "leadSources.intentFor": "Gewichtung von {label}",
+  "leadSources.intent": "Gewichtung",
+  "leadSources.intent.high": "Hohes Interesse",
+  "leadSources.intent.neutral": "Neutral",
+  "leadSources.intent.low": "Geringes Interesse",
+  "leadSources.intentHint":
+    "Hoch gibt Punkte auf den Score, Gering zieht ab; eine Änderung greift bei der nächsten Neuberechnung jedes Leads.",
+  "leadSources.leadCount": "{count} Leads",
+  "leadSources.builtIn": "vorgegeben",
+  "leadSources.builtInKept":
+    "Vorgegebene Quellen lassen sich umbenennen und abschalten, nicht entfernen.",
+  "leadSources.inUse":
+    "{count} Leads nutzen diese Quelle — stattdessen abschalten.",
+  "leadSources.deactivateInstead": "stattdessen abschalten",
+  "leadSources.active": "Aktiv",
+  "leadSources.remove": "Entfernen",
+  "leadSources.removeTitle": "Diese Quelle entfernen?",
+  "leadSources.removeBody":
+    "„{label}“ wird von keinem Lead genutzt und verschwindet aus der Liste.",
+  "leadSources.newLabel": "Neue Quelle",
+  "leadSources.newPlaceholder": "Messe",
+  "leadSources.add": "Quelle hinzufügen",
+  "leadSources.discoveredSub":
+    "Aus Integrationen und Importen — Werte, die auf Leads stehen, aber noch nicht in der Liste sind. Hinzufügen gibt ihnen Bezeichnung und Gewichtung.",
+  "leadSources.adopt": "In die Liste aufnehmen",
+  "leadReasons.title": "Disqualifizierungsgründe",
+  "leadReasons.sub":
+    "Was beim Verwerfen eines Leads gewählt wird. Der Grund steht am Lead und ist filterbar.",
+  "leadReasons.labelFor": "Bezeichnung des Grundes {label}",
+  "leadReasons.leadCount": "{count} Leads",
+  "leadReasons.inUse":
+    "{count} Leads tragen diesen Grund — stattdessen abschalten.",
+  "leadReasons.newLabel": "Neuer Grund",
+  "leadReasons.add": "Grund hinzufügen",
+  "leadReasons.removeTitle": "Diesen Grund entfernen?",
+  "leadReasons.removeBody":
+    "„{label}“ wird von keinem Lead genutzt und verschwindet aus der Liste.",
+  "leadHandling.title": "Lead-Bearbeitung",
+  "leadHandling.sub": "Wie diese Installation mit einem neuen Lead umgeht.",
+  "leadHandling.firstResponse": "Ziel für die erste Antwort",
+  "leadHandling.firstResponseHint":
+    "Standardmäßig aus. An: jeder offene Lead trägt eine Antwortfrist, die Liste bekommt die Ansicht „Überfällig“, und überfällige Leads stehen zuerst.",
+  "leadHandling.targetMinutes": "Ziel (Minuten)",
+  "leadHandling.targetHint":
+    "Wie lange ein Lead nach Zuweisung (oder Anlage) auf die erste Antwort warten darf. 15 Minuten bis 7 Tage.",
   "lead.boardCount": "{count} Leads",
   "lead.duplicateFound":
     "Ein Lead mit dieser E-Mail oder diesem LinkedIn-Profil existiert bereits.",

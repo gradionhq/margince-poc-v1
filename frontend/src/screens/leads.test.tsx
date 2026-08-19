@@ -45,6 +45,32 @@ afterEach(() => {
   window.location.hash = "";
 });
 
+// The six shipped lead sources, as GET /lead-sources serves them on a fresh
+// installation.
+const SHIPPED_LEAD_SOURCES = {
+  data: [
+    ["manual", "Created manually", "neutral"],
+    ["inbound", "Inbound", "high"],
+    ["webform", "Web form", "high"],
+    ["referral", "Referral", "high"],
+    ["import", "Import", "low"],
+    ["crawl", "Web research", "low"],
+  ].map(([key, label, intent], i) => ({
+    id: `src-${key}`,
+    key,
+    label,
+    intent,
+    sort_order: (i + 1) * 10,
+    active: true,
+    system: true,
+    lead_count: 0,
+    version: 1,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  })),
+  discovered: [],
+};
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -794,6 +820,20 @@ function stubFetch(
         sections: [],
       });
     }
+    // The administered vocabularies, as a fresh installation ships them:
+    // the screens read their labels and pick lists off these.
+    if (request.method === "GET" && request.url.endsWith("/v1/lead-sources")) {
+      return jsonResponse(SHIPPED_LEAD_SOURCES);
+    }
+    if (
+      request.method === "GET" &&
+      request.url.endsWith("/v1/leads/settings")
+    ) {
+      return jsonResponse({
+        first_response_enabled: true,
+        first_response_target_minutes: 240,
+      });
+    }
     const answer = await responder(request.url, request.method, request);
     if (request.url.endsWith("/v1/me")) {
       const body: unknown = await answer.clone().json();
@@ -1428,6 +1468,21 @@ function stubFetchWithMe(
         return jsonResponse({
           anchor: { type: "lead", id: "l-1" },
           sections: [],
+        });
+      }
+      if (
+        request.method === "GET" &&
+        request.url.endsWith("/v1/lead-sources")
+      ) {
+        return jsonResponse(SHIPPED_LEAD_SOURCES);
+      }
+      if (
+        request.method === "GET" &&
+        request.url.endsWith("/v1/leads/settings")
+      ) {
+        return jsonResponse({
+          first_response_enabled: true,
+          first_response_target_minutes: 240,
         });
       }
       const answer = await responder(request.url, request.method, request);

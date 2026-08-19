@@ -192,6 +192,16 @@ func TestLeadSourceGovernsHumanWritesAndTheScore(t *testing.T) {
 		}
 	}
 
+	// The list filter names the family and finds the connector's leads.
+	family := "connector:apollo"
+	listed, _, err := e.store.ListLeads(e.ctx, ListLeadsInput{Source: &family})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || ids.UUID(listed[0].Id) != ids.UUID(connectorLead.Id) {
+		t.Errorf("source=%s lists %d leads, want the one connector lead still carrying the family", family, len(listed))
+	}
+
 	// The counts are a lead read, and a lead is customer identity: an actor
 	// scoped to their own rows still reads every lead in the workspace, so
 	// owning the leads elsewhere changes nothing about what they count.

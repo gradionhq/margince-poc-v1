@@ -17,7 +17,7 @@ import {
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import { FieldGrid, FieldRow } from "../design-system/fieldgrid";
-import { InlineText } from "../design-system/inlinechoice";
+import { InlineChoice, InlineText } from "../design-system/inlinechoice";
 import { Panel, PanelBody } from "../design-system/panel";
 import { useRecordTimeline } from "../design-system/recordtimeline";
 import { Select } from "../design-system/select";
@@ -44,13 +44,11 @@ import { RecordHistoryTab, useRecordHistory } from "./history";
 import { LeadBulkBar } from "./leadbulk";
 import {
   FirstResponseLine,
-  LEAD_SOURCES,
   LEAD_STATUS_FILTER_OPTIONS,
   LeadBoard,
   SlaBadge,
   StatusBadge,
   scoreTone,
-  sourceLabel,
 } from "./leadpresentation";
 import { LeadManualSignals } from "./leadsignals";
 import {
@@ -81,6 +79,13 @@ type CreateLeadRequest = components["schemas"]["CreateLeadRequest"];
 type UpdateLeadRequest = components["schemas"]["UpdateLeadRequest"];
 type PromoteLeadRequest = components["schemas"]["PromoteLeadRequest"];
 type PromoteTrigger = PromoteLeadRequest["trigger"];
+
+import {
+  sourceFilterOptions,
+  sourceLabelFor,
+  sourcePickOptions,
+  useLeadSources,
+} from "./leadsources";
 
 export { scoreTone } from "./leadpresentation";
 
@@ -308,6 +313,7 @@ function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
   // The board writes status, which the mirror refuses (a lead's lifecycle is
   // not a field write-back), so overlay gets the table and no toggle.
   const [view, setView] = useState<"table" | "board">("table");
+  const sources = useLeadSources();
   const ownerOptions = [
     { value: viewerId, label: t("lead.assignToMe") },
     ...(roster.data ?? [])
@@ -375,10 +381,9 @@ function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
                 label: "lead.source",
                 type: "select",
                 required: true,
-                options: LEAD_SOURCES.map((source) => ({
-                  value: source.value,
-                  label: t(source.label),
-                })),
+                // The active administered list, in the administrator's order;
+                // "Created manually" is the default because it is first.
+                options: sourcePickOptions(sources.data?.data, null, t),
               },
               ...cf.formFields,
             ]}
@@ -462,7 +467,9 @@ function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
             key: "source",
             header: t("lead.source"),
             cell: (lead: Lead) => (
-              <span className="t-caption">{sourceLabel(lead.source, t)}</span>
+              <span className="t-caption">
+                {sourceLabelFor(lead, sources.data?.data, t)}
+              </span>
             ),
           },
           ownerColumn<Lead>(t),
@@ -524,7 +531,7 @@ function LeadsWorkbench({ viewerId }: Readonly<{ viewerId: string }>) {
             key: "source",
             label: "lead.filterSource",
             allLabel: "lead.filterSourceAll",
-            options: LEAD_SOURCES.map((source) => ({ ...source })),
+            options: sourceFilterOptions(sources.data, t),
           },
         ]}
         // The one ownership dial every record list carries (DM-VOCAB-OWN-1):
@@ -1060,6 +1067,8 @@ function LeadIdentityFields({
   readOnlyReason?: string;
 }>) {
   const t = useT();
+  const sources = useLeadSources();
+  const fromConnector = (lead.source ?? "").startsWith("connector:");
   // One write at a time: a second row opened while a save is in flight would
   // carry the If-Match the first write is about to make stale.
   const canEdit = !readOnlyReason && !saving;
@@ -1110,7 +1119,20 @@ function LeadIdentityFields({
             )}
           </FieldRow>
           <FieldRow label={t("lead.source")}>
-            {sourceLabel(lead.source, t)}
+            <InlineChoice
+              label={t("lead.source")}
+              hideLabel
+              value={lead.source ?? ""}
+              options={sourcePickOptions(sources.data?.data, lead.source, t)}
+              // A connector's value stays where the connector put it; the
+              // administered list is what a human may pick from.
+              canEdit={canEdit && !fromConnector}
+              readOnlyReason={
+                fromConnector ? t("lead.sourceFromConnector") : readOnlyReason
+              }
+              render={() => sourceLabelFor(lead, sources.data?.data, t)}
+              onSave={(next) => save({ source: next })}
+            />
           </FieldRow>
           {lead.project_id && (
             <FieldRow label={t("lead.project")}>
@@ -1283,7 +1305,7 @@ function LeadBadges({ lead }: Readonly<{ lead: Lead }>) {
       {lead.score_override_reason && <Badge>{t("lead.overriddenBadge")}</Badge>}
       <StatusBadge status={lead.status} />
       {lead.company_name && <Badge>{lead.company_name}</Badge>}
-      {lead.source && <Badge>{sourceLabel(lead.source, t)}</Badge>}
+      {lead.source && <Badge>{sourceLabelFor(lead, undefined, t)}</Badge>}
       {terminal && <Badge tone={terminal.tone}>{t(terminal.label)}</Badge>}
     </div>
   );

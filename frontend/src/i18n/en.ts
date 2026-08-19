@@ -1237,6 +1237,57 @@ export const en = {
   "lead.source.import": "Import",
   "lead.source.crawl": "Web research",
   "lead.source.unknown": "Unknown source",
+  "lead.sourceFromConnector":
+    "Written by a connector — it keeps its own source.",
+  "leadSources.title": "Lead sources",
+  "leadSources.sub":
+    "Where leads come from. Used in the New lead form, as a filter, and by the score.",
+  "leadSources.readOnly": "Only an admin or ops seat changes this list.",
+  "leadSources.labelFor": "Label of source {key}",
+  "leadSources.intentFor": "Intent of {label}",
+  "leadSources.intent": "Intent",
+  "leadSources.intent.high": "High interest",
+  "leadSources.intent.neutral": "Neutral",
+  "leadSources.intent.low": "Low interest",
+  "leadSources.intentHint":
+    "High adds points to the score, Low subtracts; a change applies on each lead's next rescore.",
+  "leadSources.leadCount": "{count} leads",
+  "leadSources.builtIn": "built-in",
+  "leadSources.builtInKept":
+    "Built-in sources can be renamed and switched off, not removed.",
+  "leadSources.inUse": "{count} leads use this source — switch it off instead.",
+  "leadSources.deactivateInstead": "switch off instead",
+  "leadSources.active": "Active",
+  "leadSources.remove": "Remove",
+  "leadSources.removeTitle": "Remove this source?",
+  "leadSources.removeBody":
+    '"{label}" is not used by any lead and will disappear from the list.',
+  "leadSources.newLabel": "New source",
+  "leadSources.newPlaceholder": "Trade show",
+  "leadSources.add": "Add source",
+  "leadSources.discoveredSub":
+    "From integrations and imports — values that live on leads but are not in the list yet. Add one to give it a label and a weight.",
+  "leadSources.adopt": "Add to list",
+  "leadReasons.title": "Disqualification reasons",
+  "leadReasons.sub":
+    "What a rep picks when a lead is dropped. The reason shows on the lead and can be filtered on.",
+  "leadReasons.labelFor": "Label of reason {label}",
+  "leadReasons.leadCount": "{count} leads",
+  "leadReasons.inUse":
+    "{count} leads carry this reason — switch it off instead.",
+  "leadReasons.newLabel": "New reason",
+  "leadReasons.add": "Add reason",
+  "leadReasons.removeTitle": "Remove this reason?",
+  "leadReasons.removeBody":
+    '"{label}" is not used by any lead and will disappear from the list.',
+  "leadHandling.title": "Lead handling",
+  "leadHandling.sub": "How this installation treats a new lead.",
+  "leadHandling.firstResponse": "First-response target",
+  "leadHandling.firstResponseHint":
+    "Off by default. On, every open lead carries a reply deadline, the list gains the Overdue view, and overdue leads sort first.",
+  "leadHandling.targetMinutes": "Target (minutes)",
+  "leadHandling.targetHint":
+    "How long a lead may wait for its first reply once it is routed (or created). 15 minutes to 7 days.",
   "lead.boardCount": "{count} leads",
   "lead.duplicateFound":
     "A lead with this email or LinkedIn profile already exists.",

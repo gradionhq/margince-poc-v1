@@ -101,6 +101,11 @@ import { ImportCard } from "./import";
 import { InstallationSettingsCard } from "./installation-settings";
 import { ProviderCard } from "./integrations-provider";
 import { JobHealthCard } from "./jobhealth";
+import {
+  LeadDisqualifyReasonsCard,
+  LeadHandlingCard,
+  LeadSourcesCard,
+} from "./leadvocab";
 import { LicenseCard } from "./license";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
@@ -390,6 +395,9 @@ function DataModelTab() {
     <>
       <CustomFieldsAdmin />
       <PipelinesCard />
+      <LeadSourcesCard />
+      <LeadDisqualifyReasonsCard />
+      <LeadHandlingCard />
       <ProductsAdmin />
       <OfferTemplatesAdmin />
     </>
