@@ -57,7 +57,12 @@ func setupQuery(t *testing.T) *queryEnv {
 // record type the caller cannot read is no hop at all. It is declared here
 // rather than widened in SearchEnv: the suites riding that fixture assert what
 // a reader SEES, and a grant added for this one would quietly widen theirs.
-var queryObjects = []string{"person", "organization", "deal", "lead", "project", "activity"}
+//
+// `relationship` is here for the same reason and is not a record type: it is
+// the RBAC object governing the EDGE a join-table hop reads, and without it
+// TestEveryPublishedRelationExecutes would quietly stop covering the
+// employment and stakeholder hops rather than fail.
+var queryObjects = []string{"person", "organization", "deal", "lead", "project", "activity", "relationship"}
 
 func queryGrants() map[string]principal.ObjectGrant {
 	grants := map[string]principal.ObjectGrant{}

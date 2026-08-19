@@ -25,6 +25,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // joinTables declares the tables that carry an edge between two searchable
@@ -49,9 +52,11 @@ var joinTables = []joinTable{
 	// arms cannot read. Those rows stay untraversable, which is stated here and
 	// gated by TestAReferenceNamedForItsRoleYieldsNoHop rather than left to be
 	// rediscovered.
-	{table: "relationship", hub: personRef},
+	{table: "relationship", hub: personRef, object: objectRelationship},
 	// activity_id is NOT NULL and exactly one arm is set, which the table's
 	// own activity_link_shape CHECK enforces arm by arm (core 0008, 0038).
+	// No object of its own: a link is not a record, and reading one discloses
+	// only the two records it names — both of which the hop already gates.
 	{table: "activity_link", hub: "activity_id"},
 }
 
@@ -59,6 +64,12 @@ var joinTables = []joinTable{
 // The linter asks for the constant; what makes it worth having is that a
 // misspelling in the hub declaration would silently derive no hops at all.
 const personRef = entityPerson + relationSuffix
+
+// objectRelationship is the RBAC object governing the employment and
+// stakeholder edges. Named here rather than imported: a module never imports a
+// sibling, and TestEveryJoinTableThatIsAnRBACObjectDeclaresIt holds this
+// against identity's own list so the two cannot drift.
+const objectRelationship = "relationship"
 
 // The two lifecycle columns a join table may carry, spelled once because the
 // derivation reads them and the statement names them.
@@ -85,6 +96,17 @@ const (
 type joinTable struct {
 	table string
 	hub   string
+	// object is the RBAC object that governs READING this edge, empty when the
+	// table is not an object in its own right.
+	//
+	// It is not the same question as the two endpoints' own grants, which is
+	// why gating those is not enough: `relationship` is a first-class object
+	// precisely because an edge discloses its endpoints as a PAIR. The people
+	// module says so where it gates the same read — "reading an edge discloses
+	// its endpoints, which is what `relationship` read governs" — and a
+	// traversal that skipped it would answer "who works at Acme" for a role
+	// that is refused the employment list on every other surface.
+	object string
 }
 
 // notAnEdge records the OTHER tables carrying two record references, and why
@@ -156,6 +178,13 @@ func joinRelations(ctx context.Context, schema *schemaReads, entity string) ([]R
 	}
 	var relations []Relation
 	for _, join := range joinTables {
+		// Dropped from the VOCABULARY rather than refused at execution, so a
+		// caller who may not read this edge sees the same surface as one for
+		// whom the hop never existed — the existence-hiding every other refusal
+		// on this path keeps.
+		if join.object != "" && auth.Require(ctx, join.object, principal.ActionRead) != nil {
+			continue
+		}
 		stored, err := schema.ofTable(ctx, join.table)
 		if err != nil {
 			return nil, err
@@ -267,13 +296,14 @@ var irregularPlurals = map[string]string{entityActivity: "activities"}
 
 // mergeRelations keeps ONE relation per name, and a direct edge wins.
 //
-// The collision is real and not hypothetical: `organization` reaches `deals`
-// both as the inverse of `deal.organization_id` and through `relationship`,
-// which carries a column for each. They are not the same question — the scalar
-// is the deal's own account, the join is a stakeholder edge — and the scalar is
-// the one a caller naming `deals` means. Publishing both under one name would
-// make which of them ran depend on the order the derivations happened to run
-// in, which is the kind of answer that is right until somebody sorts a slice.
+// No pair collides on today's schema, and that is a property of the hub rule
+// rather than of the namespace: an arm reaches only the hub, so `relationship`
+// never offers `organization → deals` beside the scalar edge of that name. This
+// stays because the two derivations share ONE namespace and neither knows what
+// the other produced — the day a second hub, a same-type edge or a new join
+// table makes a name contested, which of them ran would otherwise depend on the
+// order the derivations happened to run in. The direct edge wins because it is
+// the record's own declared reference, which is what a caller naming it means.
 func mergeRelations(direct, joined []Relation) []Relation {
 	taken := make(map[string]bool, len(direct))
 	for _, relation := range direct {

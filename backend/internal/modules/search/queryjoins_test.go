@@ -42,10 +42,13 @@ var joinSchema = map[string][]StoredColumn{
 func relationsOf(t *testing.T, entity string) map[string]Relation {
 	t.Helper()
 	resolver := NewVocabularyResolver().WithColumnReader(stubColumns{tables: joinSchema})
-	readable := make([]string, 0, len(contractRecords))
+	readable := make([]string, 0, len(contractRecords)+1)
 	for record := range contractRecords {
 		readable = append(readable, record)
 	}
+	// The edge's own object, which the employment and stakeholder hops are
+	// gated on — see TestAJoinEdgeIsGatedOnTheObjectThatGovernsTheEdge.
+	readable = append(readable, objectRelationship)
 	vocab, err := resolver.Resolve(readerFor(readable...), entity)
 	if err != nil {
 		t.Fatalf("resolving %s: %v", entity, err)
@@ -137,7 +140,7 @@ func TestAJoinHopIsPublishedOnlyWhenBothColumnsAreThere(t *testing.T) {
 	narrowed["relationship"] = columnsOf("id:uuid", "kind", "person_id:uuid",
 		"archived_at:timestamp with time zone", "ended_at:date")
 	resolver := NewVocabularyResolver().WithColumnReader(stubColumns{tables: narrowed})
-	vocab, err := resolver.Resolve(readerFor(entityPerson, entityOrganization), entityPerson)
+	vocab, err := resolver.Resolve(readerFor(entityPerson, entityOrganization, objectRelationship), entityPerson)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,7 +467,7 @@ func tableIsARecord(table string) bool {
 // has always carried — its own archived_at, its own discovery narrowing, its
 // own row scope — and the join table contributes only membership.
 func TestAPlanTraversesAJoinEdgeAndTheHopKeepsItsOwnGuards(t *testing.T) {
-	sql, args := compilePlanDoc(readerFor(entityPerson, entityOrganization), t, `{
+	sql, args := compilePlanDoc(readerFor(entityPerson, entityOrganization, objectRelationship), t, `{
 		"version": "v1", "target": "person",
 		"traverse": {"relation": "organizations",
 		             "where": [{"field": "address.city", "op": "eq", "value": "Stuttgart"}]}}`)
@@ -521,7 +524,7 @@ func TestAnUnknownRelationIsRefusedByNameAndNamesTheOnesThatExist(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = validator.Validate(readerFor(entityPerson, entityOrganization), decoded)
+	_, err = validator.Validate(readerFor(entityPerson, entityOrganization, objectRelationship), decoded)
 	refusal := &PlanRefusal{}
 	if !errors.As(err, &refusal) {
 		t.Fatalf("a plan naming a relationship kind was not refused: %v", err)
@@ -585,6 +588,81 @@ func TestJoinRelationsRefusesARecordTypeThisModuleDoesNotSearch(t *testing.T) {
 	for _, relation := range relations {
 		if relation.Join.Table == "relationship" {
 			t.Errorf("lead derived a hop through relationship, which has no lead_id column: %+v", relation)
+		}
+	}
+}
+
+// An edge is a record in its own right when the tree says it is, and reading
+// one discloses its endpoints AS A PAIR — which is the whole reason
+// `relationship` is an RBAC object rather than being covered by the grants on
+// the two records it joins. A role refused the employment list on every other
+// surface must not get it back by traversing.
+//
+// Dropped from the vocabulary, not refused at execution: the hop reads as one
+// that never existed, which is the same answer an out-of-scope hop gives.
+func TestAJoinEdgeIsGatedOnTheObjectThatGovernsTheEdge(t *testing.T) {
+	resolver := NewVocabularyResolver().WithColumnReader(stubColumns{tables: joinSchema})
+	// Every record readable, and the edge object withheld — the exact shape a
+	// `setRoleObjectGrant` call zeroing `relationship` produces.
+	records := make([]string, 0, len(contractRecords))
+	for record := range contractRecords {
+		records = append(records, record)
+	}
+	vocab, err := resolver.Resolve(readerFor(records...), entityPerson, entityActivity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range vocab.Targets {
+		for _, relation := range target.Relations {
+			if relation.Join != nil && relation.Join.Table == objectRelationship {
+				t.Errorf("%s → %s traverses the %s edge for a caller who may not read it",
+					target.Target, relation.Name, objectRelationship)
+			}
+		}
+	}
+	// The other join table is NOT an object, and its hops must survive — a gate
+	// that took them too would be refusing an edge nobody governs separately.
+	links := 0
+	for _, target := range vocab.Targets {
+		for _, relation := range target.Relations {
+			if relation.Join != nil && relation.Join.Table == "activity_link" {
+				links++
+			}
+		}
+	}
+	if links == 0 {
+		t.Error("withholding the relationship grant also took the activity_link hops, which it does not govern")
+	}
+}
+
+// The declaration cannot drift from identity's own object list, and this module
+// may not import a sibling to check — so the list is read off its source, the
+// same way the join-table census reads the migrations.
+func TestEveryJoinTableThatIsAnRBACObjectDeclaresIt(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "identity", "internal", "policy", "policy.go"))
+	if err != nil {
+		t.Fatalf("reading identity's object list: %v", err)
+	}
+	declared := regexp.MustCompile(`coreObjects = \[\]string\{([^}]*)\}`).FindSubmatch(body)
+	if declared == nil {
+		t.Fatal("identity no longer declares coreObjects in the shape this gate reads")
+	}
+	objects := map[string]bool{}
+	for _, quoted := range regexp.MustCompile(`"(\w+)"`).FindAllStringSubmatch(string(declared[1]), -1) {
+		objects[quoted[1]] = true
+	}
+	if !objects[objectRelationship] {
+		t.Fatalf("%q is not in identity's object list, so this gate is reading the wrong thing",
+			objectRelationship)
+	}
+	for _, join := range joinTables {
+		switch {
+		case objects[join.table] && join.object != join.table:
+			t.Errorf("%s IS an RBAC object and declares object %q, so a caller refused it traverses "+
+				"the edge anyway", join.table, join.object)
+		case !objects[join.table] && join.object != "":
+			t.Errorf("%s declares object %q and is not an RBAC object, so the hop is gated on a "+
+				"grant no role can hold", join.table, join.object)
 		}
 	}
 }

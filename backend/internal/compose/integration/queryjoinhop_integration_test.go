@@ -21,10 +21,12 @@ package integration
 // are the boundary rather than a tenant predicate.
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // employmentFixture is one person at each of two organizations owned by
@@ -192,5 +194,61 @@ func TestAJoinHopCannotSelectThroughARecordTheCallerCannotSee(t *testing.T) {
 	if len(own.Rows) != 1 || own.Rows[0].ID != f.atRep3Org {
 		t.Fatalf("the rep could not reach the person at their OWN organization, so the refusal above "+
 			"proves nothing about row scope: %+v", own.Rows)
+	}
+}
+
+// An edge is a record in its own right: `relationship` is a first-class RBAC
+// object because reading an edge discloses its endpoints AS A PAIR, which the
+// grants on the two records do not cover. A role refused the employment list on
+// every other surface must not get it back by traversing to it.
+//
+// Proved against real grants rather than a stub, because the claim is about
+// what a role configured through `setRoleObjectGrant` can actually reach.
+func TestARoleRefusedTheEdgeObjectCannotTraverseTheEmploymentEdge(t *testing.T) {
+	q := setupQuery(t)
+	f := q.seedEmployments(t)
+
+	// Everything except the edge itself — the exact shape zeroing the
+	// `relationship` grant produces, with both endpoints still readable.
+	grants := map[string]principal.ObjectGrant{}
+	for _, object := range queryObjects {
+		if object == "relationship" {
+			continue
+		}
+		grants[object] = principal.ObjectGrant{Read: true}
+	}
+	ctx := principal.WithActor(principal.WithWorkspaceID(context.Background(), q.WS), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+		Permissions: principal.Permissions{Objects: grants, RowScope: principal.RowScopeAll},
+	})
+
+	if _, err := q.answer(ctx, `{"version": "v1", "target": "person",
+		"traverse": {"relation": "organizations"}}`); err == nil {
+		t.Error("a caller refused the relationship object traversed the employment edge anyway")
+	}
+
+	// The hop is absent from the VOCABULARY, not refused at execution — it must
+	// read exactly like a relation that never existed, or the refusal becomes
+	// an oracle for which edges the workspace holds.
+	vocab, err := q.resolver.Resolve(ctx, "person")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relation := range vocab.Targets[0].Relations {
+		if relation.Join != nil && relation.Join.Table == "relationship" {
+			t.Errorf("person still publishes %q through relationship", relation.Name)
+		}
+	}
+
+	// The other join table is not an RBAC object and its hops must survive: the
+	// gate governs the edge that IS one, not join tables in general.
+	activityHops, err := q.answer(ctx, `{"version": "v1", "target": "activity",
+		"traverse": {"relation": "persons",
+		             "where": [{"field": "full_name", "op": "eq", "value": "Ronny Stuttgart"}]}}`)
+	if err != nil {
+		t.Fatalf("the activity_link hop was taken away with the relationship grant: %v", err)
+	}
+	if len(activityHops.Rows) != 1 || activityHops.Rows[0].ID != f.activityAboutRep1OrgPerson {
+		t.Errorf("the activity_link hop answered %+v", activityHops.Rows)
 	}
 }
