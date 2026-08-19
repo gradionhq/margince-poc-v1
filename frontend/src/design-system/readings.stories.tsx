@@ -45,6 +45,19 @@ export const Meters: Story = {
         <p className="t-caption">A reading with no low-is-bad end</p>
         <Meter value={6} max={8} label="Growth fit" flat />
       </div>
+      <div>
+        <p className="t-caption">
+          A remainder that is itself a value — overdue against open, where what
+          is left is money that is simply not late yet
+        </p>
+        <Meter
+          value={24396}
+          max={35203}
+          label="Overdue share of the open balance"
+          tone="danger"
+          restTone="accent"
+        />
+      </div>
     </>
   ),
 };
