@@ -26,8 +26,15 @@ import {
   useFilterPreview,
   useFilterVocabulary,
 } from "./filterdata";
+import { ExportFilterMenu } from "./filterexport";
+import { FilterResults } from "./filterresults";
 import "./filters.css";
-import { type Node, newGroup } from "./segmentpredicate";
+import {
+  LoadFilterViewMenu,
+  SaveFilterViewAction,
+  type ViewResource,
+} from "./savedviews";
+import { fieldsNamed, type Node, newGroup } from "./segmentpredicate";
 
 /**
  * The three object tabs AC-1 names, and the record type each reads.
@@ -55,6 +62,28 @@ const MATCH_LABEL: Record<ObjectTab, MessageKey> = {
   contacts: "filters.matchContacts",
   companies: "filters.matchCompanies",
   deals: "filters.matchDeals",
+};
+
+/** The plural noun the results table counts and names its empty state by. */
+const UNIT_LABEL: Record<ObjectTab, MessageKey> = {
+  contacts: "unit.contacts",
+  companies: "unit.companies",
+  deals: "unit.deals",
+};
+
+/**
+ * The same three objects again, as `/views` spells them.
+ *
+ * A third spelling, and it is not a mistake to fix here: `/filters/*` takes
+ * `person` and `/views` takes `people`, both enumerated in the contract. So this
+ * screen is where the two vocabularies meet, and the correspondence is written
+ * down once — beside `RESOURCE_OF`, so a reader sees both mappings together —
+ * rather than derived at each call site by adding an "s".
+ */
+const VIEW_OF: Record<ObjectTab, ViewResource> = {
+  contacts: "people",
+  companies: "organizations",
+  deals: "deals",
 };
 
 /** A resource this screen can address, or the default when the route names none. */
@@ -115,6 +144,8 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
                   A dynamic list recomputes on every event, and that is the
                   property a reader needs before trusting a count at all. */}
               <Badge tone="accent">{t("filters.dynamic")}</Badge>
+              <LoadFilterViewMenu resource={VIEW_OF[tab]} onLoad={setTree} />
+              <SaveFilterViewAction resource={VIEW_OF[tab]} tree={tree} />
             </span>
           }
         />
@@ -135,7 +166,36 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
             fields={vocabulary.data?.fields ?? []}
           />
         </SurfaceState>
+        {/* Below the builder, not in the header beside the count: the export
+            takes the filter as its argument, so it belongs after the thing it
+            reads — and a refusal is a sentence, which the header row has no
+            width for. It also takes the FILTER vocabulary's word for the object
+            rather than the view rail's, because `/exports` enumerates `person`,
+            the same as the preview it has to agree with. */}
+        <div className="filters-export-row">
+          <ExportFilterMenu resource={resource} tree={tree} />
+        </div>
       </Card>
+
+      {/* Only once something has been asked. An empty table under an unasked
+          filter would say "no records match this filter" about a filter nobody
+          wrote — the same falsehood the count avoids by showing no number, and
+          the reason both read from the same `data === undefined`. */}
+      {preview.data !== undefined && (
+        <Card>
+          <SectionHeader level={2} title={t("filters.resultsTitle")} />
+          <FilterResults
+            preview={preview.data}
+            fields={vocabulary.data?.fields ?? []}
+            named={fieldsNamed(tree)}
+            unit={t(UNIT_LABEL[tab])}
+            // Per object, so switching tabs does not hand a deal's table the
+            // widths a reader dragged for a contact's columns.
+            widthsKey={`filter-preview-${tab}`}
+            pending={preview.isFetching}
+          />
+        </Card>
+      )}
     </div>
   );
 }

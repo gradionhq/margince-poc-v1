@@ -288,14 +288,14 @@ func threadMessages(ctx context.Context, tx pgx.Tx, key string) ([]threadMessage
 // lose whatever it says; counting without pinning would let a growing
 // conversation inherit the refusals of text it no longer contains.
 func recordThreadRefusal(
-	ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time,
+	ctx context.Context, tx pgx.Tx, thread settledThread, now time.Time,
 ) (int, error) {
 	var refusals int
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO signal_thread_scan
-		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
+		  (thread_key, last_activity_at, message_count, scanned_at,
 		   refusals, refused_activity_at, refused_message_count)
-		VALUES ($1, $2, '-infinity', 0, $5, 1, $3, $4)
+		VALUES ($1, '-infinity', 0, $4, 1, $2, $3)
 		ON CONFLICT (thread_key) DO UPDATE
 		   SET refusals = CASE
 		         WHEN signal_thread_scan.refused_activity_at IS NOT DISTINCT FROM excluded.refused_activity_at
@@ -310,7 +310,7 @@ func recordThreadRefusal(
 		       -- is what the park window is measured from.
 		       scanned_at = excluded.scanned_at
 		RETURNING refusals`,
-		wsID, thread.Key, thread.Newest, thread.Count, now).Scan(&refusals); err != nil {
+		thread.Key, thread.Newest, thread.Count, now).Scan(&refusals); err != nil {
 		return 0, fmt.Errorf("count the refused reading: %w", err)
 	}
 	return refusals, nil
@@ -326,12 +326,12 @@ func recordThreadRefusal(
 // count is overwritten, because a backfill that adds older messages legitimately
 // lowers nothing and raises the count, and clamping it would hide exactly the
 // change it exists to notice.
-func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thread settledThread, now time.Time) error {
+func markThreadScanned(ctx context.Context, tx pgx.Tx, thread settledThread, now time.Time) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO signal_thread_scan
-		  (workspace_id, thread_key, last_activity_at, message_count, scanned_at,
+		  (thread_key, last_activity_at, message_count, scanned_at,
 		   resolved_org_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		VALUES ($1, $2, $3, $4, $5)
 		ON CONFLICT (thread_key) DO UPDATE
 		   SET last_activity_at = greatest(signal_thread_scan.last_activity_at, excluded.last_activity_at),
 		       message_count = excluded.message_count,
@@ -347,7 +347,7 @@ func markThreadScanned(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, thr
 		       refusals = 0,
 		       refused_activity_at = NULL,
 		       refused_message_count = NULL`,
-		wsID, thread.Key, thread.Newest, thread.Count, now, thread.OrganizationID); err != nil {
+		thread.Key, thread.Newest, thread.Count, now, thread.OrganizationID); err != nil {
 		return fmt.Errorf("record where the read got to: %w", err)
 	}
 	return nil

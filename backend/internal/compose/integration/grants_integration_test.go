@@ -49,8 +49,8 @@ func TestRecordGrantWidensRowScopeAndRevokes(t *testing.T) {
 		t.Fatalf("pre-grant search: %v %+v", err, page.Hits)
 	}
 
-	grantID := e.Seed(t, `INSERT INTO record_grant (id, workspace_id, record_type, record_id, subject_type, subject_id, access, granted_by)
-		VALUES ($1, $2, 'person', $3, 'user', $4, 'read', $5)`, foreign, e.Rep1, e.Rep3)
+	grantID := e.SeedID(t, `INSERT INTO record_grant (id, record_type, record_id, subject_type, subject_id, access, granted_by)
+		VALUES ($1, 'person', $2, 'user', $3, 'read', $4)`, foreign, e.Rep1, e.Rep3)
 
 	// After: the direct read, the search branch, and the link probe all
 	// see the record through the SAME widened predicate.

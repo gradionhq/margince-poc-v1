@@ -4,7 +4,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   addToGroup,
+  decode,
   encode,
+  fieldsNamed,
   type Group,
   isComplete,
   isGroup,
@@ -206,5 +208,135 @@ describe("knowing when a tree is worth sending", () => {
     expect(isComplete(newGroup("and", [newLeaf("cf_score", "gte", 0)]))).toBe(
       true,
     );
+  });
+});
+
+// A surface deriving columns from the filter reads this, so what it answers has
+// to survive the shapes a real tree takes: nesting, a field named twice across
+// two clauses, and a half-written leaf that names nothing yet.
+describe("fieldsNamed", () => {
+  it("reads every depth, in the order the clauses were written", () => {
+    const tree = newGroup("and", [
+      newLeaf("city", "eq", "Berlin"),
+      newGroup("or", [
+        newLeaf("cf_tier", "in", ["gold"]),
+        newGroup("and", [newLeaf("status", "eq", "open")]),
+      ]),
+    ]);
+
+    expect(fieldsNamed(tree)).toEqual(["city", "cf_tier", "status"]);
+  });
+
+  it("names a field once however many clauses use it", () => {
+    // A range is two clauses over one field, and a column list built from this
+    // would otherwise carry that column twice.
+    const tree = newGroup("and", [
+      newLeaf("cf_score", "gte", 10),
+      newLeaf("cf_score", "lte", 90),
+    ]);
+
+    expect(fieldsNamed(tree)).toEqual(["cf_score"]);
+  });
+
+  it("skips a leaf that names no field yet", () => {
+    // The state a freshly added clause is in: it exists, but there is nothing
+    // for it to show a column of.
+    const tree = newGroup("and", [
+      newLeaf("", "eq", ""),
+      newLeaf("city", "eq", "Berlin"),
+    ]);
+
+    expect(fieldsNamed(tree)).toEqual(["city"]);
+  });
+
+  it("answers nothing for an empty tree", () => {
+    expect(fieldsNamed(newGroup("and"))).toEqual([]);
+  });
+});
+
+// A saved view's `query` is an open JSON object the server persists verbatim, so
+// what `decode` is handed is untrusted: an older build's shape, a fixture, a
+// hand-written row. The property that matters is the round trip — a view that
+// restores a filter DIFFERENT from the one it was saved from selects rows nobody
+// asked for, under a name the reader trusts.
+describe("decode", () => {
+  it("restores what encode wrote, at every depth", () => {
+    const saved = newGroup("or", [
+      newLeaf("city", "eq", "Berlin"),
+      newGroup("and", [
+        newLeaf("cf_tier", "in", ["gold", "silver"]),
+        newLeaf("cf_score", "gte", 40),
+        newLeaf("tag", "exists", false),
+      ]),
+    ]);
+
+    const restored = decode(encode(saved));
+
+    // Compared through `encode` rather than by identity: the ids are minted
+    // fresh on the way back in, and that is the one thing that MUST differ.
+    expect(restored).not.toBeNull();
+    expect(encode(restored as Node)).toEqual(encode(saved));
+  });
+
+  it("mints fresh ids rather than restoring a tree with none", () => {
+    // Every node needs an id for React to key it and for "remove THIS clause" to
+    // name it, and the wire form deliberately carries none.
+    const restored = decode(
+      encode(newGroup("and", [newLeaf("city", "eq", "B")])),
+    );
+
+    expect(restored).not.toBeNull();
+    const group = restored as Group;
+    expect(group.id).not.toBe("");
+    expect(group.children[0]?.id).not.toBe("");
+    expect(group.children[0]?.id).not.toBe(group.id);
+  });
+
+  // Each of these is a stored blob a real row could carry, and every one of them
+  // has to answer null: the caller drops the view, which is the only honest
+  // outcome — a view that restores a filter it does not name is worse than one
+  // that is not offered.
+  it.each([
+    ["not an object at all", "and"],
+    ["null", null],
+    ["an array", [{ field: "city", op: "eq", value: "B" }]],
+    ["an empty group", { and: [] }],
+    ["a group joined two ways at once", { and: [], or: [] }],
+    ["a group whose children are not a list", { and: { field: "city" } }],
+    ["a leaf naming no field", { field: "", op: "eq", value: "B" }],
+    ["a leaf with no field key", { op: "eq", value: "B" }],
+    [
+      "an operator the engine does not have",
+      { field: "c", op: "like", value: "B" },
+    ],
+    ["an operand that is an object", { field: "c", op: "eq", value: { a: 1 } }],
+    ["a mixed list", { field: "c", op: "in", value: ["a", 1] }],
+    ["a null operand", { field: "c", op: "eq", value: null }],
+  ])("refuses %s", (_name, stored) => {
+    expect(decode(stored)).toBeNull();
+  });
+
+  it("refuses a whole tree when one clause inside it is unreadable", () => {
+    // Dropping the bad clause instead would silently WIDEN the filter: an `and`
+    // missing a leaf selects more rows than the one that was saved.
+    expect(
+      decode({
+        and: [
+          { field: "city", op: "eq", value: "Berlin" },
+          { field: "city", op: "like", value: "Ber" },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("restores a shape-valid clause the Save button would still refuse", () => {
+    // `contains ""` is readable and incomplete, and those are different
+    // questions: the tree decodes, and `isComplete` is what withholds Save.
+    const restored = decode({
+      and: [{ field: "c", op: "contains", value: "" }],
+    });
+
+    expect(restored).not.toBeNull();
+    expect(isComplete(restored as Node)).toBe(false);
   });
 });

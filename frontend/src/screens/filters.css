@@ -38,3 +38,26 @@
   font-weight: 400;
   color: var(--textMuted);
 }
+
+/* The export sits under the builder, because it takes the filter as its
+ * argument. Empty until the filter is one the engine would accept, so it holds
+ * no space of its own then. */
+.filters-export-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.filters-export-row:not(:empty) {
+  margin-top: var(--space-4);
+}
+
+/* An export that failed, beside the button that failed — a reader waiting for a
+ * file has to be told there isn't one. It wraps rather than clipping: the reason
+ * comes from the server and can be a full sentence, and a truncated reason is
+ * one a reader cannot act on. */
+.filters-export-error {
+  color: var(--danger);
+  font-weight: var(--fw-medium);
+}

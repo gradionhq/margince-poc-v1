@@ -243,9 +243,9 @@ func TestDeletingAPersonOrAUserIsNotBlockedByGraphRows(t *testing.T) {
 		// A CONFIRMED ghost pointing at the contact.
 		_, err := tx.Exec(ctx, `
 			INSERT INTO linkedin_connection
-			  (workspace_id, owner_user_id, full_name, normalized_name, company_name,
+			  (owner_user_id, full_name, normalized_name, company_name,
 			   normalized_company, matched_person_id, match_status, source)
-			VALUES (`+ws+`, $1, 'Departing Contact', 'departing contact', 'Acme',
+			VALUES ($1, 'Departing Contact', 'departing contact', 'Acme',
 			        'acme', $2, 'confirmed', 'csv_export')`, e.Rep1, contact)
 		return err
 	}); err != nil {

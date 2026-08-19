@@ -383,6 +383,7 @@ export const de = {
   "table.rangeLoaded": "{first}–{last} von bisher {count} geladenen {unit}",
   "unit.contacts": "Kontakte",
   "unit.companies": "Firmen",
+  "unit.deals": "Deals",
   "unit.leads": "Leads",
   "unit.partners": "Partner",
   "unit.products": "Produkte",
@@ -5169,4 +5170,11 @@ export const de = {
   "filters.noFilterYet": "Bedingung hinzuf\u00fcgen, um die Treffer zu sehen",
   "filters.loadingVocabulary": "Filterbare Felder werden geladen\u2026",
   "filters.noFields": "Keine filterbaren Felder f\u00fcr diesen Datensatztyp.",
+  "filters.resultsTitle": "Passende Datens\u00e4tze",
+  "filters.resultsCaption":
+    "Die erste Seite der Treffer \u2014 genug, um den Filter zu pr\u00fcfen, nicht die gesamte Auswahl.",
+  "filters.noMatches": "Keine Datens\u00e4tze entsprechen diesem Filter.",
+  "filters.loadView": "Gespeicherten Filter laden",
+  "filters.exportCsv": "Als CSV exportieren",
+  "filters.exportJson": "Als JSON exportieren",
 } as const satisfies Record<MessageKey, string>;
