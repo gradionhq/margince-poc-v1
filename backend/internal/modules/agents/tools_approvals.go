@@ -157,12 +157,12 @@ func (t listApprovalsTool) Handle(ctx context.Context, in json.RawMessage) (json
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	// Converted rather than copied field by field: the wire shape and the seam's
-	// query are the same four members, and a conversion cannot silently drop the
-	// fifth somebody adds to one of them.
 	if err := knownStatus(args.Status); err != nil {
 		return nil, err
 	}
+	// Converted rather than copied field by field: the wire shape and the seam's
+	// query are the same four members, and a conversion cannot silently drop the
+	// fifth somebody adds to one of them.
 	page, err := t.inbox.ListApprovals(ctx, ApprovalQuery(args))
 	if err != nil {
 		return nil, err
