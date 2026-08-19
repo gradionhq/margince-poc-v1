@@ -124,13 +124,23 @@ func TestOnlyAWriteGrantIsProbedBeforeItIsGranted(t *testing.T) {
 
 func TestTheWriteArmKeepsTheOwnerScopeItNarrows(t *testing.T) {
 	// The grant arm is added to the owner scope, never substituted for it: a
-	// caller who owns the row needs no grant, and an ownerless (workspace-wide)
-	// row stays writable at every tier.
+	// caller who owns the row, or a teammate, needs no grant. An ownerless
+	// row is the one exception — it is nobody's to change until claimed, so
+	// the write arm has no `owner_id IS NULL` branch while the read arm keeps
+	// it (an unowned row is still the workspace's to see).
 	sql := writeArm(human(principal.RowScopeTeam), "deal")
-	for _, want := range []string{"owner_id IS NULL", "team_membership"} {
+	for _, want := range []string{"deal.owner_id = $", "team_membership"} {
 		if !strings.Contains(sql, want) {
 			t.Errorf("the write arm dropped %q from the owner scope, so it narrows more than the "+
 				"grant column: %s", want, sql)
 		}
+	}
+	if strings.Contains(sql, "owner_id IS NULL") {
+		t.Errorf("the write arm admits an ownerless row; it must be claimed first: %s", sql)
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	if read := OwnerPredicate(human(principal.RowScopeTeam), arg)("t"); !strings.Contains(read, "t.owner_id IS NULL") {
+		t.Errorf("the READ owner predicate no longer shares an ownerless row: %s", read)
 	}
 }

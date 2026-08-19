@@ -5869,6 +5869,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/records/{record_type}/{id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_type: "person" | "organization" | "lead" | "deal";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take ownership of a customer record.
+         * @description Sets the record's `owner_id` to the caller. Customer identity is workspace-readable, and an
+         *     ownerless record is nobody's to change until somebody claims it — this is the claim. Permitted
+         *     on a record the caller can read that has no owner, or that is already theirs to change (a
+         *     reassignment to oneself — a teammate's record, or one shared at `write`). A record owned by
+         *     somebody else, with no write share, answers `403` — including one a colleague claimed a
+         *     moment earlier; a claim whose `If-Match` no longer holds answers `409`.
+         *     One transaction: the row, its audit row (`assign`) and its `<record>.updated` event.
+         */
+        post: operations["claimRecord"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/record-grants": {
         parameters: {
             query?: never;
@@ -16820,6 +16850,18 @@ export interface components {
             source?: string | null;
             /** @description Required to make a grant effective when the purpose has requires_double_opt_in=true. */
             double_opt_in_token?: string | null;
+        };
+        RecordClaim: {
+            /** @enum {string} */
+            record_type: "person" | "organization" | "lead" | "deal";
+            /** Format: uuid */
+            record_id: string;
+            /**
+             * Format: uuid
+             * @description The caller — the record's owner now.
+             */
+            owner_id: string;
+            version: components["schemas"]["RowVersion"];
         };
         /** @description A manual per-record share (A52/ADR-0039) — widens own/team/all base scope for one record. */
         RecordGrant: {
@@ -28517,6 +28559,50 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    claimRecord: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                record_type: "person" | "organization" | "lead" | "deal";
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The record is the caller's. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordClaim"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The version moved since the caller read the record (`code: version_skew`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listRecordGrants: {

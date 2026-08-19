@@ -37,7 +37,10 @@ type Env struct {
 	WS         ids.UUID
 	// three humans: Rep1+Rep2 share a team, Rep3 sits in another
 	Rep1, Rep2, Rep3 ids.UUID
-	Team1, Team2     ids.UUID
+	// AdminUser is the seat Admin() binds: a real app_user, because a manual
+	// create stamps the caller as owner and the owner column is a foreign key.
+	AdminUser    ids.UUID
+	Team1, Team2 ids.UUID
 }
 
 // Setup gives each test a clean, migrated database and seeds the
@@ -73,14 +76,15 @@ func Setup(t *testing.T) *Env {
 
 	e := &Env{
 		WS: ids.NewV7(), Rep1: ids.NewV7(), Rep2: ids.NewV7(), Rep3: ids.NewV7(),
-		Team1: ids.NewV7(), Team2: ids.NewV7(),
+		AdminUser: ids.NewV7(),
+		Team1:     ids.NewV7(), Team2: ids.NewV7(),
 	}
 	if _, err := owner.Exec(ctx,
 		`INSERT INTO workspace (id, slug) VALUES ($1, 'authz')`, e.WS); err != nil {
 		t.Fatal(err)
 	}
 	seedInstallationIdentity(ctx, t, owner)
-	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3} {
+	for i, user := range []ids.UUID{e.Rep1, e.Rep2, e.Rep3, e.AdminUser} {
 		if _, err := owner.Exec(ctx,
 			`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, $4)`,
 			user, e.WS, string(rune('a'+i))+"@authz.test", "Rep"); err != nil {
@@ -166,8 +170,11 @@ func (e *Env) As(user ids.UUID, teams []ids.UUID, perms principal.Permissions) c
 	})
 }
 
-// Admin binds an unbounded admin context under a fresh synthetic user.
-func (e *Env) Admin() context.Context { return e.As(ids.NewV7(), nil, AdminPerms) }
+// Admin binds an unbounded admin context under the harness's admin seat. It
+// is one real user, not a fresh synthetic one per call: a row the admin
+// creates without naming an owner is stamped with this id, and the owner
+// column is a foreign key into app_user.
+func (e *Env) Admin() context.Context { return e.As(e.AdminUser, nil, AdminPerms) }
 
 // AgentCtx binds a synthetic agent principal for staging (the staging
 // path itself is not what a suite using this is testing).

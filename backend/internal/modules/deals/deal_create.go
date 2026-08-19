@@ -59,6 +59,7 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
@@ -91,6 +92,7 @@ func (s *Store) CreateDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
+	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
 	return s.createDealInTx(ctx, tx, in, by, nil)
 }
 

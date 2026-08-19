@@ -246,7 +246,9 @@ func TestThePersonListNarrowsToOneTeamsRows(t *testing.T) {
 	mine := e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
 	teammates := e.SeedPerson(t, "Owned By Rep2", &e.Rep2)
 	e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
-	e.SeedPerson(t, "Owned By Nobody", nil)
+	// The create stamps the seeding seat; the test wants a genuinely unowned row.
+	nobody := e.SeedPerson(t, "Owned By Nobody", nil)
+	e.WsExec(t, `UPDATE person SET owner_id = NULL WHERE id = $1`, nobody)
 
 	team := ids.From[ids.TeamKind](e.Team1)
 	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OwnerTeamID: &team})
@@ -273,6 +275,9 @@ func TestThePersonListNarrowsToTheUnownedQueue(t *testing.T) {
 	e := Setup(t)
 	e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
 	unowned := e.SeedPerson(t, "Owned By Nobody", nil)
+	// A create stamps the seeding seat as owner; the queue under test is the
+	// unowned state, so the owner is nulled after seeding.
+	e.WsExec(t, `UPDATE person SET owner_id = NULL WHERE id = $1`, unowned)
 
 	yes := true
 	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{Unassigned: &yes})
@@ -365,6 +370,8 @@ func TestTheOrganizationListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
 	held := e.SeedOrg(t, "Owned By Rep1", &e.Rep1)
 	e.SeedOrg(t, "Owned By Rep3", &e.Rep3)
 	unowned := e.SeedOrg(t, "Owned By Nobody", nil)
+	// The create stamps the seeding seat as owner; null it for the unowned queue.
+	e.WsExec(t, `UPDATE organization SET owner_id = NULL WHERE id = $1`, unowned)
 
 	team := ids.From[ids.TeamKind](e.Team1)
 	page, _, err := e.People.ListOrganizations(e.Admin(), people.ListOrganizationsInput{OwnerTeamID: &team})
@@ -393,6 +400,8 @@ func TestTheLeadListNarrowsToOneTeamAndToTheUnownedQueue(t *testing.T) {
 	held := seedLead(t, e, "Owned By Rep1", "rep1@lead.test", &e.Rep1)
 	seedLead(t, e, "Owned By Rep3", "rep3@lead.test", &e.Rep3)
 	unowned := seedLead(t, e, "Owned By Nobody", "nobody@lead.test", nil)
+	// The create stamps the seeding seat as owner; null it for the unowned queue.
+	e.WsExec(t, `UPDATE lead SET owner_id = NULL WHERE id = $1`, unowned.UUID)
 
 	team := ids.From[ids.TeamKind](e.Team1)
 	page, _, err := e.People.ListLeads(e.Admin(), people.ListLeadsInput{OwnerTeamID: &team})

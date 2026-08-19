@@ -181,7 +181,9 @@ func writeAuthorityPredicate(p principal.Principal, table string, arg func(any) 
 // the spelling the activity link walk needs, where the record sits under a
 // probe alias rather than its own table name.
 func writeAuthorityPredicateAs(p principal.Principal, table, alias string, arg func(any) int) string {
-	owner := OwnerPredicate(p, arg)(alias)
+	// An ownerless row is nobody's to change: it is claimed first
+	// (EnsureClaimable), then written under the owner scope like any other.
+	owner := ownerPredicate(p, arg, unownedIsNobodys)(alias)
 	me, teams := arg(p.UserID), arg(p.TeamIDs)
 	return fmt.Sprintf(`(%s OR EXISTS (
 		   SELECT 1 FROM record_grant rg
@@ -257,4 +259,39 @@ func linkTargetWritable(p principal.Principal, alias string, arg func(any) int) 
 			alias, t.column, t.table, t.probe, writeAuthorityPredicateAs(p, t.table, t.probe, arg)))
 	}
 	return "(" + strings.Join(arms, " OR ") + ")"
+}
+
+// EnsureClaimable is the gate in front of taking ownership of a row. A claim
+// is permitted on a row the caller can see that is UNOWNED — the case the
+// write arm refuses on purpose, so that somebody has to put their name on a
+// record before changing it — or that is already theirs to change (a
+// reassignment to oneself under existing write authority). A row owned by
+// somebody else, with no write grant, answers ErrPermissionDenied: taking it
+// over is what a share or an admin's reassignment is for.
+func EnsureClaimable(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
+	if err := EnsureVisibleLive(ctx, tx, table, id); err != nil {
+		return err
+	}
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return err
+	}
+	if Unbounded(p) {
+		return nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+	clause := writeAuthorityPredicate(p, table, arg)
+
+	var permitted bool
+	if err := tx.QueryRow(ctx,
+		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %[1]s WHERE id = $%[2]d AND (%[1]s.owner_id IS NULL OR %[3]s))`, table, idPos, clause),
+		args...).Scan(&permitted); err != nil {
+		return err
+	}
+	if !permitted {
+		return apperrors.ErrPermissionDenied
+	}
+	return nil
 }

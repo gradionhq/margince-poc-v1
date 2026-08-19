@@ -52,10 +52,10 @@ func TestSweepWorkspaceDataClearsDomainKeepsIdentity(t *testing.T) {
 	if got := e.WsCount(t, "SELECT count(*) FROM organization"); got != 0 {
 		t.Errorf("organization count after sweep = %d, want 0", got)
 	}
-	// The harness seeds three humans (Rep1, Rep2, Rep3); identity must
-	// survive a reset untouched.
-	if got := e.WsCount(t, "SELECT count(*) FROM app_user"); got != 3 {
-		t.Errorf("app_user count after sweep = %d, want 3 (identity preserved)", got)
+	// The harness seeds four humans (Rep1, Rep2, Rep3 and the admin seat);
+	// identity must survive a reset untouched.
+	if got := e.WsCount(t, "SELECT count(*) FROM app_user"); got != 4 {
+		t.Errorf("app_user count after sweep = %d, want 4 (identity preserved)", got)
 	}
 	// SeedPerson/SeedOrg each wrote an audit_log row as a side effect of the
 	// store write shape; the ledger is append-only and must survive the sweep.
@@ -186,8 +186,8 @@ func TestResetRunRestoresBootstrapState(t *testing.T) {
 	if got := e.WsCount(t, "SELECT count(*) FROM stage"); got < 1 {
 		t.Errorf("stage count after reset = %d, want >= 1 (pipeline re-seeded)", got)
 	}
-	if got := e.WsCount(t, "SELECT count(*) FROM app_user"); got != 3 {
-		t.Errorf("app_user count after reset = %d, want 3 (identity preserved)", got)
+	if got := e.WsCount(t, "SELECT count(*) FROM app_user"); got != 4 {
+		t.Errorf("app_user count after reset = %d, want 4 (identity preserved)", got)
 	}
 	if got := e.WsCount(t, "SELECT count(*) FROM audit_log WHERE action='reset_data'"); got != 1 {
 		t.Errorf("audit_log reset_data rows = %d, want 1", got)

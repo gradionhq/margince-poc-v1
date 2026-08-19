@@ -40,6 +40,22 @@ func Unbounded(p principal.Principal) bool {
 // first gets a widening arm instead of an accidental narrowing to `own` —
 // row_scope=all matches no branch below.
 func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string) string {
+	return ownerPredicate(p, arg, unownedIsShared)
+}
+
+// unownedRows says what an ownerless row (owner_id IS NULL) is to the
+// predicate. A READ treats it as shared: a row nobody owns is the
+// workspace's to see. A WRITE does not: a row nobody owns is nobody's to
+// change until somebody claims it — an ownerless customer record that every
+// seat could rewrite is how two teams edit one company past each other.
+type unownedRows bool
+
+const (
+	unownedIsShared  unownedRows = true
+	unownedIsNobodys unownedRows = false
+)
+
+func ownerPredicate(p principal.Principal, arg func(any) int, unowned unownedRows) func(alias string) string {
 	if Unbounded(p) {
 		return func(string) string { return "TRUE" }
 	}
@@ -50,17 +66,21 @@ func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string)
 		}
 		return alias + ".owner_id"
 	}
+	nullArm := ""
+	if unowned == unownedIsShared {
+		nullArm = "%[1]s IS NULL OR "
+	}
 	if p.Permissions.RowScope == principal.RowScopeTeam {
 		teams := arg(p.TeamIDs)
 		return func(alias string) string {
-			return fmt.Sprintf(`(%[1]s IS NULL OR %[1]s = $%[2]d OR %[1]s IN (
+			return fmt.Sprintf(`(`+nullArm+`%[1]s = $%[2]d OR %[1]s IN (
 			   SELECT tm.user_id FROM team_membership tm WHERE tm.team_id = ANY($%[3]d)))`,
 				col(alias), me, teams)
 		}
 	}
 	// own — and the zero value: an unresolved scope never widens.
 	return func(alias string) string {
-		return fmt.Sprintf(`(%[1]s IS NULL OR %[1]s = $%[2]d)`, col(alias), me)
+		return fmt.Sprintf(`(`+nullArm+`%[1]s = $%[2]d)`, col(alias), me)
 	}
 }
 

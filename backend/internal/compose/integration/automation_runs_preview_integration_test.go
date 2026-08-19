@@ -235,6 +235,9 @@ func assertPreviewMeasuresWithoutWriting(t *testing.T, e *apptest.AppEnv, autoID
 	}, nil, &lead); status != http.StatusCreated {
 		t.Fatalf("create lead → %d", status)
 	}
+	// The create stamps the admin as owner; the recipe counts leads nobody
+	// owns, so the lead is disowned to be the unrouted one the preview must find.
+	disownOverDB(t, e, "lead", lead.ID)
 
 	var rowsBefore int
 	if err := e.Owner.QueryRow(context.Background(), `

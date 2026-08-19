@@ -1339,6 +1339,10 @@ func (stubs) GetRecordHistory(w nethttp.ResponseWriter, r *nethttp.Request, enti
 	httperr.NotImplemented(w, r, "GetRecordHistory")
 }
 
+func (stubs) ClaimRecord(w nethttp.ResponseWriter, r *nethttp.Request, recordType string, id crmcontracts.Id, params crmcontracts.ClaimRecordParams) {
+	httperr.NotImplemented(w, r, "ClaimRecord")
+}
+
 func (stubs) ListRelationships(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListRelationshipsParams) {
 	httperr.NotImplemented(w, r, "ListRelationships")
 }

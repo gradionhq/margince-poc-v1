@@ -89,6 +89,9 @@ func TestAnUnownedRecordIsCoveredByNoTeam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create unowned organization: %v", err)
 	}
+	// The create stamps the seeding seat as owner; this test wants the
+	// unowned state, so the owner is nulled explicitly.
+	f.e.WsExec(t, "UPDATE organization SET owner_id = NULL WHERE id = $1", ids.UUID(unowned.Id))
 
 	list, err := f.lists.CreateList(f.ctx, collectionsmod.CreateListInput{
 		Name: "no team covers these", EntityType: "organization", ListType: "dynamic",

@@ -111,6 +111,7 @@ func (s *Store) readyLeadCreate(ctx context.Context, in CreateLeadInput) (Create
 	if err != nil {
 		return CreateLeadInput{}, "", err
 	}
+	normalized.OwnerID = storekit.OwnerOrActor(ctx, normalized.OwnerID)
 	return normalized, by, nil
 }
 

@@ -188,6 +188,7 @@ func (s *Server) wireSystemOfRecordReads(pool *pgxpool.Pool) {
 	// floor.
 	s.peopleStore = people.NewStore(InstallationDB(pool)).WithFieldCatalog(customfields.NewService(pool, nil))
 	s.blockedDomainHandlers = blockedDomainHandlers{people: s.peopleStore}
+	s.claimHandlers = claimHandlers{people: s.peopleStore, deals: deals.NewStore(InstallationDB(pool), DealsInstallation())}
 	// The importer maps only core columns (see importTargets for why custom
 	// fields are not among them), so it needs no field catalog of its own.
 	s.importHandlers = importHandlers{db: InstallationDB(pool), uploadLimit: s.uploadLimits.CSVImport}
