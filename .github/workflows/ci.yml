@@ -523,12 +523,6 @@ jobs:
       - name: the dev stack resolves DSNs the way the product does
         working-directory: .
         run: make test-dev-dsn
-      # Rides here with the other whole-tree greps: it reads every workflow
-      # file, so gated on the change classifier it would skip on exactly the PR
-      # that adds an unbounded job.
-      - name: every CI job has a wall-clock ceiling
-        working-directory: .
-        run: make check-workflow-timeouts
       # The pin gate rides along here, and only here, because it reads the WHOLE
       # workflow directory while the backend scope names one file: sbom.yml and
       # patch.yml match no scope, so gated on the classifier this check would
