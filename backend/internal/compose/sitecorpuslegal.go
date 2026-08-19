@@ -184,28 +184,45 @@ func fillLegalTrioFromCensus(fields []evidencedField, entities []corpusLegalEnti
 	for _, f := range fields {
 		present[f.Field] = true
 	}
+	// A FIXED order, not a map's. These fields end up in the proposal whose
+	// JSON is hashed, so iterating a map would give identical evidence a
+	// different hash on every run.
 	out := fields
-	for field, value := range map[string]string{
-		string(crmcontracts.ColdStartFieldFieldLegalName):         entity.Name,
-		string(crmcontracts.ColdStartFieldFieldRegisteredAddress): entity.RegisteredAddress,
-		string(crmcontracts.ColdStartFieldFieldRegisterVat):       entity.RegisterNumber,
+	for _, candidate := range []struct {
+		field string
+		value string
+	}{
+		{string(crmcontracts.ColdStartFieldFieldLegalName), entity.Name},
+		{string(crmcontracts.ColdStartFieldFieldRegisteredAddress), entity.RegisteredAddress},
+		{string(crmcontracts.ColdStartFieldFieldRegisterVat), entity.RegisterNumber},
 	} {
-		if present[field] || strings.TrimSpace(value) == "" {
+		if present[candidate.field] || strings.TrimSpace(candidate.value) == "" {
 			continue
 		}
 		out = append(out, evidencedField{
-			Field:           field,
-			Value:           value,
+			Field:           candidate.field,
+			Value:           candidate.value,
 			EvidenceSnippet: entity.EvidenceSnippet,
 			SourceURL:       entity.SourceURL,
-			// The census gates on the page rather than scoring, so there is
-			// no model confidence to carry. Full confidence states what is
-			// true of it: the page printed this, verbatim, and it was checked.
-			Confidence: 1,
+			Confidence:      censusFieldConfidence,
 		})
 	}
 	return out
 }
+
+// censusFieldConfidence is what a census-filled field carries.
+//
+// The census does not score: it checks the value against the page that
+// printed it and keeps it or drops it. So this is not a model's number, and
+// the honest question is what a consumer of the field should do with it.
+//
+// 1 is right for the same reason the profile lane's own legal trio arrives at
+// 1: these are the hard-gated, verbatim fields, matched against the page
+// rather than judged. A lower number would read as doubt about a value that
+// was checked more strictly than any scored field, and would fall under the
+// 0.55 cold-start floor that decides whether a human is shown the field at
+// all — withholding evidence the page plainly printed.
+const censusFieldConfidence = 1
 
 // legalEntityDetail counts how much of an entity block was actually
 // printed — the tie-break when the same entity is seen twice.

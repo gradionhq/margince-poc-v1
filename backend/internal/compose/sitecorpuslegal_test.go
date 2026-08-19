@@ -295,3 +295,29 @@ func TestCensusFillAddsNothingWhenTheCensusHasNothing(t *testing.T) {
 		t.Fatalf("want just the legal name, got %v", out)
 	}
 }
+
+// TestCensusFillIsDeterministic pins the field order.
+//
+// These fields reach the proposal whose JSON is hashed, so iterating a Go map
+// — which the first version of this did — gave identical evidence a different
+// hash on each run.
+func TestCensusFillIsDeterministic(t *testing.T) {
+	const impressum = "https://example.com/impressum"
+	kinds := map[string]crmcontracts.SiteReadPageKind{impressum: crmcontracts.SiteReadPageKindImpressum}
+	entities := []corpusLegalEntity{{
+		Name: "Order GmbH", RegisteredAddress: "Weg 1 11111 Ort", RegisterNumber: "HRB 999",
+		EvidenceSnippet: "Order GmbH Weg 1 11111 Ort HRB 999", SourceURL: impressum,
+	}}
+	want := []string{"legal_name", "registered_address", "register_vat"}
+	for range 20 {
+		out := fillLegalTrioFromCensus(nil, entities, kinds, false)
+		if len(out) != len(want) {
+			t.Fatalf("got %d fields, want %d", len(out), len(want))
+		}
+		for i, field := range want {
+			if out[i].Field != field {
+				t.Fatalf("field %d is %q, want %q — the order is not stable", i, out[i].Field, field)
+			}
+		}
+	}
+}
