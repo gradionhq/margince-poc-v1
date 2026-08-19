@@ -3,7 +3,8 @@ import { Building2, CheckCircle2, History, Mail, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, Radio } from "../design-system/atoms";
+import { Button } from "../design-system/atoms";
+import { ChoiceList } from "../design-system/choicelist";
 import { formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
@@ -325,21 +326,20 @@ function BackfillSetup({
         <History aria-hidden /> {t("backfill.title")}
       </h3>
       <p className="t-small">{t("backfill.intro")}</p>
-      <div
+      {/* The design system's radio GROUP, not a div wearing `role="radiogroup"`:
+          the ARIA pair is the weaker spelling of what a `fieldset` and a
+          `legend` say natively, and it was this screen's own wrapper to keep
+          correct. The question stays off screen exactly as its `aria-label` was,
+          so nothing visible changes. */}
+      <ChoiceList
         className="backfill-windows"
-        role="radiogroup"
-        aria-label={t("backfill.windowLabel")}
-      >
-        {WINDOWS.map((w) => (
-          <Radio
-            key={w.value}
-            name="backfill-window"
-            checked={window === w.value}
-            onChange={() => onWindowChange(w.value)}
-            label={t(w.label)}
-          />
-        ))}
-      </div>
+        layout="row"
+        legend={t("backfill.windowLabel")}
+        hideLegend
+        value={window}
+        choices={WINDOWS.map((w) => ({ value: w.value, label: t(w.label) }))}
+        onChange={onWindowChange}
+      />
       {previewPending && !previewData && (
         <p className="t-small">{t("backfill.previewLoading")}</p>
       )}

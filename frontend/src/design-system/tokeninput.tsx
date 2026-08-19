@@ -135,3 +135,69 @@ export function TokenInput({
     </span>
   );
 }
+
+/**
+ * The same tokens, WITHOUT a text box: a set somebody built somewhere else.
+ *
+ * It shares this file and this stylesheet with {@link TokenInput} on purpose.
+ * The token — a labelled value with a remove control — is one visual, and the
+ * moment it has two homes it has two paddings and two ideas of where the X sits.
+ * What differs is where a value comes from: TokenInput's arrive by typing, and
+ * these arrive from a picker, a search, a selection made in another control.
+ * That is why this takes ids and labels rather than strings: the value a caller
+ * stores (a channel id, a record uuid) is not the words a reader should see, and
+ * a control that conflated them would show somebody a uuid.
+ *
+ * NOT `FileChip`, which is the other thing that looks like this: that one is an
+ * `<a download>` whose whole purpose is fetching bytes, and it has no remove
+ * action — nor could it grow one, since a button inside an anchor is invalid
+ * interactive nesting.
+ *
+ * `removeLabel` is a function rather than a string because the accessible name
+ * has to carry WHICH token: eight buttons all announcing "remove" tell a reader
+ * moving by control nothing about the one they have landed on. The caller
+ * translates it, as it translates every other word here.
+ */
+export type Token = Readonly<{ id: string; label: string }>;
+
+export function TokenList({
+  items,
+  removeLabel,
+  disabled,
+  onRemove,
+}: Readonly<{
+  items: readonly Token[];
+  removeLabel: (item: Token) => string;
+  disabled?: boolean;
+  /** Absent means the set is READ-ONLY: the tokens draw with no remove control
+   * at all, rather than a disabled one. A viewer who may not change a set is not
+   * a viewer whose controls are temporarily unavailable. */
+  onRemove?: (id: string) => void;
+}>) {
+  return (
+    // A list, because it IS one: a reader on a screen reader is told how many
+    // people are on it before walking them, which a row of loose spans cannot
+    // say. The explicit `role` is what keeps that promise — `list-style: none` is
+    // how this reads as tokens, and Safari drops list semantics from the
+    // accessibility tree the moment it is applied.
+    // biome-ignore lint/a11y/noRedundantRoles: the role is what keeps the list a list in Safari/VoiceOver once the marker is styled off.
+    <ul className="token-list" role="list">
+      {items.map((item) => (
+        <li key={item.id} className="token token-standalone">
+          {item.label}
+          {onRemove && (
+            <button
+              type="button"
+              className="token-remove"
+              disabled={disabled}
+              aria-label={removeLabel(item)}
+              onClick={() => onRemove(item.id)}
+            >
+              <X size={12} aria-hidden />
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
