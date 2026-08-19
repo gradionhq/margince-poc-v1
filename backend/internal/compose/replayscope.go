@@ -249,10 +249,16 @@ var replayableOperations = map[string]replayTarget{
 
 	// Surfaces whose module gates on something other than a coreObject, so
 	// there is no object grant for this middleware to re-check.
-	"POST /v1/custom-fields":               {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"PATCH /v1/custom-fields/{id}":         {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"PATCH /v1/custom-fields/{id}/options": {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"POST /v1/custom-fields/{id}/retire":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	// The two administered lead vocabularies share the field catalog's gate
+	// and its shape: workspace-shared config rows with no owner column.
+	"POST /v1/lead-sources":                  {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
+	"PATCH /v1/lead-sources/{id}":            {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
+	"POST /v1/lead-disqualify-reasons":       {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
+	"PATCH /v1/lead-disqualify-reasons/{id}": {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog, idPath: "id"},
+	"POST /v1/custom-fields":                 {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	"PATCH /v1/custom-fields/{id}":           {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	"PATCH /v1/custom-fields/{id}/options":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
+	"POST /v1/custom-fields/{id}/retire":     {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	// An approval is row-scoped through its TARGET (approvals.decidable =
 	// decision grants AND targetVisible), and that rule lives inside the
 	// approvals module — so the probe is borrowed rather than reimplemented
