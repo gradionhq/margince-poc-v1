@@ -250,6 +250,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/webhook-subscriptions/{id}":                                 {Op: "getWebhookSubscription", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"GET /v1/webhook-subscriptions/{id}/deliveries":                      {Op: "listWebhookDeliveries", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/activities/{id}":                                          {Op: "updateActivity", Access: "tool", Tool: "update_record", RecordType: "activity", Tier: "auto_execute", Scope: "write"},
+	"PATCH /v1/activities/{id}/audience":                                 {Op: "setActivityAudience", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/attachments/{id}/metadata":                                {Op: "updateAttachmentMetadata", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/automations/{id}":                                         {Op: "updateAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},
 	"PATCH /v1/capture/settings":                                         {Op: "updateCaptureSettings", Access: "human-only", Tool: "", RecordType: "", Tier: "", Scope: ""},

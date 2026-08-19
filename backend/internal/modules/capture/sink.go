@@ -212,6 +212,32 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	return ref, nil
 }
 
+// limitLinkLessAudience keeps a captured message that will link to NO record
+// inside its participants. The row scope makes a link-less activity
+// workspace-shared — right for a hand-written note, wrong for a mailbox
+// owner's correspondence with a sender the ladder just judged noise or
+// infrastructure: nobody but the people on it has a reason to read it. Only
+// the TERMINAL no-record outcomes qualify (captured without a counterparty,
+// suppressed); a deferred sender may still be admitted and linked later, and
+// a connector-supplied link keeps the row readable through that record.
+func limitLinkLessAudience(ctx context.Context, tx pgx.Tx, id ids.ActivityID, rec connector.NormalizedRecord, decision counterpartyDecision) error {
+	if decision.create || len(rec.Links) > 0 {
+		return nil
+	}
+	if decision.traceOutcome != TraceCaptured && decision.traceOutcome != TraceSuppressed {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE activity SET audience = $2 WHERE id = $1`, id, audienceParticipants)
+	if err != nil {
+		return fmt.Errorf("capture: limiting a link-less message to its participants: %w", err)
+	}
+	return nil
+}
+
+// audienceParticipants is the activity audience a link-less captured message
+// is held in (platform/auth ActivityContentClause names the arms).
+const audienceParticipants = "participants"
+
 // storeRawCapture appends the provider's original bytes under the natural
 // key. Raw capture is EVIDENCE: append-once, never rewritten. A replay
 // carrying different bytes for the same natural key keeps the original —
@@ -322,6 +348,9 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	// would throw away a message we had already successfully read.
 	decision, err := s.decideCounterpartyGuarded(ctx, tx, rec, id.UUID)
 	if err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	if err := limitLinkLessAudience(ctx, tx, id, rec, decision); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// The trace runs LAST, so it can carry the reason the ladder just settled on:

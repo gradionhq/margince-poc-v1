@@ -68,7 +68,7 @@ func (s *Store) ReplyRecipientFor(ctx context.Context, id ids.ActivityID) (Reply
 		// The activity read applies the link-walk scope. Reaching a person
 		// through an activity the caller cannot see would answer a name their
 		// own scope withholds.
-		if _, err := readActivity(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if _, err := readActivityContent(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 

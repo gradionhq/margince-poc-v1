@@ -119,18 +119,26 @@ var dueThreadsQuery = `
 			       -- most private thing it read.
 			       --
 			       -- A message with no links at all counts as shared, which is
-			       -- the link-less note rule auth.ActivityContentClause already
+			       -- the link-less note rule auth.ActivityDiscoverClause already
 			       -- applies — its empty link set reads as visible. Calling it
 			       -- private here would disagree with the gate the reader
 			       -- actually faces, and withhold a finding about mail anyone
 			       -- may open.
-			       bool_and(coalesce(vis.shared, true)) AS shared,
-			       min(vis.private_owner::text) AS private_owner
+			       --
+			       -- A message whose AUDIENCE a human limited is private too,
+			       -- whatever its links say, and belongs to the mailbox owner
+			       -- behind its provenance (connector:<name>:<uuid>) — the one
+			       -- reader the content gate always admits.
+			       bool_and(coalesce(vis.shared, true) AND a.audience = 'workspace') AS shared,
+			       min(coalesce(vis.private_owner,
+			                    CASE WHEN a.audience <> 'workspace'
+			                         THEN substring(a.captured_by from '([0-9a-f-]{36})$')
+			                    END)) AS private_owner
 			  FROM activity a
 			  LEFT JOIN (` + activities.OrgReachSet() + `) ro ON ro.activity_id = a.id
 			  -- Who may read this message, asked of the records it is filed
-			  -- against. A message is readable when ANY of its links is
-			  -- (auth.ActivityContentClause), so one workspace-visible link
+			  -- against. A message is discoverable when ANY of its links is
+			  -- (auth.ActivityDiscoverClause), so one workspace-visible link
 			  -- shares it; only an activity whose every link is capture-private
 			  -- belongs to one person, and then that person is its owner.
 			  LEFT JOIN LATERAL (

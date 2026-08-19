@@ -43,6 +43,10 @@ func (stubs) UpdateActivity(w nethttp.ResponseWriter, r *nethttp.Request, id crm
 	httperr.NotImplemented(w, r, "UpdateActivity")
 }
 
+func (stubs) SetActivityAudience(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SetActivityAudienceParams) {
+	httperr.NotImplemented(w, r, "SetActivityAudience")
+}
+
 func (stubs) DraftEmail(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "DraftEmail")
 }

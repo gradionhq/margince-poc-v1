@@ -282,13 +282,13 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
-	join, where, args, err := listActivitiesFilter(ctx, in)
+	join, where, content, args, err := listActivitiesFilter(ctx, in)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
 
 	rows, err := tx.Query(ctx,
-		`SELECT `+activityColumns+` FROM activity a`+join+` WHERE `+strings.Join(where, " AND ")+
+		`SELECT `+activityColumns(content)+` FROM activity a`+join+` WHERE `+strings.Join(where, " AND ")+
 			sprintf(` ORDER BY a.occurred_at DESC, a.id DESC LIMIT %d`, limit+1),
 		args...)
 	if err != nil {
@@ -317,10 +317,17 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	return activities, page, nil
 }
 
-const activityColumns = `a.id, a.kind, a.channel_provider, a.subject, a.body, a.occurred_at, a.direction,
+// activityColumns is the select list every activity read scans, closed by
+// the caller's audience test as `content_available` — the one column that
+// decides whether scanActivity hands back the row's content or only its
+// markers. contentArm is the predicate auth.ActivityAudienceArm rendered for
+// this query's arguments.
+func activityColumns(contentArm string) string {
+	return `a.id, a.kind, a.channel_provider, a.subject, a.body, a.occurred_at, a.direction,
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at,
-	a.thread_key, a.capture_label, a.bulk_mail_attested`
+	a.thread_key, a.capture_label, a.bulk_mail_attested, a.audience, (` + contentArm + `) AS content_available`
+}
 
 // readActivity is the module's ONE single-row activity read, and it
 // carries the row scope itself. An activity has no owner_id and the
@@ -332,14 +339,24 @@ const activityColumns = `a.id, a.kind, a.channel_provider, a.subject, a.body, a.
 // a missing row gives, whether the caller is getting, updating, archiving
 // or relinking.
 func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
-	if err := auth.EnsureActivityContentVisible(ctx, tx, id.UUID); err != nil {
+	// DISCOVER-gated, like the list: a row the caller may know about is
+	// read, and the audience decides per row whether its content comes
+	// along (content_state). A caller who needs the content itself — a
+	// send, an attachment, a transcript — asks readActivityContent.
+	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
 		return crmcontracts.Activity{}, err
 	}
-	q := `SELECT ` + activityColumns + ` FROM activity a WHERE a.id = $1`
+	args := []any{id}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	content, err := auth.ActivityAudienceArm(ctx, "a", arg)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	q := `SELECT ` + activityColumns(content) + ` FROM activity a WHERE a.id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND a.archived_at IS NULL`
 	}
-	a, err := scanActivity(tx.QueryRow(ctx, q, id))
+	a, err := scanActivity(tx.QueryRow(ctx, q, args...))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Activity{}, apperrors.ErrNotFound
 	}
@@ -351,6 +368,17 @@ func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived st
 		return crmcontracts.Activity{}, err
 	}
 	return one[0], nil
+}
+
+// readActivityContent is readActivity for a caller about to USE the content —
+// reply to it, transcribe it, send on its thread: the audience gate runs as a
+// probe first, so a limited conversation answers ErrNotFound rather than a
+// row with its text blanked.
+func readActivityContent(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
+	if err := auth.EnsureActivityContentVisible(ctx, tx, id.UUID); err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	return readActivity(ctx, tx, id, archived)
 }
 
 // attachLinks fills the contract's links[] on a page of activities in ONE
@@ -426,13 +454,28 @@ func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {
 	var bulkMailAttested bool
 	var version int64
 
+	var audience string
+	var contentAvailable bool
+
 	err := row.Scan(&id, &kind, &channelProvider, &a.Subject, &a.Body, &a.OccurredAt, &direction,
 		&a.DueAt, &a.RemindAt, &assigneeID, &a.IsDone, &a.DoneAt, &a.DurationSeconds, &meetingStatus,
 		&a.SourceSystem, &a.SourceId, &a.Source, &a.CapturedBy, &version, &a.CreatedAt, &a.UpdatedAt, &a.ArchivedAt,
-		&threadKey, &captureLabel, &bulkMailAttested)
+		&threadKey, &captureLabel, &bulkMailAttested, &audience, &contentAvailable)
 	if err != nil {
 		return a, err
 	}
+	aud := crmcontracts.ActivityAudience(audience)
+	a.Audience = &aud
+	state := crmcontracts.ActivityContentStateAvailable
+	if !contentAvailable {
+		// Withheld: the row is discoverable, its content is not the caller's.
+		// Everything that carries what was said — or identifies the message
+		// at the provider — goes; the markers stay.
+		state = crmcontracts.ActivityContentStateWithheld
+		a.Subject, a.Body, a.SourceId = nil, nil, nil
+		threadKey, captureLabel = nil, nil
+	}
+	a.ContentState = &state
 
 	a.Id = openapi_types.UUID(id)
 	a.AssigneeId = uuidPtr(assigneeID)

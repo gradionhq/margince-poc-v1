@@ -56,7 +56,7 @@ func teamScopedCtx() context.Context {
 func filterFor(ctx context.Context, t *testing.T, entityType string) (join string, where string, args []any) {
 	t.Helper()
 	entity := ids.NewV7()
-	joined, terms, args, err := listActivitiesFilter(ctx, ListActivitiesInput{
+	joined, terms, _, args, err := listActivitiesFilter(ctx, ListActivitiesInput{
 		EntityType: &entityType, EntityID: &entity,
 	})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestTheAccountWalkStillCarriesTheRowScope(t *testing.T) {
 
 func TestAnUnknownEntityTypeIsRefusedRatherThanBuiltIntoSQL(t *testing.T) {
 	entityType, entity := "invoice", ids.NewV7()
-	_, _, _, err := listActivitiesFilter(unscopedCtx(), ListActivitiesInput{
+	_, _, _, _, err := listActivitiesFilter(unscopedCtx(), ListActivitiesInput{
 		EntityType: &entityType, EntityID: &entity,
 	})
 	var badType *InvalidLinkTypeError

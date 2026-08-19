@@ -81,7 +81,7 @@ func (s *Store) ReplyAddressFor(ctx context.Context, id ids.ActivityID) (string,
 		// The link-walk scope decides whether this caller may see the anchor at
 		// all. Reading a counterparty off an activity they cannot reach would
 		// answer an address their own scope withholds.
-		if _, err := readActivity(ctx, tx, id, storekit.LiveOnly); err != nil {
+		if _, err := readActivityContent(ctx, tx, id, storekit.LiveOnly); err != nil {
 			return err
 		}
 

@@ -1311,7 +1311,8 @@ components:
         activity.updated's BOUNDED delta: UpdateActivity's known mutable
         fields (subject, body, occurred_at, due_at, remind_at,
         assignee_id, is_done) each carried only when this update touched
-        them, plus RelinkActivity's relinked target — a fixed, KNOWN key
+        them, plus RelinkActivity's relinked target and SetActivityAudience's
+        audience — a fixed, KNOWN key
         set (unlike person/organization/deal/lead.updated's genuinely
         open patch), so it is typed rather than an open map.
       properties:
@@ -1345,6 +1346,13 @@ components:
           description: The activity's new completion state (absent when this update did not touch it).
         relinked:
           $ref: '#/components/schemas/PublicEventActivityRelinkedRef'
+        audience:
+          type: string
+          enum: [workspace, participants, selected]
+          description: >-
+            The activity's new audience (absent when this update did not touch it). Who is
+            named is not carried: a subscriber that must know re-reads the row under its own
+            audience, exactly as a human does.
       additionalProperties: false
 
     PublicEventActivityUpdated:

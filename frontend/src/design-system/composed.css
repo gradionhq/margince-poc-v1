@@ -466,6 +466,19 @@
   font-size: 13.5px;
   color: var(--textContent);
 }
+/* A withheld row says so where its title would be: the reader's own seat is
+   what is being answered, so it reads as a statement, not as a missing one. */
+.timeline .tl-withheld {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-style: italic;
+  color: var(--textMeta);
+}
+.timeline .tl-withheld svg {
+  width: 14px;
+  height: 14px;
+}
 .timeline .tl-meta {
   display: flex;
   align-items: center;

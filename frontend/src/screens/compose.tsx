@@ -12,6 +12,7 @@ import {
   Textarea,
   TextInput,
 } from "../design-system/atoms";
+import { ChoiceList } from "../design-system/choicelist";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import {
   RecordPicker,
@@ -1566,6 +1567,11 @@ export function TimelineActions({
       <Button small onClick={() => setRelink(true)}>
         {t("compose.relink")}
       </Button>
+      <AudienceAction
+        activity={activity}
+        entityType={entityType}
+        entityId={entityId}
+      />
       {relink && (
         <RelinkModal
           activityId={activity.id}
@@ -1574,6 +1580,102 @@ export function TimelineActions({
           open={relink}
           onClose={() => setRelink(false)}
         />
+      )}
+    </>
+  );
+}
+
+type ActivityAudience = components["schemas"]["ActivityAudience"];
+
+// The audiences the dialog offers. `selected` (named users and teams) is the
+// API's third value and waits for a member picker; offering it without one
+// would be a choice the reader cannot complete.
+const AUDIENCE_CHOICES: readonly ActivityAudience[] = [
+  "workspace",
+  "participants",
+];
+
+// AudienceAction limits (or re-opens) who may read ONE message's content. Per
+// message on purpose: a thread is not a unit of trust, and the contact stays
+// visible to everyone either way. Absent on a row the reader cannot read in
+// full — somebody who is not in the audience has no standing to change it.
+export function AudienceAction({
+  activity,
+  entityType,
+  entityId,
+}: Readonly<{
+  activity: Activity;
+  entityType: RelinkKind;
+  entityId: string;
+}>) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const current: ActivityAudience = activity.audience ?? "workspace";
+  const [choice, setChoice] = useState<ActivityAudience>(current);
+  const mutation = useMutation({
+    mutationFn: async (audience: ActivityAudience) => {
+      const { data, error } = await api.PATCH("/activities/{id}/audience", {
+        params: { path: { id: activity.id } },
+        body: { audience },
+      });
+      if (error) throwProblem(error);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["activities", entityType, entityId],
+      });
+      setOpen(false);
+    },
+  });
+  if (activity.content_state === "withheld") {
+    return null;
+  }
+  return (
+    <>
+      <Button
+        small
+        onClick={() => {
+          setChoice(current);
+          setOpen(true);
+        }}
+      >
+        {t("compose.audience")}
+      </Button>
+      {open && (
+        <ConfirmModal
+          open={open}
+          onClose={() => setOpen(false)}
+          title={t("compose.audienceTitle")}
+          confirmLabel={t("compose.audienceConfirm")}
+          confirmDisabled={choice === current}
+          onConfirm={() => mutation.mutate(choice)}
+          pending={mutation.isPending}
+          error={
+            mutation.isError ? problemMessageOf(mutation.error, t) : null
+          }
+        >
+          <div className="compose-fields">
+            <ChoiceList
+              legend={t("compose.audienceLegend")}
+              value={choice}
+              onChange={setChoice}
+              choices={AUDIENCE_CHOICES.map((value) => ({
+                value,
+                label:
+                  value === "workspace"
+                    ? t("compose.audienceWorkspace")
+                    : t("compose.audienceParticipants"),
+                description:
+                  value === "workspace"
+                    ? t("compose.audienceWorkspaceHint")
+                    : t("compose.audienceParticipantsHint"),
+              }))}
+            />
+            <p className="t-caption">{t("compose.audienceNote")}</p>
+          </div>
+        </ConfirmModal>
       )}
     </>
   );

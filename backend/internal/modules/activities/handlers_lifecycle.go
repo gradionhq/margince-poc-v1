@@ -58,3 +58,26 @@ func (h Handlers) RelinkActivity(w http.ResponseWriter, r *http.Request, id crmc
 	}
 	httperr.WriteJSON(w, http.StatusOK, activity)
 }
+
+func (h Handlers) SetActivityAudience(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.SetActivityAudienceParams) {
+	ifVersion, ok := httperr.IfMatchVersion(w, r)
+	if !ok {
+		return
+	}
+	var req crmcontracts.SetActivityAudienceRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	in := SetAudienceInput{Audience: string(req.Audience), IfVersion: ifVersion}
+	if req.Members != nil {
+		for _, m := range *req.Members {
+			in.Members = append(in.Members, AudienceMember{SubjectType: string(m.SubjectType), SubjectID: ids.UUID(m.SubjectId)})
+		}
+	}
+	activity, err := h.store.SetAudience(r.Context(), pathID[ids.ActivityKind](id), in)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, activity)
+}

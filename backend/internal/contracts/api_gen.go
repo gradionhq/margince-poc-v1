@@ -168,6 +168,24 @@ func (e ActivityCaptureLabel) Valid() bool {
 	}
 }
 
+// Defines values for ActivityContentState.
+const (
+	ActivityContentStateAvailable ActivityContentState = "available"
+	ActivityContentStateWithheld  ActivityContentState = "withheld"
+)
+
+// Valid indicates whether the value is a known member of the ActivityContentState enum.
+func (e ActivityContentState) Valid() bool {
+	switch e {
+	case ActivityContentStateAvailable:
+		return true
+	case ActivityContentStateWithheld:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ActivityDirection.
 const (
 	ActivityDirectionInbound     ActivityDirection = "inbound"
@@ -240,6 +258,27 @@ func (e ActivityMeetingStatus) Valid() bool {
 	case ActivityMeetingStatusLessThannil:
 		return true
 	case ActivityMeetingStatusNoShow:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ActivityAudience.
+const (
+	ActivityAudienceParticipants ActivityAudience = "participants"
+	ActivityAudienceSelected     ActivityAudience = "selected"
+	ActivityAudienceWorkspace    ActivityAudience = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the ActivityAudience enum.
+func (e ActivityAudience) Valid() bool {
+	switch e {
+	case ActivityAudienceParticipants:
+		return true
+	case ActivityAudienceSelected:
+		return true
+	case ActivityAudienceWorkspace:
 		return true
 	default:
 		return false
@@ -7968,6 +8007,24 @@ func (e SearchResultType) Valid() bool {
 	}
 }
 
+// Defines values for SetActivityAudienceRequestMembersSubjectType.
+const (
+	SetActivityAudienceRequestMembersSubjectTypeTeam SetActivityAudienceRequestMembersSubjectType = "team"
+	SetActivityAudienceRequestMembersSubjectTypeUser SetActivityAudienceRequestMembersSubjectType = "user"
+)
+
+// Valid indicates whether the value is a known member of the SetActivityAudienceRequestMembersSubjectType enum.
+func (e SetActivityAudienceRequestMembersSubjectType) Valid() bool {
+	switch e {
+	case SetActivityAudienceRequestMembersSubjectTypeTeam:
+		return true
+	case SetActivityAudienceRequestMembersSubjectTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SetBlockedDomainRequestAdmission.
 const (
 	Admitted   SetBlockedDomainRequestAdmission = "admitted"
@@ -9983,25 +10040,25 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 
 // Defines values for ListAutomationRunsParamsOutcome.
 const (
-	ListAutomationRunsParamsOutcomeBlocked           ListAutomationRunsParamsOutcome = "blocked"
-	ListAutomationRunsParamsOutcomeFailed            ListAutomationRunsParamsOutcome = "failed"
-	ListAutomationRunsParamsOutcomeFired             ListAutomationRunsParamsOutcome = "fired"
-	ListAutomationRunsParamsOutcomeQueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
-	ListAutomationRunsParamsOutcomeSkipped           ListAutomationRunsParamsOutcome = "skipped"
+	Blocked           ListAutomationRunsParamsOutcome = "blocked"
+	Failed            ListAutomationRunsParamsOutcome = "failed"
+	Fired             ListAutomationRunsParamsOutcome = "fired"
+	QueuedForApproval ListAutomationRunsParamsOutcome = "queued_for_approval"
+	Skipped           ListAutomationRunsParamsOutcome = "skipped"
 )
 
 // Valid indicates whether the value is a known member of the ListAutomationRunsParamsOutcome enum.
 func (e ListAutomationRunsParamsOutcome) Valid() bool {
 	switch e {
-	case ListAutomationRunsParamsOutcomeBlocked:
+	case Blocked:
 		return true
-	case ListAutomationRunsParamsOutcomeFailed:
+	case Failed:
 		return true
-	case ListAutomationRunsParamsOutcomeFired:
+	case Fired:
 		return true
-	case ListAutomationRunsParamsOutcomeQueuedForApproval:
+	case QueuedForApproval:
 		return true
-	case ListAutomationRunsParamsOutcomeSkipped:
+	case Skipped:
 		return true
 	default:
 		return false
@@ -11103,7 +11160,10 @@ type Activity struct {
 
 	// AssigneeId Task only.
 	AssigneeId *openapi_types.UUID `json:"assignee_id,omitempty"`
-	Body       *string             `json:"body,omitempty"`
+
+	// Audience Who may read this activity's CONTENT once the row is discoverable at all. `workspace` — everyone who can discover it (the default); `participants` — the humans on it (the capturing mailbox owner, anyone stamped as a participant by seat); `selected` — the participants plus the users and teams named through PATCH /activities/{id}/audience. Set only through that endpoint, by a human with write authority over the activity.
+	Audience *ActivityAudience `json:"audience,omitempty"`
+	Body     *string           `json:"body,omitempty"`
 
 	// BulkMailAttested This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it bulk. Per message, never per sender: the same address sends a newsletter and a reply, and treating the sender as bulk would bury the reply.
 	BulkMailAttested *bool `json:"bulk_mail_attested,omitempty"`
@@ -11118,7 +11178,10 @@ type Activity struct {
 	// The kind says what sort of interaction happened; this says what carried it. They
 	// are separate axes, and reading one off the other is what ADR-0107 retired.
 	ChannelProvider *ProviderRef `json:"channel_provider,omitempty"`
-	CreatedAt       time.Time    `json:"created_at"`
+
+	// ContentState Whether this response carries the activity's content. `withheld` means the caller may discover the row (a linked record is theirs to read) but is not in its audience: only the safe markers are filled — id, kind, channel_provider, occurred_at, direction, audience, links, is_done/due_at for a task, provenance and timestamps — and subject, body, thread_key, capture_label, source_id and raw are null. An `available` row is complete.
+	ContentState *ActivityContentState `json:"content_state,omitempty"`
+	CreatedAt    time.Time             `json:"created_at"`
 
 	// Direction inbound/outbound for email/call; null for note/task.
 	Direction *ActivityDirection `json:"direction,omitempty"`
@@ -11169,6 +11232,9 @@ type Activity struct {
 // ActivityCaptureLabel What this message turned out to be, from the batched capture classification. Null means unclassified, which is a backlog state and not a verdict of "ordinary".
 type ActivityCaptureLabel string
 
+// ActivityContentState Whether this response carries the activity's content. `withheld` means the caller may discover the row (a linked record is theirs to read) but is not in its audience: only the safe markers are filled — id, kind, channel_provider, occurred_at, direction, audience, links, is_done/due_at for a task, provenance and timestamps — and subject, body, thread_key, capture_label, source_id and raw are null. An `available` row is complete.
+type ActivityContentState string
+
 // ActivityDirection inbound/outbound for email/call; null for note/task.
 type ActivityDirection string
 
@@ -11177,6 +11243,9 @@ type ActivityKind string
 
 // ActivityMeetingStatus Set only when kind=meeting.
 type ActivityMeetingStatus string
+
+// ActivityAudience Who may read an activity's content — see Activity.audience.
+type ActivityAudience string
 
 // ActivityLink defines model for ActivityLink.
 type ActivityLink struct {
@@ -19925,6 +19994,21 @@ type SendMessageRequest struct {
 	ConsentPurpose string `json:"consent_purpose"`
 }
 
+// SetActivityAudienceRequest defines model for SetActivityAudienceRequest.
+type SetActivityAudienceRequest struct {
+	// Audience Who may read an activity's content — see Activity.audience.
+	Audience ActivityAudience `json:"audience"`
+
+	// Members The users and teams admitted besides the participants. Read only when `audience` is `selected`; replaces the previous set.
+	Members *[]struct {
+		SubjectId   openapi_types.UUID                           `json:"subject_id"`
+		SubjectType SetActivityAudienceRequestMembersSubjectType `json:"subject_type"`
+	} `json:"members,omitempty"`
+}
+
+// SetActivityAudienceRequestMembersSubjectType defines model for SetActivityAudienceRequest.Members.SubjectType.
+type SetActivityAudienceRequestMembersSubjectType string
+
 // SetAiModelRateRequest defines model for SetAiModelRateRequest.
 type SetAiModelRateRequest struct {
 	// CacheReadPerMtok USD per 1M cache-read tokens.
@@ -21270,6 +21354,9 @@ type PasswordChangeRequired = Problem
 // PermissionDenied RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type PermissionDenied = Problem
 
+// RetentionHeld RFC 7807 problem+json with a stable machine `code` and structured `details`.
+type RetentionHeld = Problem
+
 // Unauthorized RFC 7807 problem+json with a stable machine `code` and structured `details`.
 type Unauthorized = Problem
 
@@ -21374,6 +21461,16 @@ type UpdateActivityParams struct {
 	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
+	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+	// the last-seen entity `version`. If the row's current `version` differs, the write is
+	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// SetActivityAudienceParams defines parameters for SetActivityAudience.
+type SetActivityAudienceParams struct {
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -24943,6 +25040,9 @@ type LogActivityJSONRequestBody = CreateActivityRequest
 
 // UpdateActivityJSONRequestBody defines body for UpdateActivity for application/json ContentType.
 type UpdateActivityJSONRequestBody = UpdateActivityRequest
+
+// SetActivityAudienceJSONRequestBody defines body for SetActivityAudience for application/json ContentType.
+type SetActivityAudienceJSONRequestBody = SetActivityAudienceRequest
 
 // DraftEmailJSONRequestBody defines body for DraftEmail for application/json ContentType.
 type DraftEmailJSONRequestBody DraftEmailJSONBody
@@ -31479,6 +31579,9 @@ type ServerInterface interface {
 	// Update an activity (e.g. complete a task).
 	// (PATCH /activities/{id})
 	UpdateActivity(w http.ResponseWriter, r *http.Request, id Id, params UpdateActivityParams)
+	// Limit (or re-open) who may read this activity's content.
+	// (PATCH /activities/{id}/audience)
+	SetActivityAudience(w http.ResponseWriter, r *http.Request, id Id, params SetActivityAudienceParams)
 	// Draft a reply/follow-up email for context (the `draft_email` MCP verb).
 	// (POST /activities/{id}/draft-email)
 	DraftEmail(w http.ResponseWriter, r *http.Request, id Id)
@@ -32718,6 +32821,12 @@ func (_ Unimplemented) GetActivity(w http.ResponseWriter, r *http.Request, id Id
 // Update an activity (e.g. complete a task).
 // (PATCH /activities/{id})
 func (_ Unimplemented) UpdateActivity(w http.ResponseWriter, r *http.Request, id Id, params UpdateActivityParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Limit (or re-open) who may read this activity's content.
+// (PATCH /activities/{id}/audience)
+func (_ Unimplemented) SetActivityAudience(w http.ResponseWriter, r *http.Request, id Id, params SetActivityAudienceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -35498,6 +35607,62 @@ func (siw *ServerInterfaceWrapper) UpdateActivity(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateActivity(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetActivityAudience operation middleware
+func (siw *ServerInterfaceWrapper) SetActivityAudience(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SetActivityAudienceParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "If-Match" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
+		var IfMatch IfMatch
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "If-Match", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "If-Match", valueList[0], &IfMatch, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "If-Match", Err: err})
+			return
+		}
+
+		params.IfMatch = &IfMatch
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetActivityAudience(w, r, id, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -53701,6 +53866,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/activities/{id}", wrapper.UpdateActivity)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/activities/{id}/audience", wrapper.SetActivityAudience)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/activities/{id}/draft-email", wrapper.DraftEmail)

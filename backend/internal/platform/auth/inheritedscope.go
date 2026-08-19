@@ -116,6 +116,22 @@ func ActivityContentClause(ctx context.Context, alias string, arg func(any) int)
 	return discover + " AND " + activityAudienceArm(p, alias, arg), nil
 }
 
+// ActivityAudienceArm renders the audience membership test alone — the
+// predicate a DISCOVER-gated reader projects as a column to say, per row,
+// whether the caller may read its content (content_state). It is TRUE for the
+// system principal, which reads every audience away. alias names the activity
+// table in the outer query.
+func ActivityAudienceArm(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	p, err := rbacActor(ctx)
+	if err != nil {
+		return "", err
+	}
+	if p.Type == principal.PrincipalSystem {
+		return "TRUE", nil
+	}
+	return activityAudienceArm(p, alias, arg), nil
+}
+
 // activityAudienceArm renders the audience membership test for one human (or
 // the human behind an agent). The participant arms hold for every audience:
 // a person on a conversation always reads it, limited or not.

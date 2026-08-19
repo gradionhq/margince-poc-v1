@@ -2242,6 +2242,35 @@ export interface paths {
         patch: operations["updateActivity"];
         trace?: never;
     };
+    "/activities/{id}/audience": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Limit (or re-open) who may read this activity's content.
+         * @description Sets the activity's `audience` and, for `selected`, replaces the named members in one
+         *     transaction. Per message, never per thread or per contact: limiting one email says nothing
+         *     about its siblings or about the people on it. The caller needs write authority over the
+         *     activity (author, assignee, host, or a linked record that is theirs to change). A row held
+         *     under a statutory retention obligation answers `423`. Every other seat that can discover
+         *     the row keeps seeing it as `content_state: withheld` — date, direction and the record it is
+         *     about, not the subject or body.
+         */
+        patch: operations["setActivityAudience"];
+        trace?: never;
+    };
     "/activities/{id}/meeting-brief": {
         parameters: {
             query?: never;
@@ -13303,6 +13332,13 @@ export interface components {
             readonly capture_label?: null | "commitment" | "meeting" | "noise";
             /** @description This message carried an RFC 2369 List-Unsubscribe header, so the SENDER declared it bulk. Per message, never per sender: the same address sends a newsletter and a reply, and treating the sender as bulk would bury the reply. */
             readonly bulk_mail_attested?: boolean;
+            /** @description Who may read this activity's CONTENT once the row is discoverable at all. `workspace` — everyone who can discover it (the default); `participants` — the humans on it (the capturing mailbox owner, anyone stamped as a participant by seat); `selected` — the participants plus the users and teams named through PATCH /activities/{id}/audience. Set only through that endpoint, by a human with write authority over the activity. */
+            readonly audience?: components["schemas"]["ActivityAudience"];
+            /**
+             * @description Whether this response carries the activity's content. `withheld` means the caller may discover the row (a linked record is theirs to read) but is not in its audience: only the safe markers are filled — id, kind, channel_provider, occurred_at, direction, audience, links, is_done/due_at for a task, provenance and timestamps — and subject, body, thread_key, capture_label, source_id and raw are null. An `available` row is complete.
+             * @enum {string}
+             */
+            readonly content_state?: "available" | "withheld";
             /**
              * @description Set only when kind=meeting.
              * @enum {string|null}
@@ -13407,6 +13443,21 @@ export interface components {
             raw?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /**
+         * @description Who may read an activity's content — see Activity.audience.
+         * @enum {string}
+         */
+        ActivityAudience: "workspace" | "participants" | "selected";
+        SetActivityAudienceRequest: {
+            audience: components["schemas"]["ActivityAudience"];
+            /** @description The users and teams admitted besides the participants. Read only when `audience` is `selected`; replaces the previous set. */
+            members?: {
+                /** @enum {string} */
+                subject_type: "user" | "team";
+                /** Format: uuid */
+                subject_id: string;
+            }[];
         };
         UpdateActivityRequest: {
             subject?: string | null;
@@ -18082,6 +18133,15 @@ export interface components {
                 "application/problem+json": components["schemas"]["Problem"];
             };
         };
+        /** @description The record is held under a statutory retention obligation and cannot be changed (`code: locked`). */
+        RetentionHeld: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
         /** @description State conflict (duplicate key, concurrent edit, already-decided, default-pipeline collision). */
         Conflict: {
             headers: {
@@ -22238,6 +22298,47 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    setActivityAudience: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetActivityAudienceRequest"];
+            };
+        };
+        responses: {
+            /** @description The activity, as the caller now reads it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["VersionConflict"];
+            422: components["responses"]["ValidationError"];
+            423: components["responses"]["RetentionHeld"];
         };
     };
     getMeetingBrief: {
