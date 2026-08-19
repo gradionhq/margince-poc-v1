@@ -5887,8 +5887,9 @@ export interface paths {
          * @description Sets the record's `owner_id` to the caller. Customer identity is workspace-readable, and an
          *     ownerless record is nobody's to change until somebody claims it — this is the claim. Permitted
          *     on a record the caller can read that has no owner, or that is already theirs to change (a
-         *     reassignment to oneself). A record owned by somebody else, with no write share, answers `403`;
-         *     a claim that loses the race to another claimant answers `409` naming the owner that won.
+         *     reassignment to oneself — a teammate's record, or one shared at `write`). A record owned by
+         *     somebody else, with no write share, answers `403` — including one a colleague claimed a
+         *     moment earlier; a claim whose `If-Match` no longer holds answers `409`.
          *     One transaction: the row, its audit row (`assign`) and its `<record>.updated` event.
          */
         post: operations["claimRecord"];
@@ -28593,7 +28594,7 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            /** @description Somebody else claimed the record first, or the version moved (`code: conflict` / `version_skew`). */
+            /** @description The version moved since the caller read the record (`code: version_skew`). */
             409: {
                 headers: {
                     [name: string]: unknown;

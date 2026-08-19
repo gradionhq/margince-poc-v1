@@ -246,7 +246,9 @@ func TestThePersonListNarrowsToOneTeamsRows(t *testing.T) {
 	mine := e.SeedPerson(t, "Owned By Rep1", &e.Rep1)
 	teammates := e.SeedPerson(t, "Owned By Rep2", &e.Rep2)
 	e.SeedPerson(t, "Owned By Rep3", &e.Rep3)
-	e.SeedPerson(t, "Owned By Nobody", nil)
+	// The create stamps the seeding seat; the test wants a genuinely unowned row.
+	nobody := e.SeedPerson(t, "Owned By Nobody", nil)
+	e.WsExec(t, `UPDATE person SET owner_id = NULL WHERE id = $1`, nobody)
 
 	team := ids.From[ids.TeamKind](e.Team1)
 	page, _, err := e.People.ListPeople(e.Admin(), people.ListPeopleInput{OwnerTeamID: &team})
