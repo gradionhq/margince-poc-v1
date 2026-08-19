@@ -1,6 +1,7 @@
 # ADR-0063 — Mailbox backfill is bounded, previewed before it spends, and steady-state sync stays incremental
 
-**Status:** Active
+**Status:** Active — the bounded window and preview are built.
+The single nightly dispatcher is **not built**; see History.
 **Decided:** 2026-07-18
 
 ## The decision
@@ -74,5 +75,9 @@ twelve months; it now also offers twenty-four and sixty, widened by
 ADR-0106. The source also pins a single ordered nightly suite that runs
 catch-up sync, classify, reconcile, enrich, the dedupe sweep and the digest
 in sequence; no such dispatcher exists. The passes are separate declared
-jobs with their own cadences, and `capture_enrich` says so in its own
-reason text.
+jobs with their own cadences, and `backend/api/jobs.yaml` says so in its own
+text — the nightly cadence "rides this job until the nightly dispatcher lands".
+That dispatcher is still wanted: running the passes in a known order matters
+because a later pass reads what an earlier one wrote, and separate cadences make
+that ordering incidental rather than guaranteed. It is owed work, not an
+abandoned idea.

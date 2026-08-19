@@ -1,6 +1,7 @@
 # ADR-0117 — The retention event's action is a closed set of three values
 
-**Status:** Active
+**Status:** Active — the set is held by the database and every emit site.
+The **contract does not yet declare it as an enum**; see History.
 **Decided:** 2026-08-17
 
 ## The decision
