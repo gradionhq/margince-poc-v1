@@ -13,6 +13,7 @@ import {
   RecentActivityPanel,
   StateStrip,
 } from "./company360";
+import { CompanyContractState } from "./companycommercial";
 import { LIFECYCLE_LABELS } from "./companylookups";
 import { RELATIONSHIP_TYPE_LABELS } from "./organizations";
 import {
@@ -208,6 +209,19 @@ const populated = {
       base_currency: "EUR",
       next_close_on: "2026-08-15",
     },
+    // What the account is already SIGNED for, beside the pipeline that is
+    // still moving. Both bases are present because the panel must show them
+    // apart: a three-year total and a per-year figure span different periods,
+    // and one figure covering both would describe nothing.
+    contracts: {
+      active_count: 2,
+      priced_count: 2,
+      cancellation_pending: false,
+      base_currency: "EUR",
+      total_basis_value_minor_base: 30_000_000,
+      annualized_value_minor_base: 12_000_000,
+      nearest_renewal_on: "2027-03-01",
+    },
   },
   // Two rated dimensions, not one: HealthSummaryStat's verdict is a worst-of
   // over relationship, commercial and payment, and a fixture that only ever
@@ -362,7 +376,15 @@ function Cards({ view }: Readonly<{ view: View }>) {
             `isOpenable` is false and the named-deal chip below can never
             take the branch that names it (company360.tsx's Citations). */}
         <AccountBrief orgId="o-1" view={view} enabled onOpenRecord={() => {}} />
-        <CommercialPanel view={view} />
+        {/* The contract standing rides in the panel's `extra` slot, which is
+            the SAME component the Deals tab draws — an account's contracted
+            value and renewal must not be able to say two things on two
+            surfaces. The withheld story below reaches it with no contract
+            grant, where the block is absent rather than reading "none". */}
+        <CommercialPanel
+          view={view}
+          extra={<CompanyContractState view={view} />}
+        />
         <RecentActivityPanel view={view} />
         <PeopleCard view={view} writable orgId="o-1" />
         <DealsCard view={view} />

@@ -62,7 +62,7 @@ The images bake in **no** instance configuration. All settings come from the
 runtime environment; the binaries resolve every flag from a `MARGINCE_*` env
 fallback. The full table of record is
 [`docs/reference/configuration.md`](reference/configuration.md); the annotated
-env template is [`.env.template`](../.env.template). The essentials:
+env template is [`.env.example`](../.env.example). The essentials:
 
 | Var | Role | Meaning |
 |---|---|---|

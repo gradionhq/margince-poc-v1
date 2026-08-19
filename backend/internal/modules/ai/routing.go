@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -51,16 +52,16 @@ type EmbeddingsConfig struct {
 	// (defaultEmbedDimensions). ParseRouting validates it into [1,2000] and
 	// applies the default before any tier or role ever reads it — never
 	// left for a downstream caller to re-check.
-	Dimensions int `yaml:"dimensions"`
+	Dimensions int `yaml:"dimensions" json:"dimensions"`
 }
 
 // RoutingConfig is the parsed ai-routing.yaml: the ONLY place vendor
 // names appear (§1.4). A malformed binding fails at startup, not on the
 // first model call at 3am.
 type RoutingConfig struct {
-	Tiers      map[Tier]ProviderConfig `yaml:"tiers"`
-	Embeddings EmbeddingsConfig        `yaml:"embeddings"`
-	Profile    Profile                 `yaml:"profile"`
+	Tiers      map[Tier]ProviderConfig `yaml:"tiers" json:"tiers"`
+	Embeddings EmbeddingsConfig        `yaml:"embeddings" json:"embeddings"`
+	Profile    Profile                 `yaml:"profile" json:"profile"`
 	// sourceHash is the sha256 digest of the raw yaml bytes this config was
 	// parsed from (spec §4) — the routing half of the ai_call_config
 	// dimension key, alongside the generated TaskContractHash. Set by
@@ -124,6 +125,9 @@ func (cfg RoutingConfig) BoundModelIDsByProvider() map[string]map[string]bool {
 // no longer produces it. Empty for a config built by struct literal rather
 // than parsed from yaml (the fake lane), which is honest: there is no
 // deployment binding to name.
+//
+// Two configs that route identically share a version however differently they
+// were written — see bindingDigest for why that is the whole point.
 func (cfg RoutingConfig) RoutingVersion() string { return cfg.sourceHash }
 
 // LoadRoutingFile reads and validates a deployment's routing config. keys is
@@ -183,9 +187,37 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}
-	sum := sha256.Sum256(raw)
-	cfg.sourceHash = hex.EncodeToString(sum[:])
+	cfg.sourceHash = cfg.bindingDigest()
 	return cfg, nil
+}
+
+// bindingDigest is the routing half of the ai_call_config dimension key: a
+// digest of what this config BINDS, not of the bytes it arrived in.
+//
+// It is taken after defaulting and validation, over the canonical JSON
+// encoding, which makes two configs hash alike exactly when they route alike.
+// json.Marshal orders struct fields by declaration and sorts map keys, so the
+// encoding is deterministic across processes — the property this digest has to
+// have to be compared at all.
+//
+// The distinction is not academic. This value reaches personbrief.Fingerprint
+// and its siblings, where it decides whether a stored brief may be reused; a
+// digest of raw bytes meant that ADDING A COMMENT to the routing file
+// invalidated every cached brief, dossier and growth-fit in the installation
+// and regenerated them through paid models. Reindenting did it too, and so did
+// writing `dimensions: 1536` where the default was already 1536.
+//
+// What must still change the digest is any change to the binding itself — a
+// re-pointed tier, a different base URL, a narrowed `input`. Those are exactly
+// the cases where content a model wrote must stop being attributed to a model
+// that no longer produces it.
+func (cfg RoutingConfig) bindingDigest() string {
+	// A plain struct of strings, ints and a string-keyed map — marshal cannot
+	// fail on it, and the same spelling guards the sibling fingerprints in
+	// compose/orgbrief and compose/orgdossier that this digest feeds.
+	encoded, _ := json.Marshal(cfg) //nolint:errchkjson // plain scalars and a string-keyed map; marshal cannot fail
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
 }
 
 // localProviders can serve the sovereign zero-egress profile.

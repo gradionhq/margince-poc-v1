@@ -29,6 +29,7 @@ const SCREENS = [
   "ai",
   "settings",
   "dedupe",
+  "filters",
   "offers",
   "search",
   "share",

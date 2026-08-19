@@ -8,10 +8,12 @@ package zalooa
 // retention the job runner chooses.
 
 import (
+	"context"
 	"errors"
-	"testing"
-
+	"fmt"
 	"github.com/gradionhq/margince/backend/pkg/extension"
+	"testing"
+	"time"
 )
 
 // Every declared class must survive the boot check, because a set with one bad
@@ -126,5 +128,120 @@ func TestAFailedTickCarriesItsClassAndItsCauseToTheJobRunner(t *testing.T) {
 	}
 	if !errors.Is(err, errTransient) {
 		t.Fatalf("the cause did not survive the classification: %v", err)
+	}
+}
+
+// TestAnUnreachableProviderPostponesTheTickRatherThanFailingIt.
+//
+// This is the disposition the classification earns. The class's own remedy says
+// nobody needs to do anything — the cursor did not move, so the next reachable
+// tick walks the same region and loses nothing — and a tick that FAILED that
+// would spend the child's attempts and leave dead work behind, at the cadence of
+// the poll, for the length of the outage.
+//
+// It asks for the delay AS WELL as the disposition, because a postponement with
+// no gap is a spin against a provider that is already refusing.
+func TestAnUnreachableProviderPostponesTheTickRatherThanFailingIt(t *testing.T) {
+	rt := connectedRuntime(t, cursor{floor: 900})
+	fake := newZaloFake(t)
+	fake.errorCode = codeRateLimited
+
+	err := pollConnection(t.Context(), rt, fake.dial(), &fakeGrants{}, frozen(at(0)))
+
+	in, asked := extension.RescheduleAfter(err)
+	if !asked {
+		t.Fatalf("a tick that could not reach the provider asked to fail rather than to run again: %v", err)
+	}
+	if in != pollRetryDelay {
+		t.Fatalf("the tick asked to run again in %s, want the dispatcher's own cadence %s", in, pollRetryDelay)
+	}
+}
+
+// postponingClasses is the expectation this unit's disposition is held to, WRITTEN
+// OUT rather than derived from dispositionFor's own predicate.
+//
+// The derived version — `want := class.Class == classProviderUnavailable.Class` —
+// reads like a spec and is a tautology: it restates the branch it is checking, so
+// a class added to failureClasses later passes automatically under whichever
+// answer the code happens to give it. That is the opposite of what this gate is
+// for. A hand-written table plus the completeness check below means a new class
+// makes somebody write down what it should DO, which is the decision that gets
+// forgotten.
+var postponingClasses = map[string]bool{
+	classTokenRejected.Class:          false,
+	classPackageTooLow.Class:          false,
+	classAPINotRegistered.Class:       false,
+	classMemberNotPermitted.Class:     false,
+	classConnectionUnusable.Class:     false,
+	classProviderUnavailable.Class:    true,
+	classProviderAnswerUnusable.Class: false,
+	classPollFailed.Class:             false,
+}
+
+func TestOnlyTheUnreachableProviderPostponesItself(t *testing.T) {
+	// EVERY declared class has an entry, and no entry names a class that is not
+	// declared. This is the half that makes the table above better than the
+	// predicate it replaced: a class added without a disposition fails here rather
+	// than silently inheriting one.
+	if len(postponingClasses) != len(failureClasses) {
+		t.Fatalf("%d declared classes and %d disposition expectations — a class added without a decision about what it DOES is the thing this table exists to catch",
+			len(failureClasses), len(postponingClasses))
+	}
+	for _, class := range failureClasses {
+		t.Run(class.Class, func(t *testing.T) {
+			want, declared := postponingClasses[class.Class]
+			if !declared {
+				t.Fatalf("class %q has no disposition expectation — write down whether it postpones", class.Class)
+			}
+			_, asked := extension.RescheduleAfter(dispositionFor(t.Context(), class, errors.New("cause")))
+			if asked != want {
+				t.Fatalf("class %q postpones = %v, want %v — only a failure that needs nobody may reschedule itself", class.Class, asked, want)
+			}
+		})
+	}
+}
+
+// TestATickWhoseWindowRanOutFailsEvenThoughItClassifiesAsUnreachable.
+//
+// The one case where the class and the disposition part company. A tick that ran
+// out of wall clock did not meet an outage — it met its own window, because there
+// is more work here than the window holds, and every later tick spends the same
+// window and expires in the same place. Postponing that hides a tick that can
+// NEVER finish behind a row that looks like it is waiting patiently, with no dead
+// work and no error column anywhere to say otherwise. A cancelled context is a
+// role shutting down, and postponing that delays the next poll by a whole cadence
+// on every restart.
+//
+// The TICK'S CONTEXT is what decides, not the cause: the transport formats what
+// the HTTP client said as text, so a deadline is not reachable through errors.Is
+// by the time a disposition is chosen. Asserted here so that a later refactor
+// reaching for the cause instead finds out that it cannot work.
+func TestATickWhoseWindowRanOutFailsEvenThoughItClassifiesAsUnreachable(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  func() context.Context
+	}{
+		{"a window that ran out", func() context.Context {
+			ctx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+			t.Cleanup(cancel)
+			return ctx
+		}},
+		{"a role shutting down", func() context.Context {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			return ctx
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cause := fmt.Errorf("%w: the request went out and nothing came back", errTransient)
+			// The CLASS is unchanged — nothing was reached, and that is what an
+			// operator should be told. Only the disposition differs.
+			if got := failureClass(cause); got.Class != classProviderUnavailable.Class {
+				t.Fatalf("the cause classifies as %q, want %q — this case is about the disposition, not the name", got.Class, classProviderUnavailable.Class)
+			}
+			if _, asked := extension.RescheduleAfter(dispositionFor(tc.ctx(), classProviderUnavailable, cause)); asked {
+				t.Fatalf("%s postponed itself, so a tick that can never finish would retry forever with nothing to show an operator", tc.name)
+			}
+		})
 	}
 }

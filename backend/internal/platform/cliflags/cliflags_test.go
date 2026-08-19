@@ -88,7 +88,7 @@ func TestAnExplicitEmptyFlagIsNotFilledFromTheEnvironment(t *testing.T) {
 	}
 }
 
-// An empty environment value must not erase a literal default: .env.template
+// An empty environment value must not erase a literal default: .env.example
 // promises a blank line is the same as unset, and env files are sourced wholesale.
 func TestAnEmptyEnvironmentValueLeavesTheLiteralAlone(t *testing.T) {
 	var env Env

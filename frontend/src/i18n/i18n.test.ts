@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { en } from "./en";
 import {
@@ -11,7 +14,7 @@ import {
 import { vi as viCatalog } from "./vi";
 
 // Keys whose vi value is identical to en on purpose. Derived by comparing
-// every one of the 2846 keys' vi/en values (not guessed): anything identical
+// every key's vi and en value (not guessed): anything identical
 // to en that is NOT listed here is a key the translation pass missed, which
 // no other check in this file catches. Grouped so a reviewer can tell "brand
 // name" from "missed translation" at a glance — an addition to any group
@@ -19,7 +22,6 @@ import { vi as viCatalog } from "./vi";
 const KEPT_IN_ENGLISH = new Set<string>([
   // Pure punctuation layouts: every word in them is a placeholder, so there is
   // nothing to translate and a "translation" could only reorder the slots.
-  "today.meeting.headline",
   "today.exchange.subjectWhen",
   // Two names and a separator: every word is a placeholder and the only
   // literal is punctuation.
@@ -38,11 +40,6 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.s4.provGoogle",
   "ob.s4.provMicrosoft",
   "ob.conv.connect.linkedinName",
-  "co.chip.linkedin",
-  // A bare placeholder: the credit pool's name comes from the PROVIDER's own
-  // vocabulary ("email", "mobile"), so there is no literal here to translate
-  // and a translation could only rename somebody else's pool.
-  "provider.credits.pool",
   // "Lead" is the loanword vi uses for the record (see nav.leads).
   "dedupe.kindLead",
   // Employee-count bands: digits and an en dash, the same in every locale.
@@ -54,7 +51,8 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // vi does not, and inventing a difference would name the transport
   // something no Vietnamese speaker calls it.
   "person.composer.transportEmail",
-  // The same proper noun as co.chip.linkedin, one surface over.
+  // The same proper noun as connectors.provGmail and its neighbours, one
+  // surface over.
   "provider.profile.linkedin",
   "person.page.linkedin",
   "auth.coreProviderAnthropic",
@@ -78,7 +76,6 @@ const KEPT_IN_ENGLISH = new Set<string>([
   // CRM domain nouns kept in English by design (glossary, design.md §6.1):
   // "deal", "pipeline", "timeline" etc. read the same in Vietnamese usage.
   "nav.deals",
-  "person.tab.deals",
   "tab.deals",
   "deals.pipeline",
   "deal.fcPipeline",
@@ -130,14 +127,12 @@ const KEPT_IN_ENGLISH = new Set<string>([
   "ob.s4.imapEmail",
   "ob.url",
   "ob.urlScheme",
-  "ob.s3.exampleProspect",
   "ob.conv.triage.companyWebsite",
   "ob.conv.clarify.question",
   "ob.conv.clarify.optionDetail",
   "create.linkedin",
   "person.enriched.field.linkedin",
   "deepread.skipRobots",
-  "ob.live.noValue",
   "quotas.periodRange",
 
   // Units, version rows and other format-only strings: symbols/abbreviations
@@ -267,6 +262,17 @@ describe("i18n catalogs", () => {
       .map(([key]) => key);
     expect(leftovers, `untranslated keys: ${leftovers.join(", ")}`).toEqual([]);
   });
+
+  // The allowlist above is the one hand-written list in this file, and a key
+  // deleted from the catalogs leaves its entry behind silently — an exemption
+  // for a string that no longer exists, which the next reader has to research
+  // before they can tell it is stale.
+  it("the untranslated-copy allowlist names only keys that still exist", () => {
+    const stale = [...KEPT_IN_ENGLISH].filter((key) => !(key in en));
+    expect(stale, `allowlist entries with no key: ${stale.join(", ")}`).toEqual(
+      [],
+    );
+  });
 });
 
 describe("browser-language detection", () => {
@@ -293,5 +299,121 @@ describe("browser-language detection", () => {
   it("never matches an inherited Object property", () => {
     expect(detectLocale(["constructor"])).toBe(DEFAULT_LOCALE);
     expect(detectLocale(["toString"])).toBe(DEFAULT_LOCALE);
+  });
+});
+
+// The two guards below read the source tree rather than a written list of
+// what is allowed, for the reason every fitness function here does: a list
+// records one moment's answer and then drifts, while the tree is the answer.
+
+const SRC_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+const CATALOG_FILES = new Set(
+  ["en.ts", "de.ts", "vi.ts"].map((file) => join(SRC_ROOT, "i18n", file)),
+);
+
+/**
+ * Every file that can RENDER a key: the whole source tree minus the catalogs
+ * themselves and minus the tests.
+ *
+ * Tests are excluded deliberately. A key a test names but no screen renders is
+ * exactly the dead weight the orphan check looks for, and counting tests would
+ * also let this file's own allowlist vouch for keys nothing displays.
+ */
+function renderingFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = join(dir, entry);
+    if (statSync(path).isDirectory()) {
+      return renderingFiles(path);
+    }
+    const rendersKeys =
+      /\.tsx?$/.test(entry) &&
+      !/\.test\.tsx?$/.test(entry) &&
+      !CATALOG_FILES.has(path);
+    return rendersKeys ? [path] : [];
+  });
+}
+
+const RENDERING_SOURCE = renderingFiles(SRC_ROOT).map((path) =>
+  readFileSync(path, "utf8"),
+);
+
+// A key written out in full, in any of the three quote styles. The character
+// class is the alphabet the catalogs actually use: the enum-shaped keys carry
+// ':' (lead.factor.manual:employees), '-' and '+' (the employee bands).
+const QUOTED_LITERAL = /["'`]([A-Za-z0-9_.:+-]+)["'`]/g;
+
+// The stem of a key built at runtime — t(`ob.readStatus.${status}`). Whatever
+// follows the stem is a value this file cannot see, so every key under it
+// counts as rendered: the alternative is a guard that tells the next person to
+// delete a string a screen is displaying.
+const TEMPLATE_STEM = /`([A-Za-z0-9_.]*)\$\{/g;
+
+function renderedLiterals(): Set<string> {
+  const literals = new Set<string>();
+  for (const source of RENDERING_SOURCE) {
+    for (const [, literal] of source.matchAll(QUOTED_LITERAL)) {
+      literals.add(literal);
+    }
+  }
+  return literals;
+}
+
+function renderedStems(): string[] {
+  const stems = new Set<string>();
+  for (const source of RENDERING_SOURCE) {
+    for (const [, stem] of source.matchAll(TEMPLATE_STEM)) {
+      // A dot is what makes a stem a key stem. Without one the template is a
+      // class name, a URL or a message, and treating it as a stem would vouch
+      // for the entire catalog.
+      if (stem.includes(".")) {
+        stems.add(stem);
+      }
+    }
+  }
+  return [...stems];
+}
+
+describe("catalog keys against the surfaces that render them", () => {
+  it("every key is rendered by a source file, literally or under a stem", () => {
+    const literals = renderedLiterals();
+    const stems = renderedStems();
+    const orphans = Object.keys(en).filter(
+      (key) =>
+        !literals.has(key) && !stems.some((stem) => key.startsWith(stem)),
+    );
+    expect(
+      orphans,
+      `keys translated three times and rendered nowhere: ${orphans.join(", ")}`,
+    ).toEqual([]);
+  });
+});
+
+/*
+ * The tenant is called "organization" to a reader (A107/ADR-0061): one
+ * installation serves one organization, and "workspace" is the internal
+ * boundary the schema and the RBAC code use. A second noun for one thing reads
+ * as two concepts the product does not have.
+ *
+ * Matched against VALUES only. Key names keep the internal spelling on purpose
+ * — jobs.workspaceKinds, extUnits.workspace.*, captureActivity.scope.workspace
+ * — because a key is an identifier the screens import, not copy anybody reads.
+ *
+ * "Google Workspace" is the one legitimate reading of the word: a product name
+ * rather than the tenant, so the guard drops it before it looks.
+ */
+const TENANT_MISNOMER = /workspace|arbeitsbereich|không gian làm việc/i;
+const PRODUCT_NAME = /Google Workspace/g;
+
+describe("the product's word for the tenant", () => {
+  it("no catalog calls the organization a workspace", () => {
+    for (const [locale, catalog] of Object.entries(catalogs)) {
+      for (const [key, value] of Object.entries(catalog)) {
+        expect(
+          TENANT_MISNOMER.test(value.replace(PRODUCT_NAME, "")),
+          `${locale}: ${key} — "${value}" says workspace where the product says organization`,
+        ).toBe(false);
+      }
+    }
   });
 });

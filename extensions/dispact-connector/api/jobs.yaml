@@ -45,9 +45,14 @@ actions:
       role: worker
       queue: default
       timeout: 300s
-      # Small on purpose, like every other fan-out child's: the real retry
-      # cadence is the dispatcher's next tick, two minutes away, and a poll that
-      # failed on a provider outage gains nothing from three fast retries.
+      # Small on purpose, like every other fan-out child's: the real retry cadence
+      # is the dispatcher's next tick, two minutes away.
+      #
+      # A FLEET-WIDE PROVIDER OUTAGE NO LONGER SPENDS AN ATTEMPT AT ALL. The tick
+      # postpones itself instead of failing (pollfailure.go), and River decrements
+      # the attempt count on a postponement, so this cap is now about the failures
+      # that DO need somebody — including members failing for DIFFERENT reasons,
+      # which is several problems with several owners rather than one outage.
       max_attempts: 3
       # No tier and no scope: the pair resolves as ONE governed job, so its
       # governance is declared once, on the dispatcher above.

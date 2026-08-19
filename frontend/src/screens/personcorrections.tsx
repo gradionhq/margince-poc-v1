@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import { api } from "../api/client";
 import type { components } from "../api/schema";
+import { useCanWrite } from "../app/capability";
 import { Badge, Button, Card, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
@@ -21,12 +22,20 @@ type ProfileField = components["schemas"]["PersonProfileField"];
  * machine read stays visible beneath it. Hiding the snippet would make the
  * correction unexplainable — what was misread is the reason the correction
  * exists.
+ *
+ * What the reader may SAY is a separate question from what they may see. The
+ * evidence is a read and renders for anyone who can open the contact; recording
+ * a verdict is a write, and `POST /ai/feedback` demands `update` on the subject
+ * (ai/feedback.go, `auth.Require(subjectType, ActionUpdate)`), so the controls
+ * are asked for once here and passed down rather than offered to every reader
+ * and refused by the server.
  */
 export function EnrichedFields({
   personId,
   view,
 }: Readonly<{ personId: string; view: Person360 }>) {
   const t = useT();
+  const mayCorrect = useCanWrite("person", "update");
   const fields = view.profile_fields ?? [];
   if (fields.length === 0) {
     return null;
@@ -49,7 +58,11 @@ export function EnrichedFields({
         >
           {fields.map((field) => (
             <li key={field.field}>
-              <EnrichedField personId={personId} field={field} />
+              <EnrichedField
+                personId={personId}
+                field={field}
+                mayCorrect={mayCorrect}
+              />
             </li>
           ))}
         </ul>
@@ -61,7 +74,12 @@ export function EnrichedFields({
 function EnrichedField({
   personId,
   field,
-}: Readonly<{ personId: string; field: ProfileField }>) {
+  mayCorrect,
+}: Readonly<{
+  personId: string;
+  field: ProfileField;
+  mayCorrect: boolean;
+}>) {
   const t = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(field.value);
@@ -139,49 +157,72 @@ function EnrichedField({
         — “{field.evidence_snippet}”
       </p>
 
-      <div
-        style={{
-          display: "flex",
-          gap: "var(--space-2)",
-          marginTop: "var(--space-2)",
-        }}
-      >
-        {editing ? (
-          <>
-            <Button
-              small
-              disabled={record.isPending || draft.trim() === ""}
-              onClick={() =>
-                record.mutate({ verdict: "corrected", value: draft.trim() })
-              }
-            >
-              {t("person.enriched.save")}
-            </Button>
-            <Button
-              small
-              disabled={record.isPending}
-              onClick={() => setEditing(false)}
-            >
-              {t("person.enriched.cancel")}
-            </Button>
-          </>
-        ) : (
-          <>
-            <Button small onClick={() => setEditing(true)}>
-              {t("person.enriched.correct")}
-            </Button>
-            {field.verdict !== "confirmed" && (
+      {mayCorrect && (
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            marginTop: "var(--space-2)",
+          }}
+        >
+          {editing ? (
+            <>
+              {/* Pending is not refusal: the write the reader just started keeps
+                  their focus, while an empty draft is the one thing that really
+                  is refused. Disabling on both would move focus off the control
+                  they pressed, at the moment they are waiting on it. */}
+              <Button
+                small
+                pending={record.isPending}
+                disabled={draft.trim() === ""}
+                onClick={() =>
+                  record.mutate({ verdict: "corrected", value: draft.trim() })
+                }
+              >
+                {t("person.enriched.save")}
+              </Button>
               <Button
                 small
                 disabled={record.isPending}
-                onClick={() => record.mutate({ verdict: "confirmed" })}
+                onClick={() => setEditing(false)}
               >
-                {t("person.enriched.confirm")}
+                {t("person.enriched.cancel")}
               </Button>
-            )}
-          </>
-        )}
-      </div>
+            </>
+          ) : (
+            <>
+              {/* The editor opens on what the field says NOW. `draft` survives
+                  a cancel and a save alike, so without this a second open
+                  reloads text the reader abandoned — and saving it would
+                  overwrite the correction they just made with the one they
+                  threw away. */}
+              <Button
+                small
+                onClick={() => {
+                  setDraft(field.value);
+                  setEditing(true);
+                }}
+              >
+                {t("person.enriched.correct")}
+              </Button>
+              {/* Confirm is offered while nobody has ruled on the claim. A
+                  field a human already corrected has been ruled on — theirs is
+                  the value on display — so a second verdict on it would ask
+                  them to confirm a machine reading the page no longer shows,
+                  and `suppressed` is a decision to stop being asked at all. */}
+              {!field.verdict && (
+                <Button
+                  small
+                  disabled={record.isPending}
+                  onClick={() => record.mutate({ verdict: "confirmed" })}
+                >
+                  {t("person.enriched.confirm")}
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
       {record.isError && (
         <p
           role="alert"

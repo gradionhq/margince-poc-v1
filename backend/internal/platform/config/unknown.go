@@ -71,7 +71,7 @@ func (r *Registry) Undeclared(environ []string) []string {
 		switch {
 		case !ok, !strings.HasPrefix(name, namespace):
 			continue
-		// Set to nothing IS unset: .env.template ships its optional lines as
+		// Set to nothing IS unset: .env.example ships its optional lines as
 		// bare NAME= placeholders, both entrypoints export them with `set -a`,
 		// and cliflags.Apply already treats an empty value as absent. There is
 		// no value being ignored, so there is nothing to report.

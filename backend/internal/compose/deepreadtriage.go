@@ -124,7 +124,10 @@ func (w *siteDeepReadWorker) readAndResolveTriage(ctx context.Context, args Site
 	if crawl.SeedURL != "" {
 		claim.SeedURL = crawl.SeedURL
 	}
-	fields, _, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
+	kinds := pageKindsOf(crawl.Pages)
+	fields, abstained, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, kinds, extraction.legalCensusIncomplete)
+	// What the census proved fills what the profile lane's excerpt missed.
+	fields = fillLegalTrioFromCensus(fields, extraction.merged.entities, kinds, abstained)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, fields)
 	w.extract.reportDrops(ctx, laneLegal, legalDrops)
 

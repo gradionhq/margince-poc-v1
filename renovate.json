@@ -43,6 +43,12 @@
       "matchManagers": ["gomod"],
       "matchDepTypes": ["golang"],
       "enabled": false
+    },
+    {
+      "description": "The documented supported Redis range tops out at 7.2 (docs/reference/system-requirements.md) — 7.4 left the BSD license family — and the version CI tests must stay inside the range operators are told to run. This cap blocks the 7.4/8.x tag bumps Renovate would otherwise raise; digest updates within the 7.2 tag still flow, which is how 7.2.x patch releases arrive.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["redis"],
+      "allowedVersions": "<7.3"
     }
   ],
   "vulnerabilityAlerts": {
