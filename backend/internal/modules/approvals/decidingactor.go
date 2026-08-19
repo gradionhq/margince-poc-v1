@@ -43,8 +43,9 @@ import (
 // which is a credential nobody lent, whatever else it holds.
 //
 // This is deliberately not the whole answer for a decision. What a passport may
-// RELEASE is bounded by the caps it was granted, which is agentReleaseSpends
-// below; being somebody's agent is admission, not authority.
+// RELEASE — and whether it is the credential that proposed the thing in the
+// first place — is agentMayDecide below; being somebody's agent is admission,
+// not authority.
 func actingForAHuman(ctx context.Context) error {
 	p, ok := principal.Actor(ctx)
 	if !ok {
