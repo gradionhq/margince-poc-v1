@@ -151,13 +151,22 @@ export function sourceKeyLabel(
 // the ACTIVE administered sources, in the administrator's order. A lead that
 // already carries a value outside that list (a connector's, a retired one)
 // keeps it as a first, non-removable option so the control never shows a
-// value it cannot name.
+// value it cannot name. While the list has not arrived — or failed — the
+// shipped six stand in, so a required picker is never empty and a lead can
+// still be created with a value the server knows.
 export function sourcePickOptions(
   sources: readonly LeadSource[] | undefined,
   current: string | null | undefined,
   t: ReturnType<typeof useT>,
 ): { value: string; label: string }[] {
-  const active = administeredOf(sources).filter((s) => s.active);
+  const administered = administeredOf(sources);
+  const active =
+    sources === undefined
+      ? Object.entries(SHIPPED_SOURCE_LABELS).map(([key, label]) => ({
+          key,
+          label: t(label),
+        }))
+      : administered.filter((s) => s.active);
   const options = active.map((s) => ({ value: s.key, label: s.label }));
   if (current && !active.some((s) => s.key === current)) {
     options.unshift({
@@ -168,9 +177,9 @@ export function sourcePickOptions(
   return options;
 }
 
-// The filter chip offers everything a lead could carry: every administered
-// source (retired ones included — the leads carrying them still exist) and
-// every discovered value.
+// The filter chip offers the ACTIVE administered sources and every discovered
+// value — the contract's reading of "inactive sources leave the create form
+// and the filter".
 export function sourceFilterOptions(
   list:
     | Readonly<{
@@ -187,7 +196,9 @@ export function sourceFilterOptions(
     ? list.discovered.filter((d) => typeof d?.key === "string")
     : [];
   return [
-    ...data.map((s) => ({ value: s.key, text: s.label })),
+    ...data
+      .filter((s) => s.active)
+      .map((s) => ({ value: s.key, text: s.label })),
     ...discovered.map((d) => ({
       value: d.key,
       text: sourceKeyLabel(d.key, data, t),

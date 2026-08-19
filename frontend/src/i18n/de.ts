@@ -1241,7 +1241,7 @@ export const de = {
   "leadSources.inUse":
     "{count} Leads nutzen diese Quelle — stattdessen abschalten.",
   "leadSources.deactivateInstead": "stattdessen abschalten",
-  "leadSources.active": "Aktiv",
+  "leadSources.activeFor": "{label} ist aktiv",
   "leadSources.remove": "Entfernen",
   "leadSources.removeTitle": "Diese Quelle entfernen?",
   "leadSources.removeBody":
@@ -1270,6 +1270,8 @@ export const de = {
   "leadHandling.firstResponseHint":
     "Standardmäßig aus. An: jeder offene Lead trägt eine Antwortfrist, die Liste bekommt die Ansicht „Überfällig“, und überfällige Leads stehen zuerst.",
   "leadHandling.targetMinutes": "Ziel (Minuten)",
+  "leadHandling.targetOutOfRange":
+    "Eine ganze Minutenzahl zwischen 15 und 10080 (7 Tage) eingeben.",
   "leadHandling.targetHint":
     "Wie lange ein Lead nach Zuweisung (oder Anlage) auf die erste Antwort warten darf. 15 Minuten bis 7 Tage.",
   "lead.boardCount": "{count} Leads",

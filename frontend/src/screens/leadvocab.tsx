@@ -34,6 +34,17 @@ import "./leadvocab.css";
 // controls disable with the reason rather than hide.
 
 const INTENTS = ["high", "neutral", "low"] as const;
+
+// The contract promises the arrays; a body that lost one is treated as the
+// empty list it claims rather than a crash in the render that reads it.
+function rowsOf<Row>(rows: readonly Row[] | null | undefined): readonly Row[] {
+  return Array.isArray(rows) ? rows : [];
+}
+
+// The first-response target's bounds, the same the server enforces
+// (15 minutes to 7 days); checked here so a refusal never leaves the page.
+const TARGET_MIN_MINUTES = 15;
+const TARGET_MAX_MINUTES = 7 * 24 * 60;
 const intentLabel: Record<LeadSourceIntent, MessageKey> = {
   high: "leadSources.intent.high",
   neutral: "leadSources.intent.neutral",
@@ -199,7 +210,7 @@ function LeadSourceRow({
       <span className="lead-vocab-flags">
         {builtIn && <Badge>{t("leadSources.builtIn")}</Badge>}
         <Switch
-          label={t("leadSources.active")}
+          label={t("leadSources.activeFor", { label: source.label })}
           labelHidden
           checked={source.active}
           disabled={!canEdit}
@@ -259,7 +270,7 @@ export function LeadSourcesCard() {
         {(list) => (
           <>
             <ul className="lead-vocab-list" data-testid="lead-source-list">
-              {list.data.map((source) => (
+              {rowsOf(list.data).map((source) => (
                 <LeadSourceRow
                   key={source.id}
                   source={source}
@@ -272,16 +283,18 @@ export function LeadSourcesCard() {
                 />
               ))}
             </ul>
-            {list.discovered.length > 0 && (
+            {rowsOf(list.discovered).length > 0 && (
               <PanelRow>
                 <p className="t-caption">{t("leadSources.discoveredSub")}</p>
                 <ul
                   className="lead-vocab-list"
                   data-testid="lead-source-discovered"
                 >
-                  {list.discovered.map((found) => (
+                  {rowsOf(list.discovered).map((found) => (
                     <li key={found.key} className="lead-vocab-row">
-                      <span>{sourceKeyLabel(found.key, list.data, t)}</span>
+                      <span>
+                        {sourceKeyLabel(found.key, rowsOf(list.data), t)}
+                      </span>
                       <span className="t-mono t-caption lead-vocab-key">
                         {found.key}
                       </span>
@@ -297,7 +310,11 @@ export function LeadSourcesCard() {
                             onClick={() =>
                               create.mutate({
                                 key: found.key,
-                                label: sourceKeyLabel(found.key, list.data, t),
+                                label: sourceKeyLabel(
+                                  found.key,
+                                  rowsOf(list.data),
+                                  t,
+                                ),
                                 intent: "neutral",
                               })
                             }
@@ -462,7 +479,7 @@ export function LeadDisqualifyReasonsCard() {
       <QueryGate query={query}>
         {(reasons) => (
           <ul className="lead-vocab-list" data-testid="lead-reason-list">
-            {reasons.map((reason) => {
+            {rowsOf(reasons).map((reason) => {
               const count = reason.lead_count ?? 0;
               const builtIn = reason.system === true;
               const removable = canRemove && !builtIn && count === 0;
@@ -486,7 +503,9 @@ export function LeadDisqualifyReasonsCard() {
                   <span className="lead-vocab-flags">
                     {builtIn && <Badge>{t("leadSources.builtIn")}</Badge>}
                     <Switch
-                      label={t("leadSources.active")}
+                      label={t("leadSources.activeFor", {
+                        label: reason.label,
+                      })}
                       labelHidden
                       checked={reason.active}
                       disabled={!canEdit}
@@ -586,6 +605,7 @@ export function LeadHandlingCard() {
   const query = useLeadSettings();
   const update = useUpdateLeadSettings();
   const [draft, setDraft] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
   return (
     <Panel title={t("leadHandling.title")}>
       <PanelBody className="form-stack">
@@ -601,16 +621,27 @@ export function LeadHandlingCard() {
               draft ?? String(settings.first_response_target_minutes);
             const commit = () => {
               const minutes = Number(shown);
-              if (
-                !Number.isInteger(minutes) ||
-                minutes === settings.first_response_target_minutes
-              ) {
+              if (minutes === settings.first_response_target_minutes) {
                 setDraft(null);
+                setTargetError(null);
                 return;
               }
+              if (
+                !Number.isInteger(minutes) ||
+                minutes < TARGET_MIN_MINUTES ||
+                minutes > TARGET_MAX_MINUTES
+              ) {
+                // The typed value stays so it can be corrected, and the
+                // field says what it wants.
+                setTargetError(t("leadHandling.targetOutOfRange"));
+                return;
+              }
+              setTargetError(null);
               update.mutate(
                 { first_response_target_minutes: minutes },
-                { onSettled: () => setDraft(null) },
+                // A refused write keeps the draft for the reader to fix; a
+                // landed one clears it so the field reads the stored value.
+                { onSuccess: () => setDraft(null) },
               );
             };
             return (
@@ -629,6 +660,7 @@ export function LeadHandlingCard() {
                 <Field
                   label={t("leadHandling.targetMinutes")}
                   hint={t("leadHandling.targetHint")}
+                  error={targetError ?? undefined}
                 >
                   {(control) => (
                     <TextInput

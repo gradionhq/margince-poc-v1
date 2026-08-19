@@ -74,11 +74,14 @@ func (m SourceIntents) Of(source string) SourceIntent {
 // leadSourceClause renders the list's source filter. A connector family
 // (`connector:apollo`, as the source list names it) matches every lead the
 // connector wrote, whose values carry the item id after the family; any
-// other value matches exactly. The family's own underscores are escaped so
-// LIKE reads them as letters.
+// other value matches exactly. The family is bound as a parameter and every
+// LIKE metacharacter in it is escaped (backslash first, then % and _), so a
+// caller-supplied `connector:%` names a family literally called "%" and
+// nothing else.
 func leadSourceClause(source string, arg func(any) int) string {
 	if _, isFamily := connectorFamily(source + ":x"); isFamily && strings.Count(source, ":") == 1 {
-		return storekit.SQLf("("+leadSourceColumn+" = $%d OR "+leadSourceColumn+" LIKE replace($%d, '_', '\\_') || ':%%')",
+		return storekit.SQLf("("+leadSourceColumn+" = $%d OR "+leadSourceColumn+
+			` LIKE replace(replace(replace($%d, '\', '\\'), '%%', '\%%'), '_', '\_') || ':%%')`,
 			arg(source), arg(source))
 	}
 	return storekit.SQLf(leadSourceColumn+" = $%d", arg(source))

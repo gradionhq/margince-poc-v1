@@ -1257,7 +1257,7 @@ export const en = {
     "Built-in sources can be renamed and switched off, not removed.",
   "leadSources.inUse": "{count} leads use this source — switch it off instead.",
   "leadSources.deactivateInstead": "switch off instead",
-  "leadSources.active": "Active",
+  "leadSources.activeFor": "{label} is active",
   "leadSources.remove": "Remove",
   "leadSources.removeTitle": "Remove this source?",
   "leadSources.removeBody":
@@ -1286,6 +1286,8 @@ export const en = {
   "leadHandling.firstResponseHint":
     "Off by default. On, every open lead carries a reply deadline, the list gains the Overdue view, and overdue leads sort first.",
   "leadHandling.targetMinutes": "Target (minutes)",
+  "leadHandling.targetOutOfRange":
+    "Enter a whole number of minutes between 15 and 10080 (7 days).",
   "leadHandling.targetHint":
     "How long a lead may wait for its first reply once it is routed (or created). 15 minutes to 7 days.",
   "lead.boardCount": "{count} leads",

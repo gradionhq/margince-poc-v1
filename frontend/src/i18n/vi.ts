@@ -1238,7 +1238,7 @@ export const vi = {
   "leadSources.inUse":
     "{count} khách hàng tiềm năng dùng nguồn này — hãy tắt thay vì xóa.",
   "leadSources.deactivateInstead": "hãy tắt thay vì xóa",
-  "leadSources.active": "Đang bật",
+  "leadSources.activeFor": "{label} đang bật",
   "leadSources.remove": "Xóa",
   "leadSources.removeTitle": "Xóa nguồn này?",
   "leadSources.removeBody":
@@ -1267,6 +1267,8 @@ export const vi = {
   "leadHandling.firstResponseHint":
     "Mặc định tắt. Khi bật, mọi khách hàng tiềm năng đang mở có hạn phản hồi, danh sách có thêm chế độ xem Quá hạn và các mục quá hạn xếp trước.",
   "leadHandling.targetMinutes": "Mục tiêu (phút)",
+  "leadHandling.targetOutOfRange":
+    "Nhập số phút nguyên từ 15 đến 10080 (7 ngày).",
   "leadHandling.targetHint":
     "Khách hàng tiềm năng được chờ bao lâu cho phản hồi đầu tiên sau khi được phân (hoặc tạo). Từ 15 phút đến 7 ngày.",
   "lead.boardCount": "{count} lead",
