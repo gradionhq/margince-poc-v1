@@ -51,8 +51,8 @@ func EnsureLicense(ctx context.Context, log *slog.Logger, cfg deployconfig.Confi
 	if err != nil {
 		// The setting to correct is named HERE, where the token's source is
 		// known: platform's check is handed a token, not a configuration file.
-		return nil, fmt.Errorf("%w — correct or remove license.token_file (or %s) and start again",
-			err, deployconfig.LicenseTokenEnvVar)
+		return nil, fmt.Errorf("%w — correct or remove %s and start again",
+			err, cfg.License.TokenOrigin(lookup))
 	}
 	if err := refuseUnlicensedProduction(watcher.Posture(), env); err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func refuseUnlicensedProduction(posture licensecheck.Posture, env runtimeenv.Env
 		return nil
 	}
 	return fmt.Errorf("no license is configured and this installation is production: "+
-		"point license.token_file (or %s) at the license token issued for this installation, "+
+		"point license.token (or %s) at the license token issued for this installation, "+
 		"or, if this is a development or test installation, set %s=%s",
 		deployconfig.LicenseTokenEnvVar, runtimeenv.EnvVar, runtimeenv.Development)
 }

@@ -183,3 +183,49 @@ func TestTokenOriginNamesTheSourceThatWins(t *testing.T) {
 		})
 	}
 }
+
+// A named token source that yields nothing is a MISTAKE, not an unlicensed
+// installation, and it has to be one for both spellings.
+//
+// The reference form arrived second, so it was the one at risk of being the
+// weaker: a mounted secret that failed to project, or a variable the deploy
+// pipeline forgot, would otherwise report an installation with no entitlement.
+// In production those two produce the same refusal with the wrong remedy
+// attached — the operator is told to point license.token at a token when
+// license.token is already pointed at an empty file.
+func TestAnEmptyTokenReferenceIsAnErrorNotAnUnlicensedInstallation(t *testing.T) {
+	empty := filepath.Join(t.TempDir(), "license")
+	if err := os.WriteFile(empty, []byte("  \n"), 0o600); err != nil {
+		t.Fatalf("writing the empty token file: %v", err)
+	}
+	for name, tc := range map[string]struct {
+		doc  string
+		want string
+	}{
+		"a file reference that holds nothing": {
+			doc:  "version: 1\nlicense:\n  token: ${file:" + empty + "}\n",
+			want: empty + " holds nothing",
+		},
+		"a variable reference that is unset": {
+			doc:  "version: 1\nlicense:\n  token: ${env:" + absentVar + "}\n",
+			want: absentVar + " is unset or empty",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tc.doc))
+			if err != nil {
+				t.Fatalf("Parse: %v", err)
+			}
+			token, err := cfg.License.Token(config.Static(nil))
+			if err == nil {
+				t.Fatalf("an empty license.token resolved to %q with no error — the installation reads as unlicensed", token)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to name %q", err, tc.want)
+			}
+			if !strings.Contains(err.Error(), "license.token") {
+				t.Errorf("error = %q; it must name the key an operator edits", err)
+			}
+		})
+	}
+}

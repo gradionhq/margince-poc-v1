@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
+	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/shared/runtimeenv"
 )
 
@@ -319,10 +322,12 @@ func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	if err := os.WriteFile(pwFile, []byte("a bootstrap password!\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The original spelling still works: an existing deployment must boot
+	// unchanged now that the reference form sits beside it.
 	b := BootstrapAdmin{Email: "a@b.co", DisplayName: "A", PasswordFile: pwFile}
-	pw, err := b.Password()
+	pw, err := b.ResolvePassword(config.Static(nil))
 	if err != nil {
-		t.Fatalf("Password: %v", err)
+		t.Fatalf("ResolvePassword: %v", err)
 	}
 	if pw != "a bootstrap password!" {
 		t.Fatalf("password = %q, want the file content without the trailing newline", pw)
@@ -331,7 +336,56 @@ func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	if err := os.WriteFile(pwFile, []byte("short\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.Password(); err == nil {
+	if _, err := b.ResolvePassword(config.Static(nil)); err == nil {
 		t.Fatal("an under-12-character bootstrap password was accepted")
+	}
+}
+
+// The reference form, and which spelling wins when a deployment carries both.
+func TestBootstrapAdminPasswordComesFromEitherSpelling(t *testing.T) {
+	dir := t.TempDir()
+	fromFile := filepath.Join(dir, "from-file")
+	if err := os.WriteFile(fromFile, []byte("the file password!\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := config.Static(map[string]string{"PROBE_ADMIN_PW": "the environment password!"})
+
+	var withRef struct {
+		B BootstrapAdmin `yaml:"b"`
+	}
+	doc := "b:\n  password: ${env:PROBE_ADMIN_PW}\n"
+	if err := yaml.Unmarshal([]byte(doc), &withRef); err != nil {
+		t.Fatal(err)
+	}
+	got, err := withRef.B.ResolvePassword(env)
+	if err != nil {
+		t.Fatalf("resolving the reference form: %v", err)
+	}
+	if got != "the environment password!" {
+		t.Errorf("password = %q, want the environment value", got)
+	}
+
+	// Both present: the reference wins, because it is the form that can name
+	// the environment and the one an operator migrating forward added on
+	// purpose.
+	withRef.B.PasswordFile = fromFile
+	got, err = withRef.B.ResolvePassword(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "the environment password!" {
+		t.Errorf("with both spellings the password was %q; the reference must win", got)
+	}
+}
+
+// A deployment naming no password at all is told so, rather than bootstrapping
+// an account with an empty credential.
+func TestBootstrapAdminWithNoPasswordSourceRefuses(t *testing.T) {
+	_, err := BootstrapAdmin{Email: "a@b.co", DisplayName: "A"}.ResolvePassword(config.Static(nil))
+	if err == nil {
+		t.Fatal("an admin with no password source was accepted")
+	}
+	if !strings.Contains(err.Error(), "${file:") || !strings.Contains(err.Error(), "${env:") {
+		t.Errorf("the refusal does not show how to supply one: %v", err)
 	}
 }
