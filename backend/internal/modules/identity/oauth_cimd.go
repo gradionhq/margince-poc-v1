@@ -198,8 +198,8 @@ func (s *Service) upsertCIMDClient(ctx context.Context, doc cimdDocument, ttl ti
 		// running ahead serves a client's redirect list past the window its
 		// publisher was promised.
 		_, err := tx.Exec(ctx, `
-			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris, created_via, metadata_expires_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'cimd', now() + $4::interval)
+			INSERT INTO oauth_client (client_id, client_name, redirect_uris, created_via, metadata_expires_at)
+			VALUES ($1, $2, $3, 'cimd', now() + $4::interval)
 			ON CONFLICT (client_id) DO UPDATE SET
 			  client_name         = EXCLUDED.client_name,
 			  redirect_uris       = EXCLUDED.redirect_uris,

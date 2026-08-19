@@ -160,7 +160,7 @@ func waitUntilBlockingSomebody(t *testing.T, tx pgx.Tx) {
 func (e *lendEnv) codesAndLendAudits(t *testing.T) (codes, audits int) {
 	t.Helper()
 	if err := e.owner.QueryRow(context.Background(), `
-		SELECT (SELECT count(*) FROM oauth_authorization_code WHERE workspace_id = $1),
+		SELECT (SELECT count(*) FROM oauth_authorization_code),
 		       (SELECT count(*) FROM audit_log
 		         WHERE workspace_id = $1 AND entity_type = 'oauth_authorization_code')`,
 		e.admin.WorkspaceID).Scan(&codes, &audits); err != nil {
@@ -314,8 +314,8 @@ func TestAnUncontendedLendCommitsTheCodeAndItsAudit(t *testing.T) {
 	}
 	var scopes []string
 	if err := e.owner.QueryRow(context.Background(),
-		`SELECT scopes FROM oauth_authorization_code WHERE workspace_id = $1 AND code_hash = $2`,
-		e.admin.WorkspaceID, hashOAuthCode(code)).Scan(&scopes); err != nil {
+		`SELECT scopes FROM oauth_authorization_code WHERE code_hash = $1`,
+		hashOAuthCode(code)).Scan(&scopes); err != nil {
 		t.Fatalf("reading the code row behind the returned courier: %v", err)
 	}
 	if !slices.Equal(scopes, []string{"read", "write"}) {

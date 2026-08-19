@@ -237,8 +237,8 @@ func TestADocumentCannotTakeOverARegisteredClient(t *testing.T) {
 	clientID := e.docs.URL + "/client.json"
 	err := database.WithWorkspaceTx(e.ctx, e.svc.db.Pool(), func(tx pgx.Tx) error {
 		_, err := tx.Exec(e.ctx, `
-			INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris, created_via)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'Registered', $2, 'dcr')`,
+			INSERT INTO oauth_client (client_id, client_name, redirect_uris, created_via)
+			VALUES ($1, 'Registered', $2, 'dcr')`,
 			clientID, []string{"https://registered.example/cb"})
 		return err
 	})
