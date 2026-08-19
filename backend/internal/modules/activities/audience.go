@@ -129,7 +129,7 @@ func ensureVersion(ctx context.Context, tx pgx.Tx, id ids.ActivityID, ifVersion 
 		return nil
 	}
 	var current int64
-	if err := tx.QueryRow(ctx, `SELECT version FROM activity WHERE id = $1`, id).Scan(&current); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT version FROM activity WHERE id = $1 AND archived_at IS NULL`, id).Scan(&current); err != nil {
 		return err
 	}
 	if current != *ifVersion {
@@ -181,6 +181,17 @@ func replaceAudienceMembers(ctx context.Context, tx pgx.Tx, id ids.ActivityID, m
 		}
 	}
 	return nil
+}
+
+// readActivityContent is readActivity for a caller about to USE the content —
+// reply to it, transcribe it, send on its thread: the audience gate runs as a
+// probe first, so a limited conversation answers ErrNotFound rather than a
+// row with its text blanked.
+func readActivityContent(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
+	if err := auth.EnsureActivityContentVisible(ctx, tx, id.UUID); err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	return readActivity(ctx, tx, id, archived)
 }
 
 // InvalidAudienceError is a malformed audience write: an unknown audience, a

@@ -370,17 +370,6 @@ func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived st
 	return one[0], nil
 }
 
-// readActivityContent is readActivity for a caller about to USE the content —
-// reply to it, transcribe it, send on its thread: the audience gate runs as a
-// probe first, so a limited conversation answers ErrNotFound rather than a
-// row with its text blanked.
-func readActivityContent(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
-	if err := auth.EnsureActivityContentVisible(ctx, tx, id.UUID); err != nil {
-		return crmcontracts.Activity{}, err
-	}
-	return readActivity(ctx, tx, id, archived)
-}
-
 // attachLinks fills the contract's links[] on a page of activities in ONE
 // query — the column the timeline's "via" chips and the per-person filter
 // read. Batched rather than per-row because the timeline reads a page at a
