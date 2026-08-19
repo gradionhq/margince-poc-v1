@@ -1119,21 +1119,40 @@ export async function mockApi(
         page(deals.map((deal) => ({ ...deal, ...dealPatches[deal.id] }))),
       );
     }
-    if (path.startsWith("/deals/") && path.endsWith("/advance")) {
-      // A write is REMEMBERED, not just answered. The handler used to return a
-      // moved stage and version while every later read still served the seed —
-      // so a re-read after an advance handed the client the old version, and the
-      // next write would have sent it back as a precondition the server had
-      // already superseded. The advance is the one write whose whole point is
-      // that the row moved.
-      const advanced = deals.find((deal) => path.includes(deal.id)) ?? deals[0];
-      dealPatches[advanced.id] = {
-        ...dealPatches[advanced.id],
+    const advanceRoute = /^\/deals\/([^/]+)\/advance$/.exec(path);
+    if (advanceRoute && method === "POST") {
+      // A write is REMEMBERED, not just answered. This handler used to return a
+      // moved stage and version while every later read still served the seed, so
+      // a re-read after an advance handed back the version the write had already
+      // superseded — which the client would then send as its next precondition.
+      //
+      // And it ENFORCES the precondition rather than accepting anything, the way
+      // the lead PATCH above already does: a UI that forgets If-Match, or sends a
+      // version the row has moved past, fails this harness loudly instead of
+      // quietly succeeding. That is the whole point of a fixture standing in for
+      // a server that would refuse.
+      const target = deals.find((deal) => deal.id === advanceRoute[1]);
+      if (!target) {
+        return json({ title: "Not Found" }, 404);
+      }
+      const current = dealPatches[target.id]?.version ?? target.version;
+      if (route.request().headers()["if-match"] !== String(current)) {
+        return json(
+          {
+            title: "Conflict",
+            detail: "version skew — reload and retry",
+            code: "version_skew",
+          },
+          409,
+        );
+      }
+      dealPatches[target.id] = {
+        ...dealPatches[target.id],
         stage_id: "s4",
         status: "won",
-        version: (dealPatches[advanced.id]?.version ?? advanced.version) + 1,
+        version: current + 1,
       };
-      return json({ ...advanced, ...dealPatches[advanced.id] });
+      return json({ ...target, ...dealPatches[target.id] });
     }
     if (path.startsWith("/deals/") && path.endsWith("/stakeholders")) {
       return json(page([]));
