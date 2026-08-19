@@ -39,8 +39,8 @@ func TestARepReadsEveryDealButNotAnotherTeamsAmount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a rep reading another team's deal: %v", err)
 	}
-	if got.AmountMinor != nil || got.MaskedFields == nil || len(*got.MaskedFields) != 1 || (*got.MaskedFields)[0] != "amount_minor" {
-		t.Errorf("another team's deal for a rep = amount %v masked %v, want amount withheld and named", got.AmountMinor, got.MaskedFields)
+	if got.AmountMinor != nil || got.Currency != nil || got.MaskedFields == nil || len(*got.MaskedFields) != 1 || (*got.MaskedFields)[0] != "amount_minor" {
+		t.Errorf("another team's deal for a rep = amount %v currency %v masked %v, want the money pair withheld and the amount named", got.AmountMinor, got.Currency, got.MaskedFields)
 	}
 	own, err := e.Deals.GetDeal(rep, ids.From[ids.DealKind](mine), 0)
 	if err != nil || own.AmountMinor == nil || *own.AmountMinor != amount || own.MaskedFields != nil {

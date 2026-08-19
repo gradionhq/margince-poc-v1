@@ -62,10 +62,11 @@ func MasksAnyRowOf(ctx context.Context, object, field string) (bool, error) {
 }
 
 // WritableSubset answers, in ONE statement, which of the given rows of a
-// shareable table the caller could change — the write arm EnsureWritable
+// shareable table the caller may SEE and could CHANGE — the pair EnsureWritable
 // takes, asked of a page at once so a list can mask per row without a probe
-// per row. An unbounded caller writes them all; rows the caller cannot see at
-// all are simply absent from the answer (the list already scoped them).
+// per row. A row the caller cannot see is absent from the answer whatever
+// their write authority, capture privacy included; only a caller who reads the
+// table whole with no predicate at all (UnboundedFor) writes every row named.
 func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.UUID) (map[ids.UUID]bool, error) {
 	if !shareableTables[table] {
 		return nil, fmt.Errorf("auth: %q is not a shareable table", table)
@@ -75,7 +76,7 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 		return nil, err
 	}
 	out := make(map[ids.UUID]bool, len(rowIDs))
-	if Unbounded(p) {
+	if UnboundedFor(p, table) && Unbounded(p) {
 		for _, id := range rowIDs {
 			out[id] = true
 		}
@@ -87,7 +88,10 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idsPos := arg(rowIDs)
-	clause := writeAuthorityPredicate(p, table, arg)
+	// Visibility first, the write arm second — the same two questions
+	// EnsureWritable asks, in one statement. An unbounded caller's write arm
+	// is TRUE and capture privacy is all that can still withhold a row.
+	clause := VisiblePredicate(p, table, arg)("") + " AND " + writeAuthorityPredicate(p, table, arg)
 	rows, err := tx.Query(ctx,
 		fmt.Sprintf(`SELECT id FROM %[1]s WHERE id = ANY($%[2]d) AND %[3]s`, table, idsPos, clause), args...)
 	if err != nil {

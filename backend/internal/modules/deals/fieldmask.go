@@ -25,7 +25,9 @@ import (
 // is withheld. A mask naming a column not listed here is inert: withholding
 // is a deliberate act per field, not a reflective one over the struct.
 var dealMaskableFields = map[string]func(*crmcontracts.Deal){
-	"amount_minor": func(d *crmcontracts.Deal) { d.AmountMinor = nil },
+	// The money pair goes together: a currency beside a withheld amount
+	// would read as a priced deal with its figure missing.
+	"amount_minor": func(d *crmcontracts.Deal) { d.AmountMinor, d.Currency = nil, nil },
 	"currency":     func(d *crmcontracts.Deal) { d.Currency = nil },
 }
 
