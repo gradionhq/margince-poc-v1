@@ -37,6 +37,40 @@ Reversal is a new, audited change, never an edit of history. Putting a value
 back writes its own audit row naming the row it reverses. The undo can itself be
 undone, and an auditor sees both events, which is the truth of what happened.
 
+## The change names the person, not the machine
+
+Every change records **who is answerable for it** first and **what performed it**
+second. In that order, because the first question anybody asks of a record is
+who did this, and "an AI" is never a satisfying answer to it.
+
+A rep working through MCP is the rep. The change reads **"Lars, via MCP"** — not
+"MCP", not "AI", not an agent slug. The tool is how the typing happened; the
+person is who decided.
+
+The same holds for the product's own AI, which always runs in somebody's
+context: a nightly pass over one person's data reads **"AI, for Lars"**. There is
+no such thing as an AI change with no human behind it. If the code cannot name
+whose context a pass ran in, it does not know what that pass was allowed to
+touch, and that is a defect in the caller rather than a legitimate state to
+display.
+
+`system` is reserved for changes that genuinely have nobody behind them — a
+migration, a retention sweep over the whole installation. It must never become
+the fallback for an attribution the code failed to carry.
+
+**Why this is part of the reversal decision rather than beside it.** Dropping
+confirm-first rests on being able to ask somebody about a change afterwards.
+"MCP did it" cannot be asked anything, so an attribution that names the tool
+instead of the person removes the accountability that replaced the approval
+queue. It also lets everyone disclaim: the rep says the agent did it, and the
+agent is not a party to anything.
+
+The columns already exist and are populated. What does not exist is the display:
+`AuditLogEntry` returns `actor_id` and `on_behalf_of` as bare identifiers with no
+names, so `ActorTag` in `frontend/src/screens/audit.tsx` renders every human as
+"A teammate" and leads an agent row with a raw agent id. The trail knows who it
+was and the screen declines to say. Issue #1861 carries that work.
+
 ## Why
 
 The confirmation tier was designed when an agent's change could not be seen or
@@ -44,6 +78,12 @@ undone. Given that, holding the change for a human was the only available
 control. Neither premise has to stay true, and the cost of keeping them is
 high: a queue people click through without reading gives the appearance of
 governance and none of the substance.
+
+A staging queue is worse than it sounds in a second way. It moves the decision
+to a human who has no better information than the model did, produces a backlog
+nobody clears, and teaches people to approve in bulk without reading — which
+manufactures a record of scrutiny that did not happen. That is a worse artifact
+than no review at all, because somebody later relies on it.
 
 The alternative most products reach for is versioning every table — keep every
 prior row, reconstruct any record as of any moment. That is rejected here, and
