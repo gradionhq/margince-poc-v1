@@ -192,3 +192,45 @@ func TestMinCompaniesForCoverageIsHonest(t *testing.T) {
 			need, strings.Join(short, "\n  "))
 	}
 }
+
+// TestLeadIsAssignedSplitsInHalf pins the lead assignment split. Half the
+// generated leads must be left unassigned so the queue-and-claim screens have
+// something to show; before this, every generated lead was owned on creation.
+//
+// The split is by position, not by hash, and the test says why: on the 45
+// domains that actually carry a generated lead, every hash salt tried landed
+// on 62/38. A hash promises "about half" only in the large-sample limit, and
+// 45 is not that.
+func TestLeadIsAssignedSplitsInHalf(t *testing.T) {
+	for _, n := range []int{2, 10, 45, 100, 199} {
+		assigned := 0
+		for i := 0; i < n; i++ {
+			if leadIsAssigned(i) {
+				assigned++
+			}
+		}
+		want := (n + 1) / 2 // index 0 is assigned, so odd counts round up
+		if assigned != want {
+			t.Errorf("with %d leads: assigned %d, want %d", n, assigned, want)
+		}
+		if unassigned := n - assigned; unassigned == 0 {
+			t.Errorf("with %d leads: nothing left unassigned — the claim queue is empty", n)
+		}
+	}
+}
+
+// TestLeadIsAssignedIsStable is the convergence contract: a given position
+// must always land in the same bucket, or a second seed moves a lead from a
+// rep's queue to nobody's.
+//
+// The buckets are pinned as literal values rather than recomputed from the
+// function, so that changing the rule fails here instead of silently
+// reshuffling every demo installation's lead queue on its next re-seed.
+func TestLeadIsAssignedIsStable(t *testing.T) {
+	want := []bool{true, false, true, false, true, false, true, false}
+	for i, w := range want {
+		if got := leadIsAssigned(i); got != w {
+			t.Errorf("leadIsAssigned(%d) = %v, want %v", i, got, w)
+		}
+	}
+}

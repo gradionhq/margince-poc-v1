@@ -164,6 +164,7 @@ func generatedAmount(domain string) int64 {
 // a duplicate of themselves.
 func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, mode runMode) (int, error) {
 	created := 0
+	leadsPlanned := 0
 	if mode == modeDryRun {
 		for _, p := range plan {
 			if !p.Pinned && p.LeadState != "" {
@@ -187,6 +188,11 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 		if !ok {
 			continue
 		}
+		// Counted for EVERY domain that carries a lead, including the ones
+		// already on file, so the half that is assigned does not shift when
+		// a re-run skips the leads it created last time.
+		leadIndex := leadsPlanned
+		leadsPlanned++
 		first, last := generatedLeadName(domain)
 		title := generatedLeadTitle(domain)
 		sourceID := "gen-lead-" + domain
@@ -202,8 +208,19 @@ func seedGeneratedLeads(c *client, refs pipelineRefs, plan map[string]profile, m
 				"company_name":  refs.orgNameByID[orgID],
 				"title":         title,
 			}
-			if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
-				body["owner_id"] = owner
+			// Half the generated leads are filed unassigned, which is what an
+			// inbound funnel actually looks like: a lead arrives before
+			// anybody picks it up. Seeding every one of them owned left the
+			// queue-and-claim screens with nothing to show — there was no
+			// unassigned lead to claim.
+			//
+			// Which half a lead falls in is fixed by its position in the
+			// sorted domain list, so a re-run assigns the same half. See
+			// leadIsAssigned.
+			if leadIsAssigned(leadIndex) {
+				if owner, ok := refs.usersByRef[refs.ownerRefByDomain[domain]]; ok {
+					body["owner_id"] = owner
+				}
 			}
 			var out struct {
 				ID string `json:"id"`
@@ -299,6 +316,20 @@ func generatedLeadEmail(first, last, domain string) string {
 
 func generatedLeadTitle(domain string) string {
 	return leadTitles[hashIndex("leadtitle:"+domain, len(leadTitles))]
+}
+
+// leadIsAssigned splits the generated leads in half: the assigned ones get
+// the company's owner, the rest are left unassigned for somebody to claim.
+//
+// The split is by POSITION in the already-sorted domain list, not by hash.
+// A hash only promises "about half", and on the 45 domains that actually
+// carry a generated lead every salt tried landed on 62/38 — a sample this
+// small scatters. Taking every other domain gives exactly half, and because
+// sortedDomains fixes the order, a re-run assigns the same half. That keeps
+// the convergence contract: a second seed must not move a lead from a rep's
+// queue to nobody's.
+func leadIsAssigned(index int) bool {
+	return index%2 == 0
 }
 
 // sortedDomains gives the plan a stable iteration order. Map order is random
