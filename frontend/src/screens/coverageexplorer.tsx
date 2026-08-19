@@ -1,5 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import type { components } from "../api/schema";
+import { usePublishSelection } from "../app/attention";
 import {
   Badge,
   Button,
@@ -90,6 +91,9 @@ function CoverageGrid({
   const graph = Array.isArray(query.data?.nodes) ? query.data : undefined;
   const [contactFilter, setContactFilter] = useState("");
   const [selected, setSelected] = useState<readonly string[]>([]);
+  // The agent surface reports what the reader is doing, and a selection is the
+  // clearest statement of it a screen can make (app/attention.tsx).
+  usePublishSelection(selected.length);
 
   const colleagues = useMemo(
     () => colleaguesFrom(graph, contacts),

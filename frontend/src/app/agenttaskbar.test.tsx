@@ -15,21 +15,32 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { AgentTaskbar } from "./agenttaskbar";
-import { LABELS, REVIEW_ONLY, VOCABULARY } from "./agenttaskbar-copy";
+import {
+  LABELS,
+  REVIEW_ONLY,
+  TASK_SAID,
+  VOCABULARY,
+} from "./agenttaskbar-copy";
 import { type GrantSpec, meFixture } from "./mefixture";
 import type { Route } from "./router";
 
 // The bottom taskbar preview reads every one of its right-half facts off the
-// wire (approvals, connectors, dedupe, the served model, the tool catalog, the
-// account's own suggestions) — nothing left standing in for a read that has
-// not answered. Every case here proves the bar draws exactly what the API
-// said, and never a number nobody computed.
+// wire (approvals, connectors, dedupe, AI posture, the served model, the tool
+// catalog, the account's own suggestions) — nothing left standing in for a
+// read that has not answered. Every case here proves the bar draws exactly
+// what the API said, and never a number nobody computed.
+//
+// One precedence rule is load-bearing enough to earn its own pair of cases:
+// `activity.failed` only lights for the TOOL failing (unreachable, or a
+// genuine 5xx) — a 501 is how this product spells "never wired here", not a
+// fault, and a bar that reddened for it would redden on every fresh install.
 
 type Connector = components["schemas"]["CaptureConnection"];
 type Candidate = components["schemas"]["DedupeCandidate"];
 type Approval = components["schemas"]["Approval"];
 type AiCallSummary = components["schemas"]["AiCallSummary"];
 type ToolCatalog = components["schemas"]["AgentToolListResponse"];
+type AssistantProfile = components["schemas"]["AssistantProfile"];
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -99,6 +110,19 @@ const CATALOG: ToolCatalog = {
 
 const OPERATOR: GrantSpec = { automation: ["update"] };
 
+const PROFILE = (state: AssistantProfile["state"]): AssistantProfile => ({
+  name: "Margince",
+  kind: "ai",
+  state,
+  inference_mode:
+    state === "development"
+      ? "development"
+      : state === "unconfigured"
+        ? "none"
+        : "cloud",
+  providers: [],
+});
+
 const ORG_360_VIEW = {
   as_of: "2026-08-01T09:00:00Z",
   organization: {
@@ -138,56 +162,64 @@ type FetchRoutes = {
   aiCalls?: () => Response | Promise<Response>;
   agentTools?: () => Response | Promise<Response>;
   me?: () => Response | Promise<Response>;
+  profile?: () => Response | Promise<Response>;
 };
 
 // Routes every hook the bar depends on by pathname, the way company360.test.tsx
 // does for its own composite read. The healthy default answers every source as
-// connected, every queue empty and the seat allowed to read the runtime — each
-// test overrides only the one route its case is about.
+// connected, every queue empty, the seat allowed to read the runtime and the AI
+// posture as configured — each test overrides only the one route its case is
+// about. Returns the stubbed fetch mock itself, so a case that needs to prove a
+// request was never MADE (the 360 read off a company page) has something to
+// inspect.
 function stubTaskbarApi(routes: FetchRoutes = {}) {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (request: Request) => {
-      const pathname = new URL(request.url).pathname;
-      if (pathname.endsWith("/connectors")) {
-        return routes.connectors
-          ? routes.connectors()
-          : jsonResponse({ data: [CONNECTED] });
-      }
-      if (pathname.endsWith("/dedupe/candidates")) {
-        return routes.dedupe
-          ? routes.dedupe()
-          : jsonResponse({ data: [], page: emptyPage });
-      }
-      if (pathname.endsWith("/approvals")) {
-        return routes.approvals
-          ? routes.approvals()
-          : jsonResponse({ data: [], page: emptyPage });
-      }
-      if (pathname.endsWith("/ai/calls")) {
-        return routes.aiCalls
-          ? routes.aiCalls()
-          : jsonResponse({
-              data: [],
-              page: emptyPage,
-              payload_capture_enabled: false,
-              tasks: [],
-            });
-      }
-      if (pathname.endsWith("/agent-tools")) {
-        return routes.agentTools ? routes.agentTools() : jsonResponse(CATALOG);
-      }
-      if (pathname.endsWith("/me")) {
-        return routes.me
-          ? routes.me()
-          : jsonResponse(meFixture({ allow: OPERATOR }));
-      }
-      if (pathname.endsWith("/360")) {
-        return jsonResponse({ state: "ready", view: ORG_360_VIEW });
-      }
-      return jsonResponse({ data: [], page: emptyPage });
-    }),
-  );
+  const fetchMock = vi.fn(async (request: Request) => {
+    const pathname = new URL(request.url).pathname;
+    if (pathname.endsWith("/connectors")) {
+      return routes.connectors
+        ? routes.connectors()
+        : jsonResponse({ data: [CONNECTED] });
+    }
+    if (pathname.endsWith("/dedupe/candidates")) {
+      return routes.dedupe
+        ? routes.dedupe()
+        : jsonResponse({ data: [], page: emptyPage });
+    }
+    if (pathname.endsWith("/approvals")) {
+      return routes.approvals
+        ? routes.approvals()
+        : jsonResponse({ data: [], page: emptyPage });
+    }
+    if (pathname.endsWith("/ai/calls")) {
+      return routes.aiCalls
+        ? routes.aiCalls()
+        : jsonResponse({
+            data: [],
+            page: emptyPage,
+            payload_capture_enabled: false,
+            tasks: [],
+          });
+    }
+    if (pathname.endsWith("/agent-tools")) {
+      return routes.agentTools ? routes.agentTools() : jsonResponse(CATALOG);
+    }
+    if (pathname.endsWith("/me")) {
+      return routes.me
+        ? routes.me()
+        : jsonResponse(meFixture({ allow: OPERATOR }));
+    }
+    if (pathname.endsWith("/assistant/profile")) {
+      return routes.profile
+        ? routes.profile()
+        : jsonResponse(PROFILE("configured"));
+    }
+    if (pathname.endsWith("/360")) {
+      return jsonResponse({ state: "ready", view: ORG_360_VIEW });
+    }
+    return jsonResponse({ data: [], page: emptyPage });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
 function render(route: Route) {
@@ -204,6 +236,7 @@ function render(route: Route) {
 }
 
 const ROUTE: Route = { screen: "deals" };
+const COMPANY_ROUTE: Route = { screen: "companies", id: "o-1" };
 
 const dock = (container: HTMLElement) => {
   const el = container.querySelector(".tbdock");
@@ -259,18 +292,75 @@ describe("AgentTaskbar", () => {
     ).toBe("#/settings/connections");
   });
 
-  it("goes flagged when every source is connected but duplicates are open", async () => {
+  it("goes disconnected with the set-up CTA when no AI model is configured", async () => {
+    stubTaskbarApi({ profile: () => jsonResponse(PROFILE("unconfigured")) });
+    const { container } = render(ROUTE);
+    await waitFor(() =>
+      expect(dock(container).getAttribute("data-core-state")).toBe(
+        "disconnected",
+      ),
+    );
+    expect(container.querySelector(".tbline")?.textContent).toBe(
+      LABELS.noModel,
+    );
+    expect(
+      screen.getByRole("link", { name: LABELS.configure }).getAttribute("href"),
+    ).toBe("#/settings/ai");
+  });
+
+  // Development is not a fault — the runtime answers, every answer it gives is
+  // invented, and that is a standing fact said calmly in the runtime row rather
+  // than a state the bar treats as broken.
+  it("stays dormant on the development AI posture and names it in the runtime row, not as a fault", async () => {
+    stubTaskbarApi({ profile: () => jsonResponse(PROFILE("development")) });
+    const { container } = render(ROUTE);
+    await waitFor(() =>
+      expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
+    );
+    await openPanel();
+    await waitFor(() => {
+      const runtime = container.querySelector(".tbmeta")?.textContent ?? "";
+      expect(runtime).toContain("Development AI");
+      expect(runtime).toContain("offline development path");
+    });
+  });
+
+  // The load-bearing direction: a 501 is how this product says a surface was
+  // never wired in this deployment (the morning digest answers it on every
+  // fresh install), and it must not paint the bar red.
+  it("does not go to error when the tool answers 501", async () => {
     stubTaskbarApi({
       dedupe: () =>
-        jsonResponse({ data: [CANDIDATE("d-1"), CANDIDATE("d-2")] }),
+        jsonResponse(
+          { code: "not_implemented", title: "not implemented", status: 501 },
+          501,
+        ),
     });
     const { container } = render(ROUTE);
     await waitFor(() =>
-      expect(dock(container).getAttribute("data-core-state")).toBe("flagged"),
+      expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
     );
-    expect(
-      screen.getByRole("link", { name: LABELS.decide }).getAttribute("href"),
-    ).toBe("#/dedupe");
+    expect(dock(container).getAttribute("data-core-state")).not.toBe("error");
+  });
+
+  // The other direction: a genuine 5xx is the tool actually falling over, and
+  // that outranks every other signal — including a model that is configured
+  // and every source that is connected.
+  it("goes to error when the tool answers a genuine 5xx", async () => {
+    stubTaskbarApi({
+      dedupe: () =>
+        jsonResponse(
+          { code: "internal_error", title: "internal error", status: 500 },
+          500,
+        ),
+    });
+    const { container } = render(ROUTE);
+    await waitFor(() =>
+      expect(dock(container).getAttribute("data-core-state")).toBe("error"),
+    );
+    expect(container.querySelector(".tbline")?.textContent).toBe(
+      LABELS.unreachable,
+    );
   });
 
   it("shows the waiting count and sends the reviewer to the inbox", async () => {
@@ -290,6 +380,28 @@ describe("AgentTaskbar", () => {
     expect(
       screen.getByRole("link", { name: LABELS.review }).getAttribute("href"),
     ).toBe("#/inbox");
+  });
+
+  // `flagged` is on the invented side of the vocabulary now: the panel still
+  // reports open duplicates as a row, but the bar's own line and CTA stay
+  // silent about them unless a reviewer overrides the state by hand — a count
+  // nobody asked the bar to act on must not read as the bar acting on it.
+  it("reports open duplicates only as a panel row, never as the bar's own state or CTA", async () => {
+    stubTaskbarApi({
+      dedupe: () =>
+        jsonResponse({ data: [CANDIDATE("d-1"), CANDIDATE("d-2")] }),
+    });
+    const { container } = render(ROUTE);
+    await waitFor(() =>
+      expect(dock(container).getAttribute("data-core-state")).toBe("dormant"),
+    );
+    expect(container.querySelector(".tbline")?.textContent).toBe(LABELS.idle);
+    expect(screen.queryByRole("link", { name: LABELS.decide })).toBeNull();
+
+    await openPanel();
+    const row = screen.getByRole("link", { name: /^Duplicate pairs open/ });
+    expect(row.getAttribute("href")).toBe("#/dedupe");
+    expect(row.textContent).toContain("2");
   });
 
   // Absence, not zero: a count nobody has computed yet must not be printed —
@@ -401,6 +513,56 @@ describe("AgentTaskbar", () => {
     await waitFor(() =>
       expect(container.querySelector(".tbmeta")?.textContent).toContain(
         `${AI_CALL.provider}/${AI_CALL.served_model}`,
+      ),
+    );
+  });
+
+  // The wire carries the invocation-site token (`capture_classify`); the recap
+  // owes the reader the plain-language line, never the token itself — a recap
+  // that leaked the token would tell a salesperson something ran five times
+  // and nothing about what.
+  it("recaps a call in plain words, not the raw task token", async () => {
+    stubTaskbarApi({
+      aiCalls: () =>
+        jsonResponse({
+          data: [AI_CALL],
+          page: emptyPage,
+          payload_capture_enabled: false,
+          tasks: [AI_CALL.task],
+        }),
+    });
+    const { container } = render(ROUTE);
+    await openPanel();
+    await waitFor(() =>
+      expect(screen.getByText(TASK_SAID.capture_classify)).toBeTruthy(),
+    );
+    expect(container.querySelector(".tbsect")?.textContent).not.toContain(
+      "capture_classify",
+    );
+    expect(
+      screen.getByRole("link", { name: LABELS.fullLog }).getAttribute("href"),
+    ).toBe("#/settings/ai");
+  });
+
+  // Only a company record serves a 360 read; every other screen must not ask
+  // for one at all, not just decline to show it.
+  it("never asks for the 360 read when the route is not a company record", async () => {
+    const fetchMock = stubTaskbarApi();
+    render(ROUTE);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const askedFor360 = fetchMock.mock.calls.some(([request]) =>
+      new URL((request as Request).url).pathname.endsWith("/360"),
+    );
+    expect(askedFor360).toBe(false);
+  });
+
+  it("reads the 360 suggestions on a company record, from the same read the company page makes", async () => {
+    stubTaskbarApi();
+    const { container } = render(COMPANY_ROUTE);
+    await openPanel();
+    await waitFor(() =>
+      expect(container.querySelector(".tbsect")?.textContent).toContain(
+        LABELS.nothingHere,
       ),
     );
   });

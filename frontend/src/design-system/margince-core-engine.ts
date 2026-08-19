@@ -7,6 +7,7 @@ import {
   BEHAVIOUR,
   BLOBS,
   breath,
+  CLOCK_SEED,
   type CoreMotion,
   current,
   DOTS,
@@ -298,7 +299,9 @@ function runOrbLoop(
   const behaviour = BEHAVIOUR[state];
   // A non-zero seed: at t=0 every formation is at its own origin, where several
   // of them have all four dots stacked, and the first frame would be one blob.
-  let time = 11.3;
+  // The motion table owns the value, because a one-shot measures its own age
+  // against it (CLOCK_SEED).
+  let time = CLOCK_SEED;
   let last = performance.now();
   let frame = 0;
   let drawnOnce = false;

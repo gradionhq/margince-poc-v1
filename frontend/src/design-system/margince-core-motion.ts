@@ -25,6 +25,17 @@ import type { MarginceCoreState } from "./margince-core";
 /** Dots in the Core. Four: enough to read as a group, few enough to count. */
 export const DOTS = 4;
 
+/**
+ * Where the clock starts when a state is entered.
+ *
+ * Non-zero because at t=0 several formations have all four dots stacked and the
+ * first frame would be one blob. It is exported because a motion that plays ONCE
+ * has to know how long it has been running, and the engine restarts the clock at
+ * this value on every state change — so `time - CLOCK_SEED` is the age of the
+ * state, and the only thing a one-shot needs.
+ */
+export const CLOCK_SEED = 11.3;
+
 /** The working radius every placement below is expressed in, at the reference size. */
 const R = 78;
 
@@ -221,9 +232,17 @@ function emit(index: number, time: number): DotTarget {
  * finished, and nothing abstract reads as finished.
  */
 function resolve(index: number, time: number): DotTarget {
-  const cycle = (time * 0.34) % 1;
+  // Once, and then it holds. A check mark that erased itself and drew again is a
+  // barber's pole: the reader sees a loop and stops reading it as an event that
+  // happened. It also cannot start mid-stroke — on a looping phase the mark was
+  // as likely to appear half-erased as to be drawn, because the clock does not
+  // start at zero. What ends the state is the CALLER moving on, which is the
+  // right place for that decision: only the caller knows what comes next.
+  const cycle = Math.min(Math.max(0, time - CLOCK_SEED) * 0.34, 0.5);
   const short = ease((cycle - 0.03) / 0.16);
   const long = ease((cycle - 0.17) / 0.22);
+  // The erase never fires while the mark is held; it stays in the arithmetic
+  // because the two strokes are expressed as fractions of it.
   const out = ease((cycle - 0.88) / 0.12);
   // A(-60,4) → B(-20,44) → C(62,-42): the vertex both strokes grow from.
   const vertexX = -20;

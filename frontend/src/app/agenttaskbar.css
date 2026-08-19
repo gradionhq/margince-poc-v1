@@ -16,7 +16,13 @@
   left: 50%;
   transform: translateX(-50%);
   bottom: var(--space-4);
-  width: max-content;
+  /* FIXED, not max-content. The line inside changes every time a read starts or
+     finishes — "Loading", then "Idle", then a count — and a bar that sized to it
+     would grow and shrink around its own centre several times a second while a
+     page settles. A reader tracks the movement instead of reading the words, and
+     the two controls at the right edge move under the cursor. One width, chosen
+     for the longest resting line, and everything inside it truncates. */
+  width: 420px;
   max-width: calc(100% - var(--space-8));
   /* Level with the Ask FAB (28, shell.css) and under the phone sheet and its
      scrim (29/30): a bar that stayed lit over a dimmed page would read as the
@@ -72,6 +78,7 @@
 .tbbar {
   position: relative;
   display: flex;
+  width: 100%;
   align-items: center;
   gap: var(--space-2);
   padding: 5px 6px 5px 7px; /* ds:ignore optical inset around a 40px orb, so its halo sits inside the bar rather than against the border */
@@ -80,11 +87,14 @@
   /* Glass, not a panel: enough of the page comes through to blur behind the bar,
      which is what tells a reader the bar is a layer floating over the content
      rather than a strip cut out of it. */
-  background: color-mix(in srgb, var(--bgElevated) 58%, transparent);
+  background: color-mix(in srgb, var(--bgElevated) 34%, transparent);
   /* The gradient outline below paints into the border box, so the fill must be
      told to stop at the padding box or it covers the ring it sits inside. */
   background-clip: padding-box;
-  backdrop-filter: blur(26px) saturate(180%);
+  /* Heavy blur, high saturation, and a touch of brightness: what makes glass
+     read as glass is not transparency but what it DOES to what is behind it —
+     the page stays visible as colour and motion while its words dissolve. */
+  backdrop-filter: blur(30px) saturate(200%) brightness(1.06);
   /* The Core's halo is sized for a hero and would leak past a bar this thin. */
   overflow: hidden;
   box-shadow:
@@ -124,6 +134,16 @@
     linear-gradient(black 0 0);
   pointer-events: none;
 }
+/* The top-edge catch, under the ring: a pane of glass picks up the light above
+   it, and without it a translucent bar reads as a hole in the page. */
+.tbbar {
+  background-image: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--bgElevated) 45%, transparent),
+    transparent 42%
+  );
+}
+
 .tbbar::before {
   /* One tone at one strength, mixed toward the page's own hairline so the quiet
      end of the scale is a border and not a faint glow. */
@@ -228,7 +248,6 @@
 .tbline {
   flex: 1;
   min-width: 0;
-  max-width: 220px;
   font-size: 12px;
   color: var(--textPrimary);
   white-space: nowrap;
@@ -302,8 +321,8 @@
   border-radius: var(--r-md);
   /* Denser than the bar: the panel carries rows a reader has to read, and text
      over a blurred page is the one place this material stops being free. */
-  background: color-mix(in srgb, var(--bgElevated) 78%, transparent);
-  backdrop-filter: blur(26px) saturate(180%);
+  background: color-mix(in srgb, var(--bgElevated) 62%, transparent);
+  backdrop-filter: blur(30px) saturate(200%) brightness(1.06);
   box-shadow: var(--shadow-pop);
 }
 
@@ -352,6 +371,16 @@
 .tblink:hover .tbmuted {
   color: var(--textPrimary);
 }
+.tbmore {
+  display: inline-block;
+  margin-top: var(--space-1);
+  color: var(--accent);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+.tbmore:hover {
+  text-decoration: underline;
+}
 .tbempty {
   color: var(--textContent);
   font-style: italic;
@@ -389,6 +418,10 @@
   height: 5px;
   border-radius: var(--r-full);
   background: var(--success);
+}
+.tbwarn {
+  color: var(--warn);
+  font-weight: 500;
 }
 .tbconn.down i {
   background: var(--warn);
