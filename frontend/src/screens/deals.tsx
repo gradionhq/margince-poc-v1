@@ -42,7 +42,7 @@ import { type ListChip, ListSurface } from "../design-system/listsurface";
 import type { ListColumn } from "../design-system/listtable";
 import { FieldGuard } from "../design-system/rbac";
 import { Select } from "../design-system/select";
-import { ToastRegion, useToast } from "../design-system/toast";
+import { type Toast, ToastRegion, useToast } from "../design-system/toast";
 import { AutonomyDot, ProvenanceTag } from "../design-system/trust";
 import {
   formatDate,
@@ -100,9 +100,18 @@ type Stage = components["schemas"]["Stage"];
 type Pipeline = components["schemas"]["Pipeline"];
 type Offer = components["schemas"]["Offer"];
 
-function usePipeline() {
+/**
+ * The pipeline a record belongs to, falling back to the default.
+ *
+ * `pipelineId` is the deal's own. Without it this answered the DEFAULT
+ * pipeline for every deal, which was harmless while the stepper only drew
+ * stage names but is not once those stages are the moves on offer: the stages
+ * of a pipeline the deal is not in are targets the server refuses as a
+ * pipeline mismatch.
+ */
+function usePipeline(pipelineId?: string | null) {
   return useQuery({
-    queryKey: ["pipelines"],
+    queryKey: ["pipelines", pipelineId ?? "default"],
     queryFn: async () => {
       const { data, error } = await api.GET("/pipelines", {
         params: { query: {} },
@@ -111,7 +120,10 @@ function usePipeline() {
         throwProblem(error);
       }
       const pipeline =
-        data.data.find((candidate) => candidate.is_default) ?? data.data[0];
+        (pipelineId &&
+          data.data.find((candidate) => candidate.id === pipelineId)) ||
+        data.data.find((candidate) => candidate.is_default) ||
+        data.data[0];
       if (!pipeline) {
         throw new Error("no pipeline");
       }
@@ -644,6 +656,67 @@ type PendingAdvance = {
   toStage: Stage;
 };
 
+type AdvanceInput = {
+  dealId: string;
+  version: number | undefined;
+  toStage: Stage;
+  lostReason?: string;
+};
+
+/**
+ * The ONE way this screen advances a deal, shared by the board's drag and the
+ * record page's stepper.
+ *
+ * An advance is a write like any other, so it is pinned like any other: the
+ * version the reader's own card or record was drawn from rides the variables,
+ * and two people moving one deal at the same moment no longer both succeed —
+ * the second reads the version the first replaced and fails 409 version_skew
+ * instead of quietly undoing a stage change nobody saw.
+ *
+ * The toast is the CALLER'S, not this hook's: `useToast` is local state, so an
+ * instance minted here would be a second one the caller's `ToastRegion` never
+ * renders, and every confirmation would be shown to nobody.
+ */
+function useAdvanceDeal(toast: Toast) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: AdvanceInput) => {
+      const terminal = input.toStage.semantic !== "open";
+      const { data, error } = await api.POST("/deals/{id}/advance", {
+        params: {
+          path: { id: input.dealId },
+          ...ifMatch(requireVersion(input.version)),
+        },
+        body: {
+          to_stage_id: input.toStage.id,
+          ...(terminal ? { status: input.toStage.semantic } : {}),
+          ...(input.toStage.semantic === "lost"
+            ? { lost_reason: input.lostReason }
+            : {}),
+        },
+      });
+      if (error) {
+        throwProblem(error, t);
+      }
+      return data;
+    },
+    onSuccess: (deal, input) => {
+      // The advanced deal goes into the cache SYNCHRONOUSLY, before the
+      // refetch the invalidation schedules. isPending clears the moment this
+      // returns, so a reader who clicks a second stage immediately would
+      // otherwise pin the version this write just replaced and read a 409 they
+      // did not cause.
+      if (deal) {
+        queryClient.setQueryData(["deal", input.dealId], deal);
+      }
+      queryClient.invalidateQueries({ queryKey: ["deals"] });
+      queryClient.invalidateQueries({ queryKey: ["deal", input.dealId] });
+      toast.show(t("deals.advanced", { stage: input.toStage.name }));
+    },
+  });
+}
+
 // Won reads success, lost reads danger, an open deal carries no status tone.
 function dealStatusTone(
   status: Deal["status"],
@@ -797,12 +870,10 @@ export function DealsScreen({
   const t = useT();
   const { locale } = useLocale();
   const cf = useObjectCustomFields("deal");
-  const queryClient = useQueryClient();
   const overlay = useSorMode() === "overlay";
   const pipelinesQuery = usePipelines(!overlay);
   const meQuery = useMe();
   const savedViews = useSavedViewTabs("deals");
-  const tierMap = useAgentTierMap();
   const [pipelineId, setPipelineId] = useState("");
   const [query, setQuery] = useState<ListQuery>({
     q: "",
@@ -839,47 +910,11 @@ export function DealsScreen({
     overlay ? "table" : "board",
   );
   const [pending, setPending] = useState<PendingAdvance | null>(null);
-  const [lostReason, setLostReason] = useState("");
   const toast = useToast();
   const dragging = useRef<string | null>(null);
   const lastDragEnd = useRef(0);
 
-  const advance = useMutation({
-    // An advance is a write like any other, so it is pinned like any other: the
-    // version the reader's own card was drawn from rides the variables, and two
-    // people moving one deal at the same moment no longer both succeed — the
-    // second reads the version the first replaced and fails 409 version_skew
-    // instead of quietly undoing a stage change nobody saw.
-    mutationFn: async (input: {
-      dealId: string;
-      version: number | undefined;
-      toStage: Stage;
-      lostReason?: string;
-    }) => {
-      const terminal = input.toStage.semantic !== "open";
-      const { data, error } = await api.POST("/deals/{id}/advance", {
-        params: {
-          path: { id: input.dealId },
-          ...ifMatch(requireVersion(input.version)),
-        },
-        body: {
-          to_stage_id: input.toStage.id,
-          ...(terminal ? { status: input.toStage.semantic } : {}),
-          ...(input.toStage.semantic === "lost"
-            ? { lost_reason: input.lostReason }
-            : {}),
-        },
-      });
-      if (error) {
-        throwProblem(error, t);
-      }
-      return data;
-    },
-    onSuccess: (_deal, input) => {
-      queryClient.invalidateQueries({ queryKey: ["deals"] });
-      toast.show(t("deals.advanced", { stage: input.toStage.name }));
-    },
-  });
+  const advance = useAdvanceDeal(toast);
 
   const stages = effectivePipeline?.stages ?? [];
   const stageName = new Map(stages.map((stage) => [stage.id, stage.name]));
@@ -960,7 +995,6 @@ export function DealsScreen({
       advance.mutate({ dealId, version, toStage });
     } else {
       // Terminal-stage advance is a 🟡 confirm (AC-deal-6).
-      setLostReason("");
       setPending({ dealId, version, toStage });
     }
   };
@@ -1241,59 +1275,92 @@ export function DealsScreen({
         </p>
       )}
       <ToastRegion toast={toast} />
-      <Modal
-        open={pending !== null}
+      <ConfirmAdvanceModal
+        pending={pending}
         onClose={() => setPending(null)}
-        labelledBy="advance-title"
-      >
-        {pending && (
-          <>
-            <p className="t-sub" id="advance-title">
-              <AutonomyDot tier={verbTier("progress_deal", tierMap)} />{" "}
-              {t("deals.confirmAdvance", { stage: pending.toStage.name })}
-            </p>
-            <p className="t-caption" style={{ marginTop: 6 }}>
-              {t("deals.confirmTerminal", { status: pending.toStage.semantic })}
-            </p>
-            {pending.toStage.semantic === "lost" && (
-              <div className="field" style={{ marginTop: 10 }}>
-                <span className="t-label" id="lost-reason-label">
-                  {t("deals.lostReason")}
-                </span>
-                <TextInput
-                  aria-labelledby="lost-reason-label"
-                  value={lostReason}
-                  onChange={(event) => setLostReason(event.target.value)}
-                />
-              </div>
-            )}
-            <div className="actions">
-              <Button onClick={() => setPending(null)}>
-                {t("deals.cancel")}
-              </Button>
-              <Button
-                variant="primary"
-                disabled={
-                  pending.toStage.semantic === "lost" &&
-                  lostReason.trim() === ""
-                }
-                onClick={() => {
-                  advance.mutate({
-                    dealId: pending.dealId,
-                    version: pending.version,
-                    toStage: pending.toStage,
-                    lostReason: lostReason.trim() || undefined,
-                  });
-                  setPending(null);
-                }}
-              >
-                {t("deals.confirm")}
-              </Button>
-            </div>
-          </>
-        )}
-      </Modal>
+        onConfirm={(input) => advance.mutate(input)}
+      />
     </div>
+  );
+}
+
+/**
+ * The 🟡 confirm a terminal advance goes through (AC-deal-6), wherever the
+ * advance was asked for — the board's drag or the record page's stepper.
+ *
+ * Closing a deal is the one stage move that cannot be undone by moving it
+ * back, so the question is asked in ONE place: a second copy of this dialog is
+ * how the two surfaces would end up disagreeing about whether a lost deal
+ * needs a reason.
+ */
+function ConfirmAdvanceModal({
+  pending,
+  onClose,
+  onConfirm,
+}: Readonly<{
+  pending: PendingAdvance | null;
+  onClose: () => void;
+  onConfirm: (input: AdvanceInput) => void;
+}>) {
+  const t = useT();
+  const tierMap = useAgentTierMap();
+  const [lostReason, setLostReason] = useState("");
+
+  // EVERY way out of this dialog clears the reason — the buttons, Escape, and
+  // the backdrop alike. The component stays mounted between openings, so a
+  // reason typed and then abandoned would otherwise still be sitting there the
+  // next time a deal is closed, and it would describe a different deal.
+  const dismiss = () => {
+    setLostReason("");
+    onClose();
+  };
+
+  return (
+    <Modal open={pending !== null} onClose={dismiss} labelledBy="advance-title">
+      {pending && (
+        <>
+          <p className="t-sub" id="advance-title">
+            <AutonomyDot tier={verbTier("progress_deal", tierMap)} />{" "}
+            {t("deals.confirmAdvance", { stage: pending.toStage.name })}
+          </p>
+          <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+            {t("deals.confirmTerminal", { status: pending.toStage.semantic })}
+          </p>
+          {pending.toStage.semantic === "lost" && (
+            <div className="field" style={{ marginTop: "var(--space-2)" }}>
+              <span className="t-label" id="lost-reason-label">
+                {t("deals.lostReason")}
+              </span>
+              <TextInput
+                aria-labelledby="lost-reason-label"
+                value={lostReason}
+                onChange={(event) => setLostReason(event.target.value)}
+              />
+            </div>
+          )}
+          <div className="actions">
+            <Button onClick={dismiss}>{t("deals.cancel")}</Button>
+            <Button
+              variant="primary"
+              disabled={
+                pending.toStage.semantic === "lost" && lostReason.trim() === ""
+              }
+              onClick={() => {
+                onConfirm({
+                  dealId: pending.dealId,
+                  version: pending.version,
+                  toStage: pending.toStage,
+                  lostReason: lostReason.trim() || undefined,
+                });
+                dismiss();
+              }}
+            >
+              {t("deals.confirm")}
+            </Button>
+          </div>
+        </>
+      )}
+    </Modal>
   );
 }
 
@@ -1899,6 +1966,9 @@ function DealOverviewPane({
   baseCurrency,
   onCreateOffer,
   overlay,
+  onAdvance,
+  advancing,
+  advanceRefused,
 }: Readonly<{
   deal: Deal;
   stages: Stage[];
@@ -1914,6 +1984,14 @@ function DealOverviewPane({
   baseCurrency: string | null;
   onCreateOffer: (currency: string) => void;
   overlay: boolean;
+  onAdvance: (toStage: Stage) => void;
+  /** One advance at a time: a second click while the first is in flight would
+   * send a second write pinned to the same version, and the loser reads as a
+   * conflict the reader never caused. */
+  advancing: boolean;
+  /** Where this deal cannot be moved at all — archived (restore it first), or
+   * mirrored from an incumbent that refuses the write. */
+  advanceRefused: boolean;
 }>) {
   const t = useT();
   return (
@@ -1927,18 +2005,33 @@ function DealOverviewPane({
           locale={locale}
         />
       )}
+      {/* A group, not a nav: these buttons move the deal, they do not take the
+          reader anywhere, and a landmark in the navigation list that writes
+          when you press it misdescribes what it does. */}
       {stages.length > 0 && (
-        <nav className="stepper" aria-label={t("deals.stage")}>
-          {stages.map((stage) => (
-            <span
-              key={stage.id}
-              className={stage.id === deal.stage_id ? "step current" : "step"}
-              aria-current={stage.id === deal.stage_id ? "step" : undefined}
-            >
-              {stage.name}
-            </span>
-          ))}
-        </nav>
+        <fieldset className="stepper" aria-label={t("deals.stage")}>
+          {stages.map((stage) =>
+            stage.id === deal.stage_id ? (
+              <span key={stage.id} className="step current" aria-current="step">
+                {stage.name}
+              </span>
+            ) : (
+              // Where the deal is now is a fact, not a choice, so the current
+              // stage stays a marker. Every other stage is the move to it —
+              // which is what makes a deal closable from its own page rather
+              // than only by dragging its card on the board.
+              <button
+                key={stage.id}
+                type="button"
+                className="step"
+                disabled={advancing || advanceRefused}
+                onClick={() => onAdvance(stage)}
+              >
+                {stage.name}
+              </button>
+            ),
+          )}
+        </fieldset>
       )}
       <DealApprovals approvals={dealApprovals} decide={onDecide} />
       {/* Above the stakeholder list on purpose: the findings are ABOUT those
@@ -2017,6 +2110,9 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
   // point at it are two different slots of the same header.
   const archivedReasonId = useId();
   const [tab, setTab] = useState<DealTab>("overview");
+  const [pending, setPending] = useState<PendingAdvance | null>(null);
+  const toast = useToast();
+  const advance = useAdvanceDeal(toast);
   const dealQuery = useQuery({
     queryKey: ["deal", id],
     queryFn: async () => {
@@ -2029,7 +2125,7 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
-  const pipelineQuery = usePipeline();
+  const pipelineQuery = usePipeline(dealQuery.data?.pipeline_id);
   // One shared singleton read (the ["installation-settings"] key), not a
   // per-deal request: the FX line has to name the base currency it converted
   // into, and nothing on the deal itself carries it.
@@ -2208,12 +2304,60 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
                   baseCurrency={baseCurrency}
                   onCreateOffer={(currency) => createOffer.mutate(currency)}
                   overlay={overlay}
+                  advancing={advance.isPending}
+                  // An archived deal is not moved through the pipeline, and
+                  // the mirror answers an advance with unsupported_by_sor —
+                  // a control that can only fail is worse than none.
+                  //
+                  // A CLOSED deal is refused here too, but for a different
+                  // reason: reopening is its own deliberate action, with a
+                  // dialog that says the close date and the frozen rate are
+                  // being cleared. A stepper button that reopened silently
+                  // would be a second, quieter door to the same write.
+                  advanceRefused={
+                    deal.archived_at != null ||
+                    overlay ||
+                    deal.status !== "open"
+                  }
+                  onAdvance={(toStage) => {
+                    // The version this record was drawn from, exactly as the
+                    // board pins the version its card was drawn from: the
+                    // write names the deal as the reader saw it, so a change
+                    // made elsewhere meanwhile fails loud.
+                    const input = {
+                      dealId: deal.id,
+                      version: deal.version,
+                      toStage,
+                    };
+                    if (toStage.semantic === "open") {
+                      advance.mutate(input);
+                    } else {
+                      setPending(input);
+                    }
+                  }}
                 />
               )}
               {tab === "history" && !overlay && (
                 <RecordHistoryTab kind="deal" id={deal.id} />
               )}
               {tab === "history" && overlay && <OverlayUnavailable />}
+              {advance.isError && (
+                <p
+                  className="t-caption"
+                  style={{
+                    color: "var(--danger)",
+                    marginTop: "var(--space-2)",
+                  }}
+                >
+                  {problemMessageOf(advance.error, t)}
+                </p>
+              )}
+              <ConfirmAdvanceModal
+                pending={pending}
+                onClose={() => setPending(null)}
+                onConfirm={(input) => advance.mutate(input)}
+              />
+              <ToastRegion toast={toast} />
             </RecordView>
           );
         }}
