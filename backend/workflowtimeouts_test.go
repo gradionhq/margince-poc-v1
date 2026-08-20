@@ -41,16 +41,23 @@ const workflowDir = "../.github/workflows"
 type workflowJobs struct {
 	Jobs map[string]struct {
 		//nolint:tagliatelle // GitHub names this key, not us.
-		TimeoutMinutes int    `yaml:"timeout-minutes"`
-		Uses           string `yaml:"uses"`
-		Steps          []any  `yaml:"steps"`
+		TimeoutMinutes int         `yaml:"timeout-minutes"`
+		Uses           string      `yaml:"uses"`
+		Steps          []yaml.Node `yaml:"steps"`
 	} `yaml:"jobs"`
 }
 
 func TestEveryWorkflowJobCarriesATimeoutCeiling(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join(workflowDir, "*.yml"))
-	if err != nil {
-		t.Fatalf("listing workflows: %v", err)
+	// Both extensions, because GitHub Actions honours both. Globbing one would
+	// leave the gate blind to a whole class of workflow — the precise hole a
+	// derived check exists to not have.
+	var files []string
+	for _, ext := range []string{"*.yml", "*.yaml"} {
+		found, err := filepath.Glob(filepath.Join(workflowDir, ext))
+		if err != nil {
+			t.Fatalf("listing %s workflows: %v", ext, err)
+		}
+		files = append(files, found...)
 	}
 	// A gate that scanned nothing would report exactly like a clean tree, which
 	// is the failure mode every derived check here has to close explicitly.
