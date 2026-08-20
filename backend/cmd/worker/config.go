@@ -92,7 +92,7 @@ func workerFlagSet() (*flag.FlagSet, *cliflags.Env, *workerConfig, error) {
 	env.String(fs, &cfg.configPath, "config", "MARGINCE_CONFIG", "margince.yaml",
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
 	env.String(fs, &cfg.redisAddr, "redis", "MARGINCE_REDIS", "localhost:16379", "Redis address (event bus)")
-	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to ai-routing.yaml; enables the Surface-B runner")
+	env.String(fs, &cfg.routingPath, "ai-routing", "MARGINCE_AI_ROUTING", "", "path to a routing file, read ONLY to seed an installation that has no stored model binding yet. The binding lives in the database once set, so on a provisioned installation this flag is not read at all")
 	fs.BoolVar(&cfg.fakeBrain, "ai-fake", false, "run the Surface-B runner on the offline fake model (dev/test only)")
 	fs.DurationVar(&cfg.runnerInterval, "runner-interval", 30*time.Second, "how often the Surface-B scheduler fans one seed-and-execute pass out per live workspace")
 	fs.DurationVar(&cfg.retentionInterval, "retention-interval", 24*time.Hour, "retention evaluator pass interval")
