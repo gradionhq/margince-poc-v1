@@ -40,10 +40,28 @@ var AutoEnrich = settings.Define[bool](
 	nil, // every bool is a valid posture; a validator here would be ceremony
 )
 
+// MailSharing is the workspace mail-sharing posture: ON, a captured email is
+// readable by every colleague who can see the contact; OFF, every email
+// captured FROM THEN ON is held to its participants and the capturing mailbox
+// owner (the sink stamps audience='participants' at insert). Already-captured
+// mail keeps the audience it has — the setting moves the default, it rewrites
+// no history.
+//
+// Default true: sharing is the point of a CRM, and the off position exists
+// for installations that accept how much harder it makes shared pipeline
+// work — the settings surface says so in as many words.
+var MailSharing = settings.Define[bool](
+	"capture.mail_sharing",
+	captureSettingsObject,
+	"update",
+	true,
+	nil, // every bool is a valid posture; a validator here would be ceremony
+)
+
 // Definitions is capture's contribution to the settings registry. Compose
 // concatenates each module's list; a module that declares no settings has no
 // such function, so this is opt-in rather than an interface every module must
 // satisfy.
 func Definitions() []settings.Definition {
-	return []settings.Definition{AutoEnrich}
+	return []settings.Definition{AutoEnrich, MailSharing}
 }

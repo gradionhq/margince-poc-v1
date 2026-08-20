@@ -21,7 +21,8 @@ import (
 
 // Settings is the workspace-shared capture posture (the wire shape).
 type Settings struct {
-	AutoEnrich bool
+	AutoEnrich  bool
+	MailSharing bool
 }
 
 // SettingsStore is the store over the workspace capture posture.
@@ -36,11 +37,15 @@ func NewSettings(s *settings.Store) *SettingsStore { return &SettingsStore{setti
 // entry (`capture_settings`, read granted to every role), so there is no
 // second gate to keep in step here.
 func (s *SettingsStore) Get(ctx context.Context) (Settings, error) {
-	on, err := settings.Get(ctx, s.settings, AutoEnrich)
+	autoEnrich, err := settings.Get(ctx, s.settings, AutoEnrich)
 	if err != nil {
 		return Settings{}, fmt.Errorf("capture: reading settings: %w", err)
 	}
-	return Settings{AutoEnrich: on}, nil
+	mailSharing, err := settings.Get(ctx, s.settings, MailSharing)
+	if err != nil {
+		return Settings{}, fmt.Errorf("capture: reading settings: %w", err)
+	}
+	return Settings{AutoEnrich: autoEnrich, MailSharing: mailSharing}, nil
 }
 
 // Update applies a sparse capture-settings patch (admin/ops). A nil field is
@@ -57,15 +62,19 @@ func (s *SettingsStore) Get(ctx context.Context) (Settings, error) {
 // read gets a 403 on an empty patch, because the response comes from Get. No
 // seeded role has that combination — `capture_settings` grants read to every
 // role — so this stays a note rather than a branch.
-func (s *SettingsStore) Update(ctx context.Context, autoEnrich *bool) (Settings, error) {
+func (s *SettingsStore) Update(ctx context.Context, autoEnrich, mailSharing *bool) (Settings, error) {
 	if err := auth.Require(ctx, captureSettingsObject, principal.ActionUpdate); err != nil {
 		return Settings{}, err
 	}
-	if autoEnrich == nil {
-		return s.Get(ctx)
+	if autoEnrich != nil {
+		if err := settings.Set(ctx, s.settings, AutoEnrich, *autoEnrich); err != nil {
+			return Settings{}, err
+		}
 	}
-	if err := settings.Set(ctx, s.settings, AutoEnrich, *autoEnrich); err != nil {
-		return Settings{}, err
+	if mailSharing != nil {
+		if err := settings.Set(ctx, s.settings, MailSharing, *mailSharing); err != nil {
+			return Settings{}, err
+		}
 	}
-	return Settings{AutoEnrich: *autoEnrich}, nil
+	return s.Get(ctx)
 }

@@ -31,8 +31,7 @@ import (
 // imapConnectBody is the typed wire fixture for the connect request — the
 // fields stay compile-time aligned with the contract's imap block.
 type imapConnectBody struct {
-	ShareAcknowledged bool           `json:"share_acknowledged"`
-	Imap              *imapCredsBody `json:"imap,omitempty"`
+	Imap *imapCredsBody `json:"imap,omitempty"`
 }
 
 type imapCredsBody struct {
@@ -82,7 +81,7 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 			return nil, imap.ErrLoginRejected
 		},
 	}
-	creds := imapConnectBody{ShareAcknowledged: true, Imap: &imapCredsBody{
+	creds := imapConnectBody{Imap: &imapCredsBody{
 		Host: "mail.example", Port: 993, Username: "a@b.example", Secret: "s",
 	}}
 
@@ -98,7 +97,7 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 		// OAuth callback does), so a real human is NOT scope-refused. An empty
 		// body reaches the credential check (422) — proving the request passed
 		// the scope gate, and without any dial.
-		rec := postIMAPConnect(imapConnectCtx(t /* no scopes, like a real session */), t, h, imapConnectBody{ShareAcknowledged: true})
+		rec := postIMAPConnect(imapConnectCtx(t /* no scopes, like a real session */), t, h, imapConnectBody{})
 		if rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422 (passed the scope gate, missing creds)", rec.Code)
 		}
@@ -111,24 +110,8 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 	authed := imapConnectCtx(t)
 
 	t.Run("a missing credential block is 422", func(t *testing.T) {
-		if rec := postIMAPConnect(authed, t, h, imapConnectBody{ShareAcknowledged: true}); rec.Code != http.StatusUnprocessableEntity {
+		if rec := postIMAPConnect(authed, t, h, imapConnectBody{}); rec.Code != http.StatusUnprocessableEntity {
 			t.Fatalf("status = %d, want 422", rec.Code)
-		}
-	})
-
-	t.Run("withholding the sharing acknowledgment is 422 before any probe", func(t *testing.T) {
-		unacked := creds
-		unacked.ShareAcknowledged = false
-		probeCallsBefore := probeCalls
-		rec := postIMAPConnect(authed, t, h, unacked)
-		if rec.Code != http.StatusUnprocessableEntity {
-			t.Fatalf("status = %d, want 422", rec.Code)
-		}
-		if !strings.Contains(rec.Body.String(), "sharing_not_acknowledged") {
-			t.Fatalf("body = %s, want the sharing_not_acknowledged code", rec.Body.String())
-		}
-		if probeCalls != probeCallsBefore {
-			t.Fatal("the credentials were probed although the sharing acknowledgment was withheld")
 		}
 	})
 
@@ -154,7 +137,7 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 func TestStandingIMAPConnectFailureMapping(t *testing.T) {
 	// A realistic signed-in human session carries no passport scopes.
 	authed := imapConnectCtx(t)
-	creds := imapConnectBody{ShareAcknowledged: true, Imap: &imapCredsBody{
+	creds := imapConnectBody{Imap: &imapCredsBody{
 		Host: "mail.example", Port: 993, Username: "a@b.example", Secret: "s",
 	}}
 

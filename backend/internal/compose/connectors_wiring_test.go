@@ -103,7 +103,6 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 		User:      ids.MustParse("22222222-2222-2222-2222-222222222222"),
 		Provider:  "gmail",
 		Nonce:     nonce,
-		ShareAck:  true,
 		Version:   stateVersionNamespacedCSRF,
 	}, time.Now().Add(time.Hour))
 	code := "the-code"
@@ -131,29 +130,6 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 		t.Fatal("a matching nonce cookie should let the flow reach the token exchange")
 	}
 
-	// (c) A state without the sharing acknowledgment — only mintable before
-	// the checkbox existed — is refused BEFORE the exchange: an exchanged
-	// authorization code is a real provider credential, and Registry.Connect
-	// would refuse the grant anyway, leaving that credential minted for
-	// nothing and unrevoked.
-	unacked := signer.sign(connectState{
-		Workspace: ids.MustParse("11111111-1111-1111-1111-111111111111"),
-		User:      ids.MustParse("22222222-2222-2222-2222-222222222222"),
-		Provider:  "gmail",
-		Nonce:     nonce,
-		Version:   stateVersionNamespacedCSRF,
-	}, time.Now().Add(time.Hour))
-	oauth.exchanged = false
-	req = httptest.NewRequest(http.MethodGet, "/cb", nil)
-	req.AddCookie(&http.Cookie{Name: csrfCookieName("gmail"), Value: nonce, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
-	rec = httptest.NewRecorder()
-	h.ConnectorOAuthCallback(rec, req, "gmail", crmcontracts.ConnectorOAuthCallbackParams{Code: &code, State: unacked})
-	if oauth.exchanged {
-		t.Fatal("the token exchange ran for a state carrying no sharing acknowledgment")
-	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error/gmail" {
-		t.Errorf("unacknowledged-state Location = %q, want the error landing", loc)
-	}
 }
 
 func TestGmailConfigGating(t *testing.T) {

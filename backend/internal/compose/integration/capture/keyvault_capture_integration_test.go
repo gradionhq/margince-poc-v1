@@ -85,7 +85,7 @@ func TestConnectSealsCredentialInVaultNotOnTheRow(t *testing.T) {
 	registry.Register(&authAssertingFake{})
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestSyncResolvesCredentialFromVault(t *testing.T) {
 	registry.Register(fake)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"), true)
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
 	if err != nil {
 		t.Fatal(err)
 	}

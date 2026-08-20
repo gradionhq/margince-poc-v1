@@ -62,7 +62,7 @@ func startImportReconnectingMidPage(t *testing.T, e *integration.SearchEnv, acco
 	fake := &accountBoundConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
 	registry.Register(fake)
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(account), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(account)); err != nil {
 		t.Fatalf("connecting %s: %v", account, err)
 	}
 	run, err := registry.StartBackfill(grantCtx, "gmail", ids.From[ids.UserKind](e.Rep1), 6, 25, enqueueNothing)
@@ -70,7 +70,7 @@ func startImportReconnectingMidPage(t *testing.T, e *integration.SearchEnv, acco
 		t.Fatalf("StartBackfill: %v", err)
 	}
 	fake.duringPage = func() {
-		if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(reconnectAs), true); err != nil {
+		if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(reconnectAs)); err != nil {
 			t.Errorf("mid-page reconnect as %s: %v", reconnectAs, err)
 		}
 	}
@@ -130,7 +130,7 @@ func readConnectionAccount(t *testing.T, e *integration.SearchEnv, connID ids.UU
 func connectAndSync(t *testing.T, registry *capturemod.Registry, e *integration.SearchEnv, account string) ids.UUID {
 	t.Helper()
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth(account), true)
+	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth(account))
 	if err != nil {
 		t.Fatalf("connecting %s: %v", account, err)
 	}
@@ -152,7 +152,7 @@ func TestReconnectingADifferentAccountDropsTheFirstAccountsWatermark(t *testing.
 	connID := connectAndSync(t, registry, e, "first@example.com")
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("second@example.com"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("second@example.com")); err != nil {
 		t.Fatalf("reconnecting as a different account: %v", err)
 	}
 
@@ -174,7 +174,7 @@ func TestReconnectingTheSameAccountKeepsItsWatermark(t *testing.T) {
 	connID := connectAndSync(t, registry, e, "same@example.com")
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("same@example.com"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("same@example.com")); err != nil {
 		t.Fatalf("re-granting the same account: %v", err)
 	}
 
@@ -202,7 +202,7 @@ func TestANewAccountMayImportANarrowerWindowThanTheOldOne(t *testing.T) {
 		t.Fatalf("paging the first import to completion: done=%v err=%v", done, err)
 	}
 
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("second@example.com"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("second@example.com")); err != nil {
 		t.Fatalf("reconnecting as a different account: %v", err)
 	}
 

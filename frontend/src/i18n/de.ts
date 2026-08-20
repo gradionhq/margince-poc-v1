@@ -2893,8 +2893,15 @@ export const de = {
     "Erweiterungen, die diese Installation mit einem gemeinsamen Zugang betreibt. Was du hier einstellst, gilt für alle.",
 
   "connectors.title": "Verbundene Postfächer",
-  "connectors.shareAck":
-    "Erfasste E-Mails werden für Kolleginnen und Kollegen lesbar, die den Kontakt sehen können — einzelne Nachrichten lassen sich nachträglich einschränken, Adressen und Domains vorab ausschließen.",
+  "mailSharing.title": "E-Mail-Freigabe",
+  "mailSharing.sub":
+    "Erfasste E-Mails sind für alle Kolleginnen und Kollegen lesbar, die den Kontakt sehen können. Standardmäßig eingeschaltet — das macht die Pipeline gemeinsam.",
+  "mailSharing.label": "Erfasste E-Mails im Team teilen",
+  "mailSharing.help":
+    "Einzelne Nachrichten lassen sich nachträglich einschränken, Adressen und Domains vorab ausschließen.",
+  "mailSharing.danger":
+    "ACHTUNG: E-Mail-Freigabe ausschalten macht die Nutzung des CRM schwierig. Neue E-Mails sind dann nur noch für die Beteiligten der jeweiligen Nachricht sichtbar.",
+  "mailSharing.save": "Speichern",
   "connectors.sub":
     "Postfächer, die dein CRM automatisch füllen. Trenne eines bei Bedarf — bereits erfasste Datensätze bleiben.",
   "connectors.loading": "Verbindungen werden geladen…",

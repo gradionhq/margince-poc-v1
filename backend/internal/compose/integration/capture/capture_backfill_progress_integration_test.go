@@ -80,7 +80,7 @@ func startReportingBackfill(t *testing.T, e *integration.SearchEnv, prov *report
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e)).WithProgressPacing(pacing)
 	registry.Register(prov)
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	run, err := registry.StartBackfill(grantCtx, "gmail", ids.From[ids.UserKind](e.Rep1), 6, 20, enqueueNothing)

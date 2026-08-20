@@ -2866,8 +2866,15 @@ export const vi = {
     "Những tiện ích bản cài đặt này chạy bằng một thông tin đăng nhập dùng chung. Thiết lập ở đây áp dụng cho mọi người.",
 
   "connectors.title": "Hộp thư đã kết nối",
-  "connectors.shareAck":
-    "Email được thu thập sẽ hiển thị với đồng nghiệp có quyền xem liên hệ — có thể giới hạn từng tin nhắn sau đó, và loại trừ địa chỉ hoặc tên miền ngay từ đầu.",
+  "mailSharing.title": "Chia sẻ email",
+  "mailSharing.sub":
+    "Email được thu thập sẽ hiển thị với mọi đồng nghiệp có quyền xem liên hệ. Bật mặc định — đây là điều làm cho pipeline được chia sẻ.",
+  "mailSharing.label": "Chia sẻ email đã thu thập với nhóm",
+  "mailSharing.help":
+    "Có thể giới hạn từng tin nhắn sau đó, và loại trừ địa chỉ hoặc tên miền ngay từ đầu.",
+  "mailSharing.danger":
+    "NGUY HIỂM: Tắt chia sẻ email sẽ khiến việc sử dụng CRM trở nên khó khăn. Email mới chỉ hiển thị với những người trong từng tin nhắn.",
+  "mailSharing.save": "Lưu",
   "connectors.sub":
     "Các hộp thư đang thu thập vào CRM của bạn. Cần thì ngắt kết nối hộp nào cũng được — bản ghi đã thu thập vẫn giữ nguyên.",
   "connectors.loading": "Đang tải các kết nối…",

@@ -98,7 +98,7 @@ func TestGcalConnectorSyncsExternalMeetingAndSkipsInternal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	connID, err := registry.Connect(grantCtx, "gcal", auth, true)
+	connID, err := registry.Connect(grantCtx, "gcal", auth)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

@@ -55,7 +55,7 @@ func TestGmailPushWebhookRoutesToTheConnection(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&moodyConnector{name: "gmail"})
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true)
+	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
