@@ -97,6 +97,17 @@ function mount(
           },
         });
       }
+      if (url.includes("/lists")) {
+        written.push(
+          request ? await request.json() : JSON.parse(String(init?.body)),
+        );
+        return json({
+          id: "l-new",
+          name: "Anns",
+          entity_type: "person",
+          list_type: "dynamic",
+        });
+      }
       if (url.includes("/views")) {
         // A save is recorded rather than answered with a fixture: what the
         // screen STORES is the thing worth asserting, and a canned view row
@@ -382,6 +393,89 @@ it("says so when an export is refused, instead of leaving the reader waiting", a
   // nothing — which is what handing a ProblemError to the body reader produces.
   expect((await screen.findByRole("alert")).textContent).toBe(
     "Bulk record read is human-only.",
+  );
+});
+
+// The outcome #1468 was filed for: a human turning an authored filter into a
+// dynamic list, which until now was reachable only by hand-writing the JSON.
+it("creates a dynamic list from the filter on screen", async () => {
+  const { written, wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  await user.click(await screen.findByRole("button", { name: "Save as list" }));
+  await user.type(screen.getByLabelText("List name"), "Anns");
+  await user.click(screen.getByRole("button", { name: "Create list" }));
+
+  await waitFor(() => {
+    expect(written).toHaveLength(1);
+  });
+  // `person`, not `people` — /lists shares the FILTER vocabulary's spelling,
+  // where the saved-view rail takes the plural. And the tree goes to
+  // `definition` unwrapped, carrying no editor ids, because that is the shape
+  // the server validates against this resource's vocabulary.
+  expect(written[0]).toEqual({
+    name: "Anns",
+    entity_type: "person",
+    list_type: "dynamic",
+    definition: { and: [{ field: "full_name", op: "eq", value: "ann" }] },
+  });
+});
+
+it("offers no list until the filter is one the engine would accept", async () => {
+  const { wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  // A dynamic list is validated on create, so an incomplete definition is not a
+  // list that exists and reads oddly — it is no list at all.
+  expect(screen.queryByRole("button", { name: "Save as list" })).toBeNull();
+
+  await user.type(screen.getByLabelText("Value"), "ann");
+
+  expect(
+    await screen.findByRole("button", { name: "Save as list" }),
+  ).toBeTruthy();
+});
+
+it("keeps the naming dialog open, with the name, when the list is refused", async () => {
+  const { wrapper } = mount({ match_count: 2 });
+  const user = userEvent.setup();
+  render(<FiltersScreen />, { wrapper });
+
+  await user.click(await screen.findByRole("button", { name: "Add clause" }));
+  await user.type(screen.getByLabelText("Value"), "ann");
+  await user.click(await screen.findByRole("button", { name: "Save as list" }));
+  await user.type(screen.getByLabelText("List name"), "Anns");
+
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            title: "Duplicate name",
+            status: 409,
+            detail: "A list called Anns already exists.",
+          }),
+          {
+            status: 409,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        ),
+    ),
+  );
+  await user.click(screen.getByRole("button", { name: "Create list" }));
+
+  // The reason, and the typed name still there to correct — a dialog that closed
+  // on failure would lose the name and leave the reader unsure whether the list
+  // was created.
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect((screen.getByLabelText("List name") as HTMLInputElement).value).toBe(
+    "Anns",
   );
 });
 

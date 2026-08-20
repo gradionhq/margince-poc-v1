@@ -2,16 +2,10 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import {
-  Button,
-  Field,
-  Modal,
-  OverflowMenu,
-  TextInput,
-} from "../design-system/atoms";
+import { Button, OverflowMenu } from "../design-system/atoms";
+import { NamePrompt } from "../design-system/nameprompt";
 import { useT } from "../i18n";
 import { problemMessageOf, throwProblem } from "./common";
 import type { ListQuery } from "./listquery";
@@ -221,14 +215,14 @@ export function useSaveView(resource: ViewResource) {
 }
 
 /**
- * "Save this view", and the dialog that names it.
+ * "Save this view", named through the catalog's one name-and-save dialog.
  *
- * One spelling for both surfaces. What differs between a list and the segment
- * builder is WHAT gets saved, so that arrives as the blob to store — the dialog,
- * the naming rule, and the error placement are the same question either way, and
- * a second copy of this is how the two would end up asking it differently.
+ * What differs between a list's dials and the segment builder's tree is WHAT
+ * gets saved, so that arrives as the blob to store. The dialog itself is not
+ * this module's to own: it used to be a hand-rolled `Modal` here, which is how a
+ * second surface asking the same question ends up asking it differently.
  *
- * `blob` is read at click time rather than at render time: it is the committed
+ * `blob` is read at save time rather than at render time: it is the committed
  * render's state that the mutation is given, never a closure the observer might
  * still hold from an earlier one.
  */
@@ -240,70 +234,23 @@ function SaveViewButton({
   blob: () => Record<string, unknown>;
 }>) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
   const { create } = useSaveView(resource);
-  // Minted rather than fixed: two save actions can share a page, and a repeated
-  // id points the dialog's label at whichever heading rendered first.
-  const headingId = useId();
-
-  const submit = () => {
-    const named = name.trim();
-    if (!named) {
-      return;
-    }
-    create.mutate(
-      { name: named, query: blob() },
-      {
-        onSuccess: () => {
-          setName("");
-          setOpen(false);
-        },
-      },
-    );
-  };
 
   return (
-    <>
-      <Button small onClick={() => setOpen(true)}>
-        {t("views.save")}
-      </Button>
-      <Modal open={open} onClose={() => setOpen(false)} labelledBy={headingId}>
-        <h2
-          id={headingId}
-          className="t-h2"
-          style={{ marginBottom: "var(--space-3)" }}
-        >
-          {t("views.saveTitle")}
-        </h2>
-        <Field
-          label={t("views.name")}
-          // `problemMessageOf`, not `problemMessage`: what a failed mutation
-          // carries is a ProblemError, and handing that to the body reader
-          // yields the generic "request failed" instead of the reason the
-          // server actually gave.
-          error={create.isError ? problemMessageOf(create.error, t) : undefined}
-        >
-          {(control) => (
-            <TextInput
-              {...control}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          )}
-        </Field>
-        <div className="row-end" style={{ marginTop: "var(--space-4)" }}>
-          <Button onClick={() => setOpen(false)}>{t("create.cancel")}</Button>
-          <Button
-            variant="primary"
-            onClick={submit}
-            disabled={!name.trim() || create.isPending}
-          >
-            {t("views.saveConfirm")}
-          </Button>
-        </div>
-      </Modal>
-    </>
+    <NamePrompt
+      trigger={t("views.save")}
+      title={t("views.saveTitle")}
+      label={t("views.name")}
+      confirmLabel={t("views.saveConfirm")}
+      pending={create.isPending}
+      // `problemMessageOf`, not `problemMessage`: what a failed mutation carries
+      // is a ProblemError, and handing that to the body reader yields the
+      // generic "request failed" instead of the reason the server gave.
+      problem={create.isError ? problemMessageOf(create.error, t) : undefined}
+      onSave={(name, done) =>
+        create.mutate({ name, query: blob() }, { onSuccess: done })
+      }
+    />
   );
 }
 
