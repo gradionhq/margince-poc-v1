@@ -7321,8 +7321,10 @@ paths:
       summary: Update the workspace's capture settings (admin/ops).
       description: |
         Admin/ops-only. Toggles the captured-organization auto-enrich posture (ADR-0072/A118):
-        when ON, every surviving auto-created company gets a governed deep-read under a daily
-        spend cap. Human session only (x-agent-access: human-only) — an agent never changes a
+        when ON, every company with a primary domain and no dossier gets a governed deep-read
+        under a daily spend cap — however it was named, since a person creating one is usually
+        the moment they want it. The installation's own company (the anchor) is excluded: cold
+        start has already read it. Human session only (x-agent-access: human-only) — an agent never changes a
         workspace-wide capture posture. Audit-only write (no event stream, EVT-NOEVT-3).
       requestBody:
         required: true
@@ -14126,8 +14128,9 @@ components:
         auto_enrich:
           type: boolean
           description: |
-            When true, every surviving auto-created organization gets a governed web deep-read
-            under a daily spend cap. Default is ON (the testing posture).
+            When true, every organization with a primary domain and no dossier gets a governed
+            web deep-read under a daily spend cap — however it was named. The anchor is
+            excluded (cold start reads it). Default is ON (the testing posture).
     AiRouting:
       type: object
       description: |

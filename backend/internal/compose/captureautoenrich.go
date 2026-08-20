@@ -5,10 +5,12 @@ package compose
 
 // The captured-organization auto-enrich sweep (CAP-PARAM-7, ADR-0072/A118):
 // a leader-elected periodic pass (run-on-start + daily) that gives every
-// surviving auto-created company a governed web dossier. Per workspace, when
+// company with a primary domain and no dossier a governed web one — however it
+// was named, since a person creating one is usually the moment they want it.
+// The anchor is excluded; cold start has already read it. Per workspace, when
 // the capture_auto_enrich flag is on, it enqueues a deep read
-// (system:capture_auto_enrich, auto-applied on completion) for each due
-// domain-named org — newest first, under an atomically-reserved daily cap. It
+// (system:capture_auto_enrich, auto-applied on completion) for each due org —
+// newest first, under an atomically-reserved daily cap. It
 // is the ONE trigger and the self-healing reconciler in one: a missed org is
 // simply picked up next pass. The deep-read worker's auto-apply lane
 // (deepread.go) records the terminal outcome on the sweep's cursor.
