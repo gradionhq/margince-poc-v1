@@ -1,14 +1,30 @@
 name: Release
 
-# Draft a margince-constellation release for every build that lands on main.
-# The release lives in the constellation dist service at test.margince.com, not
-# on GitHub — a constellation release is a server deployment (role images, an
-# incremental patch, SBOMs) and GitHub hosts none of that.
+# Draft a margince-constellation release, on manual dispatch only. The release
+# lives in the constellation dist service at test.margince.com, not on GitHub —
+# a constellation release is a server deployment (role images, an incremental
+# patch, SBOMs) and GitHub hosts none of that.
 #
-# ONE exception, and only on a manual dispatch: the desktop bundles. Those are
-# something a person downloads and runs on their own machine, so they are
-# attached to a GitHub release under the same version, and that release page is
-# where they are browsed and fetched. See the jobs at the bottom of this file.
+# This ran on every push to main: about 400 runs a week, roughly 10 runner-
+# minutes each on arm64, and three jobs drawn from the same org-wide ceiling of
+# 20 concurrent runners the PR gates queue in. ci.yml already explains what that
+# ceiling costs — a full-stack merge schedules 28 jobs against it, so overlapping
+# lanes turn a 9-minute gate into a much longer one and starve the PR lanes
+# behind them. Releasing on every commit spent that budget on a version nobody
+# asked for: the repository is under heavy development and has no real releases
+# yet, which is what the epoch-pinned 1970.* version says out loud. A release is
+# now a decision somebody makes, which is the only cadence a dispatch can have.
+#
+# The desktop bundles now sit behind the `desktop` dispatch input, default OFF.
+# They used to be separated from an ordinary release by the trigger itself — a
+# push got the dist release, a dispatch additionally got the bundles — and with
+# the push trigger gone that distinction would have collapsed, making every
+# release compile Postgres from source twice for a 170 MB pair of assets nobody
+# asked for. The input keeps the cheap dist-only release as the default and makes
+# the bundles the deliberate act they were before. Those are something a person
+# downloads and runs on their own machine, so they are attached to a GitHub
+# release under the same version, and that release page is where they are browsed
+# and fetched. See the jobs at the bottom of this file.
 #
 # The flow, in order: draft the release versioned 1970.<build> (the build is
 # this workflow's run number, fitting the constellation YYYY.edition version
@@ -29,29 +45,37 @@ name: Release
 # publisher token (the MARGINCE_DIST_PUBLISHER_TOKEN secret — only CI holds
 # it) against the dist service URL below.
 #
-# The patch range is the push's before..after — exactly what the push added.
-# On a branch creation (all-zeros github.event.before) or a force-push (a
-# before the fetched history no longer reaches) there is no ancestor to diff
-# from, so the release drafts without a patch. On a manual dispatch there is
-# no push range, so it falls back to the parent commit (HEAD~1..HEAD).
+# A dispatch carries no push range, so the patch range is HEAD~1..HEAD — the
+# parent commit only, however many commits landed since the last release. That
+# is a known gap, not a property worth relying on: the base belongs at the last
+# PUBLISHED release, which is
+# https://github.com/gradionhq/margince-poc-v1/issues/1798. Until that lands, a
+# dispatched release's patch describes one commit, and a consumer applying
+# patches in order cannot use this stream to move forward. Nothing consumes it
+# today, which is why this is recorded rather than blocking. The step below keeps
+# reading github.event.before so that restoring a push trigger is a one-line
+# change; under a dispatch it is always empty and the fallback always applies.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      desktop:
+        description: "Also build the macOS + Windows desktop bundles and attach them to a GitHub release"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 # Cancellation is scoped per JOB below rather than to the whole workflow, because
 # the two halves of this flow want opposite treatment. Drafting and baking are
-# superseded work — a newer merge should not wait out a full docker bake for a
-# commit nobody will consume — while publishing is a mutation of the dist service
-# and must never be interrupted part-way, so it carries a group that serializes
-# instead of one that cancels.
+# superseded work — a second dispatch should not wait out a full docker bake for
+# a commit nobody will consume — while publishing is a mutation of the dist
+# service and must never be interrupted part-way, so it carries a group that
+# serializes instead of one that cancels.
 #
-# A release therefore describes the push that triggered it, not every commit
-# below it: the patch range is that push's before..after, and a commit whose lane
-# was superseded gets no release of its own.
+# The groups matter far less now that a dispatch is the only trigger: two runs
+# overlap only when somebody starts a second one deliberately. They are kept
+# because that case still exists and the reasoning above still holds for it.
 
 env:
   # The release-management CLI image, published :latest from constellation's
@@ -69,7 +93,7 @@ jobs:
   draft:
     name: Draft release
     timeout-minutes: 30
-    # Superseded by a newer merge on the same ref: the tip is the commit worth
+    # Superseded by a newer run on the same ref: the tip is the commit worth
     # drafting.
     concurrency:
       group: ${{ github.workflow }}-draft-${{ github.ref }}
@@ -341,12 +365,18 @@ jobs:
   # ---------------------------------------------------------------------------
   # The downloadable desktop bundles, and the GitHub release that holds them.
   #
-  # MANUAL DISPATCH ONLY. Everything above runs on every push to main; these
-  # three do not, because a macOS and a Windows bundle each compile Postgres from
-  # source and neither answers a new question on an ordinary merge. Cutting a
-  # downloadable build is a decision someone makes, so it is a button someone
-  # presses — and until they press it, no release accumulates a 170 MB pair of
-  # assets nobody asked for.
+  # GATED ON THE `desktop` DISPATCH INPUT, default OFF. A macOS and a Windows
+  # bundle each compile Postgres from source, so these are much the most
+  # expensive jobs in the file and produce a 170 MB pair of assets. What used to
+  # separate them from an ordinary release was the trigger — a push got the dist
+  # release, a dispatch also got the bundles — and that separation had to move
+  # somewhere when the push trigger went away, or every release would pay for
+  # them. `github.event_name == 'workflow_dispatch'` would now be true always,
+  # which is why it is not the guard any more.
+  #
+  # All three share the one input deliberately: github-release needs both build
+  # jobs, and a skipped `needs` skips it too, so the GitHub release appears
+  # exactly when the bundles it would hold do.
   #
   # Both lanes are REUSED, not copied: desktop-macos.yml and desktop-windows.yml
   # are the same workflows the pull-request check runs, called here through
@@ -355,7 +385,7 @@ jobs:
   # from the bundle CI blessed — the worst place to find it.
   desktop-macos:
     name: Build the macOS bundle
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.desktop
     needs: [draft]
     uses: ./.github/workflows/desktop-macos.yml
     permissions:
@@ -368,7 +398,7 @@ jobs:
 
   desktop-windows:
     name: Build the Windows bundle
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.desktop
     needs: [draft]
     uses: ./.github/workflows/desktop-windows.yml
     permissions:
@@ -388,7 +418,7 @@ jobs:
   # 1970.* build must not present itself as the latest release of the product.
   github-release:
     name: Publish the GitHub release
-    if: github.event_name == 'workflow_dispatch'
+    if: inputs.desktop
     needs: [draft, desktop-macos, desktop-windows]
     runs-on: ubuntu-24.04-arm
     # Transfer work, not build work: the bundles were already produced inside
