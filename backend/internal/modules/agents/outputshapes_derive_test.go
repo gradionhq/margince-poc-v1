@@ -133,7 +133,7 @@ func TestEveryResultTypeSatisfiesTheSchemaDerivedFromIt(t *testing.T) {
 		"ArchiveResult":        ArchiveResult{Archived: true, RecordType: "person", ID: id},
 		"PromoteLeadResult":    PromoteLeadResult{Merged: true, Person: record},
 		"MergeRecordsResult":   MergeRecordsResult{Merged: true, RecordType: "person", SurvivorID: id},
-		"DraftEmailResult":     DraftEmailResult{Subject: "Re: x", Body: "hi", InReplyToActivityID: id},
+		"DraftEmailResult":     DraftEmailResult{Subject: "Re: x", Body: "hi", InReplyToActivityID: &id},
 		"AssembledContext":     AssembledContextResult{Anchor: ContextAnchor{RecordType: "deal", RecordID: id}, Sections: []ContextSection{{Name: "recent", Items: []ContextItem{{RecordType: "activity", RecordID: id, Summary: "s", Evidence: []ContextEvidence{{Source: "a", Snippet: "b"}}}}}}},
 		"PrepForMeetingResult": PrepForMeetingResult{Briefing: AssembledContextResult{Anchor: ContextAnchor{RecordType: "deal", RecordID: id}, Sections: []ContextSection{}}, MeetingFocus: []MeetingFocusItem{{RecordID: id, Summary: "s"}}},
 		"QualifyLeadResult":    QualifyLeadResult{RecordID: id, Filled: map[string]QualifiedField{"company_name": {Value: "Acme", Evidence: []ContextEvidence{{Source: "lead.email", Snippet: "a@acme"}}}}, Gaps: []string{"title"}},

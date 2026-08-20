@@ -220,8 +220,19 @@ type DraftEmailResult struct {
 	Body    string `json:"body"`
 	// InReplyToActivityID is echoed back because send_email needs it, and a
 	// caller that had to remember it across the two calls is a caller that can
-	// send a draft against the wrong thread.
-	InReplyToActivityID ids.UUID `json:"in_reply_to_activity_id"`
+	// send a draft against the wrong thread. Absent on a FIRST message, which
+	// answers no thread.
+	//
+	// A POINTER, because ids.UUID is a [16]byte array and `omitempty` never
+	// fires on one: a first message would have serialized
+	// "00000000-0000-0000-0000-000000000000" and read as a reply to a thread
+	// that does not exist. The package's own optional-id idiom is a pointer
+	// for exactly this reason.
+	InReplyToActivityID *ids.UUID `json:"in_reply_to_activity_id,omitempty"`
+	// Links is the same echo for a first message: send_account_email takes
+	// them, and a caller re-deriving them can file a conversation under the
+	// wrong record. Empty on a reply, which inherits its filing.
+	Links []RecordLink `json:"links,omitempty"`
 }
 
 // ContextAnchor names the record an assembled picture was built around.

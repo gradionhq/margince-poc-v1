@@ -10,6 +10,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -89,6 +90,49 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 		answering.Body = *activity.Body
 	}
 	subject, body := activities.DeterministicEmailDraft(answering, intent)
+	return subject, body, nil
+}
+
+// DraftAccountEmail composes the first message to a record.
+//
+// There is no thread to read, so the DraftContext is built from what a first
+// message actually is rather than from prior correspondence: BandFresh (this
+// IS the opening), Threaded false (nothing is being answered), and the intent
+// as the topic — the caller's own words for what the message should do, which
+// is the only subject material in existence before a conversation starts.
+//
+// It deliberately does NOT resolve a recipient. DraftEmail can ask the store
+// who a thread is with; here the caller names the addressee at send time
+// (send_account_email takes `to`), and inventing one from a link would put an
+// address in a draft nobody chose.
+//
+// The links are not read either, and that is a judgment worth stating: the
+// drafter takes text, not records, and reading a company's fields into the
+// opening line would make the draft's content depend on data the approving
+// human is not looking at. They are carried for the SEND to file under.
+func (c commsAdapter) DraftAccountEmail(
+	ctx context.Context, links []agents.RecordLink, intent string,
+) (string, string, error) {
+	if len(links) == 0 {
+		return "", "", &agents.BadArgsError{Cause: errors.New(
+			"links must name at least one record this conversation is filed under; " +
+				"a first message has no thread to inherit them from")}
+	}
+	// Deterministic only, for now. activities.EmailDrafter (the routed model
+	// lane) takes an anchor by signature — DraftEmail(ctx, anchor, intent) —
+	// so a first message cannot reach it without widening that interface and
+	// the AI task behind it. Deliberately left for its own change: the tool's
+	// value is that a first message can be drafted AT ALL, and the copy says
+	// plainly that the fallback is a short deterministic note.
+	// Topic stays EMPTY, and the intent is passed once. DeterministicEmailDraft
+	// renders Topic into a "following up on …" line AND appends the intent as
+	// its own paragraph (handlers_email.go), so naming both would print the
+	// caller's instruction twice in consecutive sections. There is no thread
+	// here for a topic to name anyway — the intent is the whole substance.
+	subject, body := activities.DeterministicEmailDraft(activities.DraftContext{
+		Band:     convstate.BandFresh,
+		Threaded: false,
+	}, intent)
 	return subject, body, nil
 }
 
