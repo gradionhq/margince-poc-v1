@@ -56,12 +56,17 @@ type LogActivityInput struct {
 	Body            *string
 	OccurredAt      *time.Time
 	Direction       *string
-	DueAt           *time.Time
-	RemindAt        *time.Time
-	AssigneeID      *ids.UserID
-	HostUserID      *ids.UserID
-	SourceSystem    *string
-	SourceID        *string
+	// MeetingStatus is meaningful only for kind meeting; the mapping refuses
+	// it on any other kind. The lead status ladder reads booked/held as
+	// engagement, so a hand-logged meeting moves a lead the same as a synced
+	// one.
+	MeetingStatus *string
+	DueAt         *time.Time
+	RemindAt      *time.Time
+	AssigneeID    *ids.UserID
+	HostUserID    *ids.UserID
+	SourceSystem  *string
+	SourceID      *string
 	// ThreadKey files this activity under a conversation. Empty stores NULL.
 	// It is written at insert time or not at all: the (source_system,
 	// source_id) upsert both capture and this path key on does nothing when
@@ -134,14 +139,14 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 
 	id := ids.New[ids.ActivityKind]()
 	_, err = tx.Exec(ctx,
-		`INSERT INTO activity (id, kind, channel_provider, subject, body, occurred_at, direction,
+		`INSERT INTO activity (id, kind, channel_provider, subject, body, occurred_at, direction, meeting_status,
 		                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by,
 		                       thread_key, counterparty_email, counterparty_outbound_attested)
-		 VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULLIF($16, ''),
-		         NULLIF($17, ''), $18)`,
+		 VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NULLIF($17, ''),
+		         NULLIF($18, ''), $19)`,
 		// NULLIF on channel_provider: the column FKs into channel_provider, and
 		// '' names no provider, so anything without a transport stores NULL.
-		id, in.Kind, in.ChannelProvider, in.Subject, in.Body, occurredAt, in.Direction,
+		id, in.Kind, in.ChannelProvider, in.Subject, in.Body, occurredAt, in.Direction, in.MeetingStatus,
 		in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by,
 		in.ThreadKey, in.CounterpartyEmail, in.CounterpartyOutboundAttested)
 	if err != nil {

@@ -89,6 +89,23 @@ func (e *MessageProviderError) FieldFault() (field, code, message string) {
 	return "channel_provider", faultNotValidForKind, e.Error()
 }
 
+// MeetingStatusKindError maps to 422: only a meeting has a meeting_status.
+// The database CHECK constrains the value's vocabulary but not its pairing
+// with the kind, so without this a note carrying `held` would store silently
+// and read back as a meeting-shaped fact about something that was not one.
+type MeetingStatusKindError struct{ Kind string }
+
+func (e *MeetingStatusKindError) Error() string {
+	// The caller's kind is unbounded input; like TranscriptKindError above,
+	// the message never echoes it — the field pointer names what to fix.
+	return "only a meeting may carry a meeting_status"
+}
+
+// FieldFault names meeting_status: it is the field the caller has to drop.
+func (e *MeetingStatusKindError) FieldFault() (field, code, message string) {
+	return "meeting_status", faultNotValidForKind, e.Error()
+}
+
 // refuseKindProviderMismatch holds the kind and the transport against each
 // other, in both directions.
 func refuseKindProviderMismatch(kind, provider string) error {
@@ -176,6 +193,13 @@ func LogActivityInputFrom(req crmcontracts.CreateActivityRequest) (LogActivityIn
 	if req.Direction != nil {
 		d := string(*req.Direction)
 		in.Direction = &d
+	}
+	if req.MeetingStatus != nil {
+		if in.Kind != string(crmcontracts.ActivityKindMeeting) {
+			return LogActivityInput{}, &MeetingStatusKindError{Kind: in.Kind}
+		}
+		m := string(*req.MeetingStatus)
+		in.MeetingStatus = &m
 	}
 	if req.Links != nil {
 		for _, link := range *req.Links {
