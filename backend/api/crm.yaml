@@ -7019,7 +7019,7 @@ paths:
             examples:
               oauth:
                 summary: OAuth provider — server returns the authorize_url to redirect to
-                value: { redirect_uri: 'https://app.example.com/activation' }
+                value: { share_acknowledged: true, redirect_uri: 'https://app.example.com/activation' }
       responses:
         '200':
           description: OAuth redirect target (OAuth providers).

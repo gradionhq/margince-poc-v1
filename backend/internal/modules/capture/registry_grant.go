@@ -256,6 +256,11 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	// the mailbox it was fetched from: bumping the generation here would cancel
 	// the very import the human was told to repair. Disconnect is the other write
 	// that ends a grant, and it bumps the generation itself.
+	// A rebind is also a NEW sharing decision: the acknowledgment recorded on
+	// the row was given for the PREVIOUS mailbox, so the stamp is re-taken from
+	// this grant (which carried its own acknowledgment past Connect's refusal)
+	// rather than inherited across accounts. A same-account reconnect keeps
+	// the original stamp.
 	rebound := rebindsAccount(priorLabel, in.accountLabel)
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
@@ -263,7 +268,8 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 		VALUES ($1, $2, $3, $4, 'connected', $5, $6, now())
 		ON CONFLICT (user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
-		              share_acknowledged_at = COALESCE(capture_connection.share_acknowledged_at, now()),
+		              share_acknowledged_at = CASE WHEN $7 THEN now()
+		                                           ELSE COALESCE(capture_connection.share_acknowledged_at, now()) END,
 		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
 		              generation = capture_connection.generation + CASE WHEN $7 THEN 1 ELSE 0 END,
 		              sync_cursor = CASE WHEN $7 THEN NULL ELSE capture_connection.sync_cursor END,

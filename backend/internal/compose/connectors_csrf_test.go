@@ -132,11 +132,16 @@ func TestCallbackAcceptsAConsentStartedBeforeTheCookieWasNamespaced(t *testing.T
 	// un-suffixed cookie. It must still complete.
 	h := graphWiredHandlers()
 	h.oauth = refusingOAuth{}
+	// ShareAck rides along: a REAL pre-namespacing state would also lack the
+	// sharing acknowledgment and be refused for that before the exchange (the
+	// case directly below) — what this test holds is the version/cookie
+	// fallback in consumeCSRFNonce, which outlives that refusal.
 	state := h.signer.sign(connectState{
 		Workspace: ids.MustParse("11111111-1111-1111-1111-111111111111"),
 		User:      ids.MustParse("22222222-2222-2222-2222-222222222222"),
 		Provider:  providerGmail,
 		Nonce:     "legacy-nonce",
+		ShareAck:  true,
 	}, time.Now().Add(connectStateTTL))
 
 	code := "the-code"

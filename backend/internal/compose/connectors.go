@@ -315,6 +315,18 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 
+	// A state without the sharing acknowledgment cannot complete a connect —
+	// Registry.Connect would refuse it anyway — so refuse BEFORE the code
+	// exchange: an exchanged authorization code is a real provider credential,
+	// and minting one only to discard it unrevoked is strictly worse than not
+	// spending it. Reached only by states minted before the checkbox existed
+	// (the connect endpoint refuses to mint an unacknowledged state).
+	if !st.ShareAck {
+		slog.WarnContext(ctx, "connector callback: state carries no sharing acknowledgment", "provider", string(provider))
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
+		return
+	}
+
 	runCtx := grantorContext(ctx, st)
 	// The grant needs LIVE authority, resolved before the code is spent: an
 	// exchanged authorization code is a real provider credential, and one
