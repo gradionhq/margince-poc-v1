@@ -4,11 +4,10 @@
 package compose
 
 // What the run_report TOOL tells a caller about the report catalog. Separate
-// from report.go because it answers a different question: that file is the
-// engine — which SQL each report compiles to — and this one is the surface, the
-// vocabulary a caller may send. They change for different reasons, and the
-// engine file sits at the package's file-length cap precisely because it has
-// only one concern in it.
+// from the engine (report.go, which compiles a spec to SQL) and from the specs
+// themselves (reportspecs.go, which says what each report asks) because it
+// answers a third question: the vocabulary a caller may send. All three change
+// for different reasons.
 
 import (
 	"bytes"
