@@ -414,8 +414,18 @@ test("AC-pipeline-7: board↔table swaps views preserving the deal set", async (
   await page.goto("/#/deals");
   await expect(page.getByText("Fleet retrofit")).toBeVisible();
   await page.getByRole("button", { name: "Tabelle" }).click();
-  await expect(page.getByText("Fleet retrofit")).toBeVisible();
-  await expect(page.getByText("Service contract")).toBeVisible();
+  // By ROLE on the far side of the swap, not by text. The two views draw a deal
+  // differently: the board card is a button wrapping the name, while a table row
+  // is a link PLUS a visually-hidden "<name> auswählen" label for its bulk-select
+  // checkbox — so a bare text locator matches twice there and Playwright refuses
+  // it. The board assertion above stays as text because a card carries no such
+  // second copy; matching the DOM each view actually renders is the point.
+  await expect(
+    page.getByRole("link", { name: "Fleet retrofit" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Service contract" }),
+  ).toBeVisible();
 });
 
 test("AC-deal-6: a terminal-stage drop is a 🟡 confirm — nothing runs before Confirm", async ({
