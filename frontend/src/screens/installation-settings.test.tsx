@@ -35,6 +35,8 @@ const SETTINGS_EDITOR: GrantSpec = { installation_settings: ["update"] };
 type BackendOptions = {
   locked?: boolean;
   lockedReason?: string;
+  /** What the server refuses the PATCH with, as an RFC-7807 validation body. */
+  refuse?: { field: string; code: string; message: string }[];
 };
 
 // backendFor answers /me with the given grants and /installation/settings with
@@ -61,6 +63,18 @@ function backendFor(allow: GrantSpec, opts: BackendOptions = {}) {
       if (url.pathname.endsWith("/installation/settings")) {
         if (req.method === "PATCH") {
           capturedPatch = await req.json();
+          if (opts.refuse) {
+            // The shape httperr.Validation actually emits: one top-level code
+            // for every 422, and the rule that fired named per field.
+            return jsonResponse(
+              {
+                code: "validation_error",
+                detail: "The installation could not be saved.",
+                details: { errors: opts.refuse },
+              },
+              422,
+            );
+          }
           state = { ...state, ...(capturedPatch as object) };
         }
         return jsonResponse(state);
@@ -230,5 +244,61 @@ describe("InstallationSettingsCard", () => {
       const control = await screen.findByLabelText(label);
       expect(control.className.split(/\s+/)).toContain("input");
     }
+  });
+
+  it("puts a refused value's reason on the field it is about", async () => {
+    // The defect: the mutation wrapped the server's answer in `new Error`, which
+    // discarded `details.errors[]` — so a 422 naming the reporting zone arrived
+    // as one paragraph under the base-currency field, and an operator had three
+    // inputs and no way to tell which one the installation refused.
+    const user = userEvent.setup();
+    const { fetchMock } = backendFor(SETTINGS_EDITOR, {
+      refuse: [
+        {
+          field: "timezone",
+          code: "unknown_zone",
+          message: "Not an IANA time zone.",
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InstallationSettingsCard />);
+
+    const zone = await screen.findByLabelText(/reporting timezone/i);
+    await user.clear(zone);
+    await user.type(zone, "Europe/Berlim");
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    const refusal = await screen.findByText("Not an IANA time zone.");
+    // ON the field: named by the control, so a screen reader hears the refusal
+    // when it lands on the input rather than only if the reader wanders past a
+    // paragraph at the foot of the form.
+    expect(zone.getAttribute("aria-invalid")).toBe("true");
+    expect(refusal.id).not.toBe("");
+    expect(zone.getAttribute("aria-describedby") ?? "").toContain(refusal.id);
+  });
+
+  it("says a refusal once — on the field, or in the summary, never both", async () => {
+    const user = userEvent.setup();
+    const { fetchMock } = backendFor(SETTINGS_EDITOR, {
+      refuse: [
+        { field: "name", code: "too_long", message: "That name is too long." },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<InstallationSettingsCard />);
+
+    const name = await screen.findByLabelText(/organization name/i);
+    await user.type(name, " GmbH");
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    const refusal = await screen.findByText("That name is too long.");
+    // One occurrence, and it is the FIELD's. A refusal drawn on the input AND
+    // repeated in a paragraph below states one problem twice, and the paragraph
+    // is the copy a reader learns to skip — so the blanket summary carries only
+    // what no field claimed.
+    expect(screen.getAllByText("That name is too long.")).toHaveLength(1);
+    expect(refusal.className).toContain("field-error");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 });

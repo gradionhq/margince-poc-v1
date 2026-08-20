@@ -22,7 +22,12 @@ import { Callout } from "../design-system/callout";
 import { Panel, PanelBody } from "../design-system/panel";
 import { ToastRegion, useToast } from "../design-system/toast";
 import { useT } from "../i18n";
-import { problemMessage, QueryGate } from "./common";
+import {
+  problemFieldErrorsOf,
+  problemMessageOf,
+  QueryGate,
+  throwProblem,
+} from "./common";
 
 // The installation settings surface (ADR-0090/A135): the organization's name,
 // the IANA zone every reporting period is computed in, and the ISO-4217 base
@@ -54,6 +59,7 @@ type InstallationSettings = components["schemas"]["InstallationSettings"];
 type Patch = components["schemas"]["UpdateInstallationSettingsRequest"];
 
 function useUpdateInstallationSettings(onSaved: () => void) {
+  const t = useT();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (patch: Patch) => {
@@ -61,7 +67,14 @@ function useUpdateInstallationSettings(onSaved: () => void) {
         body: patch,
       });
       if (error) {
-        throw new Error(problemMessage(error));
+        // `throwProblem`, not `new Error(problemMessage(...))`. The wrapped form
+        // flattened the server's answer to one sentence, which discarded
+        // `details.errors[]` — so the per-field assertions the API already sends
+        // on a 422 were unreachable, and every refusal on this three-field form
+        // arrived as one paragraph at the bottom that named no field. It also
+        // stopped being a ProblemError, which is what the global failure sink
+        // uses to tell a server refusal from a bug worth logging.
+        throwProblem(error, t);
       }
       return data;
     },
@@ -149,6 +162,23 @@ function InstallationSettingsForm({
       ? control["aria-describedby"]
       : [control["aria-describedby"], denialId].filter(Boolean).join(" ");
 
+  // The server's per-field assertions, put on the FIELDS. A 422 on this form
+  // names which of the three values it refused — an unknown IANA zone, a
+  // currency that is not a currency — and until now all of that arrived as one
+  // paragraph under the last field, so a reader had to guess which input to fix.
+  // `Field`'s `error` slot has existed the whole time; nothing routed anything
+  // into it, on any settings page.
+  //
+  // Keyed by the wire field name because that is what the server asserts. The
+  // patch is sparse and built from the same names, so the two cannot drift
+  // without the request itself being wrong.
+  const refused = new Map(
+    problemFieldErrorsOf(update.error).map((problem) => [
+      problem.field,
+      problem.message,
+    ]),
+  );
+
   const dirty =
     draft.name !== settings.name ||
     draft.timezone !== settings.timezone ||
@@ -196,6 +226,7 @@ function InstallationSettingsForm({
           <Field
             label={t("installationSettings.name")}
             hint={t("installationSettings.nameHint")}
+            error={refused.get("name")}
           >
             {(control) => (
               <TextInput
@@ -212,6 +243,7 @@ function InstallationSettingsForm({
           <Field
             label={t("installationSettings.timezone")}
             hint={t("installationSettings.timezoneHint")}
+            error={refused.get("timezone")}
           >
             {(control) => (
               <TextInput
@@ -247,6 +279,7 @@ function InstallationSettingsForm({
                   t("installationSettings.baseCurrencyLocked"))
                 : t("installationSettings.baseCurrencyHint")
             }
+            error={refused.get("base_currency")}
           >
             {(control) => (
               <TextInput
@@ -261,11 +294,12 @@ function InstallationSettingsForm({
             )}
           </Field>
 
-          {update.isError ? (
+          {/* Only what no field claimed. A refusal shown BOTH on the input and
+              again in a paragraph below states one problem twice, and the
+              paragraph is the copy a reader stops reading. */}
+          {update.isError && refused.size === 0 ? (
             <Callout tone="danger" live="alert">
-              {update.error instanceof Error
-                ? update.error.message
-                : t("common.error")}
+              {problemMessageOf(update.error, t)}
             </Callout>
           ) : null}
           <ToastRegion toast={toast} />
