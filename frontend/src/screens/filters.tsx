@@ -27,6 +27,7 @@ import {
   useFilterVocabulary,
 } from "./filterdata";
 import { ExportFilterMenu } from "./filterexport";
+import { SaveFilterListAction } from "./filterlist";
 import { FilterResults } from "./filterresults";
 import "./filters.css";
 import {
@@ -146,6 +147,12 @@ export function FiltersScreen({ id }: Readonly<{ id?: string }>) {
               <Badge tone="accent">{t("filters.dynamic")}</Badge>
               <LoadFilterViewMenu resource={VIEW_OF[tab]} onLoad={setTree} />
               <SaveFilterViewAction resource={VIEW_OF[tab]} tree={tree} />
+              {/* Beside save-as-view, because they are the two things a reader
+                  can do with a finished filter and hiding one of them behind a
+                  menu makes the pair look like one choice. The list takes the
+                  FILTER vocabulary's word for the object — `/lists` enumerates
+                  `person`, like the preview it must agree with. */}
+              <SaveFilterListAction resource={resource} tree={tree} />
             </span>
           }
         />
