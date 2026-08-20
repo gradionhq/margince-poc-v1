@@ -2885,8 +2885,15 @@ export const en = {
   // Connected inboxes (Settings → Connections): the "manage in Settings"
   // surface the onboarding copy promises.
   "connectors.title": "Connected inboxes",
-  "connectors.shareAck":
-    "Captured mail becomes readable to colleagues who can see the contact — individual messages can be limited afterwards, and addresses or domains excluded up front.",
+  "mailSharing.title": "Email sharing",
+  "mailSharing.sub":
+    "Captured mail is readable by every colleague who can see the contact. On by default — it is what makes the pipeline shared.",
+  "mailSharing.label": "Share captured mail with the team",
+  "mailSharing.help":
+    "Individual messages can be limited afterwards, and addresses or domains excluded up front.",
+  "mailSharing.danger":
+    "DANGER: Switching off email sharing will make usage of the CRM difficult. New mail will be visible only to the people on each message.",
+  "mailSharing.save": "Save",
   "connectors.sub":
     "Mailboxes capturing into your CRM. Disconnect any one when you need to — already-captured records stay.",
   "connectors.loading": "Loading your connections…",

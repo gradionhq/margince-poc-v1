@@ -165,9 +165,9 @@ func seedStaleEmbeddingRow(t *testing.T, e *apptest.AppEnv, wsID string) {
 		t.Fatalf("seeding the stale-row person: %v", err)
 	}
 	if _, err := e.Owner.Exec(ctx, `
-		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-		VALUES ($1, 'person', $2, 0, 'stale-hash', 'fake/stale-identity@1024', '[1,2,3]'::vector)`,
-		wsID, personID); err != nil {
+		INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('person', $1, 0, 'stale-hash', 'fake/stale-identity@1024', '[1,2,3]'::vector)`,
+		personID); err != nil {
 		t.Fatalf("seeding the stale embedding row: %v", err)
 	}
 }

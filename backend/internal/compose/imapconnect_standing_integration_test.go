@@ -117,12 +117,6 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 	mux := crmcontracts.HandlerFromMuxWithBaseURL(srv, chi.NewRouter(), "/v1")
 	post := func(t *testing.T, ctx context.Context, body map[string]any) *httptest.ResponseRecorder {
 		t.Helper()
-		// Every case in this suite is about its own gate; the mail-sharing
-		// acknowledgment is given here once (its refusal has its own suite,
-		// imapconnect_standing_refusals_test.go).
-		if _, set := body["share_acknowledged"]; !set {
-			body["share_acknowledged"] = true
-		}
 		payload, err := json.Marshal(body)
 		if err != nil {
 			t.Fatal(err)

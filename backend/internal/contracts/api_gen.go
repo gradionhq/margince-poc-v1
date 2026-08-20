@@ -12602,6 +12602,13 @@ type CaptureSettings struct {
 	// AutoEnrich When true, every surviving auto-created organization gets a governed web deep-read
 	// under a daily spend cap. Default is ON (the testing posture).
 	AutoEnrich bool `json:"auto_enrich"`
+
+	// MailSharing The workspace's mail-sharing posture, ON by default: a captured email is readable by
+	// every colleague who can see the contact. Switched OFF, every email captured FROM THEN ON
+	// is held to its participants and the capturing mailbox owner — already-captured mail keeps
+	// the audience it has. Turning it off makes shared pipeline work hard; the setting exists
+	// for installations that accept that cost.
+	MailSharing bool `json:"mail_sharing"`
 }
 
 // CaptureTraceEntry defines model for CaptureTraceEntry.
@@ -13339,12 +13346,10 @@ type ConnectConnectorRequest struct {
 	// open-redirect surface. Ignored by credential providers, which never redirect.
 	ReturnTo *ConnectConnectorRequestReturnTo `json:"return_to,omitempty"`
 
-	// ShareAcknowledged The connecting human's one-time acknowledgment that what this connector captures
-	// becomes readable to colleagues who can see the contact (they can limit individual
-	// messages afterwards, and exclude addresses or domains up front). Required `true`
-	// for every capture provider — the connect refuses with 422 `sharing_not_acknowledged`
-	// without it — and recorded on the connection as `share_acknowledged_at` before the
-	// first pull.
+	// ShareAcknowledged Accepted and ignored. Mail sharing is a workspace setting (`CaptureSettings.mail_sharing`,
+	// ON by default, admin-switchable) rather than a per-connect acknowledgment; this field
+	// remains only so a client that still sends it keeps working.
+	// Deprecated: this property has been marked as deprecated upstream, but no `x-deprecated-reason` was set
 	ShareAcknowledged *bool `json:"share_acknowledged,omitempty"`
 }
 
@@ -20870,6 +20875,9 @@ type UpdateAutomationRequestStatus string
 type UpdateCaptureSettingsRequest struct {
 	// AutoEnrich Toggle captured-organization auto-enrichment.
 	AutoEnrich *bool `json:"auto_enrich,omitempty"`
+
+	// MailSharing Toggle the workspace mail-sharing posture; affects mail captured from now on.
+	MailSharing *bool `json:"mail_sharing,omitempty"`
 }
 
 // UpdateContractRequest Partial. Status is absent by design — it moves through changeContractStatus.

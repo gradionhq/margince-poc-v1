@@ -61,7 +61,10 @@ const CONNECTED = {
   label: `oauth:${DCR_CLIENT_ID}`,
   scopes: ["read", "draft", "write"],
   created_at: "2026-07-20T08:00:00Z",
-  expires_at: "2026-08-20T08:00:00Z",
+  // Far future on purpose: LIVE is a comparison against now, and the tests
+  // that render this fixture do not pin the clock — an expiry near the
+  // authoring date turns into a time bomb the morning it passes (it did).
+  expires_at: "2036-08-20T08:00:00Z",
   revoked_at: null,
   connection: {
     client_id: DCR_CLIENT_ID,

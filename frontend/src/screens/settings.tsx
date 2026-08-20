@@ -111,6 +111,7 @@ import { LicenseCard } from "./license";
 import { LinkedInImportCard } from "./linkedin-import";
 import { LinkedInReachCard } from "./linkedin-reach";
 import { SEARCH_DEBOUNCE_MS } from "./listquery";
+import { MailSharingCard } from "./mail-sharing";
 import { OfferTemplatesAdmin } from "./offertemplates";
 import { OverlayCard } from "./overlay";
 import { MirrorUserMapCard } from "./overlay-usermap";
@@ -330,6 +331,10 @@ function tabContent(id: SettingsTabId): ReactNode {
 function ConnectionsTab() {
   return (
     <>
+      {/* The rule first, then the mailboxes that live under it: sharing is a
+          workspace posture every user works under, not a property of any one
+          connection below. */}
+      <MailSharingCard />
       <ConnectorsCard />
       <LinkedInImportCard />
       {/* No review queue here: a match a human must judge is a proposal, and

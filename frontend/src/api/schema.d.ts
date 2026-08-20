@@ -9045,6 +9045,14 @@ export interface components {
          */
         CaptureSettings: {
             /**
+             * @description The workspace's mail-sharing posture, ON by default: a captured email is readable by
+             *     every colleague who can see the contact. Switched OFF, every email captured FROM THEN ON
+             *     is held to its participants and the capturing mailbox owner — already-captured mail keeps
+             *     the audience it has. Turning it off makes shared pipeline work hard; the setting exists
+             *     for installations that accept that cost.
+             */
+            mail_sharing: boolean;
+            /**
              * @description When true, every surviving auto-created organization gets a governed web deep-read
              *     under a daily spend cap. Default is ON (the testing posture).
              */
@@ -9054,6 +9062,8 @@ export interface components {
         UpdateCaptureSettingsRequest: {
             /** @description Toggle captured-organization auto-enrichment. */
             auto_enrich?: boolean;
+            /** @description Toggle the workspace mail-sharing posture; affects mail captured from now on. */
+            mail_sharing?: boolean;
         };
         /**
          * @description One domain carrying a standing admission decision. `suppressed` refuses it a company —
@@ -9261,12 +9271,10 @@ export interface components {
          */
         ConnectConnectorRequest: {
             /**
-             * @description The connecting human's one-time acknowledgment that what this connector captures
-             *     becomes readable to colleagues who can see the contact (they can limit individual
-             *     messages afterwards, and exclude addresses or domains up front). Required `true`
-             *     for every capture provider — the connect refuses with 422 `sharing_not_acknowledged`
-             *     without it — and recorded on the connection as `share_acknowledged_at` before the
-             *     first pull.
+             * @deprecated
+             * @description Accepted and ignored. Mail sharing is a workspace setting (`CaptureSettings.mail_sharing`,
+             *     ON by default, admin-switchable) rather than a per-connect acknowledgment; this field
+             *     remains only so a client that still sends it keeps working.
              */
             share_acknowledged?: boolean;
             /**

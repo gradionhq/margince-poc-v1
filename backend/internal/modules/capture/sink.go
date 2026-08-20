@@ -323,10 +323,14 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		return ids.ActivityID{}, false, err
 	}
 	occurredAt := fields.OccurredAt
+	audience, err := capturedAudience(ctx, tx, fields.Kind)
+	if err != nil {
+		return ids.ActivityID{}, false, err
+	}
 	var id ids.ActivityID
-	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (kind, channel_provider, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested)
-		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, $10, NULLIF($11, ''), NULLIF($12, ''), $13, $14)
+	err = tx.QueryRow(ctx, `
+		INSERT INTO activity (kind, channel_provider, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested, audience)
+		VALUES ($1, NULLIF($2, ''), NULLIF($3, ''), NULLIF($4, ''), $5, NULLIF($6, ''), $7, $8, $9, $10, NULLIF($11, ''), NULLIF($12, ''), $13, $14, $15)
 		ON CONFLICT (source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
@@ -349,7 +353,8 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		// a noise REDACTION needs before it destroys content (migration 0137).
 		// Stamped per message, so a newsletter blast is destroyable while a
 		// personal mail from the same address is only ever hidden.
-		rec.Counterparty.ListUnsubscribe).Scan(&id)
+		rec.Counterparty.ListUnsubscribe,
+		audience).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.

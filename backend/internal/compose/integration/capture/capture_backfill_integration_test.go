@@ -108,7 +108,7 @@ func TestBackfillLifecycle(t *testing.T) {
 	registry.Register(prov)
 
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -229,7 +229,7 @@ func TestBackfillStepFaultsAreTerminal(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
@@ -290,7 +290,7 @@ func TestStartBackfillRollsBackWhenTheJobCannotBeScheduled(t *testing.T) {
 	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
 	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
 	grantCtx := humanWithScopes(e, e.Rep1, []principal.Scope{principal.ScopeRead})
-	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"), true); err != nil {
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)

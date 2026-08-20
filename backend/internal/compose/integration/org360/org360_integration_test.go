@@ -482,9 +482,9 @@ func TestOrganization360ContactRoutesSeparateUntriedFromCold(t *testing.T) {
 	// One colleague has a real two-way exchange with the first contact. The
 	// second has none at all, which is the state under test.
 	e.WsExec(t, `INSERT INTO graph_interaction_edge
-			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
-		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
-		e.WS, e.Rep1, reached, org360Clock.Add(-24*time.Hour))
+			(user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+		VALUES ($1, $2, $3, 20, 10, 10)`,
+		e.Rep1, reached, org360Clock.Add(-24*time.Hour))
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
 	if err != nil {
@@ -539,9 +539,9 @@ func TestOrganization360ContactRoutesNameThreeAndCountTheRest(t *testing.T) {
 			VALUES ($1, $2, $3, $4, 'active')`,
 			user, e.WS, fmt.Sprintf("colleague%d@acme.test", i), fmt.Sprintf("Colleague %d", i))
 		e.WsExec(t, `INSERT INTO graph_interaction_edge
-				(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
-			VALUES ($1, $2, $3, $4, $5, $6, $6)`,
-			e.WS, user, contact, org360Clock.Add(-24*time.Hour), (i+1)*2, i+1)
+				(user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+			VALUES ($1, $2, $3, $4, $5, $5)`,
+			user, contact, org360Clock.Add(-24*time.Hour), (i+1)*2, i+1)
 	}
 
 	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, integration.AccountRepPerms), ids.From[ids.OrganizationKind](org))
@@ -585,9 +585,9 @@ func TestOrganization360OmitsRoutesWithoutTheActivityGrant(t *testing.T) {
 	e.WsExec(t, `INSERT INTO relationship (kind, person_id, organization_id, source, captured_by)
 		VALUES ('employment', $1, $2, 'manual', 'human:x')`, person, org)
 	e.WsExec(t, `INSERT INTO graph_interaction_edge
-			(workspace_id, user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
-		VALUES ($1, $2, $3, $4, 20, 10, 10)`,
-		e.WS, e.Rep1, person, org360Clock.Add(-24*time.Hour))
+			(user_id, person_id, last_at, count_90d, in_count_90d, out_count_90d)
+		VALUES ($1, $2, $3, 20, 10, 10)`,
+		e.Rep1, person, org360Clock.Add(-24*time.Hour))
 
 	// With the grant, the route is there — otherwise the case below could pass
 	// because the fixture produced no route at all.

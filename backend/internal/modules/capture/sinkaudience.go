@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -31,7 +32,10 @@ func limitLinkLessAudience(ctx context.Context, tx pgx.Tx, id ids.ActivityID, re
 	// The row was inserted in this transaction, so the only way it is not
 	// exactly one row is a bug in the insert above; saying so is cheaper than
 	// a silent no-op.
-	tag, err := tx.Exec(ctx, `UPDATE activity SET audience = $2 WHERE id = $1 AND audience <> $2`, id, audienceParticipants)
+	// No inequality guard: with mail sharing off the row was BORN
+	// participants-only, and a pin that then matched zero rows would abort
+	// the capture of a message that is already exactly as held as asked.
+	tag, err := tx.Exec(ctx, `UPDATE activity SET audience = $2 WHERE id = $1`, id, audienceParticipants)
 	if err != nil {
 		return fmt.Errorf("capture: limiting a link-less message to its participants: %w", err)
 	}
@@ -44,3 +48,25 @@ func limitLinkLessAudience(ctx context.Context, tx pgx.Tx, id ids.ActivityID, re
 // audienceParticipants is the activity audience a link-less captured message
 // is held in (platform/auth ActivityContentClause names the arms).
 const audienceParticipants = "participants"
+
+// capturedAudience answers the audience a freshly captured activity is born
+// with. Mail sharing ON (the default) births an email workspace-readable —
+// the point of capturing into a shared CRM. Switched OFF, an email is held to
+// its participants and the capturing mailbox owner from the moment it lands;
+// the setting moves the default for NEW mail only, and non-mail kinds
+// (meetings, channel messages) keep the workspace default either way.
+func capturedAudience(ctx context.Context, tx pgx.Tx, kind string) (string, error) {
+	if kind != "email" {
+		return audienceWorkspace, nil
+	}
+	sharing, err := settings.ApplyTx(ctx, tx, MailSharing)
+	if err != nil {
+		return "", fmt.Errorf("capture: reading the mail-sharing posture: %w", err)
+	}
+	if sharing {
+		return audienceWorkspace, nil
+	}
+	return audienceParticipants, nil
+}
+
+const audienceWorkspace = "workspace"

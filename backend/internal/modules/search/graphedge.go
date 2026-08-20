@@ -230,10 +230,9 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 		     GROUP BY t.user_id, t.person_id
 		)
 		INSERT INTO graph_interaction_edge AS e
-		    (workspace_id, user_id, person_id, last_at, last_inbound_at, last_outbound_at,
+		    (user_id, person_id, last_at, last_inbound_at, last_outbound_at,
 		     count_90d, in_count_90d, out_count_90d, count_total, computed_at)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		       f.user_id, f.person_id, f.last_at, f.last_inbound_at, f.last_outbound_at,
+		SELECT f.user_id, f.person_id, f.last_at, f.last_inbound_at, f.last_outbound_at,
 		       f.count_90d, f.in_90d, f.out_90d, f.count_total, now()
 		  FROM folded f
 		ON CONFLICT (user_id, person_id) DO UPDATE SET
@@ -412,10 +411,9 @@ func RebuildEdges(ctx context.Context, tx pgx.Tx) error {
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO graph_interaction_edge
-		    (workspace_id, user_id, person_id, last_at, last_inbound_at, last_outbound_at,
+		    (user_id, person_id, last_at, last_inbound_at, last_outbound_at,
 		     count_90d, in_count_90d, out_count_90d, count_total, computed_at)
-		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		       up.user_id, pp.person_id,
+		SELECT up.user_id, pp.person_id,
 		       max(a.occurred_at),
 		       max(a.occurred_at) FILTER (WHERE a.direction = 'inbound'),
 		       max(a.occurred_at) FILTER (WHERE a.direction = 'outbound'),

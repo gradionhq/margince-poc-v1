@@ -40,11 +40,6 @@ func employAt(t *testing.T, e *integration.Env, person, org ids.UUID) {
 	}, "recording employment")
 }
 
-// wsGUC is the workspace the RLS GUC already binds. Every seed here writes
-// through WithWorkspaceTx for that reason: a raw pool exec has no GUC and the
-// policy refuses it.
-const wsGUC = `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
-
 // seedAsAdmin runs one fixture write inside a workspace-bound transaction.
 func seedAsAdmin(t *testing.T, e *integration.Env, fn func(context.Context, pgx.Tx) error, what string) {
 	t.Helper()
@@ -173,9 +168,9 @@ func seedInteractionEdge(t *testing.T, e *integration.Env, user, person ids.UUID
 	seedAsAdmin(t, e, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO graph_interaction_edge
-			    (workspace_id, user_id, person_id, last_at, count_90d, in_count_90d,
+			    (user_id, person_id, last_at, count_90d, in_count_90d,
 			     out_count_90d, count_total, computed_at)
-			VALUES (`+wsGUC+`, $1, $2, now(), 6, 3, 3, 6, now())`, user, person)
+			VALUES ($1, $2, now(), 6, 3, 3, 6, now())`, user, person)
 		return err
 	}, "seeding the interaction edge")
 }
