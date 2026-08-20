@@ -227,19 +227,6 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 	}
 }
 
-// ListRecordHistory reads one record's whole-mutation timeline — every
-// audit verb, one line per row — inside a single workspace tx. The gate
-// stack is ListFieldHistory's, verbatim: a human session, object-level
-// read on the entity type, and the row-scope visibility check (out of
-// scope reads as not-found, indistinguishable from not-there).
-//
-// Unlike field-history there is no action allowlist: a merge or export
-// line IS the point of this view. Payload honesty is inherited instead —
-// scrub tombstones and retention rows carry operational tallies on
-// audit_log.evidence, which this read never selects; other meta verbs
-// (merge, promote, export, record_share, enrich, coldstart) serve
-// operational context verbatim from before/after, workspace-operational
-// data behind the same record-read gate, never subject PII.
 // admitRecordHistoryRead is the object-level half of this read's gate stack:
 // a human session, a known entity kind, and the read grant on it. The ROW-level
 // half runs inside the transaction, because visibility is a statement.
@@ -258,6 +245,19 @@ func admitRecordHistoryRead(ctx context.Context, f RecordHistoryFilter) error {
 	return auth.Require(ctx, f.EntityType, principal.ActionRead)
 }
 
+// ListRecordHistory reads one record's whole-mutation timeline — every
+// audit verb, one line per row — inside a single workspace tx. The gate
+// stack is ListFieldHistory's, verbatim: a human session, object-level
+// read on the entity type, and the row-scope visibility check (out of
+// scope reads as not-found, indistinguishable from not-there).
+//
+// Unlike field-history there is no action allowlist: a merge or export
+// line IS the point of this view. Payload honesty is inherited instead —
+// scrub tombstones and retention rows carry operational tallies on
+// audit_log.evidence, which this read never selects; other meta verbs
+// (merge, promote, export, record_share, enrich, coldstart) serve
+// operational context verbatim from before/after, workspace-operational
+// data behind the same record-read gate, never subject PII.
 func ListRecordHistory(ctx context.Context, db *database.DB, f RecordHistoryFilter) (RecordHistoryPage, error) {
 	if err := admitRecordHistoryRead(ctx, f); err != nil {
 		return RecordHistoryPage{}, err
