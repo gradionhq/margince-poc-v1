@@ -236,13 +236,13 @@ func inlineRelayLane(ctx context.Context, cfg apiConfig, pool *pgxpool.Pool, log
 // modelSurfaceOptions resolves this role's model path and wires every AI
 // surface over it, returning the path so the job-handoff lanes bind to the
 // same one.
-func modelSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger) ([]compose.Option, *compose.ModelPath, error) {
+func modelSurfaceOptions(ctx context.Context, cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger) ([]compose.Option, *compose.ModelPath, error) {
 	// ONE resolution point: coldStartOptions, offerDraftOptions and the
 	// /readyz AI line all consume the same *compose.ModelPath rather than
 	// each running their own copy of the declared-routing/--ai-fake/
 	// neither switch (and, with it, their own Router, cache and budget).
 	modelPath, aiState, assistantProfile, routingVersion, err := resolveModelPath(
-		modelPathSpecFrom(cfg, deployCfg), pool, logger)
+		ctx, modelPathSpecFrom(cfg, deployCfg), pool, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -278,8 +278,8 @@ func modelSurfaceOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgx
 // charges a model call to the agent that caused it, where the tokens are known.
 // A model path bound to a different meter would meter an agent's spend into a
 // window nothing else looks at, so the path leaves this function already bound.
-func modelAndHandoffOptions(cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger, quotaMeter *agentquota.Meter) ([]compose.Option, *compose.ModelPath, error) {
-	opts, modelPath, err := modelSurfaceOptions(cfg, deployCfg, pool, logger)
+func modelAndHandoffOptions(ctx context.Context, cfg apiConfig, deployCfg deployconfig.Config, pool *pgxpool.Pool, logger *slog.Logger, quotaMeter *agentquota.Meter) ([]compose.Option, *compose.ModelPath, error) {
+	opts, modelPath, err := modelSurfaceOptions(ctx, cfg, deployCfg, pool, logger)
 	if err != nil {
 		return nil, nil, err
 	}

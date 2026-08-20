@@ -77,7 +77,7 @@ func TestNewModelPathSeedsBindingMarkerOnEmptyStore(t *testing.T) {
 	cfg := boundEmbedRoutingConfig("fake-embed-a")
 	log, buf := bufferLogger()
 
-	if _, err := compose.NewModelPath(cfg, e.Pool, false, log); err != nil {
+	if _, err := compose.NewModelPath(context.Background(), cfg, e.Pool, false, log); err != nil {
 		t.Fatalf("NewModelPath: %v", err)
 	}
 
@@ -109,7 +109,7 @@ func TestNewModelPathLogsLoudlyOnChangedBinding(t *testing.T) {
 	cfg := boundEmbedRoutingConfig("fake-embed-new")
 	log, buf := bufferLogger()
 
-	if _, err := compose.NewModelPath(cfg, e.Pool, false, log); err != nil {
+	if _, err := compose.NewModelPath(context.Background(), cfg, e.Pool, false, log); err != nil {
 		t.Fatalf("NewModelPath must not fail construction on a changed binding: %v", err)
 	}
 
@@ -151,7 +151,7 @@ func TestNewModelPathUnboundEmbedLaneSkipsSeed(t *testing.T) {
 	cfg := unboundEmbedRoutingConfig()
 	log, buf := bufferLogger()
 
-	if _, err := compose.NewModelPath(cfg, e.Pool, false, log); err != nil {
+	if _, err := compose.NewModelPath(context.Background(), cfg, e.Pool, false, log); err != nil {
 		t.Fatalf("NewModelPath must not fail on an unbound embed lane: %v", err)
 	}
 

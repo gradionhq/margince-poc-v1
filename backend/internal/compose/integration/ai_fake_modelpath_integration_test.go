@@ -14,6 +14,7 @@ package integration
 // so it lives here against a real migrated database.
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -23,9 +24,9 @@ import (
 
 func TestAIFakeModelPathRidesRouterAndTraces(t *testing.T) {
 	e := Setup(t)
-	modelPath, err := compose.NewModelPath(ai.FakeRoutingConfig(), e.Pool, false, nil)
+	modelPath, err := compose.NewModelPath(context.Background(), ai.FakeRoutingConfig(), e.Pool, false, nil)
 	if err != nil {
-		t.Fatalf("NewModelPath(FakeRoutingConfig()): %v", err)
+		t.Fatalf("NewModelPath(context.Background(), FakeRoutingConfig()): %v", err)
 	}
 
 	ctx := e.Admin()
@@ -49,16 +50,16 @@ func TestAIFakeModelPathRidesRouterAndTraces(t *testing.T) {
 	}
 }
 
-// TestAIFakeModelPathBindsEveryLane proves NewModelPath(FakeRoutingConfig())
+// TestAIFakeModelPathBindsEveryLane proves NewModelPath(context.Background(), FakeRoutingConfig())
 // leaves no lane nil — the property resolveModelPath's callers (and the
 // worker's selectModelPath) depend on to safely wire every AI surface
 // under --ai-fake, not just whichever tier a partially-bound config left
 // reachable.
 func TestAIFakeModelPathBindsEveryLane(t *testing.T) {
 	e := Setup(t)
-	modelPath, err := compose.NewModelPath(ai.FakeRoutingConfig(), e.Pool, false, nil)
+	modelPath, err := compose.NewModelPath(context.Background(), ai.FakeRoutingConfig(), e.Pool, false, nil)
 	if err != nil {
-		t.Fatalf("NewModelPath(FakeRoutingConfig()): %v", err)
+		t.Fatalf("NewModelPath(context.Background(), FakeRoutingConfig()): %v", err)
 	}
 	if modelPath.AgentLoop == nil {
 		t.Error("AgentLoop lane is nil")

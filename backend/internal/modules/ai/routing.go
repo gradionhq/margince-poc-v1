@@ -164,17 +164,10 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 	if err := dec.Decode(&cfg); err != nil {
 		return RoutingConfig{}, fmt.Errorf("ai: routing config: %w", err)
 	}
-	// The ONE validation + defaulting site for embeddings.dimensions: both
-	// NewRouter and NewLocalRouter build their RoutingConfig through this
-	// function (LoadRoutingFile or a direct ParseRouting call), so neither
-	// role can construct a router with an out-of-range or undefaulted width.
-	if d := cfg.Embeddings.Dimensions; d < 0 || d > maxEmbedDimensions {
-		return RoutingConfig{}, fmt.Errorf("ai: routing config: embeddings dimensions %d out of range [1,%d]", d, maxEmbedDimensions)
-	} else if d == 0 {
-		cfg.Embeddings.Dimensions = defaultEmbedDimensions
-	}
-	// Before Validate(), which sees only the decoded value and so cannot tell a
-	// blank declaration from an absent one.
+	// Before finalize(), which sees only the decoded value and so cannot tell a
+	// blank declaration from an absent one. This check is YAML's alone: in JSON
+	// an explicit null and an omitted key both decode to nil, so a config read
+	// back from the settings store cannot express the mistake it catches.
 	blank, err := blankInputDeclarations(raw)
 	if err != nil {
 		return RoutingConfig{}, err
@@ -184,11 +177,45 @@ func ParseRouting(raw []byte) (RoutingConfig, error) {
 			"ai: routing config: %s: `input` is written with no value; omit the field to bind a text-only model, or name the modalities the bound model accepts",
 			strings.Join(blank, ", "))
 	}
+	return cfg.finalize()
+}
+
+// finalize applies the defaults, validates, and stamps the version — the steps
+// every routing config takes however it arrived.
+//
+// It is the ONE defaulting site for embeddings.dimensions: NewRouter and
+// NewLocalRouter both build their config through a function that ends here, so
+// no role can construct a router with an out-of-range or undefaulted width. The
+// digest is taken last, over the DEFAULTED value, which is what makes an
+// omitted width and an explicitly-written default the same binding.
+func (cfg RoutingConfig) finalize() (RoutingConfig, error) {
+	if d := cfg.Embeddings.Dimensions; d < 0 || d > maxEmbedDimensions {
+		return RoutingConfig{}, fmt.Errorf("ai: routing config: embeddings dimensions %d out of range [1,%d]", d, maxEmbedDimensions)
+	} else if d == 0 {
+		cfg.Embeddings.Dimensions = defaultEmbedDimensions
+	}
 	if err := cfg.validate(); err != nil {
 		return RoutingConfig{}, err
 	}
 	cfg.sourceHash = cfg.bindingDigest()
 	return cfg, nil
+}
+
+// FromStored finalizes a binding read back from the settings store and binds
+// where its BYOK secrets come from.
+//
+// A config that arrived as JSON carries neither of the two things ParseRouting
+// stamps on: no version, because sourceHash is derived rather than stored, and
+// no key lookup, because a routing document names providers and never their
+// credentials. Returning it unfinalized would hand the Router a config whose
+// RoutingVersion is empty — and that value is a cache key, so every brief in
+// the installation would fingerprint against nothing.
+func FromStored(stored RoutingConfig, keys config.Lookup) (RoutingConfig, error) {
+	cfg, err := stored.finalize()
+	if err != nil {
+		return RoutingConfig{}, err
+	}
+	return cfg.WithKeys(keys), nil
 }
 
 // bindingDigest is the routing half of the ai_call_config dimension key: a

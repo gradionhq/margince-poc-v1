@@ -146,7 +146,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// The model path comes back already bound to quotaMeter (MCP-SESS-COST);
 	// boot.go carries why that binding belongs with the path, not here.
 	//nolint:contextcheck // boot-time wiring: the model path outlives any request context
-	modelOpts, modelPath, err := modelAndHandoffOptions(cfg, deployCfg, pool, logger, quotaMeter)
+	modelOpts, modelPath, err := modelAndHandoffOptions(ctx, cfg, deployCfg, pool, logger, quotaMeter)
 	if err != nil {
 		return err
 	}

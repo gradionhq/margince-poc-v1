@@ -13,6 +13,12 @@
         "read": true,
         "update": true
       },
+      "ai_routing": {
+        "create": false,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
       "automation": {
         "create": true,
         "delete": true,
@@ -229,6 +235,12 @@
         "update": true
       },
       "ai_model_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "ai_routing": {
         "create": false,
         "delete": false,
         "read": false,
@@ -455,6 +467,12 @@
         "read": false,
         "update": false
       },
+      "ai_routing": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
       "automation": {
         "create": false,
         "delete": false,
@@ -672,6 +690,12 @@
       },
       "ai_model_rate": {
         "create": true,
+        "delete": false,
+        "read": true,
+        "update": true
+      },
+      "ai_routing": {
+        "create": false,
         "delete": false,
         "read": true,
         "update": true
@@ -897,6 +921,12 @@
         "read": false,
         "update": false
       },
+      "ai_routing": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
       "automation": {
         "create": false,
         "delete": false,
@@ -1113,6 +1143,12 @@
         "update": true
       },
       "ai_model_rate": {
+        "create": false,
+        "delete": false,
+        "read": false,
+        "update": false
+      },
+      "ai_routing": {
         "create": false,
         "delete": false,
         "read": false,

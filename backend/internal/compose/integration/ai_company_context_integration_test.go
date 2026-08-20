@@ -43,7 +43,7 @@ func TestCompanyContextBindsPromptCacheAndAICallTrace(t *testing.T) {
 		t.Fatalf("SaveCompany: %v", err)
 	}
 
-	modelPath, err := compose.NewModelPath(ai.FakeRoutingConfig(), e.Pool, false, nil)
+	modelPath, err := compose.NewModelPath(context.Background(), ai.FakeRoutingConfig(), e.Pool, false, nil)
 	if err != nil {
 		t.Fatalf("NewModelPath: %v", err)
 	}
@@ -126,7 +126,7 @@ func readCompanyContextTraces(ctx context.Context, t *testing.T, e *Env, task st
 
 func TestPolicyNoneTraceCarriesEmptyCompanyContext(t *testing.T) {
 	e := Setup(t)
-	modelPath, err := compose.NewModelPath(ai.FakeRoutingConfig(), e.Pool, false, nil)
+	modelPath, err := compose.NewModelPath(context.Background(), ai.FakeRoutingConfig(), e.Pool, false, nil)
 	if err != nil {
 		t.Fatalf("NewModelPath: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestDraftReplyCarriesItsBoundedCompanyContextPolicy(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveCompany: %v", err)
 	}
-	modelPath, err := compose.NewModelPath(ai.FakeRoutingConfig(), e.Pool, false, nil)
+	modelPath, err := compose.NewModelPath(context.Background(), ai.FakeRoutingConfig(), e.Pool, false, nil)
 	if err != nil {
 		t.Fatalf("NewModelPath: %v", err)
 	}
