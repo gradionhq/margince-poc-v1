@@ -4776,6 +4776,22 @@ export const de = {
   "installationSettings.readOnly":
     "Nur ein Admin oder Ops kann diese Einstellungen ändern.",
   "installationSettings.save": "Speichern",
+  "aiRouting.title": "Modell-Routing",
+  "aiRouting.sub":
+    "Welches Modell welche Stufe bedient. Änderungen wirken ohne Neustart; jeder Prozess übernimmt sie innerhalb einer Minute.",
+  "aiRouting.unbound":
+    "Diese Installation hat keine Modelle gebunden, daher sind ihre KI-Funktionen aus. Die erste Bindung deklariert eine Bereitstellung unter seeds.ai_routing in margince.yaml.",
+  "aiRouting.profile.label": "Standort",
+  "aiRouting.profile.help":
+    "Wo die Inferenz läuft. Souverän bedeutet kein Datenabfluss: nur Modelle auf eigenen Hosts — abgelehnt beim Speichern, nicht erst beim ersten Aufruf.",
+  "aiRouting.profile.eu_hosted": "In der EU gehostet",
+  "aiRouting.profile.sovereign": "Souverän (kein Datenabfluss)",
+  "aiRouting.profile.cloud_frontier": "Cloud-Frontier",
+  "aiRouting.model.label": "Modell",
+  "aiRouting.save": "Routing speichern",
+  "aiRouting.saving": "Bindung wird gespeichert…",
+  "aiRouting.saved": "Routing gespeichert. Jeder Prozess bedient es jetzt.",
+  "aiRouting.adminOnly": "Nur Admin oder Ops können das Modell-Routing ändern.",
   "captureSettings.title": "Anreicherung",
   "captureSettings.sub":
     "Wie erfasste Unternehmen und Kontakte nach ihrer Erstellung angereichert werden.",
