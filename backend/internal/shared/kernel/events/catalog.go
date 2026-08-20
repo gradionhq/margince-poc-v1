@@ -368,8 +368,9 @@ type Group struct {
 	Streams []string
 }
 
-// Groups returns the seven V1 consumer groups with their subscribed
-// streams (events.md §4.3). cg:workflows and cg:read-model subscribe to
+// Groups returns the consumer groups with their subscribed streams —
+// the events.md §4.3 set plus the later consumers; the census test
+// mirrors the full list. cg:workflows and cg:read-model subscribe to
 // everything by design; cg:audit-stream also does, because its "all
 // actor.type=agent events" slice cuts across every stream and Redis
 // consumer groups can only partition by stream, not by envelope field —

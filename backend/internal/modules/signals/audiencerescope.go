@@ -21,50 +21,96 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// NarrowDerivedForActivity re-scopes the live, workspace-visible derived
+// The audit-image vocabulary of the re-scope, named once for goconst and for
+// the reader: which key says what changed, and why.
+const (
+	rescopeImageArchivedAt = "archived_at"
+	rescopeImageReason     = "reason"
+	rescopeImageCitedID    = "cited_activity_id"
+)
+
+// NarrowDerivedForActivity re-scopes the live, workspace-visible extraction
 // signals whose evidence cites the given activity: to owner-private when the
 // limited message's capture owner is known, to archived when nobody could
 // answer for it (owner-private with no owner is a lost signal, not a stricter
 // one — the CHECK refuses it, and archiving frees the fingerprint for a clean
-// re-derivation under the new audience). Answers how many rows moved.
+// re-derivation under the new audience). A signal ALREADY narrowed to a
+// different owner is archived too: its summary now mixes correspondence two
+// different people limited, and no one reader admits both.
+//
+// The rows are selected by source = 'signal-scan' — the extraction producer's
+// own stamp — never by source_channel, which the contract DEFAULTS to
+// 'derived' for a human's own POST /signals (migration 0208 records the same
+// trap); a person's own filing is theirs, not this corrector's.
 func NarrowDerivedForActivity(ctx context.Context, tx pgx.Tx, activityID ids.UUID, owner *ids.UUID) (int, error) {
-	set, verb := `visibility = 'owner', owner_id = $2, updated_at = now(), version = version + 1`, "narrowed_to_owner"
-	args := []any{activityID.String(), owner}
-	if owner == nil {
-		set, verb = `archived_at = now(), updated_at = now(), version = version + 1`, "archived_no_owner"
-		args = []any{activityID.String()}
+	cites := `evidence @> jsonb_build_array(jsonb_build_object('source_type', 'activity', 'source_id', $1::text))`
+	moved := 0
+	apply := func(action, sql string, before, after map[string]any, args ...any) error {
+		rows, err := tx.Query(ctx, sql, args...)
+		if err != nil {
+			return fmt.Errorf("signals: %s for a limited activity: %w", action, err)
+		}
+		defer rows.Close()
+		var ids_ []ids.UUID
+		for rows.Next() {
+			var id ids.UUID
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			ids_ = append(ids_, id)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		// The write shape per row, ratified audit-only (writeshape_test.go):
+		// the closed catalog carries no verb for a narrowing, and announcing
+		// one would broadcast the existence of what was just limited.
+		for _, id := range ids_ {
+			if _, err := storekit.Audit(ctx, tx, "update", "signal", id, before, after); err != nil {
+				return fmt.Errorf("signals: auditing the re-scope of %s: %w", id, err)
+			}
+		}
+		moved += len(ids_)
+		return nil
 	}
-	rows, err := tx.Query(ctx, `
-		UPDATE signal
-		   SET `+set+`
-		 WHERE source_channel = 'derived' AND visibility = 'workspace' AND archived_at IS NULL
-		   AND evidence @> jsonb_build_array(jsonb_build_object('source_type', 'activity', 'source_id', $1::text))
-		RETURNING id`, args...)
-	if err != nil {
-		return 0, fmt.Errorf("signals: re-scoping derived signals for a limited activity: %w", err)
-	}
-	defer rows.Close()
-	var moved []ids.UUID
-	for rows.Next() {
-		var id ids.UUID
-		if err := rows.Scan(&id); err != nil {
+
+	if owner != nil {
+		if err := apply("narrowing extraction signals", `
+			UPDATE signal
+			   SET visibility = 'owner', owner_id = $2, updated_at = now(), version = version + 1
+			 WHERE source = 'signal-scan' AND visibility = 'workspace' AND archived_at IS NULL
+			   AND `+cites+`
+			RETURNING id`,
+			map[string]any{"visibility": "workspace", "owner_id": nil},
+			map[string]any{"visibility": "owner", "owner_id": *owner, rescopeImageCitedID: activityID},
+			activityID.String(), *owner); err != nil {
 			return 0, err
 		}
-		moved = append(moved, id)
+		// Already owner-private to SOMEBODY ELSE and citing this newly limited
+		// message: the summary now mixes two people's limited correspondence.
+		if err := apply("archiving cross-owner extraction signals", `
+			UPDATE signal
+			   SET archived_at = now(), updated_at = now(), version = version + 1
+			 WHERE source = 'signal-scan' AND visibility = 'owner' AND owner_id <> $2 AND archived_at IS NULL
+			   AND `+cites+`
+			RETURNING id`,
+			map[string]any{rescopeImageArchivedAt: nil},
+			map[string]any{"archived": true, rescopeImageCitedID: activityID, rescopeImageReason: "evidence limited to a different owner"},
+			activityID.String(), *owner); err != nil {
+			return 0, err
+		}
+		return moved, nil
 	}
-	if err := rows.Err(); err != nil {
+	if err := apply("archiving ownerless extraction signals", `
+		UPDATE signal
+		   SET archived_at = now(), updated_at = now(), version = version + 1
+		 WHERE source = 'signal-scan' AND archived_at IS NULL
+		   AND `+cites+`
+		RETURNING id`,
+		map[string]any{rescopeImageArchivedAt: nil},
+		map[string]any{"archived": true, rescopeImageCitedID: activityID, rescopeImageReason: "no capture owner could answer for the limited evidence"},
+		activityID.String()); err != nil {
 		return 0, err
 	}
-	// The write shape per row. Ratified audit-only (writeshape_test.go): the
-	// closed catalog carries signal.detected and signal.resolved, neither of
-	// which says "the audience of this summary narrowed", and announcing a
-	// narrowing would broadcast the existence of what was just limited.
-	for _, id := range moved {
-		image := map[string]any{"activity_id": activityID, "rescope": verb}
-		if _, err := storekit.Audit(ctx, tx, "update", "signal", id,
-			map[string]any{"visibility": "workspace"}, image); err != nil {
-			return 0, fmt.Errorf("signals: auditing the re-scope of %s: %w", id, err)
-		}
-	}
-	return len(moved), nil
+	return moved, nil
 }

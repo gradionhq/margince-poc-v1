@@ -152,3 +152,79 @@ func TestAnAudienceChangeNarrowsTheDerivedSignalAndMakesTheThreadDue(t *testing.
 		t.Error("the thread's scan watermark survived — the next extraction pass will never re-read it")
 	}
 }
+
+// The two edge cases the narrow path must not mishandle: an agent-captured
+// message names a passport, not a reader, so its signals ARCHIVE rather than
+// failing the app_user FK; and a signal already private to a DIFFERENT owner
+// that cites a newly limited message archives too — its summary now mixes
+// correspondence two different people limited, and no one reader admits both.
+func TestOwnerlessAndCrossOwnerCitationsArchiveTheSignal(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	ctx := context.Background()
+	org := e.SeedOrg(t, "Acme GmbH", &e.Rep1)
+
+	agentActivity := ids.NewV7()
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, thread_key, source, captured_by)
+		VALUES ($1, 'email', 'agent thread', now(), 'inbound', 'thr-agent', 'gmail', 'agent:`+ids.NewV7().String()+`')`,
+		agentActivity); err != nil {
+		t.Fatal(err)
+	}
+	rep1Activity := ids.NewV7()
+	if _, err := owner.Exec(ctx, `
+		INSERT INTO activity (id, kind, subject, occurred_at, direction, thread_key, source, captured_by)
+		VALUES ($1, 'email', 'rep1 thread', now(), 'inbound', 'thr-cross', 'gmail', 'connector:gmail:`+e.Rep1.String()+`')`,
+		rep1Activity); err != nil {
+		t.Fatal(err)
+	}
+
+	extractor := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
+	seed := func(fingerprint string, activity ids.UUID, privateTo ids.UUID) {
+		t.Helper()
+		if err := database.WithWorkspaceTx(extractor, e.Pool, func(tx pgx.Tx) error {
+			_, err := signals.RecordDerived(extractor, tx, signals.DerivedSignal{
+				Kind: "risk", OrganizationID: org, Summary: "s", Severity: "warn",
+				Fingerprint: fingerprint, PrivateTo: privateTo,
+				Evidence: []signals.DerivedEvidence{{Snippet: "x", ActivityID: activity}},
+			}, time.Now().UTC())
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("thr-agent:risk", agentActivity, ids.UUID{})
+	seed("thr-cross:risk", rep1Activity, e.Rep2) // already private to a DIFFERENT reader
+
+	gen := compose.NewAudienceRescopeGen(e.Pool)
+	limit := func(activity ids.UUID) {
+		t.Helper()
+		payload, err := json.Marshal(map[string]any{"changed_fields": map[string]any{"audience": "participants"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := gen.HandleEvent(ctx, events.Envelope{
+			Type: "activity.updated", Entity: events.EntityRef{Type: "activity", ID: activity}, Payload: payload,
+		}); err != nil {
+			t.Fatalf("rescope: %v", err)
+		}
+	}
+	limit(agentActivity)
+	limit(rep1Activity)
+
+	for _, tc := range []struct {
+		fingerprint string
+		why         string
+	}{
+		{"thr-agent:risk", "an agent passport is not a reader a signal can answer to"},
+		{"thr-cross:risk", "the summary mixes evidence limited to a different owner"},
+	} {
+		var archived *time.Time
+		if err := owner.QueryRow(ctx, `SELECT archived_at FROM signal WHERE fingerprint = $1`, tc.fingerprint).Scan(&archived); err != nil {
+			t.Fatal(err)
+		}
+		if archived == nil {
+			t.Errorf("signal %s survived unarchived — %s", tc.fingerprint, tc.why)
+		}
+	}
+}

@@ -86,10 +86,17 @@ func (g *AudienceRescopeGen) rescope(ctx context.Context, tx pgx.Tx, activityID 
 	var threadKey *string
 	var owner *ids.UUID
 	// The capture owner is the one reader a limited message always admits —
-	// the same spelling the extraction's due-threads scan resolves it by.
+	// the same spelling the extraction's due-threads scan resolves it by. The
+	// join proves the parsed id names a HUMAN seat: an agent-captured
+	// activity stamps its passport id there, and a passport is not a reader a
+	// signal can answer to — it resolves to no owner, and the signals narrow
+	// to the archive path instead of failing the app_user FK.
 	err := tx.QueryRow(ctx, `
-		SELECT thread_key, substring(captured_by from '([0-9a-f-]{36})$')::uuid
-		  FROM activity WHERE id = $1`, activityID).Scan(&threadKey, &owner)
+		SELECT a.thread_key, u.id
+		  FROM activity a
+		  LEFT JOIN app_user u
+		    ON u.id = substring(a.captured_by from '([0-9a-f-]{36})$')::uuid
+		 WHERE a.id = $1`, activityID).Scan(&threadKey, &owner)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			// Deleted or erased between the event and this pass: the models
