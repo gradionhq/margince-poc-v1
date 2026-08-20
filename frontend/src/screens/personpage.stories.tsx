@@ -1747,20 +1747,34 @@ export const ProviderNotConfigured: Story = {
 // not reach the section sees — the withheld half is the one a stubbed empty
 // state would silently misreport as "there is none".
 
+// The timeline and the meetings list both read the session, to mark the rows
+// the viewer wrote themselves. The deals tab does not, which is why only two of
+// the three route it: an unrouted /me reads as a malformed session, so every row
+// would be attributed to somebody else and the story would document that.
+function tabViewer(): void {
+  installFetchStub({ "GET /me": meRoute({ person: ["read"] }) });
+}
+
 export const TabTimeline: Story = {
-  render: () => (
-    <StoryProviders>
-      <PersonTimelineTab personId="p-1" view={populated} />
-    </StoryProviders>
-  ),
+  render: () => {
+    tabViewer();
+    return (
+      <StoryProviders>
+        <PersonTimelineTab personId="p-1" view={populated} />
+      </StoryProviders>
+    );
+  },
 };
 
 export const TabTimelineWithheld: Story = {
-  render: () => (
-    <StoryProviders>
-      <PersonTimelineTab personId="p-1" view={withheld} />
-    </StoryProviders>
-  ),
+  render: () => {
+    tabViewer();
+    return (
+      <StoryProviders>
+        <PersonTimelineTab personId="p-1" view={withheld} />
+      </StoryProviders>
+    );
+  },
 };
 
 export const TabDeals: Story = {
@@ -1780,17 +1794,23 @@ export const TabDealsWithheld: Story = {
 };
 
 export const TabMeetings: Story = {
-  render: () => (
-    <StoryProviders>
-      <PersonMeetingsTab view={populated} />
-    </StoryProviders>
-  ),
+  render: () => {
+    tabViewer();
+    return (
+      <StoryProviders>
+        <PersonMeetingsTab view={populated} />
+      </StoryProviders>
+    );
+  },
 };
 
 export const TabMeetingsWithheld: Story = {
-  render: () => (
-    <StoryProviders>
-      <PersonMeetingsTab view={withheld} />
-    </StoryProviders>
-  ),
+  render: () => {
+    tabViewer();
+    return (
+      <StoryProviders>
+        <PersonMeetingsTab view={withheld} />
+      </StoryProviders>
+    );
+  },
 };
