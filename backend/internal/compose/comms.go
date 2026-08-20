@@ -124,10 +124,14 @@ func (c commsAdapter) DraftAccountEmail(
 	// the AI task behind it. Deliberately left for its own change: the tool's
 	// value is that a first message can be drafted AT ALL, and the copy says
 	// plainly that the fallback is a short deterministic note.
+	// Topic stays EMPTY, and the intent is passed once. DeterministicEmailDraft
+	// renders Topic into a "following up on …" line AND appends the intent as
+	// its own paragraph (handlers_email.go), so naming both would print the
+	// caller's instruction twice in consecutive sections. There is no thread
+	// here for a topic to name anyway — the intent is the whole substance.
 	subject, body := activities.DeterministicEmailDraft(activities.DraftContext{
 		Band:     convstate.BandFresh,
 		Threaded: false,
-		Topic:    intent,
 	}, intent)
 	return subject, body, nil
 }

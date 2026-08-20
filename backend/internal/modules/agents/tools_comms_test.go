@@ -527,9 +527,12 @@ func TestAStagedSummaryNamesEveryArgumentItReleases(t *testing.T) {
 func TestDraftEmailComposesAFirstMessageFromLinksAlone(t *testing.T) {
 	comms := &recordingComms{}
 	org := ids.NewV7()
-	out, err := draftEmailTool{comms: comms}.Handle(context.Background(),
-		json.RawMessage(`{"links":[{"entity_type":"organization","entity_id":"`+org.String()+`"}],`+
-			`"intent":"thank them for the meeting and propose a small first package"}`))
+	// A provider that can SEE the organization: the first-message path reads
+	// every link before drafting, the same guard the send path applies.
+	out, err := draftEmailTool{comms: comms, p: oneRecord(datasource.EntityOrganization, org, `{}`, 1)}.
+		Handle(context.Background(),
+			json.RawMessage(`{"links":[{"entity_type":"organization","entity_id":"`+org.String()+`"}],`+
+				`"intent":"thank them for the meeting and propose a small first package"}`))
 	if err != nil {
 		t.Fatalf("drafting a first message answered %v, want a draft", err)
 	}
@@ -560,12 +563,51 @@ func TestDraftEmailRefusesNeitherShapeAndBothAtOnce(t *testing.T) {
 			`"links":[{"entity_type":"organization","entity_id":"` + ids.NewV7().String() + `"}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := draftEmailTool{comms: &recordingComms{}}.Handle(
+			_, err := draftEmailTool{comms: &recordingComms{}, p: unreadableProvider{}}.Handle(
 				context.Background(), json.RawMessage(args))
 			var bad *BadArgsError
 			if !errors.As(err, &bad) {
 				t.Fatalf("answered %v, want a BadArgsError naming what to send", err)
 			}
 		})
+	}
+}
+
+// A draft scope must not be a record-visibility oracle.
+//
+// The composer reads nothing — a first message is written from the caller's
+// own intent — so without this guard a passport holding only `draft` could
+// name ANY id, have it recorded as evidence, and learn from an idempotent
+// replay whether that id is readable. The send path has always read every
+// link (commandlinked.go); the draft path now does too.
+func TestDraftingAFirstMessageRefusesALinkTheCallerCannotRead(t *testing.T) {
+	comms := &recordingComms{}
+	_, err := draftEmailTool{comms: comms, p: unreadableProvider{}}.Handle(context.Background(),
+		json.RawMessage(`{"links":[{"entity_type":"organization","entity_id":"`+
+			ids.NewV7().String()+`"}],"intent":"hello"}`))
+	if err == nil {
+		t.Fatal("drafting against an unreadable record answered a draft, want a refusal")
+	}
+	// And the composer was never reached, so nothing was written about a
+	// record the caller cannot see.
+	if comms.accountDrafted != nil {
+		t.Errorf("the composer saw %+v, want it never reached", comms.accountDrafted)
+	}
+}
+
+// The cap the follow-on send enforces is enforced here too, so a draft cannot
+// succeed with a link set send_account_email would refuse.
+func TestDraftingAFirstMessageAppliesTheSendsLinkCap(t *testing.T) {
+	links := make([]string, 0, maxRecordLinks+1)
+	for range maxRecordLinks + 1 {
+		links = append(links, `{"entity_type":"organization","entity_id":"`+ids.NewV7().String()+`"}`)
+	}
+	_, err := draftEmailTool{comms: &recordingComms{}, p: unreadableProvider{}}.Handle(
+		context.Background(),
+		json.RawMessage(`{"links":[`+strings.Join(links, ",")+`],"intent":"hello"}`))
+	var bad *BadArgsError
+	if !errors.As(err, &bad) {
+		t.Fatalf("drafting with %d links answered %v, want the cap refusal the send applies",
+			maxRecordLinks+1, err)
 	}
 }

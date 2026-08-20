@@ -116,7 +116,7 @@ func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordPro
 		//craft:ignore panic-in-domain composition-time wiring assertion — fires only while cmd wiring runs, never on a request path
 		panic("crmagents: RegisterCommsTools needs a record provider — the confirm-first sends, the account-started send and book_meeting all read the records they stage against")
 	}
-	r.Register(draftEmailTool{comms: comms})
+	r.Register(draftEmailTool{comms: comms, p: p})
 	r.Register(sendEmailTool{comms: comms, p: p})
 	r.Register(sendAccountEmailTool{comms: comms, p: p})
 	r.Register(sendMessageTool{comms: comms, p: p})
@@ -126,11 +126,14 @@ func RegisterCommsTools(r *Registry, comms Comms, p datasource.SystemOfRecordPro
 
 // --- draft_email (🟢: proposes, never sends) ---
 
-type draftEmailTool struct{ comms Comms }
+type draftEmailTool struct {
+	comms Comms
+	p     datasource.SystemOfRecordProvider
+}
 
 func (t draftEmailTool) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "draft_email", Title: "Draft an email reply", Version: toolVersionV1,
+		Name: "draft_email", Title: "Draft an email", Version: toolVersionV1,
 		Description:   draftEmailCopy.render(),
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "draftEmail",
@@ -147,7 +150,12 @@ func (t draftEmailTool) Spec() mcp.ToolSpec {
 
 func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
-		ActivityID ids.UUID     `json:"activity_id"`
+		// A POINTER, so an omitted activity_id is distinguishable from an
+		// explicit all-zero one. Comparing against ids.UUID{} could not tell
+		// them apart, and the schema no longer requires the field, so a caller
+		// naming both an all-zero anchor and links would have slipped past the
+		// "not both" refusal below.
+		ActivityID *ids.UUID    `json:"activity_id"`
 		Links      []RecordLink `json:"links"`
 		Intent     string       `json:"intent"`
 	}
@@ -163,34 +171,51 @@ func (t draftEmailTool) Handle(ctx context.Context, in json.RawMessage) (json.Ra
 	// is the same ("draft an email"), and the tool listing rides in every
 	// prompt — a near-duplicate schema is paid for on every call by every
 	// caller, including the ones that never draft anything.
-	if args.ActivityID == (ids.UUID{}) {
+	if args.ActivityID == nil {
 		if len(args.Links) == 0 {
 			return nil, &BadArgsError{Cause: errors.New(
 				"give activity_id to reply to a thread, or links to open a new conversation")}
 		}
-		subject, body, err := t.comms.DraftAccountEmail(ctx, args.Links, args.Intent)
+		// The same cap and de-duplication send_account_email applies, so a
+		// draft cannot succeed with a link set the advertised follow-on send
+		// would refuse.
+		links, err := uniqueRecordLinks(args.Links)
+		if err != nil {
+			return nil, err
+		}
+		// EVERY link is read before anything else happens, exactly as the send
+		// path's guard does (commandlinked.go). The composer reads nothing —
+		// the draft comes from the caller's own intent — so it would otherwise
+		// be possible for a passport holding only `draft` to name any id at
+		// all and have it recorded as evidence, and to learn from an
+		// idempotent replay whether that id is readable. A draft scope must not
+		// be a record-visibility oracle.
+		if _, err := readStageableLinks(ctx, t.p, links); err != nil {
+			return nil, err
+		}
+		subject, body, err := t.comms.DraftAccountEmail(ctx, links, args.Intent)
 		if err != nil {
 			return nil, err
 		}
 		// No noteDerivedContent: this composes from the caller's own intent,
 		// not from captured thread content, so it carries no external tier.
-		for _, l := range args.Links {
+		for _, l := range links {
 			noteEvidence(ctx, datasource.EntityType(l.EntityType), l.EntityID)
 		}
-		return json.Marshal(DraftEmailResult{Subject: subject, Body: body, Links: args.Links})
+		return json.Marshal(DraftEmailResult{Subject: subject, Body: body, Links: links})
 	}
 	if len(args.Links) > 0 {
 		return nil, &BadArgsError{Cause: errors.New(
 			"give activity_id or links, not both: a reply is filed where its thread already is")}
 	}
-	subject, body, err := t.comms.DraftEmail(ctx, args.ActivityID, args.Intent)
+	subject, body, err := t.comms.DraftEmail(ctx, *args.ActivityID, args.Intent)
 	if err != nil {
 		return nil, err
 	}
 	// The draft is composed from a captured thread, so its text carries that
 	// thread's content and its tier.
 	noteDerivedContent(ctx)
-	noteEvidence(ctx, datasource.EntityActivity, args.ActivityID)
+	noteEvidence(ctx, datasource.EntityActivity, *args.ActivityID)
 	return json.Marshal(DraftEmailResult{
 		Subject: subject, Body: body, InReplyToActivityID: args.ActivityID,
 	})

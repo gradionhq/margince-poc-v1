@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 121.7 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31933 |
+| Approx. wire tokens | 31930 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -71,7 +71,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
 | [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 2.0 KB |
-| [`draft_email`](#draft_email) | Draft an email reply |  |  | 2.6 KB |
+| [`draft_email`](#draft_email) | Draft an email |  |  | 2.6 KB |
 | [`draft_follow_ups_for`](#draft_follow_ups_for) | Draft follow-ups |  |  | 2.7 KB |
 | [`enrich`](#enrich) | Enrich an organization from its website |  |  | 2.6 KB |
 | [`intro_path_to`](#intro_path_to) | Find a warm introduction path | yes |  | 2.3 KB |
@@ -2424,7 +2424,7 @@ Close out a lead that is not going anywhere, so it stops appearing as live work.
 
 ### draft_email
 
-**Draft an email reply**
+**Draft an email**
 
 Compose an email: a reply to a recorded thread (activity_id), or a FIRST message to a record (links). It writes the message and stops: nothing is sent. With no drafting model configured the text is a short deterministic note rather than a composed one. draft_follow_ups_for drafts across a set of slipping deals at once; send_email sends a reply, send_account_email a first message. Keep what comes back — subject, body, and the activity_id or links echoed with it; the send takes them. Re-writing the text in between means a person approves one message and another goes out. (Governance: runs immediately; requires passport scope "draft".)
 

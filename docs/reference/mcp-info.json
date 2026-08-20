@@ -10,9 +10,9 @@
   "totals": {
     "tools": 43,
     "resources": 8,
-    "tool_catalog_bytes": 124626,
+    "tool_catalog_bytes": 124614,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 31933,
+    "approx_wire_tokens_total": 31930,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
@@ -2073,7 +2073,7 @@
         "annotations": {
           "openWorldHint": false,
           "readOnlyHint": false,
-          "title": "Draft an email reply"
+          "title": "Draft an email"
         },
         "description": "Compose an email: a reply to a recorded thread (activity_id), or a FIRST message to a record (links). It writes the message and stops: nothing is sent. With no drafting model configured the text is a short deterministic note rather than a composed one. draft_follow_ups_for drafts across a set of slipping deals at once; send_email sends a reply, send_account_email a first message. Keep what comes back — subject, body, and the activity_id or links echoed with it; the send takes them. Re-writing the text in between means a person approves one message and another goes out. (Governance: runs immediately; requires passport scope \"draft\".)",
         "inputSchema": {
@@ -2243,7 +2243,7 @@
           ],
           "type": "object"
         },
-        "title": "Draft an email reply"
+        "title": "Draft an email"
       },
       {
         "annotations": {
