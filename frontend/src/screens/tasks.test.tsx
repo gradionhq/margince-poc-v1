@@ -297,7 +297,7 @@ describe("TasksScreen — the scheduled-send queue's front door", () => {
   // An always-present row reading "0 messages waiting to send" is a line every
   // rep learns to skip, and following it would land them on an empty page.
   it("offers nothing when nothing is waiting", async () => {
-    vi.stubGlobal("fetch", tasksBackend([openTask()], [], {}, []));
+    vi.stubGlobal("fetch", tasksBackend([openTask({})], [], {}, []));
     render(<TasksScreen />);
     await waitFor(() => expect(screen.getByText("Call Anna")).toBeTruthy());
     expect(

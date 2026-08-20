@@ -256,7 +256,10 @@ const reachableOnZalo = [
   { provider: "zalo_oa", reachable: true, since: "2026-07-01T08:00:00Z" },
 ];
 
-const chatMessage = {
+// `kind` is annotated rather than left to inference: the contract's activity
+// kind is a closed union, and a bare object literal widens it to `string`, which
+// the timeline's own type then refuses.
+const chatMessage: components["schemas"]["Activity"] = {
   id: "a-chat",
   kind: "message",
   channel_provider: "zalo_oa",
