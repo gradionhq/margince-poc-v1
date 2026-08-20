@@ -128,7 +128,9 @@ CREATE TABLE finance_invoice (
   credits_invoice_id uuid NULL,
   source_updated_at timestamptz NULL,
   -- The no-op detector (FIN-AC-9): an unchanged content hash writes no row, no
-  -- audit entry, no event and no version bump.
+  -- audit entry and no version bump. It says nothing about events, because the
+  -- mirror publishes none at all — it is audit-only until the contract carries
+  -- a finance event type, and there is no publication for a hash to suppress.
   sync_hash         text NOT NULL,
   source            text NOT NULL,
   captured_by       text NOT NULL,

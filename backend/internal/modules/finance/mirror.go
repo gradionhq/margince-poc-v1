@@ -27,7 +27,7 @@ import (
 // mirrorLedger writes one customer's invoices and payments.
 func (s *Store) mirrorLedger(
 	ctx context.Context, tx pgx.Tx, connectionID ids.UUID, mapped link,
-	ledger SourceLedger, out *SyncResult,
+	ledger SourceLedger, source string, out *SyncResult,
 ) error {
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
@@ -60,7 +60,7 @@ func (s *Store) mirrorLedger(
 		out.InvoicesSeen++
 		id, outcome, err := s.mirrorInvoice(ctx, tx, mirrorArgs{
 			connectionID: connectionID, organizationID: mapped.organizationID,
-			invoice: invoice, capturedBy: by, rowIDs: rowIDs,
+			invoice: invoice, capturedBy: by, rowIDs: rowIDs, source: source,
 			creditedAgainst: credited[invoice.ExternalID], baseCurrency: base,
 		})
 		if err != nil {
@@ -73,7 +73,7 @@ func (s *Store) mirrorLedger(
 		out.PaymentsSeen++
 		outcome, err := s.mirrorPayment(ctx, tx, paymentArgs{
 			connectionID: connectionID, organizationID: mapped.organizationID,
-			payment: payment, capturedBy: by, rowIDs: rowIDs,
+			payment: payment, capturedBy: by, rowIDs: rowIDs, source: source,
 		})
 		if err != nil {
 			return err
@@ -141,7 +141,10 @@ type mirrorArgs struct {
 	organizationID ids.OrganizationID
 	invoice        SourceInvoice
 	capturedBy     string
-	rowIDs         map[string]ids.UUID
+	// source is the provider's own name, stamped on every row it produced so a
+	// reader can tell whose ledger a figure came from.
+	source string
+	rowIDs map[string]ids.UUID
 	// creditedAgainst is what credit notes elsewhere in this ledger reduce
 	// THIS invoice by. Resolved over the whole ledger before any write, so a
 	// note that arrives before its target still lands.
@@ -183,13 +186,15 @@ func (s *Store) mirrorInvoice(
 	rateMissing := wantRate != nil && existing.fxRate == nil
 	if found && existing.hash == hash && !rateMissing {
 		// The source says exactly what it said last time. Rewriting the row
-		// would bump its version, write an audit row and emit an event for a
-		// change that did not happen.
+		// would bump its version and write an audit row for a change that did
+		// not happen — history minted four times a day, forever, by a sweep
+		// that read an unchanged ledger.
 		return existing.id, wroteNothing, nil
 	}
 	values := deriveValues(inv, s.now(), args.rowIDs, args.creditedAgainst, args.baseCurrency)
 	if found {
-		return existing.id, wroteUpdate, updateInvoice(ctx, tx, existing.id, args, values, hash)
+		return existing.id, wroteUpdate,
+			updateInvoice(ctx, tx, existing.id, args, values, hash, existing.image)
 	}
 	id := ids.NewV7()
 	return id, wroteInsert, insertInvoice(ctx, tx, id, args, values, hash)
@@ -203,6 +208,11 @@ type mirroredInvoice struct {
 	// fxRate is nil on a row written before the mirror recorded one, which is
 	// what lets the skip above tell "unchanged" from "unchanged but unusable".
 	fxRate *float64
+	// image is what the money looked like before this pass, read under the
+	// same lock as the decision to rewrite it. Read from the ROW rather than
+	// rebuilt from the source: a before image that was never in the table
+	// would make the audit trail describe a change that did not happen.
+	image invoiceImage
 }
 
 func findInvoice(
@@ -212,17 +222,32 @@ func findInvoice(
 	// racing on the same invoice would otherwise both see the old hash, both
 	// decide it changed, and both write. The row is held to commit.
 	err = tx.QueryRow(ctx, `
-		SELECT id, sync_hash, fx_rate_to_base FROM finance_invoice
+		SELECT id, sync_hash, fx_rate_to_base, number, currency,
+		       gross_minor, open_minor, credited_minor, status
+		  FROM finance_invoice
 		 WHERE connection_id = $1 AND external_id = $2
 		   FOR UPDATE`,
-		connectionID, externalID).Scan(&row.id, &row.hash, &row.fxRate)
+		connectionID, externalID).Scan(&row.id, &row.hash, &row.fxRate,
+		&row.image.Number, &row.image.Currency, &row.image.GrossMinor,
+		&row.image.OpenMinor, &row.image.CreditedMinor, &row.image.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return mirroredInvoice{}, false, nil
 	}
 	if err != nil {
 		return mirroredInvoice{}, false, fmt.Errorf("read the mirrored invoice: %w", err)
 	}
+	row.image.SyncHash = row.hash
 	return row, true, nil
+}
+
+// invoiceImageOf renders what this pass is about to write, in the shape
+// findInvoice read the previous one in.
+func invoiceImageOf(inv SourceInvoice, values invoiceValues, hash string) invoiceImage {
+	return invoiceImage{
+		Number: nullable(inv.Number), Currency: inv.Currency,
+		GrossMinor: inv.GrossMinor, OpenMinor: values.openMinor,
+		CreditedMinor: values.credited, Status: values.status, SyncHash: hash,
+	}
 }
 
 // invoiceValues are the columns derived from one source invoice — everything
@@ -293,11 +318,11 @@ func insertInvoice(
 		inv.Currency, inv.NetMinor, inv.TaxMinor, inv.GrossMinor, values.openMinor,
 		values.credited, inv.FullyPaidAt, values.disputedAt, values.voidAt,
 		values.creditsID, inv.UpdatedAt, hash, values.fxRate, values.fxDate,
-		OfflineProviderName, args.capturedBy)
+		args.source, args.capturedBy)
 	if err != nil {
 		return fmt.Errorf("mirror the invoice: %w", err)
 	}
-	return nil
+	return auditFinanceCreate(ctx, tx, entityInvoice, id, invoiceImageOf(inv, values, hash))
 }
 
 // updateInvoice rewrites EVERY hashed field, not only the derived ones.
@@ -312,13 +337,13 @@ func insertInvoice(
 // the live link no longer names.
 func updateInvoice(
 	ctx context.Context, tx pgx.Tx, id ids.UUID, args mirrorArgs,
-	values invoiceValues, hash string,
+	values invoiceValues, hash string, before invoiceImage,
 ) error {
 	// The row is already held by findInvoice's FOR UPDATE, which is where this
 	// read-modify-write begins. Taken again here so the guard travels with the
 	// statement it protects rather than depending on a caller three frames up
 	// remembering to take it.
-	if _, err := storekit.LockRow(ctx, tx, "finance_invoice", id, storekit.IncludeArchived); err != nil {
+	if _, err := storekit.LockRow(ctx, tx, entityInvoice, id, storekit.IncludeArchived); err != nil {
 		return err
 	}
 	inv := args.invoice
@@ -339,7 +364,7 @@ func updateInvoice(
 	if err != nil {
 		return fmt.Errorf("update the mirrored invoice: %w", err)
 	}
-	return nil
+	return auditFinanceUpdate(ctx, tx, entityInvoice, id, before, invoiceImageOf(inv, values, hash))
 }
 
 // applyCredits folds every credit note in this ledger onto the invoice it

@@ -148,6 +148,29 @@ var auditOnlyWrites = gatekit.Waive(map[string]string{
 	"internal/compose/briefs:markItem":                      "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/compose/briefs:resurfaceExpiredSnoozes":       "the brief read model is ratified audit-only \u2014 the closed catalog (events.md \u00a75) defines no brief.* type and the closed-verb law forbids inventing one build-side",
 	"internal/modules/people:recordDedupeCandidate":         "a dedupe candidate is a QUESTION the system is asking about two records, not something that happened to either \u2014 the closed catalog (events.md \u00a75) defines no dedupe.* type, nothing downstream acts on a proposal, and an outbox row nobody consumes would be a kind invented to satisfy the rule rather than a reader. Audited because who proposed a merge, when, and on what evidence belongs on the record's own history rather than only in operator telemetry",
+	// The finance mirror's two ledger writers, and one rationale covering both:
+	// they are the single spelling of `create` and `update` for every row the
+	// accounting sweep writes (invoice, payment, directory entry, connection
+	// state), so waiving them waives the mirror rather than a call site.
+	//
+	// The event catalog is CLOSED: an event type exists because the contract
+	// declares one, and a build may not mint a type to satisfy this rule. The
+	// catalog carries no finance verb at all, and neither adjacent type fits.
+	// `mirror.*` is the overlay write-back stream, so staging an accounting fact
+	// under it would route the envelope to subscribers watching for something
+	// else. `organization.updated` would tell every subscriber that a company
+	// record changed when none did — the same argument that already makes
+	// people:WriteProviderClaims audit-only. A wrong envelope is acted on; an
+	// absent one is not.
+	//
+	// The audit row is the half that could not wait, because it cannot be
+	// written afterwards: an invoice mirrored without one stays permanently
+	// unaccounted for, and the erasure and retention reasoning that reads
+	// audit_log is blind to it. Which finance types the contract should carry is
+	// a product decision, tracked as its own issue; ratifying them removes these
+	// two entries and nothing else.
+	"internal/modules/finance:auditFinanceCreate": "the mirror's `create` writer \u2014 see the note above these two entries: the closed event catalog carries no finance type, and the two adjacent types would each misroute an accounting fact. Audit-only until the contract ratifies one",
+	"internal/modules/finance:auditFinanceUpdate": "the mirror's `update` writer, on exactly the same ground as auditFinanceCreate above it",
 	// WriteFiltered no longer belongs here: the bulk export is a non-entity
 	// operational event, so it moved from storekit.Audit to storekit.LogSystem
 	// (system_log, 0074) \u2014 it writes no audit_log row at all now.
