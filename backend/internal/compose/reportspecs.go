@@ -95,7 +95,10 @@ var prebuiltReports = map[string]reportSpec{
 			fieldStalled:        deals.StalledSQL("t"),
 			fieldCurrency:       colCurrency,
 		},
-		defaultBy: moneyDefaultBy(fieldStageID),
+		// partner_org_id points at an organization, which a normal deal read
+		// masks per row when the caller cannot open it.
+		referenceScopes: map[string]string{colPartnerOrgID: tableOrganization},
+		defaultBy:       moneyDefaultBy(fieldStageID),
 		defaultAggs: []reportAggregate{
 			{Fn: aggFnCount, As: aliasDeals},
 			{Fn: aggFnSum, Field: fieldAmountMinor, As: "amount_minor_sum"},
@@ -117,7 +120,7 @@ var prebuiltReports = map[string]reportSpec{
 	},
 	// win-loss (REPORT-KEY-8) is assembled by winLossSpec in reportperiod.go
 	// rather than spelled inline: it carries the period-bucket vocabulary with
-	// it, and this file is at the package's file-length cap.
+	// it, and that vocabulary belongs beside the buckets it names.
 	"win-loss": winLossSpec(),
 	// The forecast (B-E09.10) is a parameterized report over this same
 	// engine, not a separate subsystem. Weighted value follows

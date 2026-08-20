@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -212,6 +213,52 @@ func TestDealsByStageGroupsRevenueByPartner(t *testing.T) {
 	}
 	if got := byPartner[kestrel.String()]; got != 70000 {
 		t.Errorf("Kestrel total = %d, want 70000", got)
+	}
+}
+
+// Grouping by partner must not report a partner the caller could not open.
+//
+// A normal deal read masks partner_org_id per row when the referenced
+// organization is out of reach (deals/fieldmask.go). The report engine gates
+// only the deal entity, so without the reference-scope clause an aggregate
+// would hand back exactly the id the same caller's own read withholds — and an
+// aggregate has no per-row place to write "withheld".
+func TestGroupingByPartnerDoesNotNameAPartnerTheCallerCannotOpen(t *testing.T) {
+	e := setupForecast(t)
+	// Capture-private to Rep3: readable to its owner, invisible to every other
+	// seat, exactly as a connector-captured company can be.
+	hidden := e.seedID(t, `INSERT INTO organization (id, owner_id, display_name, visibility, source, captured_by)
+		VALUES ($1, $2, 'Hidden Partners', 'owner', 'manual', 'human:x')`, e.Rep3)
+	open := e.seedID(t, `INSERT INTO organization (id, display_name, source, captured_by)
+		VALUES ($1, 'Open Partners', 'manual', 'human:x')`)
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, partner_org_id, partner_attribution, amount_minor, currency, source, captured_by)
+		VALUES ($1, 'From the hidden partner', $2, $3, $4, 'sourced', 90000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], hidden)
+	e.seedID(t, `INSERT INTO deal (id, name, pipeline_id, stage_id, partner_org_id, partner_attribution, amount_minor, currency, source, captured_by)
+		VALUES ($1, 'From the open partner', $2, $3, $4, 'sourced', 10000, 'EUR', 'manual', 'human:x')`, e.pipeline, e.stages[60], open)
+
+	// A reader of every deal who holds no organization grant at all.
+	reader := e.dealReadCtx(ids.NewV7(), nil, principal.RowScopeAll)
+	result := e.runReport(reader, t, "deals-by-stage",
+		`{"group_by":["partner_org_id"],"aggregates":[{"fn":"count","as":"deals"},{"fn":"sum","field":"amount_minor","as":"amount_minor_sum"}],"filters":{"partner_sourced":true}}`)
+
+	for _, row := range result.Rows {
+		if id, ok := row["partner_org_id"].(string); ok && id == hidden.String() {
+			t.Errorf("the report named partner %s, which this caller's own deal read masks", id)
+		}
+	}
+	// The partner they CAN open is still reported: the clause narrows, it does
+	// not blank the whole dimension.
+	var sawOpen bool
+	for _, row := range result.Rows {
+		if id, ok := row["partner_org_id"].(string); ok && id == open.String() {
+			sawOpen = true
+			if got := wireInt(t, row, "amount_minor_sum"); got != 10000 {
+				t.Errorf("open partner total = %d, want 10000", got)
+			}
+		}
+	}
+	if !sawOpen {
+		t.Error("the readable partner vanished too; the clause excluded more than it should")
 	}
 }
 

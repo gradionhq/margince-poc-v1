@@ -147,6 +147,18 @@ type reportSpec struct {
 	filters      map[string]string
 	defaultBy    []string
 	defaultAggs  []reportAggregate
+	// referenceScopes names the columns that point at a ROW-SCOPED record of
+	// another kind, mapped to that record's table. The engine's own gate covers
+	// spec.entity — the deals of this report — and says nothing about the
+	// records those deals point AT, which a normal read masks per row
+	// (deals/fieldmask.go). Without this, grouping by such a column reports an
+	// id the same caller's ordinary read would have withheld.
+	//
+	// The clause it renders EXCLUDES the row rather than blanking the id: an
+	// aggregate has no per-row place to put "withheld", and a total that
+	// silently included those deals under a null key would still disclose that
+	// somebody's partner brought them.
+	referenceScopes map[string]string
 }
 
 // forecastCategoryExpr is the forecast's effective-category dimension
