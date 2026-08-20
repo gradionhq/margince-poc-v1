@@ -15,6 +15,20 @@
   border-radius: var(--r-full);
   transition: width 0.5s var(--ease-out);
 }
+/* dense: the bar as a label's own bar rather than a block of its own. Thinner,
+ * and with no vertical interval at all — the interval above belongs to a bar
+ * standing alone in a column, and a row that pairs a label with its reading
+ * pays for its own spacing.
+ *
+ * The size lives HERE because two screen sheets had already spelled it: the
+ * company rail's health dimensions and the growth-fit sub-scores both reached
+ * into `.meterbar` for exactly this height and exactly this margin. A geometry
+ * with two authors drifts the first time either moves. */
+.meterbar-dense {
+  height: 6px;
+  margin: 0;
+}
+
 /* A reading whose low end is the bad one carries its own colour, so the bar
  * agrees with the band badge the caller draws beside it. Flat, not a
  * gradient: the second colour of a gradient reads as a second meaning. */

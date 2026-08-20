@@ -19,8 +19,9 @@
 }
 
 /* The quota selector's rows are the panel's own PanelRows — the hairline, the
- * padding and the hover come from there. What is left here is the press target
- * that fills a row, and the fill that says which row is selected. */
+ * padding and, because the row IS one press target, the hover come from there.
+ * What is left here is the press target that fills a row, and the fill that
+ * says which row is selected. */
 .quota-row-press {
   display: block;
   width: 100%;
@@ -38,7 +39,8 @@
 }
 /* Tinted on the ROW, so the fill reaches the panel's own edges instead of
  * stopping at the press target inside the row's padding. The hover spelling is
- * what keeps .panel-row:hover from repainting the selection on the way past. */
+ * what keeps .panel-row-interactive:hover from repainting the selection on the
+ * way past. */
 .quota-row-on,
 .quota-row-on:hover {
   background: var(--accentLight);

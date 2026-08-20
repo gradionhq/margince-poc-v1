@@ -211,7 +211,8 @@ export const en = {
   "share.unknownRecord": "This isn't a record that can be shared.",
   "share.grantAccess": "Grant access",
   "share.subject": "Person or team",
-  "share.alreadyGranted": "already has a grant",
+  "share.holdsRead": "Has read",
+  "share.holdsWrite": "Has write",
   "share.kindPerson": "Person",
   "share.kindTeam": "Team",
   "share.access": "Access level",
@@ -234,6 +235,15 @@ export const en = {
     "Access lasts until you revoke it — it will not end on its own.",
   "share.reason": "Reason",
   "share.grant": "Grant access",
+  "share.update": "Update access",
+  "share.unchanged":
+    "Nothing changed. {name} already had {access} access to this record.",
+  "share.downgradeTitle": "Reduce access?",
+  "share.downgradeBody":
+    "{name} has {from} access to this record. Continuing leaves them with {to} access only. Either direction is recorded in the audit trail.",
+  "share.downgradeConfirm": "Reduce to {to}",
+  "share.seatCeiling":
+    "This seat is read-only, so it cannot hold write access to a record. Raise the seat first, or grant read.",
   "share.whoHasAccess": "Who has access",
   "share.grantedBy": "granted by",
   "share.revoke": "Revoke",
@@ -1417,21 +1427,28 @@ export const en = {
   "lead.signalsTitle": "What you know about this lead",
   "lead.signalUnset": "Not entered",
   "lead.signalClear": "Withdraw",
-  "lead.signalFactor": "Factor",
-  "lead.signalBand": "Value",
   "lead.signalBandPick": "Pick a value",
-  "lead.signalKind": "Evidence quality",
+  "lead.signalMore": "More…",
+  "lead.signalProvenanceHint":
+    "Untouched, an answer is stored as an estimate with no confidence claimed.",
   "lead.signalEvidenceQuality": "How reliable is this?",
   "lead.signalConfidence": "Confidence",
+  "lead.signalConfidenceUnstated": "Not stated",
   "lead.signalConfidenceValue": "{value}% confidence",
   "lead.signalRecordedAt": "Recorded {at}",
   "lead.signalSuperseded": "Previously {value}; replaced by {source}",
   "lead.signalAutomaticSource": "an automatic source",
-  "lead.signalReason": "Why (recorded with the score)",
+  "lead.signalReason": "How do you know?",
+  "lead.signalReasonHint":
+    "Optional. Whatever you write is stored with the score.",
+  "lead.signalReasonUnstated": "No source given. Entered by hand.",
   "lead.signalSave": "Add to the score",
   "lead.signal.web_traffic": "Web traffic",
   "lead.signal.employees": "Employees",
   "lead.signal.budget_hint": "Budget",
+  "lead.signal.ask.web_traffic": "Website traffic?",
+  "lead.signal.ask.employees": "Company size?",
+  "lead.signal.ask.budget_hint": "Budget?",
   "lead.signal.fact": "Verified",
   "lead.signal.assumption": "Estimated",
   "lead.signal.judgement": "My assessment",
@@ -2095,6 +2112,14 @@ export const en = {
   "compose.sendConfirmTitle": "Send this email?",
   "compose.sendBody":
     "You are sending this email now. This is an outbound, irreversible action.",
+  // A moment picked in the field above turns this dialog into a different
+  // promise, so it says a different thing. The three sentences it replaces all
+  // claim the send is happening NOW and is irreversible; a scheduled message is
+  // neither, and it can be moved or withdrawn until it goes.
+  "compose.schedule": "Schedule it",
+  "compose.scheduleConfirmTitle": "Schedule this email?",
+  "compose.scheduleBody":
+    "This does not go out now. It waits for the moment you picked, and the consent and mailbox checks run again then. Until it goes you can move it or take it back from Scheduled messages.",
   "compose.sendMessageConfirmTitle": "Send this message?",
   "compose.sendMessageBody":
     "You are sending this message now. This is an outbound, irreversible action.",
@@ -2140,6 +2165,13 @@ export const en = {
   "tasks.reminder": "Reminder",
   "tasks.setReminder": "Set reminder",
   "tasks.clearReminder": "Clear reminder",
+  // The scheduled-send queue's front door, offered here because a message the
+  // rep told the product to send later is work of theirs that has not happened
+  // yet. "Waiting to send" covers a message that is queued AND one a gate
+  // stopped: both are waiting, and only the page can say which.
+  "tasks.scheduledWaiting.one": "One message is waiting to send.",
+  "tasks.scheduledWaiting.other": "{count} messages are waiting to send.",
+  "tasks.scheduledOpen": "Scheduled messages",
 
   "reports.sub": "deals by stage — unweighted next to weighted",
   "reports.currency": "Currency",
@@ -5111,6 +5143,18 @@ export const en = {
   "person.research.fieldsEmpty": "No enriched field carries evidence yet.",
   "person.research.capturedBy": "Captured by",
   "person.action.email": "Email",
+  // The lead verb when the record leaves the transport open: either the
+  // composer will ask which way to send, or there is no way to send at all.
+  "person.action.write": "Write",
+  // The lead verb when a chat channel is the ONLY way to reach them. The
+  // provider is named by the transport directory, so an extension unit this
+  // build has never heard of still reads as itself.
+  "person.action.messageOn": "Message on {transport}",
+  // Why the lead verb is refused, in two sentences that are never merged: no
+  // way to reach them, and consent that says not to.
+  "person.action.noTransport": "No address, and no conversation to reply to.",
+  "person.action.consentRefused":
+    "No purpose currently permits writing to them.",
   "person.action.call": "Call",
   "person.action.meetings": "See meetings",
   "person.action.addTask": "Add task",
@@ -5495,6 +5539,58 @@ export const en = {
     "The app in your browser and the server behind it come from different releases, so nothing here works reliably. Reload to get the current version. If this message stays, tell whoever operates this installation: every part of it has to run the same release.",
   "release.skewVersions": "app {app} · server {server}",
   "release.skewReload": "Reload",
+
+  // The queue behind "send later". Every sentence here is addressed to ONE
+  // person: the list is the sender's own, so there is no "a teammate scheduled
+  // this" reading to write for.
+  //
+  // The verb is "withdraw", not "delete" or "cancel". Nothing was transmitted
+  // and nothing reaches the timeline, so there is no send to cancel and no
+  // record to delete — the rep is taking a message back before it goes, and
+  // "withdraw" is the only one of the three that says so.
+  "nav.scheduled": "Scheduled messages",
+  "sched.sub":
+    "Messages you have written that have not gone out yet. Only you can see them.",
+  "sched.empty": "You have not scheduled a message yet.",
+  "sched.group.held": "Stopped, waiting on you",
+  "sched.group.heldEmpty": "Nothing has been stopped.",
+  "sched.group.waiting": "Waiting to send",
+  "sched.group.waitingEmpty": "Nothing is waiting to send.",
+  "sched.group.closed": "No longer waiting",
+  "sched.group.closedEmpty": "Nothing has gone out or been withdrawn yet.",
+  "sched.status.scheduled": "Waiting",
+  // "Released" is the wire's word for the step between waiting and sent: the
+  // activity and the delivery exist and the provider has not answered yet. To a
+  // rep that is a message on its way out, and there is nothing left to do to it.
+  "sched.status.released": "Going out",
+  "sched.status.sent": "Sent",
+  "sched.status.cancelled": "Withdrawn",
+  "sched.status.held": "Stopped",
+  "sched.held.consentWithdrawn":
+    "A recipient withdrew their consent after you scheduled this. It will not send until you write to them under a purpose they have agreed to.",
+  "sched.held.senderInactive":
+    "Your seat or your mailbox changed after you scheduled this, so it cannot be sent as you.",
+  "sched.held.missedWindow":
+    "Its moment passed while nothing was running, and it is now too late to be the message you wrote. Move it or withdraw it.",
+  "sched.held.timerExhausted":
+    "The job that wakes this message ran out of attempts. Move it to a new moment to try again.",
+  "sched.held.sendRefused":
+    "A check refused this message when it came due. Nothing was sent.",
+  "sched.inZone": "in {zone}",
+  "sched.recipientsUnknown": "No recipient on this message",
+  "sched.recipientsMore": "{first} and {count} more",
+  "sched.move": "Change moment",
+  "sched.moveTo": "New moment for “{subject}”",
+  "sched.moveSave": "Move it",
+  "sched.moveCancel": "Leave it",
+  "sched.withdraw": "Withdraw",
+  "sched.withdrawTitle": "Withdraw this message?",
+  "sched.withdrawBody":
+    "“{subject}” will not be sent, and nothing will reach the timeline. Writing it again means composing it from scratch.",
+  "sched.withdrawConfirm": "Withdraw it",
+  "sched.skew":
+    "This list is out of date: the message you acted on had already gone, been withdrawn, or been moved somewhere else. Read the list again.",
+  "sched.reload": "Read it again",
 } as const;
 
 export type MessageKey = keyof typeof en;

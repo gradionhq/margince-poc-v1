@@ -28,15 +28,32 @@ export function useChannelProviders() {
 
 // useProviderLabel returns a function that names a transport for a human.
 //
-// It falls back to the RAW PROVIDER ID rather than to a placeholder, and that
-// is the deliberate part: a provider this build has never heard of is exactly
-// what an extension unit creates, and "telegram" read by a human beats "Unknown"
-// or an empty cell. The directory is the resolver, not a gate — a label it
-// cannot supply must not make the row unreadable.
+// It resolves against BOTH halves of the directory, because a row's connector is
+// not always a transport id. A record an extension unit landed on no channel
+// carries the natural key's source system instead — `ext:<unit>:<system>` — and
+// the same unit's channel messages carry the provider. Resolving only the first
+// half is what put "Dispact" and `ext:dispact-connector:dispact` side by side in
+// one list: one transport under two spellings, one of them provenance nobody
+// outside this repository can parse.
+//
+// The fallback is still the RAW ID rather than a placeholder, and that part is
+// deliberate: a provider this build has never heard of is exactly what a unit
+// creates, and "telegram" read by a human beats "Unknown" or an empty cell. The
+// directory is the resolver, not a gate — a label it cannot supply must not make
+// the row unreadable.
 export function useProviderLabel(): (provider: string) => string {
   const directory = useChannelProviders();
-  const byProvider = new Map(
-    (directory.data?.data ?? []).map((entry) => [entry.provider, entry.label]),
-  );
-  return (provider: string) => byProvider.get(provider) ?? provider;
+  const named = new Map<string, string>();
+  for (const entry of directory.data?.data ?? []) {
+    named.set(entry.provider, entry.label);
+  }
+  // Second, so a transport's own label wins any collision. The two id spaces
+  // cannot overlap today — a provider id admits no `:` — and letting the
+  // provider win anyway means a future widening changes nothing here.
+  for (const entry of directory.data?.capture_sources ?? []) {
+    if (!named.has(entry.source)) {
+      named.set(entry.source, entry.label);
+    }
+  }
+  return (provider: string) => named.get(provider) ?? provider;
 }

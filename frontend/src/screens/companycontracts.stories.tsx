@@ -50,6 +50,22 @@ const FULL_GRANTS = {
   contract: ["read", "create", "update", "delete"],
 } as const;
 
+// One filed document, named by its file — which is what the row shows, and the
+// only field the chip needs beyond its id and its size.
+function paper(id: string, filename: string) {
+  return {
+    id,
+    filename,
+    entity_type: "organization",
+    entity_id: "o-1",
+    contract_id: "c-1",
+    byte_size: 184_320,
+    source: "upload",
+    captured_by: "human:u-1",
+    created_at: "2026-10-21T09:00:00Z",
+  };
+}
+
 function routes(data: Contract[]) {
   installFetchStub({
     "GET /organizations/o-1/contracts": () => jsonResponse({ data, page }),
@@ -61,6 +77,44 @@ function routes(data: Contract[]) {
 export const Populated: Story = {
   render: () => {
     routes(contracts);
+    return (
+      <StoryProviders>
+        <div style={{ maxWidth: 720 }}>
+          <CompanyContractsCard orgId="o-1" />
+        </div>
+      </StoryProviders>
+    );
+  },
+};
+
+/** More filed paper than one page of the documents endpoint holds. The chips
+ * the read reached are still offered, and what did not fit is counted under
+ * them: a row that showed the first page alone would read as the whole file. */
+export const PaperBeyondOnePage: Story = {
+  render: () => {
+    // The route map keys on the path and not the query, so the pages come out
+    // in the order the row asks for them.
+    let asked = 0;
+    installFetchStub({
+      "GET /organizations/o-1/contracts": () =>
+        jsonResponse({ data: contracts, page }),
+      "GET /me": meRoute({ ...FULL_GRANTS }),
+      "GET /organizations/o-1/documents": () => {
+        asked += 1;
+        return asked === 1
+          ? jsonResponse({
+              data: [
+                paper("a-1", "SM-2026-014.pdf"),
+                paper("a-2", "SM-2026-014-nachtrag-1.pdf"),
+              ],
+              page: { has_more: true, next_cursor: "page-2" },
+            })
+          : jsonResponse({
+              data: [paper("a-3", "x.pdf"), paper("a-4", "y.pdf")],
+              page: { has_more: false, next_cursor: null },
+            });
+      },
+    });
     return (
       <StoryProviders>
         <div style={{ maxWidth: 720 }}>

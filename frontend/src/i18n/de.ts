@@ -200,7 +200,8 @@ export const de = {
   "share.unknownRecord": "Dieser Datensatztyp kann nicht geteilt werden.",
   "share.grantAccess": "Zugriff gewähren",
   "share.subject": "Person oder Team",
-  "share.alreadyGranted": "hat bereits eine Freigabe",
+  "share.holdsRead": "Hat Lesezugriff",
+  "share.holdsWrite": "Hat Schreibzugriff",
   "share.kindPerson": "Person",
   "share.kindTeam": "Team",
   "share.access": "Zugriffsstufe",
@@ -223,6 +224,15 @@ export const de = {
     "Der Zugriff bleibt bestehen, bis Sie ihn widerrufen — er endet nicht von selbst.",
   "share.reason": "Grund",
   "share.grant": "Zugriff gewähren",
+  "share.update": "Zugriff ändern",
+  "share.unchanged":
+    "Nichts geändert. {name} hatte bereits {access}-Zugriff auf diesen Datensatz.",
+  "share.downgradeTitle": "Zugriff reduzieren?",
+  "share.downgradeBody":
+    "{name} hat {from}-Zugriff auf diesen Datensatz. Wenn Sie fortfahren, bleibt nur noch {to}-Zugriff. Beide Richtungen werden im Audit-Protokoll festgehalten.",
+  "share.downgradeConfirm": "Auf {to} reduzieren",
+  "share.seatCeiling":
+    "Dieser Sitzplatz ist nur lesend und kann daher keinen Schreibzugriff auf einen Datensatz erhalten. Erhöhen Sie zuerst die Sitzplatzstufe, oder gewähren Sie Lesezugriff.",
   "share.whoHasAccess": "Wer hat Zugriff",
   "share.grantedBy": "gewährt von",
   "share.revoke": "Widerrufen",
@@ -1408,21 +1418,28 @@ export const de = {
   "lead.signalsTitle": "Was Sie über diesen Lead wissen",
   "lead.signalUnset": "Nicht erfasst",
   "lead.signalClear": "Zurückziehen",
-  "lead.signalFactor": "Faktor",
-  "lead.signalBand": "Wert",
   "lead.signalBandPick": "Wert wählen",
-  "lead.signalKind": "Qualität des Nachweises",
+  "lead.signalMore": "Mehr …",
+  "lead.signalProvenanceHint":
+    "Unverändert wird eine Antwort als Schätzung ohne Konfidenzangabe festgehalten.",
   "lead.signalEvidenceQuality": "Wie verlässlich ist das?",
   "lead.signalConfidence": "Konfidenz",
+  "lead.signalConfidenceUnstated": "Keine Angabe",
   "lead.signalConfidenceValue": "{value} % Konfidenz",
   "lead.signalRecordedAt": "Erfasst am {at}",
   "lead.signalSuperseded": "Zuvor {value}; ersetzt durch {source}",
   "lead.signalAutomaticSource": "eine automatische Quelle",
-  "lead.signalReason": "Warum (wird mit dem Score festgehalten)",
+  "lead.signalReason": "Woher wissen Sie das?",
+  "lead.signalReasonHint":
+    "Optional. Was Sie hier schreiben, wird mit dem Score festgehalten.",
+  "lead.signalReasonUnstated": "Keine Quelle angegeben. Manuell erfasst.",
   "lead.signalSave": "In den Score aufnehmen",
   "lead.signal.web_traffic": "Web-Traffic",
   "lead.signal.employees": "Mitarbeiter",
   "lead.signal.budget_hint": "Budget",
+  "lead.signal.ask.web_traffic": "Website-Traffic?",
+  "lead.signal.ask.employees": "Unternehmensgröße?",
+  "lead.signal.ask.budget_hint": "Budget?",
   "lead.signal.fact": "Bestätigt",
   "lead.signal.assumption": "Geschätzt",
   "lead.signal.judgement": "Meine Einschätzung",
@@ -2101,6 +2118,10 @@ export const de = {
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
     "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.schedule": "Einplanen",
+  "compose.scheduleConfirmTitle": "Diese E-Mail einplanen?",
+  "compose.scheduleBody":
+    "Sie geht nicht jetzt hinaus. Sie wartet auf den gewählten Zeitpunkt, und die Einwilligungs- und Postfachprüfungen laufen dann erneut. Bis sie hinausgeht, können Sie sie unter „Geplante Nachrichten“ verschieben oder zurückziehen.",
   "compose.sendMessageConfirmTitle": "Diese Nachricht senden?",
   "compose.sendMessageBody":
     "Sie senden diese Nachricht jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
@@ -2147,6 +2168,9 @@ export const de = {
   "tasks.reminder": "Erinnerung",
   "tasks.setReminder": "Erinnerung setzen",
   "tasks.clearReminder": "Erinnerung entfernen",
+  "tasks.scheduledWaiting.one": "Eine Nachricht wartet auf den Versand.",
+  "tasks.scheduledWaiting.other": "{count} Nachrichten warten auf den Versand.",
+  "tasks.scheduledOpen": "Geplante Nachrichten",
 
   "reports.sub": "Deals je Phase — ungewichtet neben gewichtet",
   "reports.currency": "Währung",
@@ -5110,6 +5134,12 @@ export const de = {
     "Noch trägt kein angereichertes Feld einen Beleg.",
   "person.research.capturedBy": "Erfasst von",
   "person.action.email": "E-Mail",
+  "person.action.write": "Schreiben",
+  "person.action.messageOn": "Über {transport} schreiben",
+  "person.action.noTransport":
+    "Keine Adresse und keine Unterhaltung, auf die sich antworten ließe.",
+  "person.action.consentRefused":
+    "Derzeit erlaubt kein Zweck, ihnen zu schreiben.",
   "person.action.call": "Anrufen",
   "person.action.meetings": "Termine ansehen",
   "person.action.addTask": "Aufgabe",
@@ -5487,4 +5517,50 @@ export const de = {
     "Die App in Ihrem Browser und der Server dahinter stammen aus unterschiedlichen Releases, deshalb funktioniert hier nichts verlässlich. Laden Sie neu, um die aktuelle Version zu holen. Bleibt diese Meldung, sagen Sie es der Person, die diese Installation betreibt: Jeder Teil davon muss dasselbe Release ausführen.",
   "release.skewVersions": "App {app} · Server {server}",
   "release.skewReload": "Neu laden",
+
+  // Die Warteschlange hinter „später senden“. „Zurückziehen“ statt „löschen“
+  // oder „abbrechen“: es wurde nichts übertragen und nichts erscheint in der
+  // Chronik, also gibt es keinen Versand abzubrechen und keinen Datensatz zu
+  // löschen — die Nachricht wird zurückgenommen, bevor sie geht.
+  "nav.scheduled": "Geplante Nachrichten",
+  "sched.sub":
+    "Nachrichten, die Sie geschrieben haben und die noch nicht hinausgegangen sind. Nur Sie sehen sie.",
+  "sched.empty": "Sie haben noch keine Nachricht geplant.",
+  "sched.group.held": "Angehalten, wartet auf Sie",
+  "sched.group.heldEmpty": "Nichts wurde angehalten.",
+  "sched.group.waiting": "Wartet auf den Versand",
+  "sched.group.waitingEmpty": "Nichts wartet auf den Versand.",
+  "sched.group.closed": "Wartet nicht mehr",
+  "sched.group.closedEmpty":
+    "Bisher ist nichts hinausgegangen oder zurückgezogen worden.",
+  "sched.status.scheduled": "Wartet",
+  "sched.status.released": "Geht hinaus",
+  "sched.status.sent": "Gesendet",
+  "sched.status.cancelled": "Zurückgezogen",
+  "sched.status.held": "Angehalten",
+  "sched.held.consentWithdrawn":
+    "Ein Empfänger hat seine Einwilligung zurückgezogen, nachdem Sie diese Nachricht geplant haben. Sie geht erst hinaus, wenn Sie ihm unter einem Zweck schreiben, dem er zugestimmt hat.",
+  "sched.held.senderInactive":
+    "Ihr Sitz oder Ihr Postfach hat sich nach der Planung geändert, deshalb kann die Nachricht nicht in Ihrem Namen gesendet werden.",
+  "sched.held.missedWindow":
+    "Der Zeitpunkt verstrich, während nichts lief, und ist jetzt zu spät für die Nachricht, die Sie geschrieben haben. Verschieben Sie sie oder ziehen Sie sie zurück.",
+  "sched.held.timerExhausted":
+    "Dem Auftrag, der diese Nachricht weckt, sind die Versuche ausgegangen. Verschieben Sie sie auf einen neuen Zeitpunkt, um es erneut zu versuchen.",
+  "sched.held.sendRefused":
+    "Eine Prüfung hat diese Nachricht bei Fälligkeit abgelehnt. Es wurde nichts gesendet.",
+  "sched.inZone": "in der Zone {zone}",
+  "sched.recipientsUnknown": "Kein Empfänger in dieser Nachricht",
+  "sched.recipientsMore": "{first} und {count} weitere",
+  "sched.move": "Zeitpunkt ändern",
+  "sched.moveTo": "Neuer Zeitpunkt für „{subject}“",
+  "sched.moveSave": "Verschieben",
+  "sched.moveCancel": "Belassen",
+  "sched.withdraw": "Zurückziehen",
+  "sched.withdrawTitle": "Diese Nachricht zurückziehen?",
+  "sched.withdrawBody":
+    "„{subject}“ wird nicht gesendet, und nichts erscheint in der Chronik. Sie erneut zu schreiben heißt, sie von vorn zu verfassen.",
+  "sched.withdrawConfirm": "Zurückziehen",
+  "sched.skew":
+    "Diese Liste ist nicht mehr aktuell: die Nachricht, auf die Sie eingewirkt haben, war schon hinausgegangen, zurückgezogen oder auf einen anderen Zeitpunkt verschoben. Lesen Sie die Liste erneut.",
+  "sched.reload": "Erneut lesen",
 } as const satisfies Record<MessageKey, string>;

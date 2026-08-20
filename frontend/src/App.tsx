@@ -187,6 +187,13 @@ const ReportsScreen = lazy(
     import("./screens/reports").then((m) => ({ default: m.ReportsScreen })),
   ),
 );
+const ScheduledSendsScreen = lazy(
+  routed(() =>
+    import("./screens/scheduledsends").then((m) => ({
+      default: m.ScheduledSendsScreen,
+    })),
+  ),
+);
 const SearchScreen = lazy(
   routed(() =>
     import("./screens/search").then((m) => ({ default: m.SearchScreen })),
@@ -401,6 +408,15 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     // unknown segment falls back to contacts inside the screen rather than
     // rendering a page with no vocabulary to offer.
     filters: ({ id }) => <FiltersScreen id={id} />,
+    // No segments: the queue is one page, and a single scheduled message has
+    // nothing to show that its row does not already carry.
+    //
+    // The literal rather than the screen's own SCHEDULED_SCREEN, which is the
+    // one place that constant is NOT used: importing it here would pull the
+    // module into the startup graph and the lazy() above would load a chunk the
+    // browser already has. The key is still typed against `Screen`, so a rename
+    // fails here too.
+    scheduled: () => <ScheduledSendsScreen />,
     offers: ({ id }) =>
       id ? (
         <OfferScreen id={id} />

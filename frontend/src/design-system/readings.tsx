@@ -17,6 +17,7 @@ export function Meter({
   label,
   tone,
   flat,
+  dense,
   restTone,
 }: Readonly<{
   value: number;
@@ -31,6 +32,16 @@ export function Meter({
   // the high end, which is wrong for a reading with no low-is-bad meaning.
   // `flat` keeps the accent solid instead of fading toward it.
   flat?: boolean;
+  // The bar as a LABEL'S OWN bar rather than a block of its own: thinner, and
+  // with none of the vertical interval the default pays for standing alone. A
+  // row per dimension — the company rail's health readings, the growth-fit
+  // sub-scores — is two lines tall with this and three without.
+  //
+  // A size on the primitive rather than a height each caller sets, because two
+  // screen sheets independently reached into `.meterbar` for the same 6px and
+  // the same `margin: 0`, and a geometry with two authors drifts the first time
+  // either moves.
+  dense?: boolean;
   // What the TRACK is. Unset, it is empty space — the part of the whole this
   // reading has not reached, drawn recessed because it means nothing on its
   // own. Set, the remainder is itself a value the caller names beside the bar
@@ -48,7 +59,7 @@ export function Meter({
   return (
     // biome-ignore lint/a11y/useSemanticElements: <meter> discards the token-drawn fill and draws its own untokenised bar
     <div
-      className={meterClass(tone, flat, restTone)}
+      className={meterClass({ tone, flat, dense, restTone })}
       role="meter"
       aria-label={label}
       aria-valuenow={value}
@@ -60,20 +71,31 @@ export function Meter({
   );
 }
 
-// The bar's three independent choices — fill colour, gradient or solid, and
-// whether the track carries a meaning — as one class string. Spelled out here
-// rather than nested in the element, where a third condition turned a ternary
-// into something nobody could read at a glance.
-function meterClass(
-  tone: "warn" | "danger" | undefined,
-  flat: boolean | undefined,
-  restTone: "accent" | undefined,
-): string {
+// The bar's four independent choices — fill colour, gradient or solid, its
+// geometry, and whether the track carries a meaning — as one class string.
+// Spelled out here rather than nested in the element, where a third condition
+// turned a ternary into something nobody could read at a glance. Named rather
+// than positional: four optional arguments in a row is a call site where a
+// reader cannot tell which flag is which.
+function meterClass({
+  tone,
+  flat,
+  dense,
+  restTone,
+}: Readonly<{
+  tone?: "warn" | "danger";
+  flat?: boolean;
+  dense?: boolean;
+  restTone?: "accent";
+}>): string {
   const classes = ["meterbar"];
   if (tone) {
     classes.push(`meterbar-${tone}`);
   } else if (flat) {
     classes.push("meterbar-flat");
+  }
+  if (dense) {
+    classes.push("meterbar-dense");
   }
   if (restTone) {
     classes.push(`meterbar-rest-${restTone}`);

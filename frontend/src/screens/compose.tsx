@@ -1337,6 +1337,14 @@ export function ComposeModal({
         error: discard.isError ? problemMessageOf(discard.error, t) : null,
       }
     : null;
+  // A moment picked in the send-later field makes this dialog a different
+  // promise. The three sentences it otherwise prints — the title, the confirm
+  // button and the body — all say the send is happening NOW and cannot be taken
+  // back, and both halves of that are false for a scheduled message: it waits,
+  // and it can be moved or withdrawn from the scheduled queue until it goes.
+  // Mail-only, because the send-later control is (a channel reply answers a live
+  // conversation and has no field to pick a moment in).
+  const scheduling = !isChannelReply && sendAt !== "";
   return (
     <ConfirmModal
       open={open}
@@ -1344,7 +1352,9 @@ export function ComposeModal({
       title={t(
         isChannelReply
           ? "compose.sendMessageConfirmTitle"
-          : "compose.sendConfirmTitle",
+          : scheduling
+            ? "compose.scheduleConfirmTitle"
+            : "compose.sendConfirmTitle",
       )}
       tier="confirm"
       // The rep is about to send irreversibly, so the body they are
@@ -1356,7 +1366,7 @@ export function ComposeModal({
       // stays on screen beside it (mockup State D). A reply keeps the centred
       // box: its context is the thread in the dialog, not the page behind.
       placement={groundable ? "right" : "center"}
-      confirmLabel={t("compose.send")}
+      confirmLabel={t(scheduling ? "compose.schedule" : "compose.send")}
       confirmDisabled={!canSend || rejectionInFlight}
       onConfirm={() => send.mutate()}
       pending={send.isPending}
@@ -1425,7 +1435,13 @@ export function ComposeModal({
         )}
         <SendRefusal refusal={refusal} personId={personId} />
         <p className="t-caption">
-          {t(isChannelReply ? "compose.sendMessageBody" : "compose.sendBody")}
+          {t(
+            isChannelReply
+              ? "compose.sendMessageBody"
+              : scheduling
+                ? "compose.scheduleBody"
+                : "compose.sendBody",
+          )}
         </p>
       </div>
     </ConfirmModal>

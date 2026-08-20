@@ -1,5 +1,11 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
@@ -30,7 +36,25 @@ const CAPTURED = {
 
 const view: Person360 = {
   as_of: "2026-08-13T09:00:00Z",
-  person: { id: "p-1", full_name: "Dana Buyer", ...CAPTURED },
+  // With an address on file, so the header's lead verb is the Email one. The
+  // verb names the transport the composer would pick, so a contact with no way
+  // to be reached carries a different button — which is its own suite below.
+  person: {
+    id: "p-1",
+    full_name: "Dana Buyer",
+    emails: [
+      {
+        id: "pe-1",
+        person_id: "p-1",
+        email: "dana@brandt.example",
+        email_type: "work",
+        is_primary: true,
+        position: 0,
+        ...CAPTURED,
+      },
+    ],
+    ...CAPTURED,
+  },
   sections_omitted: [],
   activities: {
     data: [
@@ -91,12 +115,61 @@ function mount(
       jsonResponse({ person_id: "p-1", sentences: [], generated_by: "rules" }),
     "GET /people/p-1/consent/guard": () =>
       jsonResponse({ person_id: "p-1", entries: guardEntries }),
+    // Which messaging providers exist is a deployment fact, so a channel has
+    // no name until the directory supplies one.
+    "GET /channel-providers": () =>
+      jsonResponse({
+        data: [
+          {
+            provider: "zalo_oa",
+            label: "Zalo OA",
+            credential_model: "workspace_bot",
+            supplies_transport: true,
+          },
+        ],
+      }),
   });
   render(
     <StoryProviders>
       <PersonPageV2 id="p-1" tab={tab} />
     </StoryProviders>,
   );
+}
+
+// The record's header, which is where the page's verbs live. Found through the
+// heading it names rather than by class, because the header is a landmark for
+// the record and the rail offers verbs of its own that must not be mistaken
+// for it.
+async function recordHeader(): Promise<HTMLElement> {
+  const name = await screen.findByRole("heading", {
+    level: 1,
+    name: "Dana Buyer",
+  });
+  const header = name.closest("header");
+  if (!(header instanceof HTMLElement)) {
+    throw new Error("the record's header is not around its own heading");
+  }
+  return header;
+}
+
+// The page's ONE primary action, once the reads it depends on have arrived: the
+// consent guard decides whether it may be pressed and the transport directory
+// names a channel, so the first paint is not the answer. Waiting on the LABEL
+// is what makes that wait a condition rather than a duration.
+//
+// Asserting the primary variant is half the point of every case below: what is
+// under test is what the page's ONE green verb claims, not that some button
+// somewhere carries the word.
+async function leadVerb(label: string): Promise<HTMLButtonElement> {
+  const header = await recordHeader();
+  const lead = await within(header).findByRole("button", { name: label });
+  if (!(lead instanceof HTMLButtonElement)) {
+    throw new Error(`the header's "${label}" verb is not a button`);
+  }
+  if (!lead.classList.contains("btn-primary")) {
+    throw new Error(`"${label}" is not the page's primary action`);
+  }
+  return lead;
 }
 
 afterEach(() => {
@@ -123,14 +196,7 @@ describe("the contact record's tabs", () => {
     mount("overview");
     // The header's verb, not the rail's: the rail offers its own Call, and
     // the two land in different places on purpose.
-    const name = await screen.findByRole("heading", {
-      level: 1,
-      name: "Dana Buyer",
-    });
-    const header = name.closest("header");
-    if (!header) {
-      throw new Error("the record's header is not around its own heading");
-    }
+    const header = await recordHeader();
     await user.click(within(header).getByRole("button", { name: "Call" }));
     expect(window.location.hash).toBe("#/contacts/p-1/timeline");
   });
@@ -176,16 +242,146 @@ describe("a moment action that opens the composer", () => {
     expect(await intentValue()).toBe("follow up — it has gone quiet");
     await user.keyboard("{Escape}");
 
-    const name = await screen.findByRole("heading", {
-      level: 1,
-      name: "Dana Buyer",
-    });
-    const header = name.closest("header");
-    if (!header) {
-      throw new Error("the record's header is not around its own heading");
-    }
+    const header = await recordHeader();
     await user.click(within(header).getByRole("button", { name: "Email" }));
 
     expect(await intentValue()).toBe("");
+  });
+});
+
+// The reachability the record carries, and the conversation a reply would
+// continue. Both are needed before a channel is a way to reach anybody: the
+// first says the identity is live, the second that there is something to answer.
+const reachableOnZalo = [
+  { provider: "zalo_oa", reachable: true, since: "2026-07-01T08:00:00Z" },
+];
+
+// `kind` is annotated rather than left to inference: the contract's activity
+// kind is a closed union, and a bare object literal widens it to `string`, which
+// the timeline's own type then refuses.
+const chatMessage: components["schemas"]["Activity"] = {
+  id: "a-chat",
+  kind: "message",
+  channel_provider: "zalo_oa",
+  occurred_at: "2026-08-12T12:00:00Z",
+  is_done: false,
+  ...CAPTURED,
+};
+
+// A contact captured over a chat channel: no address, one conversation.
+const chatOnly: Person360 = {
+  ...view,
+  person: { ...view.person, emails: [], reachability: reachableOnZalo },
+  activities: { data: [chatMessage], page: { has_more: false } },
+};
+
+// Reachable both ways, which is the case where the composer must ASK.
+const mailAndChat: Person360 = {
+  ...view,
+  person: { ...view.person, reachability: reachableOnZalo },
+  activities: {
+    data: [...(view.activities?.data ?? []), chatMessage],
+    page: { has_more: false },
+  },
+};
+
+// Nothing to write to: no address, and no channel conversation to answer. The
+// mail thread on the record is not a way to reach them — an address is.
+const unreachable: Person360 = {
+  ...view,
+  person: { ...view.person, emails: [] },
+};
+
+// A guard that refuses mail. Consent is decided per purpose, so this is one
+// refused purpose and no allowed one — the state the hero button reads as "may
+// not write".
+const mailBlocked: PersonConsentGuardEntry = {
+  purpose_key: "marketing",
+  purpose_class: "marketing",
+  channel: "email",
+  verdict: "blocked",
+  reason: "opt-out recorded 12 July",
+};
+
+describe("the page's one primary action", () => {
+  // The two sentences a refusal can say. Held as constants because the point of
+  // the last case is that these two are never the same sentence.
+  const NO_TRANSPORT = "No address, and no conversation to reply to.";
+  const CONSENT_REFUSED = "No purpose currently permits writing to them.";
+
+  it("names mail when an address is the only way to reach them", async () => {
+    mount("overview", view, [mailAllowed]);
+
+    await waitFor(async () => {
+      expect((await leadVerb("Email")).disabled).toBe(false);
+    });
+    const lead = await leadVerb("Email");
+    expect(lead.querySelector(".lucide-mail")).toBeTruthy();
+  });
+
+  it("names the channel when a chat conversation is the only way", async () => {
+    // The reported symptom: a green Email on a contact the CRM can only reach
+    // on a chat channel. The provider is named by the directory, so this reads
+    // as itself for a unit this build has never heard of too.
+    mount("overview", chatOnly, [mailAllowed]);
+
+    await waitFor(async () => {
+      expect((await leadVerb("Message on Zalo OA")).disabled).toBe(false);
+    });
+    const lead = await leadVerb("Message on Zalo OA");
+    expect(lead.querySelector(".lucide-message-square")).toBeTruthy();
+    expect(lead.querySelector(".lucide-mail")).toBeNull();
+  });
+
+  it("promises neither transport when the composer will ask which", async () => {
+    // Two ways to reach them means the drawer opens a picker, so a button
+    // reading Email would have named one of several and then asked.
+    const user = userEvent.setup();
+    mount("overview", mailAndChat, [mailAllowed]);
+
+    await waitFor(async () => {
+      expect((await leadVerb("Write")).disabled).toBe(false);
+    });
+    const lead = await leadVerb("Write");
+    expect(lead.querySelector(".lucide-pen-line")).toBeTruthy();
+    expect(lead.querySelector(".lucide-mail")).toBeNull();
+    expect(lead.querySelector(".lucide-message-square")).toBeNull();
+
+    // And the picker it stayed neutral for is really there.
+    await user.click(lead);
+    expect(await screen.findByLabelText("How to send")).toBeTruthy();
+  });
+
+  it("refuses, and says why, when there is no way to write to them", async () => {
+    // The case the consent verdict cannot catch: the guard is happily `allowed`
+    // for a contact who has no address at all, so an enabled button would open
+    // a composer that can only fail at the send.
+    mount("overview", unreachable, [mailAllowed]);
+
+    expect(await screen.findByText(NO_TRANSPORT)).toBeTruthy();
+    const lead = await leadVerb("Write");
+    expect(lead.disabled).toBe(true);
+    expect(lead.getAttribute("aria-describedby")).toBeTruthy();
+  });
+
+  it("refuses under the consent verdict on its own reason", async () => {
+    mount("overview", view, [mailBlocked]);
+
+    expect(await screen.findByText(CONSENT_REFUSED)).toBeTruthy();
+    const lead = await leadVerb("Email");
+    expect(lead.disabled).toBe(true);
+    // The verb still names the transport it would have opened: what changed is
+    // whether it may be pressed, not what pressing it would do.
+    expect(lead.querySelector(".lucide-mail")).toBeTruthy();
+  });
+
+  it("keeps the two refusals apart when both apply", async () => {
+    // A rep told the wrong one goes looking in the wrong record. Reachability
+    // is the sentence to show, because it is the half that no consent decision
+    // can lift.
+    mount("overview", unreachable, [mailBlocked]);
+
+    expect(await screen.findByText(NO_TRANSPORT)).toBeTruthy();
+    expect(screen.queryByText(CONSENT_REFUSED)).toBeNull();
   });
 });

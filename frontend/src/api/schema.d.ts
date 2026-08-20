@@ -13894,6 +13894,44 @@ export interface components {
         /** @description Every messaging transport this installation has registered (ADR-0107/A158). */
         ChannelProviderDirectory: {
             data: components["schemas"]["ChannelProviderEntry"][];
+            /**
+             * @description The provenance ids the composed EXTENSION UNITS land records under, and what to call
+             *     them: `ext:<unit>:<system>`, which a unit's ingress stamps on every record it lands
+             *     and which `CaptureTraceEntry.connector` therefore carries for any of that unit's
+             *     records that arrived on no channel.
+             *
+             *     It does NOT publish every non-transport connector a trace can name. A core
+             *     connector's own source system — `gmail`, `imap`, `graph`, `gcal` — appears in neither
+             *     array, because none of them is a registered transport either; a client that cannot
+             *     resolve a connector id renders the id, which reads as the name of the thing it names.
+             *     Treat a directory miss as ordinary, not as an anomaly to report.
+             *
+             *     These are published BESIDE `data` rather than inside it because they are not
+             *     `ProviderRef` values and must not be mistaken for one: nothing sends on one, no
+             *     `activity.channel_provider` names one, and the id does not satisfy that pattern.
+             *     A reader resolving a trace still needs them from this same directory — one resolver,
+             *     or the raw `ext:` form reaches a member as if it were a name.
+             *
+             *     Absent on an installation whose composed units declare no ingress; an empty answer
+             *     and no answer mean the same thing.
+             */
+            capture_sources?: components["schemas"]["CaptureSourceEntry"][];
+        };
+        /** @description One capture provenance id that is not a transport, as the directory publishes it. */
+        CaptureSourceEntry: {
+            /**
+             * @description The provenance id itself, in the spelling `CaptureTraceEntry.connector` carries —
+             *     `ext:<unit>:<system>` for a record an extension unit landed. The grammar is
+             *     `capture_trace.connector`'s, which is a transport id's widened for exactly this
+             *     provenance.
+             */
+            source: string;
+            /**
+             * @description Human-readable name for it — show this where the id would otherwise appear. Derived
+             *     and never operator-configured, on the same terms as `ChannelProviderEntry.label`, so
+             *     it is safe to cache alongside the rest of the directory.
+             */
+            label: string;
         };
         /** @description One registered transport, as the directory publishes it. */
         ChannelProviderEntry: {

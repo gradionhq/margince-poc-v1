@@ -2,7 +2,12 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { describe, expect, it } from "vitest";
-import { calendarDay, dueInstant, middayInstant } from "./calendarday";
+import {
+  calendarDay,
+  dueInstant,
+  localDateTimeValue,
+  middayInstant,
+} from "./calendarday";
 
 // The zone the machine running this suite happens to be in. Every assertion
 // below is written against it rather than against a fixed offset, because the
@@ -44,6 +49,44 @@ describe("dueInstant", () => {
   it("is a UTC instant on the wire whatever zone minted it", () => {
     expect(dueInstant("2026-07-05")).toMatch(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+  });
+});
+
+describe("localDateTimeValue", () => {
+  it("yields the shape a datetime-local input accepts", () => {
+    expect(localDateTimeValue("2026-07-05T09:07:00Z")).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/,
+    );
+  });
+
+  it("round-trips through the reading the composer submits", () => {
+    // The invariant that matters: seeding a picker from an instant and reading
+    // the picker back must land on the SAME minute. `new Date(local)` is what
+    // compose.tsx's scheduleFields does, so this is the real pairing rather than
+    // a restatement of the formatter. Asserted to the minute because that is the
+    // resolution the control has — the seconds a wire instant carries are the
+    // one thing a `datetime-local` cannot hold.
+    for (const instant of [
+      "2026-01-15T23:45:00Z",
+      "2026-07-05T02:00:00Z",
+      "2026-12-31T12:30:00Z",
+    ]) {
+      const readBack = new Date(localDateTimeValue(instant));
+      expect(readBack.getTime()).toBe(
+        Math.floor(new Date(instant).getTime() / 60_000) * 60_000,
+      );
+    }
+  });
+
+  it("names the reader's own day, not UTC's", () => {
+    // 02:00 UTC is still the previous evening west of UTC and the same morning
+    // east of it, and the picker has to open on the day the reader would say it
+    // is. Read against the machine's own zone so the assertion holds wherever
+    // the suite runs, which is the same choice `readerZone` above makes.
+    const instant = "2026-07-05T02:00:00Z";
+    expect(localDateTimeValue(instant).slice(0, 10)).toBe(
+      calendarDay(new Date(instant), readerZone),
     );
   });
 });

@@ -12683,6 +12683,20 @@ type CaptureSettings struct {
 	MailSharing bool `json:"mail_sharing"`
 }
 
+// CaptureSourceEntry One capture provenance id that is not a transport, as the directory publishes it.
+type CaptureSourceEntry struct {
+	// Label Human-readable name for it — show this where the id would otherwise appear. Derived
+	// and never operator-configured, on the same terms as `ChannelProviderEntry.label`, so
+	// it is safe to cache alongside the rest of the directory.
+	Label string `json:"label"`
+
+	// Source The provenance id itself, in the spelling `CaptureTraceEntry.connector` carries —
+	// `ext:<unit>:<system>` for a record an extension unit landed. The grammar is
+	// `capture_trace.connector`'s, which is a transport id's widened for exactly this
+	// provenance.
+	Source string `json:"source"`
+}
+
 // CaptureTraceEntry defines model for CaptureTraceEntry.
 type CaptureTraceEntry struct {
 	// ActivityId The timeline row this message became. Present only where one exists AND the caller may read it — an entry whose activity moved out of their row scope still lists, with no link, rather than handing back an existence proof.
@@ -12768,7 +12782,27 @@ type ChannelConnectionListResponse struct {
 
 // ChannelProviderDirectory Every messaging transport this installation has registered (ADR-0107/A158).
 type ChannelProviderDirectory struct {
-	Data []ChannelProviderEntry `json:"data"`
+	// CaptureSources The provenance ids the composed EXTENSION UNITS land records under, and what to call
+	// them: `ext:<unit>:<system>`, which a unit's ingress stamps on every record it lands
+	// and which `CaptureTraceEntry.connector` therefore carries for any of that unit's
+	// records that arrived on no channel.
+	//
+	// It does NOT publish every non-transport connector a trace can name. A core
+	// connector's own source system — `gmail`, `imap`, `graph`, `gcal` — appears in neither
+	// array, because none of them is a registered transport either; a client that cannot
+	// resolve a connector id renders the id, which reads as the name of the thing it names.
+	// Treat a directory miss as ordinary, not as an anomaly to report.
+	//
+	// These are published BESIDE `data` rather than inside it because they are not
+	// `ProviderRef` values and must not be mistaken for one: nothing sends on one, no
+	// `activity.channel_provider` names one, and the id does not satisfy that pattern.
+	// A reader resolving a trace still needs them from this same directory — one resolver,
+	// or the raw `ext:` form reaches a member as if it were a name.
+	//
+	// Absent on an installation whose composed units declare no ingress; an empty answer
+	// and no answer mean the same thing.
+	CaptureSources *[]CaptureSourceEntry  `json:"capture_sources,omitempty"`
+	Data           []ChannelProviderEntry `json:"data"`
 }
 
 // ChannelProviderEntry One registered transport, as the directory publishes it.

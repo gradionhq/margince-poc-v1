@@ -62,6 +62,39 @@ export const Meters: Story = {
   ),
 };
 
+// dense against default, one under the other, because the size is only legible
+// as a comparison: the default bar stands alone in a column and pays for its own
+// interval above and below, while a dense one is the label's own bar in a row
+// that owns its spacing. Read it in both themes — the track is `--bgCard` and a
+// 6px band of it sits differently against the panel in dark.
+export const DenseMeters: Story = {
+  render: () => (
+    <>
+      <div>
+        <p className="t-caption">Default — a bar standing on its own</p>
+        <Meter value={6} max={8} label="Growth fit, default" flat />
+        <Meter value={3} max={8} label="Transformation need, default" flat />
+      </div>
+      <div>
+        <p className="t-caption">
+          dense — one row per dimension, the label and its reading on one line
+          and the bar under them
+        </p>
+        <p className="t-caption">Growth fit</p>
+        <Meter value={6} max={8} label="Growth fit, dense" flat dense />
+        <p className="t-caption">Transformation need</p>
+        <Meter
+          value={3}
+          max={8}
+          label="Transformation need, dense"
+          flat
+          dense
+        />
+      </div>
+    </>
+  ),
+};
+
 export const Sparklines: Story = {
   render: () => (
     <>

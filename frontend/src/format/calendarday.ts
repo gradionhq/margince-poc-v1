@@ -72,6 +72,25 @@ export function dueInstant(day: string): string {
   return new Date(`${day}T23:59:59`).toISOString();
 }
 
+// The wall-clock value a `datetime-local` input shows for an instant, in the
+// reader's OWN zone, as the `yyyy-mm-ddThh:mm` that control accepts.
+//
+// It is the exact inverse of the composer's `scheduleFields`, which reads such a
+// value back by handing it to `new Date(...)` and so resolves it against the
+// browser's zone. The pair has to agree: a reschedule form seeded from a
+// differently-zoned reading would open on a moment an hour off the one it is
+// about to resubmit, and the reader would move a message they never moved.
+//
+// Assembled from the local getters rather than by slicing an ISO string.
+// `toISOString()` is UTC, so west of UTC that would seed the picker with
+// yesterday's date and an evening send would read as due the day before.
+export function localDateTimeValue(utcIso: string): string {
+  const at = new Date(utcIso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  const day = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+  return `${day}T${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
 // The instant that is NOON of a picked calendar day in a named zone — for a
 // backdated entry whose screens render dates in that zone (the record pages'
 // RECORD_ZONE): filing it at the zone's own midday is what keeps it on the
