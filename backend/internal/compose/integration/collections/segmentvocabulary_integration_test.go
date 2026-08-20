@@ -83,7 +83,9 @@ func setupFixture(t *testing.T) fixture {
 	return fixture{
 		e: e,
 		// A real seeded user, not a synthetic id: custom_field.created_by is
-		// foreign-keyed to app_user, and the harness seeds only Rep1/2/3.
+		// foreign-keyed to app_user. The harness seeds Rep1/2/3 AND AdminUser;
+		// only the three reps carry a team membership, which is the gap
+		// TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam owns a record through.
 		ctx:      e.As(e.Rep1, nil, testPerms),
 		svc:      svc,
 		people:   peoplemod.NewStore(e.DB()).WithFieldCatalog(svc),

@@ -73,10 +73,9 @@ func TestATeamFilterSelectsEveryMembersRecords(t *testing.T) {
 // `exists: false` on the team leaf finds the records no team's review covers, and
 // an unowned record is one of them.
 //
-// The OTHER arm — an owner who exists and belongs to no team — is the one that
-// distinguishes this leaf from `owner_id exists: false`, and it is asserted
-// directly below rather than here, so that a change breaking one of the two
-// reasons a record is uncovered names which one.
+// The OTHER arm — an owner who exists and belongs to no team — is asserted by
+// TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam rather than here, so that a
+// change breaking one of the two reasons a record is uncovered names which one.
 func TestAnUnownedRecordIsCoveredByNoTeam(t *testing.T) {
 	f := setupFixture(t)
 	inATeam := f.ownedOrg(t, "Held by Rep1", f.e.Rep1)
@@ -109,23 +108,25 @@ func TestAnUnownedRecordIsCoveredByNoTeam(t *testing.T) {
 	}
 }
 
-// The arm that distinguishes this leaf from `owner_id exists: false`: an owner
-// who EXISTS and belongs to no team.
+// An owner who EXISTS and belongs to no team.
 //
-// A wrong implementation compiling the leaf to `t.owner_id IS NULL` passes every
-// other assertion in this file — both spellings look plausible in a diff, and
-// only a row whose owner is real but teamless tells them apart.
+// What this lane adds is not the leaf's SPELLING — vocab_test.go pins that the
+// Link walks team_membership on t.owner_id, and compileLinkLeaf owns the
+// `exists:false` → NOT EXISTS turn for every link leaf alike. It is that ONE
+// NOT EXISTS covers two different data shapes, and only real rows tell them
+// apart: an owner that is NULL (the test above) and an owner that is present
+// with no membership row (this one). A leaf that answered only the first would
+// be `owner_id exists: false` under another name.
 //
-// No new fixture is needed for it, which is worth stating because the opposite
-// was believed: the harness seeds FOUR app_user rows and gives memberships to
-// three, so AdminUser is already a seat in no team. The precondition is asserted
-// rather than assumed — the day somebody puts that seat in a team, this test says
-// so in one line instead of failing as a filter bug.
+// AdminUser is the seat in no team — integration.Setup seeds four seats and
+// three memberships — so this arm needs no fixture of its own. The precondition
+// is asserted rather than assumed, so the day that seat joins a team this test
+// says so instead of failing as a filter bug.
 func TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam(t *testing.T) {
 	f := setupFixture(t)
-	if inATeam := f.e.WsCount(t,
-		"SELECT count(*) FROM team_membership WHERE user_id = $1", f.e.AdminUser); inATeam != 0 {
-		t.Fatalf("the admin seat now belongs to %d team(s), so it can no longer stand for a teamless owner — give this test a seat that belongs to none", inATeam)
+	if memberships := f.e.WsCount(t,
+		"SELECT count(*) FROM team_membership WHERE user_id = $1", f.e.AdminUser); memberships != 0 {
+		t.Fatalf("the admin seat now belongs to %d team(s), so it can no longer stand for a teamless owner — seed a seat with no team_membership row in integration.Setup and own the record below with it", memberships)
 	}
 
 	teamlessOwner := f.ownedOrg(t, "Held by a seat in no team", f.e.AdminUser)
@@ -148,11 +149,14 @@ func TestARecordWhoseOwnerIsInNoTeamIsCoveredByNoTeam(t *testing.T) {
 	if got[inATeam] {
 		t.Error("an account whose owner IS in a team is reported as covered by none")
 	}
-	// The owner is genuinely there, so this is not the unowned arm wearing a
-	// different name.
+	// Owned by the teamless seat SPECIFICALLY, which is the whole precondition:
+	// an explicit owner that silently fell back to the caller would leave a row
+	// owned by Rep1, who is in Team1, and this test would then be re-proving the
+	// in-a-team case under a name that claims otherwise.
 	if owned := f.e.WsCount(t,
-		"SELECT count(*) FROM organization WHERE id = $1 AND owner_id IS NOT NULL", teamlessOwner); owned != 1 {
-		t.Error("the record under test has no owner, so it proves the unowned arm a second time rather than the teamless-owner one")
+		"SELECT count(*) FROM organization WHERE id = $1 AND owner_id = $2",
+		teamlessOwner, f.e.AdminUser); owned != 1 {
+		t.Error("the record under test is not owned by the teamless seat, so whatever it proves is not the teamless-owner arm")
 	}
 }
 
