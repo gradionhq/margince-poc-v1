@@ -271,8 +271,12 @@ func TestDedupeDispositionIsHumanOnly(t *testing.T) {
 	}
 }
 
-// asOwnScoped is a different human whose row scope is own-only: the pair is
-// e.rep's capture-private contacts, so every candidate read must hide it.
+// asOwnScoped is a bounded human seat: own-only row scope, and {Read, Update}
+// on all three dedupe entity types. What it can actually reach depends on the
+// rows a test leaves behind, and the two states pull in opposite directions —
+// a capture-private pair is hidden from it by the READ gate, while a pair at
+// the default visibility='workspace' it can read but, owning neither record,
+// still may not decide. Each test states which it is seeding.
 func (e *dedupeEnv) asOwnScoped(other ids.UUID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
@@ -449,29 +453,6 @@ func halfVisiblePairStaysHidden(t *testing.T, arm halfVisibleArm, hide string) {
 	}
 }
 
-// asWorkspaceReader is a bounded human colleague who can READ the pair and has
-// no authority to CHANGE either side: object grants say update, row scope is
-// own-only, and the records belong to e.rep. It is deliberately NOT
-// asOwnScoped's shape of test — the pair here stays at the default
-// visibility='workspace', because a capture-private pair is refused by the READ
-// gate (404) and would prove nothing about the write gate underneath it.
-func (e *dedupeEnv) asWorkspaceReader() context.Context {
-	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
-	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
-	return principal.WithActor(ctx, principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:" + e.otherRep.String(), UserID: e.otherRep,
-		Permissions: principal.Permissions{
-			RoleKeys: []string{"rep"},
-			Objects: map[string]principal.ObjectGrant{
-				"person":       {Read: true, Update: true},
-				"organization": {Read: true, Update: true},
-				"lead":         {Read: true, Update: true},
-			},
-			RowScope: principal.RowScopeOwn,
-		},
-	})
-}
-
 // A disposition CHANGES both records the pair names — a dismissal suppresses
 // them as a duplicate for the whole workspace, an undo puts the pair back — so
 // each end carries write authority, exactly as the merge arm does through
@@ -490,7 +471,7 @@ func TestDedupeDispositionNeedsWriteAuthorityOverBothRecords(t *testing.T) {
 	_, _ = seedPersonPair(ctx, t, e, "Ada Byron", "ada@authority.test", "Adah Byron", "adah@authority.test", "authority.test")
 	c := openCandidates(ctx, t, e, "person")[0]
 
-	colleague := e.asWorkspaceReader()
+	colleague := e.asOwnScoped(e.otherRep)
 	// The precondition the whole test rests on: this seat CAN read the pair.
 	// Assert it, because if the read gate refuses first every assertion below
 	// passes for the wrong reason.
@@ -568,7 +549,7 @@ func TestDedupeDispositionRefusesAHalfWritablePair(t *testing.T) {
 				t.Fatalf("handing one side to the colleague: %v", err)
 			}
 
-			colleague := e.asWorkspaceReader()
+			colleague := e.asOwnScoped(e.otherRep)
 			if _, err := e.store.GetDedupeCandidate(colleague, c.ID); err != nil {
 				t.Fatalf("the colleague must still READ the pair: %v", err)
 			}
@@ -576,5 +557,42 @@ func TestDedupeDispositionRefusesAHalfWritablePair(t *testing.T) {
 				t.Fatalf("dismiss holding write authority over only %s = %v, want ErrPermissionDenied", give, err)
 			}
 		})
+	}
+}
+
+// The admission direction, which nothing else here covers. Every other happy
+// path in this package acts as e.as() — RowScope: RowScopeAll — and
+// auth.Unbounded short-circuits ensureWriteAuthority before a single row is
+// read, so the owner arm of writeAuthorityPredicate never executes on those
+// runs. An ensurePairWritable that refused EVERY bounded principal (wrong
+// alias, inverted predicate, a liveness filter the pair cannot satisfy) would
+// ship with the refusal tests and the whole suite green.
+//
+// So this seat is bounded — own-only scope, no grant — and owns both records
+// because the manual create path stamped it. It must be admitted.
+func TestDedupeDispositionAdmitsABoundedOwnerOfBothRecords(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	_, _ = seedPersonPair(ctx, t, e, "Rey Owner", "rey@admit.test", "Reye Owner", "reye@admit.test", "admit.test")
+	c := openCandidates(ctx, t, e, "person")[0]
+
+	// Same user as the seeding principal, but bounded: RowScopeOwn, so the
+	// probe renders its predicate and runs it rather than being waved through.
+	owner := e.asOwnScoped(e.rep)
+
+	dismissed, err := e.store.DisposeDedupeCandidate(owner, c.ID, "not_a_duplicate", nil)
+	if err != nil {
+		t.Fatalf("a bounded seat owning BOTH records must be admitted: %v", err)
+	}
+	if dismissed.Disposition != "not_a_duplicate" {
+		t.Fatalf("bounded owner dismiss left disposition %s, want not_a_duplicate", dismissed.Disposition)
+	}
+
+	reopened, err := e.store.UndoDedupeDisposition(owner, c.ID)
+	if err != nil {
+		t.Fatalf("a bounded seat owning BOTH records must be admitted on undo: %v", err)
+	}
+	if reopened.Disposition != "open" {
+		t.Fatalf("bounded owner undo left disposition %s, want open", reopened.Disposition)
 	}
 }

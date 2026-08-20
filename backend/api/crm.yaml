@@ -7762,7 +7762,9 @@ paths:
         `mergeOrganization` server-side — one merge in the system, no second verb.
         `not_a_duplicate` flips the row and suppresses the pair from every future
         sweep (AC-dedupe-7). `409 already_disposed`; `422` when `winner_id` is not
-        one of the pair.
+        one of the pair. Deciding a pair CHANGES both records, so the caller needs
+        write authority over each of them and not merely the object grant — a seat
+        that can read the pair but change neither gets `403`.
       requestBody:
         required: true
         content:
@@ -7775,6 +7777,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DedupeCandidate' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -7791,7 +7794,9 @@ paths:
       description: |
         A dismissed pair re-opens (the suppression lifts). A merged pair needs the
         merge verb's reversibility (PO-AC-M6) — `409 not_undoable` until the
-        survivor-side restore exists or when the survivor mutated since.
+        survivor-side restore exists or when the survivor mutated since. Re-opening
+        changes both records the pair names, so it needs write authority over each,
+        exactly as the disposition does — `403` otherwise.
       responses:
         '200':
           description: The re-opened candidate.
@@ -7799,6 +7804,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DedupeCandidate' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
 
