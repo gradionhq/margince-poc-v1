@@ -18,6 +18,11 @@ on:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # The merge queue builds `main + everything ahead in the queue + this entry` on
+  # a throwaway ref and gates THAT tree, before it lands. This event — not the
+  # push above, which stops gating in a later commit on this branch — is what
+  # makes "main is green" a claim about a tree somebody actually tested.
+  merge_group:
   workflow_dispatch:
 
 # ONE live run per ref, main included: a new push cancels the stale lane instead
@@ -47,7 +52,11 @@ on:
 # `workflow_dispatch` on that commit brings the verdict back.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PR lanes still supersede themselves: a new push obsoletes the review in
+  # flight. A merge_group run must never be cancelled — it IS the merge verdict,
+  # and each queue entry has its own throwaway ref anyway, so the group would not
+  # collide. Saying so explicitly beats relying on that.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -75,13 +84,25 @@ jobs:
     permissions:
       contents: read
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
+      # Diff-scoping is honest for author feedback and dishonest as a merge
+      # verdict: on a push, a commit matching no scope skipped every gate and
+      # GitHub reported green. On the merge queue every scope is therefore true
+      # and the lane is full-tree. The classifier still RUNS there — its filter
+      # step is cheap — and its answer is merely overridden, so a reader sees the
+      # real diff in the log next to the reason it was ignored.
+      #
+      # The `== 'true'` on each is load-bearing. paths-filter emits the STRING
+      # `true`/`false`, and `||` in a GitHub expression coalesces on falsiness,
+      # where the non-empty string "false" is TRUTHY. Without the comparison every
+      # output would be the string "false" and read as truthy by every consumer:
+      # every job would run on every event, which looks like it works.
+      backend: ${{ steps.filter.outputs.backend == 'true' || github.event_name == 'merge_group' }}
       # The database-bearing subset of `backend`. See the filter below for why
       # the two differ, and by exactly what.
-      backend_db: ${{ steps.filter.outputs.backend_db }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      e2e: ${{ steps.filter.outputs.e2e }}
-      deps: ${{ steps.filter.outputs.deps }}
+      backend_db: ${{ steps.filter.outputs.backend_db == 'true' || github.event_name == 'merge_group' }}
+      frontend: ${{ steps.filter.outputs.frontend == 'true' || github.event_name == 'merge_group' }}
+      e2e: ${{ steps.filter.outputs.e2e == 'true' || github.event_name == 'merge_group' }}
+      deps: ${{ steps.filter.outputs.deps == 'true' || github.event_name == 'merge_group' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
