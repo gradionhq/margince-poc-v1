@@ -16231,6 +16231,11 @@ export interface components {
         ContextItem: {
             ref: components["schemas"]["ContextEntityRef"];
             summary?: string | null;
+            /**
+             * Format: date-time
+             * @description When an event item happened, null when the item is not an event. A reader states a date from THIS rather than from one written inside a summary's prose — a note recalling "October" for a September email is the reading that otherwise reaches the customer. It is an instant in UTC; render it in the reader's zone before naming a calendar day.
+             */
+            occurred_at?: string | null;
             evidence?: components["schemas"]["ContextEvidence"][];
         };
         ContextSection: {

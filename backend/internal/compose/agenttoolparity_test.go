@@ -147,6 +147,10 @@ var composedIntents = map[string]bool{
 	"at_risk_relationships":    true,
 	"whats_slipping_this_week": true,
 	"draft_follow_ups_for":     true,
+	// whoami names the human this passport acts for. /v1/me is human-only —
+	// correctly, since it is a session's own view — so there is no REST
+	// operation to twin, and this reads a principal rather than a record.
+	"whoami": true,
 	// review_commitments reads the timeline for a set `GET /activities` cannot
 	// select: open tasks ordered by when they came DUE, which that operation
 	// neither filters on nor sorts by. Read-only.

@@ -206,6 +206,7 @@ func registryWithGate(db *database.DB, gate *auth.Gate, drafter activities.Email
 	// record the resolver named, and the tool serves nothing it did not read
 	// back through it.
 	agents.RegisterResolveTool(registry, provider, nativeOnlyResolver(sorMode, entityResolver(pool)))
+	agents.RegisterWhoamiTool(registry, actingIdentity(pool))
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))

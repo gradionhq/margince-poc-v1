@@ -72,10 +72,17 @@ func assembledContext(ctx context.Context, assembled retrieval.Context) Assemble
 				evidence = append(evidence, ContextEvidence{Source: ev.Source, Snippet: ev.Snippet})
 			}
 			noteEvidence(ctx, item.Ref.Type, item.Ref.ID)
-			items = append(items, ContextItem{
+			built := ContextItem{
 				RecordType: item.Ref.Type, RecordID: item.Ref.ID,
 				Summary: item.Summary, Evidence: evidence,
-			})
+			}
+			// Only for something that HAPPENED. A person has no date, and a
+			// zero one would read as 0001-01-01 rather than as absent.
+			if !item.OccurredAt.IsZero() {
+				at := item.OccurredAt
+				built.OccurredAt = &at
+			}
+			items = append(items, built)
 		}
 		sections = append(sections, ContextSection{Name: section.Name, Items: items})
 	}

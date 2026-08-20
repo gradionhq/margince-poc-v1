@@ -210,7 +210,7 @@ func assertObjectSchemas(spec mcp.ToolSpec) error {
 // system prompt, once per mutating tool, so a sentence here is eighteen
 // sentences of every run's context.
 const retryKeyProperty = `{"type":"string","maxLength":255,` +
-	`"description":"Optional. Repeating a call under the same key returns the first result instead of acting twice; ` +
+	`"description":"Optional. The same key returns the first result instead of acting twice; ` +
 	`different arguments under one key are refused."}`
 
 // unitOwned reports whether an extension unit shipped this tool's handler,

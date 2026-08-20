@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 43 |
+| Tools | 44 |
 | Resources | 8 |
-| Tool catalog | 121.7 KB |
+| Tool catalog | 123.0 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31930 |
+| Approx. wire tokens | 32255 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 52.7 KB | 43% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 31.4 KB | 25% | Yes, every step |
-| Input schemas | 28.4 KB | 23% | Yes, every step |
-| _Names, annotations, punctuation_ | 9.2 KB | 7% | Partly |
-| **Description + input schema** | **59.8 KB** | **49%** | **the recurring cost** |
+| Output schemas | 53.8 KB | 43% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 31.8 KB | 25% | Yes, every step |
+| Input schemas | 28.0 KB | 22% | Yes, every step |
+| _Names, annotations, punctuation_ | 9.4 KB | 7% | Partly |
+| **Description + input schema** | **59.8 KB** | **48%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,19 +55,19 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (43)
+### Tools (44)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
-| [`archive_record`](#archive_record) | Archive a record |  |  | 2.4 KB |
+| [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 3.0 KB |
-| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.6 KB |
+| [`catch_me_up_on`](#catch_me_up_on) | Catch me up on a record | yes |  | 2.7 KB |
 | [`check_availability`](#check_availability) | Check calendar availability | yes |  | 2.3 KB |
-| [`create_record`](#create_record) | Create a record |  |  | 2.7 KB |
+| [`create_record`](#create_record) | Create a record |  |  | 2.6 KB |
 | [`decide_approval`](#decide_approval) | Approve or reject one staged action |  |  | 3.0 KB |
 | [`decide_approval_bundle`](#decide_approval_bundle) | Approve or reject one act's proposals together |  |  | 3.0 KB |
 | [`disqualify_lead`](#disqualify_lead) | Disqualify a lead |  |  | 2.0 KB |
@@ -81,11 +81,11 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`list_records`](#list_records) | List records | yes |  | 3.1 KB |
 | [`log_activity`](#log_activity) | Log an activity |  |  | 3.3 KB |
 | [`merge_records`](#merge_records) | Merge two records |  |  | 2.5 KB |
-| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 2.9 KB |
+| [`prep_for_meeting`](#prep_for_meeting) | Prepare for a meeting | yes |  | 3.0 KB |
 | [`prepare_handoff`](#prepare_handoff) | Prepare a delivery handoff | yes | [`ui://margince/handoff.html`](#handoff_view) | 3.8 KB |
 | [`progress_deal`](#progress_deal) | Progress a deal with a note |  |  | 3.1 KB |
-| [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.6 KB |
-| [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.5 KB |
+| [`promote_lead`](#promote_lead) | Promote a lead to a person |  |  | 2.5 KB |
+| [`qualify_lead`](#qualify_lead) | Qualify a lead |  |  | 2.4 KB |
 | [`query_workspace`](#query_workspace) | Query the workspace | yes |  | 3.6 KB |
 | [`read_approval`](#read_approval) | Read one staged action in full | yes |  | 2.4 KB |
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
@@ -102,6 +102,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`update_record`](#update_record) | Update a record |  |  | 3.9 KB |
 | [`whats_slipping_this_week`](#whats_slipping_this_week) | What's slipping this week | yes | [`ui://margince/pipeline-review.html`](#pipeline_review_view) | 2.3 KB |
 | [`who_knows`](#who_knows) | Who knows this contact | yes | [`ui://margince/relationship-map.html`](#relationship_map_view) | 2.2 KB |
+| [`whoami`](#whoami) | Who this passport acts for | yes |  | 1.5 KB |
 
 ## Resources
 
@@ -504,7 +505,7 @@ Move a deal to a different stage of its pipeline. The stage is named by id, not 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -677,7 +678,7 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -834,7 +835,7 @@ Retire a record that should no longer be worked — a duplicate, a dead account,
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1170,7 +1171,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1327,7 +1328,7 @@ Hold a slot in the host's calendar and record the meeting against the records it
 
 **Catch me up on a record**
 
-Answer "what has been going on with this?" for one person, account, deal, lead, project or captured meeting: the recent activity and the related records, assembled into one picture with the evidence each part rests on. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Use prep_for_meeting when the goal is a meeting about to happen, read_record when you only need the record's own stored fields, and search_records when you do not yet know which record you mean. Each item carries the record_type and record_id it came from — those are what a follow-up call acts on. (Governance: runs immediately; requires passport scope "read".)
+Answer "what has been going on with this?" for one person, company, deal, lead, project or meeting: the recent activity and related records in one picture, with the evidence each part rests on. Built around ONE record you name; everything it reports carries a source, and what cannot be evidenced is absent rather than inferred. prep_for_meeting when a meeting is about to happen, read_record for the record's own stored fields, search_records when you do not yet know which record you mean. Each item carries the record_type and record_id a follow-up call acts on. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls, and convert before naming a day. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -1412,6 +1413,9 @@ Answer "what has been going on with this?" for one person, account, deal, lead, 
                         "type": "object"
                       },
                       "type": "array"
+                    },
+                    "occurred_at": {
+                      "type": "string"
                     },
                     "record_id": {
                       "format": "uuid",
@@ -1712,7 +1716,7 @@ Create a person, organization, deal, lead, project, activity or relationship tha
       "type": "object"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -1872,7 +1876,7 @@ Answer one staged action for the person asking you: approve it, which lets it ha
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2086,7 +2090,7 @@ Answer every still-waiting proposal that one act staged together — the overnig
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2304,7 +2308,7 @@ Close out a lead that is not going anywhere, so it stops appearing as live work.
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2440,7 +2444,7 @@ Compose an email: a reply to a recorded thread (activity_id), or a FIRST message
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2621,7 +2625,7 @@ Draft a follow-up for each deal in a segment at once — today only the slipping
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -2817,7 +2821,7 @@ Learn about an organization by reading its public website, and propose what was 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -3840,7 +3844,7 @@ Record something that happened — a call, a meeting, a note, a message — on t
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4038,7 +4042,7 @@ Collapse two records for the same real person or company into one, moving the so
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4182,7 +4186,7 @@ Collapse two records for the same real person or company into one, moving the so
 
 **Prepare for a meeting**
 
-Get ready for a specific meeting: the same assembled picture as a catch-up, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. (Governance: runs immediately; requires passport scope "read".)
+Get ready for a specific meeting: the same assembled picture as a catch-up, plus the open items pulled out as the things to raise. It is built around ONE record you name, and everything it reports carries a source; what cannot be evidenced is absent rather than inferred. Given a meeting it works out which record that meeting is about and names the others alongside. Use catch_me_up_on when there is no meeting and the question is simply what has been happening, and check_availability when the goal is finding a time rather than preparing for one. The focus list names the open items by record_id; those are what to act on after the meeting. prepared_for names the record the prep was built around. occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls. (Governance: runs immediately; requires passport scope "read".)
 
 <details><summary>Input schema</summary>
 
@@ -4269,6 +4273,9 @@ Get ready for a specific meeting: the same assembled picture as a catch-up, plus
                             "type": "object"
                           },
                           "type": "array"
+                        },
+                        "occurred_at": {
+                          "type": "string"
                         },
                         "record_id": {
                           "format": "uuid",
@@ -4739,7 +4746,7 @@ Move a deal to a new stage and leave a note on its timeline saying why, in one c
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -4916,7 +4923,7 @@ Turn a lead who has genuinely engaged into a person record, carrying their histo
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -5083,7 +5090,7 @@ Fill in what a lead's own data already implies — today the company name, from 
   "additionalProperties": false,
   "properties": {
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -6051,7 +6058,7 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -7231,7 +7238,7 @@ Put a mail on the wire to a real recipient, from this workspace, starting a new 
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -7444,7 +7451,7 @@ Put a mail on the wire to a real recipient, from this workspace, and record it o
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -7622,7 +7629,7 @@ Reply on a captured chat conversation — the channels this workspace has connec
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     }
@@ -7767,7 +7774,7 @@ Change stored field values on a record that already exists — a corrected title
       "type": "string"
     },
     "idempotency_key": {
-      "description": "Optional. Repeating a call under the same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
       "maxLength": 255,
       "type": "string"
     },
@@ -8183,6 +8190,137 @@ Renders its result in [`ui://margince/relationship-map.html`](#relationship_map_
       "required": [
         "colleagues",
         "person_id"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### whoami
+
+**Who this passport acts for**
+
+Name the human this passport acts for: their id, display name, email and language. It reads only, and answers this call's acting user — not a directory. acting_user_id is what owner_id and assignee_id take for "me". Write stored prose in locale when it is set. (Governance: runs immediately; requires passport scope "read".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {},
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "acting_user_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "locale": {
+          "type": "string"
+        },
+        "timezone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "acting_user_id",
+        "display_name",
+        "email"
       ],
       "type": "object"
     },

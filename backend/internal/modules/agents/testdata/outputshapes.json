@@ -773,6 +773,9 @@
                           ]
                         }
                       },
+                      "occurred_at": {
+                        "type": "string"
+                      },
                       "record_id": {
                         "type": "string",
                         "format": "uuid"
@@ -2810,6 +2813,9 @@
                                 "source"
                               ]
                             }
+                          },
+                          "occurred_at": {
+                            "type": "string"
                           },
                           "record_id": {
                             "type": "string",

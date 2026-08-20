@@ -242,6 +242,10 @@ func activityProfile(ctx context.Context, tx pgx.Tx, activityID ids.UUID) (graph
 	return graphItem{
 		entityType: string(datasource.EntityActivity), id: activityID,
 		summary: fmt.Sprintf("%s — %s on %s", title, kind, occurredAt.UTC().Format(time.RFC3339)),
+		// Also as a FIELD, not only inside the sentence. The prep's anchor is
+		// the most date-sensitive item it has, and a reader told to prefer the
+		// structured date would read its absence as "not an event".
+		occurredAt: occurredAt,
 	}, nil
 }
 

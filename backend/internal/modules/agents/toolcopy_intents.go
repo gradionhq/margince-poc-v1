@@ -8,16 +8,16 @@ package agents
 // the report engine. See toolcopy.go for what each field answers.
 
 var catchMeUpOnCopy = toolCopy{
-	Purpose: "Answer \"what has been going on with this?\" for one person, account, deal, lead, " +
-		"project or captured meeting: the recent activity and the related records, assembled " +
-		"into one picture with the evidence each part rests on.",
-	Limits: "It is built around ONE record you name, and everything it reports carries a source; " +
-		"what cannot be evidenced is absent rather than inferred.",
-	Instead: "Use prep_for_meeting when the goal is a meeting about to happen, read_record when " +
-		"you only need the record's own stored fields, and search_records when you do not yet " +
-		"know which record you mean.",
-	Retain: "Each item carries the record_type and record_id it came from — those are what a " +
-		"follow-up call acts on.",
+	Purpose: "Answer \"what has been going on with this?\" for one person, company, deal, lead, " +
+		"project or meeting: the recent activity and related records in one picture, with the " +
+		"evidence each part rests on.",
+	Limits: "Built around ONE record you name; everything it reports carries a source, and what " +
+		"cannot be evidenced is absent rather than inferred.",
+	Instead: "prep_for_meeting when a meeting is about to happen, read_record for the record's " +
+		"own stored fields, search_records when you do not yet know which record you mean.",
+	Retain: "Each item carries the record_type and record_id a follow-up call acts on. " +
+		"occurred_at is when an item happened, in UTC — prefer it over a date the prose recalls, " +
+		"and convert before naming a day.",
 }
 
 var prepForMeetingCopy = toolCopy{
@@ -35,7 +35,8 @@ var prepForMeetingCopy = toolCopy{
 		"been happening, and check_availability when the goal is finding a time rather than " +
 		"preparing for one.",
 	Retain: "The focus list names the open items by record_id; those are what to act on after " +
-		"the meeting. prepared_for names the record the prep was built around.",
+		"the meeting. prepared_for names the record the prep was built around. occurred_at is " +
+		"when an item happened, in UTC — prefer it over a date the prose recalls.",
 }
 
 var whatsSlippingCopy = toolCopy{
