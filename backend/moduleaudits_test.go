@@ -75,7 +75,7 @@ var modulesThatWriteNoHistory = gatekit.Waive(map[string]string{
 	"internal/platform/extsecrets": "extension_secret is written with storekit.LogSystem rather than storekit.Audit, and the package says why in-source: a secret changing hands moves no domain row, so there is no audit_log entry to attach it to. It belongs in system_log, the non-entity operational ledger, which is the same posture the boot's extension inventory takes. This gate deliberately does not count LogSystem, so the module appears here — it is recorded, in the ledger that fits it",
 
 	// NOT a waiver of the obligation — a different defect, filed.
-	"internal/modules/approvals": "TRUE OF ONE OF ITS TWO TABLES, and the entry says so rather than rounding up. `approval` has history: approvals writes audit_log by HAND at service.go:214, bypassing storekit.Audit, so this gate cannot see it — filed as #1946 with what that writer omits. `signing_key` has NONE: the INSERT at token_jws.go:172 mints an Ed25519 private key with no audit row, no hand-rolled row and no system_log row, and the hand-rolled writer could not describe it anyway because it hardcodes entity_type to the literal 'approval'. That is a real gap this waiver does not excuse; it is recorded here so the next reader finds it instead of trusting the module-granular verdict. Which brings out this gate's own limit: it is module-granular, so `owns five tables, audits one` passes it, and approvals is the live instance",
+	"internal/modules/approvals": "TRUE OF ONE OF ITS TWO TABLES, and the entry says so rather than rounding up. `approval` has history: approvals writes audit_log by HAND at service.go:218, bypassing storekit.Audit, so this gate cannot see it — filed as #1946 with what that writer omits. `signing_key` has NONE: the INSERT at token_jws.go:172 mints an Ed25519 private key with no audit row, no hand-rolled row and no system_log row, and the hand-rolled writer could not describe it anyway because it hardcodes entity_type to the literal 'approval'. That is a real gap this waiver does not excuse; it is recorded here so the next reader finds it instead of trusting the module-granular verdict. Which brings out this gate's own limit: it is module-granular, so `owns five tables, audits one` passes it, and approvals is the live instance",
 })
 
 // auditWriters are the storekit calls that put a row in audit_log.
@@ -133,12 +133,26 @@ func moduleWritesAuditRow(module string, subjects map[string]bool) (bool, error)
 		if err != nil {
 			return err
 		}
+		qualifier, imports := storekitQualifier(file)
+		if !imports {
+			return nil
+		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			sel, ok := n.(*ast.SelectorExpr)
+			// A CALL, not a mention. Matching the selector alone would let
+			// `var auditWriter = storekit.Audit` — a reference that never runs —
+			// answer for a module that audits nothing, which is the false green
+			// this gate exists to refuse. And the qualifier has to resolve to the
+			// IMPORTED package: a local value named storekit with an Audit method
+			// would otherwise do the same.
+			call, ok := n.(*ast.CallExpr)
 			if !ok {
 				return true
 			}
-			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == "storekit" && auditWriters[sel.Sel.Name] {
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			if pkg, ok := sel.X.(*ast.Ident); ok && pkg.Name == qualifier && auditWriters[sel.Sel.Name] {
 				found = true
 			}
 			return !found
@@ -188,4 +202,21 @@ func TestEveryTableOwningModuleWritesAnAuditRow(t *testing.T) {
 			"modulesThatWriteNoHistory with a rationale saying where its history lives instead",
 			module)
 	}
+}
+
+// storekitQualifier answers the name storekit is reachable under in one file,
+// and whether the file imports it at all. A file that does not import it can
+// hold no audit call, whatever it happens to name a local variable.
+func storekitQualifier(file *ast.File) (string, bool) {
+	const storekitPath = `"github.com/gradionhq/margince/backend/internal/platform/database/storekit"`
+	for _, imp := range file.Imports {
+		if imp.Path.Value != storekitPath {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name, true
+		}
+		return "storekit", true
+	}
+	return "", false
 }
