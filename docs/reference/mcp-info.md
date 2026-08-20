@@ -15,7 +15,7 @@ receives it. This page is rendered from that file.
 | Resources | 8 |
 | Tool catalog | 121.5 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 31878 |
+| Approx. wire tokens | 31889 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -93,7 +93,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
-| [`run_report`](#run_report) | Run a report | yes |  | 4.5 KB |
+| [`run_report`](#run_report) | Run a report | yes |  | 4.6 KB |
 | [`search_context`](#search_context) | Search for relevant material | yes |  | 3.0 KB |
 | [`search_records`](#search_records) | Search records | yes |  | 2.7 KB |
 | [`send_account_email`](#send_account_email) | Start an email conversation from a record |  |  | 3.6 KB |
@@ -6645,6 +6645,9 @@ Answer a question about totals, counts or breakdowns — pipeline by stage, deal
         },
         "derivation_url": {
           "type": "string"
+        },
+        "excluded_by_permission": {
+          "type": "integer"
         },
         "generated_at": {
           "type": "string"
