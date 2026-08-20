@@ -190,16 +190,23 @@ func TestAuditLogResolvesTheHumanBehindEveryRow(t *testing.T) {
 	// An agent row: no actor name (a machine has none), and the granting human
 	// named. This is the inversion the issue is about — the passport uuid is
 	// the qualifier, the person is the answer.
+	// ONE clock reading for the whole fixture, and every seeded row offset from
+	// it. Read per row, the rows' order would depend on when each call happened
+	// rather than on what the fixture says. It cannot be a fixed literal: the
+	// create row above was stamped by the REAL writer at real "now", and these
+	// rows have to sort after it.
+	base := time.Now().UTC().Truncate(time.Microsecond)
+
 	ada := seedWorkspaceUser(t, e, "Ada Authority")
 	seedRecordAuditRow(t, e, "update", personID, "agent",
 		"agent:"+ids.NewV7().String(), &ada, nil, map[string]any{"title": "CTO"},
-		time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond))
+		base.Add(time.Hour))
 
 	// An actor_id no app_user can match: the honest-fallback arm. A read that
 	// invented a name here would be worse than one that returns none.
 	seedRecordAuditRow(t, e, "update", personID, "human", "human:"+ids.NewV7().String(), nil,
 		nil, map[string]any{"title": "VP"},
-		time.Now().Add(2*time.Hour).UTC().Truncate(time.Microsecond))
+		base.Add(2*time.Hour))
 
 	page, err = privacy.ListAuditLog(e.Admin(), e.DB(), privacy.AuditFilter{EntityID: &personID})
 	if err != nil {

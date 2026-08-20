@@ -84,10 +84,14 @@ func seedRecordHistoryHTTPFixture(t *testing.T, e *apptest.AppEnv, dbEnv *Env) r
 		t.Fatalf("parsing person id %q: %v", person["id"], err)
 	}
 
-	// Dated forward from the create row so ordering is unambiguous
-	// (fieldhistory_http_integration_test.go's own convention).
-	humanAt := time.Now().Add(1 * time.Hour).UTC().Truncate(time.Microsecond)
-	agentAt := time.Now().Add(2 * time.Hour).UTC().Truncate(time.Microsecond)
+	// ONE clock reading, with every seeded row offset from it. Dated forward
+	// because the create row above was stamped by the REAL writer at real
+	// "now" and these have to sort after it — which is also why this cannot be
+	// a fixed literal. Read per row, the sequence would depend on when each
+	// call happened rather than on what the fixture says.
+	base := time.Now().UTC().Truncate(time.Microsecond)
+	humanAt := base.Add(1 * time.Hour)
+	agentAt := base.Add(2 * time.Hour)
 	seedAuditDiffRow(t, dbEnv, "person", personID, "human",
 		map[string]any{"phone": "555-0100"}, map[string]any{"phone": "555-0199"}, humanAt)
 
@@ -100,8 +104,10 @@ func seedRecordHistoryHTTPFixture(t *testing.T, e *apptest.AppEnv, dbEnv *Env) r
 	// resolve. The row above deliberately keeps the helper's unresolvable
 	// 'user-1' id, which covers the opposite arm.
 	umaID := seedWorkspaceUser(t, dbEnv, "Uma Underwriter")
+	// Offset from the same reading the two rows above use, so the fixture's own
+	// order decides the sequence rather than the moment each call ran.
 	seedRecordAuditRow(t, dbEnv, "update", personID, "human", "human:"+umaID.String(), nil,
-		nil, map[string]any{"title": "SVP"}, time.Now().Add(3*time.Hour).UTC().Truncate(time.Microsecond))
+		nil, map[string]any{"title": "SVP"}, base.Add(3*time.Hour))
 
 	return recordHistoryHTTPFixture{personID: personID, adaID: adaID}
 }

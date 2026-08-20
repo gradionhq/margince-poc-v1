@@ -526,8 +526,14 @@ test("AC-settings-16: the audit log renders attributed entries, filters live, an
   // The actor filter still speaks the API's `type:id` vocabulary, which is the
   // spelling the column itself carries.
   await page.getByRole("textbox", { name: "Akteur" }).fill("agent:runner");
+  // The matching row stays AND both non-matching rows go. Asserting only that
+  // the agent row is still visible would pass on a filter that did nothing —
+  // it was already on screen before the filter was typed.
   await expect(page.getByText("Marcus Brandt", { exact: true })).toBeVisible();
   await expect(page.getByText("Du", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("connector:gmail", { exact: true })).toHaveCount(
+    0,
+  );
 });
 
 test("AC-settings: the passport list is metadata-only and strikes revoked rows", async ({

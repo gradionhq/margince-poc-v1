@@ -240,15 +240,26 @@ func recordHistoryEntry(row recordAuditRow, mask entityFieldMask) RecordHistoryE
 // (merge, promote, export, record_share, enrich, coldstart) serve
 // operational context verbatim from before/after, workspace-operational
 // data behind the same record-read gate, never subject PII.
-func ListRecordHistory(ctx context.Context, db *database.DB, f RecordHistoryFilter) (RecordHistoryPage, error) {
+// admitRecordHistoryRead is the object-level half of this read's gate stack:
+// a human session, a known entity kind, and the read grant on it. The ROW-level
+// half runs inside the transaction, because visibility is a statement.
+//
+// Separated from ListRecordHistory so the admission rules read as one list
+// rather than as a preamble to paging. Both jobs are short; together they were
+// one function doing two.
+func admitRecordHistoryRead(ctx context.Context, f RecordHistoryFilter) error {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
-		return RecordHistoryPage{}, apperrors.ErrPermissionDenied
+		return apperrors.ErrPermissionDenied
 	}
 	if !fieldHistoryEntityTypes[f.EntityType] {
-		return RecordHistoryPage{}, fmt.Errorf("record-history entity %q: %w", f.EntityType, apperrors.ErrNotFound)
+		return fmt.Errorf("record-history entity %q: %w", f.EntityType, apperrors.ErrNotFound)
 	}
-	if err := auth.Require(ctx, f.EntityType, principal.ActionRead); err != nil {
+	return auth.Require(ctx, f.EntityType, principal.ActionRead)
+}
+
+func ListRecordHistory(ctx context.Context, db *database.DB, f RecordHistoryFilter) (RecordHistoryPage, error) {
+	if err := admitRecordHistoryRead(ctx, f); err != nil {
 		return RecordHistoryPage{}, err
 	}
 
