@@ -5,14 +5,17 @@
 
 package integration
 
-// The fleet-wide re-embed is one job row per live tenant. It used to be one row
-// for the whole fleet: a workspace that could not write ended the pass there and
-// then, so every tenant behind it in the fleet order kept a stale index with no
-// row anywhere recording that it had been skipped — and the marker the confirm
-// endpoint gates on was left claimed by a run nobody could see the shape of.
+// The re-embed is ONE job row that rebuilds the whole corpus. It was one row
+// per live tenant until phase D un-scoped the embeddable entities (ADR-0091
+// §8), after which every one of those rows walked the SAME table and all but
+// the first found each row already fresh at the run's identity. What the suites
+// here pin is what survived the collapse: the marker the confirm endpoint gates
+// on is claimed by exactly one run, and it comes back on every ending the pass
+// has — including the two that never write anything.
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"testing"
 	"time"
@@ -57,31 +60,29 @@ func setupReembedFleet(t *testing.T) *reembedFleetEnv {
 	return &reembedFleetEnv{SearchEnv: e, embedder: embedder, identity: identity, run: run}
 }
 
-// TestEmbedReindexFansOutOneJobPerLiveWorkspace is the converted shape: the
-// dispatcher enqueues one row per LIVE workspace — archived ones excluded,
-// because an archived tenant's records are not searched and re-embedding them
-// spends model budget building an index nobody queries — each row names its own
-// tenant on the wire, and the corpus is rebuilt at the run's identity.
+// TestEmbedReindexRebuildsTheCorpusInOnePassAndHandsTheMarkerBack is what is
+// left of the fan-out test once the fan-out is gone.
 //
-// It does NOT assert that a tenant whose writes fail is the only child to fail,
-// which is what this test used to be named for. That property no longer holds
-// and cannot be made to: an embedding row is keyed on
-// (entity_type, entity_id, chunk_ix) alone (phase B) over records that carry no
-// tenant at all (phase D), so the corpus is the installation's and whichever
-// child runs first rebuilds ALL of it. The second child finds every row already
-// fresh at the run's identity, writes nothing, and therefore cannot meet a
-// write fault however permanently it is armed. The fan-out itself is what has
-// gone redundant; collapsing it is ADR-0091's own next step, and the isolation
-// question disappears with it rather than being answered.
-func TestEmbedReindexFansOutOneJobPerLiveWorkspace(t *testing.T) {
+// It used to assert one job per LIVE workspace, archived excluded. That shape
+// existed because each tenant had a corpus of its own; ADR-0091 §8 phase D took
+// the tenant column off every embeddable entity, so the children all walked the
+// same rows and all but the first found every row already fresh at the run's
+// identity. Counting them was counting jobs whose only effect was to remove
+// themselves from a set.
+//
+// What SURVIVES is what the fan-out was ever for: the corpus gets rebuilt at
+// the run's identity, and the marker comes back so the next confirm is not
+// refused by a run that ended. Both are asserted here. The archived-workspace
+// case goes with the enumeration — there is no per-tenant enqueue left to skip.
+func TestEmbedReindexRebuildsTheCorpusInOnePassAndHandsTheMarkerBack(t *testing.T) {
 	re := setupReembedFleet(t)
-	healthy := SeedExtraWorkspace(t, re.Owner, "reindex-healthy", false)
-	archived := SeedExtraWorkspace(t, re.Owner, "reindex-archived", true)
+	// A second live workspace and an archived one still exist, deliberately:
+	// the pass must not grow work with them, which a fan-out did by
+	// construction. Nothing below counts jobs per tenant.
+	SeedExtraWorkspace(t, re.Owner, "reindex-second", false)
+	SeedExtraWorkspace(t, re.Owner, "reindex-archived", true)
 
-	// ONE entity, and it belongs to the installation rather than to either
-	// tenant: seeding a row "per tenant" would be seeding the same corpus twice
-	// under two names.
-	leadID := re.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'Fanout Lead', 'manual', 'human:x')`)
+	leadID := re.SeedID(t, `INSERT INTO lead (id, full_name, source, captured_by) VALUES ($1, 'One Pass Lead', 'manual', 'human:x')`)
 
 	runner, completed, failed := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -90,25 +91,15 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspace(t *testing.T) {
 		Embedder:          re.embedder,
 	})
 	if err := runner.Enqueue(context.Background(), compose.EmbedReindexArgs{Run: re.run, Identity: re.identity}, nil); err != nil {
-		t.Fatalf("enqueueing the run's dispatcher: %v", err)
+		t.Fatalf("enqueueing the run: %v", err)
 	}
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	kind := compose.EmbedReindexWorkspaceArgs{}.Kind()
-	outcomes := jobtest.AwaitWorkspaceJobOutcomes(waitCtx, t, completed, failed, kind, 2)
-
-	for _, ws := range []ids.UUID{re.WS, healthy} {
-		ran, fannedOut := outcomes[ws.String()]
-		if !fannedOut {
-			t.Errorf("no re-embed ran for workspace %s — a tenant the fan-out skipped keeps a stale index, and no row records that it did not", ws)
-			continue
-		}
-		if !ran {
-			t.Errorf("the re-embed for workspace %s failed", ws)
-		}
+	if !jobtest.AwaitKindOutcome(waitCtx, t, completed, failed, compose.EmbedReindexArgs{}.Kind()) {
+		t.Fatal("the re-embed pass failed")
 	}
-	// The fan-out is only worth its rows if the corpus actually got rebuilt.
+
 	var model string
 	if err := re.Owner.QueryRow(context.Background(),
 		`SELECT model FROM embedding WHERE entity_type = 'lead' AND entity_id = $1 AND chunk_ix = 0`,
@@ -119,18 +110,16 @@ func TestEmbedReindexFansOutOneJobPerLiveWorkspace(t *testing.T) {
 		t.Errorf("the lead is embedded under %q, want %q", model, re.identity)
 	}
 
-	// The archived tenant must have no row at all. This count is fenced on the
-	// two outcomes above rather than read early: the fan-out is ONE atomic
-	// insert, so any child reporting proves that insert committed — and it
-	// carried every workspace the dispatcher enumerated.
-	var dispatched int
+	// The marker is back, which is what lets the next confirm through. A run
+	// that finished its work and kept the marker refuses every later reindex
+	// until a forced steal an hour away.
+	var held *string
 	if err := re.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE kind = $1 AND args->>'workspace_id' = $2`,
-		kind, archived.String()).Scan(&dispatched); err != nil {
-		t.Fatalf("counting the archived tenant's re-embed jobs: %v", err)
+		`SELECT reembedding_run::text FROM embed_store_binding`).Scan(&held); err != nil {
+		t.Fatalf("reading the binding marker: %v", err)
 	}
-	if dispatched != 0 {
-		t.Errorf("%d %s rows were dispatched for an ARCHIVED workspace — re-embedding records nobody searches spends model budget on work nobody wants", dispatched, kind)
+	if held != nil {
+		t.Errorf("the marker is still held by run %s after the pass finished — every later confirm is refused until a forced steal", *held)
 	}
 }
 
@@ -176,37 +165,46 @@ func TestEmbedReindexForceTakesTheMarkerBackFromAWedgedRun(t *testing.T) {
 	}
 }
 
-// TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack pins the one path
-// with no child to release the marker. A deployment whose only workspace is
-// archived has nothing to re-embed, and a run that claimed the marker and then
-// found nothing to wait on would hold it forever — refusing every later confirm
-// with no job anywhere to explain why.
-func TestEmbedReindexDispatcherWithAnEmptyFleetHandsTheMarkerBack(t *testing.T) {
+// TestEmbedReindexWithNoLiveWorkspaceHandsTheMarkerBack pins the one path with
+// nothing to embed. A deployment whose only workspace is archived has no corpus
+// to rebuild, and a run that claimed the marker and then found nothing to bind a
+// pass to would retry itself to exhaustion still holding it — refusing every
+// later confirm with no job left anywhere to explain why.
+func TestEmbedReindexWithNoLiveWorkspaceHandsTheMarkerBack(t *testing.T) {
 	re := setupReembedFleet(t)
 	if _, err := re.Owner.Exec(context.Background(),
 		`UPDATE workspace SET archived_at = now() WHERE id = $1`, re.WS); err != nil {
 		t.Fatalf("archiving the only workspace: %v", err)
 	}
 
-	runner, completed, _ := jobtest.StartTestJobRunner(t, re.Pool, compose.JobRunnerConfig{
+	// Subscribed to CANCELLED, not completed: a pass with nothing to bind to is
+	// permanent for this row, so it stops deliberately rather than finishing —
+	// awaiting the wrong terminal state here would hang rather than fail.
+	runner, err := compose.NewJobRunner(re.Pool, slog.New(slog.DiscardHandler), compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
 		ReconcileInterval: time.Hour,
 		TimeScanInterval:  time.Hour,
 		Embedder:          re.embedder,
 	})
+	if err != nil {
+		t.Fatalf("NewJobRunner: %v", err)
+	}
+	sub, cancelSub := runner.SubscribeCancelled()
+	defer cancelSub()
+	startEmbedReindexRunner(t, runner)
 	if err := runner.Enqueue(context.Background(), compose.EmbedReindexArgs{Run: re.run, Identity: re.identity}, nil); err != nil {
-		t.Fatalf("enqueueing the run's dispatcher: %v", err)
+		t.Fatalf("enqueueing the run: %v", err)
 	}
 	waitCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	jobtest.AwaitKindsCompleted(waitCtx, t, completed, compose.EmbedReindexArgs{}.Kind())
+	AwaitKindCompleted(waitCtx, t, sub, compose.EmbedReindexArgs{}.Kind())
 
 	populated, status, _, err := re.Store.PopulatedIdentity(context.Background())
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
 	if status != "idle" {
-		t.Fatalf("marker status = %q after a run over an empty fleet, want idle — nothing will ever come along to release it", status)
+		t.Fatalf("marker status = %q after a run with no live workspace, want idle — nothing will ever come along to release it", status)
 	}
 	if populated != re.identity {
 		t.Fatalf("populated_identity = %q, want %q", populated, re.identity)

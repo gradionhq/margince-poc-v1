@@ -33,6 +33,11 @@ var ErrReembeddingInFlight = errors.New("search: a fleet-wide reembed already ho
 // this row's to do, so the caller stops rather than retries.
 var ErrReembeddingSuperseded = errors.New("search: the reembed run no longer holds the binding marker")
 
+// ErrNoLiveWorkspace refuses a pass on an installation that has none. A
+// bootstrap state rather than a fault: nothing has been created yet, so there is
+// no corpus to rebuild and no handle to run the rebuild through.
+var ErrNoLiveWorkspace = errors.New("search: the installation has no live workspace to bind a pass to")
+
 // SeedBinding plants the marker row on first boot. An empty store is
 // vacuously "populated under the current binding" — seeding
 // populated_identity to the LIVE config (never a sentinel) is what keeps a
@@ -163,7 +168,7 @@ func (s *Store) ClaimAndEnqueueReembedding(ctx context.Context, claim ReembedCla
 		tag, err := tx.Exec(ctx, `
 			UPDATE embed_store_binding
 			SET status = 'reembedding', reembedding_run = $1, reembedding_identity = $2,
-			    reembedding_pending = '{}', updated_at = now()
+			    updated_at = now()
 			WHERE reembedding_run IS NULL
 			   OR ($3 > 0 AND updated_at < now() - make_interval(secs => $3))`,
 			claim.Run, claim.TargetIdentity, claim.StealAfter.Seconds())
@@ -191,72 +196,6 @@ func refusedClaimReason(ctx context.Context, tx pgx.Tx) error {
 		return fmt.Errorf("search: reading the refused claim's marker: %w", err)
 	}
 	return ErrReembeddingInFlight
-}
-
-// SeedReembeddingFleet records the workspaces run must still cover and runs the
-// caller's enqueue in the SAME transaction, so a fan-out that failed to insert
-// leaves no half-seeded set behind for the next attempt to double-count.
-//
-// It seeds ONCE: the marker must still name run AND still hold an empty set.
-// Because the seed and the enqueue commit together, a non-empty set means this
-// run's children are already queued, so a retried dispatcher re-seeding would
-// put back workspaces whose children have since finished — children a ByArgs
-// unique-skip may then decline to re-enqueue, leaving those workspaces in the
-// set with nothing left to take them out. Either refusal is
-// ErrReembeddingSuperseded, and the enqueue never happens.
-func (s *Store) SeedReembeddingFleet(ctx context.Context, run ids.UUID, workspaces []ids.WorkspaceID, enqueue func(tx pgx.Tx) error) error {
-	// rls-exempt: deployment metadata, no workspace_id
-	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `
-			UPDATE embed_store_binding SET reembedding_pending = $2, updated_at = now()
-			WHERE reembedding_run = $1 AND cardinality(reembedding_pending) = 0`, run, workspaces)
-		if err != nil {
-			return fmt.Errorf("search: seeding the reembedding fleet: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			return ErrReembeddingSuperseded
-		}
-		return enqueue(tx)
-	})
-}
-
-// FinishWorkspaceReembedding takes workspace out of run's pending set, and
-// releases the marker when it was the last one outstanding. Every terminal
-// outcome a workspace can reach — re-embedded, cancelled on drift, or out of
-// attempts — is a workspace this run will not come back to, so all of them
-// arrive here.
-//
-// Removal is idempotent (array_remove of an absent element changes nothing), so
-// a retried job is harmless; and it is fenced on the RUN, so a workspace
-// belonging to a run that has already released matches no row and leaves the
-// current run's set alone — which the target identity could not do, since a
-// forced rebuild re-runs under the same one.
-//
-// That fence is also what makes ReembedClaim.StealAfter safe: a dispossessed
-// run's children go on working and go on reporting here, and it is only because
-// they name a run the marker no longer holds that they cannot empty — or
-// release — the set of the run that took over from them. Relaxing this fence
-// breaks the steal, not just the straggler.
-func (s *Store) FinishWorkspaceReembedding(ctx context.Context, run ids.UUID, workspace ids.WorkspaceID) error {
-	// rls-exempt: deployment metadata, no workspace_id
-	return database.WithInfraTx(ctx, s.db.Pool(), func(tx pgx.Tx) error {
-		var remaining int
-		err := tx.QueryRow(ctx, `
-			UPDATE embed_store_binding
-			SET reembedding_pending = array_remove(reembedding_pending, $2), updated_at = now()
-			WHERE reembedding_run = $1
-			RETURNING cardinality(reembedding_pending)`, run, workspace).Scan(&remaining)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("search: finishing workspace %s of the reembed run: %w", workspace, err)
-		}
-		if remaining > 0 {
-			return nil
-		}
-		return releaseReembeddingTx(ctx, tx, run)
-	})
 }
 
 // ReembedProgressStaleness paces how often a working run says so on its marker:
@@ -320,8 +259,8 @@ func releaseReembeddingTx(ctx context.Context, tx pgx.Tx, run ids.UUID) error {
 		UPDATE embed_store_binding
 		SET populated_identity = reembedding_identity, status = 'idle',
 		    reembedding_run = NULL, reembedding_identity = NULL,
-		    reembedding_pending = '{}', updated_at = now()
-		WHERE reembedding_run = $1 AND cardinality(reembedding_pending) = 0`, run)
+		    updated_at = now()
+		WHERE reembedding_run = $1`, run)
 	if err != nil {
 		return fmt.Errorf("search: releasing the reembedding marker: %w", err)
 	}
@@ -347,6 +286,24 @@ func systemWorkspaceContext(ctx context.Context, wsID ids.UUID) context.Context 
 // fleetWorkspaceIDs lists every live tenant workspace as the system
 // principal — the enumeration pendingStats (this file) drives its
 // per-workspace rollup loop from.
+// anyWorkspace resolves a workspace to BIND a pass to, not to scope one.
+//
+// Since ADR-0091 §8 phase D no embeddable table carries a tenant, so a rebuild
+// reads and writes the same rows whichever workspace the handle names — but the
+// statements still run through a bound handle and WithWorkspaceTx still wants
+// the GUC set. The oldest live workspace is taken for determinism rather than
+// for meaning; §5 removes the need for one at all.
+func (s *Store) anyWorkspace(ctx context.Context) (ids.WorkspaceID, error) {
+	workspaces, err := s.fleetWorkspaceIDs(ctx)
+	if err != nil {
+		return ids.WorkspaceID{}, err
+	}
+	if len(workspaces) == 0 {
+		return ids.WorkspaceID{}, ErrNoLiveWorkspace
+	}
+	return workspaces[0], nil
+}
+
 func (s *Store) fleetWorkspaceIDs(ctx context.Context) ([]ids.WorkspaceID, error) {
 	// rls-exempt: fleet enumeration — the workspace table lists every tenant before the per-workspace tx each caller opens next (compose/dispatch.go enumerateWorkspaces is the sanctioned spelling; backend/jobfleetscan_test.go ratifies this site as a read).
 	rows, err := s.db.Pool().Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)

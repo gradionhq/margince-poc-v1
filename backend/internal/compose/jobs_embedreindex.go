@@ -23,7 +23,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
@@ -55,22 +54,20 @@ import (
 // a wedge.
 const embedReindexMaxAttempts = 5
 
-// addEmbedReindexJobs registers the reindex dispatcher and its workspace worker.
-// Both register even with a nil embedder: a row queued on a worker role with no
-// embed lane then fails with an actionable message (and leaves the run's pending
-// set on its last attempt) instead of sitting queued forever behind a job no one
-// can work — the deep-read worker's posture.
+// addEmbedReindexJobs registers the reindex pass. It registers even with a nil
+// embedder: a row queued with no embed lane then fails with an actionable
+// message instead of sitting queued forever behind a job no one can work — the
+// deep-read worker's posture.
 func addEmbedReindexJobs(reg *jobRegistry, pool *pgxpool.Pool, embedder search.Embedder) {
 	store := search.NewStore(InstallationDB(pool))
-	addDeclaredWorker[EmbedReindexArgs](reg, &embedReindexWorker{pool: pool, store: store})
-	addDeclaredWorker[EmbedReindexWorkspaceArgs](reg, &embedReindexWorkspaceWorker{store: store, embedder: embedder})
+	addDeclaredWorker[EmbedReindexArgs](reg, &embedReindexWorker{store: store, embedder: embedder})
 }
 
-// EmbedReindexArgs schedules one fleet-wide re-embed. Identity is the embed
-// binding in force when the confirm claimed the marker, so a mid-flight config
-// change is detectable as drift downstream (search.ErrIdentityDrift) rather than
-// the fleet silently re-embedding under whatever it now reports; Run names the
-// claim this row is allowed to act on.
+// EmbedReindexArgs schedules one re-embed of the installation's corpus. Identity
+// is the embed binding in force when the confirm claimed the marker, so a
+// mid-flight config change is detectable as drift downstream
+// (search.ErrIdentityDrift) rather than the corpus silently re-embedding under
+// whatever it now reports; Run names the claim this row is allowed to act on.
 type EmbedReindexArgs struct {
 	Run      ids.UUID `json:"run_id"`
 	Identity string   `json:"identity"`
@@ -79,151 +76,68 @@ type EmbedReindexArgs struct {
 // Kind is the stable job identifier River persists in river_job.
 func (EmbedReindexArgs) Kind() string { return "embed_reindex" }
 
-// FleetWide marks this a dispatcher: it enumerates and enqueues,
-// and does no tenant work of its own (jobs.FleetWide).
+// FleetWide marks this as owning no tenant of its own (jobs.FleetWide): since
+// ADR-0091 §8 phase D no embeddable entity carries a workspace, so the corpus
+// this rebuilds is the installation's.
 func (EmbedReindexArgs) FleetWide() {}
 
-// embedReindexWorker is the dispatcher. It enumerates the LIVE workspaces only:
-// an archived tenant's records are not searched, so re-embedding them spends
-// model budget building an index nobody queries.
+// embedReindexWorker rebuilds the installation's corpus under the run's target
+// identity and hands the marker back when it is done.
+//
+// It used to be a dispatcher enqueuing one child per live workspace. Phase D
+// took the tenant column off every embeddable entity, so those children all
+// walked the SAME rows and all but the first found every one already fresh at
+// the run's identity — N-1 jobs whose only effect was to remove themselves from
+// a set. One pass rebuilds it, and the set went with them.
 type embedReindexWorker struct {
-	pool  *pgxpool.Pool
-	store *search.Store
-}
-
-func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[EmbedReindexArgs]) error {
-	err := w.fanOut(ctx, job.Args)
-	if errors.Is(err, search.ErrReembeddingSuperseded) {
-		// Either a later run holds the marker or this run has already fanned
-		// out, so this row's work is nobody's to do: a permanent condition, not
-		// one more attempts would clear.
-		return river.JobCancel(err)
-	}
-	if err != nil && job.Attempt >= job.MaxAttempts {
-		// A run holds the marker only while it has outstanding work. This one
-		// never got any queued and has no attempt left to, so it gives it back
-		// rather than leaving every later confirm refused by a run that ended.
-		// The release refuses itself if the set is not empty after all.
-		//
-		// The release can also simply fail, and most naturally for the reason the
-		// fan-out just did — enumerate and insert are all this row does, so a
-		// database that would not take them will not take the release either. Both
-		// errors are joined into one return, River discards the row because the
-		// attempts are gone, and the marker stays held with an empty pending set.
-		// That is the honest bound on the promise above: a forced confirm's steal
-		// is what recovers it (search.ReembedClaim.StealAfter).
-		return jobs.FaultContext(ctx, errors.Join(err, w.store.ReleaseReembedding(ctx, job.Args.Run)))
-	}
-	return jobs.FaultContext(ctx, err)
-}
-
-// fanOut seeds the run's pending set and enqueues one child per workspace in it,
-// as ONE transaction: a fan-out whose insert failed leaves no pending set for
-// the retry to double-count, and a seeded set always has the children that will
-// empty it.
-func (w *embedReindexWorker) fanOut(ctx context.Context, args EmbedReindexArgs) error {
-	workspaces, err := enumerateWorkspaces(ctx, w.pool)
-	if err != nil {
-		return err
-	}
-	if len(workspaces) == 0 {
-		// A run with no tenant to cover has no outstanding work the moment it
-		// starts, and a marker held past that refuses every later confirm.
-		return w.store.ReleaseReembedding(ctx, args.Run)
-	}
-	pending := make([]ids.WorkspaceID, 0, len(workspaces))
-	for _, ws := range workspaces {
-		pending = append(pending, ids.From[ids.WorkspaceKind](ws))
-	}
-	return w.store.SeedReembeddingFleet(ctx, args.Run, pending, func(tx pgx.Tx) error {
-		return dispatchWith(ctx, workspaces, txInsertMany(tx),
-			workspaceSweepOpts(EmbedReindexWorkspaceArgs{}.Kind()),
-			func(ws ids.UUID) river.JobArgs {
-				return EmbedReindexWorkspaceArgs{Workspace: ws, Run: args.Run, Identity: args.Identity}
-			})
-	})
-}
-
-// txInsertMany binds the fan-out to the caller's transaction rather than to the
-// client's own, so the insert commits with the pending set it is seeding or with
-// neither. clientInsertMany's own reasoning applies to resolving the client
-// inside the closure.
-func txInsertMany(tx pgx.Tx) insertManyFunc {
-	return func(ctx context.Context, params []river.InsertManyParams) error {
-		_, err := river.ClientFromContext[pgx.Tx](ctx).InsertManyTx(ctx, tx, params)
-		return err
-	}
-}
-
-// EmbedReindexWorkspaceArgs re-embeds one workspace's corpus under the run's
-// target identity, and reports that workspace finished with the run it names.
-type EmbedReindexWorkspaceArgs struct {
-	Workspace ids.UUID `json:"workspace_id"`
-	Run       ids.UUID `json:"run_id"`
-	Identity  string   `json:"identity"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (EmbedReindexWorkspaceArgs) Kind() string { return "embed_reindex_workspace" }
-
-// WorkspaceID binds this pass to its tenant (jobs.WorkspaceScoped).
-func (a EmbedReindexWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspace }
-
-// embedReindexWorkspaceWorker re-embeds one workspace and reports that workspace
-// finished with the run.
-type embedReindexWorkspaceWorker struct {
 	store    *search.Store
 	embedder search.Embedder
 }
 
-func (w *embedReindexWorkspaceWorker) Work(ctx context.Context, job *river.Job[EmbedReindexWorkspaceArgs]) error {
+func (w *embedReindexWorker) Work(ctx context.Context, job *river.Job[EmbedReindexArgs]) error {
 	passErr := w.reembed(ctx, job.Args)
-	drifted := errors.Is(passErr, search.ErrIdentityDrift)
-	if passErr == nil || drifted || job.Attempt >= job.MaxAttempts {
-		// The run will not come back to this workspace, whichever of the three
-		// happened, so it leaves the pending set — and releases the marker if it
-		// was the last one out. River's discard is observable (its failure event
-		// carries the row) but there is no hook that can RETRY, and none that runs
-		// inside the row's own transaction, which is why the exhausted attempt does
-		// this before returning its error.
-		if err := w.store.FinishWorkspaceReembedding(ctx, job.Args.Run,
-			ids.From[ids.WorkspaceKind](job.Args.Workspace)); err != nil {
-			// Retried on every attempt but the last, and on the drift path too,
-			// deliberately: the drift guard short-circuits before any model call, so
-			// an attempt spent re-trying this write costs nothing, and it is the
-			// only thing that will ever take this workspace out of the run's set.
+	// Both of these are permanent for this row: the identity it names is not the
+	// one served anymore, or the installation has no live workspace to bind a
+	// pass to (its only one is archived). Neither improves with another attempt,
+	// and both must still hand the marker back — a run that held it while
+	// retrying itself to exhaustion refuses every later confirm with no job left
+	// anywhere to explain why.
+	permanent := errors.Is(passErr, search.ErrIdentityDrift) || errors.Is(passErr, search.ErrNoLiveWorkspace)
+	if passErr == nil || permanent || job.Attempt >= job.MaxAttempts {
+		// The run will not come back, whichever of the three happened, so it
+		// gives the marker back. River's discard is observable (its failure
+		// event carries the row) but there is no hook that can RETRY, and none
+		// that runs inside the row's own transaction, which is why the
+		// exhausted attempt does this before returning its error.
+		if err := w.store.ReleaseReembedding(ctx, job.Args.Run); err != nil {
+			// Retried on every attempt but the last, and on the permanent paths
+			// too, deliberately: both of those guards short-circuit before any
+			// model call, so an attempt spent re-trying this write costs
+			// nothing, and it is the only thing that will ever hand the marker
+			// back.
 			//
-			// On the LAST attempt there is no retry — River discards a row that has
-			// run out, and nothing observing that discard can retry this write — so
-			// a failure here, most naturally the same outage that failed the pass,
-			// leaves this workspace in the pending set and the marker held for good.
-			// A forced confirm's steal is the way back
-			// (search.ReembedClaim.StealAfter).
+			// On the LAST attempt there is no retry — River discards a row that
+			// has run out — so a failure here, most naturally the same outage
+			// that failed the pass, leaves the marker held for good. A forced
+			// confirm's steal is the way back (search.ReembedClaim.StealAfter).
 			return jobs.FaultContext(ctx, errors.Join(passErr, err))
 		}
 	}
-	if drifted {
-		// Args naming an identity nothing serves anymore are a permanent defect:
-		// what the fleet needs is a new confirm under the current config, not
-		// this row's remaining attempts (jobs_overlay_refetch.go's posture).
+	if permanent {
+		// What this needs is a new confirm — under the current config, or once
+		// the installation has a live workspace again — not this row's remaining
+		// attempts (jobs_overlay_refetch.go's posture).
 		return river.JobCancel(passErr)
 	}
 	return jobs.FaultContext(ctx, passErr)
 }
 
-func (w *embedReindexWorkspaceWorker) reembed(ctx context.Context, args EmbedReindexWorkspaceArgs) error {
-	// workspaceJobCtx earns its place here as the zero-workspace guard, not as
-	// the binding that matters: ReembedWorkspace rebinds the same tenant under
-	// the SYSTEM principal, because an index rebuilt through one caller's row
-	// scope would silently omit what that caller cannot see.
-	wsCtx, err := workspaceJobCtx(ctx, args)
-	if err != nil {
-		return err
-	}
+func (w *embedReindexWorker) reembed(ctx context.Context, args EmbedReindexArgs) error {
 	if w.embedder == nil {
-		return errors.New("embed_reindex_workspace: worker has no embed lane — configure --ai-routing (or --ai-fake) on the worker role")
+		return errors.New("embed_reindex: worker has no embed lane — configure --ai-routing (or --ai-fake) on the worker role")
 	}
-	return w.store.ReembedWorkspace(wsCtx,
-		search.ReembedPass{Run: args.Run, Identity: args.Identity},
-		ids.From[ids.WorkspaceKind](args.Workspace), w.embedder)
+	// The pass runs as the SYSTEM principal inside Reembed: an index
+	// rebuilt through one caller's row scope would silently omit what that
+	// caller cannot see.
+	return w.store.Reembed(ctx, search.ReembedPass{Run: args.Run, Identity: args.Identity}, w.embedder)
 }

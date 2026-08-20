@@ -6,7 +6,7 @@
 package integration
 
 // The resumable corpus re-embed routine (ADR-0068 design §5.6-swap v7,
-// Task 10): ReembedWorkspace re-embeds every live entity of ONE workspace
+// Task 10): Reembed re-embeds every live entity of the installation
 // under a target identity, is free to re-run (UpsertEmbedding's
 // content-hash + identity skip-compare makes an already-current row cost
 // no model call), and refuses to run at all — via ErrIdentityDrift — when
@@ -27,13 +27,13 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable seeds 3 people
-// under a stale identity, then proves a single ReembedWorkspace call under
+// TestReembedReembedsAllLiveEntitiesAndIsResumable seeds 3 people
+// under a stale identity, then proves a single Reembed call under
 // a NEW identity re-embeds all 3 (their stored model becomes the new
 // identity) and reads EntitiesPending == 0 afterward. A SECOND pass over
 // the same identity must cost zero additional embed calls — the
 // resumability property Task 6's skip-compare exists to provide.
-func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
+func TestReembedReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
@@ -60,10 +60,9 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	}
 	baselineCalls := len(fake.Calls())
 
-	wsID := ids.From[ids.WorkspaceKind](e.WS)
 	run := ids.NewV7()
-	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
-		t.Fatalf("ReembedWorkspace: %v", err)
+	if err := e.Store.Reembed(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, newEmbedder); err != nil {
+		t.Fatalf("Reembed: %v", err)
 	}
 
 	for i, id := range personIDs {
@@ -74,7 +73,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 
 	firstPassCalls := len(fake.Calls()) - baselineCalls
 	if firstPassCalls != len(names) {
-		t.Fatalf("first ReembedWorkspace made %d embed calls, want %d (one per live entity)", firstPassCalls, len(names))
+		t.Fatalf("first Reembed made %d embed calls, want %d (one per live entity)", firstPassCalls, len(names))
 	}
 
 	pending, err := e.Store.EntitiesPending(ctx, newIdentity)
@@ -88,7 +87,7 @@ func TestReembedWorkspaceReembedsAllLiveEntitiesAndIsResumable(t *testing.T) {
 	// Resumability: nothing changed since the first pass, so every row is
 	// already current under newIdentity — the skip-compare inside
 	// UpsertEmbedding must short-circuit before ever calling the embedder.
-	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, wsID, newEmbedder); err != nil {
+	if err := e.Store.Reembed(ctx, search.ReembedPass{Run: run, Identity: newIdentity}, newEmbedder); err != nil {
 		t.Fatalf("second ReembedWorkspace: %v", err)
 	}
 	secondPassCalls := len(fake.Calls()) - baselineCalls - firstPassCalls
@@ -147,12 +146,21 @@ func failEmbeddingWritesFor(t *testing.T, owner *pgx.Conn, ws ids.UUID) {
 	})
 }
 
-// TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite is the
-// characterization the split earns. The fleet pass this replaces walked every
-// tenant inside one row and RETURNED on the first that failed, so a single
-// tenant's transient write fault left every workspace behind it in the fleet
-// order un-re-embedded — silently, with no row anywhere saying so.
-func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
+// TestReembedReportsAWriteItCouldNotLand is what the per-tenant-cost case
+// becomes once there is one pass.
+//
+// It used to assert that a write fault cost only the workspace that could not
+// write — the characterization of a much older bug, where a fleet pass walked
+// every tenant inside one row and RETURNED on the first failure, leaving every
+// workspace behind it in the fleet order un-re-embedded with nothing recording
+// it. That property has no subject now: ADR-0091 §8 phase D left one corpus, so
+// there is no second tenant's pass to be spared.
+//
+// What survives is the half that mattered: a pass whose writes cannot land
+// REPORTS it. A pass that swallowed the fault would leave the marker released,
+// the identity stamped, and an index that was never rebuilt — the same silence
+// under a different shape.
+func TestReembedReportsAWriteItCouldNotLand(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
@@ -162,42 +170,22 @@ func TestReembedWorkspaceCostsOnlyTheWorkspaceThatCannotWrite(t *testing.T) {
 		t.Fatalf("SeedBinding: %v", err)
 	}
 
-	healthy := SeedExtraWorkspace(t, e.Owner, "reembed-healthy", false)
-	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Faulted Tenant Person', 'manual', 'human:x')`)
-	healthyPersonID := ids.NewV7()
-	if _, err := e.Owner.Exec(ctx, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Healthy Tenant Person', 'manual', 'human:x')`,
-		healthyPersonID); err != nil {
-		t.Fatalf("seeding the healthy tenant's person: %v", err)
-	}
+	e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Unwritable Person', 'manual', 'human:x')`)
 	failEmbeddingWritesFor(t, e.Owner, e.WS)
 
-	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](e.WS), embedder); err == nil {
-		t.Fatal("a workspace whose embedding writes could not land reported success — nothing records that its corpus was never rebuilt")
-	}
-
-	// The fault is one tenant's, and the pass now takes the tenant it is given.
-	if err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, ids.From[ids.WorkspaceKind](healthy), embedder); err != nil {
-		t.Fatalf("the healthy tenant's pass, while the victim's is faulted: %v", err)
-	}
-	var model string
-	if err := e.Owner.QueryRow(ctx,
-		`SELECT model FROM embedding WHERE entity_type = 'person' AND entity_id = $1 AND chunk_ix = 0`,
-		healthyPersonID).Scan(&model); err != nil {
-		t.Fatalf("reading the healthy tenant's embedding: %v", err)
-	}
-	if model != identity {
-		t.Fatalf("the healthy tenant's person is embedded under %q, want %q", model, identity)
+	if err := e.Store.Reembed(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: identity}, embedder); err == nil {
+		t.Fatal("a pass whose embedding writes could not land reported success — nothing records that the corpus was never rebuilt")
 	}
 }
 
-// TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows proves the
+// TestReembedIdentityDriftCancelsWithoutTouchingRows proves the
 // entry guard fires — and touches NOTHING — when the embedder compose
 // actually injected no longer agrees with the job's own target identity:
 // an operator swapped the live embed binding after this job was
 // enqueued. The worker maps ErrIdentityDrift to river.JobCancel so a stale
 // job cancels cleanly instead of burning its ladder against an identity
 // nothing serves anymore.
-func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
+func TestReembedIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := context.Background()
 	fake := ai.NewFakeClient()
@@ -218,9 +206,9 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 
 	// The job's own args identity does NOT match what embedder actually
 	// reports — the drift the guard exists to catch.
-	err := e.Store.ReembedWorkspace(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: "some-other-target-identity"}, ids.From[ids.WorkspaceKind](e.WS), embedder)
+	err := e.Store.Reembed(ctx, search.ReembedPass{Run: ids.NewV7(), Identity: "some-other-target-identity"}, embedder)
 	if !errors.Is(err, search.ErrIdentityDrift) {
-		t.Fatalf("ReembedWorkspace with a mismatched argsIdentity = %v, want ErrIdentityDrift", err)
+		t.Fatalf("Reembed with a mismatched argsIdentity = %v, want ErrIdentityDrift", err)
 	}
 
 	if calls := len(fake.Calls()); calls != 0 {
@@ -238,13 +226,16 @@ func TestReembedWorkspaceIdentityDriftCancelsWithoutTouchingRows(t *testing.T) {
 	}
 }
 
-// TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore pins the run
-// lifecycle the fan-out turns on. Releasing on the FIRST workspace to finish
-// would let a second reindex start on top of one still running; never releasing
-// would wedge the marker at reembedding and refuse every later confirm. The
-// removal is also idempotent, which is what makes a retried job harmless
-// under at-least-once delivery.
-func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.T) {
+// TestReembedRunMarkerIsHeldUntilTheRunEnds replaces a case about the pending
+// set, which no longer exists.
+//
+// That case proved the marker released on the LAST workspace out and not the
+// first: releasing early would let a second reindex start over one still
+// running, and never releasing would refuse every later confirm. With one pass
+// there is no "last one out" — but both failures it guarded are still failures,
+// so what is left is asserted directly: held while the run is in flight, back
+// when it ends, and idempotent so a retried job is harmless.
+func TestReembedRunMarkerIsHeldUntilTheRunEnds(t *testing.T) {
 	e := SetupSearch(t)
 	ctx := context.Background()
 	const populated = "fake/populated@1024"
@@ -252,58 +243,32 @@ func TestReembedRunMarkerIsReleasedByTheLastWorkspaceOutAndNotBefore(t *testing.
 	if err := e.Store.SeedBinding(ctx, populated); err != nil {
 		t.Fatalf("SeedBinding: %v", err)
 	}
-	second := SeedExtraWorkspace(t, e.Owner, "reembed-marker", false)
 
 	run := claimOf(target)
 	if err := e.Store.ClaimAndEnqueueReembedding(ctx, run, func(pgx.Tx) error { return nil }); err != nil {
 		t.Fatalf("ClaimAndEnqueueReembedding: %v", err)
-	}
-	fleet := []ids.WorkspaceID{ids.From[ids.WorkspaceKind](e.WS), ids.From[ids.WorkspaceKind](second)}
-	if err := e.Store.SeedReembeddingFleet(ctx, run.Run, fleet, func(pgx.Tx) error { return nil }); err != nil {
-		t.Fatalf("SeedReembeddingFleet: %v", err)
-	}
-
-	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
-		t.Fatalf("finishing the first workspace: %v", err)
 	}
 	got, status, _, err := e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
 	if status != "reembedding" || got != populated {
-		t.Fatalf("marker = %q/%q after one of two workspaces finished, want reembedding/%q — a second reindex could start over the one still running", status, got, populated)
+		t.Fatalf("marker = %q/%q while the run is in flight, want reembedding/%q — a second reindex could start over one still running", status, got, populated)
 	}
 
-	// Idempotent: the same workspace reporting twice (a retried job) must not
-	// count as the second workspace and release early.
-	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
-		t.Fatalf("re-finishing the first workspace: %v", err)
+	if err := e.Store.ReleaseReembedding(ctx, run.Run); err != nil {
+		t.Fatalf("releasing the run: %v", err)
+	}
+	// Idempotent: a retried job reporting twice must not disturb the marker,
+	// which after the collapse is the only at-least-once hazard left here.
+	if err := e.Store.ReleaseReembedding(ctx, run.Run); err != nil {
+		t.Fatalf("re-releasing the run: %v", err)
 	}
 	_, status, _, err = e.Store.PopulatedIdentity(ctx)
 	if err != nil {
 		t.Fatalf("PopulatedIdentity: %v", err)
 	}
-	if status != "reembedding" {
-		t.Fatalf("marker = %q after ONE workspace reported twice, want reembedding", status)
-	}
-
-	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[1]); err != nil {
-		t.Fatalf("finishing the last workspace: %v", err)
-	}
-	got, status, _, err = e.Store.PopulatedIdentity(ctx)
-	if err != nil {
-		t.Fatalf("PopulatedIdentity: %v", err)
-	}
-	if status != "idle" || got != target {
-		t.Fatalf("marker = %q/%q after the last workspace finished, want idle/%q", status, got, target)
-	}
-
-	// A straggler from the released run must find nothing to act on rather
-	// than re-releasing a marker a later run may hold by then.
-	if err := e.Store.FinishWorkspaceReembedding(ctx, run.Run, fleet[0]); err != nil {
-		t.Fatalf("a straggler of a released run must be a no-op, got: %v", err)
-	}
-	if err := e.Store.ClaimAndEnqueueReembedding(ctx, claimOf(target), func(pgx.Tx) error { return nil }); err != nil {
-		t.Fatalf("the released marker must be claimable again: %v", err)
+	if status == "reembedding" {
+		t.Fatal("the marker is still held after the run ended — every later confirm is refused until a forced steal")
 	}
 }

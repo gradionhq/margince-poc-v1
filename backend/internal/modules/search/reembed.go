@@ -59,7 +59,7 @@ type ReembedPass struct {
 // each leg that cannot report from inside itself, never only after one has
 // completed — what that bounds, and the part of it nothing here can bound, is
 // stated on ReembedProgressStaleness.
-func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids.WorkspaceID, embedder Embedder) error {
+func (s *Store) Reembed(ctx context.Context, pass ReembedPass, embedder Embedder) error {
 	// The entry guard catches a job that started running after the
 	// operator swapped the live binding config out from under it: the
 	// embedder compose hands this call is always the CURRENT one, so a
@@ -74,13 +74,19 @@ func (s *Store) ReembedWorkspace(ctx context.Context, pass ReembedPass, wsID ids
 		now = time.Now
 	}
 
-	// system principal: re-embedding rebuilds an index over the WHOLE
-	// workspace, not one caller's row scope — the same posture as
-	// EmbedGen (embedgen.go:51-56) and pendingStats.
+	// system principal: re-embedding rebuilds the index over the WHOLE corpus,
+	// not one caller's row scope — the same posture as EmbedGen
+	// (embedgen.go:51-56) and pendingStats.
+	//
+	// A workspace is still bound because the statements run through a bound
+	// handle and the GUC has to be set for them; WHICH one no longer selects
+	// anything, since ADR-0091 §8 phase D left no embeddable table carrying a
+	// tenant. That binding goes with §5, along with WithWorkspaceTx itself.
+	wsID, err := s.anyWorkspace(ctx)
+	if err != nil {
+		return err
+	}
 	wsCtx := systemWorkspaceContext(ctx, wsID.UUID)
-	// The pass reads and writes THIS tenant: it is named as an argument, and
-	// the workspace a statement lands in is the handle's, so the enumerating
-	// store would rebuild its own tenant's index under every id it is given.
 	ws := s.forWorkspace(wsID)
 
 	// note says the run is still working, and restarts the pacing from the write

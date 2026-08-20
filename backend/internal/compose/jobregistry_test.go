@@ -31,16 +31,19 @@ func declaredTimeout(t *testing.T, kind string, supplied time.Duration) time.Dur
 // tree and re-arm the rescuer behind them, and neither change would be visible
 // anywhere else.
 //
-// It is the WORKSPACE half that holds it in both pairs — a dispatcher only
-// enqueues, and an unbounded clock on one would say the fan-out is the long
-// part — so the dispatchers are asserted bounded in the same breath.
+// The unbounded half is whatever actually WALKS a corpus: embed_drift_workspace
+// still does so per tenant, and embed_reindex now does so directly, having
+// absorbed the child it used to fan out to (the corpus stopped being divided
+// when ADR-0091 §8 phase D removed the tenant column). A kind that only
+// enumerates and enqueues carries a real deadline, and embed_drift_sweep is
+// asserted bounded in the same breath to keep the two apart.
 func TestTheTwoPassesDeclaredWithNoWallClockStillResolveToNegativeOne(t *testing.T) {
-	for _, kind := range []string{"embed_reindex_workspace", "embed_drift_workspace"} {
+	for _, kind := range []string{"embed_reindex", "embed_drift_workspace"} {
 		if got := declaredTimeout(t, kind, 0); got != -1 {
 			t.Errorf("%s resolves to %v, want -1 — the pass is bounded by its backlog, and the row must stay outside River's rescuer", kind, got)
 		}
 	}
-	for _, kind := range []string{"embed_reindex", "embed_drift_sweep"} {
+	for _, kind := range []string{"embed_drift_sweep"} {
 		if got := declaredTimeout(t, kind, 0); got <= 0 {
 			t.Errorf("%s resolves to %v, want a positive bound — a dispatcher only enumerates and enqueues", kind, got)
 		}
