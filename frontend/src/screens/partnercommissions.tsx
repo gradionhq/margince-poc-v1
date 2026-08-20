@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Badge, EmptyState } from "../design-system/atoms";
+import { Badge, DataTable, EmptyState } from "../design-system/atoms";
 import { Panel, PanelBody } from "../design-system/panel";
 import { formatMoney, INTL_LOCALE } from "../format/format";
 
@@ -106,38 +106,46 @@ function CommissionLedger({
   locale,
 }: Readonly<{
   entries: CommissionEntry[];
-  locale: ReturnType<typeof useLocale>["locale"];
+  locale: Locale;
 }>) {
   const t = useT();
   return (
-    <table className="table" data-testid="commission-ledger">
-      <thead>
-        <tr>
-          <th scope="col">{t("commission.column.amount")}</th>
-          <th scope="col">{t("commission.column.rate")}</th>
-          <th scope="col">{t("commission.column.basis")}</th>
-          <th scope="col">{t("commission.column.status")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {entries.map((entry) => (
-          <tr key={entry.id} data-testid="commission-row">
-            <td>{formatMoney(entry.amount_minor, entry.currency, locale)}</td>
-            {/* Basis points render as the percentage a human agreed to: 1500 is
-                the tier's 15%, and nobody outside the schema thinks in bps. */}
-            <td>{formatRate(entry.rate_bps, locale)}</td>
-            <td>
-              {formatMoney(entry.basis_amount_minor, entry.currency, locale)}
-            </td>
-            <td>
+    <div data-testid="commission-ledger">
+      <DataTable
+        rows={entries}
+        rowKey={(entry) => entry.id}
+        columns={[
+          {
+            key: "amount",
+            header: t("commission.column.amount"),
+            render: (entry) =>
+              formatMoney(entry.amount_minor, entry.currency, locale),
+          },
+          {
+            key: "rate",
+            header: t("commission.column.rate"),
+            // Basis points render as the percentage a human agreed to: 1500 is
+            // the tier's 15%, and nobody outside the schema thinks in bps.
+            render: (entry) => formatRate(entry.rate_bps, locale),
+          },
+          {
+            key: "basis",
+            header: t("commission.column.basis"),
+            render: (entry) =>
+              formatMoney(entry.basis_amount_minor, entry.currency, locale),
+          },
+          {
+            key: "status",
+            header: t("commission.column.status"),
+            render: (entry) => (
               <Badge tone={STATUS_TONES[entry.status]} quiet>
                 {t(STATUS_LABELS[entry.status])}
               </Badge>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            ),
+          },
+        ]}
+      />
+    </div>
   );
 }
 

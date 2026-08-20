@@ -74,8 +74,10 @@ describe("the commission panel", () => {
     stubCommissions([accrued]);
 
     render(<PartnerCommissions organizationId="o-1" />);
-    const row = await screen.findByTestId("commission-row");
-    const cells = [...row.querySelectorAll("td")].map((c) => c.textContent);
+    const ledger = await screen.findByTestId("commission-ledger");
+    const cells = [...ledger.querySelectorAll("tbody tr td")].map(
+      (c) => c.textContent,
+    );
 
     // 20% of a €1,000 deal, read per cell: asserting the row as one string
     // would pass just as happily with the earned and basis figures swapped.
@@ -101,7 +103,8 @@ describe("the commission panel", () => {
     ]);
 
     render(<PartnerCommissions organizationId="o-1" />);
-    const rows = await screen.findAllByTestId("commission-row");
+    const ledger = await screen.findByTestId("commission-ledger");
+    const rows = [...ledger.querySelectorAll("tbody tr")];
 
     expect(rows).toHaveLength(2);
     expect(rows[1]?.textContent).toContain("Reversed");
@@ -130,7 +133,8 @@ describe("the commission panel", () => {
     );
 
     render(<PartnerCommissions organizationId="o-1" />);
-    const rows = await screen.findAllByTestId("commission-row");
+    const ledger = await screen.findByTestId("commission-ledger");
+    const rows = [...ledger.querySelectorAll("tbody tr")];
 
     expect(rows).toHaveLength(2);
     expect(new URL(urls[1] ?? "").searchParams.get("cursor")).toBe("page-2");
