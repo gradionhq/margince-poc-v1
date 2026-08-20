@@ -18,6 +18,15 @@ type stubTags struct {
 	ensured          *string
 }
 
+func (stubTags) EnsureTaggable(context.Context, string, ids.UUID) error { return nil }
+
+func (s stubTags) FindTag(_ context.Context, name string) (ids.UUID, bool, error) {
+	if s.ensured != nil {
+		*s.ensured = name
+	}
+	return ids.NewV7(), true, nil
+}
+
 func (s stubTags) EnsureTag(_ context.Context, name string) (ids.UUID, error) {
 	if s.ensured != nil {
 		*s.ensured = name
@@ -93,4 +102,64 @@ func TestApplyTagRefusesWithNeitherIDNorName(t *testing.T) {
 	if !errors.As(err, &bad) {
 		t.Fatalf("answered %v, want a BadArgsError naming tag_id or tag_name", err)
 	}
+}
+
+// The target is authorized BEFORE a tag is created for it.
+//
+// Creating first left a live, audited word behind whenever the record turned
+// out not to exist or to sit outside the caller's row scope — a write nobody
+// asked for, produced by a call that then failed.
+func TestApplyTagChecksTheRecordBeforeMintingAWord(t *testing.T) {
+	var ensured string
+	_, err := (applyTag{tags: refusingTaggable{ensured: &ensured}}).Handle(context.Background(),
+		json.RawMessage(`{"tag_name":"K5 Conference 2026","record_type":"organization",`+
+			`"record_id":"`+ids.NewV7().String()+`"}`))
+	if err == nil {
+		t.Fatal("applying to an unreachable record answered success, want the refusal")
+	}
+	if ensured != "" {
+		t.Errorf("a tag named %q was created for a record the caller cannot tag", ensured)
+	}
+}
+
+// A name that names nothing means the tagging is already absent — the state
+// the caller asked for. It must not mint a word in order to remove it.
+func TestRemoveTagByAnUnknownNameSucceedsWithoutCreatingIt(t *testing.T) {
+	out, err := (removeTag{tags: noSuchTag{}}).Handle(context.Background(),
+		json.RawMessage(`{"tag_name":"never used","record_type":"deal",`+
+			`"record_id":"`+ids.NewV7().String()+`"}`))
+	if err != nil {
+		t.Fatalf("removing an unknown tag answered %v, want success", err)
+	}
+	var got TagAppliedResult
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	if got.Applied {
+		t.Error("the result claims a tagging was applied")
+	}
+}
+
+type refusingTaggable struct {
+	stubTags
+	ensured *string
+}
+
+func (r refusingTaggable) EnsureTaggable(context.Context, string, ids.UUID) error {
+	return errNoSuchRecord
+}
+
+func (r refusingTaggable) EnsureTag(_ context.Context, name string) (ids.UUID, error) {
+	if r.ensured != nil {
+		*r.ensured = name
+	}
+	return ids.NewV7(), nil
+}
+
+var errNoSuchRecord = errors.New("no such record in this workspace")
+
+type noSuchTag struct{ stubTags }
+
+func (noSuchTag) FindTag(context.Context, string) (ids.UUID, bool, error) {
+	return ids.UUID{}, false, nil
 }

@@ -13,9 +13,9 @@ receives it. This page is rendered from that file.
 |---|---:|
 | Tools | 47 |
 | Resources | 8 |
-| Tool catalog | 128.2 KB |
+| Tool catalog | 128.4 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 33592 |
+| Approx. wire tokens | 33635 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -29,10 +29,10 @@ budget in `agenttooldescriptions_test.go`.
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
 | Output schemas | 56.8 KB | 44% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 32.7 KB | 25% | Yes, every step |
+| Descriptions (incl. governance clause) | 32.8 KB | 25% | Yes, every step |
 | Input schemas | 28.7 KB | 22% | Yes, every step |
 | _Names, annotations, punctuation_ | 10.0 KB | 7% | Partly |
-| **Description + input schema** | **61.4 KB** | **47%** | **the recurring cost** |
+| **Description + input schema** | **61.5 KB** | **47%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -62,7 +62,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
-| [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 1.9 KB |
+| [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 2.0 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
@@ -820,7 +820,7 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
 
 **Apply a tag to a record**
 
-Put an existing tag on a person, company, deal or lead. The tag must exist. Applying twice is refused as a conflict. (Governance: runs immediately; requires passport scope "write".)
+Tag a person, company, deal or lead — by tag_id, or by tag_name, which reuses the workspace's word or adds it. Applying the same tag twice is refused as a conflict. A name matches case-insensitively; a near-miss makes a NEW word, so prefer a tag_id you already hold. (Governance: runs immediately; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 
@@ -6499,7 +6499,7 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
 
 **Take a tag off a record**
 
-Take one tag off one record, leaving the word in the vocabulary. Removing one that is not there succeeds. archive_record on a tag retires it for all. (Governance: runs immediately; requires passport scope "write".)
+Take one tag off one record — by tag_id or tag_name — leaving the word itself. Removing one that is not there succeeds. archive_record on a tag retires it for all. (Governance: runs immediately; requires passport scope "write".)
 
 <details><summary>Input schema</summary>
 

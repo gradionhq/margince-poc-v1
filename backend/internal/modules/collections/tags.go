@@ -207,6 +207,13 @@ func (s *Store) RemoveTag(ctx context.Context, tagID ids.TagID, entityType strin
 	if !memberEntityTables[entityType] {
 		return &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
+	// READ on the target's own object type, not only tag.update. Without it a
+	// role holding tag.update and deal.read=false could take taggings off
+	// deals it may not see, and learn from the refusal whether a given deal id
+	// exists at all.
+	if err := auth.Require(ctx, entityType, principal.ActionRead); err != nil {
+		return err
+	}
 	return s.db.Tx(ctx, func(tx pgx.Tx) error {
 		var archived *time.Time
 		err := tx.QueryRow(ctx, `SELECT archived_at FROM tag WHERE id = $1`, tagID).Scan(&archived)
@@ -235,6 +242,52 @@ func (s *Store) RemoveTag(ctx context.Context, tagID ids.TagID, entityType strin
 		})
 		return err
 	})
+}
+
+// EnsureTaggable refuses a record this caller may not tag.
+//
+// Split out so a caller can ask BEFORE it creates anything: apply-by-name used
+// to mint the tag first and check the record second, leaving a live audited
+// word behind when the record turned out not to exist or to sit outside the
+// caller's row scope.
+//
+// It also requires READ on the target's object type, which EnsureLinkTarget
+// alone does not: a role holding tag.update but not deal.read could otherwise
+// take taggings off deals it may not see, and tell an existing deal from a
+// missing one by which refusal came back.
+func (s *Store) EnsureTaggable(ctx context.Context, entityType string, entityID ids.UUID) error {
+	if !memberEntityTables[entityType] {
+		return &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
+	}
+	if err := auth.Require(ctx, entityType, principal.ActionRead); err != nil {
+		return err
+	}
+	return s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureLinkTarget(ctx, tx, entityType, entityID)
+	})
+}
+
+// FindTag answers the id of the LIVE tag with this name, or ok=false.
+//
+// Case-insensitive, matching the uq_tag_name index, and live-only: an archived
+// word was retired on purpose and is not what a caller naming it means.
+func (s *Store) FindTag(ctx context.Context, name string) (ids.UUID, bool, error) {
+	if err := auth.Require(ctx, "tag", principal.ActionRead); err != nil {
+		return ids.UUID{}, false, err
+	}
+	var id ids.TagID
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT id FROM tag
+			 WHERE lower(name) = lower($1) AND archived_at IS NULL`, strings.TrimSpace(name)).Scan(&id)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.UUID{}, false, nil
+	}
+	if err != nil {
+		return ids.UUID{}, false, fmt.Errorf("collections: finding tag by name: %w", err)
+	}
+	return id.UUID, true, nil
 }
 
 // TagSummary is the tag as another module sees it. tagRow is unexported

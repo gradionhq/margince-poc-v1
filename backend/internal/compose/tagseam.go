@@ -8,12 +8,14 @@ package compose
 
 import (
 	"context"
-	"strings"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -34,20 +36,41 @@ func tagSeam(pool *pgxpool.Pool) agents.Tags {
 // was retired on purpose, and quietly resurrecting it would undo that decision
 // on the strength of a coincidence of spelling.
 func (a tagAdapter) EnsureTag(ctx context.Context, name string) (ids.UUID, error) {
-	existing, err := a.store.TagVocabulary(ctx, false)
-	if err != nil {
-		return ids.UUID{}, err
-	}
-	for _, t := range existing {
-		if strings.EqualFold(strings.TrimSpace(t.Name), strings.TrimSpace(name)) {
-			return t.TagID, nil
-		}
+	if found, ok, err := a.store.FindTag(ctx, name); err != nil || ok {
+		return found, err
 	}
 	created, err := a.store.NewTag(ctx, name, "")
-	if err != nil {
+	if err == nil {
+		return created.TagID, nil
+	}
+	// Two callers can both miss the lookup and both try to create; uq_tag_name
+	// lets exactly one win. The loser reuses the winner's tag rather than
+	// failing a call that asked for a state now true — the reuse this method
+	// exists for, arriving a moment later than expected.
+	//
+	// A name whose only holder is ARCHIVED lands here too and stays a
+	// conflict: the index does not exempt archived rows, and quietly
+	// resurrecting a word somebody retired is not this call's decision to make.
+	if !errors.Is(err, apperrors.ErrConflict) {
 		return ids.UUID{}, err
 	}
-	return created.TagID, nil
+	found, ok, findErr := a.store.FindTag(ctx, name)
+	if findErr != nil {
+		return ids.UUID{}, findErr
+	}
+	if !ok {
+		return ids.UUID{}, fmt.Errorf("a tag named %q exists but is archived; restore it or use another name: %w",
+			name, err)
+	}
+	return found, nil
+}
+
+func (a tagAdapter) EnsureTaggable(ctx context.Context, entityType string, entityID ids.UUID) error {
+	return a.store.EnsureTaggable(ctx, entityType, entityID)
+}
+
+func (a tagAdapter) FindTag(ctx context.Context, name string) (ids.UUID, bool, error) {
+	return a.store.FindTag(ctx, name)
 }
 
 func (a tagAdapter) ApplyTag(ctx context.Context, tagID ids.UUID, entityType string, entityID ids.UUID) error {

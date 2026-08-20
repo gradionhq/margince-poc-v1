@@ -10,16 +10,16 @@
   "totals": {
     "tools": 47,
     "resources": 8,
-    "tool_catalog_bytes": 131262,
+    "tool_catalog_bytes": 131432,
     "resource_catalog_bytes": 3108,
-    "approx_wire_tokens_total": 33592,
+    "approx_wire_tokens_total": 33635,
     "largest_tool_bytes": 4709,
     "largest_tool": "run_report",
     "tool_catalog_composition": {
-      "description_bytes": 33451,
+      "description_bytes": 33621,
       "input_schema_bytes": 29395,
       "output_schema_bytes": 58195,
-      "description_plus_input_schema_bytes": 62846
+      "description_plus_input_schema_bytes": 63016
     }
   },
   "tools": {
@@ -555,7 +555,7 @@
           "readOnlyHint": false,
           "title": "Apply a tag to a record"
         },
-        "description": "Put an existing tag on a person, company, deal or lead. The tag must exist. Applying twice is refused as a conflict. (Governance: runs immediately; requires passport scope \"write\".)",
+        "description": "Tag a person, company, deal or lead — by tag_id, or by tag_name, which reuses the workspace's word or adds it. Applying the same tag twice is refused as a conflict. A name matches case-insensitively; a near-miss makes a NEW word, so prefer a tag_id you already hold. (Governance: runs immediately; requires passport scope \"write\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {
@@ -5938,7 +5938,7 @@
           "readOnlyHint": false,
           "title": "Take a tag off a record"
         },
-        "description": "Take one tag off one record, leaving the word in the vocabulary. Removing one that is not there succeeds. archive_record on a tag retires it for all. (Governance: runs immediately; requires passport scope \"write\".)",
+        "description": "Take one tag off one record — by tag_id or tag_name — leaving the word itself. Removing one that is not there succeeds. archive_record on a tag retires it for all. (Governance: runs immediately; requires passport scope \"write\".)",
         "inputSchema": {
           "additionalProperties": false,
           "properties": {

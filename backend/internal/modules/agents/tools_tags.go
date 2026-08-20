@@ -31,6 +31,14 @@ import (
 
 // Tags is the seam onto the collections module's tag paths.
 type Tags interface {
+	// EnsureTaggable refuses a record the caller cannot tag, before a tag is
+	// created for it. Same check ApplyTag makes at the end of its own
+	// transaction; asked earlier so a failed apply leaves nothing behind.
+	EnsureTaggable(ctx context.Context, entityType string, entityID ids.UUID) error
+	// FindTag answers the id of the live workspace tag with this name, or
+	// ok=false when there is none. Remove uses it: a name that names nothing
+	// means the tagging is already absent.
+	FindTag(ctx context.Context, name string) (ids.UUID, bool, error)
 	// EnsureTag answers the id of the workspace tag with this name, creating
 	// it only when no such word exists. Reuse is the default because a
 	// vocabulary that grows a near-duplicate per call stops being one.
@@ -91,6 +99,13 @@ func (t applyTag) Handle(ctx context.Context, in json.RawMessage) (json.RawMessa
 		if args.TagName == "" {
 			return nil, &BadArgsError{Cause: errors.New("give tag_id, or tag_name to reuse or create one")}
 		}
+		// The TARGET is authorized before anything is created. Creating first
+		// left a live, audited tag behind when the record turned out not to
+		// exist or to be outside the caller's scope — a write nobody asked for,
+		// produced by a call that then failed.
+		if err := t.tags.EnsureTaggable(ctx, args.RecordType, args.RecordID); err != nil {
+			return nil, err
+		}
 		resolved, err := t.tags.EnsureTag(ctx, args.TagName)
 		if err != nil {
 			return nil, err
@@ -122,6 +137,27 @@ func (t removeTag) Handle(ctx context.Context, in json.RawMessage) (json.RawMess
 	args, err := decodeTagging(in)
 	if err != nil {
 		return nil, err
+	}
+	// A name resolves here too — the schema offers it, and offering an
+	// argument that is silently ignored is worse than not offering it: the
+	// call passed validation with a zero tag id and answered a misleading 404.
+	//
+	// It LOOKS UP, never creates. Minting a tag in order to remove it is
+	// nonsense, and a name that names nothing means the tagging is already
+	// absent, which is the state the caller asked for.
+	if args.TagID.IsZero() {
+		if args.TagName == "" {
+			return nil, &BadArgsError{Cause: errors.New("give tag_id or tag_name")}
+		}
+		found, ok, err := t.tags.FindTag(ctx, args.TagName)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return json.Marshal(TagAppliedResult{Applied: false,
+				RecordType: args.RecordType, RecordID: args.RecordID})
+		}
+		args.TagID = found
 	}
 	if err := t.tags.RemoveTag(ctx, args.TagID, args.RecordType, args.RecordID); err != nil {
 		return nil, err
