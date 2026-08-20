@@ -2363,29 +2363,45 @@ function DealSubtitle({
   locale,
 }: Readonly<{ deal: Deal; locale: Locale }>) {
   const t = useT();
+  // Joined with a visible separator rather than left as bare adjacent spans:
+  // record-sub is a plain text line with no gap of its own, so three spans
+  // render as one run-on string ("€48,000.00Acme Corpvia Northgate"). The
+  // facts are assembled first so only the ones that exist are separated —
+  // a leading or doubled "·" is how an absent company announces itself.
+  const facts: ReactNode[] = [];
+  if (deal.amount_minor != null && deal.currency) {
+    facts.push(formatMoney(deal.amount_minor, deal.currency, locale));
+  }
+  if (deal.organization_id) {
+    facts.push(<EntityRef kind="organization" id={deal.organization_id} />);
+  }
+  if (deal.partner_org_id) {
+    facts.push(
+      <>
+        {/* Sourced and influenced are paid differently, so the line says
+            which one rather than a neutral "partner: X" that hides the
+            distinction the commission turns on. */}
+        {t(
+          deal.partner_attribution === "influenced"
+            ? "deal.partnerInfluenced"
+            : "deal.partnerSourced",
+        )}{" "}
+        <EntityRef kind="organization" id={deal.partner_org_id} />
+      </>,
+    );
+  }
   return (
     <>
-      {deal.amount_minor != null && deal.currency && (
-        <span>{formatMoney(deal.amount_minor, deal.currency, locale)}</span>
-      )}
-      {deal.organization_id && (
-        <span>
-          <EntityRef kind="organization" id={deal.organization_id} />
+      {facts.map((fact, i) => (
+        // The index is the identity here: these are positional facts about one
+        // deal, not a reorderable list, and two of them can render the same
+        // company when a partner sells to itself.
+        // biome-ignore lint/suspicious/noArrayIndexKey: positional facts, never reordered
+        <span key={i}>
+          {i > 0 && <span aria-hidden="true"> · </span>}
+          {fact}
         </span>
-      )}
-      {deal.partner_org_id && (
-        <span>
-          {/* Sourced and influenced are paid differently, so the line says
-              which one rather than a neutral "partner: X" that hides the
-              distinction the commission turns on. */}
-          {t(
-            deal.partner_attribution === "influenced"
-              ? "deal.partnerInfluenced"
-              : "deal.partnerSourced",
-          )}{" "}
-          <EntityRef kind="organization" id={deal.partner_org_id} />
-        </span>
-      )}
+      ))}
     </>
   );
 }

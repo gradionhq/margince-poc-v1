@@ -1495,6 +1495,40 @@ describe("DealScreen — edit, archive, FX line (A3)", () => {
     expect(screen.getByText("via")).toBeTruthy();
   });
 
+  // The facts run together without a separator: three adjacent spans in a
+  // plain text line rendered "€48,000.00Acme Corpvia Northgate", which is why
+  // the partner looked missing on screen while every assertion about it passed.
+  it("separates the subtitle's facts so they do not run together", async () => {
+    const d = deal({
+      id: "x",
+      amount_minor: 4_800_000,
+      currency: "EUR",
+      organization_id: "o1",
+      partner_org_id: "p1",
+      partner_attribution: "sourced",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const url = request.url;
+        if (url.includes("/organizations/p1")) {
+          return jsonResponse({ id: "p1", display_name: "Northgate" });
+        }
+        if (url.includes("/organizations/o1")) {
+          return jsonResponse({ id: "o1", display_name: "Acme Corp" });
+        }
+        return stubBackend([d], { single: d })(request);
+      }),
+    );
+
+    render(<DealScreen id="x" />);
+    await screen.findByRole("button", { name: "Northgate" });
+    const line = document.querySelector(".record-sub")?.textContent ?? "";
+
+    expect(line).toContain("·");
+    expect(line).not.toContain("€48,000.00Acme");
+  });
+
   // Sourced and influenced are paid differently, so the line has to say which.
   it("says a partner only helped when the deal was influenced, not sourced", async () => {
     const d = deal({
