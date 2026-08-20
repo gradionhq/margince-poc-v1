@@ -126,6 +126,10 @@ workspace/
 /.pnpm-store/
 /node_modules/
 /scratchpad/
+#   - agent worktrees. A dispatched agent that works on an isolated copy of the
+#     repo puts it here; it is a second checkout, not product, and staging it
+#     would commit the whole tree twice.
+/.claude/worktrees/
 /*.png
 /*.jpg
 /*.jpeg
