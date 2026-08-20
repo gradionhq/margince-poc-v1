@@ -79,11 +79,26 @@ type VocabularyField struct {
 // Gated as a read of `list`, the object whose filters this vocabulary describes,
 // with no row-scope clause because it returns no record and no record's contents.
 //
-// The custom half carries a SECOND gate, `custom_field:read`, because that half
-// is the catalogue's data — see offerableCustomColumns. A seeded role holds both
-// grants, but role grants are editable one object at a time (setRoleObjectGrant),
-// so "the seed pairs them" is a fact about a fresh install rather than an
-// invariant, and this operation may not lean on it.
+// One thing here is NOT ambient, and the line runs between schema and content.
+// A cf_* column's NAME and TYPE are schema: the record surfaces already expose
+// them to anyone who may read a record, and a builder that could not see them
+// would offer a field the engine accepts, which is the divergence this whole seam
+// exists to prevent. A custom picklist's VALUES are different — an admin authored
+// them, they are the same content `GET /custom-fields` refuses, and they only
+// began travelling here when the vocabulary started carrying options at all.
+//
+// So the field is listed either way and its values need `custom_field:read`
+// (customPicklistValuesAreReadable). A reader without that grant keeps every
+// field they could filter on and falls back to typing the value, which is the
+// behaviour that stood before options travelled — never a lost capability.
+//
+// CORE options are unaffected: those are the contract's own enums, published in
+// api/crm.yaml, so no grant can be what protects them.
+//
+// The gate is asked rather than inferred from the seed. Every seeded role that
+// holds `list:read` also holds `custom_field:read`, but role grants are edited
+// one object at a time (setRoleObjectGrant), so seed pairing is a fact about a
+// fresh install and not an invariant this operation may lean on.
 func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]VocabularyField, bool, error) {
 	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
 		return nil, false, err
@@ -96,6 +111,10 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 		return nil, false, nil
 	}
 	offerable, err := s.offerableCustomColumns(ctx, resource)
+	if err != nil {
+		return nil, false, err
+	}
+	valuesReadable, err := customPicklistValuesAreReadable(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -114,19 +133,44 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 		if !isCore && !offerable[name] {
 			continue
 		}
+		options := field.Options
+		if !isCore && !valuesReadable {
+			options = nil
+		}
 		fields = append(fields, VocabularyField{
 			Name:       name,
 			Type:       string(field.Type),
 			Operators:  storekit.OperatorsFor(field),
 			Custom:     !isCore,
 			References: field.References,
-			Options:    field.Options,
+			Options:    options,
 		})
 	}
 	// By name, because a map answers a different order every call and a picker
 	// whose fields reshuffle between two identical requests reads as broken.
 	sort.Slice(fields, func(i, j int) bool { return fields[i].Name < fields[j].Name })
 	return fields, true, nil
+}
+
+// customPicklistValuesAreReadable answers whether this caller may be told the
+// values an admin authored for a custom picklist — the catalogue's own content,
+// governed by the catalogue's own grant, exactly as `GET /custom-fields` governs
+// it.
+//
+// A refusal is an ANSWER here, not a failure: the field is still listed and the
+// builder still composes clauses on it, so a missing grant narrows what the
+// response says rather than whether it succeeds. Any other error is the caller's
+// to see, which is why only the denial is folded into false.
+func customPicklistValuesAreReadable(ctx context.Context) (bool, error) {
+	err := auth.Require(ctx, "custom_field", principal.ActionRead)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrPermissionDenied):
+		return false, nil
+	default:
+		return false, err
+	}
 }
 
 // offerableCustomColumns answers which cf_* columns a new clause may name — the
@@ -143,23 +187,6 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 func (s *Store) offerableCustomColumns(ctx context.Context, resource string) (map[string]bool, error) {
 	if s.catalog == nil {
 		return map[string]bool{}, nil
-	}
-	// The catalogue's own grant governs the catalogue's own data, here as on the
-	// surface that owns it. What this vocabulary reports for a custom field is a
-	// column name, a type and — since it began carrying them — the VALUES an admin
-	// authored, which is the same content `GET /custom-fields` refuses without
-	// this grant.
-	//
-	// Withheld as a whole field rather than as a blanked options list, which keeps
-	// the documented subset relation true: everything this operation lists is
-	// something the engine accepts. The engine still ACCEPTS a saved filter naming
-	// a custom field, because retirement and authority are different questions —
-	// only the OFFER is withheld.
-	if err := auth.Require(ctx, "custom_field", principal.ActionRead); err != nil {
-		if errors.Is(err, apperrors.ErrPermissionDenied) {
-			return map[string]bool{}, nil
-		}
-		return nil, err
 	}
 	active, err := s.catalog.ActiveColumns(ctx, resource)
 	if err != nil {

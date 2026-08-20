@@ -439,46 +439,77 @@ func TestReadingTheVocabularyNeedsTheListReadGrant(t *testing.T) {
 	}
 }
 
-// The custom half needs the catalogue's own grant, because that half IS the
-// catalogue's data — the column names an admin created and the values they
-// authored, which is what `GET /custom-fields` refuses without it.
+// A custom picklist's VALUES need the catalogue's grant; the field itself does
+// not. That line is where schema stops and content starts: a cf_* column's name
+// and type are already ambient to anyone who may read a record carrying it, and
+// withholding the field would make this operation offer less than the engine
+// accepts — the divergence the whole seam exists to prevent. The values are what
+// an admin authored, and are the same content `GET /custom-fields` refuses.
 //
-// Withheld as whole fields rather than as blanked values, which is what keeps
-// the operation's subset relation true: everything it lists is something the
-// engine accepts. The core half is unaffected, so the reader can still filter.
-func TestTheCustomHalfNeedsTheCustomFieldReadGrant(t *testing.T) {
-	catalog := stubFilterable{cols: map[string][]fieldcatalog.Column{
-		"person": {{Name: "cf_tier", Type: fieldcatalog.TypePicklist, Options: []string{"gold"}}},
-	}}
-	store := (&Store{}).WithFieldCatalog(catalog)
+// So the degradation is deliberate and it is the OLD behaviour: a reader without
+// the grant types the value, exactly as everyone did before options travelled.
+func TestACustomPicklistsValuesNeedTheCatalogueGrant(t *testing.T) {
+	store := (&Store{}).WithFieldCatalog(stubFilterable{cols: map[string][]fieldcatalog.Column{
+		"person": {{Name: "cf_tier", Type: fieldcatalog.TypePicklist, Options: []string{"gold", "silver"}}},
+	}})
 
 	blind := grantCtx("list", principal.ObjectGrant{Read: true})
 	withheld, ok, err := store.FilterVocabulary(blind, "person")
 	if err != nil || !ok {
-		t.Fatalf("filterVocabulary without custom_field:read: ok=%v err=%v — the core half is still readable", ok, err)
+		t.Fatalf("filterVocabulary without custom_field:read: ok=%v err=%v — a missing grant narrows the answer, it does not refuse", ok, err)
 	}
-	for _, f := range withheld {
-		if f.Name == "cf_tier" {
-			t.Errorf("a principal without custom_field:read was offered %q with values %v", f.Name, f.Options)
-		}
+	tier, present := fieldNamed(withheld, "cf_tier")
+	if !present {
+		t.Fatal("cf_tier was dropped entirely: the field is schema and the engine still accepts a clause naming it, so omitting it makes this operation advertise less than the engine takes")
 	}
-	if len(withheld) == 0 {
-		t.Fatal("the core half went with it, so this proved nothing about the custom one")
+	if len(tier.Options) != 0 {
+		t.Errorf("a principal without custom_field:read was told cf_tier's values %v", tier.Options)
+	}
+	// Still filterable, which is the point of withholding the values rather than
+	// the field: the operators are what let a builder compose the clause at all.
+	if len(tier.Operators) == 0 {
+		t.Error("cf_tier carries no operators, so withholding its values cost the clause instead of the copy")
 	}
 
-	// The same store, one grant richer, answers with the field — so the assertion
-	// above is about the grant and not about a stub that never worked.
+	// The same store, one grant richer. Without this the assertion above would
+	// also pass against a stub whose options never arrived.
 	granted, _, err := store.FilterVocabulary(readerCtx(), "person")
 	if err != nil {
 		t.Fatalf("filterVocabulary with both grants: %v", err)
 	}
-	offered := false
-	for _, f := range granted {
-		offered = offered || f.Name == "cf_tier"
+	told, _ := fieldNamed(granted, "cf_tier")
+	if len(told.Options) != 2 {
+		t.Errorf("cf_tier offers %v to a principal holding custom_field:read, want both authored values", told.Options)
 	}
-	if !offered {
-		t.Error("cf_tier was withheld from a principal holding custom_field:read")
+}
+
+// A CORE picklist's values are the contract's own enum, published in
+// api/crm.yaml, so no grant is what protects them — and gating them would hide
+// from a reader something they can read in the specification.
+func TestACorePicklistsValuesNeedNoCatalogueGrant(t *testing.T) {
+	blind := grantCtx("list", principal.ObjectGrant{Read: true})
+	fields, ok, err := (&Store{}).FilterVocabulary(blind, "deal")
+	if err != nil || !ok {
+		t.Fatalf("filterVocabulary: ok=%v err=%v", ok, err)
 	}
+	status, present := fieldNamed(fields, "status")
+	if !present {
+		t.Fatal("deal.status is missing from the vocabulary")
+	}
+	if len(status.Options) == 0 {
+		t.Error("deal.status offers no values to a principal without custom_field:read; a contract enum is not the catalogue's content")
+	}
+}
+
+// fieldNamed reads one field out of a vocabulary answer, since the order is by
+// name and a caller looking for one field should not depend on where it lands.
+func fieldNamed(fields []VocabularyField, name string) (VocabularyField, bool) {
+	for _, f := range fields {
+		if f.Name == name {
+			return f, true
+		}
+	}
+	return VocabularyField{}, false
 }
 
 // A resource with no engine is distinguishable from one whose vocabulary is

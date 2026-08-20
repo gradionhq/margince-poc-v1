@@ -57,6 +57,21 @@ func Types() []string {
 // of the Type* constants above). Whether a given Column is active,
 // retired, or both is a question of which method returned it — Reader
 // and FilterableReader below — not of the type itself.
+//
+// The fields carry DIFFERENT disclosure rules, and this is the one place that
+// says so, because three surfaces read them and each was choosing for itself:
+//
+//   - Name and Type are SCHEMA. Ambient to any caller who may read a record
+//     carrying the column — the record surfaces already expose them, and a
+//     consumer that had to hide them would describe a narrower product than the
+//     engine implements.
+//   - Options is catalogue CONTENT, authored by an admin. A consumer passing it
+//     to a caller needs `custom_field:read`, the grant that governs the
+//     catalogue surface these values otherwise come from.
+//
+// Neither of those is a Column's own business to enforce — it holds no context —
+// so the obligation lands on the consumer, which is why it is written where every
+// consumer reads rather than in each of them.
 type Column struct {
 	Name string
 	Type string
