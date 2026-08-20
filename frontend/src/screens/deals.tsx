@@ -252,7 +252,13 @@ function dealsByStageReportFilters(f: DealFilters): Record<string, unknown> {
 // live pipeline regardless of the board's "show archived" toggle.
 function useStageTotals(f: DealFilters) {
   return useQuery({
-    queryKey: ["deals-by-stage-totals", f],
+    // Under ["deals"] on purpose, so the ONE invalidation every deal mutation
+    // already fires refreshes the column headers along with the cards. Keyed
+    // apart from them, a moved card sat under a header still counting it in
+    // the stage it left — and a foreign-currency deal arriving in a
+    // single-currency stage left the old sum standing, which is the mixed-
+    // currency refusal not happening.
+    queryKey: ["deals", "by-stage-totals", f],
     enabled: !f.overlay,
     queryFn: async () => {
       const { data, error } = await api.POST("/reports/{report}", {
@@ -1219,28 +1225,31 @@ export function DealsScreen({
           <QueryGate query={pipelinesQuery}>
             {() =>
               effectivePipeline ? (
-                // Only the FIRST page goes through the gate. Once cards are on
-                // screen a failed "load more" must leave them there and let the
-                // button retry, rather than replacing a usable board with an
-                // error — the same rule the overlay table follows.
-                <QueryGate query={dealsQuery}>
-                  {() => (
-                    <>
-                      <PipelineBoard
-                        columns={buildColumns(
-                          effectivePipeline.stages ?? [],
-                          loadedDeals,
-                          stageTotalsQuery.data ?? new Map(),
-                          orgMarks,
-                        )}
-                        onOpen={openDeal}
-                        cardDragHandlers={cardDragHandlers}
-                        columnDropHandlers={columnDropHandlers}
-                      />
-                      <LoadMoreButton query={dealsQuery} />
-                    </>
-                  )}
-                </QueryGate>
+                // Only the INITIAL load goes through the gate. An infinite
+                // query reports isError when ANY page fails, later ones
+                // included, so keeping the gate around a loaded board would
+                // let one failed "load more" throw away every card already on
+                // screen. Past the first page the board stands and the button
+                // retries — exactly what OverlayDealsTable does above, and for
+                // the same reason.
+                (dealsQuery.data?.pages ?? []).length === 0 ? (
+                  <QueryGate query={dealsQuery}>{() => null}</QueryGate>
+                ) : (
+                  <>
+                    <PipelineBoard
+                      columns={buildColumns(
+                        effectivePipeline.stages ?? [],
+                        loadedDeals,
+                        stageTotalsQuery.data ?? new Map(),
+                        orgMarks,
+                      )}
+                      onOpen={openDeal}
+                      cardDragHandlers={cardDragHandlers}
+                      columnDropHandlers={columnDropHandlers}
+                    />
+                    <LoadMoreButton query={dealsQuery} />
+                  </>
+                )
               ) : null
             }
           </QueryGate>

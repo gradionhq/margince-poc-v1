@@ -765,6 +765,39 @@ describe("DealsScreen", () => {
     expect(screen.getByText("First page deal")).toBeTruthy();
   });
 
+  // The column headers count every matching deal through a SEPARATE report
+  // query. Keyed apart from the cards it never saw the invalidation every deal
+  // mutation fires, so a moved card sat under a header still counting it in
+  // the stage it left. The key now lives UNDER ["deals"], which is what makes
+  // that one invalidation reach both — assert the relationship, since a
+  // request count cannot tell a real invalidation from a routine refetch.
+  it("keys the column totals under the deals cache so one invalidation reaches both", async () => {
+    const keys: unknown[][] = [];
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    vi.stubGlobal("fetch", stubBackend([deal({})]));
+    rtlRender(
+      <QueryClientProvider client={client}>
+        <LocaleProvider initial="en">
+          <DealsScreen />
+        </LocaleProvider>
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit")).toBeTruthy(),
+    );
+
+    for (const query of client.getQueryCache().getAll()) {
+      keys.push(query.queryKey as unknown[]);
+    }
+    const totals = keys.find((key) => key.includes("by-stage-totals"));
+    expect(totals).toBeTruthy();
+    // invalidateQueries({queryKey:["deals"]}) matches by PREFIX, so this is
+    // the whole claim: the totals live under it.
+    expect(totals?.[0]).toBe("deals");
+  });
+
   // The board's column total must come from the deals-by-stage
   // report over EVERY matching deal, not from summing the (capped) page of
   // cards. The seeded card's own amount×probability would give a different,
