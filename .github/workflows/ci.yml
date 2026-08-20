@@ -1312,3 +1312,62 @@ jobs:
           pnpm exec playwright install --with-deps chromium
       - name: Screen-acceptance UAT (build → preview → AC + axe)
         run: make frontend-e2e
+
+  # ONE required context stands for the whole lane.
+  #
+  # Nine separately-required contexts were satisfiable by a run that did nothing:
+  # GitHub reads a skipped required check as a passing one, and the classifier
+  # skips whole jobs. This job is the only required context now, and
+  # scripts/ci-verdict.sh is where "a skip is not a pass on the merge queue" is
+  # written down and unit-tested (make test-ci-verdict).
+  #
+  # WHAT THE needs: LIST DELIBERATELY OMITS:
+  #   changes                    — the classifier produces no verdict.
+  #   fe-quality/-unit/-bundle   — absorbed by the `frontend` fan-in.
+  #   integration-shards,
+  #   integration-unit-coverage  — absorbed by the `integration` fan-in, which
+  #                                already asserts on their results.
+  #   sonarcloud                 — not a required check (merge speed during heavy
+  #                                development). Listing it here would make it
+  #                                blocking by the back door.
+  #
+  # vuln, live-boot and uat ARE listed, and that makes them blocking for the
+  # first time: they run today but sit outside the required-contexts list, so a
+  # red one does not stop a merge. A job worth running is worth believing. If
+  # either e2e job proves flaky under the queue, stabilise or delete it — do not
+  # quietly drop it from this list.
+  ci:
+    name: ci
+    timeout-minutes: 10
+    # always(), so the verdict is reached when an upstream job fails rather than
+    # being skipped along with it — a skipped aggregate is a green required check,
+    # which is the whole failure mode this job exists to end.
+    if: always()
+    needs:
+      - dco
+      - deterministic-gates
+      - craftsmanship
+      - craft-residue
+      - secret-scan
+      - extension-reference
+      - integration
+      - frontend
+      - license-gate
+      - live-boot
+      - uat
+      - vuln
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verdict
+        env:
+          CI_VERDICT_NEEDS: ${{ toJSON(needs) }}
+          CI_VERDICT_EVENT: ${{ github.event_name }}
+        run: ./scripts/ci-verdict.sh
