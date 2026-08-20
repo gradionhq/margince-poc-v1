@@ -134,14 +134,42 @@ export function PanelBody({
 }
 
 // PanelRow is the full-bleed hairline row every list inside a panel wants: a
-// top border against the row above (none on the first), a hover fill, and
-// content that runs edge to edge rather than sitting in the body's padding.
+// top border against the row above (none on the first) and content that runs
+// edge to edge rather than sitting in the body's padding.
+//
+// A row is INERT unless the caller says otherwise, which is the reverse of what
+// this component shipped with. The hover fill was unconditional, so a panel
+// whose ruled blocks are read rather than clicked told the reader every one of
+// them was pressable — and that was most of them: of the thirty-odd rows in
+// this tree exactly one is a single press target filling its row. The rest
+// carry a checkbox, a switch, a name that navigates, a verb at the far end —
+// sub-targets with their own hover and focus states, under a row that is not
+// itself a target.
 export function PanelRow({
+  interactive,
   children,
   className,
-}: Readonly<{ children: ReactNode; className?: string }>) {
+}: Readonly<{
+  // The WHOLE row is one press target — a button or a link that fills it, so
+  // pointing anywhere in the row aims at the same thing. That is what earns
+  // the hover fill: the fill says "this, all of it, is what you would hit".
+  //
+  // A row that merely CONTAINS a control is not this. Its control draws its
+  // own hover, and a fill behind it claims a hit area the row does not have.
+  interactive?: boolean;
+  children: ReactNode;
+  className?: string;
+}>) {
   return (
-    <div className={["panel-row", className ?? ""].filter(Boolean).join(" ")}>
+    <div
+      className={[
+        "panel-row",
+        interactive ? "panel-row-interactive" : "",
+        className ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       {children}
     </div>
   );

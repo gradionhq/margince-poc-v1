@@ -141,11 +141,14 @@ function HealthMeter({
           {tip.tip}
         </span>
       </span>
+      {/* dense: the bar reads as this label's own bar, so the dimension is two
+          lines tall rather than three. */}
       <Meter
         value={HEALTH_RANK.indexOf(rating) + 1}
         max={HEALTH_RANK.length}
         tone={HEALTH_METER_TONE[rating]}
         flat={!(rating in HEALTH_METER_TONE)}
+        dense
         label={label}
       />
     </div>

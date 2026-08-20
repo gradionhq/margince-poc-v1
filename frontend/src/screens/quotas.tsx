@@ -412,7 +412,8 @@ function QuotaSelector({
     // A header band, a list of rows and a verb beside the title is Panel's own
     // anatomy, so the rows are PanelRows on the panel's ground rather than
     // bordered boxes inset inside a card. The press target fills the row: the
-    // row is what a reader aims at, and PanelRow keeps the hairline and hover.
+    // row is what a reader aims at, which is exactly what `interactive` claims
+    // — so PanelRow keeps the hairline and lights the whole row on hover.
     <Panel
       title={t("quotas.selector.title")}
       titleAction={
@@ -422,6 +423,7 @@ function QuotaSelector({
       {list.map((quota) => (
         <PanelRow
           key={quota.id}
+          interactive
           className={quota.id === activeId ? "quota-row-on" : undefined}
         >
           <button

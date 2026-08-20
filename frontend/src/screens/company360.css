@@ -37,12 +37,15 @@
 /* What this account is worth to us. The panel is one reading in five parts —
    the verdict, the dimensions under it, the two sides of the argument, the
    labelled answers, the attribution — and a hairline between consecutive
-   parts is what says where one answer ends and the next begins. The rule is
-   hung on this screen's own class rather than on .panel-body, so Panel keeps
-   sole authorship of its internals. */
-.co-worth-block + .co-worth-block {
-  border-top: 1px solid var(--borderSubtle);
-}
+   parts is what says where one answer ends and the next begins.
+
+   That hairline is NOT drawn here, and no longer needs a class to hang on.
+   Every part is a PanelBody, and panel.css's seam rule
+   (`.panel-body + .panel-body`) already rules consecutive ones: this sheet
+   spelled the same border a day after the design system took ownership of it,
+   which is the third spelling that rule was written to end. The parts that
+   still need a name of their own take `.co-worth-split` or `.co-worth-row`
+   below, for their LAYOUT rather than for their seam. */
 
 /* The dot between two readings on one line. Owned by the reading that FOLLOWS
    it, so a line that wraps never leaves a separator stranded at its end. */
@@ -959,11 +962,10 @@
 }
 
 /* The bar carries the same weight as the health meters in the rail — one
-   product, one bar — rather than the taller default with its own margins. */
-.co-growth-fit-score .meterbar {
-  height: 6px;
-  margin: 0;
-}
+   product, one bar — rather than the taller default with its own margins. That
+   is `Meter`'s own `dense`, set at the call site in companygrowthfit.tsx: the
+   two sheets that wanted it were reaching into `.meterbar` from outside, which
+   made readings.css the second author of a geometry it owns. */
 
 /* The reason starts under the bar, in the bar's own column. */
 .co-growth-fit-score-reason {
@@ -1110,10 +1112,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.co-health-meter .meterbar {
-  height: 6px;
-  margin: 0;
-}
+/* The bar's own geometry is `Meter`'s `dense`, set at the call site in
+   companyrail.tsx — not reached into from here. */
+
 /* The four counting facts read as one tight paragraph, set apart from the
    meters above by real space so the block reads as a separate answer
    rather than a fifth meter row. */

@@ -58,6 +58,31 @@ describe("Meter draws a proportion a reader can also hear", () => {
       container.querySelector(".meterbar")?.classList.contains("meterbar-flat"),
     ).toBe(true);
   });
+
+  // The size is the primitive's to name. Two screen sheets had reached into
+  // `.meterbar` for the same 6px and the same zero margin, so the geometry had
+  // three authors and would have drifted the first time any of them moved.
+  it("takes its tighter geometry from the primitive, not the caller", () => {
+    const { container } = render(
+      <Meter value={6} max={8} label="Growth fit" flat dense />,
+    );
+    const bar = container.querySelector(".meterbar");
+    expect(bar?.classList.contains("meterbar-dense")).toBe(true);
+    // dense is a size, so it does not spend one of the fill's choices: the
+    // flat accent it was asked for is still there.
+    expect(bar?.classList.contains("meterbar-flat")).toBe(true);
+  });
+
+  it("draws the default geometry when no size is asked for", () => {
+    const { container } = render(
+      <Meter value={6} max={8} label="Growth fit" flat />,
+    );
+    expect(
+      container
+        .querySelector(".meterbar")
+        ?.classList.contains("meterbar-dense"),
+    ).toBe(false);
+  });
 });
 
 describe("Sparkline is a glyph, not a chart", () => {

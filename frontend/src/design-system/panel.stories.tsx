@@ -179,3 +179,50 @@ export const WithPlate: Story = {
     ),
   },
 };
+
+// What `interactive` promises: ONE press target filling the row, so pointing
+// anywhere in it aims at the same thing. Inline here rather than as a class,
+// because a story is not the place a screen's button styling comes from.
+const fullRowPress = {
+  display: "block",
+  width: "100%",
+  padding: 0,
+  border: 0,
+  background: "transparent",
+  font: "inherit",
+  color: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
+} as const;
+
+// interactive, both states in one panel — the point is the COMPARISON, because
+// the defect this prop fixes is only visible as one: run the pointer down the
+// column and the two rows that light up are the two you can press, while the
+// three that report a reading stay put. Held together as one hover on every
+// row, a panel of readings claimed all five were targets.
+//
+// Check it in both themes: the fill is `--bgHover`, a mix off the canonical
+// surface token, so light and dark are two different distances from the row's
+// own ground.
+export const InteractiveRows: Story = {
+  args: {
+    title: "Quarterly target",
+    children: (
+      <>
+        <PanelRow interactive>
+          <button type="button" style={fullRowPress}>
+            Q3 — new business, EU
+          </button>
+        </PanelRow>
+        <PanelRow interactive>
+          <button type="button" style={fullRowPress}>
+            Q4 — renewals
+          </button>
+        </PanelRow>
+        <PanelRow>Attainment to date — 68%</PanelRow>
+        <PanelRow>Set by Lars Ohlsen on 4 March</PanelRow>
+        <PanelRow>Weighted against the open pipeline</PanelRow>
+      </>
+    ),
+  },
+};
