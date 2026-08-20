@@ -198,10 +198,11 @@ func appendDealFilters(ctx context.Context, where []string, in ListDealsInput, a
 		}
 	}
 	if in.PartnerAttribution != nil {
-		if err := validPartnerAttribution(*in.PartnerAttribution); err != nil {
+		clause, err := partnerAttributionFilterClause(ctx, *in.PartnerAttribution, arg)
+		if err != nil {
 			return nil, err
 		}
-		where = append(where, storekit.SQLf("partner_attribution = $%d", arg(*in.PartnerAttribution)))
+		where = append(where, clause)
 	}
 	if in.Status != nil {
 		where = append(where, storekit.SQLf("status = $%d", arg(*in.Status)))
@@ -251,6 +252,31 @@ func referenceFilterClause(ctx context.Context, column, table string, id ids.UUI
 	}
 	return clause + storekit.SQLf(
 		" AND EXISTS (SELECT 1 FROM %s ref WHERE ref.id = $%d AND %s)", table, pos, scope), nil
+}
+
+// partnerAttributionFilterClause narrows to what a partner did for the deal,
+// and carries the partner's OWN visibility with it.
+//
+// Without that second half the filter is an existence oracle for the fact the
+// field mask withholds: a caller whose read of a deal masks both partner
+// columns could still ask for `partner_attribution=sourced` and learn from the
+// row's presence that some partner brought it. The mask and the filter have to
+// withhold the same fact, so this arm answers only for deals whose partner the
+// caller could open.
+func partnerAttributionFilterClause(ctx context.Context, attribution string, arg func(any) int) (string, error) {
+	if err := validPartnerAttribution(attribution); err != nil {
+		return "", err
+	}
+	clause := storekit.SQLf("partner_attribution = $%d", arg(attribution))
+	scope, err := auth.ScopeClauseFor(ctx, "organization", "pref", arg)
+	if err != nil {
+		return "", err
+	}
+	if scope == "" {
+		return clause, nil
+	}
+	return clause + storekit.SQLf(
+		" AND EXISTS (SELECT 1 FROM organization pref WHERE pref.id = partner_org_id AND %s)", scope), nil
 }
 
 const dealColumns = `id, name, amount_minor, currency, pipeline_id, stage_id,

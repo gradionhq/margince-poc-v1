@@ -57,12 +57,27 @@ func dealNamingPartner(attribution string) crmcontracts.Deal {
 	return crmcontracts.Deal{PartnerOrgId: &partner, PartnerAttribution: &attribution}
 }
 
+// samePartnerRestated is an update that names the partner the deal already
+// carries — a no-op on the link, which must not be read as a change of partner.
+func samePartnerRestated(attribution string) struct {
+	current crmcontracts.Deal
+	in      UpdateDealInput
+} {
+	current := dealNamingPartner(attribution)
+	same := ids.From[ids.OrganizationKind](ids.UUID(*current.PartnerOrgId))
+	return struct {
+		current crmcontracts.Deal
+		in      UpdateDealInput
+	}{current: current, in: UpdateDealInput{PartnerOrganizationID: &same}}
+}
+
 // What a deal claims about the partner it names, for each way a caller can
 // leave the claim unsaid. The link itself goes through auth.EnsureLinkTarget,
 // which needs a real transaction — the integration lane covers that half; this
 // covers the decision it feeds.
 func TestWhatADealClaimsAboutThePartnerItNames(t *testing.T) {
 	influenced := attributionInfluenced
+	keptPartner := samePartnerRestated(attributionInfluenced)
 	for name, tc := range map[string]struct {
 		current crmcontracts.Deal
 		in      UpdateDealInput
@@ -78,9 +93,18 @@ func TestWhatADealClaimsAboutThePartnerItNames(t *testing.T) {
 			in:      UpdateDealInput{PartnerOrganizationID: orgIDPtr(t), PartnerAttribution: &influenced},
 			want:    attributionInfluenced,
 		},
-		"re-pointing at another partner keeps the claim already made": {
+		// An attribution describes a PARTNER, so it does not follow the deal to
+		// whoever is named next: inheriting "influenced" would decide that the
+		// new partner earns nothing on the strength of a claim about somebody
+		// else.
+		"pointing at a DIFFERENT partner starts the claim over": {
 			current: dealNamingPartner(attributionInfluenced),
 			in:      UpdateDealInput{PartnerOrganizationID: orgIDPtr(t)},
+			want:    attributionSourced,
+		},
+		"naming the partner the deal already has keeps its claim": {
+			current: keptPartner.current,
+			in:      keptPartner.in,
 			want:    attributionInfluenced,
 		},
 	} {

@@ -180,6 +180,13 @@ func applyPartnerAttributionPatch(ctx context.Context, tx pgx.Tx,
 		if current.PartnerOrgId == nil {
 			return &PartnerAttributionUnpairedError{}
 		}
+		// Re-attributing is a write ABOUT that partner, so it needs the same
+		// permission naming them would: a caller who can no longer open the
+		// organization — it became capture-private after the link was made —
+		// may not change what the deal claims they did.
+		if err := auth.EnsureLinkTarget(ctx, tx, "organization", ids.UUID(*current.PartnerOrgId)); err != nil {
+			return err
+		}
 		p.Set("partner_attribution", current.PartnerAttribution, *in.PartnerAttribution)
 		return nil
 	}
@@ -192,19 +199,31 @@ func applyPartnerAttributionPatch(ctx context.Context, tx pgx.Tx,
 }
 
 // resolvedAttribution decides what a deal that names a partner claims about
-// them. An explicit attribution wins. Re-pointing a deal at a different
-// partner keeps the claim already made about it. A partner named with no
-// claim, on a deal that carried none, is the sourced motion — that is what
-// the bare link meant for every row written before this column existed.
+// them. An explicit attribution wins.
+//
+// Otherwise the claim is "sourced", including when the deal already carried a
+// different one: an attribution describes a PARTNER, so it does not follow the
+// deal to whoever is named next. Carrying "influenced" over from the previous
+// partner would quietly decide that the new one — who may well have brought
+// the deal — earns nothing, on the strength of a claim made about somebody
+// else. Re-attributing without moving the partner is the separate path above.
 func resolvedAttribution(current crmcontracts.Deal, in UpdateDealInput) string {
-	switch {
-	case in.PartnerAttribution != nil:
+	if in.PartnerAttribution != nil {
 		return *in.PartnerAttribution
-	case current.PartnerAttribution != nil:
-		return *current.PartnerAttribution
-	default:
-		return attributionSourced
 	}
+	if samePartner(current, in) && current.PartnerAttribution != nil {
+		// Naming the partner the deal already has is not a change of partner,
+		// so the claim already made about them stands.
+		return string(*current.PartnerAttribution)
+	}
+	return attributionSourced
+}
+
+// samePartner reports whether the update names the partner the deal already
+// carries, rather than pointing it at a different one.
+func samePartner(current crmcontracts.Deal, in UpdateDealInput) bool {
+	return current.PartnerOrgId != nil && in.PartnerOrganizationID != nil &&
+		ids.UUID(*current.PartnerOrgId) == in.PartnerOrganizationID.UUID
 }
 
 // validPartnerAttribution keeps the vocabulary refusal in the store, where it
