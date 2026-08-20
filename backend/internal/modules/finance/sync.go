@@ -164,8 +164,16 @@ func mirrorCustomers(
 //
 // It reads first rather than leaving the outcome to an upsert's own guard,
 // because the pass has to KNOW which of the three things it did: an unchanged
-// entry writes no row, and a pass that audited it anyway would file history
-// for a write that did not happen.
+// entry writes no row, and a pass that audited it anyway would file history for
+// a write that did not happen.
+//
+// That trades an ON CONFLICT the previous version had, and the trade is
+// deliberate. Two sweeps racing on one entry now collide on the unique index,
+// which rolls the transaction back and lets the retry write correct history.
+// The upsert would not have collided — it would have taken the DO UPDATE arm
+// while this pass still believed it was inserting, and filed `create` for an
+// update. audit_log is APPEND-ONLY: a rollback is recoverable and a verb is
+// not.
 func mirrorCustomer(
 	ctx context.Context, tx pgx.Tx, connectionID ids.UUID,
 	customer SourceCustomer, source, by string,

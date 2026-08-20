@@ -15,6 +15,7 @@ package finance
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"testing"
@@ -629,4 +630,118 @@ func (e *financeEnv) connectionStatus(t *testing.T, id ids.UUID) string {
 		t.Fatalf("reading the connection's status: %v", err)
 	}
 	return status
+}
+
+// A source that RESTATES what it said is the only way to reach the mirror's
+// update arms, and it is where the audit trail earns its keep: the before image
+// is what the money was, read off the row, and the after is what the source now
+// says it is.
+//
+// The offline generator cannot produce this. It is deterministic by design — a
+// source that never changes its mind — so the paths that record a change are
+// unreachable through it. The double below stands at the PROVIDER seam and
+// nowhere else: the store, the SQL, the images and the audit writer under test
+// are all the real ones.
+func TestARestatedSourceAuditsTheUpdateWithBothImages(t *testing.T) {
+	e := setupFinance(t)
+	source := restatingSource(e.external)
+
+	if _, err := e.store.SyncConnection(e.ctx, source); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	created := auditRowsByEntity(e.ctx, t, e)
+
+	// The source corrects the tax it charged, the amount it received, and the
+	// name it files the customer under. Three tables, three update arms.
+	source.customer.DisplayName = "Ledger GmbH (Hamburg)"
+	source.ledger.Invoices[0].TaxMinor = 3090
+	source.ledger.Invoices[0].GrossMinor = 13090
+	source.ledger.Invoices[0].PaidMinor = 6000
+	source.ledger.Payments[0].AmountMinor = 6000
+	if _, err := e.store.SyncConnection(e.ctx, source); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+
+	for _, entity := range []string{entityInvoice, entityPayment, entityExternalCustomer} {
+		if got, want := auditRowsByEntity(e.ctx, t, e)[entity], created[entity]+1; got != want {
+			t.Errorf("%d audit rows for %s after the source restated it, want %d",
+				got, entity, want)
+		}
+	}
+
+	// The before image has to be what the ROW held, not the source's new
+	// figures rendered twice. A writer that rebuilt it from the source would
+	// pass every count above and record a change that did not happen.
+	before, after := updateImages(e.ctx, t, e, entityInvoice)
+	if before["gross_minor"] != float64(11900) || after["gross_minor"] != float64(13090) {
+		t.Errorf("the invoice's update reads %v → %v, want 11900 → 13090",
+			before["gross_minor"], after["gross_minor"])
+	}
+	before, after = updateImages(e.ctx, t, e, entityPayment)
+	if before["amount_minor"] != float64(5000) || after["amount_minor"] != float64(6000) {
+		t.Errorf("the payment's update reads %v → %v, want 5000 → 6000",
+			before["amount_minor"], after["amount_minor"])
+	}
+}
+
+// updateImages reads the two images off the one `update` audit row this
+// workspace holds for an entity type.
+func updateImages(
+	ctx context.Context, t *testing.T, e *financeEnv, entityType string,
+) (before, after map[string]any) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		var beforeRaw, afterRaw []byte
+		if err := tx.QueryRow(ctx, `
+			SELECT before, after FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type = $2 AND action = 'update'`,
+			e.ws, entityType).Scan(&beforeRaw, &afterRaw); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(beforeRaw, &before); err != nil {
+			return err
+		}
+		return json.Unmarshal(afterRaw, &after)
+	}); err != nil {
+		t.Fatalf("reading the %s update's images: %v", entityType, err)
+	}
+	return before, after
+}
+
+// restatingSource is one customer with one invoice and one payment against it,
+// held in fields the test rewrites between passes.
+func restatingSource(externalID string) *restatingProvider {
+	issued := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	due := issued.AddDate(0, 0, 30)
+	return &restatingProvider{
+		customer: SourceCustomer{ExternalID: externalID, DisplayName: "Ledger GmbH"},
+		ledger: SourceLedger{
+			Invoices: []SourceInvoice{{
+				ExternalID: "INV-RESTATED-1", Number: "2026-001",
+				IssuedOn: issued, DueOn: &due, Currency: "EUR",
+				NetMinor: 10000, TaxMinor: 1900, GrossMinor: 11900, PaidMinor: 5000,
+			}},
+			Payments: []SourcePayment{{
+				ExternalID: "PAY-RESTATED-1", InvoiceExternalID: "INV-RESTATED-1",
+				PaidAt: issued, Currency: "EUR", AmountMinor: 5000,
+			}},
+		},
+	}
+}
+
+// restatingProvider answers whatever its fields currently hold, so a test can
+// change the source's mind between two passes.
+type restatingProvider struct {
+	customer SourceCustomer
+	ledger   SourceLedger
+}
+
+func (p *restatingProvider) Name() string { return OfflineProviderName }
+
+func (p *restatingProvider) Customers(context.Context) ([]SourceCustomer, error) {
+	return []SourceCustomer{p.customer}, nil
+}
+
+func (p *restatingProvider) InvoicesFor(context.Context, string) (SourceLedger, error) {
+	return p.ledger, nil
 }
