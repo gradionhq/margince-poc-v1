@@ -74,7 +74,7 @@ func (r *Router) AttachmentMIMEs(task Task) []string {
 	// an empty one, and the task advertises carriage its leading rung refuses.
 	var started bool
 	for _, tier := range taskLadders[task] {
-		client, bound := r.clients[tier]
+		client, bound := r.binding().clients[tier]
 		if !bound {
 			continue
 		}
@@ -108,7 +108,7 @@ func intersectMIMEs(a, b []string) []string {
 // This is the reprice target for a served slice whose own model has since
 // departed the ladder — keyed on the slice's recorded ai_call.tier.
 func (r *Router) CurrentModelForTier(tier Tier) (ModelRef, bool) {
-	m, ok := r.routeMeta[tier]
+	m, ok := r.binding().routeMeta[tier]
 	// An empty model id counts as unbound DELIBERATELY: the offline `fake` provider
 	// legitimately binds {provider: fake} with no model id, and there is no model
 	// rate to price such a lane against — so it degrades to the estimator's

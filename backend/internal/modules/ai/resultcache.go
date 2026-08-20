@@ -96,6 +96,16 @@ func (c *resultCache) makeRoomLocked() {
 	delete(c.entries, soonestKey)
 }
 
+// clear drops every cached answer, whatever workspace produced it. A rebind
+// calls it: each entry was produced by a model binding that no longer exists,
+// and serving one afterwards would attribute a previous model's words to the
+// one now bound.
+func (c *resultCache) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	clear(c.entries)
+}
+
 func (c *resultCache) invalidate(wsID ids.WorkspaceID) {
 	c.mu.Lock()
 	defer c.mu.Unlock()

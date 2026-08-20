@@ -9,12 +9,12 @@ import "testing"
 // resolvers read — the default classify/enrich ladder with premium left
 // unbound, plus the embed lane.
 func bindRouter() *Router {
-	return &Router{routeMeta: map[Tier]routeMeta{
+	return boundRouter(binding{routeMeta: map[Tier]routeMeta{
 		TierLocalSmall: {provider: "ollama", model: "gemma3"},
 		TierCheapCloud: {provider: "gemini", model: "gemini-3.1-flash-lite"},
 		TierEmbedLane:  {provider: "gemini", model: "gemini-embedding-001"},
 		// TierPremium intentionally absent — an unbound tier.
-	}}
+	}})
 }
 
 func TestBoundLadder(t *testing.T) {
@@ -31,7 +31,7 @@ func TestBoundLadder(t *testing.T) {
 	}
 	// A ladder whose rungs are all unbound → empty slice, never a nil index at
 	// the call site.
-	empty := &Router{routeMeta: map[Tier]routeMeta{}}
+	empty := boundRouter(binding{routeMeta: map[Tier]routeMeta{}})
 	if got := empty.BoundLadder(TaskCaptureClassify); len(got) != 0 {
 		t.Fatalf("all-unbound ladder must yield empty, got %+v", got)
 	}
@@ -47,7 +47,7 @@ func TestCurrentModelForTier(t *testing.T) {
 		t.Fatalf("premium is unbound; want ok=false")
 	}
 	// An entry present but empty-modelled is still unbound.
-	blank := &Router{routeMeta: map[Tier]routeMeta{TierCheapCloud: {provider: "gemini"}}}
+	blank := boundRouter(binding{routeMeta: map[Tier]routeMeta{TierCheapCloud: {provider: "gemini"}}})
 	if _, ok := blank.CurrentModelForTier(TierCheapCloud); ok {
 		t.Fatalf("empty model must read as unbound; want ok=false")
 	}

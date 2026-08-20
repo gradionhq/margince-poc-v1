@@ -163,6 +163,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	apiHandler := compose.New(pool, logger, opts...)
 	// Only now: the flush it listens with is captured while the options run.
 	resetLane.listen(ctx, modelPath)
+	// An admin re-points a lane through this role, but the WORKER is a separate
+	// process that never sees that write. Both re-read on the same interval, so
+	// neither serves a binding the installation has replaced (compose/routingwatcher).
+	go compose.NewRoutingWatcher(pool, modelPath.Router(), config.FromOS, logger).Run(ctx)
 	return serveUntilSignal(ctx, cfg, apiHandler, stdout)
 }
 

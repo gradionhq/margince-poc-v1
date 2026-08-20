@@ -122,6 +122,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
+	// The api serves the write, this role only ever reads — so without this it
+	// would keep serving whatever binding it resolved at boot while the api
+	// served the new one, which is the two-roles-disagree failure moving
+	// routing into the database was meant to end (compose/routingwatcher).
+	if r := modelPath.Router(); r != nil {
+		go compose.NewRoutingWatcher(pool, r, config.FromOS, logger).Run(ctx)
+	}
+
 	// Deferred BEFORE the error is checked: a failure here still leaves earlier
 	// lanes running on the bus and the pool whose closes are deferred above, and
 	// LIFO is what puts this join ahead of them.
