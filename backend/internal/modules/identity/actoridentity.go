@@ -83,3 +83,51 @@ func actingHuman(ctx context.Context) ids.UUID {
 	}
 	return actor.OnBehalfOf
 }
+
+// ActorProfile is ActorIdentity's fuller answer: who the call acts for, for a
+// surface that must NAME them rather than sign as them.
+//
+// Same resolution and same posture — no object gate, because the question is
+// "who is the caller" and a caller may always know that. It answers a zero
+// profile rather than an error when nobody is behind the call (a system
+// principal, or a seat this workspace no longer holds), which is what
+// ActorIdentity does for the same cases.
+func (s *Service) ActorProfile(ctx context.Context) (ActorProfile, error) {
+	human := actingHuman(ctx)
+	if human.IsZero() {
+		return ActorProfile{}, nil
+	}
+	var out ActorProfile
+	var locale, timezone *string
+	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT id, display_name, email, locale, timezone
+			   FROM app_user WHERE id = $1 AND archived_at IS NULL`,
+			human).Scan(&out.UserID, &out.DisplayName, &out.Email, &locale, &timezone)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ActorProfile{}, nil
+	}
+	if err != nil {
+		return ActorProfile{}, fmt.Errorf("identity: read acting profile: %w", err)
+	}
+	// NULL locale stays empty: a person who never chose a language is not the
+	// same as one who chose English, and only the caller can decide what to
+	// fall back to.
+	if locale != nil {
+		out.Locale = *locale
+	}
+	if timezone != nil {
+		out.Timezone = *timezone
+	}
+	return out, nil
+}
+
+// ActorProfile is who a call acts for. Every field is empty when nobody is.
+type ActorProfile struct {
+	UserID      ids.UUID
+	DisplayName string
+	Email       string
+	Locale      string
+	Timezone    string
+}

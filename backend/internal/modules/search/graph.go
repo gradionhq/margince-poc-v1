@@ -74,6 +74,13 @@ type graphItem struct {
 	id         ids.UUID
 	summary    string
 	score      float64
+	// occurredAt is when the thing HAPPENED, carried through to the answer
+	// rather than only consumed by the ranking. A briefing that has the
+	// timeline can say "raised on 2025-09-13"; one that has only the prose
+	// takes its date from whatever a note recalls, and a note recalling
+	// "October" for a September email is the reading that reaches the
+	// customer. Zero for a record that is not an event.
+	occurredAt time.Time
 }
 
 // graphExpansionLimit caps EVERY leg of the fixed-depth walk — the
@@ -261,7 +268,7 @@ func anchorTimeline(ctx context.Context, tx pgx.Tx, linkCol string, anchorID ids
 		// the untyped UUID.
 		item := graphItem{
 			entityType: string(datasource.EntityActivity), id: id.UUID, summary: summary,
-			score: rankScore(0, occurredAt, source, now),
+			score: rankScore(0, occurredAt, source, now), occurredAt: occurredAt,
 		}
 		if kind == "task" && !isDone {
 			openTasks = append(openTasks, item)
