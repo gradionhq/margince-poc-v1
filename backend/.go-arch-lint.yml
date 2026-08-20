@@ -218,8 +218,13 @@ deps:
     # emersion: the in-memory IMAP server the standing-connect transport
     # test drives; production compose reaches IMAP only through capture.
     canUse: [pgx, chi, oapi, river, xtext, yaml, emersion, kinopenapi]
+  # migrations depends on itself, which no production file can express: Go
+  # forbids a package importing itself. It is reachable only from the external
+  # test package this directory's tagged suites live in (package
+  # migrations_test), which they need in order to reach platform/testdb — and
+  # testdb imports migrations, so the internal test package would be a cycle.
   migrations:
-    mayDependOn: [platform]
+    mayDependOn: [platform, migrations]
     canUse: [pgx]
   # The root fitness tests walk the authoritative contract document
   # (api/crm.yaml) directly — the RD-AC-7 negative-scope gate reads the

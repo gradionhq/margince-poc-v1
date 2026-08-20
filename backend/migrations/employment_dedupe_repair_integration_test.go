@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 1787111736 adds a UNIQUE index to a table that is already allowed to hold
 // the rows it forbids, so it ships with a repair. A repair needs a test that
@@ -25,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // employmentRow is one seeded edge and what the repair is expected to do to it.
@@ -92,7 +93,7 @@ func TestTheEmploymentDedupeIndexRepairsTheDuplicatesItWouldRefuseToApplyOver(t 
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 0216 gives an installation that already booted the agent seat bootstrap now
 // writes for a new one. Nothing else in the lane can prove it works.
@@ -28,6 +28,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func TestTheAgentSeatBackfillGivesEverySeatlessWorkspaceExactlyOneSeat(t *testing.T) {
@@ -119,7 +121,7 @@ func assertOneAgentSeat(ctx context.Context, t *testing.T, admin *pgx.Conn, wsID
 // changed.
 func agentSeatBackfillSQL(t *testing.T) string {
 	t.Helper()
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core migrations: %v", err)
 	}

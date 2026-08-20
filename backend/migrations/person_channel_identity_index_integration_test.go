@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 0152's index shape, proven against the live catalog rather than read off the
 // migration text: an index the FOREIGN KEY cannot use is indistinguishable from
@@ -26,8 +26,7 @@ import (
 func TestPersonChannelIdentityCascadeIndexIsUnconditional(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	conn := connect(t, ownerDSN)
-	resetSchema(t, conn)
-	migrateAll(t, conn)
+	headSchema(t, conn)
 
 	var predicate *string
 	var columns []string

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // The obligation: an installation that predates every backfill, upgraded to
 // head, holds exactly the matrix the server seeds today. This executes it

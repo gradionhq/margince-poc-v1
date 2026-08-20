@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 0078's data transforms proven directly (CAP-DDL-2): a database that held
 // improvised connector_connection rows migrates to capture_connection with the
@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func TestCaptureConnectionReconcile(t *testing.T) {
@@ -61,7 +62,7 @@ func TestCaptureConnectionReconcile(t *testing.T) {
 func rewindToBeforeReconcile(t *testing.T, conn *pgx.Conn) dbmigrate.Namespace {
 	t.Helper()
 	ctx := context.Background()
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // The seed and ops scripts are build artifacts of the schema, and nothing was
 // checking that they still match it.
@@ -51,8 +51,7 @@ var (
 func TestEveryScriptNamesColumnsTheSchemaHas(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	conn := connect(t, ownerDSN)
-	resetSchema(t, conn)
-	migrateAll(t, conn)
+	headSchema(t, conn)
 
 	columns := schemaColumns(t, conn)
 	scripts := scriptFiles(t)

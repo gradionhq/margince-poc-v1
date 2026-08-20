@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package migrations
+package migrations_test
 
 // The obligation: a repair migration re-applies EVERY guarded RBAC backfill that
 // shipped before it, granting exactly what that backfill granted.
