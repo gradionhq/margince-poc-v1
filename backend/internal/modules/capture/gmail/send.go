@@ -44,9 +44,9 @@ var _ connector.EmailSender = (*Connector)(nil)
 // carriage gate can only enforce a bound a connector DECLARES: nothing in this
 // stack validates a request against the schema, so an undeclared cap would let a
 // caller name fifty files and have every one of them transmitted. The two are
-// bound by TestGmailCarriesNoMoreFilesThanTheContractAdmits rather than by
-// comment, because a cap that drifted from the contract would refuse a request
-// the contract says is legal.
+// bound by TestTheSendAttachmentCapMatchesTheContract rather than by comment,
+// because a cap that drifted from the contract would refuse a request the
+// contract says is legal.
 const maxSendableFiles = 10
 
 // SendEmail transmits one message as the connected mailbox owner.
