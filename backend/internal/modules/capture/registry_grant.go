@@ -250,11 +250,10 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	// the mailbox it was fetched from: bumping the generation here would cancel
 	// the very import the human was told to repair. Disconnect is the other write
 	// that ends a grant, and it bumps the generation itself.
-	// A rebind is also a NEW sharing decision: the acknowledgment recorded on
-	// the row was given for the PREVIOUS mailbox, so the stamp is re-taken from
-	// this grant (which carried its own acknowledgment past Connect's refusal)
-	// rather than inherited across accounts. A same-account reconnect keeps
-	// the original stamp.
+	// A rebind re-stamps share_acknowledged_at — the column reads as "this
+	// mailbox has flowed under the workspace sharing regime since", and the
+	// previous mailbox's date is not this one's. A same-account reconnect
+	// keeps the original stamp.
 	rebound := rebindsAccount(priorLabel, in.accountLabel)
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `

@@ -14,6 +14,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -66,15 +68,22 @@ func (s *SettingsStore) Update(ctx context.Context, autoEnrich, mailSharing *boo
 	if err := auth.Require(ctx, captureSettingsObject, principal.ActionUpdate); err != nil {
 		return Settings{}, err
 	}
-	if autoEnrich != nil {
-		if err := settings.Set(ctx, s.settings, AutoEnrich, *autoEnrich); err != nil {
-			return Settings{}, err
+	// One PATCH is one change: both fields commit in one transaction or
+	// neither does — a patch that half-applied would leave the caller's
+	// screen agreeing with neither what they sent nor what stood before.
+	err := s.settings.WriteTx(ctx, func(tx pgx.Tx) error {
+		if autoEnrich != nil {
+			if err := settings.SetTx(ctx, s.settings, tx, AutoEnrich, *autoEnrich); err != nil {
+				return err
+			}
 		}
-	}
-	if mailSharing != nil {
-		if err := settings.Set(ctx, s.settings, MailSharing, *mailSharing); err != nil {
-			return Settings{}, err
+		if mailSharing != nil {
+			return settings.SetTx(ctx, s.settings, tx, MailSharing, *mailSharing)
 		}
+		return nil
+	})
+	if err != nil {
+		return Settings{}, err
 	}
 	return s.Get(ctx)
 }

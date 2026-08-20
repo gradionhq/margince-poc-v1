@@ -380,9 +380,15 @@ func RequireTx[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (T, error) {
 // narrow principal could not read would simply not apply to what they
 // capture, which is the opposite of a control. Never for a surface that
 // ANSWERS the value to a caller — those go through Get/GetTx, whose gate is
-// the only control on the un-RLS'd setting table.
+// the only control on the un-RLS'd setting table. The restriction is
+// enforced, not asked politely: only an entry declared MachineryApplied at
+// Define time is readable here, so a convenient ungated read of any other
+// setting refuses at the first test that exercises it.
 func ApplyTx[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (T, error) {
 	var zero T
+	if !e.machineryApplied {
+		return zero, fmt.Errorf("settings: %s is not declared MachineryApplied — read it through Get/GetTx and its gate", e.Key())
+	}
 	raw, err := currentJSON(ctx, tx, e)
 	if err != nil {
 		return zero, err
@@ -392,4 +398,21 @@ func ApplyTx[T any](ctx context.Context, tx pgx.Tx, e *Entry[T]) (T, error) {
 		return zero, fmt.Errorf("settings: decoding %s: %w", e.Key(), err)
 	}
 	return out, nil
+}
+
+// SetTx writes a typed setting inside a transaction the caller already holds —
+// the typed face of SetRawTx, for a PATCH that touches several settings and
+// must commit them as one change or none.
+func SetTx[T any](ctx context.Context, s *Store, tx pgx.Tx, e *Entry[T], v T) error {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("settings: encoding %s: %w", e.Key(), err)
+	}
+	return s.SetRawTx(ctx, tx, e.Key(), raw)
+}
+
+// WriteTx runs fn inside one workspace-bound transaction over the store's
+// pool, for a caller composing several SetTx writes into one commit.
+func (s *Store) WriteTx(ctx context.Context, fn func(pgx.Tx) error) error {
+	return database.WithWorkspaceTx(ctx, s.pool, fn)
 }
