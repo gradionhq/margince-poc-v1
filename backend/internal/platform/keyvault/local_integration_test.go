@@ -14,9 +14,15 @@ package keyvault_test
 //
 // So this exercises the local provider over a real pool, and pins the property
 // behaviourally rather than by inspection: with the pool narrowed to ONE
-// connection and that connection held by an open transaction, a Get must fail
-// to acquire and a GetOn through the transaction must answer. A GetOn that took
-// its own connection cannot pass this.
+// connection and that connection held by an open transaction, a GetOn through
+// the transaction must answer. A GetOn that took its own connection cannot pass
+// this.
+//
+// The control below then shows Get is not that — and it does so by COUNTING the
+// pool's acquires, not by waiting for a deadline to expire. "Get must fail"
+// would be the easier sentence and it is no longer what happens: the test hands
+// the connection back and Get completes. Anyone reintroducing a wait here would
+// be putting back the two seconds this shape exists to remove.
 
 import (
 	"context"
@@ -103,7 +109,10 @@ func TestLocalGetOnReadsThroughTheCallersTransaction(t *testing.T) {
 		t.Fatalf("opening the transaction: %v", err)
 	}
 	defer func() {
-		//craft:ignore swallowed-errors the transaction is read-only and being abandoned
+		// The control below rolls this back itself — releasing the connection is
+		// the event it turns on — so by the time this runs the transaction is
+		// normally already closed.
+		//craft:ignore swallowed-errors the transaction is read-only, and on the happy path already rolled back
 		_ = tx.Rollback(context.Background())
 	}()
 
@@ -125,12 +134,36 @@ func TestLocalGetOnReadsThroughTheCallersTransaction(t *testing.T) {
 
 	// And the control, which is what makes the assertion above mean something:
 	// the same read through Get asks the pool for a SECOND connection, and the
-	// pool has none to give while the transaction holds its one. It blocks
-	// rather than failing, so the deadline is the observation.
-	blocked, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	if _, err := vault.Get(blocked, ws, ref); err == nil {
-		t.Fatal("Get succeeded while the pool's only connection was held by an open transaction — " +
-			"it no longer takes a connection of its own, and GetOn's reason for existing is gone")
+	// pool has none to give while the transaction holds its one.
+	//
+	// The observable is the pool's own acquire counter, not a deadline. Waiting
+	// one out was the earlier shape and its pass condition WAS the deadline
+	// expiring, so every green run paid the full wait — 63 % of this package.
+	// Counting acquires states the claim directly instead of inferring it from
+	// a duration: Get takes a connection of its own. A Get that stopped needing
+	// one leaves the counter untouched however long anybody waits, and there is
+	// no clock in the assertion to be slow, contended or flaky.
+	//
+	// Snapshotted after Put and the Begin above, so the only acquire this can
+	// count is the one Get makes.
+	acquiredBefore := pool.Stat().AcquireCount()
+	answered := make(chan error, 1)
+	go func() {
+		_, err := vault.Get(ctx, ws, ref)
+		answered <- err
+	}()
+
+	// Handing the connection back is what lets that Get finish, and nothing else
+	// can — which is why the rollback happens here rather than being left to the
+	// deferred cleanup.
+	if err := tx.Rollback(ctx); err != nil {
+		t.Fatalf("releasing the pool's only connection: %v", err)
+	}
+	if err := <-answered; err != nil {
+		t.Fatalf("Get once the transaction released the pool's connection: %v", err)
+	}
+	if after := pool.Stat().AcquireCount(); after <= acquiredBefore {
+		t.Fatalf("Get answered without taking a connection of its own (pool acquires %d, unchanged) — "+
+			"it no longer needs one, and GetOn's reason for existing is gone", acquiredBefore)
 	}
 }

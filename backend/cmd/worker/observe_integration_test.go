@@ -146,7 +146,13 @@ func TestEachDeclaredReadinessCheckCanActuallyFail(t *testing.T) {
 		// unlike closing the shared test client it leaves no other test's
 		// dependency broken. Without this arm the redis check could be deleted
 		// outright and every other test here would stay green.
-		unreachable := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1"})
+		//
+		// MaxRetries: -1 switches go-redis's retry ladder off. The default ladder
+		// re-dials a port nothing listens on three more times with backoff, which
+		// is 1.7s of this package's 2.9s and proves nothing the first refusal did
+		// not: the claim under test is what /readyz answers once the bus is
+		// unreachable, and a connection refused is already that answer.
+		unreachable := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", MaxRetries: -1})
 		t.Cleanup(func() {
 			if err := unreachable.Close(); err != nil {
 				t.Errorf("closing the unreachable bus client: %v", err)
