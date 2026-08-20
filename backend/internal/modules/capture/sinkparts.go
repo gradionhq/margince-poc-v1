@@ -84,6 +84,55 @@ type FileSource struct {
 	System     string
 	MessageID  string
 	CapturedBy string
+	// Category is which kind of captured file these are, derived from the
+	// record's own transport by fileCategoryFor — never taken from a connector.
+	Category string
+}
+
+// The categories a CAPTURED file can have. A human upload picks from the part of
+// the vocabulary that describes what a document IS (contract, offer, legal);
+// these describe how it ARRIVED, which is the only thing a captured file knows
+// about itself.
+const (
+	CategoryEmailAttachment   = "email_attachment"
+	CategoryMessageAttachment = "message_attachment"
+	// CategoryOtherAttachment is a captured file that arrived on neither — see
+	// fileCategoryFor's third arm.
+	CategoryOtherAttachment = "other"
+)
+
+// kindEmail is the activity kind a mail capture files under. Named here because
+// this is the one place the kind decides a durable column's value, and a string
+// literal in that position reads as incidental.
+const kindEmail = "email"
+
+// fileCategoryFor derives the category from the record's own transport.
+//
+// DERIVED, never supplied. A connector-declared category would be a string an
+// untrusted producer could get wrong on a column that reaches the document
+// library, the audit image and every category filter — and the record already
+// names how it arrived, so there is nothing to ask for.
+//
+// THREE ARMS, BECAUSE "NOT A CHANNEL" DOES NOT MEAN "MAIL". A calendar capture
+// files a `meeting` with no transport (capture/gcal), and the offline demo
+// connector files whatever kind its fixture names — so an absent provider read
+// as mail would label a meeting's file an email attachment the moment either
+// producer starts carrying files. `other` is the honest answer for a captured
+// file that arrived on neither: the contract calls it "the honest default, not a
+// fallback for an unknown value", and this is exactly the case it describes.
+//
+// The alternative — refusing the file — was rejected. The refusal would fail the
+// whole capture, and losing the message to protect the precision of a label is
+// the worse trade on a path whose purpose is that correspondence lands.
+func fileCategoryFor(fields ActivityFields) string {
+	switch {
+	case fields.ChannelProvider != "":
+		return CategoryMessageAttachment
+	case fields.Kind == kindEmail:
+		return CategoryEmailAttachment
+	default:
+		return CategoryOtherAttachment
+	}
 }
 
 // stageParts hands the message's files to the keeper for storage.
@@ -125,9 +174,13 @@ func (s *Sink) stageParts(ctx context.Context, rec connector.NormalizedRecord) (
 }
 
 // recordParts writes the rows for one newly captured activity.
+//
+// It takes the typed fields rather than reading them back out of rec.Fields:
+// the caller already holds them, and re-asserting the type here would be a
+// second place that has to agree about which records carry files.
 func (s *Sink) recordParts(
 	ctx context.Context, tx pgx.Tx, activityID ids.ActivityID,
-	rec connector.NormalizedRecord, staged []StagedFile,
+	rec connector.NormalizedRecord, fields ActivityFields, staged []StagedFile,
 ) error {
 	if len(staged) == 0 || s.files == nil {
 		return nil
@@ -136,6 +189,7 @@ func (s *Sink) recordParts(
 		System:     rec.NaturalKey.SourceSystem,
 		MessageID:  rec.NaturalKey.SourceID,
 		CapturedBy: rec.CapturedBy,
+		Category:   fileCategoryFor(fields),
 	}
 	if err := s.files.Record(ctx, tx, activityID, from, staged); err != nil {
 		return fmt.Errorf("capture: recording the files a message carried: %w", err)

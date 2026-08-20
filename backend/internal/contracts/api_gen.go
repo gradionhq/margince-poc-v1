@@ -980,11 +980,12 @@ func (e AssistantProfileState) Valid() bool {
 
 // Defines values for AttachmentCategory.
 const (
-	AttachmentCategoryContract        AttachmentCategory = "contract"
-	AttachmentCategoryEmailAttachment AttachmentCategory = "email_attachment"
-	AttachmentCategoryLegal           AttachmentCategory = "legal"
-	AttachmentCategoryOffer           AttachmentCategory = "offer"
-	AttachmentCategoryOther           AttachmentCategory = "other"
+	AttachmentCategoryContract          AttachmentCategory = "contract"
+	AttachmentCategoryEmailAttachment   AttachmentCategory = "email_attachment"
+	AttachmentCategoryLegal             AttachmentCategory = "legal"
+	AttachmentCategoryMessageAttachment AttachmentCategory = "message_attachment"
+	AttachmentCategoryOffer             AttachmentCategory = "offer"
+	AttachmentCategoryOther             AttachmentCategory = "other"
 )
 
 // Valid indicates whether the value is a known member of the AttachmentCategory enum.
@@ -995,6 +996,8 @@ func (e AttachmentCategory) Valid() bool {
 	case AttachmentCategoryEmailAttachment:
 		return true
 	case AttachmentCategoryLegal:
+		return true
+	case AttachmentCategoryMessageAttachment:
 		return true
 	case AttachmentCategoryOffer:
 		return true
@@ -8852,11 +8855,12 @@ func (e TranscriptReadStartedStatus) Valid() bool {
 
 // Defines values for UpdateAttachmentMetadataRequestCategory.
 const (
-	UpdateAttachmentMetadataRequestCategoryContract        UpdateAttachmentMetadataRequestCategory = "contract"
-	UpdateAttachmentMetadataRequestCategoryEmailAttachment UpdateAttachmentMetadataRequestCategory = "email_attachment"
-	UpdateAttachmentMetadataRequestCategoryLegal           UpdateAttachmentMetadataRequestCategory = "legal"
-	UpdateAttachmentMetadataRequestCategoryOffer           UpdateAttachmentMetadataRequestCategory = "offer"
-	UpdateAttachmentMetadataRequestCategoryOther           UpdateAttachmentMetadataRequestCategory = "other"
+	UpdateAttachmentMetadataRequestCategoryContract          UpdateAttachmentMetadataRequestCategory = "contract"
+	UpdateAttachmentMetadataRequestCategoryEmailAttachment   UpdateAttachmentMetadataRequestCategory = "email_attachment"
+	UpdateAttachmentMetadataRequestCategoryLegal             UpdateAttachmentMetadataRequestCategory = "legal"
+	UpdateAttachmentMetadataRequestCategoryMessageAttachment UpdateAttachmentMetadataRequestCategory = "message_attachment"
+	UpdateAttachmentMetadataRequestCategoryOffer             UpdateAttachmentMetadataRequestCategory = "offer"
+	UpdateAttachmentMetadataRequestCategoryOther             UpdateAttachmentMetadataRequestCategory = "other"
 )
 
 // Valid indicates whether the value is a known member of the UpdateAttachmentMetadataRequestCategory enum.
@@ -8867,6 +8871,8 @@ func (e UpdateAttachmentMetadataRequestCategory) Valid() bool {
 	case UpdateAttachmentMetadataRequestCategoryEmailAttachment:
 		return true
 	case UpdateAttachmentMetadataRequestCategoryLegal:
+		return true
+	case UpdateAttachmentMetadataRequestCategoryMessageAttachment:
 		return true
 	case UpdateAttachmentMetadataRequestCategoryOffer:
 		return true
@@ -10778,11 +10784,12 @@ func (e ListOrganizationContractsParamsStatus) Valid() bool {
 
 // Defines values for ListOrganizationDocumentsParamsCategory.
 const (
-	ListOrganizationDocumentsParamsCategoryContract        ListOrganizationDocumentsParamsCategory = "contract"
-	ListOrganizationDocumentsParamsCategoryEmailAttachment ListOrganizationDocumentsParamsCategory = "email_attachment"
-	ListOrganizationDocumentsParamsCategoryLegal           ListOrganizationDocumentsParamsCategory = "legal"
-	ListOrganizationDocumentsParamsCategoryOffer           ListOrganizationDocumentsParamsCategory = "offer"
-	ListOrganizationDocumentsParamsCategoryOther           ListOrganizationDocumentsParamsCategory = "other"
+	ListOrganizationDocumentsParamsCategoryContract          ListOrganizationDocumentsParamsCategory = "contract"
+	ListOrganizationDocumentsParamsCategoryEmailAttachment   ListOrganizationDocumentsParamsCategory = "email_attachment"
+	ListOrganizationDocumentsParamsCategoryLegal             ListOrganizationDocumentsParamsCategory = "legal"
+	ListOrganizationDocumentsParamsCategoryMessageAttachment ListOrganizationDocumentsParamsCategory = "message_attachment"
+	ListOrganizationDocumentsParamsCategoryOffer             ListOrganizationDocumentsParamsCategory = "offer"
+	ListOrganizationDocumentsParamsCategoryOther             ListOrganizationDocumentsParamsCategory = "other"
 )
 
 // Valid indicates whether the value is a known member of the ListOrganizationDocumentsParamsCategory enum.
@@ -10793,6 +10800,8 @@ func (e ListOrganizationDocumentsParamsCategory) Valid() bool {
 	case ListOrganizationDocumentsParamsCategoryEmailAttachment:
 		return true
 	case ListOrganizationDocumentsParamsCategoryLegal:
+		return true
+	case ListOrganizationDocumentsParamsCategoryMessageAttachment:
 		return true
 	case ListOrganizationDocumentsParamsCategoryOffer:
 		return true
@@ -12017,7 +12026,17 @@ type Attachment struct {
 	// CapturedBy Server-stamped from the authenticated principal; never client-supplied.
 	CapturedBy *string `json:"captured_by,omitempty"`
 
-	// Category What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+	// Category What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the
+	// honest default, not a fallback for an unknown value.
+	//
+	// `email_attachment` and `message_attachment` record PROVENANCE rather than
+	// content: capture derives them from the transport the file arrived on, so a
+	// file that came with a Telegram message is not reported as an email one. The
+	// remaining values describe what the document IS and are a human's choice.
+	//
+	// A metadata patch may move a CAPTURED file between the two provenance values —
+	// a mislabeled row is what a correction is for — but may not assert either on an
+	// uploaded file, which has no arrival to claim (422 `category_not_assertable`).
 	Category *AttachmentCategory `json:"category,omitempty"`
 
 	// Checksum sha256 of the bytes, for integrity/dedupe.
@@ -12049,7 +12068,17 @@ type Attachment struct {
 	Title *string `json:"title,omitempty"`
 }
 
-// AttachmentCategory What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+// AttachmentCategory What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the
+// honest default, not a fallback for an unknown value.
+//
+// `email_attachment` and `message_attachment` record PROVENANCE rather than
+// content: capture derives them from the transport the file arrived on, so a
+// file that came with a Telegram message is not reported as an email one. The
+// remaining values describe what the document IS and are a human's choice.
+//
+// A metadata patch may move a CAPTURED file between the two provenance values —
+// a mislabeled row is what a correction is for — but may not assert either on an
+// uploaded file, which has no arrival to claim (422 `category_not_assertable`).
 type AttachmentCategory string
 
 // AttachmentDocState ASSERTED, never inferred. A human or the producing source sets it. Nothing derives currency from the newest upload date or a filename containing "final": the most recent upload is very often a draft, and an inference would be a confident wrong answer to the exact question this field exists to answer.
@@ -20796,6 +20825,9 @@ type UpdateActivityRequest struct {
 // UpdateAttachmentMetadataRequest A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
 // null to clear, because clearing either is an edit a human makes deliberately.
 type UpdateAttachmentMetadataRequest struct {
+	// Category The two `*_attachment` values record how a file ARRIVED and are derived by
+	// capture. They may be corrected on a captured file and are refused on an
+	// uploaded one (422 `category_not_assertable`) — see `Attachment.category`.
 	Category     *UpdateAttachmentMetadataRequestCategory `json:"category,omitempty"`
 	DocState     *UpdateAttachmentMetadataRequestDocState `json:"doc_state,omitempty"`
 	Pinned       *bool                                    `json:"pinned,omitempty"`
@@ -20803,7 +20835,9 @@ type UpdateAttachmentMetadataRequest struct {
 	Title        *string                                  `json:"title,omitempty"`
 }
 
-// UpdateAttachmentMetadataRequestCategory defines model for UpdateAttachmentMetadataRequest.Category.
+// UpdateAttachmentMetadataRequestCategory The two `*_attachment` values record how a file ARRIVED and are derived by
+// capture. They may be corrected on a captured file and are refused on an
+// uploaded one (422 `category_not_assertable`) — see `Attachment.category`.
 type UpdateAttachmentMetadataRequestCategory string
 
 // UpdateAttachmentMetadataRequestDocState defines model for UpdateAttachmentMetadataRequest.DocState.

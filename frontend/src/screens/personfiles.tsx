@@ -36,6 +36,7 @@ const CATEGORY_LABELS: Record<Category, MessageKey> = {
   offer: "docs.category.offer",
   legal: "docs.category.legal",
   email_attachment: "docs.category.email",
+  message_attachment: "docs.category.message",
   other: "docs.category.other",
 };
 

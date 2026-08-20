@@ -58,8 +58,29 @@ const CATEGORY_KEYS: Record<Category, MessageKey> = {
   offer: "docs.category.offer",
   legal: "docs.category.legal",
   email_attachment: "docs.category.email",
+  message_attachment: "docs.category.message",
   other: "docs.category.other",
 };
+
+// WHAT A HUMAN MAY CHOOSE, which is not the whole vocabulary. The two
+// `*_attachment` values record PROVENANCE — capture derives them from the
+// transport a file arrived on — and a file being uploaded from this dialog
+// arrived on none. Offering them would let the picker mint a claim about where a
+// file came from that is false the moment it is chosen, and the document library
+// reads that column as an answer to exactly that question.
+//
+// Derived by subtraction from CATEGORY_KEYS rather than listed, so a value added
+// to the contract lands in the picker by default and only a deliberate edit here
+// keeps it out. The alternative — a second hand-kept list — is how the two come
+// to disagree about a category nobody remembers adding.
+const CAPTURED_ONLY: readonly Category[] = [
+  "email_attachment",
+  "message_attachment",
+];
+
+const UPLOADABLE_CATEGORIES = (Object.keys(CATEGORY_KEYS) as Category[]).filter(
+  (key) => !CAPTURED_ONLY.includes(key),
+);
 
 /**
  * The record whose document library this dialog was opened from.
@@ -477,7 +498,7 @@ export function AddDocumentDialog({
             {...control}
             value={category}
             onChange={(picked) => setCategory(picked as Category)}
-            options={(Object.keys(CATEGORY_KEYS) as Category[]).map((key) => ({
+            options={UPLOADABLE_CATEGORIES.map((key) => ({
               value: key,
               label: t(CATEGORY_KEYS[key]),
             }))}

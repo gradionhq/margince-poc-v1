@@ -13695,8 +13695,13 @@ export interface components {
          *     null to clear, because clearing either is an edit a human makes deliberately.
          */
         UpdateAttachmentMetadataRequest: {
-            /** @enum {string} */
-            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            /**
+             * @description The two `*_attachment` values record how a file ARRIVED and are derived by
+             *     capture. They may be corrected on a captured file and are refused on an
+             *     uploaded one (422 `category_not_assertable`) — see `Attachment.category`.
+             * @enum {string}
+             */
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
             title?: string | null;
             /** @enum {string} */
             doc_state?: "draft" | "current" | "final" | "superseded";
@@ -13723,10 +13728,20 @@ export interface components {
             /** @description sha256 of the bytes, for integrity/dedupe. */
             checksum?: string | null;
             /**
-             * @description What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+             * @description What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the
+             *     honest default, not a fallback for an unknown value.
+             *
+             *     `email_attachment` and `message_attachment` record PROVENANCE rather than
+             *     content: capture derives them from the transport the file arrived on, so a
+             *     file that came with a Telegram message is not reported as an email one. The
+             *     remaining values describe what the document IS and are a human's choice.
+             *
+             *     A metadata patch may move a CAPTURED file between the two provenance values —
+             *     a mislabeled row is what a correction is for — but may not assert either on an
+             *     uploaded file, which has no arrival to claim (422 `category_not_assertable`).
              * @enum {string}
              */
-            category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+            category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
             /** @description A display name distinct from the filename — what a reader looks for, rather than what arrived. */
             title?: string | null;
             /**
@@ -32735,7 +32750,7 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
-                category?: "contract" | "offer" | "legal" | "email_attachment" | "other";
+                category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
                 doc_state?: "draft" | "current" | "final" | "superseded";
                 pinned_only?: boolean;
                 /** @description Only the paper filed against this agreement (CONTRACT-DDL-5). */
@@ -32794,7 +32809,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
-            /** @description `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a value outside the closed vocabulary. */
+            /** @description `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a value outside the closed vocabulary; `category_not_assertable` when the patch claims a provenance category (`email_attachment`, `message_attachment`) on an uploaded file, which has no arrival to claim. */
             422: {
                 headers: {
                     [name: string]: unknown;

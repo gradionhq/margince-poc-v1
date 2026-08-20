@@ -47,10 +47,23 @@ func captureWorkspace(t *testing.T) (context.Context, *database.DB, string) {
 		ws, "captured-files-"+ws.String()); err != nil {
 		t.Fatalf("seed workspace: %v", err)
 	}
-	ctx = principal.WithWorkspaceID(ctx, ws)
-	ctx = principal.WithActor(ctx, principal.Principal{
+	ctx = asConnector(principal.WithWorkspaceID(ctx, ws), "connector:imap")
+	// The tag makes every source id unique to this run. The test database is
+	// shared and long-lived, so a fixed id would meet rows an earlier run of
+	// this same suite left behind and count them as this run's.
+	return principal.WithCorrelationID(ctx, ids.NewV7()), database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), ws.String()
+}
+
+// asConnector binds the capture principal one adapter's sync loop mints.
+//
+// It takes the id rather than fixing it because the sink REFUSES a record whose
+// captured_by is not the acting connector — so a test that captures a mail
+// message and a Telegram message has to act as each in turn, and a single
+// hardcoded principal would only be able to prove one of them.
+func asConnector(ctx context.Context, id string) context.Context {
+	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalConnector,
-		ID:   "connector:imap",
+		ID:   id,
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"capture"},
 			Objects: map[string]principal.ObjectGrant{
@@ -60,10 +73,6 @@ func captureWorkspace(t *testing.T) (context.Context, *database.DB, string) {
 			RowScope: principal.RowScopeAll,
 		},
 	})
-	// The tag makes every source id unique to this run. The test database is
-	// shared and long-lived, so a fixed id would meet rows an earlier run of
-	// this same suite left behind and count them as this run's.
-	return principal.WithCorrelationID(ctx, ids.NewV7()), database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), ws.String()
 }
 
 // mailRecord is one captured mail record, shaped the way mailmap produces one.
@@ -119,6 +128,15 @@ func onePDF() connector.Part {
 
 func filesFor(ctx context.Context, t *testing.T, db *database.DB, sourceID string) []capturedFile {
 	t.Helper()
+	return filesFrom(ctx, t, db, "imap", sourceID)
+}
+
+// filesFrom reads the rows a given adapter's message produced. The stored
+// identity names the ADAPTER as well as the message, so a reader has to say
+// which one it means — and a channel capture and a mail capture landing under
+// the same source id is exactly the collision that naming prevents.
+func filesFrom(ctx context.Context, t *testing.T, db *database.DB, system, sourceID string) []capturedFile {
+	t.Helper()
 	var out []capturedFile
 	if err := db.Tx(ctx, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
@@ -126,7 +144,7 @@ func filesFor(ctx context.Context, t *testing.T, db *database.DB, sourceID strin
 			       byte_size, external_part_id, external_source_id, organization_id::text
 			  FROM attachment
 			 WHERE external_source_id = $1
-			 ORDER BY external_part_id`, "imap:"+sourceID)
+			 ORDER BY external_part_id`, system+":"+sourceID)
 		if err != nil {
 			return err
 		}
@@ -376,4 +394,112 @@ func activityOf(ctx context.Context, t *testing.T, db *database.DB, sourceKey st
 		t.Fatalf("read the captured file's activity: %v", err)
 	}
 	return id
+}
+
+// channelRecord is one captured channel message, shaped the way a channel
+// adapter produces one: a transport named, no counterparty address, and a
+// display name a mail ladder would have quarantined.
+func channelRecord(sourceID string) connector.NormalizedRecord {
+	return connector.NormalizedRecord{
+		EntityType: datasource.EntityActivity,
+		NaturalKey: connector.NaturalKey{SourceSystem: "telegram", SourceID: sourceID},
+		Fields: capture.ActivityFields{
+			Kind:            "message",
+			ChannelProvider: "telegram",
+			Body:            "here's the deck",
+			Direction:       connector.DirectionInbound,
+		},
+		Source:     "telegram:" + sourceID,
+		CapturedBy: "connector:telegram",
+		Counterparty: connector.Counterparty{
+			Direction:       connector.DirectionInbound,
+			DisplayName:     "Chatty",
+			ChannelIdentity: connector.ChannelIdentity{Provider: "telegram", ChannelUserID: "990101", Username: "chatty"},
+		},
+		ThreadKey: "telegram:" + sourceID,
+	}
+}
+
+func onePhoto() connector.Part {
+	return connector.Part{
+		Ordinal:     1,
+		Filename:    "deck.png",
+		ContentType: "image/png",
+		Body:        []byte("\x89PNG\r\n\x1a\n the deck"),
+	}
+}
+
+// A file that arrived on a messaging channel is not an email attachment, and the
+// row is where that has to be true: the category reaches the document library,
+// every category filter and the audit image, so a wrong one is a permanently
+// wrong record nobody is told about.
+//
+// The two arms are asserted TOGETHER rather than in two tests. The value is
+// derived from one fact on the record, so the only failure worth catching is the
+// derivation collapsing to a constant — and a constant passes whichever arm it
+// happens to match. One test that watches both cannot be satisfied that way.
+func TestACapturedFilesCategoryNamesTheTransportThatCarriedIt(t *testing.T) {
+	ctx, db, tag := captureWorkspace(t)
+	blob := blobstore.NewMemory()
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blob))
+
+	channelID, mailID := "chan-with-file-"+tag, "mail-with-file-"+tag
+	if _, err := sink.Upsert(asConnector(ctx, "connector:telegram"),
+		withFiles(channelRecord(channelID), onePhoto())); err != nil {
+		t.Fatalf("capture a channel message: %v", err)
+	}
+	if _, err := sink.Upsert(ctx, withFiles(mailRecord(mailID), onePDF())); err != nil {
+		t.Fatalf("capture a mail message: %v", err)
+	}
+
+	channelFiles := filesFrom(ctx, t, db, "telegram", channelID)
+	if len(channelFiles) != 1 {
+		t.Fatalf("the channel message stored %d files, want 1", len(channelFiles))
+	}
+	if got := channelFiles[0].category; got != "message_attachment" {
+		t.Errorf("a telegram photo's category = %q, want message_attachment — "+
+			"the transport that carried it decides, and it was not mail", got)
+	}
+	mailFiles := filesFrom(ctx, t, db, "imap", mailID)
+	if len(mailFiles) != 1 {
+		t.Fatalf("the mail message stored %d files, want 1", len(mailFiles))
+	}
+	if got := mailFiles[0].category; got != "email_attachment" {
+		t.Errorf("a mail attachment's category = %q, want email_attachment — "+
+			"widening the vocabulary must not move the value mail already had", got)
+	}
+}
+
+// The audit image has to say what was stored. An image carrying a category the
+// row does not hold is worse than no image: the trail reads as authoritative and
+// is the thing a reader consults when the row is already gone.
+func TestTheAuditImageOfACapturedFileNamesTheCategoryTheRowHolds(t *testing.T) {
+	ctx, db, tag := captureWorkspace(t)
+	sink := capture.NewSink(db).WithFileKeeper(fileKeeper(db.Pool(), blobstore.NewMemory()))
+
+	sourceID := "chan-audited-" + tag
+	if _, err := sink.Upsert(asConnector(ctx, "connector:telegram"),
+		withFiles(channelRecord(sourceID), onePhoto())); err != nil {
+		t.Fatalf("capture a channel message: %v", err)
+	}
+	files := filesFrom(ctx, t, db, "telegram", sourceID)
+	if len(files) != 1 {
+		t.Fatalf("stored %d files, want 1", len(files))
+	}
+
+	var audited string
+	if err := db.Tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT after->>'category'
+			  FROM audit_log
+			 WHERE entity_type = 'attachment' AND action = 'create'
+			   AND entity_id = (SELECT id FROM attachment
+			                     WHERE external_source_id = $1 LIMIT 1)`,
+			"telegram:"+sourceID).Scan(&audited)
+	}); err != nil {
+		t.Fatalf("read the audit image of a captured file: %v", err)
+	}
+	if audited != files[0].category {
+		t.Errorf("the audit image says %q and the row says %q", audited, files[0].category)
+	}
 }

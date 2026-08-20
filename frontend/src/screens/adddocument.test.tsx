@@ -3,7 +3,13 @@
 
 /** @vitest-environment jsdom */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -466,6 +472,31 @@ describe("adding a document from the account", () => {
       category: "contract",
       title: "Signed order form",
     });
+  });
+
+  it("does not offer a provenance category a hand upload cannot honestly claim", async () => {
+    const user = userEvent.setup();
+    stubApi(FULL_SEAT);
+    show();
+
+    await user.click(screen.getByRole("combobox", { name: /Category/ }));
+    const listbox = screen.getByRole("listbox");
+    // What a human uploading from their own disk MAY say about a file.
+    for (const offered of ["Contract", "Offer", "Legal", "Other"]) {
+      expect(
+        within(listbox).getByRole("option", { name: offered }),
+      ).toBeTruthy();
+    }
+    // And what they may not. Both `*_attachment` values record which transport
+    // carried a file, which capture derives; a file arriving through this dialog
+    // arrived on none, so choosing one would mint a false answer to the exact
+    // question the document library reads that column for.
+    expect(
+      within(listbox).queryByRole("option", { name: "Email attachment" }),
+    ).toBeNull();
+    expect(
+      within(listbox).queryByRole("option", { name: "Message attachment" }),
+    ).toBeNull();
   });
 
   it("does not send a metadata request when the reader changed neither field", async () => {

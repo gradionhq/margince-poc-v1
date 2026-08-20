@@ -218,6 +218,34 @@ describe("the person's files tab", () => {
     expect(screen.getByText("Contract")).toBeTruthy();
   });
 
+  it("names a channel file as a message attachment, not an email one", async () => {
+    stub({
+      data: [
+        attachment({
+          id: "f-1",
+          entity_id: "p-1",
+          filename: "deck.png",
+          category: "message_attachment",
+          // The fixture has to be a payload the API can actually produce: the
+          // server refuses a provenance category on an uploaded row, so a
+          // `source: "upload"` row carrying this category is a shape no reader
+          // ever receives.
+          source: "telegram",
+          captured_by: "connector:telegram",
+        }),
+      ],
+      page: { has_more: false },
+    });
+    show(<PersonFilesTab personId="p-1" />);
+
+    await screen.findByRole("link", { name: "deck.png" });
+    expect(screen.getByText("Message attachment")).toBeTruthy();
+    // The negative is the point. A missing label falls back to the raw key or
+    // the neighbouring one, and a photo from a chat reported as mail is the
+    // wrong record this category exists to stop.
+    expect(screen.queryByText("Email attachment")).toBeNull();
+  });
+
   it("says nothing about a category the file was never filed under", async () => {
     stub({
       data: [attachment({ id: "f-1", entity_id: "p-1", filename: "scan.pdf" })],

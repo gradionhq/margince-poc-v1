@@ -12163,7 +12163,7 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - name: category
           in: query
-          schema: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+          schema: { type: string, enum: [contract, offer, legal, email_attachment, message_attachment, other] }
         - name: doc_state
           in: query
           schema: { type: string, enum: [draft, current, final, superseded] }
@@ -12222,7 +12222,9 @@ paths:
         '422':
           description: >-
             `supersedes_cycle` when the pointer would close a loop; `unknown_category` for a
-            value outside the closed vocabulary.
+            value outside the closed vocabulary; `category_not_assertable` when the patch
+            claims a provenance category (`email_attachment`, `message_attachment`) on an
+            uploaded file, which has no arrival to claim.
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -19279,7 +19281,13 @@ components:
         A sparse patch. An absent field is untouched; `title` and `supersedes_id` accept
         null to clear, because clearing either is an edit a human makes deliberately.
       properties:
-        category: { type: string, enum: [contract, offer, legal, email_attachment, other] }
+        category:
+          type: string
+          enum: [contract, offer, legal, email_attachment, message_attachment, other]
+          description: |
+            The two `*_attachment` values record how a file ARRIVED and are derived by
+            capture. They may be corrected on a captured file and are refused on an
+            uploaded one (422 `category_not_assertable`) — see `Attachment.category`.
         title: { type: [string, 'null'] }
         doc_state: { type: string, enum: [draft, current, final, superseded] }
         pinned: { type: boolean }
@@ -19302,8 +19310,19 @@ components:
         checksum: { type: [string, 'null'], description: 'sha256 of the bytes, for integrity/dedupe.' }
         category:
           type: string
-          enum: [contract, offer, legal, email_attachment, other]
-          description: What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the honest default, not a fallback for an unknown value.
+          enum: [contract, offer, legal, email_attachment, message_attachment, other]
+          description: |
+            What kind of document this is (DOC-DDL-1). Closed vocabulary; `other` is the
+            honest default, not a fallback for an unknown value.
+
+            `email_attachment` and `message_attachment` record PROVENANCE rather than
+            content: capture derives them from the transport the file arrived on, so a
+            file that came with a Telegram message is not reported as an email one. The
+            remaining values describe what the document IS and are a human's choice.
+
+            A metadata patch may move a CAPTURED file between the two provenance values —
+            a mislabeled row is what a correction is for — but may not assert either on an
+            uploaded file, which has no arrival to claim (422 `category_not_assertable`).
         title:
           type: [string, 'null']
           description: A display name distinct from the filename — what a reader looks for, rather than what arrived.
