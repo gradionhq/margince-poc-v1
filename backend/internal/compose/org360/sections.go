@@ -57,6 +57,26 @@ func scopeClause(ctx context.Context, object, alias string, arg func(any) int) (
 	return clause, nil
 }
 
+// edgeScope resolves the relationship edge's READ admission and its row bound
+// together, in the one spelling platform/auth owns, answering scopeAll for an
+// unbounded caller.
+//
+// It is the edge's own gate and not a second reading of its endpoints': an edge
+// discloses the two records it names AS A PAIR, so a caller holding both
+// endpoint grants may still be refused the edge. A denial returns
+// apperrors.ErrPermissionDenied unchanged, which is what lets the graph's group
+// loop NAME the omission in groups_omitted rather than fail the whole card.
+func edgeScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	clause, err := auth.EdgeReadScope(ctx, alias, arg)
+	if err != nil {
+		return "", err
+	}
+	if clause == "" {
+		return scopeAll, nil
+	}
+	return clause, nil
+}
+
 // linkScope resolves "this activity_link row points at a record the caller
 // can read" for one table alias, answering scopeAll for an unbounded caller.
 func linkScope(ctx context.Context, alias string, arg func(any) int) (string, error) {

@@ -9,6 +9,7 @@ package org360
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -186,10 +188,25 @@ func contactIdentity(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, p
 // contactDealRoles reads each contact's stakeholder roles on THIS
 // account's deals, pruned to the deals the caller can see: a rep who
 // cannot read a colleague's deal must not learn who its champion is.
+//
+// A seat is also an EDGE, so it needs the edge grant as well as the deal's —
+// the pair is the fact relationship.read governs. A caller refused it gets an
+// empty map rather than an error, because `deal_roles` is required on every
+// contact card: contactsSection normalises a missing entry to `[]`, so the
+// roster still renders and the roles simply are not there. There is no
+// withheld channel per contact to name it in, which is why the refusal is
+// swallowed HERE rather than failing the section around it.
 func contactDealRoles(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, personIDs []ids.PersonID) (map[ids.PersonID][]crmcontracts.Organization360DealRole, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	peoplePos, orgPos := arg(personIDs), arg(orgID)
+	edgeBound, err := edgeScope(ctx, "r", arg)
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return map[ids.PersonID][]crmcontracts.Organization360DealRole{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
 	dealScope, err := scopeClause(ctx, "deal", "d", arg)
 	if err != nil {
 		return nil, err
@@ -200,8 +217,9 @@ func contactDealRoles(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 		JOIN deal d ON d.id = r.deal_id
 		WHERE r.kind = 'deal_stakeholder' AND r.person_id = ANY($%d)
 		  AND r.archived_at IS NULL AND r.ended_at IS NULL
-		  AND d.organization_id = $%d AND d.archived_at IS NULL AND (%s)
-		ORDER BY r.person_id, r.deal_id`, peoplePos, orgPos, dealScope), args...)
+		  AND d.organization_id = $%d AND d.archived_at IS NULL
+		  AND (%s) AND (%s)
+		ORDER BY r.person_id, r.deal_id`, peoplePos, orgPos, edgeBound, dealScope), args...)
 	if err != nil {
 		return nil, err
 	}

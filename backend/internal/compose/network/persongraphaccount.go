@@ -87,6 +87,19 @@ func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) 
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	personPos := arg(personID)
+	// A coworker set IS the edge: it answers "who else works where this person
+	// works", which is a fact about the pairs and not about either record. The
+	// gate is taken here, before the statement, so the denial reaches
+	// addAccountGroup and the group is NAMED in groups_omitted — and so the
+	// count(*) OVER () total below is never computed over rows the caller may
+	// not learn the number of.
+	edgeBound, err := auth.EdgeReadScope(ctx, "colleague", arg)
+	if err != nil {
+		return nil, 0, err
+	}
+	if edgeBound == "" {
+		edgeBound = "true"
+	}
 	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
 	if err != nil {
 		return nil, 0, err
@@ -113,8 +126,9 @@ func readAccountContacts(ctx context.Context, tx pgx.Tx, personID ids.PersonID) 
 		   AND theirs.archived_at IS NULL
 		   AND p.id <> $%d
 		   AND (%s)
+		   AND (%s)
 		 ORDER BY p.full_name, p.id
-		 LIMIT $%d`, personPos, personPos, scope, limitPos), args...)
+		 LIMIT $%d`, personPos, personPos, edgeBound, scope, limitPos), args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("network: reading who else works at a contact's company: %w", err)
 	}
