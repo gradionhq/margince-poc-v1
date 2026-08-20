@@ -349,7 +349,7 @@ func (s *Store) ArchiveDeal(ctx context.Context, id ids.DealID) (crmcontracts.De
 		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventDealArchived{}); err != nil {
 			return fmt.Errorf("emit deal.archived: %w", err)
 		}
-		if out, err = readDeal(ctx, tx, id, storekit.IncludeArchived, active); err != nil {
+		if out, err = readDealForCaller(ctx, tx, id, storekit.IncludeArchived, active); err != nil {
 			return fmt.Errorf("read archived deal: %w", err)
 		}
 		return nil

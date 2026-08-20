@@ -14477,17 +14477,17 @@ type Deal struct {
 	MaskedFields *[]string `json:"masked_fields,omitempty"`
 	Name         string    `json:"name"`
 
-	// OrganizationId Primary org; never a raw lead.
+	// OrganizationId Primary org; never a raw lead. Null when the caller may not read that organization, in which case `masked_fields` names it.
 	OrganizationId *openapi_types.UUID `json:"organization_id,omitempty"`
 	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
 
-	// PartnerOrgId Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.
+	// PartnerOrgId Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row. Null when the caller may not read that organization, in which case `masked_fields` names it.
 	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
 
 	// PipelineId Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent's own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).
 	PipelineId *openapi_types.UUID `json:"pipeline_id"`
 
-	// ProjectId The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422.
+	// ProjectId The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422. Null when the caller may not read that project, in which case `masked_fields` names it.
 	ProjectId *openapi_types.UUID     `json:"project_id,omitempty"`
 	Raw       *map[string]interface{} `json:"raw,omitempty"`
 	Source    string                  `json:"source"`

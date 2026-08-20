@@ -154,7 +154,7 @@ func (s *Store) AdvanceDeal(ctx context.Context, id ids.DealID, in AdvanceDealIn
 				return fmt.Errorf("stamp won deal's correspondence: %w", err)
 			}
 		}
-		if out, err = readDeal(ctx, tx, id, storekit.LiveOnly, active); err != nil {
+		if out, err = readDealForCaller(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced deal: %w", err)
 		}
 		return nil

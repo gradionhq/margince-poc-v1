@@ -14,9 +14,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// The filter names this module answers, spelled once each. They are wire names
-// — a caller's query parameter — which is why they are not the column
-// constants they happen to match today.
+// The wire field names this module answers, spelled once each: a caller's
+// query parameter on a list, and the same name where a read reports the field
+// withheld (fieldmask.go). They are wire names, which is why they are not the
+// column constants they happen to match today.
 const (
 	filterOrganizationID = "organization_id"
 	filterOwnerID        = "owner_id"

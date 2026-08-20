@@ -107,7 +107,10 @@ func (s *Store) updateDealInTx(ctx context.Context, tx pgx.Tx,
 	}
 	storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 	if p.Empty() {
-		return current, nil
+		// Nothing changed, but the echo is still a read: `current` came from
+		// the unmasked readDeal above, which the before-image needs and the
+		// caller must not have.
+		return maskDealForCaller(ctx, tx, current)
 	}
 
 	if err := s.applyMoneyInvariants(ctx, tx, current, in, p); err != nil {
@@ -123,7 +126,7 @@ func (s *Store) updateDealInTx(ctx context.Context, tx pgx.Tx,
 	if err := recordDealUpdate(ctx, tx, id, current, in, p); err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	out, err := readDeal(ctx, tx, id, storekit.LiveOnly, active)
+	out, err := readDealForCaller(ctx, tx, id, storekit.LiveOnly, active)
 	if err != nil {
 		return crmcontracts.Deal{}, fmt.Errorf("read updated deal: %w", err)
 	}
