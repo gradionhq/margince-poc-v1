@@ -562,15 +562,6 @@ func fileHoldsAGatedFunction(t *testing.T, parsed gatekit.ParsedFile, gated map[
 	return false
 }
 
-func firstSQLLine(literal string) string {
-	for _, line := range strings.Split(strings.Trim(literal, "`\""), "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			return trimmed
-		}
-	}
-	return strings.TrimSpace(literal)
-}
-
 // namesTheEdge reports whether a call passes the relationship object as one of
 // its own arguments — auth.Require(ctx, "relationship", …) and person360's
 // requireRead(ctx, "relationship") alike. Asked of the CALL rather than of the
