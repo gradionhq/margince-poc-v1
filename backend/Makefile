@@ -317,7 +317,7 @@ bench-perf: composition ## PERF-3/PERF-7 benchmark harness on the mid-market §6
 bench-perf-check: composition ## PERF-3/PERF-7 on the SMB tier, no record written (needs db-up; the scheduled lane's target)
 	@$(GOWORK_COMPOSED) bash -c 'cd .. && source scripts/lib-testdb.sh && parse_test_dsn && bench_db $(BENCH_DB_NAME) \
 	  && cd backend && MARGINCE_BENCH_TIER=smb MARGINCE_TEST_DSN="$$BENCH_OWNER_DSN" MARGINCE_TEST_APP_DSN="$$BENCH_APP_DSN" \
-	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 30m ./internal/compose/integration'
+	     $(GO) test -tags "integration bench" -run TestPerfBudgetsHoldOnSeededVolumeTier -count=1 -v -timeout 20m ./internal/compose/integration'
 
 # The `bench` lane: measurements run BY HAND, never by a merge gate.
 #

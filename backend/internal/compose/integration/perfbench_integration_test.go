@@ -23,8 +23,10 @@ package integration
 // The write-path regression it once caught by TIMING OUT rather than by
 // measuring is now held deterministically, by the seq_scan count in
 // lastactivity_integration_test.go. Run this one with `make bench-perf`
-// (mid-market, records) or `make bench-perf-check` (both tiers, records
-// nothing) — the scheduled workflow runs the latter weekly.
+// (mid-market, writes a record) or `make bench-perf-check` (SMB, writes
+// nothing) — the scheduled workflow runs the latter weekly. Mid-market is by
+// hand only: its seed does not finish inside a CI budget, so no schedule
+// measures the tier the SLO actually binds at.
 
 import (
 	"context"

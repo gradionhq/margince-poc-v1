@@ -23,6 +23,12 @@ package backendarch
 // it would flag the plumbing and leave nowhere to put the field. `TestOnly:
 // true`, or any other computed value, is a decision, and a decision belongs in
 // a test file.
+//
+// The forward exemption is bound to the two files that do the forwarding, and
+// that is the point: read as "any value ending in .TestOnly", it would admit
+// `compose.JobRunnerConfig{TestOnly: appCfg.TestOnly}` — an operator-reachable
+// flag threaded from configuration, which is precisely the production setter
+// this gate exists to forbid, wearing the shape of plumbing.
 
 import (
 	"go/ast"
@@ -35,10 +41,10 @@ import (
 )
 
 // testOnlySetterFloor guards against a vacuous pass. If the walk stops finding
-// the settings this gate knows about — jobtest's, and the suites that boot their
-// own runner — then it has stopped reading the tree rather than started
-// approving of it, and a production setter added the same day would pass
-// unnoticed. The number is a floor, not a count: new test suites raise it.
+// the one setting this gate knows about — jobtest's — then it has stopped
+// reading the tree rather than started approving of it, and a production setter
+// added the same day would pass unnoticed. The number is a floor, not a count:
+// new test suites raise it.
 const testOnlySetterFloor = 1
 
 // TestJobRunnerConfigIsNeverSetInProduction is the whole obligation: TestOnly may
@@ -58,15 +64,18 @@ func TestJobRunnerConfigIsNeverSetInProduction(t *testing.T) {
 		}
 		// A _test.go file is a test file whatever build tag it carries, which is
 		// the same membership rule TestIntegrationSuitesMigrateOncePerProcess
-		// walks by. jobtest/ is the exception that is not a _test.go file: it is
-		// a test HARNESS package, imported only by integration suites and behind
-		// the integration tag, so it is permitted by name rather than by suffix.
+		// walks by. jobtest/ is the ONE exception that is not a _test.go file: a
+		// test HARNESS package, imported only by integration suites and behind
+		// the integration tag, permitted by name rather than by suffix. Named
+		// because it sets the flag today — a directory listed here on the
+		// expectation that it might one day is a permission granted to nobody,
+		// and the exception list is where this gate would read green over its
+		// own class.
 		isTest := strings.HasSuffix(path, "_test.go") ||
-			strings.Contains(path, "/integration/jobtest/") ||
-			strings.Contains(path, "/integration/apptest/")
+			strings.Contains(path, "/integration/jobtest/")
 
 		ast.Inspect(file, func(n ast.Node) bool {
-			if !originatesTestOnly(n) {
+			if !originatesTestOnly(n, path) {
 				return true
 			}
 			where := fset.Position(n.Pos()).String()
@@ -99,11 +108,11 @@ func TestJobRunnerConfigIsNeverSetInProduction(t *testing.T) {
 // spelling — `TestOnly: x` in a composite literal, or `y.TestOnly = x`. A value
 // that is itself somebody's TestOnly field is a forward, not a decision, and
 // does not count: that is how one config struct hands the flag to the next.
-func originatesTestOnly(n ast.Node) bool {
+func originatesTestOnly(n ast.Node, path string) bool {
 	switch node := n.(type) {
 	case *ast.KeyValueExpr:
 		key, ok := node.Key.(*ast.Ident)
-		return ok && key.Name == "TestOnly" && !forwardsTestOnly(node.Value)
+		return ok && key.Name == "TestOnly" && !forwardsTestOnly(node.Value, path)
 	case *ast.AssignStmt:
 		for i, lhs := range node.Lhs {
 			sel, ok := lhs.(*ast.SelectorExpr)
@@ -112,7 +121,7 @@ func originatesTestOnly(n ast.Node) bool {
 			}
 			// A one-to-one assignment has a value to inspect; anything else
 			// (a multi-value call) cannot be read as a forward, so it counts.
-			if len(node.Rhs) == len(node.Lhs) && forwardsTestOnly(node.Rhs[i]) {
+			if len(node.Rhs) == len(node.Lhs) && forwardsTestOnly(node.Rhs[i], path) {
 				continue
 			}
 			return true
@@ -121,8 +130,23 @@ func originatesTestOnly(n ast.Node) bool {
 	return false
 }
 
-// forwardsTestOnly reports whether expr is somebody else's TestOnly field.
-func forwardsTestOnly(expr ast.Expr) bool {
+// forwardingPlumbing are the files permitted to pass a TestOnly value along.
+// Two, and they are the two links in the one chain that carries the flag from a
+// test harness to River: compose's runner config into platform's, and platform's
+// into river.Config. A third would mean a new route to the flag, which is a
+// thing to notice rather than to allow.
+var forwardingPlumbing = map[string]bool{
+	"internal/compose/jobs.go":       true,
+	"internal/platform/jobs/jobs.go": true,
+}
+
+// forwardsTestOnly reports whether expr is somebody else's TestOnly field, in a
+// file whose job is to pass it along. Both halves matter: the shape alone would
+// admit a production config field threaded through as though it were plumbing.
+func forwardsTestOnly(expr ast.Expr, path string) bool {
+	if !forwardingPlumbing[path] {
+		return false
+	}
 	sel, ok := expr.(*ast.SelectorExpr)
 	return ok && sel.Sel.Name == "TestOnly"
 }

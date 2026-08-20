@@ -24,10 +24,12 @@ name: scheduled
 #                        until it stopped being worth 37.9s of every merge gate
 #                        for a claim it could not make: the SLO binds at
 #                        mid-market, and a row measured below it renders
-#                        `inconclusive`, never `within budget`. Weekly, at BOTH
-#                        tiers, is the honest cadence for a budget nobody merges
-#                        against — and drift nobody looks for is drift nobody
-#                        finds.
+#                        `inconclusive`, never `within budget`. Weekly is the
+#                        honest cadence for a budget nobody merges against —
+#                        drift nobody looks for is drift nobody finds. SMB only:
+#                        mid-market does not finish inside a CI budget (see
+#                        bench-perf-check), and an alarm that cannot finish files
+#                        a breach it never measured.
 #
 # A fifth job earns its place here for the same reason rather than the same
 # question. reap-caches is maintenance, not a verdict on main — but the state it
@@ -52,7 +54,7 @@ on:
   workflow_dispatch:
     inputs:
       perf:
-        description: "Also run the PERF-3/PERF-7 budgets (both tiers, ~40-90 min)"
+        description: "Also run the PERF-3/PERF-7 budgets (SMB tier; mid-market is by hand, `make bench-perf`)"
         type: boolean
         default: false
 
@@ -201,7 +203,7 @@ jobs:
         working-directory: .
         run: make check-backend
 
-  # PERF-3/PERF-7 at both tiers, weekly. It is the only job here gated on a
+  # PERF-3/PERF-7 on the SMB tier, weekly. It is the only job here gated on a
   # cadence rather than running every time the workflow fires: the daily lane
   # must not pay 40+ minutes of contact seeding for a budget nobody merges
   # against. A dispatch runs it only when asked (the `perf` input), so somebody
@@ -221,6 +223,13 @@ jobs:
     # the six-hour default. Mid-market is deliberately not here — see
     # bench-perf-check in backend/Makefile for why a job that cannot finish is
     # worse than no job.
+    #
+    # The target's own `go test -timeout` is 20m, DERIVED from this rather than
+    # equal to it: checkout, setup-go, the cache restore and `db-up` all spend
+    # wall clock before the test starts, so a 30m inner budget inside a 30m job
+    # could never fire. The job would be killed first and the hang would report
+    # as an opaque timeout with no goroutine dump — and the reporter would file a
+    # budget breach for what was actually a hang.
     timeout-minutes: 30
     permissions:
       contents: read

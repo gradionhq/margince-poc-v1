@@ -326,7 +326,14 @@ drop_clone() { local db="$1"; db_admin drop-db --name "$db" >/dev/null; }
 # ratifies, so a migrated template would only be thrown away.
 bench_db() {
   local db="${1:?bench_db needs a database name}"
-  db_admin recreate-db --name "$db" >/dev/null
+  # `|| return` because this is NOT the last command in the function: without it
+  # the function answers with the status of `export`, which always succeeds, and
+  # a failed create would hand the caller DSNs for a database that does not
+  # exist — or still holds the previous run's corpus. The bench would then die on
+  # a raw pgx connect error instead of the actionable message, or measure a
+  # doubly-seeded corpus, and the scheduled reporter would file a budget breach
+  # for neither.
+  db_admin recreate-db --name "$db" >/dev/null || return
   BENCH_OWNER_DSN="$(owner_clone_dsn "$db")"
   BENCH_APP_DSN="$(app_clone_dsn "$db")"
   export BENCH_OWNER_DSN BENCH_APP_DSN
