@@ -9,8 +9,6 @@ package activities
 // them would make the two surfaces silently disagree.
 
 import (
-	"fmt"
-
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -98,7 +96,9 @@ func (e *MessageProviderError) FieldFault() (field, code, message string) {
 type MeetingStatusKindError struct{ Kind string }
 
 func (e *MeetingStatusKindError) Error() string {
-	return fmt.Sprintf("only a meeting may carry a meeting_status; kind %q does not", e.Kind)
+	// The caller's kind is unbounded input; like TranscriptKindError above,
+	// the message never echoes it — the field pointer names what to fix.
+	return "only a meeting may carry a meeting_status"
 }
 
 // FieldFault names meeting_status: it is the field the caller has to drop.
