@@ -81,11 +81,15 @@ func nativeMode(context.Context) (bool, error) { return false, nil }
 var briefReaderPerms = principal.Permissions{
 	RoleKeys: []string{"rep"},
 	Objects: map[string]principal.ObjectGrant{
-		"organization":          {Read: true},
-		"person":                {Create: true, Read: true},
-		"deal":                  {Create: true, Read: true, Update: true},
-		"activity":              {Read: true},
-		"pipeline":              {Read: true},
+		"organization": {Read: true},
+		"person":       {Create: true, Read: true},
+		"deal":         {Create: true, Read: true, Update: true},
+		"activity":     {Read: true},
+		"pipeline":     {Read: true},
+		// The brief counts the contacts at the account, which it learns from
+		// the employment edges; every seeded role holds this grant, and a
+		// fixture without it would describe a brief no real reader gets.
+		"relationship":          {Read: true},
 		"installation_settings": {Read: true},
 	},
 	RowScope: principal.RowScopeAll,

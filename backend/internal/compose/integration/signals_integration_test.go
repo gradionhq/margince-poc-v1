@@ -48,9 +48,15 @@ func signalStore(e *SearchEnv) *signals.Store {
 
 // signalActor is a full-scope human over the entities the warm room reads
 // and writes; scope selects own/team/all row visibility.
+//
+// `relationship` is in the list because the warm/cold verdict IS the edge: it
+// answers "does anyone we know work there", which is a fact about the pair.
+// Without the grant Warmth refuses rather than reporting cold — refusing is the
+// honest answer, since a cold verdict reached by not being allowed to look for
+// warmth would be a false one.
 func signalActor(e *SearchEnv, user ids.UUID, scope principal.RowScope, teams []ids.UUID) context.Context {
 	grants := map[string]principal.ObjectGrant{}
-	for _, o := range []string{"signal", "person", "organization", "deal", "lead"} {
+	for _, o := range []string{"signal", "person", "organization", "deal", "lead", "relationship"} {
 		grants[o] = principal.ObjectGrant{Read: true, Create: true, Update: true, Delete: true}
 	}
 	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
