@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 import (
 	"bytes"
@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func TestVoiceProfileLifecycleUpgradePreservesBuiltProfile(t *testing.T) {
@@ -75,7 +76,7 @@ func TestVoiceProfileLifecycleUpgradePreservesBuiltProfile(t *testing.T) {
 
 func migrateToBeforeVoiceLifecycle(t *testing.T, conn *pgx.Conn) dbmigrate.Namespace {
 	t.Helper()
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core migrations: %v", err)
 	}

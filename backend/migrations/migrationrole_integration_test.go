@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // A deployed installation's migration role owns the schema and is NOT a
 // superuser. That single difference decides whether a migration's data half runs

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // The obligation: the repair migrations heal a database that already recorded the
 // backfills they re-apply, and grant exactly what those backfills granted — no

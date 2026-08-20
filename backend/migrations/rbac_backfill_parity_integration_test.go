@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // The RBAC backfill migrations are the ONLY thing that gives an existing
 // installation a grant on an object added after it bootstrapped: the code-side
@@ -31,6 +31,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // grant is one role's CRUD row inside a permissions document.
@@ -128,7 +129,7 @@ func TestRBACBackfillsWriteTheIntendedGrants(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	conn := connect(t, ownerDSN)
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 1787128142 undoes damage 1787111736 did, so its test has to carry that damage
 // through it. Applied to a fresh schema the repair matches nothing — there is
@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 // noticeRow is one seeded employment and whether the repair should hand its
@@ -95,7 +96,7 @@ func TestTheNoticePeriodRepairGivesBackOnlyTheFlagsItShould(t *testing.T) {
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

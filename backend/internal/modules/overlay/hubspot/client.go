@@ -122,6 +122,9 @@ func NewClient(region, token string, opts ...Option) *Client {
 	for _, opt := range opts {
 		opt(c)
 	}
+	// Last, after the options, so no caller-supplied client escapes it. It is a
+	// no-op in every build but the integration one — see guardEgress.
+	c.httpClient = guardEgress(c.httpClient)
 	return c
 }
 

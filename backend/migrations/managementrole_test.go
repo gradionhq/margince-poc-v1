@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package migrations
+package migrations_test
 
 // The obligation: the management document 0268 inserts into an upgraded
 // installation is the document the server seeds into a fresh one. The
@@ -17,6 +17,8 @@ import (
 	"reflect"
 	"regexp"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 const managementRoleMigration = "0268"
@@ -25,7 +27,7 @@ const managementRoleMigration = "0268"
 var managementLiteral = regexp.MustCompile(`'(\{.*\})'::jsonb`)
 
 func TestManagementRoleMigrationInsertsTheSeededDocument(t *testing.T) {
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}

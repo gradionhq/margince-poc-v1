@@ -1,18 +1,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package migrations
+package migrations_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/gradionhq/margince/backend/migrations"
+)
 
 func TestEmbeddedMigrationNamespacesLoad(t *testing.T) {
 	loaders := map[string]func() error{
 		"core": func() error {
-			_, err := Core()
+			_, err := migrations.Core()
 			return err
 		},
 		"custom": func() error {
-			_, err := Custom()
+			_, err := migrations.Custom()
 			return err
 		},
 	}

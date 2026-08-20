@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // Catalog-derived fitness functions over the migrated schema: the RLS
 // coverage, composite-tenant-FK, and row-scoped-FK-visibility invariants
@@ -32,8 +32,7 @@ import (
 func TestSchema_amountMinorBaseIsDatabaseGenerated(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
+	headSchema(t, owner)
 	ctx := context.Background()
 
 	var isGenerated, generationExpr string
@@ -77,8 +76,7 @@ func TestSchema_amountMinorBaseIsDatabaseGenerated(t *testing.T) {
 func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
+	headSchema(t, owner)
 	ctx := context.Background()
 
 	var reloptions []string
@@ -359,8 +357,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 
 	ownerDSN, _ := dsns(t)
 	owner := connect(t, ownerDSN)
-	resetSchema(t, owner)
-	migrateAll(t, owner)
+	headSchema(t, owner)
 	ctx := context.Background()
 
 	rows, err := owner.Query(ctx, `

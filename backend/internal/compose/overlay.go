@@ -115,19 +115,6 @@ func OverlayProjectionFingerprints() map[string]string {
 	return hubspot.ProjectionFingerprints()
 }
 
-// hubspotIncumbentFactory builds a live HubSpot adapter over one
-// connection's own region + vaulted token — the per-connection seam
-// Connect's mirror_user_map seeding resolves the owners directory
-// through. It is the ONE place compose binds the concrete incumbent for
-// the connection lifecycle (the reconcile poller builds its own the same
-// way, jobs.go's reconcileConnection); the overlay module never selects
-// an incumbent itself (ADR-0054 §8 — concrete choice injected at compose).
-//
-//nolint:ireturn // returns the overlay.Incumbent seam by design — it is injected as a per-connection factory the module holds behind the interface, so tests substitute a fake.
-func hubspotIncumbentFactory(region, token string) overlay.Incumbent {
-	return hubspot.NewAdapter(hubspot.NewClient(region, token))
-}
-
 // NewOverlayProvider builds the overlay-mode read seam Dispatcher routes
 // to: a MirrorStore over pool plus a FreshnessReader wired with the
 // canonical->incumbent translator (hubspot.IncumbentClassesFor) and meter

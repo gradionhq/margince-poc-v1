@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package migrations
+package migrations_test
 
 // 0156's rollback proven directly. The in-flight marker is the ONLY record that
 // a channel message may already be with the customer, and a channel seam has no
@@ -29,6 +29,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/dbmigrate"
+	"github.com/gradionhq/margince/backend/migrations"
 )
 
 func TestRollingBackTheInflightMarkerParksUnlearnedSends(t *testing.T) {
@@ -37,7 +38,7 @@ func TestRollingBackTheInflightMarkerParksUnlearnedSends(t *testing.T) {
 	resetSchema(t, conn)
 	ctx := context.Background()
 
-	core, err := Core()
+	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading core: %v", err)
 	}
