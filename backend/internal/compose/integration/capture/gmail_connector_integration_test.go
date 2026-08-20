@@ -95,7 +95,7 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
 	}
-	connID, err := registry.Connect(grantCtx, "gmail", auth)
+	connID, err := registry.Connect(grantCtx, "gmail", auth, true)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

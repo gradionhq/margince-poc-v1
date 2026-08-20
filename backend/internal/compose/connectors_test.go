@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -53,7 +54,7 @@ func gmailAuthCodeURLForTest(t *testing.T) string {
 	t.Helper()
 	h := wiredHandlers()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gmail")
 
@@ -87,7 +88,7 @@ func humanCtx() context.Context {
 func TestConnectConnectorReturnsSignedAuthorizeURL(t *testing.T) {
 	h := wiredHandlers()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gmail")
 
@@ -116,6 +117,34 @@ func TestConnectConnectorReturnsSignedAuthorizeURL(t *testing.T) {
 	if st.Provider != "gmail" || st.User != ids.MustParse("22222222-2222-2222-2222-222222222222") {
 		t.Errorf("state = %+v, want gmail + the acting user", st)
 	}
+	if !st.ShareAck {
+		t.Error("the signed state dropped the sharing acknowledgment — the callback's grant would refuse")
+	}
+}
+
+// Connecting a mailbox shares its captured correspondence with colleagues, so
+// the connect refuses to even mint an authorize URL until the human has said
+// yes to that — a nil body and an explicit false are the same withholding.
+func TestConnectConnectorRefusesWithoutTheSharingAcknowledgment(t *testing.T) {
+	h := wiredHandlers()
+	for name, body := range map[string]io.Reader{
+		"no body":        nil,
+		"explicit false": strings.NewReader(`{"share_acknowledged":false}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", body).WithContext(humanCtx())
+
+			h.ConnectConnector(rec, req, "gmail")
+
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422 (body %s)", rec.Code, rec.Body)
+			}
+			if !strings.Contains(rec.Body.String(), "sharing_not_acknowledged") {
+				t.Fatalf("body = %s, want the sharing_not_acknowledged code", rec.Body)
+			}
+		})
+	}
 }
 
 // Google will not add a scope to an existing refresh token, so both permissions
@@ -135,7 +164,7 @@ func TestGmailConsentRequestsReadAndSendScopes(t *testing.T) {
 func TestConnectConnectorReturnsSignedAuthorizeURLForGcal(t *testing.T) {
 	h := wiredHandlers()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gcal/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gcal/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gcal")
 
@@ -199,7 +228,7 @@ func TestConnectConnectorRejectsUnsupportedProvider(t *testing.T) {
 func TestConnectConnectorNotImplementedWhenUnwired(t *testing.T) {
 	var h connectorHandlers // zero value: no oauth/registry
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gmail")
 

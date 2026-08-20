@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func graphWiredHandlers() connectorHandlers {
 func TestConnectGraphReturnsMicrosoftAuthorizeURL(t *testing.T) {
 	h := graphWiredHandlers()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/graph/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/graph/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "graph")
 
@@ -67,7 +68,7 @@ func TestConnectGraphReturnsMicrosoftAuthorizeURL(t *testing.T) {
 func TestConnectGraphNotImplementedWhenOnlyGmailWired(t *testing.T) {
 	h := wiredHandlers() // gmail app only
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/graph/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/graph/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "graph")
 
@@ -82,7 +83,7 @@ func TestGcalConnectsAlongsideGraph(t *testing.T) {
 	// returns its signed authorize URL.
 	h := graphWiredHandlers()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gcal/connect", nil).WithContext(humanCtx())
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gcal/connect", strings.NewReader(`{"share_acknowledged":true}`)).WithContext(humanCtx())
 
 	h.ConnectConnector(rec, req, "gcal")
 

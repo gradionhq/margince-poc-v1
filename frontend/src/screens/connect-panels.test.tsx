@@ -60,6 +60,11 @@ it("OAuthConnectPanel posts the given provider and redirects", async () => {
       jsonResponse({ authorize_url: "https://login.microsoftonline/x" }),
   });
   render(<OAuthConnectPanel provider="graph" onDismiss={() => {}} />);
+  // The connect button stays disabled until the one-time sharing
+  // acknowledgment is ticked.
+  await userEvent.click(
+    screen.getByRole("checkbox", { name: en["connectors.shareAck"] }),
+  );
   await userEvent.click(
     screen.getByRole("button", { name: "Allow access to my Microsoft" }),
   );

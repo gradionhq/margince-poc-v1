@@ -73,8 +73,8 @@ func seedCommsConnections(dsn string, cfg demoConfig, mode runMode) (int, error)
 		// row is installation-wide by construction (ADR-0091 §8 phase D).
 		tag, err := conn.Exec(ctx, `
 			INSERT INTO capture_connection
-			       (provider, user_id, scopes, status, account_label, auth)
-			VALUES ('offline_demo', $1::uuid, '{read}', 'connected', $2, $3::bytea)
+			       (provider, user_id, scopes, status, account_label, auth, share_acknowledged_at)
+			VALUES ('offline_demo', $1::uuid, '{read}', 'connected', $2, $3::bytea, now())
 			ON CONFLICT (user_id, provider) DO NOTHING`,
 			userID, user.Email, []byte(userID))
 		if err != nil {

@@ -18,6 +18,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -192,7 +193,7 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 // secret exists before disconnect), not the code under test.
 func connectFixtureConnection(ctx context.Context, t *testing.T, reg *capture.Registry) keyvault.Ref {
 	t.Helper()
-	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token")); err != nil {
+	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token"), true); err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	var status string
@@ -218,6 +219,37 @@ func queryConnectionRow(ctx context.Context, t *testing.T, status *string, crede
 	return owner.QueryRow(ctx,
 		`SELECT status, credential_ref, auth FROM capture_connection WHERE provider = 'gmail'`).
 		Scan(status, credentialRef, auth)
+}
+
+// The grant is where the mail-sharing acknowledgment becomes a recorded fact:
+// a connect stamps share_acknowledged_at before the first pull, and a grant
+// arriving WITHOUT the acknowledgment is refused at the registry — the single
+// write point — so an unacknowledged connection cannot exist however a
+// transport misbehaves.
+func TestConnectRecordsTheSharingAcknowledgmentAndRefusesWithoutIt(t *testing.T) {
+	ctx, reg, _, _ := newCaptureRegistryFixture(t)
+
+	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token"), false); err == nil {
+		t.Fatal("Connect accepted a grant without the mail-sharing acknowledgment")
+	}
+	owner, _ := setupCaptureDB(t)
+	var count int
+	if err := owner.QueryRow(ctx, `SELECT count(*) FROM capture_connection`).Scan(&count); err != nil {
+		t.Fatalf("counting connections: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("the refused grant left %d connection rows", count)
+	}
+
+	connectFixtureConnection(ctx, t, reg)
+	var ackedAt *time.Time
+	if err := owner.QueryRow(ctx,
+		`SELECT share_acknowledged_at FROM capture_connection WHERE provider = 'gmail'`).Scan(&ackedAt); err != nil {
+		t.Fatalf("reading back the acknowledgment stamp: %v", err)
+	}
+	if ackedAt == nil {
+		t.Fatal("Connect committed the row with share_acknowledged_at NULL — the acknowledgment was not recorded")
+	}
 }
 
 // Disconnecting must not leave a live credential behind: the row stops being
@@ -352,7 +384,7 @@ func TestReconnectDeletesThePriorSecret(t *testing.T) {
 		t.Fatalf("precondition: the first secret should exist: %v", err)
 	}
 
-	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token-2")); err != nil {
+	if _, err := reg.Connect(ctx, "gmail", connector.Auth("fixture-token-2"), true); err != nil {
 		t.Fatalf("reconnect: %v", err)
 	}
 
@@ -437,7 +469,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 	// exactly like a second request would land on the same process.
 	reg3 := capture.NewRegistry(database.BindTo(poolFromFixture(t), ws), nil, fixtureAuthority{}, vault)
 	reg3.Register(fixtureConnector{})
-	if _, err := reg3.Connect(ctx, "gmail", connector.Auth("fixture-token-reconnect")); err != nil {
+	if _, err := reg3.Connect(ctx, "gmail", connector.Auth("fixture-token-reconnect"), true); err != nil {
 		t.Fatalf("concurrent reconnect: %v", err)
 	}
 	var secondRef *string

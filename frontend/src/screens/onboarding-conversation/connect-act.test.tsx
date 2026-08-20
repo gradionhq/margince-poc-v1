@@ -167,8 +167,11 @@ it("marks this tab's own attempt before the real redirect fires", async () => {
   vi.stubGlobal("location", { ...globalThis.location, assign });
   renderConnectAct();
   await userEvent.click(screen.getByRole("button", { name: /Microsoft/ }));
+  // The connect button stays disabled until the one-time sharing
+  // acknowledgment — the dialog's only checkbox — is ticked.
+  await userEvent.click(await screen.findByRole("checkbox"));
   await userEvent.click(
-    await screen.findByRole("button", { name: "Allow access to my Microsoft" }),
+    screen.getByRole("button", { name: "Allow access to my Microsoft" }),
   );
   await waitFor(() => expect(assign).toHaveBeenCalled());
   expect(sessionStorage.getItem("ob.connect.oauthAttempt")).toBe("graph");
@@ -557,9 +560,13 @@ describe("the IMAP dialog", () => {
     expect(screen.getByLabelText("Mailbox")).toBeTruthy();
     // The prototype this dialog adapts shows SMTP host/port and a "Require
     // TLS" checkbox; the real connector contract has neither, so this form
-    // does not invent widgets that would submit nothing.
+    // does not invent widgets that would submit nothing. The one checkbox it
+    // does carry is the sharing acknowledgment, not an invented TLS toggle.
     expect(screen.queryByLabelText(/smtp/i)).toBeNull();
-    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(
+      screen.getByRole("checkbox", { name: en["connectors.shareAck"] }),
+    ).toBeInTheDocument();
   });
 
   it("closes on 'Not now' without touching the required-step skip", async () => {
@@ -599,8 +606,9 @@ describe("dismissal during an in-flight connect request", () => {
     });
     renderConnectAct();
     await userEvent.click(screen.getByRole("button", { name: /Microsoft/ }));
+    await userEvent.click(await screen.findByRole("checkbox"));
     await userEvent.click(
-      await screen.findByRole("button", {
+      screen.getByRole("button", {
         name: "Allow access to my Microsoft",
       }),
     );
@@ -629,6 +637,7 @@ describe("dismissal during an in-flight connect request", () => {
     await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
     await userEvent.type(screen.getByLabelText("Email"), "me@example.com");
     await userEvent.type(screen.getByLabelText("App password"), "secret");
+    await userEvent.click(screen.getByRole("checkbox"));
     await userEvent.click(
       screen.getByRole("button", { name: "Test and connect" }),
     );
@@ -734,6 +743,7 @@ it("keeps mail provider cards disabled during a roster refetch, not just its fir
   await userEvent.click(screen.getByRole("button", { name: /Any inbox/ }));
   await userEvent.type(screen.getByLabelText("Email"), "me@example.com");
   await userEvent.type(screen.getByLabelText("App password"), "secret");
+  await userEvent.click(screen.getByRole("checkbox"));
   await userEvent.click(
     screen.getByRole("button", { name: "Test and connect" }),
   );

@@ -226,6 +226,7 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 	// return_to is silently dropped and a malformed chunked body skips
 	// rejection entirely.
 	returnTo := returnToOnboarding
+	shareAck := false
 	if r.ContentLength != 0 {
 		var req crmcontracts.ConnectConnectorRequest
 		if !httperr.Decode(w, r, &req) {
@@ -234,6 +235,16 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		if req.ReturnTo != nil && string(*req.ReturnTo) == returnToSettings {
 			returnTo = returnToSettings
 		}
+		shareAck = req.ShareAcknowledged != nil && *req.ShareAcknowledged
+	}
+	// Connecting a mailbox shares its captured correspondence with every
+	// colleague who can see the contact, and that default is a stated choice:
+	// the connect does not even mint an authorize URL until the human has
+	// acknowledged it. The flag rides the signed state to the callback, and
+	// Registry.Connect — the one write point — refuses a grant without it.
+	if !shareAck {
+		httperr.Write(w, r, sharingNotAcknowledged())
+		return
 	}
 	// CSRF: a random nonce goes into both a SameSite=Lax cookie and the signed
 	// state; the callback requires them to match, so a victim can't complete an
@@ -251,7 +262,8 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 	state := h.signer.sign(
 		connectState{
 			Workspace: ws, User: actor.UserID, Provider: string(provider),
-			Nonce: nonce, ReturnTo: returnTo, Version: stateVersionNamespacedCSRF,
+			Nonce: nonce, ReturnTo: returnTo, ShareAck: shareAck,
+			Version: stateVersionNamespacedCSRF,
 		},
 		time.Now().Add(connectStateTTL),
 	)
@@ -303,6 +315,18 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 
+	// A state without the sharing acknowledgment cannot complete a connect —
+	// Registry.Connect would refuse it anyway — so refuse BEFORE the code
+	// exchange: an exchanged authorization code is a real provider credential,
+	// and minting one only to discard it unrevoked is strictly worse than not
+	// spending it. Reached only by states minted before the checkbox existed
+	// (the connect endpoint refuses to mint an unacknowledged state).
+	if !st.ShareAck {
+		slog.WarnContext(ctx, "connector callback: state carries no sharing acknowledgment", "provider", string(provider))
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
+		return
+	}
+
 	runCtx := grantorContext(ctx, st)
 	// The grant needs LIVE authority, resolved before the code is spent: an
 	// exchanged authorization code is a real provider credential, and one
@@ -323,7 +347,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 
-	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
+	if _, err := h.registry.Connect(runCtx, string(provider), auth, st.ShareAck); err != nil {
 		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
 		return

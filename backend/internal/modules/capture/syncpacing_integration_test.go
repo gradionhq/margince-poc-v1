@@ -66,7 +66,7 @@ func (c rateLimitedConnector) Sync(context.Context, connector.Auth, connector.Cu
 // about production: the row it schedules against is the row production writes.
 func syncOnceOf(ctx context.Context, t *testing.T, reg *capture.Registry, provider string) error {
 	t.Helper()
-	if _, err := reg.Connect(ctx, provider, connector.Auth("fixture-token")); err != nil {
+	if _, err := reg.Connect(ctx, provider, connector.Auth("fixture-token"), true); err != nil {
 		t.Fatalf("Connect(%s): %v", provider, err)
 	}
 	owner, _ := setupCaptureDB(t)

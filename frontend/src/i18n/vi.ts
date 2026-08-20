@@ -2865,6 +2865,8 @@ export const vi = {
     "Những tiện ích bản cài đặt này chạy bằng một thông tin đăng nhập dùng chung. Thiết lập ở đây áp dụng cho mọi người.",
 
   "connectors.title": "Hộp thư đã kết nối",
+  "connectors.shareAck":
+    "Email được thu thập sẽ hiển thị với đồng nghiệp có quyền xem liên hệ — có thể giới hạn từng tin nhắn sau đó, và loại trừ địa chỉ hoặc tên miền ngay từ đầu.",
   "connectors.sub":
     "Các hộp thư đang thu thập vào CRM của bạn. Cần thì ngắt kết nối hộp nào cũng được — bản ghi đã thu thập vẫn giữ nguyên.",
   "connectors.loading": "Đang tải các kết nối…",
