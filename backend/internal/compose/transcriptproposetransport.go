@@ -128,6 +128,13 @@ func WithTranscriptRead(inserter *jobs.Runner) Option {
 		// read a transcript on request can read one that lands, and the lane
 		// held zero rows for as long as asking was the only way in.
 		s.transcriptOnLanding = TranscriptReadOnLanding(inserter)
+		// And on the REST transport too. POST /v1/activities is a door a
+		// transcript actually arrives through, and wiring only the tool
+		// surface would have left it storing transcripts nothing ever reads —
+		// the same silence this option exists to end.
+		//nolint:staticcheck // QF1008 wants s.WithTranscriptEnqueue(…), but Server
+		// embeds several Handlers types and the promoted selector is ambiguous.
+		s.activitiesHandlers = s.activitiesHandlers.WithTranscriptEnqueue(s.transcriptOnLanding)
 	}
 }
 

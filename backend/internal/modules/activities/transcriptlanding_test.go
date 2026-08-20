@@ -4,6 +4,9 @@
 package activities
 
 import (
+	"errors"
+	"os"
+	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -50,5 +53,62 @@ func TestOnlyATranscriptWithABodyStartsAReading(t *testing.T) {
 				t.Errorf("startsAReading = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A transcript too long to read still gets stored.
+//
+// The reading starts inside the activity's own transaction, so an error from
+// it rolls the activity back. WithinReadingBounds refuses past 600 lines /
+// 60,000 characters while an activity body may be 256 KiB — so without this,
+// logging a long meeting would destroy the activity and report a complaint
+// about a reading the caller never asked for.
+func TestATranscriptTooLongToReadIsStillStored(t *testing.T) {
+	if err := skipARefusedReading(&TranscriptTooLongError{Lines: 900, Chars: 90000}); err != nil {
+		t.Fatalf("an over-long transcript failed the write with %v; it must only skip the reading", err)
+	}
+}
+
+// Everything else still fails the write. A database fault means the activity
+// is not safely written either, and swallowing it would report success over a
+// row that is not there.
+func TestAFailedReadingStillFailsTheWrite(t *testing.T) {
+	boom := errors.New("connection reset")
+	if err := skipARefusedReading(boom); !errors.Is(err, boom) {
+		t.Fatalf("a database fault was swallowed: got %v, want %v", err, boom)
+	}
+}
+
+// Every door that logs an activity also offers the reading.
+//
+// The first cut hooked LogActivity only, so POST /v1/activities and the
+// extension core (which drive LogActivityTx) stored transcripts nothing ever
+// read — the exact silence this feature exists to end, reintroduced on two of
+// three doors. Both entry points route through logActivityAndReadTranscript
+// now, and this test reads the source to say so: a future entry point that
+// calls logActivityInTx directly is the regression, and it is invisible to any
+// test that only exercises the doors that exist today.
+func TestEveryActivityEntryPointOffersTheReading(t *testing.T) {
+	src, err := os.ReadFile("activity.go")
+	if err != nil {
+		t.Fatalf("reading activity.go: %v", err)
+	}
+	body := string(src)
+	// logActivityInTx is the write alone. Only its one wrapper may call it.
+	callers := strings.Count(body, "logActivityInTx(ctx, tx, in)")
+	if callers != 1 {
+		t.Errorf("logActivityInTx has %d callers in activity.go, want exactly 1 "+
+			"(logActivityAndReadTranscript). A door calling the write directly stores "+
+			"transcripts nothing reads.", callers)
+	}
+	for _, door := range []string{"func (s *Store) LogActivity(", "func (s *Store) LogActivityTx("} {
+		at := strings.Index(body, door)
+		if at < 0 {
+			t.Fatalf("%s is gone; this test needs updating with whatever replaced it", door)
+		}
+		if !strings.Contains(body[at:at+900], "logActivityAndReadTranscript") {
+			t.Errorf("%s does not route through logActivityAndReadTranscript, "+
+				"so a transcript arriving through it is never read", door)
+		}
 	}
 }

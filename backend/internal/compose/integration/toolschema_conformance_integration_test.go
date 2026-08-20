@@ -101,6 +101,13 @@ func TestToolAnswersReachableWithoutApprovalSatisfyTheirSchemas(t *testing.T) {
 	calls := []struct{ tool, args string }{
 		{"list_pipelines", `{}`},
 		{"read_brief", `{}`},
+		// Who the caller is, and who else they can hand work to. Both answer
+		// about the acting human rather than about a record, so the empty
+		// object is the whole input; list_colleagues also runs narrowed,
+		// because the filtered answer is the one that can come back truncated.
+		{"whoami", `{}`},
+		{"list_colleagues", `{}`},
+		{"list_colleagues", `{"q":"nothing here matches this"}`},
 		// An enumeration, narrowed and unnarrowed. The narrowed one is the
 		// answer worth holding to the shape: a filter that reached no SQL still
 		// returns a well-formed page, of the wrong rows.

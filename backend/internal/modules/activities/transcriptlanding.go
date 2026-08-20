@@ -14,6 +14,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 
 	"github.com/jackc/pgx/v5"
 
@@ -61,6 +62,28 @@ func (s *Store) readTranscriptOnLanding(
 	}
 	_, _, err := s.StartTranscriptReadQueuedTx(ctx, tx,
 		ids.From[ids.ActivityKind](ids.UUID(activity.Id)), requestedBy, s.transcriptEnqueue)
+	return skipARefusedReading(err)
+}
+
+// skipARefusedReading keeps a reading this installation cannot perform from
+// taking the transcript down with it.
+//
+// A reading starts inside the activity's OWN transaction, so any error it
+// returns rolls the activity back. That is right for a database fault — the
+// row is not safely written either. It is wrong for a transcript that is
+// simply too long to read: WithinReadingBounds refuses past 600 lines / 60,000
+// characters, while an activity body may be 256 KiB, so a legitimate,
+// in-bounds activity would vanish and the caller would be told its transcript
+// was too long — for a reading they never asked for.
+//
+// The explicit door keeps the refusal. POST /v1/activities/{id}/transcript-read
+// asks for a reading and nothing else, so 422 is the honest answer there and
+// this path does not touch it. Landing only offers one.
+func skipARefusedReading(err error) error {
+	var tooLong *TranscriptTooLongError
+	if errors.As(err, &tooLong) {
+		return nil
+	}
 	return err
 }
 
