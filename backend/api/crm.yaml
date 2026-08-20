@@ -20632,6 +20632,19 @@ components:
             may set. A retired one is absent here and still accepted by the
             engine, so no `status` lookup is needed to know whether to offer a
             field: if this operation listed it, it is offerable.
+        references:
+          type: string
+          enum: [tag, app_user, team, organization, pipeline, stage, project]
+          description: |
+            The record type this field's ids point at — present for every `id`
+            field, absent for every other type. Offer the record rather than a
+            box for its uuid.
+
+            The values are this contract's own record-type words, so no
+            translation table is needed to key a picker on them.
+
+            Never present on a custom field: the catalog's six types include no
+            `id`, so only a core field can carry a reference.
 
     Tag:
       type: object

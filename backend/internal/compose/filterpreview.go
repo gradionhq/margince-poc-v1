@@ -36,6 +36,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -55,13 +56,11 @@ import (
 const (
 	filterPreviewDefaultRows = 25
 	filterPreviewMaxRows     = 100
-	// previewStatementTimeoutMS bounds each statement in a preview. Generous for
-	// an indexable filter and short enough that an expensive one cannot hold a
-	// pool connection: a glance that takes five seconds has already failed at
-	// being a glance. A literal rather than a bind, because SET LOCAL takes no
-	// parameters — which is safe only because it is a constant here and never a
-	// caller's value.
-	previewStatementTimeoutMS = "5000"
+	// previewStatementBudget bounds each statement in a preview. Generous for an
+	// indexable filter and short enough that an expensive one cannot hold a pool
+	// connection: a glance that takes five seconds has already failed at being a
+	// glance.
+	previewStatementBudget = 5 * time.Second
 )
 
 // filterPreviewHandlers shadows the generated PreviewFilter stub.
@@ -152,8 +151,8 @@ func (h filterPreviewHandlers) preview(
 		// expensive to count is refused in bounded time instead of holding a pool
 		// connection for as long as it takes, which is the difference between one
 		// slow request and a server that stops answering.
-		if _, err := tx.Exec(ctx, "SET LOCAL statement_timeout = "+previewStatementTimeoutMS); err != nil {
-			return fmt.Errorf("bound the preview statement: %w", err)
+		if err := database.BoundStatement(ctx, tx, previewStatementBudget); err != nil {
+			return err
 		}
 		count, err := engine.CountMatching(ctx, tx, pred)
 		if err != nil {

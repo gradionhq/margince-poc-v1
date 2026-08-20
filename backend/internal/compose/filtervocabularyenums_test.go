@@ -94,6 +94,17 @@ func TestTheVocabularysTypeEnumIsExactlyWhatIsFilterable(t *testing.T) {
 		"the contract advertises it and nothing filterable carries it")
 }
 
+func TestTheVocabularysReferenceEnumIsExactlyWhatTheEngineDeclares(t *testing.T) {
+	engine := map[string]bool{}
+	for _, target := range storekit.ReferenceTargets() {
+		engine[string(target)] = true
+	}
+	compareVocabularySets(t, "reference target", engine,
+		vocabularyFieldEnum(t, "references", false),
+		"the engine points id fields at it and the contract cannot spell it, so the vocabulary would report a value no client can read",
+		"the contract advertises it and no id field points at it, so no field can ever report it")
+}
+
 // everyFilterableFieldType is the six custom-field types plus id, which only a
 // core field carries. Derived from fieldcatalog.Types() so a seventh custom type
 // joins these gates by existing rather than by somebody remembering them.

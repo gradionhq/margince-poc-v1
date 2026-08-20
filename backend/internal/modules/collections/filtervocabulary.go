@@ -56,6 +56,11 @@ type VocabularyField struct {
 	Type      string
 	Operators []string
 	Custom    bool
+	// References is the record type an id field's values point at, and is empty
+	// for every other type — so a builder can offer the record rather than ask a
+	// reader to paste a uuid. The engine declares it beside the field; nothing
+	// here derives it from the name.
+	References storekit.Reference
 }
 
 // FilterVocabulary answers every field a NEW filter clause may name for this
@@ -103,10 +108,11 @@ func (s *Store) FilterVocabulary(ctx context.Context, resource string) ([]Vocabu
 			continue
 		}
 		fields = append(fields, VocabularyField{
-			Name:      name,
-			Type:      string(field.Type),
-			Operators: storekit.OperatorsFor(field),
-			Custom:    !isCore,
+			Name:       name,
+			Type:       string(field.Type),
+			Operators:  storekit.OperatorsFor(field),
+			Custom:     !isCore,
+			References: field.References,
 		})
 	}
 	// By name, because a map answers a different order every call and a picker
@@ -155,10 +161,19 @@ func wireVocabularyField(f VocabularyField) crmcontracts.FilterVocabularyField {
 	for _, op := range f.Operators {
 		operators = append(operators, crmcontracts.FilterVocabularyFieldOperators(op))
 	}
-	return crmcontracts.FilterVocabularyField{
+	wire := crmcontracts.FilterVocabularyField{
 		Name:      f.Name,
 		Type:      crmcontracts.FilterVocabularyFieldType(f.Type),
 		Operators: operators,
 		Custom:    f.Custom,
 	}
+	// Omitted rather than sent empty for a field that references nothing, because
+	// "" is not a member of the contract's enum: sending it would put a value the
+	// contract forbids on the wire, which a strict client rejects outright. The
+	// key is therefore absent for every non-id field.
+	if f.References != "" {
+		ref := crmcontracts.FilterVocabularyFieldReferences(f.References)
+		wire.References = &ref
+	}
+	return wire
 }

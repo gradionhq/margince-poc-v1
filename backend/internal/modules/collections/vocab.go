@@ -78,8 +78,9 @@ func taggableEntityTypes() []string {
 // that is the tenancy model rather than a hole in it.
 func tagLinkFor(entity string) storekit.Field {
 	return storekit.Field{
-		Expr: "tg.tag_id",
-		Type: storekit.FieldID,
+		Expr:       "tg.tag_id",
+		Type:       storekit.FieldID,
+		References: storekit.RefTag,
 		Link: "EXISTS (SELECT 1 FROM taggable tg WHERE tg.entity_type = '" + entity +
 			"' AND tg.entity_id = t.id AND %s)",
 	}
@@ -106,8 +107,9 @@ const ownerTeamIDField = "owner_team_id"
 // row-scope clause, so naming a team the caller cannot see answers their own
 // visible rows filtered to nothing — never that team's rows.
 var ownerTeamField = storekit.Field{
-	Expr: "tm.team_id",
-	Type: storekit.FieldID,
+	Expr:       "tm.team_id",
+	Type:       storekit.FieldID,
+	References: storekit.RefTeam,
 	Link: "EXISTS (SELECT 1 FROM team_membership tm WHERE tm.user_id = " + colOwnerID +
 		" AND %s)",
 }
@@ -161,7 +163,7 @@ var segmentEngines = map[string]storekit.Query{
 		Table:     "person",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField: ownerTeamField,
 			tagFilterField:   tagLinkFor("person"),
 		},
@@ -175,7 +177,7 @@ var segmentEngines = map[string]storekit.Query{
 		// export built on one can carry it.
 		BaseWhere: whereArchivedNull + " AND NOT t.is_anchor",
 		Fields: map[string]storekit.Field{
-			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:     {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField: ownerTeamField,
 			"industry":       {Expr: "t.industry", Type: storekit.FieldText},
 			"size_band":      {Expr: "t.size_band", Type: storekit.FieldPicklist},
@@ -195,13 +197,13 @@ var segmentEngines = map[string]storekit.Query{
 		Table:     "deal",
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			"pipeline_id":       {Expr: "t.pipeline_id", Type: storekit.FieldID},
-			"stage_id":          {Expr: "t.stage_id", Type: storekit.FieldID},
-			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID},
+			"pipeline_id":       {Expr: "t.pipeline_id", Type: storekit.FieldID, References: storekit.RefPipeline},
+			"stage_id":          {Expr: "t.stage_id", Type: storekit.FieldID, References: storekit.RefStage},
+			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField:    ownerTeamField,
-			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID},
-			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID},
-			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID},
+			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID, References: storekit.RefOrganization},
+			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID, References: storekit.RefOrganization},
+			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID, References: storekit.RefProject},
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist},
 			tagFilterField:      tagLinkFor("deal"),
@@ -224,7 +226,7 @@ var segmentEngines = map[string]storekit.Query{
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
-			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:        {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField:    ownerTeamField,
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
 			tagFilterField:      tagLinkFor("lead"),
@@ -234,9 +236,9 @@ var segmentEngines = map[string]storekit.Query{
 		Table:     projectEntity,
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
-			ownerIDField:      {Expr: colOwnerID, Type: storekit.FieldID},
+			ownerIDField:      {Expr: colOwnerID, Type: storekit.FieldID, References: storekit.RefAppUser},
 			ownerTeamIDField:  ownerTeamField,
-			"organization_id": {Expr: "t.organization_id", Type: storekit.FieldID},
+			"organization_id": {Expr: "t.organization_id", Type: storekit.FieldID, References: storekit.RefOrganization},
 			"phase":           {Expr: "t.phase", Type: storekit.FieldPicklist},
 			tagFilterField:    tagLinkFor(projectEntity),
 		},

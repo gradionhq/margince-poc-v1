@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -51,6 +52,8 @@ const (
 	// cursor member, so the rest cannot be asked for — which makes truncation
 	// a degradation rather than pagination.
 	CodeResultTruncated = "result_truncated_at_limit"
+	// The fourth note code, CodePlanExceededBudget, is declared in
+	// querybudget.go beside the ceiling it reports on.
 )
 
 // QueryResult is one answered plan.
@@ -104,6 +107,7 @@ type QueryExecutor struct {
 	store    *Store
 	embedder Embedder
 	columns  ColumnReader
+	budget   time.Duration
 }
 
 // NewQueryExecutor builds the executor over this module's own store, its
@@ -111,8 +115,10 @@ type QueryExecutor struct {
 // vocabulary's nil pass-through widens what may be asked, and a widened
 // vocabulary is exactly what must not be executed against a table nobody
 // checked.
+//
+// It arms the plan-statement ceiling; querybudget.go is what that means.
 func NewQueryExecutor(store *Store, embedder Embedder, columns ColumnReader) *QueryExecutor {
-	return &QueryExecutor{store: store, embedder: embedder, columns: columns}
+	return NewQueryExecutorWithBudget(store, embedder, columns, planStatementBudget)
 }
 
 // Execute answers the plan.
@@ -137,6 +143,9 @@ func (e *QueryExecutor) Execute(ctx context.Context, plan ValidatedPlan) (QueryR
 	}
 	ranked, degraded, err := e.rankCandidates(ctx, plan)
 	if err != nil {
+		if budgetSpent(ctx, err) {
+			return e.abandoned(plan, result), nil
+		}
 		return QueryResult{}, err
 	}
 	if degraded {
@@ -152,9 +161,12 @@ func (e *QueryExecutor) Execute(ctx context.Context, plan ValidatedPlan) (QueryR
 		result.Coverage = coverageOf(plan, answerShape{degraded: degraded})
 		return result, nil
 	}
-	rows, err := e.answerRows(ctx, plan, binding)
+	rows, abandoned, err := e.answerRows(ctx, plan, binding)
 	if err != nil {
 		return QueryResult{}, err
+	}
+	if abandoned {
+		return e.abandoned(plan, result), nil
 	}
 	truncated := plan.Plan.SimilarTo == "" && len(rows) > plan.Limit
 	if truncated {
@@ -202,11 +214,25 @@ func (e *QueryExecutor) bindPlan(ctx context.Context, plan ValidatedPlan) (planB
 // rows rather than an error: object RBAC can change under a plan, and a caller
 // who lost the grant mid-flight learns the same thing an empty workspace tells
 // them.
-func (e *QueryExecutor) answerRows(ctx context.Context, plan ValidatedPlan, binding planBinding) ([]QueryRow, error) {
+//
+// The statement runs under this executor's time budget, which its store's
+// handle carries, because nothing else here bounds what a plan costs. The page
+// limit bounds the rows RETURNED and not the rows visited: a traversal compiles
+// to a LATERAL join re-executed once per outer candidate row, so a hop
+// predicate that matches almost nothing makes the planner walk the whole outer
+// table before it can fill a single page. Without the ceiling the only
+// remaining bound is how long a caller will hold a pool connection, and
+// query_workspace is a read any passport may issue.
+//
+// abandoned reports the budget being spent, which is an ANSWER rather than a
+// fault — see Execute.
+func (e *QueryExecutor) answerRows(ctx context.Context, plan ValidatedPlan, binding planBinding) (
+	answered []QueryRow, abandoned bool, err error,
+) {
 	compiler := &planCompiler{}
 	sql, admitted, err := compiler.compileStatement(ctx, plan, binding)
 	if err != nil || !admitted {
-		return nil, err
+		return nil, false, err
 	}
 	var rows []QueryRow
 	err = e.store.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -219,9 +245,12 @@ func (e *QueryExecutor) answerRows(ctx context.Context, plan ValidatedPlan, bind
 		return err
 	})
 	if err != nil {
-		return nil, err
+		if budgetSpent(ctx, err) {
+			return nil, true, nil
+		}
+		return nil, false, err
 	}
-	return rows, nil
+	return rows, false, nil
 }
 
 // scanPlanRows materializes the answer, carrying the hop row as the evidence
@@ -355,16 +384,11 @@ type answerShape struct {
 	truncated bool
 	// degraded: a lane could not run as asked.
 	degraded bool
+	// abandoned: the statement ran out of its time budget, so there are no
+	// rows at all rather than a short page of them.
+	abandoned bool
 }
 
-// coverageOf decides the verdict. Degradation dominates ranking and ranking
-// dominates completeness, so the only answer that ever claims to be complete
-// is one that ran exactly, whole, and undegraded.
-//
-// Truncation is a verdict on the EXACT lane only. A ranked answer is a top-N
-// by construction — that is what ranked_semantic says — so counting its bound
-// as a degradation would leave the verdict unreachable and tell a caller
-// nothing they did not ask for.
 // CoverageClasses is the CLOSED set coverageOf can answer with.
 //
 // It is exported so the surface that publishes these words can be held to
@@ -377,9 +401,19 @@ func CoverageClasses() []string {
 	return []string{CoverageCompleteExact, CoverageRankedSemantic, CoveragePartialDegraded}
 }
 
+// coverageOf decides the verdict. Degradation dominates ranking and ranking
+// dominates completeness, so the only answer that ever claims to be complete
+// is one that ran exactly, whole, and undegraded. An abandoned statement is
+// the same verdict from the other end — it never ran whole at all — which is
+// why it needs no class of its own.
+//
+// Truncation is a verdict on the EXACT lane only. A ranked answer is a top-N
+// by construction — that is what ranked_semantic says — so counting its bound
+// as a degradation would leave the verdict unreachable and tell a caller
+// nothing they did not ask for.
 func coverageOf(plan ValidatedPlan, shape answerShape) string {
 	switch {
-	case shape.degraded || shape.truncated:
+	case shape.degraded || shape.truncated || shape.abandoned:
 		return CoveragePartialDegraded
 	case plan.Plan.SimilarTo != "":
 		return CoverageRankedSemantic

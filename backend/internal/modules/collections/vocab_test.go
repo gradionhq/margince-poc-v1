@@ -167,6 +167,48 @@ func TestAPicklistLeafComparesAnUnrecognisedValueRatherThanRefusingIt(t *testing
 	}
 }
 
+// An id field is a reference to a record, and a surface that cannot say WHICH
+// record type has to fall back to asking for a uuid. So every id leaf declares
+// its target, and nothing else does — a target on a text or picklist field would
+// promise a picker for a column that holds no reference.
+//
+// Swept over every engine's every field rather than listed, so an id leaf added
+// tomorrow is covered the day it lands. This is the check that makes the
+// contract's `references` derivable rather than a per-field convention.
+func TestEveryIDFieldDeclaresWhatItReferences(t *testing.T) {
+	// The engine's own list, not a copy of it. A copy would pass on its own
+	// staleness: adding a constant and pointing a field at it would fail here,
+	// the copy would be updated next to the failure, and the contract-parity gate
+	// in compose — which reads the same list — would never see the new target.
+	targets := map[storekit.Reference]bool{}
+	for _, target := range storekit.ReferenceTargets() {
+		targets[target] = true
+	}
+	seen := 0
+	for resource, engine := range segmentEngines {
+		for name, field := range engine.Fields {
+			if field.Type == storekit.FieldID {
+				seen++
+				if field.References == "" {
+					t.Errorf("%s.%s is an id field and names no target, so a builder can only ask for a uuid", resource, name)
+					continue
+				}
+				if !targets[field.References] {
+					t.Errorf("%s.%s references %q, which is not one the engine declares", resource, name, field.References)
+				}
+				continue
+			}
+			if field.References != "" {
+				t.Errorf("%s.%s is typed %s and names a target %q: only an id holds a reference",
+					resource, name, field.Type, field.References)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no id fields found, so this gate checked nothing")
+	}
+}
+
 // An account's relationship to us is multi-valued, and a withdrawn one is a fact
 // it no longer carries.
 func TestTheRelationshipLeafExcludesWithdrawnRows(t *testing.T) {

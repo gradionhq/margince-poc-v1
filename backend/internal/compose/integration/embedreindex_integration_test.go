@@ -419,7 +419,7 @@ func TestEmbedReindexConfirmLifecycle(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK {
@@ -541,11 +541,11 @@ func TestEmbedReindexIdentityMismatchedJobCancels(t *testing.T) {
 
 	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx, t, sub, "embed_reindex")
 
 	var jobState string
 	if err := e.Owner.QueryRow(context.Background(),
-		`SELECT state FROM river_job WHERE kind = 'embed_reindex_workspace' ORDER BY id DESC LIMIT 1`).Scan(&jobState); err != nil {
+		`SELECT state FROM river_job WHERE kind = 'embed_reindex' ORDER BY id DESC LIMIT 1`).Scan(&jobState); err != nil {
 		t.Fatalf("reading the job's terminal state: %v", err)
 	}
 	if jobState != "cancelled" {
@@ -605,7 +605,7 @@ func TestEmbedReindexForceReindexWhenNotNeeded(t *testing.T) {
 	startEmbedReindexRunner(t, runner2)
 	waitCtx2, cancel2 := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel2()
-	AwaitKindCompleted(waitCtx2, t, sub2, "embed_reindex_workspace")
+	AwaitKindCompleted(waitCtx2, t, sub2, "embed_reindex")
 
 	status, final, _ := embedStatus(t, e)
 	if status != http.StatusOK || final.Status != "idle" || final.ReindexNeeded {

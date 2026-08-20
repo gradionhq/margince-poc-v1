@@ -29,6 +29,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -182,4 +183,31 @@ func auditActionVocabulary(t *testing.T) []string {
 			len(verbs), source, verbs)
 	}
 	return verbs
+}
+
+// A connector with NO HUMAN BEHIND IT records no grant it does not hold, and a
+// connector acting for somebody still records the one it does.
+//
+// Both halves, because the first alone admits a fix that blanket-exempts every
+// connector: the capture path's connector carries the granting human's own
+// RBAC, and the rule it renders is the real answer to "who allowed this".
+func TestOnlyAConnectorWithNoHumanBehindItRecordsNoRule(t *testing.T) {
+	bare := principal.Principal{
+		Type: principal.PrincipalConnector, ID: "connector:finance",
+	}
+	if got := AuthzRule(bare, "finance_invoice", "create"); got != "system" {
+		t.Errorf("a scheduled sweep's own connector renders %q; it holds no role and no row scope, "+
+			"and rendering the merged policy writes a rule it never had into an append-only row", got)
+	}
+
+	forHuman := principal.Principal{
+		Type: principal.PrincipalConnector, ID: "connector:mailbox",
+		OnBehalfOf:  ids.NewV7(),
+		Permissions: principal.Permissions{RoleKeys: []string{"rep"}, RowScope: principal.RowScopeOwn},
+	}
+	want := "role[rep] person.create row_scope=own"
+	if got := AuthzRule(forHuman, "person", "create"); got != want {
+		t.Errorf("a connector acting for a human renders %q, want %q — its grant is the human's, "+
+			"and that IS what admitted the call", got, want)
+	}
 }

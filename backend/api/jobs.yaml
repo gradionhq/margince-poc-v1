@@ -598,49 +598,20 @@ kinds:
       and there is nothing to heal a row against.
 
   embed_reindex:
-    role: dispatcher
-    go_type: EmbedReindexArgs
-    queue: default
-    timeout: 2m
-    opts_owner: caller
-    cadence: on_demand
-    registration: {when: [Embedder], absent: registers_anyway}
-    fans_out_to: embed_reindex_workspace
-    fan_out_unit: workspace
-    args:
-      Run: id
-      Identity:
-        scalar: true
-        reason: >-
-          the embed binding in force when the confirm claimed the run --
-          model, dimension and revision folded into one string. Carried so a
-          mid-flight configuration change is detectable as drift
-          (search.ErrIdentityDrift) instead of the fleet silently re-
-          embedding under whatever it now reports; that comparison is
-          against the value AT CLAIM TIME, which no row still holds by the
-          time the job runs.
-    reason: >-
-      The one dispatcher with no clock behind it: a reindex is a human's confirm
-      at the transport, never a cadence. Its fan-out seeds the run's pending set
-      and enqueues the children in ONE transaction, which is still a scan and an
-      insert-many.
-
-  embed_reindex_workspace:
     role: worker
-    go_type: EmbedReindexWorkspaceArgs
+    go_type: EmbedReindexArgs
     queue: ai_capture
     timeout:
       none: true
       reason: >-
-        Re-embedding a workspace is a resumable batch bounded by corpus size,
-        not by a wall-clock budget. A negative River timeout also puts the row
-        outside the rescuer for good, which is the wedge
+        Re-embedding the installation's corpus is a resumable batch bounded by
+        corpus size, not by a wall-clock budget. A negative River timeout also
+        puts the row outside the rescuer for good, which is the wedge
         search.ReembedClaim.StealAfter exists to answer.
-    max_attempts: 5
-    opts_owner: fan_out
+    opts_owner: caller
+    cadence: on_demand
     registration: {when: [Embedder], absent: registers_anyway}
     args:
-      Workspace: id
       Run: id
       Identity:
         scalar: true
@@ -653,12 +624,19 @@ kinds:
           against the value AT CLAIM TIME, which no row still holds by the
           time the job runs.
     reason: >-
-      Five attempts rather than three because this kind has NO tick to fall
-      back on: nothing re-enqueues a lost workspace until a human confirms a
-      reindex again, so three would quietly cost that tenant its pass. It is
-      the same budget the run's dispatcher half takes at its own enqueue site
+      The one on-demand pass with no clock behind it: a reindex is a human's
+      confirm at the transport, never a cadence. It used to be a dispatcher
+      fanning out one child per workspace; ADR-0091 §8 phase D took the tenant
+      column off every embeddable entity, so those children all walked the SAME
+      corpus and all but the first found every row already fresh. One pass
+      rebuilds it.
+
+      The retry budget stays where it already was, at the enqueue site
       (compose's embedReindexMaxAttempts, which states the arithmetic), because
-      the two halves are one decision.
+      opts_owner is caller and this file publishes no number it cannot enforce.
+      Five rather than three because this kind has NO tick to fall back on:
+      nothing re-enqueues a lost run until a human confirms a reindex again, so
+      three would quietly cost the installation its pass.
 
   follow_up_reconcile:
     role: dispatcher

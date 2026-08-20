@@ -80,6 +80,54 @@ type Field struct {
 	// join), and a link row is present or absent where a column is null
 	// or not. Empty for every base-table field.
 	Link string
+	// References names the record type this field's ids point at, for a
+	// surface that has to offer the record rather than ask for its uuid.
+	//
+	// The compiler has no use for it — an id compares as an id whatever it
+	// refers to — so it sits here for one reason: this is where a field is
+	// declared, and a lookup table keyed by field name elsewhere would be a
+	// second list of the engine's fields for a new leaf to fall out of.
+	//
+	// It is required of every id field in a vocabulary that is PUBLISHED to a
+	// client — the collections segment engines, gated by
+	// TestEveryIDFieldDeclaresWhatItReferences — and left empty everywhere
+	// else. An engine built to answer a count nobody reads a field list from
+	// (automation's preview vocabularies) owes no target, because nothing can
+	// offer a picker for it.
+	References Reference
+}
+
+// Reference is a record type an id field's values point at. Named rather than a
+// bare string so an unlisted target cannot be assigned, the same way FieldType
+// closes the type column above it.
+type Reference string
+
+// The record types a FieldID field may reference. The values are the contract's
+// own record-type words (`app_user`, not `user`), so a client keying a picker on
+// them needs no translation table.
+const (
+	RefTag          Reference = "tag"
+	RefAppUser      Reference = "app_user"
+	RefTeam         Reference = "team"
+	RefOrganization Reference = "organization"
+	RefPipeline     Reference = "pipeline"
+	RefStage        Reference = "stage"
+	RefProject      Reference = "project"
+)
+
+// ReferenceTargets is every target the engine admits, and the ONE list of them.
+//
+// A function beside the constants rather than a slice restated in each test that
+// needs it — the shape fieldcatalog.Types() already uses for the same reason. The
+// point is which drift stays catchable: a constant absent here fails the sweep
+// over the engines, and an entry here absent from the contract's enum fails the
+// parity gate in compose. Restating this set in either test would make both gates
+// pass on a stale copy of it, which is the one failure they exist to catch.
+func ReferenceTargets() []Reference {
+	return []Reference{
+		RefTag, RefAppUser, RefTeam, RefOrganization,
+		RefPipeline, RefStage, RefProject,
+	}
 }
 
 // Predicate is the canonical filter tree (the representation

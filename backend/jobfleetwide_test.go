@@ -40,6 +40,17 @@ package backendarch
 // the GUC per workspace and then writes satisfies RLS completely. Nothing
 // downstream covers that shape.
 //
+// # The one kind that owns no tenant and still does the work
+//
+// A FleetWide declaration says the job owns no tenant. Until ADR-0091 §8 that
+// implied a fan-out, because the work itself always belonged to some workspace.
+// It no longer does for a corpus phase D un-scoped: there is ONE corpus, so the
+// pass that rebuilds it is neither a workspace's job nor a dispatcher, and the
+// children it used to enqueue all walked the same rows. Such a kind is named in
+// fleetWideDoesItsOwnPass with the reason, and only the fan-out arm is waived —
+// it is still held to the no-tenant-write arm below, which is the arm that
+// matters once a job does the work in its own row.
+//
 // # Reads are fine; writes are not
 //
 // Several sanctioned dispatchers READ tenant tables — the due-scans that find
@@ -57,6 +68,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
 )
 
 // fleetWideDispatcherFloor guards against a vacuous pass. This gate resolves an
@@ -328,6 +341,18 @@ func analyzeFleetWide(fset *token.FileSet, files []*ast.File) (dispatchers []fle
 	return dispatchers, orphans
 }
 
+// fleetWideArgsType is the vocabulary this gate's waivers are drawn from: the
+// name of a job args type that declares FleetWide().
+type fleetWideArgsType string
+
+// fleetWideDoesItsOwnPass names the FleetWide kinds that do the work in their
+// own row instead of fanning it out, each with the reason it has no fleet to
+// fan out to. Ratified, not discovered: a kind arrives here by a reviewed edit,
+// and gatekit reports one that outlives its subject.
+var fleetWideDoesItsOwnPass = gatekit.Waive(map[fleetWideArgsType]string{
+	"EmbedReindexArgs": "phase D un-scoped the embedding corpus (ADR-0091 §8), so the per-workspace children all rebuilt the SAME rows and all but the first found every one already fresh; one pass rebuilds it",
+})
+
 // checkFleetWideDispatchers runs the gate over one directory.
 func checkFleetWideDispatchers(t *testing.T, dir string) {
 	t.Helper()
@@ -337,6 +362,13 @@ func checkFleetWideDispatchers(t *testing.T, dir string) {
 		t.Errorf("%s declares FleetWide() but no worker has a Work method over *river.Job[%s]: a dispatcher nothing runs enqueues nothing, and every tenant it was to fan out to is silently never swept.", args, args)
 	}
 	for _, d := range dispatchers {
+		if fleetWideDoesItsOwnPass.Waived(t, fleetWideArgsType(d.args)) {
+			if d.fansOut {
+				t.Errorf("%s:%d: %s is waived as doing its own pass but its Work DOES fan out — delete the waiver, it now tells the next reader the opposite of the code.",
+					d.pos.Filename, d.pos.Line, d.args)
+			}
+			continue
+		}
 		if !d.fansOut {
 			t.Errorf("%s:%d: %s works FleetWide args %s but never fans out. A dispatcher enqueues one job per unit of its fan-out, through dispatchPerWorkspace, dispatchWith or dispatchOne — those three build the child's insert options, so a direct River insert around them loses the sweep tag and the declared attempt cap. If it does tenant work instead, it is WorkspaceScoped and its args must carry the workspace.",
 				d.pos.Filename, d.pos.Line, d.worker, d.args)
@@ -346,6 +378,7 @@ func checkFleetWideDispatchers(t *testing.T, dir string) {
 				d.pos.Filename, d.pos.Line, d.worker, d.args, verb)
 		}
 	}
+	fleetWideDoesItsOwnPass.AssertAllMatched(t)
 	if len(dispatchers) < fleetWideDispatcherFloor {
 		t.Fatalf("resolved only %d FleetWide dispatchers, expected at least %d — the args→worker association matched almost nothing and this gate would pass vacuously", len(dispatchers), fleetWideDispatcherFloor)
 	}

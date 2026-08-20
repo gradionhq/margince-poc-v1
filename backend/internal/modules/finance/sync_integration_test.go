@@ -15,6 +15,8 @@ package finance
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -107,7 +109,7 @@ func setupFinance(t *testing.T) *financeEnv {
 	// The sweep's own principal: a connector, on a schedule, with no human
 	// behind it — which is what makes every mirrored row say so.
 	e.ctx = principal.WithActor(opCtx, principal.Principal{
-		Type: principal.PrincipalSystem, ID: "connector:finance",
+		Type: principal.PrincipalConnector, ID: "connector:finance",
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"admin"},
 			Objects: map[string]principal.ObjectGrant{
@@ -416,4 +418,376 @@ func TestASyncRepairsAnInvoiceThatIsMissingItsRate(t *testing.T) {
 		t.Fatalf("the pass after the repair rewrote %d invoices, want none",
 			settled.InvoicesUpdate)
 	}
+}
+
+// The write shape on the mirror path: every row the sync writes commits its
+// audit_log row in the SAME transaction, and a pass that writes no row writes
+// no history either.
+//
+// Both halves matter, and neither can be proved anywhere but here. Without the
+// first, money arrives in the mirror with nothing recording that it did — and
+// an audit row cannot be backfilled, so every invoice mirrored before the fix
+// is permanently unaccounted for. Without the second, a sweep that runs every
+// six hours over an unchanged ledger would mint history forever, which is the
+// failure the whole hash discipline exists to avoid.
+func TestEveryMirroredRowWritesItsAuditRowAndASecondPassWritesNone(t *testing.T) {
+	e := setupFinance(t)
+	ctx, provider, store := e.ctx, e.provider(), e.store
+
+	first, err := store.SyncConnection(ctx, provider)
+	if err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if first.InvoicesInsert == 0 || first.PaymentsWrite == 0 {
+		t.Fatalf("the first sync mirrored %d invoices and %d payments; the rest of this test proves nothing",
+			first.InvoicesInsert, first.PaymentsWrite)
+	}
+
+	audits := auditRowsByEntity(ctx, t, e)
+	for _, want := range []struct {
+		entity string
+		count  int
+	}{
+		{"finance_invoice", first.InvoicesInsert},
+		{"finance_payment", first.PaymentsWrite},
+		{"finance_external_customer", first.CustomersSeen},
+	} {
+		if audits[want.entity] != want.count {
+			t.Errorf("%d audit_log rows for %s, want %d — mirrored money nobody can account for",
+				audits[want.entity], want.entity, want.count)
+		}
+	}
+
+	// The delta, not the total. A second pass over an unchanged source writes
+	// no domain row, so it must write no audit row: asserting the movement is
+	// what makes this about the no-op rather than about the first pass.
+	if _, err := store.SyncConnection(ctx, provider); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+	again := auditRowsByEntity(ctx, t, e)
+	for entity, before := range audits {
+		if again[entity] != before {
+			t.Errorf("a second pass over an unchanged source wrote history for %s: %d→%d",
+				entity, before, again[entity])
+		}
+	}
+	if events := outboxRowsForFinance(ctx, t, e); events != 0 {
+		t.Errorf("%d event_outbox rows name a finance entity, want 0 — the mirror is audit-only until the contract carries a finance event type",
+			events)
+	}
+}
+
+// auditRowsByEntity counts what the ledger holds per finance entity type. The
+// workspace is minted per run, so every row it sees belongs to this fixture.
+func auditRowsByEntity(ctx context.Context, t *testing.T, e *financeEnv) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		// Scoped to this run's workspace. Core row-level security was retired,
+		// so a bare count here would answer for every workspace the shared
+		// database holds — including the ones the other tests in this package
+		// minted, which would make the assertion pass or fail on test order.
+		rows, err := tx.Query(ctx, `
+			SELECT entity_type, count(*) FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type LIKE 'finance\_%'
+			 GROUP BY entity_type`, e.ws)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				entity string
+				count  int
+			)
+			if err := rows.Scan(&entity, &count); err != nil {
+				return err
+			}
+			out[entity] = count
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("counting the mirror's audit rows: %v", err)
+	}
+	return out
+}
+
+// outboxRowsForFinance counts what the mirror staged on the bus.
+//
+// The match is on the envelope's ENTITY TYPE, the same prefix the audit query
+// above groups by, because the outbox carries no workspace member to scope on —
+// so a predicate written against one would match nothing whatever the mirror
+// did, and the assertion would pass over a mirror that published on every row.
+// Nothing else in the tree emits a finance entity, so an unscoped count is
+// stricter here rather than looser.
+func outboxRowsForFinance(ctx context.Context, t *testing.T, e *financeEnv) int {
+	t.Helper()
+	var count int
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*) FROM event_outbox
+			 WHERE envelope->'entity'->>'type' LIKE 'finance\_%'`).Scan(&count)
+	}); err != nil {
+		t.Fatalf("counting the outbox: %v", err)
+	}
+	return count
+}
+
+// The connection's STATE is a fact about whether the figures beside it can be
+// trusted, so every transition is on its history — and its heartbeat is not.
+//
+// The sweep rewrites `last_attempt_at` every six hours whatever happened. An
+// audit row for that would file four rows a day per connection saying nothing
+// changed, and the two transitions anybody reads this history for — the source
+// went down, the source came back — would be buried in them.
+func TestAConnectionAuditsItsStateChangesAndNotItsHeartbeat(t *testing.T) {
+	e := setupFinance(t)
+	ctx, provider, store := e.ctx, e.provider(), e.store
+	connectionAudits := func() int { return auditRowsByEntity(ctx, t, e)[entityConnection] }
+
+	// The fixture seeds the connection active, so a pass that succeeds leaves
+	// it exactly as it was: a heartbeat, and nothing to record.
+	if _, err := store.SyncConnection(ctx, provider); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	if got := connectionAudits(); got != 0 {
+		t.Fatalf("%d audit rows for a pass that changed no state, want 0 — the heartbeat is filing history", got)
+	}
+
+	cause := errors.New("the accounting source refused the read")
+	if err := store.RecordSyncFailure(ctx, cause); !errors.Is(err, cause) {
+		t.Fatalf("RecordSyncFailure answered %v, want the original cause back", err)
+	}
+	if got := connectionAudits(); got != 1 {
+		t.Fatalf("%d audit rows after the source went down, want 1", got)
+	}
+	// The same failure again is the same state. Still no transition.
+	if err := store.RecordSyncFailure(ctx, cause); !errors.Is(err, cause) {
+		t.Fatalf("second RecordSyncFailure answered %v, want the original cause back", err)
+	}
+	if got := connectionAudits(); got != 1 {
+		t.Fatalf("%d audit rows after a repeat of the same failure, want 1", got)
+	}
+	// Recovery is a transition, and the one a reader most wants dated.
+	if _, err := store.SyncConnection(ctx, provider); err != nil {
+		t.Fatalf("recovery sync: %v", err)
+	}
+	if got := connectionAudits(); got != 2 {
+		t.Fatalf("%d audit rows after the source came back, want 2", got)
+	}
+}
+
+// A failed sync marks THE connection it ran against, not every live one.
+//
+// The statement carried no id predicate at all, so one source failing reported
+// every other source broken. That was invisible while an installation held one
+// connection and wrong the moment it held two — and now that the write files an
+// audit row, it would put a failure on the history of a source that was
+// answering perfectly well.
+func TestAFailedSyncMarksOnlyTheConnectionItRanAgainst(t *testing.T) {
+	e := setupFinance(t)
+	other := e.plantSecondConnection(t)
+
+	cause := errors.New("the accounting source refused the read")
+	if err := e.store.RecordSyncFailure(e.ctx, cause); !errors.Is(err, cause) {
+		t.Fatalf("RecordSyncFailure answered %v, want the original cause back", err)
+	}
+	if status := e.connectionStatus(t, other); status != "active" {
+		t.Errorf("the bystander connection reads %q after another source failed, want \"active\"", status)
+	}
+	if got := auditRowsByEntity(e.ctx, t, e)[entityConnection]; got != 1 {
+		t.Errorf("%d connection audit rows for one failed source, want 1", got)
+	}
+}
+
+// plantSecondConnection adds a second live source and answers its id. It is
+// created FIRST in time — readConnection takes the newest — so the sync under
+// test still runs against the fixture's own connection and this one is the
+// bystander.
+func (e *financeEnv) plantSecondConnection(t *testing.T) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(e.ctx, `
+			INSERT INTO finance_connection
+			       (id, provider, status, credential_ref, source, captured_by, created_at)
+			VALUES ($1, $2, 'active', 'offline://bystander', 'system', 'system:test', now() - interval '1 day')`,
+			id, OfflineProviderName)
+		return err
+	}); err != nil {
+		t.Fatalf("planting the bystander connection: %v", err)
+	}
+	return id
+}
+
+func (e *financeEnv) connectionStatus(t *testing.T, id ids.UUID) string {
+	t.Helper()
+	var status string
+	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx,
+			`SELECT status FROM finance_connection WHERE id = $1`, id).Scan(&status)
+	}); err != nil {
+		t.Fatalf("reading the connection's status: %v", err)
+	}
+	return status
+}
+
+// A source that RESTATES what it said is the only way to reach the mirror's
+// update arms, and it is where the audit trail earns its keep: the before image
+// is what the money was, read off the row, and the after is what the source now
+// says it is.
+//
+// The offline generator cannot produce this. It is deterministic by design — a
+// source that never changes its mind — so the paths that record a change are
+// unreachable through it. The double below stands at the PROVIDER seam and
+// nowhere else: the store, the SQL, the images and the audit writer under test
+// are all the real ones.
+func TestARestatedSourceAuditsTheUpdateWithBothImages(t *testing.T) {
+	e := setupFinance(t)
+	source := restatingSource(e.external)
+
+	if _, err := e.store.SyncConnection(e.ctx, source); err != nil {
+		t.Fatalf("first sync: %v", err)
+	}
+	created := auditRowsByEntity(e.ctx, t, e)
+
+	// A tax correction that leaves GROSS UNCHANGED — net 10000 → 11000, tax
+	// 1900 → 900, gross still 11900 — plus a restated payment and a renamed
+	// customer. Gross is held still deliberately: it is the case an audit image
+	// narrower than the change key cannot record, because the only columns that
+	// moved are ones such an image does not carry, and the row would say money
+	// changed without saying what.
+	source.customer.DisplayName = "Ledger GmbH (Hamburg)"
+	source.ledger.Invoices[0].NetMinor = 11000
+	source.ledger.Invoices[0].TaxMinor = 900
+	source.ledger.Payments[0].AmountMinor = 6000
+	if _, err := e.store.SyncConnection(e.ctx, source); err != nil {
+		t.Fatalf("second sync: %v", err)
+	}
+
+	for _, entity := range []string{entityInvoice, entityPayment, entityExternalCustomer} {
+		if got, want := auditRowsByEntity(e.ctx, t, e)[entity], created[entity]+1; got != want {
+			t.Errorf("%d audit rows for %s after the source restated it, want %d",
+				got, entity, want)
+		}
+	}
+
+	// The before image has to be what the ROW held, not the source's new
+	// figures rendered twice. A writer that rebuilt it from the source would
+	// pass every count above and record a change that did not happen.
+	before, after := updateImages(e.ctx, t, e, entityInvoice)
+	if before["net_minor"] != float64(10000) || after["net_minor"] != float64(11000) {
+		t.Errorf("the invoice's update reads net %v → %v, want 10000 → 11000",
+			before["net_minor"], after["net_minor"])
+	}
+	if before["gross_minor"] != after["gross_minor"] {
+		t.Errorf("gross moved (%v → %v) and this case is about the columns that move UNDER a fixed gross",
+			before["gross_minor"], after["gross_minor"])
+	}
+	before, after = updateImages(e.ctx, t, e, entityPayment)
+	if before["amount_minor"] != float64(5000) || after["amount_minor"] != float64(6000) {
+		t.Errorf("the payment's update reads %v → %v, want 5000 → 6000",
+			before["amount_minor"], after["amount_minor"])
+	}
+}
+
+// What the mirror's rows say ADMITTED them. The sweep holds no grant — it runs
+// on a path ratified as ungated, with no request and nobody behind it — and the
+// row has to say that rather than render a merged policy it never had.
+//
+// The value is append-only once written, which is why it is asserted here and
+// not left to a reader to notice years later.
+func TestTheMirrorsAuditRowsNameNoGrantTheSweepDoesNotHold(t *testing.T) {
+	e := setupFinance(t)
+	if _, err := e.store.SyncConnection(e.ctx, e.provider()); err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	var rules []string
+	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx, `
+			SELECT array_agg(DISTINCT authorization_rule) FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type LIKE 'finance\_%'`,
+			e.ws).Scan(&rules)
+	}); err != nil {
+		t.Fatalf("reading the mirror's authorization rules: %v", err)
+	}
+	if len(rules) != 1 || rules[0] != "system" {
+		t.Errorf("the mirror's rows record authorization_rule %v, want exactly [system] — "+
+			"anything shaped like `role[] x.create row_scope=` claims a policy the sweep never held", rules)
+	}
+	var actorTypes []string
+	if err := e.store.tx(e.ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.ctx, `
+			SELECT array_agg(DISTINCT actor_type) FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type LIKE 'finance\_%'`,
+			e.ws).Scan(&actorTypes)
+	}); err != nil {
+		t.Fatalf("reading the mirror's actor types: %v", err)
+	}
+	if len(actorTypes) != 1 || actorTypes[0] != "connector" {
+		t.Errorf("the mirror's rows record actor_type %v, want exactly [connector] — "+
+			"a `system` type beside a `connector:` actor_id is a row that contradicts itself", actorTypes)
+	}
+}
+
+// updateImages reads the two images off the one `update` audit row this
+// workspace holds for an entity type.
+func updateImages(
+	ctx context.Context, t *testing.T, e *financeEnv, entityType string,
+) (before, after map[string]any) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		var beforeRaw, afterRaw []byte
+		if err := tx.QueryRow(ctx, `
+			SELECT before, after FROM audit_log
+			 WHERE workspace_id = $1 AND entity_type = $2 AND action = 'update'`,
+			e.ws, entityType).Scan(&beforeRaw, &afterRaw); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(beforeRaw, &before); err != nil {
+			return err
+		}
+		return json.Unmarshal(afterRaw, &after)
+	}); err != nil {
+		t.Fatalf("reading the %s update's images: %v", entityType, err)
+	}
+	return before, after
+}
+
+// restatingSource is one customer with one invoice and one payment against it,
+// held in fields the test rewrites between passes.
+func restatingSource(externalID string) *restatingProvider {
+	issued := time.Date(2026, 3, 2, 9, 0, 0, 0, time.UTC)
+	due := issued.AddDate(0, 0, 30)
+	return &restatingProvider{
+		customer: SourceCustomer{ExternalID: externalID, DisplayName: "Ledger GmbH"},
+		ledger: SourceLedger{
+			Invoices: []SourceInvoice{{
+				ExternalID: "INV-RESTATED-1", Number: "2026-001",
+				IssuedOn: issued, DueOn: &due, Currency: "EUR",
+				NetMinor: 10000, TaxMinor: 1900, GrossMinor: 11900, PaidMinor: 5000,
+			}},
+			Payments: []SourcePayment{{
+				ExternalID: "PAY-RESTATED-1", InvoiceExternalID: "INV-RESTATED-1",
+				PaidAt: issued, Currency: "EUR", AmountMinor: 5000,
+			}},
+		},
+	}
+}
+
+// restatingProvider answers whatever its fields currently hold, so a test can
+// change the source's mind between two passes.
+type restatingProvider struct {
+	customer SourceCustomer
+	ledger   SourceLedger
+}
+
+func (p *restatingProvider) Name() string { return OfflineProviderName }
+
+func (p *restatingProvider) Customers(context.Context) ([]SourceCustomer, error) {
+	return []SourceCustomer{p.customer}, nil
+}
+
+func (p *restatingProvider) InvoicesFor(context.Context, string) (SourceLedger, error) {
+	return p.ledger, nil
 }
