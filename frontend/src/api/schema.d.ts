@@ -13695,7 +13695,12 @@ export interface components {
          *     null to clear, because clearing either is an edit a human makes deliberately.
          */
         UpdateAttachmentMetadataRequest: {
-            /** @enum {string} */
+            /**
+             * @description The two `*_attachment` values record how a file ARRIVED and are derived by
+             *     capture. They may be corrected on a captured file and are refused on an
+             *     uploaded one (422 `category_not_assertable`) — see `Attachment.category`.
+             * @enum {string}
+             */
             category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";
             title?: string | null;
             /** @enum {string} */
@@ -13730,6 +13735,10 @@ export interface components {
              *     content: capture derives them from the transport the file arrived on, so a
              *     file that came with a Telegram message is not reported as an email one. The
              *     remaining values describe what the document IS and are a human's choice.
+             *
+             *     A metadata patch may move a CAPTURED file between the two provenance values —
+             *     a mislabeled row is what a correction is for — but may not assert either on an
+             *     uploaded file, which has no arrival to claim (422 `category_not_assertable`).
              * @enum {string}
              */
             category?: "contract" | "offer" | "legal" | "email_attachment" | "message_attachment" | "other";

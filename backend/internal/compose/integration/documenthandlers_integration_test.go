@@ -148,3 +148,41 @@ func TestOrganizationDocumentsHandlerMapsItsFilters(t *testing.T) {
 		t.Fatalf("pinned_only returned %d documents, want only msa.pdf", len(got.Data))
 	}
 }
+
+// The provenance rule is enforced at the ENDPOINT, not only in the picker that
+// stops a reader choosing it. A UI restriction is unreachable by an API client,
+// and the claim "this arrived on Telegram" is exactly the kind a curl gets to
+// make once the only guard is a dropdown.
+//
+// Asserted through the handler because the status code is the part that cannot
+// be checked below it: the rule returns a value-parse refusal, and only the wire
+// mapping turns that into a 422 a client can branch on rather than a 500.
+func TestAnUploadedFileCannotClaimItArrivedOnAChannel(t *testing.T) {
+	e := Setup(t)
+	h := activities.NewHandlers(e.DB()).WithUploadLimit(uploadCeiling)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	// seedDocument writes source 'upload' — a file a human handed over.
+	doc := seedDocument(t, e, org, "organization", org, "deck.png", "other", false)
+
+	rec := patchMetadata(t, e, h, doc, `{"category":"message_attachment"}`)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "category_not_assertable") {
+		t.Errorf("body = %s, want the machine code the contract publishes", rec.Body.String())
+	}
+
+	// And the row did not move. A refusal that answered 422 while writing the
+	// column anyway would be the worst of both, and the status alone cannot say.
+	out := decodeAttachment(t, patchMetadata(t, e, h, doc, `{"title":"Deck"}`))
+	if out.Category == nil || string(*out.Category) != "other" {
+		t.Errorf("category = %v, want the refused patch to have written nothing", out.Category)
+	}
+
+	// What a human MAY say about their own upload still works, so the guard is a
+	// gate and not a wall on the whole field.
+	out = decodeAttachment(t, patchMetadata(t, e, h, doc, `{"category":"contract"}`))
+	if out.Category == nil || string(*out.Category) != "contract" {
+		t.Fatalf("category = %v, want contract", out.Category)
+	}
+}

@@ -318,6 +318,9 @@ func (s *Store) UpdateAttachmentMetadata(
 		if err := refuseSupersedesCycle(ctx, tx, id, in); err != nil {
 			return err
 		}
+		if err := refuseAssertedProvenance(before, in); err != nil {
+			return err
+		}
 
 		p := documentMetadataPatch(before, in)
 		if p.Empty() {
@@ -372,6 +375,42 @@ func refuseSupersedesCycle(ctx context.Context, tx pgx.Tx, id ids.UUID, in Docum
 		}
 	}
 	return nil
+}
+
+// provenanceCategories are the category values that record HOW A FILE ARRIVED
+// rather than what the document is. Capture derives them from the record's own
+// transport; the rest of the vocabulary is a human's reading of the content.
+var provenanceCategories = map[string]struct{}{
+	"email_attachment":   {},
+	"message_attachment": {},
+}
+
+// refuseAssertedProvenance stops a human from claiming a file arrived somewhere
+// it did not.
+//
+// The two `*_attachment` values are the document library's answer to "where did
+// this come from", and a hand upload came from the person uploading it. Letting
+// the patch set one would mint a false provenance claim that every later reader
+// takes for a derived fact — and unlike a wrong title, nothing downstream can
+// tell it apart from the real thing.
+//
+// GATED ON THE ROW, NOT THE VOCABULARY. The enum still admits both values
+// because a CAPTURED file may legitimately be re-pointed between them — a
+// mislabeled row is exactly what a correction is for. What is refused is a
+// caller asserting arrival on a file that never arrived: `source` is the writer
+// that made the row, and `upload` is the one that means a human handed it over.
+func refuseAssertedProvenance(before crmcontracts.Attachment, in DocumentMetadata) error {
+	if in.Category == nil || before.Source != attachmentSource {
+		return nil
+	}
+	if _, provenance := provenanceCategories[*in.Category]; !provenance {
+		return nil
+	}
+	return &values.ParseError{
+		Field: "category", Code: "category_not_assertable",
+		Message: "that category records how a file arrived and is derived from the message " +
+			"that carried it; an uploaded file has no arrival to claim — file it by what it is",
+	}
 }
 
 // documentMetadataPatch renders the request as the columns it actually moves. A
