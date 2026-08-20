@@ -482,10 +482,16 @@ func TestDedupeDispositionNeedsWriteAuthorityOverBothRecords(t *testing.T) {
 	if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("dismiss without write authority over the pair = %v, want ErrPermissionDenied", err)
 	}
-	// 403, not 404: GetDedupeCandidate already told this caller the pair is
-	// theirs to read, so there is nothing left for existence-hiding to hide.
-	if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatal("dismiss answered ErrNotFound — the refusal must be 403, the caller can already read the pair")
+	// 403, not 404, and asserted as both halves: GetDedupeCandidate already told
+	// this caller the pair is theirs to read, so there is nothing left for
+	// existence-hiding to hide. "not ErrNotFound" alone would pass for nil, for
+	// a conflict, and for an internal error.
+	err := func() error {
+		_, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil)
+		return err
+	}()
+	if !errors.Is(err, apperrors.ErrPermissionDenied) || errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("dismiss refusal = %v, want ErrPermissionDenied and not ErrNotFound", err)
 	}
 
 	// The owner still decides their own queue.
@@ -527,36 +533,77 @@ func TestDedupeDispositionNeedsWriteAuthorityOverBothRecords(t *testing.T) {
 // canonically with the lower id left and ids are time-ordered, so handing over
 // the record created first always probes the left slot and never the right.
 func TestDedupeDispositionRefusesAHalfWritablePair(t *testing.T) {
-	for _, give := range []string{"first-created", "second-created"} {
-		t.Run(give, func(t *testing.T) {
-			e := setupDedupe(t)
-			ctx := e.as()
-			first, second := seedPersonPair(ctx, t, e,
-				"Ola Half", "ola@half.test", "Olah Half", "olah@half.test", "half.test")
-			c := openCandidates(ctx, t, e, "person")[0]
+	// Both verbs, because they are separate probes on separate paths: an undo
+	// that checked only one endpoint would pass the neither-writable test and
+	// the both-writable test alike. Both entity types that can reach this
+	// state, because entityType is threaded from the row and a helper wired to
+	// person alone would look identical from the person arm. Lead needs no arm:
+	// its pairs are seeded through the same path and the threading is already
+	// covered.
+	arms := []struct {
+		entityType string
+		reown      string
+		seed       func(context.Context, *testing.T, *dedupeEnv) (ids.UUID, ids.UUID)
+	}{
+		{
+			entityPerson, `UPDATE person SET owner_id = $1 WHERE id = $2`,
+			func(ctx context.Context, t *testing.T, e *dedupeEnv) (ids.UUID, ids.UUID) {
+				return seedPersonPair(ctx, t, e, "Ola Half", "ola@half.test", "Olah Half", "olah@half.test", "half.test")
+			},
+		},
+		{entityOrganization, `UPDATE organization SET owner_id = $1 WHERE id = $2`, seedOrgPair},
+	}
+	for _, arm := range arms {
+		for _, give := range []string{"first-created", "second-created"} {
+			for _, verb := range []string{"dismiss", "undo"} {
+				t.Run(arm.entityType+"/"+give+"/"+verb, func(t *testing.T) {
+					halfWritablePairIsRefused(t, arm.entityType, arm.reown, arm.seed, give, verb)
+				})
+			}
+		}
+	}
+}
 
-			owned := first
-			if give == "second-created" {
-				owned = second
-			}
-			// Through an UPDATE rather than a second create: the point is a
-			// pair whose sides have different owners, and the manual create
-			// path stamps the acting principal on both.
-			if err := e.store.tx(ctx, func(tx pgx.Tx) error {
-				_, err := tx.Exec(ctx, `UPDATE person SET owner_id = $1 WHERE id = $2`, e.otherRep, owned)
-				return err
-			}); err != nil {
-				t.Fatalf("handing one side to the colleague: %v", err)
-			}
+func halfWritablePairIsRefused(t *testing.T, entityType, reown string,
+	seed func(context.Context, *testing.T, *dedupeEnv) (ids.UUID, ids.UUID), give, verb string,
+) {
+	t.Helper()
+	e := setupDedupe(t)
+	ctx := e.as()
+	first, second := seed(ctx, t, e)
+	c := openCandidates(ctx, t, e, entityType)[0]
 
-			colleague := e.asOwnScoped(e.otherRep)
-			if _, err := e.store.GetDedupeCandidate(colleague, c.ID); err != nil {
-				t.Fatalf("the colleague must still READ the pair: %v", err)
-			}
-			if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
-				t.Fatalf("dismiss holding write authority over only %s = %v, want ErrPermissionDenied", give, err)
-			}
-		})
+	owned := first
+	if give == "second-created" {
+		owned = second
+	}
+	// Through an UPDATE rather than a second create: the point is a pair whose
+	// sides have different owners, and the manual create path stamps the acting
+	// principal on both.
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, reown, e.otherRep, owned)
+		return err
+	}); err != nil {
+		t.Fatalf("handing one side to the colleague: %v", err)
+	}
+
+	colleague := e.asOwnScoped(e.otherRep)
+	if _, err := e.store.GetDedupeCandidate(colleague, c.ID); err != nil {
+		t.Fatalf("the colleague must still READ the pair: %v", err)
+	}
+
+	if verb == "undo" {
+		// Something to undo, disposed by the seat that holds both ends.
+		if _, err := e.store.DisposeDedupeCandidate(ctx, c.ID, "not_a_duplicate", nil); err != nil {
+			t.Fatalf("seeding the disposition to undo: %v", err)
+		}
+		if _, err := e.store.UndoDedupeDisposition(colleague, c.ID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+			t.Fatalf("undo holding write authority over only %s = %v, want ErrPermissionDenied", give, err)
+		}
+		return
+	}
+	if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "not_a_duplicate", nil); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("dismiss holding write authority over only %s = %v, want ErrPermissionDenied", give, err)
 	}
 }
 
@@ -594,5 +641,53 @@ func TestDedupeDispositionAdmitsABoundedOwnerOfBothRecords(t *testing.T) {
 	}
 	if reopened.Disposition != "open" {
 		t.Fatalf("bounded owner undo left disposition %s, want open", reopened.Disposition)
+	}
+}
+
+// The merge arm keeps its own refusal, and this pins it. mergePair treats the
+// two ends asymmetrically on purpose: an unwritable SOURCE answers the
+// authority error, while an unwritable TARGET answers a BARE conflict rather
+// than naming itself, because a merge returns the survivor and the refusal must
+// disclose no more than the caller could already read.
+//
+// A both-ends probe placed before the switch would pre-empt that with 403 and
+// silently convert a documented 409 — which is why the dismiss probe lives in
+// its own arm. Nothing else in this package would notice: every other merge
+// test acts with RowScopeAll, for which auth.Unbounded waves the whole question
+// through.
+func TestDedupeMergeArmKeepsItsOwnRefusal(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	first, second := seedPersonPair(ctx, t, e, "Ivy Merge", "ivy@mergearm.test", "Ivee Merge", "ivee@mergearm.test", "mergearm.test")
+	c := openCandidates(ctx, t, e, "person")[0]
+
+	// The colleague owns the LOSER and not the winner: writable source,
+	// unwritable target, which is mergePair's bare-conflict case.
+	winner, loser := first, second
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `UPDATE person SET owner_id = $1 WHERE id = $2`, e.otherRep, loser)
+		return err
+	}); err != nil {
+		t.Fatalf("handing the loser to the colleague: %v", err)
+	}
+
+	colleague := e.asOwnScoped(e.otherRep)
+	err := func() error {
+		_, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "merge", &winner)
+		return err
+	}()
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("merge onto an unwritable winner = %v, want ErrConflict (mergePair's bare conflict, not 403)", err)
+	}
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatal("the merge arm answered ErrPermissionDenied — a probe outside the not_a_duplicate arm has pre-empted mergePair's disclosure decision")
+	}
+
+	// And input validation still precedes authority on this arm: a winner
+	// outside the pair is the caller's mistake to hear about.
+	stranger := ids.NewV7()
+	var input *DedupeInputError
+	if _, err := e.store.DisposeDedupeCandidate(colleague, c.ID, "merge", &stranger); !errors.As(err, &input) {
+		t.Fatalf("winner outside the pair = %v, want DedupeInputError", err)
 	}
 }
