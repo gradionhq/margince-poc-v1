@@ -15,16 +15,17 @@ import (
 	"strings"
 	"testing"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
 // attributionMigration is the migration that introduced the pair, read here so
 // the vocabulary this package enforces is checked against the vocabulary the
 // table actually admits rather than against a second copy of the list.
-const attributionMigration = "../../../migrations/core/1787224728_deal_partner_attribution.up.sql"
+const attributionMigration = "../../../migrations/core/1787226902_deal_partner_attribution.up.sql"
 
 func TestMigrationAdmitsExactlyTheAttributionsTheStoreAccepts(t *testing.T) {
 	raw, err := os.ReadFile(attributionMigration)

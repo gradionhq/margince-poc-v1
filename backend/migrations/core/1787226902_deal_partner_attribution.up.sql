@@ -62,7 +62,7 @@ CREATE TRIGGER organization_delete_clears_deal_partner
   EXECUTE FUNCTION deal_clear_partner_attribution_on_org_delete();
 
 CREATE INDEX idx_deal_partner_attribution
-  ON deal (workspace_id, partner_attribution)
+  ON deal (partner_attribution)
   WHERE partner_attribution IS NOT NULL AND archived_at IS NULL;
 
 COMMENT ON COLUMN deal.partner_attribution IS
