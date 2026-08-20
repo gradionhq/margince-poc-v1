@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -129,11 +130,18 @@ func (leadStatusLadder) IdempotencyKey(ev workflow.Event) string {
 // booked/held meeting is engagement; any other outbound touch is contact. A
 // system-captured outbound with no prior inbound — a cold sequence mail — is
 // still contact: we reached out, whoever pressed send.
+//
+// A note a HUMAN logged is contact too: the composer is how a rep records "I
+// wrote to them" when the mail itself was not captured, and refusing the step
+// would leave a worked lead reading as untouched. Human only — an agent's or
+// import's note asserts no outreach, and a note never reaches engagement,
+// because writing about a lead is not the lead writing back.
 func ladderStepFor(t leadResponseTouch) (LeadStatus, bool) {
 	switch {
 	case t.direction == "inbound", t.kind == "meeting" && (t.meetingStatus == "booked" || t.meetingStatus == "held"):
 		return LeadStatusEngaged, true
-	case t.direction == "outbound":
+	case t.direction == "outbound",
+		t.kind == "note" && strings.HasPrefix(t.capturedBy, string(principal.PrincipalHuman)+":"):
 		return LeadStatusContacted, true
 	}
 	return "", false

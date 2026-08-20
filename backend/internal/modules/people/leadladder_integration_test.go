@@ -78,7 +78,8 @@ func TestLadderClimbsFromActivityAndNeverDescends(t *testing.T) {
 }
 
 // Which step a captured activity earns: engagement from an inbound reply or
-// a booked/held meeting, contact from any outbound touch, nothing else.
+// a booked/held meeting, contact from any outbound touch or a note a human
+// logged, nothing else.
 func TestLadderStepForReadsTheTouch(t *testing.T) {
 	cases := []struct {
 		name string
@@ -92,7 +93,9 @@ func TestLadderStepForReadsTheTouch(t *testing.T) {
 		{"cancelled meeting", leadResponseTouch{kind: "meeting", meetingStatus: "cancelled"}, "", false},
 		{"outbound email", leadResponseTouch{direction: "outbound", kind: "email"}, LeadStatusContacted, true},
 		{"outbound call by the system", leadResponseTouch{direction: "outbound", kind: "call", capturedBy: "connector:x"}, LeadStatusContacted, true},
-		{"a note", leadResponseTouch{kind: "note"}, "", false},
+		{"a note a human logged", leadResponseTouch{kind: "note", capturedBy: "human:u1"}, LeadStatusContacted, true},
+		{"a note an agent wrote", leadResponseTouch{kind: "note", capturedBy: "agent:a1"}, "", false},
+		{"a note with no author prefix", leadResponseTouch{kind: "note"}, "", false},
 	}
 	for _, tc := range cases {
 		got, ok := ladderStepFor(tc.t)
