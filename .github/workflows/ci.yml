@@ -825,11 +825,19 @@ jobs:
   # (the same trap the sonarcloud job below is written to avoid). Gated at the JOB
   # level like every other lane here, a path skip reports as passing instead.
   #
-  # PR-only on purpose. On main the identical gate runs inside sbom.yml, where it
-  # is the precondition for signing: a keyless signature lands permanently in a
-  # public transparency log and cannot be retracted, so a policy-failing SBOM must
-  # never reach the sign job. Splitting the two events runs the gate exactly once
-  # per path rather than twice on main.
+  # Runs on the merge queue as well as the pull request. It was pull_request-only
+  # while main was gated by a push, because the identical gate runs inside sbom.yml
+  # on main — where it is the precondition for signing: a keyless signature lands
+  # permanently in a public transparency log and cannot be retracted, so a
+  # policy-failing SBOM must never reach the sign job. Splitting the events ran the
+  # gate once per path instead of twice.
+  #
+  # That split cannot survive the merge queue. The `ci` aggregate refuses a skipped
+  # job on merge_group, so a pull_request-only lane here would fail every queue
+  # entry and stop merging — the same trap `dco` sits in, and the same fix. It is
+  # also the better answer on its own terms: a denied licence should be caught
+  # BEFORE the merge, not by the artifact producer that runs after it. sbom.yml
+  # still gates its own signing path, which is what that copy exists for.
   #
   # `make sbom` first because sbom-check reads the generated document — the gate
   # judges the resolved dependency graph, not the manifests.
@@ -838,9 +846,8 @@ jobs:
     timeout-minutes: 30
     needs: [changes]
     if: >-
-      github.event_name == 'pull_request'
-      && needs.changes.outputs.deps == 'true'
-      && github.event.pull_request.draft == false
+      needs.changes.outputs.deps == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
