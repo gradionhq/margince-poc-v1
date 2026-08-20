@@ -44,6 +44,7 @@ func sumAmountBody() string {
 	return `{"group_by":["currency"],"aggregates":[{"fn":"sum","field":"amount_minor","as":"total"}]}`
 }
 
+//craft:ignore naked-any the wire rows decode to map[string]any (decodeWire's UseNumber shape); this is the one coercion seam
 func asInt(t *testing.T, v any) int64 {
 	t.Helper()
 	n, ok := v.(json.Number)
