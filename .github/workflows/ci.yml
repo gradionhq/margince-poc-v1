@@ -14,40 +14,40 @@
 name: ci
 
 on:
-  push:
-    branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # The merge queue builds `main + everything ahead in the queue + this entry` on
+  # a throwaway ref and gates THAT tree, before it lands. This is the merge
+  # verdict, and it is why there is no `push: [main]` trigger here: a push to main
+  # is the RECORD of a verdict already reached, not an occasion to reach one.
+  merge_group:
   workflow_dispatch:
 
-# ONE live run per ref, main included: a new push cancels the stale lane instead
-# of running beside it or queueing behind it. The invariant that buys is that the
-# commit being gated is always main's TIP.
+# ONE live run per pull request; a new push supersedes the review in flight.
 #
-# Gating every main commit — what a group keyed by commit buys — is not
-# affordable at this repository's size. A full-stack merge schedules 28 jobs
-# against an org-wide ceiling of 20 concurrent, so two overlapping merges turn a
-# 9-minute gate into a two-hour one and starve every PR lane behind them. A
-# verdict that lands hours after the merge gates nothing.
+# There is no main-push lane to reason about any more. The merge queue gates the
+# tree before it lands (`merge_group` above), so every commit on main arrives with
+# a verdict already attached. Each queue entry gets its own throwaway ref, so
+# entries never collide in this group, and cancel-in-progress narrows to pull
+# requests so a merge verdict can never be cancelled.
 #
-# `cancel-in-progress: false` is not the conservative setting it reads as, which
-# is the trap worth stating where the next reader will look: it protects the run
-# already RUNNING, and a group holds ONE pending run, so an arriving merge
-# cancels the pending one and takes its place. The superseded merge is reported
-# `cancelled` with zero jobs — indistinguishable from a green skip on every
-# dashboard — while the tip still waits out a lane gating an older tree.
-# `queue: max` lifts that pending limit to 100 and would gate every commit, but
-# it cannot be combined with cancellation, and it puts the tip's verdict behind
-# every lane ahead of it: the latency this setting exists to remove.
-#
-# main is a linear history of squash merges, so the tip's tree contains every
-# merge below it and "main is green" stays a true statement about all of them.
-# The price is per-commit attribution: a bisect over main cannot assume every
-# commit was gated, and a red lane can be superseded before anyone reads it —
-# `workflow_dispatch` on that commit brings the verdict back.
+# What this replaces, and why it could not stay: a group keyed on `github.ref`
+# with cancellation across ALL events meant a push to main cancelled the RUNNING
+# main lane. At this repository's merge velocity 64% of main pushes were
+# cancelled, and the survivors were mostly classifier skips averaging 4.5 minutes
+# against a real lane's 16 — so roughly one main commit in twenty-five was ever
+# gated, and "main is green" was a statement about almost nothing. The argument
+# that used to live here traded per-commit gating away to keep the tip's verdict
+# fast, on the grounds that 28 jobs against a 20-concurrent ceiling made the
+# alternative unaffordable. The ceiling moved, and the invariant it bought —
+# main's tip is always the gated commit — is contradicted by the run history.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PR lanes still supersede themselves: a new push obsoletes the review in
+  # flight. A merge_group run must never be cancelled — it IS the merge verdict,
+  # and each queue entry has its own throwaway ref anyway, so the group would not
+  # collide. Saying so explicitly beats relying on that.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
@@ -75,13 +75,25 @@ jobs:
     permissions:
       contents: read
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
+      # Diff-scoping is honest for author feedback and dishonest as a merge
+      # verdict: on a push, a commit matching no scope skipped every gate and
+      # GitHub reported green. On the merge queue every scope is therefore true
+      # and the lane is full-tree. The classifier still RUNS there — its filter
+      # step is cheap — and its answer is merely overridden, so a reader sees the
+      # real diff in the log next to the reason it was ignored.
+      #
+      # The `== 'true'` on each is load-bearing. paths-filter emits the STRING
+      # `true`/`false`, and `||` in a GitHub expression coalesces on falsiness,
+      # where the non-empty string "false" is TRUTHY. Without the comparison every
+      # output would be the string "false" and read as truthy by every consumer:
+      # every job would run on every event, which looks like it works.
+      backend: ${{ steps.filter.outputs.backend == 'true' || github.event_name == 'merge_group' }}
       # The database-bearing subset of `backend`. See the filter below for why
       # the two differ, and by exactly what.
-      backend_db: ${{ steps.filter.outputs.backend_db }}
-      frontend: ${{ steps.filter.outputs.frontend }}
-      e2e: ${{ steps.filter.outputs.e2e }}
-      deps: ${{ steps.filter.outputs.deps }}
+      backend_db: ${{ steps.filter.outputs.backend_db == 'true' || github.event_name == 'merge_group' }}
+      frontend: ${{ steps.filter.outputs.frontend == 'true' || github.event_name == 'merge_group' }}
+      e2e: ${{ steps.filter.outputs.e2e == 'true' || github.event_name == 'merge_group' }}
+      deps: ${{ steps.filter.outputs.deps == 'true' || github.event_name == 'merge_group' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -228,13 +240,22 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
 
-  # Every commit in a PR carries a Developer Certificate of Origin sign-off.
-  # PR-only: the direct-to-main workflow signs off at push time, and history
-  # predating this gate is not retro-required.
+  # Every commit that merges carries a Developer Certificate of Origin sign-off.
+  #
+  # This runs on the merge queue as well as on the pull request, and the queue is
+  # the one that counts: the merge_group payload carries base_sha/head_sha of the
+  # tree that is about to land, so the sign-off is checked against what actually
+  # merges. The alternative — exempting a pull_request-only job from the aggregate
+  # verdict, which refuses a skip on merge_group — would have reopened the
+  # skip-as-pass hole for the one gate that proves provenance.
+  #
+  # History predating this gate is not retro-required.
   dco:
     name: dco
     timeout-minutes: 20
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: >-
+      github.event_name == 'merge_group'
+      || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -243,11 +264,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Every PR commit is signed off (DCO)
+      - name: Every merging commit is signed off (DCO)
         working-directory: .
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # `||` coalesces on falsiness, and the unselected event's payload is
+          # empty — so each var takes whichever event actually fired.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: ./scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
 
   # The deterministic merge gate: build, vet, lint (baseline + new-code
@@ -349,20 +372,6 @@ jobs:
           CONTRACT_BREAKING_REQUIRE_BASE: "1"
           MIGRATION_VERSIONS_REQUIRE_BASE: "1"
         run: make check-backend
-      # Refresh the shared cache from main only. On a PR this step does not run,
-      # so the twelve shards and this job never race to write the same key and a
-      # PR can never poison what the next PR restores. `!cancelled()` rather than
-      # success(): a red lint or a failed test still compiled the tree, and those
-      # artifacts are exactly as reusable as a green run's.
-      - name: Refresh the shared build cache
-        if: >-
-          !cancelled()
-          && github.event_name == 'push'
-          && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.go-cache.outputs.key }}
 
   # The composed-build lane (ADR-0069): materialize the walking-skeleton
   # reference extension into extensions/, compose, and run the backend
@@ -637,20 +646,6 @@ jobs:
           path: ${{ runner.temp }}/shard-out
           if-no-files-found: error
           retention-days: 1
-      # ONE shard refreshes the `integration` flavour, and only from main. Every
-      # shard compiles substantially the same set, so a second writer would add
-      # nothing but a race for the same key — and twelve runners each uploading a
-      # ~550 MB cache would evict the entry they were meant to seed.
-      - name: Refresh the shared build cache
-        if: >-
-          !cancelled()
-          && matrix.shard == 1
-          && github.event_name == 'push'
-          && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/go-build
-          key: ${{ steps.go-cache.outputs.key }}
 
   # Unit coverage for SonarCloud. The shards run only the integration-tagged
   # packages, but the unit-only packages need a `-cover` pass of their own —
@@ -830,11 +825,19 @@ jobs:
   # (the same trap the sonarcloud job below is written to avoid). Gated at the JOB
   # level like every other lane here, a path skip reports as passing instead.
   #
-  # PR-only on purpose. On main the identical gate runs inside sbom.yml, where it
-  # is the precondition for signing: a keyless signature lands permanently in a
-  # public transparency log and cannot be retracted, so a policy-failing SBOM must
-  # never reach the sign job. Splitting the two events runs the gate exactly once
-  # per path rather than twice on main.
+  # Runs on the merge queue as well as the pull request. It was pull_request-only
+  # while main was gated by a push, because the identical gate runs inside sbom.yml
+  # on main — where it is the precondition for signing: a keyless signature lands
+  # permanently in a public transparency log and cannot be retracted, so a
+  # policy-failing SBOM must never reach the sign job. Splitting the events ran the
+  # gate once per path instead of twice.
+  #
+  # That split cannot survive the merge queue. The `ci` aggregate refuses a skipped
+  # job on merge_group, so a pull_request-only lane here would fail every queue
+  # entry and stop merging — the same trap `dco` sits in, and the same fix. It is
+  # also the better answer on its own terms: a denied licence should be caught
+  # BEFORE the merge, not by the artifact producer that runs after it. sbom.yml
+  # still gates its own signing path, which is what that copy exists for.
   #
   # `make sbom` first because sbom-check reads the generated document — the gate
   # judges the resolved dependency graph, not the manifests.
@@ -843,9 +846,8 @@ jobs:
     timeout-minutes: 30
     needs: [changes]
     if: >-
-      github.event_name == 'pull_request'
-      && needs.changes.outputs.deps == 'true'
-      && github.event.pull_request.draft == false
+      needs.changes.outputs.deps == 'true'
+      && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -895,22 +897,24 @@ jobs:
     # PR the scan proceeds without it, because new code there is the diff and
     # a diff that skipped an area has no lines in it for that area to cover.
     #
-    # That reasoning does NOT survive the move to a push. main's new-code
-    # period is `previous_version`, so its new code is every line added since
-    # the last release marker — weeks of Go — and a push REPLACES main's
-    # stored analysis rather than adding a second one. The scanner's Zero
-    # Coverage Sensor scores every executable line it holds no report for as
-    # uncovered, so a push that skipped the Go coverage producer publishes
-    # those weeks at 0% and the quality gate reads red until some later push
-    # happens to rescan them. A docs-only merge skips every producer, which
-    # makes it the common way in. Measuring nothing is not a measurement of
-    # zero, so such a push does not scan and main keeps its last real reading.
+    # The last clause below — `event_name == 'pull_request' || integration
+    # succeeded` — is what stops a partial run from publishing an analysis that
+    # reads as a measurement. The scanner's Zero Coverage Sensor scores every
+    # executable line it holds no report for as UNCOVERED, so a scan that ran
+    # without the Go coverage producer publishes that code at 0% rather than
+    # declining to answer. Measuring nothing is not a measurement of zero.
     #
-    # `integration` alone stands for the Go coverage, and the backend
-    # classifier scope starts every backend producer together — so a run that
-    # has it has the profile that dominates main's new code. A frontend-only
-    # push therefore waits for the next backend one rather than publishing
-    # main with no Go coverage at all.
+    # On a pull request that cannot happen in a way that matters: new code is the
+    # diff, and a diff that skipped an area has no lines in it for that area to
+    # cover. Off a pull request it can, so `integration` — which alone stands for
+    # the Go coverage, and which the backend classifier scope starts together with
+    # every other backend producer — must genuinely have SUCCEEDED, not merely
+    # not-failed.
+    #
+    # On merge_group the classifier is overridden and every producer runs, so the
+    # clause is satisfied whenever the lane is green. It is kept rather than
+    # simplified away because it is the thing that would catch a future event, or
+    # a future skip, that reintroduces a partial scan.
     #
     # deterministic-gates is gated directly, not just transitively. Now that
     # integration runs in parallel with the build gate rather than behind it, a
@@ -920,7 +924,11 @@ jobs:
     # Analysis" check over a broken build (result == 'failure' fails this
     # condition, so the scan is skipped); the PR is already red, so nothing that
     # wasn't already blocked is blocked.
-    needs: [deterministic-gates, integration, frontend, extension-reference]
+    # `ci` is in needs for the merge_group case ONLY, and it is not a cycle: the
+    # aggregate deliberately omits sonarcloud from its own needs, so nothing waits
+    # on this job to reach a verdict — the queue merges on `ci` alone and this scan
+    # may finish after the merge.
+    needs: [ci, deterministic-gates, integration, frontend, extension-reference]
     if: >-
       !cancelled()
       && (needs.deterministic-gates.result == 'success' || needs.deterministic-gates.result == 'skipped')
@@ -929,6 +937,7 @@ jobs:
       && (needs.extension-reference.result == 'success' || needs.extension-reference.result == 'skipped')
       && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
       && (github.event_name == 'pull_request' || needs.integration.result == 'success')
+      && (github.event_name != 'merge_group' || needs.ci.result == 'success')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -968,9 +977,32 @@ jobs:
         with:
           name: fe-coverage
           path: frontend/coverage
+      # A merge_group run publishes as `main`, and that is not a fiction: the
+      # queue builds `main + the queued entries`, which is byte-for-byte the tree
+      # main becomes when the batch merges. Measuring it here is the same
+      # measurement the old push-to-main scan took, one step earlier.
+      #
+      # Without this override the scanner reads GITHUB_REF and files the analysis
+      # under `gh-readonly-queue/main/pr-N-<sha>` — a branch that is deleted
+      # minutes later. Nothing would ever update main again, and main's stored
+      # analysis does not disappear when it stops being refreshed: it FREEZES. The
+      # nightly `quality-gate` job in scheduled.yml reads `?branch=main` and would
+      # keep reporting the last real verdict indefinitely, which is a green that
+      # measures nothing — the exact failure this pipeline change exists to end.
+      #
+      # What makes it safe is the `needs.ci.result == 'success'` clause above, and
+      # nothing weaker would: this job's other conditions cover only its COVERAGE
+      # producers, so without that clause a merge_group build whose secret-scan,
+      # license-gate, craft-residue or dco failed would still publish. That tree
+      # does not merge — and it would have replaced the stored analysis every
+      # scheduled check reads for main, describing a tree main never became.
+      # Requiring the aggregate verdict is what makes "published as main" mean
+      # "became main".
       - name: SonarCloud scan
         if: ${{ env.SONAR_TOKEN != '' }}
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
+        with:
+          args: ${{ github.event_name == 'merge_group' && '-Dsonar.branch.name=main' || '' }}
       - name: No token yet — scan skipped
         if: ${{ env.SONAR_TOKEN == '' }}
         run: echo "SONAR_TOKEN not set; skipping CI scan (Automatic Analysis still active). Add the secret to activate."
@@ -1280,3 +1312,71 @@ jobs:
           pnpm exec playwright install --with-deps chromium
       - name: Screen-acceptance UAT (build → preview → AC + axe)
         run: make frontend-e2e
+
+  # ONE required context stands for the whole lane.
+  #
+  # Nine separately-required contexts were satisfiable by a run that did nothing:
+  # GitHub reads a skipped required check as a passing one, and the classifier
+  # skips whole jobs. This job is the only required context now, and
+  # scripts/ci-verdict.sh is where "a skip is not a pass on the merge queue" is
+  # written down and unit-tested (make test-ci-verdict).
+  #
+  # WHAT THE needs: LIST DELIBERATELY OMITS:
+  #   changes                    — the classifier produces no verdict.
+  #   fe-quality/-unit/-bundle   — absorbed by the `frontend` fan-in.
+  #   integration-shards,
+  #   integration-unit-coverage  — absorbed by the `integration` fan-in, which
+  #                                already asserts on their results.
+  #   sonarcloud                 — not a required check (merge speed during heavy
+  #                                development). Listing it here would make it
+  #                                blocking by the back door.
+  #   vuln, live-boot, uat       — advisory today, and deliberately still
+  #                                advisory here. See below.
+  #
+  # This list is EXACTLY the nine contexts the ruleset required before the
+  # aggregate replaced them, and that equality is the point: this change moves
+  # where the verdict is computed, not what the verdict covers. Adding a lane and
+  # collapsing the contexts in one step would mean a red merge queue with two
+  # candidate explanations, during the week we are establishing whether the queue
+  # itself works.
+  #
+  # vuln, live-boot and uat are the tempting additions — they run on every
+  # qualifying change and a red one does not stop a merge, which is not a state
+  # worth keeping. The reason to wait is the batching: a flaky job under a merge
+  # queue does not cost one re-run, it fails the whole group it was checked in and
+  # every entry in that group is re-queued, and nothing has ever exercised these
+  # three under a gate that blocks.
+  # Promote them once the queue has a measured baseline, as their own change, so a
+  # regression has one explanation.
+  ci:
+    name: ci
+    timeout-minutes: 10
+    # always(), so the verdict is reached when an upstream job fails rather than
+    # being skipped along with it — a skipped aggregate is a green required check,
+    # which is the whole failure mode this job exists to end.
+    if: always()
+    needs:
+      - dco
+      - deterministic-gates
+      - craftsmanship
+      - craft-residue
+      - secret-scan
+      - extension-reference
+      - integration
+      - frontend
+      - license-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verdict
+        env:
+          CI_VERDICT_NEEDS: ${{ toJSON(needs) }}
+          CI_VERDICT_EVENT: ${{ github.event_name }}
+        run: ./scripts/ci-verdict.sh
