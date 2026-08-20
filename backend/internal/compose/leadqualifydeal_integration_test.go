@@ -10,6 +10,7 @@ package compose
 // deals store refuses rolls the whole promotion back.
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -193,4 +194,72 @@ func TestQualifyRollsBackWhenTheDealIsRefused(t *testing.T) {
 	if _, err := unwired.QualifyLead(admin, leadID, people.PromoteLeadInput{Trigger: "human_qualify", Deal: &people.QualifyDealInput{}}); !errors.As(err, &notWired) {
 		t.Errorf("unwired qualify-with-deal err = %v, want DealOpenerNotWiredError", err)
 	}
+}
+
+// Ownership rides the qualify exactly: an unassigned lead becomes an
+// unassigned contact AND an unassigned deal — never the promoting actor's —
+// and an owned lead's deal inherits that owner. The deal half is the
+// OwnerExact seam; without it CreateDealTx's actor fallback silently gave
+// the queue's deal to whoever clicked Qualify.
+func TestQualifyInheritsTheLeadOwnerExactly(t *testing.T) {
+	e := integration.Setup(t)
+	admin := e.Admin()
+	owner := integration.OwnerConn(t)
+	dealsStore := deals.NewStore(e.DB(), DealsInstallation())
+	if err := dealsStore.SeedDefaults(admin); err != nil {
+		t.Fatalf("seed default pipeline: %v", err)
+	}
+	peopleStore := people.NewStore(e.DB()).WithDealOpener(leadDealOpener{deals: dealsStore})
+
+	assertOwners := func(t *testing.T, out people.PromoteOutcome, want *ids.UUID) {
+		t.Helper()
+		var personOwner, dealOwner *ids.UUID
+		if err := owner.QueryRow(context.Background(),
+			`SELECT owner_id FROM person WHERE id = $1`, ids.UUID(out.Person.Id)).Scan(&personOwner); err != nil {
+			t.Fatal(err)
+		}
+		if err := owner.QueryRow(context.Background(),
+			`SELECT owner_id FROM deal WHERE id = $1`, *out.DealID).Scan(&dealOwner); err != nil {
+			t.Fatal(err)
+		}
+		for name, got := range map[string]*ids.UUID{"person": personOwner, "deal": dealOwner} {
+			if (got == nil) != (want == nil) || (got != nil && *got != *want) {
+				t.Errorf("%s owner = %v, want %v", name, got, want)
+			}
+		}
+	}
+
+	queueEmail := "queue-qualify@example.test"
+	queued, _, err := peopleStore.CreateLead(admin, people.CreateLeadInput{Email: &queueEmail, Source: "manual"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	queuedOut, err := peopleStore.QualifyLead(admin, ids.From[ids.LeadKind](ids.UUID(queued.Id)), people.PromoteLeadInput{
+		Trigger: "human_qualify", Deal: &people.QualifyDealInput{},
+	})
+	if err != nil {
+		t.Fatalf("qualify the unassigned lead: %v", err)
+	}
+	if queuedOut.DealID == nil {
+		t.Fatal("qualify answered no deal id")
+	}
+	assertOwners(t, queuedOut, nil)
+
+	repOwner := ids.From[ids.UserKind](e.Rep1)
+	ownedEmail := "owned-qualify@example.test"
+	owned, _, err := peopleStore.CreateLead(admin, people.CreateLeadInput{Email: &ownedEmail, Source: "manual", OwnerID: &repOwner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedOut, err := peopleStore.QualifyLead(admin, ids.From[ids.LeadKind](ids.UUID(owned.Id)), people.PromoteLeadInput{
+		Trigger: "human_qualify", Deal: &people.QualifyDealInput{},
+	})
+	if err != nil {
+		t.Fatalf("qualify the owned lead: %v", err)
+	}
+	if ownedOut.DealID == nil {
+		t.Fatal("qualify answered no deal id")
+	}
+	rep := e.Rep1
+	assertOwners(t, ownedOut, &rep)
 }

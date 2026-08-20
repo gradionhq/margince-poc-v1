@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestCreateLeadWithoutOwnerStaysUnassigned(t *testing.T) {
@@ -39,5 +40,31 @@ func TestCreateLeadWithoutOwnerStaysUnassigned(t *testing.T) {
 	}
 	if owned.OwnerId == nil || ids.UUID(*owned.OwnerId) != e.user {
 		t.Fatalf("owner_id = %v, want the named owner %s", owned.OwnerId, e.user)
+	}
+}
+
+// An agent's create keeps the on-behalf-of fallback: the claim verb is
+// human-only and ownerless rows refuse writes, so a NULL owner would strand
+// the very lead the agent just filed.
+func TestAgentCreateLeadKeepsTheOnBehalfOwner(t *testing.T) {
+	e := setupPromoteConsent(t)
+	agentCtx := principal.WithActor(e.ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:sdr", UserID: e.user,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects: map[string]principal.ObjectGrant{
+				"lead": {Create: true, Read: true, Update: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	created, wasCreated, err := e.store.CreateLead(agentCtx, CreateLeadInput{
+		FullName: strPtr("Agent Filed"), Source: "manual",
+	})
+	if err != nil || !wasCreated {
+		t.Fatalf("agent create lead: created=%v err=%v", wasCreated, err)
+	}
+	if created.OwnerId == nil || ids.UUID(*created.OwnerId) != e.user {
+		t.Fatalf("owner_id = %v, want the granting human %s — an agent's lead must stay workable by that agent", created.OwnerId, e.user)
 	}
 }

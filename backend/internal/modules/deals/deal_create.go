@@ -39,8 +39,14 @@ type CreateDealInput struct {
 	OrganizationID *ids.OrganizationID
 	ProjectID      *ids.ProjectID
 	OwnerID        *ids.UserID
-	ExpectedClose  *time.Time
-	Source         string
+	// OwnerExact states that OwnerID — nil included — IS the decided owner,
+	// so the actor fallback below must not run. The lead-qualify seam sets
+	// it: the deal inherits the LEAD's owner, and an unassigned lead
+	// qualifies into an unassigned deal rather than one silently owned by
+	// whoever clicked Qualify.
+	OwnerExact    bool
+	ExpectedClose *time.Time
+	Source        string
 	// CustomFields carries the request body's extra top-level keys
 	// (additionalProperties); only active cf_* catalog columns land,
 	// drop-on-mismatch (storekit customcolumns).
@@ -59,7 +65,9 @@ func (s *Store) CreateDeal(ctx context.Context, in CreateDealInput) (crmcontract
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
+	if !in.OwnerExact {
+		in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
+	}
 	active, err := s.activeColumns(ctx)
 	if err != nil {
 		return crmcontracts.Deal{}, err
@@ -92,7 +100,9 @@ func (s *Store) CreateDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput)
 	if err != nil {
 		return crmcontracts.Deal{}, err
 	}
-	in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
+	if !in.OwnerExact {
+		in.OwnerID = storekit.OwnerOrActor(ctx, in.OwnerID)
+	}
 	return s.createDealInTx(ctx, tx, in, by, nil)
 }
 
