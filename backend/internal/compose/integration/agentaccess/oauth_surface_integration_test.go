@@ -6,7 +6,10 @@
 package agentaccess
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -90,8 +93,38 @@ func TestApprovalTokenIsASignedEffectBoundJWS(t *testing.T) {
 		t.Fatalf("claims not effect-bound: %+v", claims)
 	}
 
-	// One flipped payload byte is fatal.
+	// The token carries NO workspace claim, and a token minted with one still
+	// verifies. Both halves are the point of retiring it (ADR-0091 §1): the
+	// claim was never read, so dropping it removes no control — and an
+	// unrecognised field is ignored on decode, so tokens issued before the
+	// change are not invalidated by it. A reader who re-adds "ws" for safety
+	// would be adding a field nothing checks, which is what this refuses.
 	parts := strings.Split(*approved.ApprovalToken, ".")
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		t.Fatalf("decoding the token payload: %v", err)
+	}
+	if bytes.Contains(payload, []byte(`"ws"`)) {
+		t.Errorf("the approval token carries a \"ws\" claim: %s\n"+
+			"VerifyApprovalToken does not read it, so it binds the effect to no tenant "+
+			"while looking like it does", payload)
+	}
+	withStaleClaim, err := json.Marshal(map[string]any{
+		"jti": approvalID, "ws": wsID.String(), "kind": "archive_record",
+		"diff_hash": claims.DiffHash, "exp": claims.ExpiresAt,
+	})
+	if err != nil {
+		t.Fatalf("building the pre-retirement payload: %v", err)
+	}
+	var reparsed approvals.ApprovalTokenClaims
+	if err := json.Unmarshal(withStaleClaim, &reparsed); err != nil {
+		t.Fatalf("a token minted before the claim was retired no longer decodes: %v", err)
+	}
+	if reparsed.ApprovalID.String() != approvalID {
+		t.Errorf("the pre-retirement payload decoded to approval %s, want %s", reparsed.ApprovalID, approvalID)
+	}
+
+	// One flipped payload byte is fatal.
 	tampered := parts[0] + "." + flipLastChar(parts[1]) + "." + parts[2]
 	if _, err := svc.VerifyApprovalToken(wsCtx, tampered); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
 		t.Fatalf("tampered token → %v, want ErrApprovalTokenInvalid", err)
