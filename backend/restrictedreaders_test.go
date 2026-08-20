@@ -25,7 +25,6 @@ package backendarch
 import (
 	"go/ast"
 	"regexp"
-	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/gatekit"
@@ -35,14 +34,14 @@ import (
 // table by name. `activity_link`, `activity_participant` and the other
 // activity_* tables are deliberately not matched: they carry no content.
 //
-// It is matched against the literal's TEXT, not its quoted token. With the
-// delimiters still attached the `$` alternate can never fire, so a literal
-// ENDING at `FROM activity` was invisible to this gate — a held row reachable
-// through a reader nothing judged. Found while building edgereaders_test.go,
-// which had inherited the same expression and the same blind spot; the rule has
-// two copies and both are fixed, because one spelling of it is not a rule
-// (review-loop rule 1).
-var activityReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+activity(\s|$|[,;)])`)
+// The pattern is gatekit's, not this file's. It used to be spelled here, and
+// twice carried a flaw the sibling censuses carried too: a required trailing
+// space missed every statement ending at `FROM activity`, and matching against
+// the quoted token meant the end-of-text alternate could never fire either. One
+// rule with three copies is not a rule (review-loop rule 1) — gatekit is where
+// it is one, and a gate that reaches for it cannot inherit a blind spot it did
+// not write.
+var activityReadLiteral = gatekit.TableReadPattern("activity")
 
 // scopeMarkers are the shared gates that carry the availability test for the
 // whole file: a reader reaching activity through one of them cannot see a held
@@ -96,23 +95,7 @@ var activityReaderScope = gatekit.Scope{
 }
 
 func readsActivityTable(path string, file *ast.File) bool {
-	if strings.HasSuffix(path, "_gen.go") {
-		return false
-	}
-	return len(activityReadLiterals(file)) > 0
-}
-
-// activityReadLiterals collects every string literal in the file that reads
-// the activity table.
-func activityReadLiterals(file *ast.File) []string {
-	var reads []string
-	ast.Inspect(file, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(activityLiteralText(lit)) {
-			reads = append(reads, lit.Value)
-		}
-		return true
-	})
-	return reads
+	return gatekit.FileReadsTable(path, file, activityReadLiteral)
 }
 
 // unguardedActivityReaders names each function in the file that reads the
@@ -127,19 +110,13 @@ func unguardedActivityReaders(file *ast.File) []string {
 	// file per function would report the reader red while the scope it applies
 	// sits ten lines below, which teaches the next engineer to distrust the
 	// gate rather than to fix anything.
-	if fileCallsAnyGate(file, scopeMarkers) {
+	if gatekit.CallsAny(file, scopeMarkers) {
 		return nil
 	}
 	var offenders []string
 	for _, decl := range file.Decls {
 		fn, isFunc := decl.(*ast.FuncDecl)
-		var reads []string
-		ast.Inspect(decl, func(n ast.Node) bool {
-			if lit, ok := n.(*ast.BasicLit); ok && activityReadLiteral.MatchString(activityLiteralText(lit)) {
-				reads = append(reads, lit.Value)
-			}
-			return true
-		})
+		reads := gatekit.TableReads(&ast.File{Decls: []ast.Decl{decl}}, activityReadLiteral)
 		if len(reads) == 0 {
 			continue
 		}
@@ -157,7 +134,7 @@ func unguardedActivityReaders(file *ast.File) []string {
 		if isFunc {
 			name = fn.Name.Name
 		}
-		offenders = append(offenders, name+": "+firstLineOf(reads[0]))
+		offenders = append(offenders, name+": "+gatekit.FirstLineOf(reads[0].SQL))
 	}
 	return offenders
 }
@@ -174,28 +151,6 @@ func TestEveryReaderOfTheActivityTableExcludesRestrictedRows(t *testing.T) {
 	}
 }
 
-// fileCallsAnyGate reports whether the file reaches one of the shared auth
-// gates, which are identifiers rather than SQL.
-func fileCallsAnyGate(file *ast.File, gates []string) bool {
-	found := false
-	ast.Inspect(file, func(n ast.Node) bool {
-		if ident, ok := n.(*ast.Ident); ok && containsAny(ident.Name, gates) {
-			found = true
-		}
-		return !found
-	})
-	return found
-}
-
-func containsAny(text string, markers []string) bool {
-	for _, marker := range markers {
-		if strings.Contains(text, marker) {
-			return true
-		}
-	}
-	return false
-}
-
 func matchesAny(text string, markers []*regexp.Regexp) bool {
 	for _, marker := range markers {
 		if marker.MatchString(text) {
@@ -203,24 +158,4 @@ func matchesAny(text string, markers []*regexp.Regexp) bool {
 		}
 	}
 	return false
-}
-
-// firstLineOf names the offending statement in the failure without printing a
-// forty-line query into the test log.
-func firstLineOf(literal string) string {
-	trimmed := strings.TrimSpace(strings.Trim(literal, "`\""))
-	if idx := strings.IndexByte(trimmed, '\n'); idx >= 0 {
-		return trimmed[:idx] + " …"
-	}
-	return trimmed
-}
-
-// activityLiteralText is the literal's content without its quoting, so the
-// read-matcher above is not looking at a delimiter where SQL should be.
-func activityLiteralText(lit *ast.BasicLit) string {
-	text, isString := literalText(lit)
-	if !isString {
-		return ""
-	}
-	return text
 }

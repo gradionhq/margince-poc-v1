@@ -141,3 +141,29 @@ export const DealClear: Story = {
     );
   },
 };
+
+// The withheld view, beside the clear one deliberately: the two payloads differ
+// only in `sections_omitted`, and the card MUST NOT render them alike. This is
+// the story to open when changing the card — a reviewer comparing these two
+// frames is the check that no refactor collapses "we could not look" back into
+// "nothing is wrong".
+export const DealCoverageWithheld: Story = {
+  render: () => {
+    installFetchStub({
+      "GET /me": meRoute({}),
+      "GET /deals/d-1/coverage": () =>
+        jsonResponse({
+          deal_id: "d-1",
+          stakeholders: [],
+          our_side: [],
+          risks: [],
+          sections_omitted: ["stakeholders", "our_side", "risks"],
+        }),
+    });
+    return (
+      <StoryProviders>
+        <DealCoverageCard id="d-1" />
+      </StoryProviders>
+    );
+  },
+};

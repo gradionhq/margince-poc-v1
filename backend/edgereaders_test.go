@@ -58,35 +58,21 @@ import (
 // relationshipReadLiteral matches a SQL string literal that reads the
 // relationship table by name.
 //
-// The trailing alternation ends the match on whitespace, a newline, the end of
-// the text, or a delimiter, and the match is run against the literal's TEXT
-// rather than its quoted token. Both halves matter and each was got wrong once:
-//
-//   - a pattern requiring a trailing SPACE misses every line ending in
-//     `FROM relationship`, which is how this change's own first census
-//     undercounted its subject by five sites;
-//   - matching against ast.BasicLit.Value leaves the closing backquote in the
-//     text, so `$` can never fire and a literal ENDING at `FROM relationship`
-//     is invisible — the same class of miss, one layer down, and it survived
-//     the first mutation drill because that probe ended the line rather than
-//     the literal.
-//
-// literalText below is what strips the quoting. restrictedreaders_test.go
-// carries the same expression and had the same second flaw; it is fixed there
-// in this change, because one spelling of a rule with two copies is not a rule
-// (review-loop rule 1).
-var relationshipReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+relationship(\s|$|[,;)])`)
+// The pattern comes from gatekit, which is where the rule became one rule. It
+// was spelled here, and in restrictedreaders_test.go, with the same two-part
+// flaw in both: a required trailing SPACE missed every line ending in
+// `FROM relationship` — this census undercounted its own subject by five sites
+// that way — and matching against ast.BasicLit.Value leaves the closing
+// backquote in the text, so the end-of-text alternate could never fire either.
+// The second one survived the first mutation drill, because that probe ended the
+// LINE rather than the LITERAL. Two copies of a rule meant two copies of the
+// bug (review-loop rule 1), and gatekit.TableReadPattern is the answer to that
+// rather than a tidier spelling of the same risk.
+var relationshipReadLiteral = gatekit.TableReadPattern(edgeTable)
 
-// edgeLiteralText is contentionprobe_test.go's literalText, narrowed to the
-// one shape this gate asks about. Shared rather than respelled: it unquotes
-// through strconv, which is stricter than trimming the delimiters by hand.
-func edgeLiteralText(lit *ast.BasicLit) string {
-	text, isString := literalText(lit)
-	if !isString {
-		return ""
-	}
-	return text
-}
+// edgeTable is the table this census is about, named once so the pattern above
+// and the failure messages below cannot disagree about the subject.
+const edgeTable = "relationship"
 
 // edgeGateSeeds are the spellings that ARE the edge's read admission, anywhere.
 // Only EdgeReadScope qualifies: it is the one that takes the object gate.
@@ -226,21 +212,7 @@ var edgeReaderScope = gatekit.Scope{
 }
 
 func readsRelationshipTable(filePath string, file *ast.File) bool {
-	if strings.HasSuffix(filePath, "_gen.go") {
-		return false
-	}
-	return holdsRelationshipLiteral(file)
-}
-
-func holdsRelationshipLiteral(node ast.Node) bool {
-	found := false
-	ast.Inspect(node, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && relationshipReadLiteral.MatchString(edgeLiteralText(lit)) {
-			found = true
-		}
-		return !found
-	})
-	return found
+	return gatekit.FileReadsTable(filePath, file, relationshipReadLiteral)
 }
 
 func TestEveryReaderOfTheRelationshipTableCarriesTheEdgeGateOrAVerdict(t *testing.T) {
@@ -378,23 +350,13 @@ func pkgOf(filePath string) string { return path.Dir(filePath) }
 func relationshipReadSites(parsed gatekit.ParsedFile) []site {
 	var sites []site
 	for _, decl := range parsed.File.Decls {
-		var reads []string
-		ast.Inspect(decl, func(n ast.Node) bool {
-			if lit, ok := n.(*ast.BasicLit); ok && relationshipReadLiteral.MatchString(edgeLiteralText(lit)) {
-				reads = append(reads, edgeLiteralText(lit))
-			}
-			return true
-		})
+		reads := gatekit.TableReads(&ast.File{Decls: []ast.Decl{decl}}, relationshipReadLiteral)
 		if len(reads) == 0 {
 			continue
 		}
-		name := ""
-		if fn, isFunc := decl.(*ast.FuncDecl); isFunc {
-			name = fn.Name.Name
-		}
 		refs := referencesIn(decl)
 		sites = append(sites, site{
-			function: name, sql: firstSQLLine(reads[0]),
+			function: reads[0].Function, sql: gatekit.FirstLineOf(reads[0].SQL),
 			holdsGate: holdsSeedGate(refs, pkgOf(parsed.Path)), calls: refs.calls,
 		})
 	}
@@ -573,7 +535,9 @@ func referencesIn(node ast.Node) references {
 				refs.calls[name] = true
 			}
 		case *ast.BasicLit:
-			refs.literals[edgeLiteralText(typed)] = true
+			if text, isString := gatekit.LiteralText(typed); isString {
+				refs.literals[text] = true
+			}
 		}
 		return true
 	})
@@ -614,43 +578,17 @@ func firstSQLLine(literal string) string {
 // pair with an unrelated Require-shaped call to vouch for a read.
 func namesTheEdge(call *ast.CallExpr) bool {
 	for _, arg := range call.Args {
-		if lit, isLit := arg.(*ast.BasicLit); isLit && edgeLiteralText(lit) == "relationship" {
+		text, isString := gatekit.LiteralText(arg)
+		if isString && text == edgeTable {
 			return true
 		}
 	}
 	return false
 }
 
-// The extractor's own unit test, and it exists because the census is only as
-// good as this regex: every miss it has had was a boundary the pattern could
-// not see, and each one read exactly like a clean tree.
-func TestTheRelationshipReadExtractorSeesEveryBoundary(t *testing.T) {
-	seen := map[string]bool{
-		"`SELECT r.id FROM relationship r WHERE r.kind = 'employment'`": true,
-		// Ends at the table name, so the closing delimiter is the next
-		// character. This is the one that slipped: matched against the quoted
-		// token, `$` never fires and the read is invisible.
-		"`SELECT r.person_id FROM relationship`":                          true,
-		"`SELECT r.person_id\n\tFROM relationship\n\tWHERE r.kind = 'x'`": true,
-		"`SELECT r.id FROM relationship, person p`":                       true,
-		"`SELECT r.id FROM relationship)`":                                true,
-		"`... JOIN relationship theirs ON theirs.person_id = p.id`":       true,
-		"`SELECT 1 FROM RELATIONSHIP r`":                                  true,
-		// Not reads of this table: a longer name that merely starts with it,
-		// and a write, which the census deliberately does not judge.
-		"`SELECT 1 FROM relationship_history r`":        false,
-		"`INSERT INTO relationship (kind) VALUES ($1)`": false,
-		"`SELECT relationship FROM person`":             false,
-	}
-	for literal, want := range seen {
-		got := relationshipReadLiteral.MatchString(edgeLiteralText(&ast.BasicLit{
-			Kind: token.STRING, Value: literal,
-		}))
-		if got != want {
-			t.Errorf("the extractor %s %s\n  want it %s — a boundary the pattern cannot see reads "+
-				"exactly like a clean tree",
-				map[bool]string{true: "matched", false: "missed"}[got], literal,
-				map[bool]string{true: "matched", false: "missed"}[want])
-		}
-	}
-}
+// The extractor's own boundary test now lives with the extractor:
+// gatekit.TestTableReadPatternSeesEveryBoundary. It moved because the pattern
+// did — this census had its own copy of both, which is how the same blind spot
+// came to exist twice and be drilled for once. The cases it holds are this
+// census's own history: a read ending at the literal, a read ending the line, a
+// table whose name merely starts with this one.
