@@ -31,7 +31,10 @@ func (o leadDealOpener) OpenDealForLead(ctx context.Context, tx pgx.Tx, in peopl
 	}
 	deal, err := o.deals.CreateDealTx(ctx, tx, deals.CreateDealInput{
 		Name: in.Name, AmountMinor: in.AmountMinor, Currency: in.Currency,
-		PipelineID: pipelineID, StageID: stageID, OwnerID: in.OwnerID, Source: in.Source,
+		PipelineID: pipelineID, StageID: stageID, Source: in.Source,
+		// The deal inherits the LEAD's owner exactly — an unassigned lead
+		// qualifies into an unassigned deal, not the promoting actor's.
+		OwnerID: in.OwnerID, OwnerExact: true,
 	})
 	if err != nil {
 		return ids.Nil, err

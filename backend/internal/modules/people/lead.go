@@ -111,7 +111,21 @@ func (s *Store) readyLeadCreate(ctx context.Context, in CreateLeadInput) (Create
 	if err != nil {
 		return CreateLeadInput{}, "", err
 	}
-	normalized.OwnerID = storekit.OwnerOrActor(ctx, normalized.OwnerID)
+	// The owner is exactly what a HUMAN caller named — deliberately not
+	// storekit.OwnerOrActor, which every other manual create runs. A lead is
+	// the funnel's queue entity: it arrives unassigned unless somebody names
+	// an owner, routing (leadrouting.go) is what assigns it, and the claim
+	// verb plus the Unassigned list dial exist for the ownerless state. The
+	// UI's create form still defaults its owner picker to the creating rep,
+	// so a rep's own lead stays theirs by an explicit choice, not a fallback.
+	//
+	// An AGENT's create keeps the on-behalf-of fallback: EnsureWritable
+	// refuses ownerless rows and the claim verb is human-only, so a NULL
+	// owner would strand the very lead the agent just filed — it could never
+	// update, qualify or disqualify it again. The queue is a human choice.
+	if p, ok := principal.Actor(ctx); ok && p.Type == principal.PrincipalAgent {
+		normalized.OwnerID = storekit.OwnerOrActor(ctx, normalized.OwnerID)
+	}
 	return normalized, by, nil
 }
 
