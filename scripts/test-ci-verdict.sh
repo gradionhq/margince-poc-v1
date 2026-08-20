@@ -20,13 +20,13 @@ case_is() {
 	local name="$1" event="$2" needs="$3" want="$4" must_say="${5:-}"
 	local out status=0
 	out="$(CI_VERDICT_EVENT="$event" CI_VERDICT_NEEDS="$needs" "$verdict" 2>&1)" || status=$?
-	if [ "$status" -ne "$want" ]; then
+	if [[ "$status" -ne "$want" ]]; then
 		echo "FAIL: $name — expected exit $want, got $status" >&2
 		printf '%s\n' "$out" >&2
 		failures=$((failures + 1))
 		return
 	fi
-	if [ -n "$must_say" ] && ! printf '%s' "$out" | grep -qF -- "$must_say"; then
+	if [[ -n "$must_say" ]] && ! printf '%s' "$out" | grep -qF -- "$must_say"; then
 		echo "FAIL: $name — exited $want but never named '$must_say'" >&2
 		printf '%s\n' "$out" >&2
 		failures=$((failures + 1))
@@ -34,6 +34,23 @@ case_is() {
 	fi
 	echo "ok: $name"
 }
+
+# The job whose result each fixture varies — and therefore the one a failing
+# verdict has to NAME. Asserting on the name is what proves the verdict points at
+# the offender instead of merely exiting non-zero: nine legible checks were
+# replaced by one, so "something failed" is not an acceptable answer.
+probe_job=integration
+readonly probe_job
+
+# case_is treats an empty expectation as "assert nothing", which the cases that
+# pass no fifth argument rely on — so an empty probe_job would turn five name
+# assertions into silent no-ops and the suite would still report OK. Same rule
+# the gates themselves follow: a check that can pass while comparing nothing
+# fails instead.
+if [[ -z "$probe_job" ]]; then
+	echo "FAIL: probe_job is empty, so every name assertion below would assert nothing" >&2
+	exit 1
+fi
 
 all_green='{"dco":{"result":"success"},"integration":{"result":"success"}}'
 one_skip='{"dco":{"result":"success"},"integration":{"result":"skipped"}}'
@@ -44,15 +61,15 @@ case_is "queue, all green" merge_group "$all_green" 0
 case_is "pr, all green" pull_request "$all_green" 0
 
 # The whole point. A skip is a verdict about nothing.
-case_is "queue rejects a skip" merge_group "$one_skip" 1 "integration"
+case_is "queue rejects a skip" merge_group "$one_skip" 1 "$probe_job"
 case_is "pr admits a skip" pull_request "$one_skip" 0
 
-case_is "queue rejects a failure" merge_group "$one_fail" 1 "integration"
-case_is "pr rejects a failure" pull_request "$one_fail" 1 "integration"
+case_is "queue rejects a failure" merge_group "$one_fail" 1 "$probe_job"
+case_is "pr rejects a failure" pull_request "$one_fail" 1 "$probe_job"
 
 # A cancelled job proved nothing either, on either event.
-case_is "queue rejects a cancellation" merge_group "$one_cancel" 1 "integration"
-case_is "pr rejects a cancellation" pull_request "$one_cancel" 1 "integration"
+case_is "queue rejects a cancellation" merge_group "$one_cancel" 1 "$probe_job"
+case_is "pr rejects a cancellation" pull_request "$one_cancel" 1 "$probe_job"
 
 # A verdict over zero jobs is the failure mode this repo already guards against
 # in check-ci-doc-parity.sh: it passes while comparing nothing.
@@ -60,7 +77,7 @@ case_is "empty needs fails" merge_group "" 1 "CI_VERDICT_NEEDS"
 case_is "empty object fails" merge_group '{}' 1 "zero job results"
 case_is "empty event fails" "" "$all_green" 1 "CI_VERDICT_EVENT"
 
-if [ "$failures" -ne 0 ]; then
+if [[ "$failures" -ne 0 ]]; then
 	echo "FAIL: $failures case(s) failed" >&2
 	exit 1
 fi

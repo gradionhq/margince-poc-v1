@@ -26,12 +26,12 @@ set -euo pipefail
 needs_json="${CI_VERDICT_NEEDS:-}"
 event="${CI_VERDICT_EVENT:-}"
 
-if [ -z "$event" ]; then
+if [[ -z "$event" ]]; then
 	echo "FAIL: CI_VERDICT_EVENT is empty, so the verdict cannot tell whether a skip is admissible. Pass \${{ github.event_name }}." >&2
 	exit 1
 fi
 
-if [ -z "$needs_json" ]; then
+if [[ -z "$needs_json" ]]; then
 	echo "FAIL: CI_VERDICT_NEEDS is empty — there are no job results to judge. Pass \${{ toJSON(needs) }}. A verdict over zero jobs is not a pass." >&2
 	exit 1
 fi
@@ -41,7 +41,7 @@ fi
 results="$(printf '%s' "$needs_json" | jq -r 'to_entries[] | "\(.key)\t\(.value.result)"')"
 count="$(printf '%s\n' "$results" | grep -c . || true)"
 
-if [ "$count" -eq 0 ]; then
+if [[ "$count" -eq 0 ]]; then
 	echo "FAIL: parsed zero job results out of CI_VERDICT_NEEDS — the aggregate's needs: list is empty or the payload changed shape, so this gate was about to pass without judging anything." >&2
 	exit 1
 fi
@@ -53,11 +53,11 @@ esac
 
 failures=0
 while IFS=$'\t' read -r job result; do
-	[ -n "$job" ] || continue
+	[[ -n "$job" ]] || continue
 	case " $admissible " in
 	*" $result "*) continue ;;
 	esac
-	if [ "$result" = skipped ]; then
+	if [[ "$result" == "skipped" ]]; then
 		echo "FAIL: $job was SKIPPED, and on $event every job must run. A skipped gate is indistinguishable from a passing one — run it, or take it out of the aggregate's needs: list." >&2
 	else
 		echo "FAIL: $job reported '$result'." >&2
@@ -65,7 +65,7 @@ while IFS=$'\t' read -r job result; do
 	failures=$((failures + 1))
 done <<<"$results"
 
-if [ "$failures" -ne 0 ]; then
+if [[ "$failures" -ne 0 ]]; then
 	echo "FAIL: $failures of $count job(s) did not pass on $event." >&2
 	exit 1
 fi
