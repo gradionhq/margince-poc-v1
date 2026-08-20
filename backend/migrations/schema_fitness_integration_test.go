@@ -104,18 +104,20 @@ func TestSchema_organizationOpenPipelineRollupIsSecurityInvoker(t *testing.T) {
 // the map's completeness is the invariant.
 var rowScopedFKDecisions = gatekit.Waive(map[string]string{
 	// Client-supplied references — visibility-gated at the store:
-	"site_read.organization_id":     "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
-	"deal.organization_id":          "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
-	"project.organization_id":       "gated: auth.EnsureLinkTarget in CreateProject/UpdateProject (H1) — the anchor company is client-supplied, so naming it is a read of it",
-	"deal.partner_org_id":           "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
-	"organization.parent_org_id":    "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
-	"activity_link.person_id":       "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.lead_id":         "gated: auth.EnsureLinkTarget in LogActivity",
-	"activity_link.project_id":      "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
-	"deal.project_id":               "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
-	"contract.organization_id":      "gated: auth.EnsureLinkTarget in createContractTx (H1) — the counterparty is client-supplied, so naming it is a read of it",
+	"site_read.organization_id":       "gated: auth.EnsureVisible in StartSiteRead (the one human entry point); Begin/Finish only re-address a row Start created, and GetSiteRead re-checks EnsureVisible on every read",
+	"deal.organization_id":            "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1)",
+	"project.organization_id":         "gated: auth.EnsureLinkTarget in CreateProject/UpdateProject (H1) — the anchor company is client-supplied, so naming it is a read of it",
+	"deal.partner_org_id":             "gated: auth.EnsureLinkTarget in UpdateDeal (H1)",
+	"commission_entry.deal_id":        "gated: auth.EnsureLinkTarget in accrueTx — an entry priced against a deal the caller cannot open would be unreadable the moment it was written",
+	"commission_entry.partner_org_id": "gated: auth.EnsureLinkTarget in accrueTx — naming the partner an entry pays is a read of that organization",
+	"organization.parent_org_id":      "gated: auth.EnsureLinkTarget in Create/UpdateOrganization (H1)",
+	"activity_link.person_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.organization_id":   "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.deal_id":           "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.lead_id":           "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.project_id":        "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
+	"deal.project_id":                 "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"contract.organization_id":        "gated: auth.EnsureLinkTarget in createContractTx (H1) — the counterparty is client-supplied, so naming it is a read of it",
 	// The deal and project links carry a SECOND obligation the sibling columns
 	// above do not, and it is the reason this table's gate is not just a copy.
 	// A contract's row visibility is INHERITED from its deal (falling back to
