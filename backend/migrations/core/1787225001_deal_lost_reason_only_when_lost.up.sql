@@ -14,7 +14,14 @@
 -- Both statements below block writers on `deal`. Bounding the wait means a
 -- long-open transaction fails this migration instead of stalling every write
 -- to the table for as long as the migration is willing to queue.
+--
+-- The table lock is what makes the repair hold: during a rolling deployment an
+-- instance still running the old writer could otherwise re-decide a lost deal
+-- as won in the window between the repair and the constraint, and the new row
+-- would fail the ADD CONSTRAINT rather than be repaired by it. Holding writers
+-- out for the whole transaction closes that window.
 SET LOCAL lock_timeout = '3s';
+LOCK TABLE deal IN SHARE ROW EXCLUSIVE MODE;
 
 -- Repair first: the constraint cannot be added while rows violate it, and
 -- these rows exist wherever a deal was re-decided before the writer was fixed.

@@ -251,9 +251,13 @@ func (s *Store) stageTransitionPatch(ctx context.Context, tx pgx.Tx,
 	// landing. A reason describing a previous close is worse than none: it
 	// answers the report with a fact about a different outcome — so a deal
 	// re-decided from lost to won must not carry the loss explanation with it.
+	// The clear is conditional on there being something to clear: Set records
+	// an assignment unconditionally, so clearing a column that is already NULL
+	// would put lost_reason into the UPDATE and the audit diff of every
+	// ordinary open-to-open advance.
 	if DealStatus(status) == DealLost && in.LostReason != nil {
 		p.Set("lost_reason", current.LostReason, *in.LostReason)
-	} else if DealStatus(status) != DealLost {
+	} else if DealStatus(status) != DealLost && current.LostReason != nil {
 		p.Set("lost_reason", current.LostReason, nil)
 	}
 	// The won-without-contract reason is written only on a win, and cleared on

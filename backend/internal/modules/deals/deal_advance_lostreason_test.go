@@ -50,6 +50,24 @@ func TestALostReasonIsClearedOnEveryLandingThatIsNotLost(t *testing.T) {
 	}
 }
 
+// An ordinary move between two open stages has no lost reason to clear, and
+// must not say that it cleared one: a patch records every assignment it is
+// given, so an unconditional clear would name lost_reason in the UPDATE and in
+// the audit diff of every advance a deal ever makes.
+func TestAnAdvanceWithNoLostReasonLeavesTheColumnOutOfThePatch(t *testing.T) {
+	open := crmcontracts.Deal{Status: crmcontracts.DealStatusOpen}
+
+	store := &Store{}
+	patch, _, err := store.stageTransitionPatch(
+		context.Background(), nil, open, AdvanceDealInput{}, "open")
+	if err != nil {
+		t.Fatalf("stageTransitionPatch: %v", err)
+	}
+	if _, assigned := patch.After()["lost_reason"]; assigned {
+		t.Error("lost_reason was assigned on an advance that never touched it")
+	}
+}
+
 // The reason still has to be written when the deal actually lands on lost,
 // which is the behaviour the clearing branch must not swallow.
 func TestALostReasonIsWrittenWhenTheDealLandsOnLost(t *testing.T) {
