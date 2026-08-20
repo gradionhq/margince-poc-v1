@@ -66,6 +66,21 @@ var offerRenderReadOnlyPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
+// offerRenderSeatPerms is the DEFAULT rep grant a Member seat carries, bounded
+// to the rows of the seat's own team. The desk perms above sit at
+// RowScopeAll, which makes their holder unbounded — no row gate has anything
+// to refuse there, so the row-scope arm of the render's admission is only
+// observable under a bounded seat like this one.
+var offerRenderSeatPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"deal":                  {Create: true, Read: true, Update: true},
+		"offer":                 {Create: true, Read: true, Update: true},
+		"installation_settings": {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
+}
+
 // spyBlobStore wraps a real blobstore.Store and records whether Put was
 // ever invoked — the test's proof that a denied render performs ZERO
 // blob work, not merely that the HTTP response was a 403.
@@ -416,5 +431,91 @@ func TestOfferRenderHandler_ReadOnlyOfferGrantDeniedBeforeAnyBlobWrite(t *testin
 	key := fmt.Sprintf("offers/%s/%s/%d.pdf", e.WS, offerID.UUID, *created.Revision)
 	if _, _, err := blob.Get(context.Background(), key); !errors.Is(err, blobstore.ErrNotFound) {
 		t.Fatalf("the render key must carry no object after a denied render, got err=%v", err)
+	}
+}
+
+// ownedOfferOnAnotherTeamsDeal seeds a deal owned by Rep3 (Team2) carrying one
+// draft offer, and answers the owner's seat, a seat on the OTHER team, and the
+// offer. Both seats hold the SAME default rep grant, so the only thing that
+// differs between them is whose rows they are — a refusal can then only come
+// from the row gate under test, never from a missing object grant.
+func ownedOfferOnAnotherTeamsDeal(t *testing.T, e *Env) (owner, other context.Context, offer crmcontracts.Offer) {
+	t.Helper()
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Render row-scope deal", pipeline, open, &e.Rep3)
+	owner = e.As(e.Rep3, []ids.UUID{e.Team2}, offerRenderSeatPerms)
+	other = e.As(e.Rep1, []ids.UUID{e.Team1}, offerRenderSeatPerms)
+	return owner, other, renderOneLineOffer(owner, t, e, dealID, deals.CreateOfferInput{})
+}
+
+// TestOfferRenderPrepareRender_AnotherSeatsDealDenied is the row-scope half of
+// the render's admission gate, and the half object grants cannot supply: a
+// render REPLACES the offer's pdf_asset_ref and orphans the PDF it displaces,
+// so it is an edit of the offer and demands write-level authority over the
+// deal that offer hangs off — the same authority the patch, the send and the
+// archive demand. Read-level sight is not enough, and every seat has that:
+// customer identity is workspace-shared, so the visibility probe on a deal
+// admits everyone (the GetOffer control below proves this seat really can see
+// the row it is refused a render of).
+func TestOfferRenderPrepareRender_AnotherSeatsDealDenied(t *testing.T) {
+	e := Setup(t)
+	owner, other, created := ownedOfferOnAnotherTeamsDeal(t, e)
+	offerID := ids.From[ids.OfferKind](ids.UUID(created.Id))
+
+	ref := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1/" + ids.NewV7().String() + ".pdf"
+	persisted, _, err := e.Deals.SetPdfAssetRef(owner, offerID, ref, *created.Version)
+	if err != nil {
+		t.Fatalf("the deal's owner persists their own render: %v", err)
+	}
+
+	if _, err := e.Deals.GetOffer(other, offerID, storekit.LiveOnly); err != nil {
+		t.Fatalf("another seat must be able to READ the offer — without that this proves nothing about the write gate: %v", err)
+	}
+	if _, err := e.Deals.PrepareRender(other, offerID); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("PrepareRender against another seat's deal = %v, want ErrPermissionDenied", err)
+	}
+	// The write half answers on its own too. The two calls are separate store
+	// entry points — the blob write sits between them — so the admission the
+	// prepare performs cannot be the only place the authority is checked.
+	stolen := "offers/" + e.WS.String() + "/" + ids.UUID(created.Id).String() + "/1/" + ids.NewV7().String() + ".pdf"
+	if _, _, err := e.Deals.SetPdfAssetRef(other, offerID, stolen, *persisted.Version); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("SetPdfAssetRef against another seat's deal = %v, want ErrPermissionDenied", err)
+	}
+
+	got, err := e.Deals.GetOffer(owner, offerID, storekit.LiveOnly)
+	if err != nil {
+		t.Fatalf("read the offer back after the refusals: %v", err)
+	}
+	if got.PdfAssetRef == nil || *got.PdfAssetRef != ref {
+		t.Fatalf("the owner's PDF ref must survive a refused render, got %+v want %q", got.PdfAssetRef, ref)
+	}
+	// The positive control: the gate refuses the other seat, not the feature.
+	if _, err := e.Deals.PrepareRender(owner, offerID); err != nil {
+		t.Fatalf("the deal's owner must still render their own offer: %v", err)
+	}
+}
+
+// TestOfferRenderHandler_AnotherSeatsDealDeniedBeforeAnyBlobWrite drives the
+// HTTP handler for the same seat: the refusal must land as a 403 BEFORE the
+// PDF is built and before anything reaches the object store, so a seat that
+// cannot change the offer cannot make the installation spend a blob write —
+// nor delete the PDF the owner's customer was sent, which is what the handler
+// does with the ref a successful render displaces.
+func TestOfferRenderHandler_AnotherSeatsDealDeniedBeforeAnyBlobWrite(t *testing.T) {
+	e := Setup(t)
+	_, other, created := ownedOfferOnAnotherTeamsDeal(t, e)
+
+	blob := &spyBlobStore{Store: blobstore.NewMemory()}
+	h := deals.NewHandlers(e.DB(), installseam.Deals()).WithBlobstore(blob)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/offers/"+created.Id.String()+"/render", nil).WithContext(other)
+	rec := httptest.NewRecorder()
+	h.RenderOffer(rec, req, created.Id, crmcontracts.RenderOfferParams{})
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("render against another seat's deal = %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if blob.putCalled {
+		t.Fatal("a denied render must never reach the blob write — the refusal belongs in front of the render, not after it")
 	}
 }
