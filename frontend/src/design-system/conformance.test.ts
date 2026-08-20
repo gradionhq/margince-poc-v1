@@ -786,3 +786,26 @@ describe("problem details", () => {
     ).toEqual([]);
   });
 });
+
+describe("unsaved edits", () => {
+  it("installs the navigation guard above the screens, never inside one", () => {
+    // `UnsavedGuard` can only hold the moves it is still mounted for. Installed
+    // inside a screen it guarded that screen's own tabs and nothing else: a
+    // settings draft was safe from one entry to the next and still discarded
+    // without a word the moment the reader clicked Contacts, because the screen
+    // holding the guard unmounted before it could ask. So exactly one place
+    // renders it — above the routed screen — and a draft anywhere below claims
+    // through `useUnsavedGuard`, which is scope-free by design.
+    const wearers = files
+      .filter((file) => /\.tsx$/.test(file))
+      .filter((file) => !/\.(test|stories)\.tsx$/.test(file))
+      .filter((file) => /<UnsavedGuard[\s>]/.test(readFileSync(file, "utf8")))
+      .map((file) => relative(frontendRoot, file))
+      .sort();
+    expect(
+      wearers,
+      "a second guard is a guard that unmounts with its own screen; render " +
+        "the one in App.tsx and claim from the card with `useUnsavedGuard`",
+    ).toEqual(["src/App.tsx"]);
+  });
+});

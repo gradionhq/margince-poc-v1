@@ -14,13 +14,11 @@ import { useT } from "../i18n";
 /**
  * Unsaved edits, and what happens when the reader leaves without saving them.
  *
- * Today the answer is nothing: there is no `beforeunload` anywhere in this
- * frontend and no navigation guard of any kind, so every draft on a settings
- * page — a rewritten signature, a retyped installation name, a voice profile
- * somebody spent ten minutes on — is destroyed silently by a click on the
- * sidebar. Silently is the part that matters. A form that warns you is annoying;
- * a form that discards your work without a word teaches you not to trust it with
- * anything long.
+ * A draft that is discarded without a word — a rewritten signature, a retyped
+ * installation name, a voice profile somebody spent ten minutes on — is one
+ * sidebar click away on every form in the product. Silently is the part that
+ * matters: a form that warns you is annoying, a form that loses your work
+ * without asking teaches you not to trust it with anything long.
  *
  * Two mechanisms, because there are two ways to leave and only one of them is
  * ours to intercept.
@@ -31,14 +29,15 @@ import { useT } from "../i18n";
  * attempt to reads as a page fighting the window.
  *
  * A move WITHIN the app is ours, and it is asked with this product's own
- * `ConfirmModal`. It is scoped to the surface that holds the draft rather than
- * installed over the router, and that scoping is deliberate: a guard wired into
- * `hashchange` also intercepts Back and Forward, where undoing the browser's own
- * history gesture means rewriting history entries underneath the reader. The
- * failure mode of a guard that gets that wrong is broken navigation for
- * everybody, which is far worse than the loss it prevents. So a surface holds
- * its OWN content until the question is answered, the URL is allowed to move,
- * and the browser's gestures are left alone.
+ * `ConfirmModal`. `UnsavedGuard` is rendered ABOVE the routed screen (App.tsx),
+ * because a guard can only hold the moves it is still mounted for: inside a
+ * screen it caught that screen's own tabs and lost everything the instant the
+ * reader left for another page. What it holds is CONTENT, never the URL. A guard
+ * wired into `hashchange` would also intercept Back and Forward, where undoing
+ * the browser's own history gesture means rewriting entries underneath the
+ * reader — and the failure mode of getting that wrong is broken navigation for
+ * everybody, far worse than the loss it prevents. So the subtree waits, the URL
+ * is allowed to move, and the browser's gestures are left alone.
  */
 
 type UnsavedRegistry = Readonly<{
@@ -103,11 +102,11 @@ function useBeforeUnload(dirty: boolean): void {
  * Holds `children` steady while an unsaved edit is on screen and the address
  * changes underneath it.
  *
- * `address` is whatever the caller counts as "somewhere else" — a settings tab
- * id, a record id. When it changes and something is dirty, the guard keeps
- * rendering the address it was already showing and asks. Discarding shows the
- * new one; keeping sends the reader back to the one they were editing, which is
- * the only outcome that leaves their work where they can still save it.
+ * `address` is whatever the caller counts as "somewhere else" — in this app the
+ * hash of the displayed route. When it changes and something is dirty, the guard
+ * keeps rendering the address it was already showing and asks. Discarding shows
+ * the new one; keeping sends the reader back to the one they were editing, which
+ * is the only outcome that leaves their work where they can still save it.
  *
  * `onKeep` is how the caller puts the address back, because only the caller
  * knows what the address IS — this component holds content, not routes.

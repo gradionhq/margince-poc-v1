@@ -23,9 +23,10 @@ import {
   useBuiltinCommands,
   usePaletteHotkey,
 } from "./app/palette";
-import { navigate, type Screen } from "./app/router";
+import { navigate, parseHash, routeHash, type Screen } from "./app/router";
 import { Shell, type ShellCounts, useRoute } from "./app/shell";
 import { uiPreviewTaskbarEnabled } from "./app/ui-preview";
+import { UnsavedGuard } from "./app/unsaved";
 import {
   Card,
   EmptyState,
@@ -424,6 +425,26 @@ const SCREEN_VIEWS: Readonly<Record<Screen, (args: ScreenArgs) => ReactNode>> =
     "not-found": () => <ScreenNotice messageKey="shell.unknownPage" />,
   };
 
+// A displayed route as ONE string, and back. The guard below compares addresses
+// for equality, so the address it holds has to be a primitive — an object is a
+// new value on every render. The hash the router already speaks is that
+// primitive, and `routeHash`/`parseHash` are the app's own serializer and parser,
+// so this adds no second spelling of an address; a segment cannot be mangled by
+// the round trip because it CAME from a hash in the first place.
+//
+// Putting the address back is a normal navigation, through the one function that
+// performs them: the reader keeps their edit and the URL returns to the page
+// they are on.
+const navigateToAddress = (address: string) => navigate(parseHash(address));
+
+// The view for a held address, parsed rather than threaded alongside the string
+// so there is exactly one source for what is on screen: the address the guard
+// says it is holding.
+const screenOfAddress = (address: string) => {
+  const route = parseHash(address);
+  return SCREEN_VIEWS[route.screen](route);
+};
+
 function ScreenView({
   screen,
   id,
@@ -441,6 +462,10 @@ function ScreenView({
   // would render a company page against a person's id.
   const asked = useMemo(() => ({ screen, id, id2 }), [screen, id, id2]);
   const shown = useDeferredValue(asked);
+  // One string for the whole displayed address, and it is what the unsaved-edit
+  // guard below holds. Built from `shown` rather than from the live route: what
+  // has to be held is what is ON SCREEN, and the deferred value is that.
+  const shownAddress = routeHash(shown);
   // The boundary a lazy screen suspends against on the FIRST paint, when there
   // is no previous screen to hold. A failure to FETCH one — the chunk 404s
   // because a deploy replaced it under a tab that was already open — is thrown
@@ -464,11 +489,22 @@ function ScreenView({
           subtree, and the shell's content column must keep the screen's own
           root as its child (shell.css sizes `.wrap` and a full-height `.lt`
           against it). */}
-      <Fragment
-        key={`${shown.screen}\u0000${shown.id ?? ""}\u0000${shown.id2 ?? ""}`}
-      >
-        {SCREEN_VIEWS[shown.screen]({ id: shown.id, id2: shown.id2 })}
-      </Fragment>
+      {/* The guard sits HERE, above the screen, and not inside any one of them.
+          Inside a screen it can only see moves within that screen: a settings
+          draft was safe from one tab to the next and still discarded the moment
+          the reader clicked Contacts, because the screen holding the guard
+          unmounted before it could ask. Above the screen, every address change
+          is one it can hold — and the claim comes from wherever the draft is,
+          through `useUnsavedGuard`, so no screen has to know this exists.
+
+          It holds CONTENT, not the URL. The address is allowed to move and the
+          browser's own Back and Forward are left alone; what waits is the
+          subtree. Refusing a history gesture means rewriting entries underneath
+          the reader, and the failure mode of getting that wrong is broken
+          navigation for everybody. */}
+      <UnsavedGuard address={shownAddress} onKeep={navigateToAddress}>
+        {(held) => <Fragment key={held}>{screenOfAddress(held)}</Fragment>}
+      </UnsavedGuard>
     </Suspense>
   );
 }

@@ -38,8 +38,7 @@ import { isEntityKind } from "../app/entity";
 import { unitsForSecretScope } from "../app/extensions";
 import type { NavLevelEntry, NavLevelGroup, NavSection } from "../app/nav";
 import { ResumeConnectBanner } from "../app/resumeconnectbanner";
-import { navigate } from "../app/router";
-import { UnsavedGuard, useUnsavedGuard } from "../app/unsaved";
+import { useUnsavedGuard } from "../app/unsaved";
 import {
   Avatar,
   Badge,
@@ -673,20 +672,14 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
   return (
     <div className="wrap">
       <ResumeConnectBanner />
-      {/* The tab's content is held while an edit inside it is unsaved. Switching
-          entries used to discard a draft without a word — a rewritten signature,
-          a retyped installation name, a voice profile somebody spent ten minutes
-          on — and the sidebar is one click away from every one of them. Keeping
-          the edit sends the reader back to the entry that holds it, which is the
-          only outcome that leaves their work somewhere they can still save it. */}
-      <UnsavedGuard
-        address={active.id}
-        onKeep={(id) => navigate({ screen: SETTINGS_SCREEN, id })}
-      >
-        {(shown) => (
-          <div className="settings-stack arrive-stack">{tabContent(shown)}</div>
-        )}
-      </UnsavedGuard>
+      {/* Unsaved drafts in here are held by the guard above the routed screen
+          (App.tsx), not by this screen. A guard installed HERE could only see
+          moves between settings entries: it unmounts with the screen, so a draft
+          was safe from one tab to the next and still discarded without a word the
+          moment the reader clicked Contacts. The cards below claim through
+          `useUnsavedGuard` and need to know nothing about where the answer is
+          asked. */}
+      <div className="settings-stack arrive-stack">{tabContent(active.id)}</div>
     </div>
   );
 }
