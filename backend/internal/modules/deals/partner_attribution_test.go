@@ -54,7 +54,8 @@ func orgIDPtr(t *testing.T) *ids.OrganizationID {
 // pair — the pre-image an update patches against.
 func dealNamingPartner(attribution string) crmcontracts.Deal {
 	partner := openapi_types.UUID(ids.New[ids.OrganizationKind]().UUID)
-	return crmcontracts.Deal{PartnerOrgId: &partner, PartnerAttribution: &attribution}
+	claim := crmcontracts.DealPartnerAttribution(attribution)
+	return crmcontracts.Deal{PartnerOrgId: &partner, PartnerAttribution: &claim}
 }
 
 // samePartnerRestated is an update that names the partner the deal already

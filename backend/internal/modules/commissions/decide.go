@@ -110,7 +110,7 @@ func decideTx(ctx context.Context, tx pgx.Tx, id ids.CommissionEntryID, in Decid
 		}
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, in.Decision, commissionObject, ids.UUID(current.Id),
+	auditID, err := storekit.Audit(ctx, tx, auditVerb(in.Decision), commissionObject, ids.UUID(current.Id),
 		p.Before(), p.After())
 	if err != nil {
 		return crmcontracts.CommissionEntry{}, fmt.Errorf("audit commission decision: %w", err)
@@ -146,6 +146,16 @@ func insertReversal(ctx context.Context, tx pgx.Tx, original crmcontracts.Commis
 		return fmt.Errorf("insert commission reversal: %w", err)
 	}
 	return nil
+}
+
+// auditVerb names the ledger act in the audit vocabulary. Approve and pay are
+// verbs of their own; a void is recorded as `cancel`, which is the vocabulary's
+// existing word for calling off something already committed to.
+func auditVerb(decision string) string {
+	if decision == DecisionVoid {
+		return "cancel"
+	}
+	return decision
 }
 
 func emptyReason(reason *string) bool {
@@ -277,7 +287,7 @@ func voidOne(ctx context.Context, tx pgx.Tx, entry crmcontracts.CommissionEntry,
 	if err := insertReversal(ctx, tx, entry, reason, by); err != nil {
 		return err
 	}
-	auditID, auditErr := storekit.Audit(ctx, tx, DecisionVoid, commissionObject, ids.UUID(entry.Id),
+	auditID, auditErr := storekit.Audit(ctx, tx, auditVerb(DecisionVoid), commissionObject, ids.UUID(entry.Id),
 		p.Before(), p.After())
 	if auditErr != nil {
 		return fmt.Errorf("audit commission reversal: %w", auditErr)

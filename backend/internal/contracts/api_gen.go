@@ -1136,6 +1136,7 @@ func (e AuditHistoryEntryActorType) Valid() bool {
 
 // Defines values for AuditLogEntryAction.
 const (
+	AuditLogEntryActionAccrue             AuditLogEntryAction = "accrue"
 	AuditLogEntryActionActivityRelink     AuditLogEntryAction = "activity_relink"
 	AuditLogEntryActionAdvancePhase       AuditLogEntryAction = "advance_phase"
 	AuditLogEntryActionAdvanceStage       AuditLogEntryAction = "advance_stage"
@@ -1159,6 +1160,7 @@ const (
 	AuditLogEntryActionImportUndo         AuditLogEntryAction = "import_undo"
 	AuditLogEntryActionMerge              AuditLogEntryAction = "merge"
 	AuditLogEntryActionPasswordLinkIssued AuditLogEntryAction = "password_link_issued"
+	AuditLogEntryActionPay                AuditLogEntryAction = "pay"
 	AuditLogEntryActionPin                AuditLogEntryAction = "pin"
 	AuditLogEntryActionPromote            AuditLogEntryAction = "promote"
 	AuditLogEntryActionRecordShare        AuditLogEntryAction = "record_share"
@@ -1178,6 +1180,8 @@ const (
 // Valid indicates whether the value is a known member of the AuditLogEntryAction enum.
 func (e AuditLogEntryAction) Valid() bool {
 	switch e {
+	case AuditLogEntryActionAccrue:
+		return true
 	case AuditLogEntryActionActivityRelink:
 		return true
 	case AuditLogEntryActionAdvancePhase:
@@ -1223,6 +1227,8 @@ func (e AuditLogEntryAction) Valid() bool {
 	case AuditLogEntryActionMerge:
 		return true
 	case AuditLogEntryActionPasswordLinkIssued:
+		return true
+	case AuditLogEntryActionPay:
 		return true
 	case AuditLogEntryActionPin:
 		return true

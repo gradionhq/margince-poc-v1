@@ -23,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // VisibleClause renders the SQL predicate admitting the commission entries this
@@ -33,6 +34,14 @@ import (
 // grants, so without the filter an entry would stay readable — and payable —
 // through a deal whose own read already answers 404.
 func VisibleClause(ctx context.Context, alias string, arg func(any) int) (string, error) {
+	// The ROW scope below narrows which deals admit their entries; it does not
+	// ask whether this caller may read a deal at all. Both are needed: an entry
+	// names its deal and prices it, so a caller holding commission:read without
+	// deal:read would learn what a deal was worth through the ledger — the
+	// object grant the deal's own read would have refused.
+	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+		return "", err
+	}
 	dealScope, err := auth.ScopeClauseFor(ctx, "deal", "d", arg)
 	if err != nil {
 		return "", err
