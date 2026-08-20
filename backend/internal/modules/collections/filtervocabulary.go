@@ -80,10 +80,21 @@ type VocabularyField struct {
 // with no row-scope clause because it returns no record and no record's contents.
 //
 // One thing here is NOT ambient, and the line runs between schema and content.
-// A cf_* column's NAME and TYPE are schema: the record surfaces already expose
-// them to anyone who may read a record, and a builder that could not see them
-// would offer a field the engine accepts, which is the divergence this whole seam
-// exists to prevent. A custom picklist's VALUES are different — an admin authored
+//
+// A cf_* column's NAME and TYPE are schema, and the reason they are ambient is
+// the EQUIVALENCE this seam exists for, not a claim about other surfaces: a
+// builder composes from what this operation lists, so a field withheld here is
+// one the engine accepts and no human can name. That makes the vocabulary wrong
+// about the product rather than merely quiet.
+//
+// It is worth being exact about what that buys, because the looser argument is
+// tempting and false. Record payloads do NOT already reveal every one of these
+// names — ExtractValues omits a NULL, so a custom column with no value on any
+// record is invisible there and visible here. The equivalence is paid for with
+// that much disclosure, deliberately: the alternative is a builder that cannot
+// filter on a column until somebody happens to fill it in.
+//
+// A custom picklist's VALUES are the other side of the line — an admin authored
 // them, they are the same content `GET /custom-fields` refuses, and they only
 // began travelling here when the vocabulary started carrying options at all.
 //

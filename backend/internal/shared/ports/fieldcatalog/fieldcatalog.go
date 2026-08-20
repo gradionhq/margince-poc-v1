@@ -61,10 +61,12 @@ func Types() []string {
 // The fields carry DIFFERENT disclosure rules, and this is the one place that
 // says so, because three surfaces read them and each was choosing for itself:
 //
-//   - Name and Type are SCHEMA. Ambient to any caller who may read a record
-//     carrying the column — the record surfaces already expose them, and a
-//     consumer that had to hide them would describe a narrower product than the
-//     engine implements.
+//   - Name and Type are SCHEMA. Ambient to any caller who may read records of
+//     that object, because a consumer that had to hide them would describe a
+//     narrower product than the engine implements — a field nothing may name is
+//     a field a filter cannot use. Note what this does NOT rest on: a record
+//     payload omits a NULL, so a column with no value on any record is not
+//     already visible there. Ambient is a decision, not an observation.
 //   - Options is catalogue CONTENT, authored by an admin. A consumer passing it
 //     to a caller needs `custom_field:read`, the grant that governs the
 //     catalogue surface these values otherwise come from.
