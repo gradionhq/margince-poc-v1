@@ -31,6 +31,15 @@ func NewProvider(db *database.DB) *Provider {
 	return &Provider{store: NewStore(db)}
 }
 
+// WithTranscriptEnqueue lets a transcript created through this seam start its
+// own reading, the same way one created over REST does. Without it the tool
+// surface can store a transcript and nothing reads it — which is how the
+// extraction lane came to hold zero rows while being fully built.
+func (p *Provider) WithTranscriptEnqueue(enqueue TranscriptReadEnqueue) *Provider {
+	p.store = p.store.WithTranscriptEnqueue(enqueue)
+	return p
+}
+
 func ref(t datasource.EntityType, id openapi_types.UUID) datasource.EntityRef {
 	return datasource.EntityRef{Type: t, ID: ids.UUID(id)}
 }

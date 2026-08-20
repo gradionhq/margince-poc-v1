@@ -97,7 +97,10 @@ func (s *Store) LogActivity(ctx context.Context, in LogActivityInput) (crmcontra
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		out, created, err = logActivityInTx(ctx, tx, in)
-		return err
+		if err != nil {
+			return err
+		}
+		return s.readTranscriptOnLanding(ctx, tx, out, created)
 	})
 	return out, created, err
 }

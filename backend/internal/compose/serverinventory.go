@@ -66,6 +66,10 @@ type Server struct {
 	onboardingStateHandlers
 	siteReadHandlers
 	transcriptReadHandlers
+	// transcriptOnLanding starts a reading when a transcript is WRITTEN, not
+	// only when one is requested. Set by WithTranscriptRead; nil in a
+	// deployment with no brain for it, and then a transcript is simply stored.
+	transcriptOnLanding activities.TranscriptReadEnqueue
 	documentReadHandlers
 	scrapeHandlers
 	connectorHandlers
