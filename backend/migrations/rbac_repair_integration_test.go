@@ -55,14 +55,14 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 				resetSchema(t, admin)
 				migrator := asMigrator(t, admin)
 				migrateAll(t, migrator)
-				// Then back ONE core step, because the newest core migration is
-				// ADR-0091 §8 phase D's drop of role.workspace_id and these
-				// repairs name it. The migration is correct in its own position
-				// — core runs in order, so core/0192 executes while the column
-				// is still there — and replaying it at head asks it to run in an
-				// era it never belonged to. One step back IS that era, and the
-				// suite migrates forward again below so every assertion is read
-				// at head.
+				// Then back to just below ADR-0091 §8 phase D's drop of
+				// role.workspace_id, which these repairs name. The migration is
+				// correct in its own position — core runs in order, so core/0192
+				// executes while the column is still there — and replaying it at
+				// head asks it to run in an era it never belonged to. How many
+				// steps that is depends on what has landed since; the helper
+				// derives it. The suite migrates forward again below so every
+				// assertion is read at head.
 				rollBackThePhaseDDrop(t, admin)
 
 				want := grantsWrittenBy(t, repair)
@@ -151,7 +151,7 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 				resetSchema(t, admin)
 				narrowMigrator := repointed(t, admin, migrator)
 				migrateAll(t, narrowMigrator)
-				// Same one step back as above, for the same reason: the replay
+				// Back to the same era as above, for the same reason: the replay
 				// below runs a migration from before role.workspace_id was
 				// dropped, so the fixture is seeded in that era too.
 				rollBackThePhaseDDrop(t, admin)
@@ -163,6 +163,12 @@ func TestTheRepairMigrationsHealADatabaseThatAlreadyRecordedTheLostBackfill(t *t
 					t.Fatalf("applying the %s/%s repair to the narrowed installation: %v",
 						namespace.Name, repair.Version, err)
 				}
+				// Forward again, as the shape above does: the assertions read the
+				// schema an installation actually runs on, and the suite does not
+				// exit sitting however many migrations back the rollback needed —
+				// a depth that grows with every core migration that lands.
+				migrateAll(t, narrowMigrator)
+
 				for _, object := range objects {
 					for _, role := range systemRoleKeys {
 						if held, present := readGrant(ctx, t, admin, narrowed, role, object); !present ||
@@ -263,51 +269,76 @@ func repointed(t *testing.T, admin, conn *pgx.Conn) *pgx.Conn {
 	return conn
 }
 
-// phaseDDropName is the core migration these repairs need rolled back: ADR-0091
-// §8 phase D's drop of role.workspace_id. Named, not counted — see below.
-const phaseDDropName = "role_drops_the_tenant_column"
+// phaseDDropVersion is the core migration these repairs need reverted: ADR-0091
+// §8 phase D's drop of role.workspace_id.
+//
+// A version, not a name: dbmigrate.Load rejects a duplicate VERSION and says
+// nothing about names, so the version is the field that identifies one migration.
+const phaseDDropVersion = "1787216237" // role_drops_the_tenant_column
 
 // rollBackThePhaseDDrop takes core back to the era these repairs belong to and
-// proves the step landed where it was aimed.
+// proves the rollback landed exactly there.
 //
-// How far back that is, is DERIVED from where the phase D drop sits in the
-// namespace, never assumed to be one step. It was one step when this suite was
-// written, and stopped being one the moment a later core migration landed on top
-// — after which the rollback reverted that migration instead and left
-// role.workspace_id dropped, so every repair replayed in exactly the era this
-// helper exists to avoid. A count is a guess about which migration is newest;
-// the name is the thing actually meant, and it fails loudly when it is gone.
+// How far back that is, is DERIVED from where the phase D drop sits, never
+// assumed to be one step. It WAS one step when this suite was written, and
+// stopped being one the moment a later core migration landed on top — after
+// which the rollback reverted that migration instead and left role.workspace_id
+// dropped, so every repair replayed in the era this helper exists to avoid. A
+// count is a guess about which migration is newest; the version is the thing
+// meant, and stepsDownTo fails loudly when it is gone.
 func rollBackThePhaseDDrop(t *testing.T, conn *pgx.Conn) {
 	t.Helper()
+	ctx := context.Background()
 	core, _ := namespaces(t)
-	steps := coreStepsBackToPhaseD(t, core)
-	if _, err := dbmigrate.Down(context.Background(), conn, core, steps); err != nil {
+	steps := stepsDownTo(t, core, phaseDDropVersion)
+	reverted, err := dbmigrate.Down(ctx, conn, core, steps)
+	if err != nil {
 		t.Fatalf("rolling core back %d step(s) to the era these repairs belong to: %v", steps, err)
 	}
-	var present bool
-	if err := conn.QueryRow(context.Background(), `
-		SELECT EXISTS (SELECT 1 FROM information_schema.columns
-		                WHERE table_name = 'role' AND column_name = 'workspace_id')`).Scan(&present); err != nil {
-		t.Fatalf("checking whether the rollback restored role.workspace_id: %v", err)
+	// Down counts only APPLIED migrations toward its budget and skips the rest
+	// without spending one, while steps is derived from the embedded file list.
+	// Should the two ever disagree, Down lands further back than asked and every
+	// other check here still passes — reverted equals steps and the column is
+	// restored, because it was restored one migration too early.
+	if reverted != steps {
+		t.Fatalf("asked core back %d step(s) and it reverted %d: the ledger and the embedded "+
+			"migrations disagree, so the era below is not the one these repairs belong to", steps, reverted)
 	}
-	if !present {
-		t.Fatalf("rolling core back %d step(s) to %s did not restore role.workspace_id — the repairs "+
-			"below would replay in an era they never belonged to", steps, phaseDDropName)
+	assertPhaseDIsTheNextMigrationUp(t, conn, core)
+}
+
+// assertPhaseDIsTheNextMigrationUp proves the rollback stopped AT the drop rather
+// than merely far enough past it: the drop must no longer be applied, and the
+// migration immediately before it must still be.
+//
+// The restored column alone cannot say this. It is back at every depth older than
+// the drop, so a rollback that went too far reads identically to one that landed.
+func assertPhaseDIsTheNextMigrationUp(t *testing.T, conn *pgx.Conn, core dbmigrate.Namespace) {
+	t.Helper()
+	var newest string
+	if err := conn.QueryRow(context.Background(),
+		`SELECT coalesce(max(version), '') FROM schema_migrations_core`).Scan(&newest); err != nil {
+		t.Fatalf("reading the newest applied core migration: %v", err)
+	}
+	want := coreVersionBefore(t, core, phaseDDropVersion)
+	if newest != want {
+		t.Fatalf("core sits at %s after the rollback, want %s — the step immediately below %s; "+
+			"the repairs replay in the wrong era from here and the failure will name them, not this",
+			newest, want, phaseDDropVersion)
 	}
 }
 
-// coreStepsBackToPhaseD counts the core migrations from the newest down to and
-// including the phase D drop, which is how many Down must revert to put
-// role.workspace_id back. Down reverts newest first, so the count is the drop's
-// distance from the end.
-func coreStepsBackToPhaseD(t *testing.T, core dbmigrate.Namespace) int {
+// coreVersionBefore answers the version immediately preceding the given one.
+func coreVersionBefore(t *testing.T, core dbmigrate.Namespace, version string) string {
 	t.Helper()
-	for i := len(core.Migrations) - 1; i >= 0; i-- {
-		if core.Migrations[i].Name == phaseDDropName {
-			return len(core.Migrations) - i
+	for i, m := range core.Migrations {
+		if m.Version == version {
+			if i == 0 {
+				t.Fatalf("%s is the first core migration, so there is no era before it to roll back to", version)
+			}
+			return core.Migrations[i-1].Version
 		}
 	}
-	t.Fatalf("no core migration named %q — these repairs name role.workspace_id and need the era "+
-		"before it was dropped; if the drop was renamed, rename phaseDDropName with it", phaseDDropName)
-	return 0
+	t.Fatalf("core migration %s is not in the namespace", version)
+	return ""
 }
