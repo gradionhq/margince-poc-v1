@@ -437,6 +437,10 @@ type RunReportResult struct {
 	TotalRows     *int    `json:"total_rows,omitempty"`
 	DerivationURL *string `json:"derivation_url,omitempty"`
 	GeneratedAt   *string `json:"generated_at,omitempty"`
+	// ExcludedByPermission is present when a field mask withheld rows from
+	// this run — the count of visible rows excluded from every aggregate, so
+	// a smaller total reads as governed rather than as missing data.
+	ExcludedByPermission *int `json:"excluded_by_permission,omitempty"`
 }
 
 // marshalResult encodes a typed seam answer for the wire, carrying the seam's

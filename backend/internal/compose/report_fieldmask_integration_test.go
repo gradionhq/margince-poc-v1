@@ -122,3 +122,33 @@ func TestAnAlwaysMaskEmptiesTheAggregateAndSaysSo(t *testing.T) {
 		t.Errorf("excluded_by_permission = %v, want 2 — both visible rows withheld", result.ExcludedByPermission)
 	}
 }
+
+// Write authority is the object's update verb AND the row arm. A rep whose
+// role lost deal.update still OWNS rows; the mask must not lift on them —
+// otherwise revoking the verb would WIDEN what the rep reads out of a sum.
+func TestARevokedUpdateVerbKeepsTheMaskOnTheRepsOwnRows(t *testing.T) {
+	e := setupForecast(t)
+	own := int64(100_000)
+	e.seedOpenDeal(t, "Mine", 20, &e.Rep1, &own, nil)
+
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	rep := principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + e.Rep1.String(), UserID: e.Rep1,
+		TeamIDs: []ids.UUID{e.Team1},
+		Permissions: principal.Permissions{
+			Objects: map[string]principal.ObjectGrant{
+				"deal":                  {Read: true},
+				"installation_settings": {Read: true},
+			},
+			RowScope:   principal.RowScopeTeam,
+			FieldMasks: []principal.FieldMask{{Object: "deal", Field: "amount_minor", Condition: principal.MaskOutsideWriteAuthority}},
+		},
+	})
+	result := e.runReport(rep, t, "open-deals-per-company", sumAmountBody())
+	if len(result.Rows) != 0 {
+		t.Errorf("rows = %v, want none — without the update verb the rep holds write authority over no row", result.Rows)
+	}
+	if result.ExcludedByPermission == nil || *result.ExcludedByPermission != 1 {
+		t.Errorf("excluded_by_permission = %v, want 1", result.ExcludedByPermission)
+	}
+}

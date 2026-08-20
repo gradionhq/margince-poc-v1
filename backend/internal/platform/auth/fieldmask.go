@@ -82,6 +82,14 @@ func WritableSubset(ctx context.Context, tx pgx.Tx, table string, rowIDs []ids.U
 		}
 		return out, nil
 	}
+	// The row arm alone is not write authority: a caller whose role lost the
+	// object's update verb can still OWN a row, and a mask conditioned on
+	// write authority must not lift for them. EnsureWritable never sees this
+	// case because its handlers Require(update) first; this helper is asked
+	// bare, so it asks itself.
+	if !p.Permissions.Allows(table, principal.ActionUpdate) {
+		return out, nil
+	}
 	if len(rowIDs) == 0 {
 		return out, nil
 	}
@@ -132,6 +140,13 @@ func MaskExcludedClause(ctx context.Context, object, field, alias string, arg fu
 		if m.Condition != principal.MaskOutsideWriteAuthority {
 			// MaskAlways (and any future stricter condition this switch does
 			// not know) withholds the column on every row: fail closed.
+			return "FALSE", true, nil
+		}
+		// Write authority is the object's update verb AND the row arm — a
+		// caller whose role lost the verb owns no write authority anywhere,
+		// however many rows the row arm alone would name (the same pair
+		// WritableSubset asks).
+		if !p.Permissions.Allows(object, principal.ActionUpdate) {
 			return "FALSE", true, nil
 		}
 		if clause == "" {

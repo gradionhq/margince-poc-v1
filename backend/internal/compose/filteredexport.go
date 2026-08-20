@@ -223,8 +223,18 @@ func maskedRowSelects(ctx context.Context, tx pgx.Tx, table string, columns []st
 			conditioned[f] = true
 		}
 	}
+	// Only a conditioned mask naming a REAL column earns the writable-set
+	// bind: a stale mask row naming no column would otherwise register a
+	// parameter no CASE references, which Postgres refuses outright.
+	rendered := false
+	for _, col := range columns {
+		if conditioned[col] {
+			rendered = true
+			break
+		}
+	}
 	writablePos := 0
-	if len(conditioned) > 0 {
+	if rendered {
 		writable, err := auth.WritableSubset(ctx, tx, table, idList)
 		if err != nil {
 			return nil, nil, err
