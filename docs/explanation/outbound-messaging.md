@@ -76,7 +76,7 @@ refuse it would be Postgres — after the caller had already decided to write.
 ## The dispatcher and its gates
 
 One dispatch attempt is `Dispatcher.DispatchWithWait`, and the sequence is
-**authority → seat → consent → pacing → transmit**. Gates and policies are different mechanisms because
+**authority → attachment carriage → attachment integrity → seat → consent → pacing → transmit**. Gates and policies are different mechanisms because
 they state different facts: **a gate says never** (no amount of waiting repairs a revoked grant), so
 gates are inline, fixed and not configurable; **a policy says not yet**, so policies are an ordered
 chain the deployment assembles.
@@ -108,6 +108,28 @@ park every message it was ever handed, under a reason naming a connector limitat
 > literal it demands at the authority gate is bound to the connector's own constant by a fitness test
 > in the composition layer — drift there is silent, and a misspelled scope parks every send as
 > ungranted, which reads to an operator as a user who declined.
+
+### Attachment carriage — what the provider can actually carry
+
+`gateAttachmentCarriage` refuses a message whose transport cannot carry the files it was staged with,
+and it **parks** rather than stripping them. Stripping is the failure this gate exists to forbid, and
+it is silent: the sender sees a timeline entry with an attachment chip, because the timeline records
+what was **staged**; the recipient sees a message referring to a file that is not there; nobody is
+told, and the record of what was sent is then permanently wrong.
+
+A sending connector declares its capability through `connector.AttachmentCarrier`, and the answer is a
+**descriptor rather than a bool** — `Carries`, `MaxFiles`, `MaxBytesPerFile`, `MaxBodyWithFiles` —
+because channels have real per-provider limits. **There is no default:** a connector that does not
+implement the seam answers the zero `Carriage`, so an adapter written before attachments existed
+cannot be mistaken for capable. A zero *bound* means "no limit beyond the contract's own", never
+"zero allowed"; only `Carries` says nothing may go.
+
+`MaxBodyWithFiles` is the bound mail does not have. A channel that carries text-with-files as a
+**caption** bounds that text far below a text-only message, and such a message can be neither split
+into two provider calls — that reintroduces the partial send — nor truncated, so it parks. The whole
+descriptor is published per transport on `GET /v1/channel-providers` as `attachments`, because the
+gate's argument only holds if the composer can warn **before** a human presses send: a mismatch
+discovered at transmission is correct but late.
 
 ### The seat — this installation's answer about the human
 
@@ -352,6 +374,7 @@ Comms depends on interfaces and never on a provider:
 |---|---|
 | `connector.EmailSender` | `SendEmail(auth, EmailMessage)` — the mail transmission, with the prior-send lookup that makes a retry safe. |
 | `connector.MessageSender` | `SendMessage(auth, ChannelMessage)` — the optional channel seam; a capture-only connector simply does not implement it, and the resolver reports `ErrCannotSend` rather than treating it as absent. |
+| `connector.AttachmentCarrier` | `Carriage()` — what this provider can carry. Read through `connector.CarriageOf`, which answers the zero descriptor for a connector that never declared any: no default, so nothing is mistaken for capable. |
 | `ConnectionResolver.Resolve` | Resolves **one human's** mailbox: the send seam, its unsealed credential, and the scopes the provider says the grant holds. |
 | `ConnectionResolver.ResolveChannel` | Resolves the **workspace's** channel binding: seam + credential, no user id (a bot is bound once for the whole workspace) and no scope list (there is nothing to intersect). |
 | `MessageIdentityReconciler` | Re-keys the timeline row when the provider stamped a different identity. A required constructor parameter, because a role that transmits without one files every sent message under an identity that exists nowhere on the wire. |
