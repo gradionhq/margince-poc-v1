@@ -89,7 +89,7 @@ func listTx(ctx context.Context, tx pgx.Tx, in ListInput) (crmcontracts.Commissi
 // listPredicates renders the WHERE arms a ledger enumeration carries: the
 // caller's inherited scope first, then whatever they narrowed by.
 func listPredicates(ctx context.Context, in ListInput, arg func(any) int) ([]string, error) {
-	where := []string{"TRUE"}
+	where := []string{unboundedScope}
 	scope, err := VisibleClause(ctx, "", arg)
 	if err != nil {
 		return nil, err
@@ -144,7 +144,7 @@ func summaryTx(ctx context.Context, tx pgx.Tx) (crmcontracts.CommissionSummaryRe
 	if err != nil {
 		return crmcontracts.CommissionSummaryResponse{}, err
 	}
-	where := "TRUE"
+	where := unboundedScope
 	if scope != "" {
 		where = scope
 	}

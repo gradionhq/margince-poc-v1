@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -68,10 +69,11 @@ func TestNamingAPartnerStoresTheSourcedClaimWithIt(t *testing.T) {
 func TestADealCanBeReAttributedToInfluencedWithoutMovingThePartner(t *testing.T) {
 	e := Setup(t)
 	deal, partner := seedDealWithPartner(t, e)
-	influenced := "influenced"
+	influenced := crmcontracts.DealPartnerAttribution("influenced")
 
+	claim := string(influenced)
 	if _, err := e.Deals.UpdateDeal(e.Admin(), deal, deals.UpdateDealInput{
-		PartnerAttribution: &influenced,
+		PartnerAttribution: &claim,
 	}); err != nil {
 		t.Fatalf("re-attributing the deal: %v", err)
 	}

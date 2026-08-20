@@ -29,6 +29,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// unboundedScope is the predicate an unbounded caller contributes: they narrow
+// nothing, and the arm still has to say something.
+const unboundedScope = "TRUE"
+
 // VisibleClause renders the SQL predicate admitting the commission entries this
 // caller may see, for a row under the given alias. It returns the empty string
 // for an unbounded caller, exactly as the shared row-scope helpers do.
@@ -58,7 +62,7 @@ func VisibleClause(ctx context.Context, alias string, arg func(any) int) (string
 	// anchor rule is about what the row means, not about who is asking.
 	scope := dealScope
 	if scope == "" {
-		scope = "TRUE"
+		scope = unboundedScope
 	}
 	return storekit.SQLf(`EXISTS (
 		SELECT 1 FROM deal d WHERE d.id = %[1]sdeal_id AND d.archived_at IS NULL AND %[2]s)`,

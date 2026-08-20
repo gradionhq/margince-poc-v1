@@ -102,11 +102,11 @@ COMMENT ON TABLE commission_entry IS
 UPDATE role SET permissions = jsonb_set(
   permissions, '{objects,commission}',
   '{"create":true,"read":true,"update":true,"delete":true}'::jsonb)
-WHERE is_system AND key IN ('admin','ops','manager','management')
-  AND NOT permissions->'objects' ? 'commission';
+WHERE (is_system AND key IN ('admin','ops','manager','management')
+  AND NOT permissions->'objects' ? 'commission');
 
 UPDATE role SET permissions = jsonb_set(
   permissions, '{objects,commission}',
   '{"create":false,"read":true,"update":false,"delete":false}'::jsonb)
-WHERE is_system AND key IN ('rep','read_only')
-  AND NOT permissions->'objects' ? 'commission';
+WHERE (is_system AND key IN ('rep','read_only')
+  AND NOT permissions->'objects' ? 'commission');

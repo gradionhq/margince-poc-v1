@@ -137,22 +137,6 @@ func TestAttributionWithoutAPartnerIsRefused(t *testing.T) {
 	}
 }
 
-func TestReAttributingADealThatAlreadyNamesAPartnerMovesOnlyTheClaim(t *testing.T) {
-	p := storekit.NewPatch()
-	influenced := attributionInfluenced
-	in := UpdateDealInput{PartnerAttribution: &influenced}
-
-	if err := applyPartnerAttributionPatch(t.Context(), nil, dealNamingPartner(attributionSourced), in, p); err != nil {
-		t.Fatalf("re-attributing a deal that names a partner: %v", err)
-	}
-	if got := p.After()[partnerAttributionField]; got != attributionInfluenced {
-		t.Errorf("attribution = %v, want %q", got, attributionInfluenced)
-	}
-	if _, moved := p.After()["partner_org_id"]; moved {
-		t.Error("the partner link moved; only the attribution was being changed")
-	}
-}
-
 func TestAnUnknownAttributionIsRefusedBeforeTheDatabaseSeesIt(t *testing.T) {
 	p := storekit.NewPatch()
 	bogus := "co_sold"
