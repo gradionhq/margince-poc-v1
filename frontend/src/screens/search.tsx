@@ -10,11 +10,10 @@ import { navigate } from "../app/router";
 import { Badge, Card, EmptyState, SearchField } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { QueryGate, type QueryLike, throwProblem } from "./common";
+import { QueryGate, throwProblem } from "./common";
 import "./search.css";
 
 type SearchResult = components["schemas"]["SearchResult"];
-type SearchResponse = components["schemas"]["SearchResponse"];
 
 // RS-1/RS-2: the cross-object search results screen. Hits are grouped by
 // record type (fixed display order below) so a caller scanning "acme" sees
@@ -83,7 +82,7 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
       {q.trim() === "" ? (
         <EmptyState>{t("search.prompt")}</EmptyState>
       ) : (
-        <QueryGate query={query as QueryLike<SearchResponse>}>
+        <QueryGate query={query}>
           {(data) =>
             data.data.length === 0 ? (
               <EmptyState>{t("search.empty", { q })}</EmptyState>

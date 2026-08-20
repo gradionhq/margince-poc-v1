@@ -71,6 +71,12 @@
 .fdz:has(:disabled) {
   color: var(--textTertiary);
   background: var(--bgCard);
+}
+/* The cursor has to go on the INPUT, not the zone. The input is absolutely
+   positioned over the whole zone and sets `cursor: pointer` on itself, so it is
+   what the pointer is actually over — a `not-allowed` on the parent is covered
+   by a child that still says "click me". */
+.fdz-input:disabled {
   cursor: not-allowed;
 }
 .fdz:has(:disabled):hover {

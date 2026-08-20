@@ -1354,3 +1354,29 @@
     background-color var(--dur-state) var(--ease-out),
     color var(--dur-state) var(--ease-out);
 }
+
+/* A sticky confirmation's way out. Small and quiet: the message beside it is the
+   point, and this is only the reader's answer to having read it. It sits on the
+   rail's dark ground like the rest of the toast, so it takes the on-accent text
+   colour rather than the page's. */
+.toast-dismiss {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-1);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--textOnAccent);
+  opacity: 0.7;
+  cursor: pointer;
+  transition: opacity var(--dur-state) var(--ease-out);
+}
+.toast-dismiss:hover {
+  opacity: 1;
+}
+.toast-dismiss:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+  opacity: 1;
+}

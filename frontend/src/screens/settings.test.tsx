@@ -16,13 +16,13 @@ import { type GrantSpec, meFixture } from "../app/mefixture";
 import { SettingsRail } from "../app/shell";
 import { pickOption } from "../design-system/select-testing";
 import { LOCALES, LocaleProvider, localeNameKey, translate } from "../i18n";
-import type { MessageKey } from "../i18n/en";
 import { companyContextCapabilitiesQueryKey } from "./company-context";
 import {
   AuditLogCard,
   PipelinesCard,
   SETTINGS_TABS,
   SettingsScreen,
+  type SettingsTabId,
 } from "./settings";
 
 // The Organization tab group is composed from its MEMBERS, and OPENING AN ENTRY
@@ -863,8 +863,7 @@ function navGroupTabs(heading: HTMLElement): string[] {
 // is the PERSON's: gating `agents` would regress passport minting for every seat
 // that is not an admin, and a mailbox and a LinkedIn network nobody else can see
 // are not the installation's configuration.
-const labelOf = (id: string) =>
-  translate("en", `settings.tab.${id}` as MessageKey);
+const labelOf = (id: SettingsTabId) => translate("en", `settings.tab.${id}`);
 const tabsIn = (group: "you" | "org") =>
   SETTINGS_TABS.filter((entry) => entry.group === group).map((entry) =>
     labelOf(entry.id),

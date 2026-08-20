@@ -653,8 +653,13 @@ describe("pending states", () => {
     const declared = files
       .filter((file) => file.endsWith(".tsx"))
       .filter((file) => !/\.(test|stories)\.tsx$/.test(file))
+      // Both static spellings. Matching only the quoted one let
+      // `aria-busy={true}` — the same unconditional claim, written the other
+      // way — declare a second pending region and pass.
       .filter((file) =>
-        /aria-busy=["']true["']/.test(readFileSync(file, "utf8")),
+        /aria-busy=(?:["']true["']|\{\s*true\s*\})/.test(
+          readFileSync(file, "utf8"),
+        ),
       )
       .map((file) => relative(frontendRoot, file));
 

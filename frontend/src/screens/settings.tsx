@@ -223,7 +223,12 @@ export const SETTINGS_TABS = [
   group: "you" | "org";
 }[];
 
-type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
+// Exported alongside the register: a caller that needs the label for an entry
+// builds the key from this, and `settings.tab.${SettingsTabId}` is then a
+// literal union TypeScript can check against MessageKey — no assertion, so a
+// typo is a compile error rather than a lookup that silently falls back to the
+// raw key and lets a test validate a label that does not exist.
+export type SettingsTabId = (typeof SETTINGS_TABS)[number]["id"];
 
 function tabContent(id: SettingsTabId): ReactNode {
   switch (id) {

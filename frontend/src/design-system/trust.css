@@ -291,7 +291,12 @@ button.evidence-chip:hover {
   border-radius: var(--r-sm);
 }
 .staged-edit:focus-visible {
-  outline: none;
+  /* The forced-colors ring rather than `outline: none`, which is what this
+     token exists for: forced-colors mode discards every box-shadow, so
+     suppressing the outline outright would leave this input — the one a reader
+     types a corrected value into before approving it — with no focus indicator
+     at all for the readers who most need one. */
+  outline: var(--focus-ring-forced);
   border-color: var(--accent);
   box-shadow: var(--focus-glow);
 }

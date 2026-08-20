@@ -97,6 +97,24 @@ describe("useToast", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 
+  it("gives a sticky confirmation its own way out, and a timed one none", () => {
+    // Sticky means no timer, so a message whose body happens to be plain text
+    // would otherwise stay on screen until its parent unmounted. The one sticky
+    // caller today puts a verb in the body, but that is a property of that
+    // caller's message rather than of this contract.
+    const sticky = render(<Harness options={{ sticky: true }} />);
+    press("show");
+    expect(sticky.container.querySelector(".toast-dismiss")).not.toBeNull();
+    cleanup();
+
+    // A confirmation that withdraws itself needs no control: it is gone in three
+    // and a half seconds, and a button beside it invites a decision about
+    // something already decided.
+    const timed = render(<Harness />);
+    press("show");
+    expect(timed.container.querySelector(".toast-dismiss")).toBeNull();
+  });
+
   it("marks a completion and leaves a refusal unmarked", () => {
     const done = render(<Harness />);
     press("show");

@@ -1,3 +1,4 @@
+import { X } from "lucide-react";
 import {
   type ReactNode,
   useCallback,
@@ -5,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useT } from "../i18n";
 
 /**
  * The transient confirmation — "that worked" — and the one place it is spelled.
@@ -32,7 +34,12 @@ const TOAST_MS = 3500;
  * both. A failure with a green dot beside it is worse than a failure with no
  * glyph — it says the opposite of what the sentence says.
  */
-type ToastMessage = Readonly<{ node: ReactNode; mark: boolean }>;
+type ToastMessage = Readonly<{
+  node: ReactNode;
+  mark: boolean;
+  /** Whether it withdraws itself, which decides whether it needs a way out. */
+  sticky: boolean;
+}>;
 
 export type ToastOptions = Readonly<{
   /**
@@ -72,7 +79,11 @@ export function useToast(): Toast {
   const show = useCallback(
     (message: ReactNode, options?: ToastOptions) => {
       clear();
-      setShown({ node: message, mark: options?.mark ?? true });
+      setShown({
+        node: message,
+        mark: options?.mark ?? true,
+        sticky: options?.sticky ?? false,
+      });
       if (!options?.sticky) {
         timer.current = setTimeout(() => setShown(null), TOAST_MS);
       }
@@ -100,8 +111,16 @@ export function useToast(): Toast {
  *
  * `<output>` is the element: it is a live region by default, so the confirmation
  * is announced without anything having to declare `role="status"` beside it.
+ *
+ * A STICKY message carries a dismiss control, and it has to: sticky means no
+ * timer, so without one a message whose body happens to be plain text stays on
+ * screen until its parent unmounts. The one sticky caller today puts a verb in
+ * the body that dismisses it, but that is a property of that caller's message
+ * rather than of the contract — and the reader who does not want the verb still
+ * needs a way to put the message down.
  */
 export function ToastRegion({ toast }: Readonly<{ toast: Toast }>) {
+  const t = useT();
   const shown = toast.shown;
   if (shown === null) {
     return null;
@@ -113,6 +132,16 @@ export function ToastRegion({ toast }: Readonly<{ toast: Toast }>) {
       <output className="toast arrive">
         {shown.mark && <span className="dot dot-auto" />}
         {shown.node}
+        {shown.sticky && (
+          <button
+            type="button"
+            className="toast-dismiss"
+            aria-label={t("common.close")}
+            onClick={toast.dismiss}
+          >
+            <X size={14} aria-hidden />
+          </button>
+        )}
       </output>
     </div>
   );
