@@ -1556,9 +1556,10 @@ export const de = {
   "deals.bulkStagePick": "Phase wählen",
   "deals.bulkMove": "Verschieben",
   "deals.bulkArchive": "Archivieren",
-  "deals.bulkArchiveConfirmTitle": "{count} Deals archivieren?",
+  "deals.bulkArchiveConfirmTitle.one": "Diesen Deal archivieren?",
+  "deals.bulkArchiveConfirmTitle.other": "{count} Deals archivieren?",
   "deals.bulkArchiveConfirmBody":
-    "Sie verschwinden aus allen Listen und Auswertungen. Wiederherstellen geht nur einzeln, direkt am Deal.",
+    "Sie verschwinden aus allen Listen und Auswertungen, und zurückholen lässt sich hier noch keiner.",
   "deals.bulkFailed": "{count} nicht übernommen –",
   "deals.bulkFailedRow": "konnte nicht gespeichert werden",
 

@@ -1547,9 +1547,10 @@ export const vi = {
   "deals.bulkStagePick": "Chọn giai đoạn",
   "deals.bulkMove": "Chuyển",
   "deals.bulkArchive": "Lưu trữ",
-  "deals.bulkArchiveConfirmTitle": "Lưu trữ {count} deal?",
+  "deals.bulkArchiveConfirmTitle.one": "Lưu trữ deal này?",
+  "deals.bulkArchiveConfirmTitle.other": "Lưu trữ {count} deal?",
   "deals.bulkArchiveConfirmBody":
-    "Chúng sẽ biến mất khỏi mọi danh sách và báo cáo. Khôi phục phải làm từng deal một.",
+    "Chúng sẽ biến mất khỏi mọi danh sách và báo cáo, và hiện chưa có cách khôi phục từ đây.",
   "deals.bulkFailed": "{count} không áp dụng được —",
   "deals.bulkFailedRow": "không lưu được",
 
