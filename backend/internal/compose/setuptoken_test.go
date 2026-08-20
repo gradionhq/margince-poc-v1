@@ -97,12 +97,14 @@ func TestWriteSetupTokenFileWritesTheTokenWhenThePathIsFree(t *testing.T) {
 func TestWriteSetupTokenFileRefusesASymlinkAtTheFinalComponent(t *testing.T) {
 	// Windows, and only Windows, is skipped — for the fixture, not the property.
 	// Creating a symlink there needs SeCreateSymbolicLinkPrivilege or Developer
-	// Mode, so the plant cannot be built on an ordinary runner. It is also the
-	// one platform where the dangling case genuinely behaves differently, which
-	// setuptokenflags_windows.go names and issue #1579 tracks. Every lane that
+	// Mode, so the plant cannot be built on an ordinary runner. Every lane that
 	// runs this suite runs on Linux, so this never skips in CI.
+	//
+	// The skip names what goes untested rather than an issue number, because a
+	// number tells a reader where to ask and not what is missing — and a skipped
+	// security test looks exactly like a passing one.
 	if runtime.GOOS == "windows" {
-		t.Skip("cannot plant a symlink without SeCreateSymbolicLinkPrivilege; the Windows gap is issue #1579")
+		t.Skip("cannot plant a symlink without SeCreateSymbolicLinkPrivilege: what goes unexercised here is the refusal of a symlinked FINAL component, including the dangling case that setuptokenflags_windows.go documents as behaving differently on NT")
 	}
 
 	for _, tc := range []struct {
@@ -151,5 +153,78 @@ func TestWriteSetupTokenFileRefusesASymlinkAtTheFinalComponent(t *testing.T) {
 				t.Fatalf("the link target was written through: got %q, want %q", after, decoy)
 			}
 		})
+	}
+}
+
+// The parent case, which O_EXCL and O_NOFOLLOW both miss: they act on the FINAL
+// component, so a symlink standing in for config/ redirects the whole write and
+// MkdirAll walks straight through it reporting success.
+//
+// This is the attack #1579 verified empirically — the credential lands inside a
+// directory the attacker owns, and the write reports no error at all, so nothing
+// downstream can tell.
+func TestWriteSetupTokenFileRefusesASymlinkedParentDirectory(t *testing.T) {
+	// Skipped on Windows for the FIXTURE, not the property: planting a symlink
+	// needs SeCreateSymbolicLinkPrivilege or Developer Mode. What goes untested
+	// there is the parent-directory refusal itself — ownTokenDirectory's Lstat is
+	// platform-independent, but no lane in this repository executes it on Windows.
+	if runtime.GOOS == "windows" {
+		t.Skip("cannot plant a symlink without SeCreateSymbolicLinkPrivilege; the parent-directory refusal is therefore unexercised on Windows")
+	}
+
+	work := t.TempDir()
+	// Outside the installation, because relocating the credential out of the tree
+	// is the point.
+	attacker := filepath.Join(t.TempDir(), "attacker-owned")
+	if err := os.Mkdir(attacker, 0o700); err != nil {
+		t.Fatalf("prepare the attacker directory: %v", err)
+	}
+	// Get there first: config/ is a link before the server ever boots.
+	if err := os.Symlink(attacker, filepath.Join(work, filepath.Dir(setupTokenFile))); err != nil {
+		t.Fatalf("plant the parent symlink: %v", err)
+	}
+	t.Chdir(work)
+
+	if _, err := writeSetupTokenFile("the-real-token"); err == nil {
+		t.Fatal("the writer followed a symlinked parent directory, so the credential that claims " +
+			"this installation was created inside a directory somebody else owns — and the write reported success")
+	}
+
+	// Total refusal: the redirect must leave nothing behind at the target either.
+	if _, err := os.Lstat(filepath.Join(attacker, filepath.Base(setupTokenFile))); !os.IsNotExist(err) {
+		t.Fatalf("the token was written into the attacker's directory despite the refusal (Lstat: %v)", err)
+	}
+}
+
+// A config/ that legitimately pre-exists is the normal case, not the attack:
+// every real checkout has one holding margince.yaml and the admin password, and
+// a guard that refused it would break every developer and every operator.
+func TestWriteSetupTokenFileAcceptsAnOrdinaryPreExistingConfigDirectory(t *testing.T) {
+	work := t.TempDir()
+	dir := filepath.Join(work, filepath.Dir(setupTokenFile))
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("prepare the config directory: %v", err)
+	}
+	// The neighbours a real config/ carries, so this is the directory an
+	// installation actually has rather than an empty one.
+	if err := os.WriteFile(filepath.Join(dir, "margince.yaml"), []byte("version: 1\n"), 0o600); err != nil {
+		t.Fatalf("prepare margince.yaml: %v", err)
+	}
+	t.Chdir(work)
+
+	path, err := writeSetupTokenFile("the-real-token")
+	if err != nil {
+		t.Fatalf("a pre-existing config directory was refused: %v — every real installation has one", err)
+	}
+	body, err := os.ReadFile(path) // #nosec G304 -- a path this test just built under t.TempDir()
+	if err != nil {
+		t.Fatalf("read back the token: %v", err)
+	}
+	if string(body) != "the-real-token" {
+		t.Errorf("token file holds %q, want the token", body)
+	}
+	// The neighbour is untouched: owning the directory must not mean rewriting it.
+	if _, err := os.Stat(filepath.Join(dir, "margince.yaml")); err != nil {
+		t.Errorf("the pre-existing margince.yaml did not survive: %v", err)
 	}
 }

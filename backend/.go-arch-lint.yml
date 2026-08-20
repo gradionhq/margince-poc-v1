@@ -25,6 +25,10 @@ vendors:
   chi:    { in: github.com/go-chi/** }
   oapi:   { in: github.com/oapi-codegen/** }
   redis:  { in: github.com/redis/** }
+  # ownedfile's Windows half: the Win32 access-control calls that make a 0600
+  # mean something on a platform where the mode argument is advisory. POSIX
+  # needs nothing here, so the import exists only in the _windows.go file.
+  xsyswindows: { in: golang.org/x/sys/windows }
   xcrypto: { in: golang.org/x/crypto/** }
   xterm:   { in: golang.org/x/term }
   yaml:   { in: gopkg.in/** }
@@ -115,7 +119,8 @@ deps:
     # xnet: webread's crawl mechanics (html tokenizer + publicsuffix).
     # wazero + brotli: licensecheck's runtime for the bundled validation
     # module, and the compression it is published in.
-    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet, ximage, oksvg, wazero, brotli]
+    # xsyswindows: ownedfile's DACL, the Windows half of an owner-only file.
+    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet, ximage, oksvg, wazero, brotli, xsyswindows]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:

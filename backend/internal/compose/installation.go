@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/config"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
+	"github.com/gradionhq/margince/backend/internal/platform/ownedfile"
 	"github.com/gradionhq/margince/backend/internal/platform/settings"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -157,30 +158,75 @@ func announceSetupToken(ctx context.Context, svc *identity.Service, log *slog.Lo
 // the log.
 //
 // O_EXCL is the flag that does that, everywhere: it refuses ANY existing final
-// component, a symlink included. openNoFollow is reinforcement whose value is
-// per-platform and is documented where it is declared.
+// component, a symlink included. ownedfile.OpenNoFollow is reinforcement whose
+// value is per-platform and is documented where it is declared.
 //
-// The guard covers the final component and NOT the parent, on any platform: a
-// symlinked config/ redirects this write and MkdirAll follows it. Issue #1579
-// holds that, the Windows DACL the 0600 does not set, and the sibling writers
-// with the same shape.
+// The guard covers the final component AND the directory it lands in, and
+// neither covers a component above that: a symlink standing in for the working
+// directory itself still redirects the whole path. What is defended is the one
+// step an attacker who can write the working tree before first boot actually
+// takes.
 func writeSetupTokenFile(raw string) (path string, err error) {
 	abs, err := filepath.Abs(setupTokenFile)
 	if err != nil {
 		return setupTokenFile, err
 	}
-	if err := os.MkdirAll(filepath.Dir(abs), 0o700); err != nil {
+	if err := ownTokenDirectory(filepath.Dir(abs)); err != nil {
 		return abs, err
 	}
 	// #nosec G304 -- abs derives from the compile-time constant above via filepath.Abs; no request or configuration value reaches this path
-	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|openNoFollow, 0o600)
+	f, err := os.OpenFile(abs, os.O_WRONLY|os.O_CREATE|os.O_EXCL|ownedfile.OpenNoFollow, 0o600)
 	if err != nil {
 		return abs, err
+	}
+	// The mode argument is advisory on Windows, where the ACL decides. A 0600
+	// that is not enforced is worse than no file at all, so a directory whose
+	// permissions cannot be established refuses the write rather than producing
+	// a readable credential — announceSetupToken then hands the operator the
+	// token through the log, which is exactly the fallback that arm exists for.
+	if err := ownedfile.RestrictToOwner(f); err != nil {
+		return abs, errors.Join(err, f.Close(), os.Remove(abs))
 	}
 	if _, err := f.WriteString(raw); err != nil {
 		return abs, errors.Join(err, f.Close())
 	}
 	return abs, f.Close()
+}
+
+// ownTokenDirectory makes the credential's parent directory one this process
+// created, or one it has checked is a real directory rather than a redirect.
+//
+// MkdirAll cannot do this: it follows a symlink standing in for config/ and
+// reports success, so the credential is written inside whatever that link names
+// — a directory an attacker who got there before first boot owns and can read.
+// O_EXCL and O_NOFOLLOW both act on the FINAL component only, so neither sees it.
+//
+// What this does NOT cover, stated rather than implied: a symlink at any
+// component ABOVE the parent (the working directory itself), and a swap of the
+// parent between this check and the open below. Closing those needs an openat
+// walk from a directory handle, which Windows has no portable equivalent for;
+// the case defended here is the one #1579 verified empirically.
+func ownTokenDirectory(dir string) error {
+	// #nosec G703 -- dir is filepath.Dir of filepath.Abs(setupTokenFile), a compile-time constant; no request or configuration value reaches this path
+	info, err := os.Lstat(dir)
+	switch {
+	case os.IsNotExist(err):
+		// Mkdir, not MkdirAll: the parent of config/ is the working directory,
+		// which the process is already running in. Creating a chain would mean
+		// creating directories nobody asked for on a path nobody verified.
+		// #nosec G703 -- same constant-derived path as the Lstat above
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			return fmt.Errorf("compose: creating the setup-token directory %s: %w", dir, err)
+		}
+		return nil
+	case err != nil:
+		return fmt.Errorf("compose: checking the setup-token directory %s: %w", dir, err)
+	case info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("compose: refusing to write the setup token: %s is a symbolic link, so the credential would be created wherever it points rather than beside the installation's other local secrets", dir)
+	case !info.IsDir():
+		return fmt.Errorf("compose: refusing to write the setup token: %s exists and is not a directory", dir)
+	}
+	return nil
 }
 
 // configuredSeed lays down every module's per-workspace defaults inside
