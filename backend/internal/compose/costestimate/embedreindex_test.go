@@ -5,10 +5,13 @@ package costestimate
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // ---- fakes for the embed-reindex estimate's four ports (no DB; mirrors the
@@ -62,7 +65,7 @@ func testWorkspaceID(b byte) ids.WorkspaceID {
 // zero across this file's scenarios (each one prices from a clean
 // calendar-month baseline), so it is fixed here rather than threaded as
 // a parameter every call site would pass the same value for.
-func newEmbedEstimator(pending fakePending, rates fakeRates, model fakeEmbedModel, budget fakeMonthlyBudget) *EmbedReindexEstimator {
+func newEmbedEstimator(pending fakePending, rates RateResolver, model fakeEmbedModel, budget fakeMonthlyBudget) *EmbedReindexEstimator {
 	return NewEmbedReindexEstimator(pending, rates, model, budget, fakeSpent(0), fixedClock{})
 }
 
@@ -168,14 +171,44 @@ func TestEstimateEmbedReindexUnboundEmbedLaneIsNilCost(t *testing.T) {
 	}
 }
 
-// Case D — two workspaces, only one priced: the fleet total folds BOTH
-// workspaces' entities/tokens, but its cost reflects only the priced share
-// (never a fabricated cost for the unpriced workspace).
-func TestEstimateEmbedReindexFoldsMultipleWorkspacesIntoTotal(t *testing.T) {
+// fakeRatesPerWorkspace prices per workspace, which fakeRates cannot: the
+// estimator resolves a rate inside each workspace's own context, and
+// ai_model_rate is workspace-scoped under RLS. A workspace absent from the map
+// resolves no rate at all, which is the reachable form of two sheets
+// disagreeing about one corpus.
+type fakeRatesPerWorkspace map[ids.WorkspaceID]fakeRates
+
+var errNoWorkspaceInRateContext = errors.New("costestimate test: rate resolved outside a workspace context")
+
+func (f fakeRatesPerWorkspace) RateFor(ctx context.Context, provider, model string, at time.Time) (*ai.ModelRate, error) {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		// The estimator always resolves a rate inside a workspace context, so
+		// an unbound one is a wiring fault in the test rather than a workspace
+		// that happens to price nothing.
+		return nil, errNoWorkspaceInRateContext
+	}
+	return f[ids.From[ids.WorkspaceKind](ws)].RateFor(ctx, provider, model, at)
+}
+
+// Case D — two workspaces over ONE corpus: the total is what the installation
+// will actually rebuild and pay, not the rows added up.
+//
+// The fixture gives both workspaces the same figures because that is what the
+// production reads now return: since ADR-0091 §8 phase D no embeddable entity
+// carries a tenant, so `PendingByWorkspace` holds the same rows under every
+// workspace it enumerates. Summing them said an installation with two
+// workspaces had twice the work at twice the cost, and this figure is what an
+// operator reads before confirming the spend.
+//
+// The assertion is deliberately the arithmetic that must NOT hold — a test
+// pinning only the value would pass against the summing version on any
+// single-workspace fixture, which is exactly how that version survived.
+func TestEstimateEmbedReindexTotalsOneCorpusNotTheSumOfTheRows(t *testing.T) {
 	wsA, wsB := testWorkspaceID(4), testWorkspaceID(5)
 	pending := fakePending{
-		counts: map[ids.WorkspaceID]int{wsA: 4, wsB: 6},
-		tokens: map[ids.WorkspaceID]int64{wsA: 400_000, wsB: 600_000},
+		counts: map[ids.WorkspaceID]int{wsA: 6, wsB: 6},
+		tokens: map[ids.WorkspaceID]int64{wsA: 600_000, wsB: 600_000},
 	}
 	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
 	rates := fakeRates{rateKey("gemini", "embed"): pricedRate}
@@ -188,16 +221,109 @@ func TestEstimateEmbedReindexFoldsMultipleWorkspacesIntoTotal(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("len(rows) = %d, want 2", len(rows))
 	}
-	if total.Entities != 10 {
-		t.Fatalf("total.Entities = %d, want 10 (4+6 folded)", total.Entities)
+	if total.Entities != 6 {
+		t.Fatalf("total.Entities = %d, want 6 — the corpus once, not once per workspace", total.Entities)
 	}
-	if total.Tokens != 1_000_000 {
-		t.Fatalf("total.Tokens = %d, want 1000000 (400000+600000 folded)", total.Tokens)
+	if total.Tokens != 600_000 {
+		t.Fatalf("total.Tokens = %d, want 600000 — the corpus once", total.Tokens)
 	}
-	wantAMinor := ai.PriceCall(ai.Usage{TokensIn: 400_000}, *pricedRate) / microsPerMinor
-	wantBMinor := ai.PriceCall(ai.Usage{TokensIn: 600_000}, *pricedRate) / microsPerMinor
-	if total.CostMinor == nil || *total.CostMinor != wantAMinor+wantBMinor {
-		t.Fatalf("total.CostMinor = %v, want %d", total.CostMinor, wantAMinor+wantBMinor)
+	if total.Entities == rows[0].Entities+rows[1].Entities {
+		t.Fatalf("total.Entities = %d is the sum of the rows, and the rows are the same corpus", total.Entities)
+	}
+	wantMinor := ai.PriceCall(ai.Usage{TokensIn: 600_000}, *pricedRate) / microsPerMinor
+	if total.CostMinor == nil || *total.CostMinor != wantMinor {
+		t.Fatalf("total.CostMinor = %v, want %d (both sheets price the one corpus the same)", total.CostMinor, wantMinor)
+	}
+}
+
+// The cost is the one figure two workspaces can legitimately disagree on:
+// ai_model_rate is workspace-scoped under RLS, so each prices the shared corpus
+// against its own sheet. With no single price to state, none is stated — the
+// same never-fabricate honesty the per-row field keeps for an unresolvable rate.
+func TestEstimateEmbedReindexWithholdsACostTwoRateSheetsDisagreeOn(t *testing.T) {
+	wsA, wsB := testWorkspaceID(7), testWorkspaceID(8)
+	pending := fakePending{
+		counts: map[ids.WorkspaceID]int{wsA: 6, wsB: 6},
+		tokens: map[ids.WorkspaceID]int64{wsA: 600_000, wsB: 600_000},
+	}
+	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
+	// wsB resolves no rate at all, which is the reachable form of disagreement:
+	// one sheet prices the corpus and the other cannot.
+	rates := fakeRatesPerWorkspace{wsA: fakeRates{rateKey("gemini", "embed"): pricedRate}}
+	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(1_000_000))
+
+	_, total, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
+	if err != nil {
+		t.Fatalf("EstimateEmbedReindex: %v", err)
+	}
+	if total.Entities != 6 {
+		t.Fatalf("total.Entities = %d, want 6 — the corpus is the corpus whatever it costs", total.Entities)
+	}
+	if total.CostMinor != nil {
+		t.Fatalf("total.CostMinor = %d, want none: one workspace prices this corpus and the other cannot, "+
+			"so there is no installation price to state", *total.CostMinor)
+	}
+}
+
+// Two sheets that BOTH price the shared corpus, at different rates. This is the
+// case the "no single installation price" rule was written for — the sibling
+// above only covers one sheet pricing and one unable to, which a rule that
+// merely propagated the first non-nil cost would also pass.
+func TestEstimateEmbedReindexWithholdsACostTwoSheetsPriceDifferently(t *testing.T) {
+	wsA, wsB := testWorkspaceID(9), testWorkspaceID(10)
+	pending := fakePending{
+		counts: map[ids.WorkspaceID]int{wsA: 6, wsB: 6},
+		tokens: map[ids.WorkspaceID]int64{wsA: 600_000, wsB: 600_000},
+	}
+	dearerRate := &ai.ModelRate{InputPerMTokMicroUSD: 9_000_000, OutputPerMTokMicroUSD: 9_000_000}
+	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
+	rates := fakeRatesPerWorkspace{
+		wsA: fakeRates{rateKey("gemini", "embed"): pricedRate},
+		wsB: fakeRates{rateKey("gemini", "embed"): dearerRate},
+	}
+	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(100_000_000))
+
+	rows, total, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
+	if err != nil {
+		t.Fatalf("EstimateEmbedReindex: %v", err)
+	}
+	// The premise: the rows really do disagree, so the assertion below is about
+	// the rule and not about two rows that happened to match.
+	if rows[0].CostMinor == nil || rows[1].CostMinor == nil || *rows[0].CostMinor == *rows[1].CostMinor {
+		t.Fatalf("the fixture's two sheets priced the corpus the same (%v, %v); this case needs them to differ",
+			rows[0].CostMinor, rows[1].CostMinor)
+	}
+	if total.CostMinor != nil {
+		t.Errorf("total.CostMinor = %d, want none: two sheets price this one corpus differently, "+
+			"so there is no installation price — reporting either sheet's figure states one tenant's "+
+			"rate as the installation's", *total.CostMinor)
+	}
+	if total.Entities != 6 {
+		t.Errorf("total.Entities = %d, want 6 — the corpus is the corpus whatever it costs", total.Entities)
+	}
+}
+
+// A workspace with nothing pending and no rate does not withhold the price: it
+// has no share of this corpus to disagree about, so the priced rows still speak
+// for the installation.
+func TestEstimateEmbedReindexIgnoresAnEmptyWorkspaceWithoutARate(t *testing.T) {
+	wsA, wsB := testWorkspaceID(11), testWorkspaceID(12)
+	pending := fakePending{
+		counts: map[ids.WorkspaceID]int{wsA: 6, wsB: 0},
+		tokens: map[ids.WorkspaceID]int64{wsA: 600_000, wsB: 0},
+	}
+	model := fakeEmbedModel{ref: ai.ModelRef{Provider: "gemini", Model: "embed"}, ok: true}
+	rates := fakeRatesPerWorkspace{wsA: fakeRates{rateKey("gemini", "embed"): pricedRate}}
+	e := newEmbedEstimator(pending, rates, model, fakeMonthlyBudget(1_000_000))
+
+	_, total, err := e.EstimateEmbedReindex(context.Background(), "gemini/embed@1024")
+	if err != nil {
+		t.Fatalf("EstimateEmbedReindex: %v", err)
+	}
+	wantMinor := ai.PriceCall(ai.Usage{TokensIn: 600_000}, *pricedRate) / microsPerMinor
+	if total.CostMinor == nil || *total.CostMinor != wantMinor {
+		t.Fatalf("total.CostMinor = %v, want %d — an empty workspace has no share to disagree about",
+			total.CostMinor, wantMinor)
 	}
 }
 

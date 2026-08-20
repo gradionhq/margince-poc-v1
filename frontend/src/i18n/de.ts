@@ -5419,6 +5419,10 @@ export const de = {
     "Die erste Seite der Treffer \u2014 genug, um den Filter zu pr\u00fcfen, nicht die gesamte Auswahl.",
   "filters.noMatches": "Keine Datens\u00e4tze entsprechen diesem Filter.",
   "filters.loadView": "Gespeicherten Filter laden",
+  "filters.saveList": "Als Liste speichern",
+  "filters.saveListTitle": "Diesen Filter als dynamische Liste speichern",
+  "filters.listName": "Listenname",
+  "filters.saveListConfirm": "Liste erstellen",
   "filters.exportCsv": "Als CSV exportieren",
   "filters.exportJson": "Als JSON exportieren",
 } as const satisfies Record<MessageKey, string>;

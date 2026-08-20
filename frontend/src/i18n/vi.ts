@@ -5376,6 +5376,11 @@ export const vi = {
   "filters.noMatches":
     "Kh\u00f4ng c\u00f3 b\u1ea3n ghi n\u00e0o kh\u1edbp b\u1ed9 l\u1ecdc n\u00e0y.",
   "filters.loadView": "T\u1ea3i b\u1ed9 l\u1ecdc \u0111\u00e3 l\u01b0u",
+  "filters.saveList": "L\u01b0u th\u00e0nh danh s\u00e1ch",
+  "filters.saveListTitle":
+    "L\u01b0u b\u1ed9 l\u1ecdc n\u00e0y th\u00e0nh danh s\u00e1ch \u0111\u1ed9ng",
+  "filters.listName": "T\u00ean danh s\u00e1ch",
+  "filters.saveListConfirm": "T\u1ea1o danh s\u00e1ch",
   "filters.exportCsv": "Xu\u1ea5t CSV",
   "filters.exportJson": "Xu\u1ea5t JSON",
 } as const satisfies Record<MessageKey, string>;
