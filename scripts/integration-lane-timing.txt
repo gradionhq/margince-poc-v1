@@ -1,0 +1,54 @@
+# The parallel integration lane's dispatch baseline: how long each package took
+# on one real full run, longest first. scripts/lib-laneorder.sh reads it as an
+# ORDER, never as a prediction — a fresh clone has no .tmp/ measurements of its
+# own, and without this it dispatches in discovery order and queues its long
+# pole behind short packages.
+#
+# The seconds are wall clock from one machine under one load. They do not
+# transfer; the ranking does. A package this file does not name keeps discovery
+# order, so letting it go stale costs a little scheduling, never a red lane —
+# refresh it from .tmp/integration-lane-timing.txt after a full
+# `make test-integration` when the ranking has visibly moved.
+# Sorted longest-first for a reader; the runner sorts by value and does not care.
+./internal/compose/integration|255.831
+./migrations|133.142
+./internal/compose|127.043
+./internal/compose/integration/agentaccess|49.698
+./internal/modules/people|36.219
+./internal/compose/integration/channels|30.629
+./internal/compose/integration/overlay|30.114
+./internal/modules/identity|28.752
+./internal/compose/integration/org360|27.690
+./internal/modules/overlay|27.639
+./internal/compose/integration/capture|23.226
+./internal/compose/integration/jobfanout|20.120
+./internal/compose/integration/webhooks|15.577
+./internal/compose/integration/customfields|14.137
+./internal/compose/integration/collections|13.607
+./cmd/migrate|13.599
+./internal/modules/activities|8.004
+./internal/compose/briefs|7.620
+./tools/extmigrategate|7.459
+./internal/platform/testdb|6.827
+./internal/platform/jobs|6.550
+./internal/platform/events|5.674
+./internal/modules/comms|5.041
+./internal/platform/extsecrets|5.008
+./internal/platform/keyvault|4.576
+./internal/modules/capture|4.152
+./internal/modules/finance|3.479
+./internal/modules/approvals|2.648
+./internal/modules/migration|2.487
+./internal/modules/consent|2.426
+./internal/modules/automation|2.381
+./internal/modules/integrations|2.255
+./internal/modules/ai|2.195
+./internal/compose/costestimate|1.636
+./internal/modules/customfields|1.126
+./cmd/worker|0.911
+./internal/platform/overlaybudget|0.789
+./internal/modules/overlay/hubspot|0.672
+./internal/platform/blobstore|0.612
+./internal/modules/privacy|0.440
+./internal/platform/agentquota|0.356
+./internal/platform/database|0.236
