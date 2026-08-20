@@ -249,13 +249,22 @@ jobs:
               - '.github/workflows/**'
               - '.github/actions/**'
 
-  # Every commit in a PR carries a Developer Certificate of Origin sign-off.
-  # PR-only: the direct-to-main workflow signs off at push time, and history
-  # predating this gate is not retro-required.
+  # Every commit that merges carries a Developer Certificate of Origin sign-off.
+  #
+  # This runs on the merge queue as well as on the pull request, and the queue is
+  # the one that counts: the merge_group payload carries base_sha/head_sha of the
+  # tree that is about to land, so the sign-off is checked against what actually
+  # merges. The alternative — exempting a pull_request-only job from the aggregate
+  # verdict, which refuses a skip on merge_group — would have reopened the
+  # skip-as-pass hole for the one gate that proves provenance.
+  #
+  # History predating this gate is not retro-required.
   dco:
     name: dco
     timeout-minutes: 20
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    if: >-
+      github.event_name == 'merge_group'
+      || (github.event_name == 'pull_request' && github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -264,11 +273,13 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Every PR commit is signed off (DCO)
+      - name: Every merging commit is signed off (DCO)
         working-directory: .
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # `||` coalesces on falsiness, and the unselected event's payload is
+          # empty — so each var takes whichever event actually fired.
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: ./scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
 
   # The deterministic merge gate: build, vet, lint (baseline + new-code
