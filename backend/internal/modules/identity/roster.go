@@ -123,10 +123,9 @@ func scanUser(r pgx.Row) (userRow, error) {
 const getUserQuery = `SELECT ` + userColumns + ` FROM app_user
 	WHERE id = $2 AND archived_at IS NULL`
 
-// GetUser reads one member by id regardless of status, bounded to the bound
-// workspace by the query's own predicate — the read every admin write returns
-// after a mutation, so it always asks for the role keys. ErrNotFound when
-// absent or archived.
+// GetUser reads one member by id regardless of status — the read every admin
+// write returns after a mutation, so it always asks for the role keys.
+// ErrNotFound when absent or archived.
 func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, error) {
 	var u userRow
 	err := s.db.Tx(ctx, func(tx pgx.Tx) error {
@@ -143,9 +142,8 @@ func (s *Service) GetUser(ctx context.Context, userID ids.UserID) (userRow, erro
 	return u, err
 }
 
-// ListUsers returns one keyset page of the caller's workspace's active
-// members, bounded by each query's own workspace predicate, optionally
-// filtered by in.Q.
+// ListUsers returns one keyset page of the installation's active members,
+// optionally filtered by in.Q.
 func (s *Service) ListUsers(ctx context.Context, in ListUsersInput) ([]userRow, storekit.Page, error) {
 	plain, filtered := listUsersQuery, listUsersFilteredQuery
 	if in.IncludeInactive {
@@ -210,10 +208,9 @@ func scanTeam(r pgx.Row) (teamRow, error) {
 // ListTeams returns one keyset page of the installation's active teams, with
 // each team's active-membership count, optionally filtered by in.Q.
 //
-// No workspace predicate: team carries no tenant since ADR-0091 §8 phase D. The
-// MEMBER count still narrows to this installation's people, because the join to
-// app_user does — that table keeps its tenant until the last slice of this
-// group.
+// No workspace predicate anywhere in it: ADR-0091 §8 phase D has taken the
+// tenant column off team and, with this slice, off app_user too. The member
+// count is the installation's, which is the only count there is.
 func (s *Service) ListTeams(ctx context.Context, in ListTeamsInput) ([]teamRow, storekit.Page, error) {
 	return listRosterPage(ctx, s.db, in.Q, in.Cursor, in.Limit, rosterQuery[teamRow]{
 		plain:     listTeamsQuery,

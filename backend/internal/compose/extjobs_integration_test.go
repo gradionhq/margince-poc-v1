@@ -204,10 +204,89 @@ func TestDispatcherEnqueuesOneChildPerWorkspace(t *testing.T) {
 	}
 }
 
-// A suite here used to pin behaviour that only a SECOND workspace could produce.
-// ADR-0091 §8 phase D took the tenant column off app_user, and an installation
-// serves one organization (ADR-0061), so the fixture it needed is a state the
-// product cannot reach — the guarantee has no subject rather than a weaker one.
+// TestASeatlessInstallationIsSkippedAndCounted pins the skip an operator can
+// still cause. extensionJobActor's own doc says it: bootstrap writes every new
+// installation its agent seat, so a seatless read means an operator has since
+// archived or deactivated it, which is a posture they are entitled to hold.
+//
+// The fixture reached that state by seeding a second, seatless workspace until
+// ADR-0091 §8 phase D took the tenant column off app_user. It archives the seat
+// instead — the state the code actually names, and the same move the seat-budget
+// floor uses. What must hold is unchanged: no child row of ANY state, no failure
+// moved rather than avoided, and the condition reported on the gauge, because a
+// silent skip is the objection the enqueue-anyway posture was written to answer.
+func TestASeatlessInstallationIsSkippedAndCounted(t *testing.T) {
+	e := integration.Setup(t)
+	integration.ApplyRiverSchema(t)
+
+	if _, err := integration.OwnerConn(t).Exec(context.Background(),
+		`UPDATE app_user SET archived_at = now() WHERE is_agent`); err != nil {
+		t.Fatalf("archiving the agent seat: %v", err)
+	}
+
+	decl := testJobDecl()
+	composeJob(t, decl, func(context.Context, extension.Runtime) error { return nil })
+	startRunner(t, e.Pool)
+
+	// The gauge is what says the skip happened, so it is what this waits on —
+	// there is no child row to await, which is the whole point.
+	awaitSeatlessGauge(t, 1)
+
+	// No row of any state — not a failed one, not a discarded one, not a
+	// retrying one. An error stream is made of rows, and there are none.
+	var rows int
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM river_job WHERE kind = $1`, decl.ChildKind()).Scan(&rows); err != nil {
+		t.Fatalf("counting the child rows: %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("a seatless installation has %d child row(s) — every one of them fails at the authority derivation, three times per cadence interval, forever", rows)
+	}
+
+	// And the skip did not merely MOVE the failure. Scoped to these two kinds
+	// rather than to river_job as a whole: the table is shared with every other
+	// test in the package, so an unscoped count reports another test's expected
+	// failure as this one's regression (#1015).
+	var failed int
+	if err := e.Pool.QueryRow(context.Background(), `
+		SELECT count(*) FROM river_job
+		 WHERE kind = ANY($1)
+		   AND (state IN ('discarded', 'retryable') OR errors <> '{}')`,
+		[]string{decl.DispatcherKind(), decl.ChildKind()}).Scan(&failed); err != nil {
+		t.Fatalf("counting failed rows: %v", err)
+	}
+	if failed != 0 {
+		t.Fatalf("the dispatcher and its child hold %d failed/retrying row(s); the skip must be clean, not quiet", failed)
+	}
+
+	var exposition bytes.Buffer
+	if err := WriteSeatlessWorkspacesGauge(&exposition); err != nil {
+		t.Fatalf("rendering the gauge: %v", err)
+	}
+	if !strings.Contains(exposition.String(), "margince_extension_job_seatless_workspaces 1") {
+		t.Fatalf("the gauge is not in the exposition:\n%s", exposition.String())
+	}
+}
+
+// awaitSeatlessGauge waits on the gauge rather than on a clock, in the shape
+// awaitRows above uses: there is no child row to wait for here — that absence is
+// the assertion — so the report is the only signal the dispatcher has run.
+func awaitSeatlessGauge(t *testing.T, want int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), awaitBudget)
+	defer cancel()
+	for {
+		if got := SeatlessWorkspaces(); got == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("the seatless gauge reads %d, want %d — the skipped installation is invisible to an operator",
+				SeatlessWorkspaces(), want)
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
 
 // TestChildrenUseByArgsUniqueness pins the trap the fan-out dies on.
 //

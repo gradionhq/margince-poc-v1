@@ -48,8 +48,6 @@ ALTER TABLE overlay_tombstone ADD CONSTRAINT overlay_tombstone_pkey PRIMARY KEY 
 ALTER TABLE overlay_write_ledger DROP CONSTRAINT overlay_write_ledger_pkey;
 ALTER TABLE overlay_write_ledger ADD CONSTRAINT overlay_write_ledger_pkey PRIMARY KEY (object_class, external_id, property, value_hash);
 
-
-
 ALTER TABLE incumbent_connection DROP CONSTRAINT incumbent_connection_workspace_id_key;
 CREATE UNIQUE INDEX incumbent_connection_singleton ON incumbent_connection ((true));
 

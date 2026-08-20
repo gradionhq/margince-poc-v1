@@ -321,10 +321,9 @@ func seedRetentionPosture(ctx context.Context, tx pgx.Tx, seeds deployconfig.See
 	return err
 }
 
-// seedBookingPage provisions the admin's public booking page (the read carries
-// its own workspace predicate).
+// seedBookingPage provisions the admin's public booking page.
 //
-// The workspace holds TWO users at seed time, not one: bootstrap writes the
+// The installation holds TWO users at seed time, not one: bootstrap writes the
 // admin and the Agent Runner seat in the same transaction, so `now()` gives
 // them the same created_at and "first by created_at" decides nothing. The
 // is_agent predicate is what names the admin — without it the page a stranger

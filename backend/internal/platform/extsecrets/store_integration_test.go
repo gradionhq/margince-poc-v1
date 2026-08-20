@@ -227,11 +227,29 @@ func TestSecretsRotationDestroysThePreviousMaterial(t *testing.T) {
 	}
 }
 
-// A suite here used to pin that a user in ANOTHER workspace was refused. ADR-0091
-// §8 phase D took the tenant column off app_user, so an installation has one set
-// of users (ADR-0061) and there is no foreign member to refuse — the guarantee
-// has no subject rather than a weaker one. What still holds is the unknown-id
-// refusal beside it, which is the case the code was always reached by.
+// TestSecretsUserScopeRefusesAnUnknownUser is what survived the tenant column.
+// It asserted a member of ANOTHER workspace was refused until ADR-0091 §8 phase
+// D took the column off app_user; an installation has one set of users
+// (ADR-0061), so the reachable case is the one the docstring always named — a
+// stale id from an admin's open tab, naming no row at all. Without this the
+// refusal path has no test, and the failure mode it prevents is a raw foreign
+// key violation reaching a client as a constraint name.
+func TestSecretsUserScopeRefusesAnUnknownUser(t *testing.T) {
+	e := setup(t)
+	ctx := e.ctxFor(e.ws)
+	s := extsecrets.For("notes", e.pool, e.vault)
+
+	unknown := extension.UserID(ids.NewV7().String())
+	if err := s.PutUser(ctx, unknown, "token", []byte("nope")); !errors.Is(err, extsecrets.ErrUnknownUser) {
+		t.Fatalf("PutUser accepted a user id naming no row: err=%v", err)
+	}
+	if _, err := s.GetUser(ctx, unknown, "token"); !errors.Is(err, extsecrets.ErrUnknownUser) {
+		t.Fatalf("GetUser accepted a user id naming no row: err=%v", err)
+	}
+	if err := s.DeleteUser(ctx, unknown, "token"); !errors.Is(err, extsecrets.ErrUnknownUser) {
+		t.Fatalf("DeleteUser accepted a user id naming no row: err=%v", err)
+	}
+}
 
 // TestSecretsScopesAreIndependent: a workspace key and a user key of the
 // same name are two secrets, not one seen two ways.

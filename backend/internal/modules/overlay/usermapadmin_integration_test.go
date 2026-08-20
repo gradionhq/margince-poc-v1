@@ -230,11 +230,27 @@ func TestListUserMapExcludesAgentAndArchivedUsers(t *testing.T) {
 	}
 }
 
-// A suite here used to pin that a user in ANOTHER workspace was refused. ADR-0091
-// §8 phase D took the tenant column off app_user, so an installation has one set
-// of users (ADR-0061) and there is no foreign member to refuse — the guarantee
-// has no subject rather than a weaker one. What still holds is the unknown-id
-// refusal beside it, which is the case the code was always reached by.
+// TestUserMapWritesRefuseAUserThatDoesNotExist is what survived the tenant
+// column. Two suites here asserted that another WORKSPACE's user was refused
+// until ADR-0091 §8 phase D took the column off app_user; an installation has
+// one set of users (ADR-0061), so the reachable case is the one those suites
+// already named in their own docs — a stale user id in an admin's open tab.
+//
+// Both verbs, because resolveUserMapTarget is what turns a missing row into
+// ErrNotFound and a verb that skipped it would surface the foreign key
+// violation instead, as a constraint name a client should never see.
+func TestUserMapWritesRefuseAUserThatDoesNotExist(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(database.BindTo(pool, ids.From[ids.WorkspaceKind](ws)), noOwnerEmails{})
+	unknown := ids.New[ids.UserKind]()
+
+	if err := store.BlockAutoMap(ctx, unknown, "hubspot"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("BlockAutoMap on a user id naming no row = %v, want ErrNotFound", err)
+	}
+	if err := store.SetManualUserMap(ctx, unknown, "hubspot", "incumbent-1"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("SetManualUserMap on a user id naming no row = %v, want ErrNotFound", err)
+	}
+}
 
 // ListUserMap hides agent and archived seats; the verb that GRANTS mirror
 // visibility has to agree, or the exclusion is cosmetic and an admin can map

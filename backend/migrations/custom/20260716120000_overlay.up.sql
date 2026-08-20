@@ -59,7 +59,7 @@ CREATE TABLE mirror_user_map (
   -- the amendment note at the top of this file for why that has no subject on a
   -- single-organization installation.
   CONSTRAINT mirror_user_map_app_user_id_fkey FOREIGN KEY (app_user_id)
-REFERENCES app_user (id) ON DELETE CASCADE
+    REFERENCES app_user (id) ON DELETE CASCADE
 );
 CREATE INDEX idx_mirror_user_map ON mirror_user_map (workspace_id, incumbent, incumbent_user_id);
 CREATE TABLE mirror_visibility (

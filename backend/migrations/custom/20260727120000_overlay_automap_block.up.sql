@@ -33,7 +33,7 @@ CREATE TABLE mirror_user_automap_block (
   -- amendment note at the top of this file.
   CONSTRAINT mirror_user_automap_block_app_user_id_fkey
     FOREIGN KEY (app_user_id)
-REFERENCES app_user (id) ON DELETE CASCADE,
+    REFERENCES app_user (id) ON DELETE CASCADE,
   -- ON DELETE RESTRICT, not CASCADE: blocked_by is the accountability half of
   -- the row — the admin who decided this user must stay unmapped. Removing
   -- that admin must not silently erase the decision (nor the record of who
@@ -41,7 +41,7 @@ REFERENCES app_user (id) ON DELETE CASCADE,
   -- record_grant.granted_by take for their NOT NULL actor columns.
   CONSTRAINT mirror_user_automap_block_blocked_by_fkey
     FOREIGN KEY (blocked_by)
-REFERENCES app_user (id) ON DELETE RESTRICT
+    REFERENCES app_user (id) ON DELETE RESTRICT
 );
 
 ALTER TABLE mirror_user_automap_block ENABLE ROW LEVEL SECURITY;

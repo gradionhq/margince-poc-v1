@@ -1,10 +1,9 @@
 -- AMENDED (ADR-0091 §8 phase D): the app_user arm of this collapse is removed.
--- `dbmigrate.Up` applies ALL of `core` before ANY of `custom`, so on a FRESH
--- database this file runs against the FINAL core schema — where app_user has no
--- workspace_id, and uq_app_user_ws_id fell with the column — and DROP
--- CONSTRAINT fails, taking the install with it. A deployed database already ran
--- the original and reached UNIQUE (id); the core drop leaves it at the same
--- shape, so both paths agree.
+-- A down half never runs on a fresh install, so the reason is the ROLLBACK
+-- path: uq_app_user_ws_id fell with the column the core drop removed, so there
+-- is no constraint to drop and nothing to restore it to. Rolling this migration
+-- back therefore leaves app_user's uniqueness as the core down half restores it,
+-- which is the composite shape core 0019 created.
 -- Reverse of the custom half of phase B.
 
 ALTER INDEX uq_import_run RENAME TO uq_import_run_workspace_id;
@@ -18,7 +17,6 @@ ALTER TABLE overlay_mirror_halt ADD CONSTRAINT overlay_mirror_halt_pkey PRIMARY 
 
 DROP INDEX incumbent_connection_singleton;
 ALTER TABLE incumbent_connection ADD CONSTRAINT incumbent_connection_workspace_id_key UNIQUE (workspace_id);
-
 
 ALTER TABLE overlay_write_ledger DROP CONSTRAINT overlay_write_ledger_pkey;
 ALTER TABLE overlay_write_ledger ADD CONSTRAINT overlay_write_ledger_pkey PRIMARY KEY (workspace_id, object_class, external_id, property, value_hash);
