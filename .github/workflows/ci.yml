@@ -1343,8 +1343,9 @@ jobs:
   # vuln, live-boot and uat are the tempting additions — they run on every
   # qualifying change and a red one does not stop a merge, which is not a state
   # worth keeping. The reason to wait is the batching: a flaky job under a merge
-  # queue does not cost one re-run, it fails a batch of up to five and forces a
-  # re-split, and nothing has ever exercised these three under a gate that blocks.
+  # queue does not cost one re-run, it fails the whole group it was checked in and
+  # every entry in that group is re-queued, and nothing has ever exercised these
+  # three under a gate that blocks.
   # Promote them once the queue has a measured baseline, as their own change, so a
   # regression has one explanation.
   ci:

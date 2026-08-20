@@ -42,10 +42,35 @@ entry under test, on a throwaway `gh-readonly-queue/main/...` ref, and gates
 - **Every commit, not just the tip.** The tree that is measured is the tree that
   merges.
 
-The queue merges in **batches** — up to five entries per build, with the green
-prefix of a failing batch still merging (`HEADGREEN`). Serialising one PR per
-~20-minute lane would cap merges at three an hour against a demonstrated rate of
-70–82 a day; batching is what makes per-commit gating affordable at all.
+The queue merges in **batches**, because serialising one PR per ~20-minute lane
+would cap merges at three an hour against a demonstrated rate of 70–82 a day.
+Batching is what makes per-commit gating affordable at all.
+
+Two separate limits govern that, and they are easy to conflate:
+
+| Ruleset setting | Configured | What it bounds |
+|---|---|---|
+| `max_entries_to_merge` | **2** | how many entries may merge together as one group |
+| `max_entries_to_build` | **2** | how many queued entries may request checks at once |
+| `min_entries_to_merge` / `…_wait_minutes` | 1 / 2 | a lone entry still merges after a 2-minute wait |
+| `grouping_strategy` | `HEADGREEN` | **which commits get checked** — see below |
+| `check_response_timeout_minutes` | 60 | clears the 22-minute p90 with margin |
+| `merge_method` | `SQUASH` | preserves `required_linear_history` |
+
+`grouping_strategy` is not about partial merging. `HEADGREEN` checks only the
+merge group's **head** commit — the combined changes of every entry in the group —
+while `ALLGREEN` checks each entry's intermediate commit individually. The trade
+is cost against attribution: `ALLGREEN` tells you *which* entry broke the batch
+but multiplies the 28-job lane by the group size, which a 20-concurrent ceiling
+cannot absorb. `HEADGREEN` pays one lane per group and leaves GitHub to work out
+which entry to eject when the group fails. **Neither strategy merges a passing
+prefix of a failing group.**
+
+`max_entries_to_merge` starts at **2** rather than higher on purpose: a batched
+queue multiplies the cost of a flaky job by the group size, and
+[#1494](https://github.com/gradionhq/margince-poc-v1/issues/1494) is open against
+exactly that noise. It is a live ruleset knob — raise it once the queue has a
+measured baseline.
 
 `concurrency` is keyed on `github.ref` with `cancel-in-progress` narrowed to
 `pull_request`: a new push supersedes the review in flight, and a merge verdict
@@ -80,8 +105,9 @@ Both premises are void, and neither needed a bigger runner budget to void.
 
 The invariant is contradicted outright by the numbers above. And the slot argument
 was an argument against *racing* a lane after the merge — which a queue does not
-do: it gates before the merge, and it **batches**, so five entries share one lane
-rather than each claiming their own. The 20-concurrent ceiling is unchanged; what
+do: it gates before the merge, and it **batches**, so a group of entries shares
+one lane rather than each claiming their own. The 20-concurrent ceiling is
+unchanged; what
 changed is that `release.yml` and `sbom.yml` stopped drawing ~448 runs a week from
 it (both are dispatch-only now), which is where the room for a queue lane came
 from. If queue depth grows anyway, `max_entries_to_merge` is a ruleset knob that
@@ -198,7 +224,8 @@ changes ──┬─> deterministic-gates ──> craftsmanship
 
   ci  ── the ONE required context. needs: dco, deterministic-gates,
          craftsmanship, craft-residue, secret-scan, extension-reference,
-         integration, frontend, license-gate, live-boot, uat, vuln
+         integration, frontend, license-gate   (nine — vuln, live-boot and uat
+         stay advisory and are NOT in the fan-in)
 ```
 
 Two deliberate shapes here. The Playwright `uat` lane is **fail-fast**: it
@@ -248,8 +275,9 @@ Ten jobs are deliberately **not** in `needs`:
   are the obvious additions: each runs on every qualifying change and a red one
   does not stop a merge, which is not a state worth keeping. What argues for
   waiting is the batching. A flaky job under a merge queue does not cost one
-  re-run; it fails a batch of up to five and forces a re-split, and nothing has
-  ever exercised these three under a gate that blocks. Promote them once the queue
+  re-run; it fails the whole group it was checked in and every entry in that group
+  is re-queued, and nothing has ever exercised these three under a gate that
+  blocks. Promote them once the queue
   has a measured baseline, as their own change, so a regression has exactly one
   explanation.
 
