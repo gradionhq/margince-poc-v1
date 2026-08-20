@@ -8,7 +8,7 @@ package backendarch
 // against a table it does not own. This test closes that gap — it walks the
 // hand-written Go under internal/modules and internal/compose, extracts every
 // INSERT/UPDATE/DELETE target from SQL string literals (plus the storekit
-// Patch.Apply table argument), and asserts each module only writes its own
+// applier and row-lock table arguments), and asserts each module only writes its own
 // tables. Cross-store writes exist by design (merge relinks, GDPR erasure,
 // ingest materialization); each one is ratified below with a self-contained
 // rationale — an entry without a rationale is a finding, not a pass, and a
@@ -22,9 +22,11 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -542,19 +544,121 @@ func owningDir(pkgDir string) string {
 	return pkgDir
 }
 
+// storekitTableArg names the storekit calls that carry their table as the third
+// argument. The four Patch appliers issue the UPDATE themselves; LockRow and
+// LockPair do not write, but they are where ApplyLocked's table comes from —
+// the lock carries it in an unexported field, so the lock site is the only
+// place the table is legible, and without it every ApplyLocked write is
+// invisible here.
+var storekitTableArg = map[string]bool{
+	"ApplyWithVersion": true,
+	"ApplyGuarded":     true,
+	"ApplyGuardedIn":   true,
+	"LockRow":          true,
+	"LockPair":         true,
+}
+
+// stringConstsByPackage maps each walked directory to the string constants its
+// own files declare. A table name spelled as a package constant is the tree's
+// normal style — `entityLead`, `projectObject` — and a walker that reads only
+// literals attributes none of those writes to anybody.
+func stringConstsByPackage(t *testing.T, fset *token.FileSet, roots []string) map[string]map[string]string {
+	t.Helper()
+	consts := map[string]map[string]string{}
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+				return err
+			}
+			file, err := parser.ParseFile(fset, filepath.ToSlash(path), nil, 0)
+			if err != nil {
+				return err
+			}
+			dir := filepath.ToSlash(filepath.Dir(path))
+			for _, decl := range file.Decls {
+				gen, ok := decl.(*ast.GenDecl)
+				if !ok || gen.Tok != token.CONST {
+					continue
+				}
+				for _, spec := range gen.Specs {
+					value, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for i, name := range value.Names {
+						if i >= len(value.Values) {
+							continue
+						}
+						lit, ok := value.Values[i].(*ast.BasicLit)
+						if !ok || lit.Kind != token.STRING {
+							continue
+						}
+						text, err := strconv.Unquote(lit.Value)
+						if err != nil {
+							continue
+						}
+						if consts[dir] == nil {
+							consts[dir] = map[string]string{}
+						}
+						consts[dir][name.Name] = text
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return consts
+}
+
 type tableWrite struct {
 	pos   string // file:line for the finding
 	table string
 }
 
+// indirectTableArg ratifies the storekit call sites whose table arrives through
+// a struct field rather than a name this walker can read, each with the tables
+// the field can actually hold. Ratified, not discovered: the reason must name
+// them, so the exception is re-checkable against the construction sites.
+var indirectTableArg = gatekit.Waive(map[string]string{
+	"internal/modules/people:w.table": "the evidence writer is one shape over two sidecars; the field is set at two struct literals in this package, to organization_fact and organization_profile_field, and people owns both",
+})
+
+// tableArgText reads a storekit table argument: a string literal, or an
+// identifier declared as a string constant in the same package.
+func tableArgText(arg ast.Expr, consts map[string]string) (string, bool) {
+	switch v := arg.(type) {
+	case *ast.BasicLit:
+		if v.Kind != token.STRING {
+			return "", false
+		}
+		text, err := strconv.Unquote(v.Value)
+		return text, err == nil
+	case *ast.Ident:
+		text, ok := consts[v.Name]
+		return text, ok
+	default:
+		return "", false
+	}
+}
+
 // collectTableWrites walks every non-test module/compose source file and
-// records each SQL write target (string literals plus storekit's
-// Patch.Apply table argument) under its owning directory.
+// records each SQL write target (string literals plus the storekit applier and
+// row-lock table arguments, see storekitTableArg) under its owning directory.
 func collectTableWrites(t *testing.T) map[string][]tableWrite {
 	t.Helper()
 	writes := map[string][]tableWrite{} // owning dir → writes
+	// storekitWrites counts what the CallExpr arm attributes. This gate lost
+	// that whole arm once — it matched a method name no Patch has — and a
+	// matcher that matches nothing is indistinguishable from a tree with no
+	// versioned writes in it. The floor is what tells those two apart.
+	storekitWrites := 0
 	fset := token.NewFileSet()
-	for _, root := range []string{"internal/modules", "internal/compose", settingsStoreDir, extSecretsStoreDir} {
+	roots := []string{"internal/modules", "internal/compose", settingsStoreDir, extSecretsStoreDir}
+	consts := stringConstsByPackage(t, fset, roots)
+	for _, root := range roots {
 		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
 				strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") ||
@@ -566,7 +670,8 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 			if err != nil {
 				return err
 			}
-			owner := owningDir(filepath.ToSlash(filepath.Dir(path)))
+			dir := filepath.ToSlash(filepath.Dir(path))
+			owner := owningDir(dir)
 			record := func(pos token.Pos, tables []string) {
 				for _, table := range tables {
 					writes[owner] = append(writes[owner], tableWrite{pos: fset.Position(pos).String(), table: table})
@@ -584,18 +689,27 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 					}
 					record(node.Pos(), sqlWriteTargets(text))
 				case *ast.CallExpr:
-					// storekit's versioned patch: Patch.Apply(ctx, tx, table,
-					// id, ifVersion) issues the UPDATE — the table rides as
-					// the third argument.
 					sel, ok := node.Fun.(*ast.SelectorExpr)
-					if !ok || sel.Sel.Name != "Apply" || len(node.Args) < 4 {
+					if !ok || !storekitTableArg[sel.Sel.Name] || len(node.Args) < 4 {
 						return true
 					}
-					if lit, ok := node.Args[2].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-						if table, err := strconv.Unquote(lit.Value); err == nil {
-							record(node.Pos(), []string{strings.ToLower(table)})
+					table, ok := tableArgText(node.Args[2], consts[dir])
+					if !ok {
+						if indirectTableArg.Waived(t, owner+":"+exprText(fset, node.Args[2])) {
+							return true
 						}
+						// A table this walker cannot read is a table it cannot
+						// attribute, and a skip here reads exactly like a module
+						// that writes nothing. Reported, so the write names its
+						// table where a reader — and this gate — can see it.
+						t.Errorf("%s: %s.%s takes its table from an expression this gate cannot read — "+
+							"name the table in a string literal or a package-level string constant, "+
+							"or the write is attributed to no owner at all",
+							fset.Position(node.Pos()), exprText(fset, sel.X), sel.Sel.Name)
+						return true
 					}
+					record(node.Pos(), []string{strings.ToLower(table)})
+					storekitWrites++
 				}
 				return true
 			})
@@ -605,11 +719,20 @@ func collectTableWrites(t *testing.T) map[string][]tableWrite {
 			t.Fatal(err)
 		}
 	}
+	if storekitWrites < storekitWriteFloor {
+		t.Fatalf("attributed only %d storekit table arguments, expected at least %d — the %v matcher has stopped matching, and every versioned write in the tree is now invisible to this gate",
+			storekitWrites, storekitWriteFloor, slices.Sorted(maps.Keys(storekitTableArg)))
+	}
 	return writes
 }
 
+// storekitWriteFloor is set below the live count so ordinary refactoring does
+// not trip it; it catches the arm going to zero, not a write being deleted.
+const storekitWriteFloor = 25
+
 func TestEveryPackageOnlyWritesTablesItOwns(t *testing.T) {
 	defer crossStoreWrites.AssertAllMatched(t)
+	defer indirectTableArg.AssertAllMatched(t)
 
 	writes := collectTableWrites(t)
 
