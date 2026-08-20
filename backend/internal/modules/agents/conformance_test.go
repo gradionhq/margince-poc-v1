@@ -194,6 +194,7 @@ func fullRegistry(t *testing.T) *Registry {
 	RegisterResolveTool(r, nil, func(context.Context, []ResolveCandidate) ([]ResolveOutcome, error) {
 		RegisterWhoamiTool(r, func(context.Context) (ActingIdentity, error) { return ActingIdentity{}, nil })
 		RegisterColleaguesTool(r, func(context.Context, string) ([]Colleague, bool, error) { return nil, false, nil })
+		RegisterTagTools(r, stubTags{})
 		return nil, nil
 	})
 	RegisterListTool(r, nil, probeVocabulary{})

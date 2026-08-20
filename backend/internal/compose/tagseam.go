@@ -8,6 +8,7 @@ package compose
 
 import (
 	"context"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -25,24 +26,28 @@ func tagSeam(pool *pgxpool.Pool) agents.Tags {
 	return tagAdapter{store: collections.NewStore(InstallationDB(pool))}
 }
 
-func (a tagAdapter) ListTags(ctx context.Context, includeArchived bool) ([]agents.Tag, error) {
-	summaries, err := a.store.TagVocabulary(ctx, includeArchived)
+// EnsureTag reuses the workspace's own word before minting a new one.
+//
+// Case-insensitive, because "K5 Conference" and "k5 conference" are the same
+// tag to everyone except a database, and a vocabulary that holds both has
+// stopped being a vocabulary. An ARCHIVED tag of that name is not reused: it
+// was retired on purpose, and quietly resurrecting it would undo that decision
+// on the strength of a coincidence of spelling.
+func (a tagAdapter) EnsureTag(ctx context.Context, name string) (ids.UUID, error) {
+	existing, err := a.store.TagVocabulary(ctx, false)
 	if err != nil {
-		return nil, err
+		return ids.UUID{}, err
 	}
-	out := make([]agents.Tag, 0, len(summaries))
-	for _, s := range summaries {
-		out = append(out, agents.Tag{TagID: s.TagID, Name: s.Name, Color: s.Color, Archived: s.Archived})
+	for _, t := range existing {
+		if strings.EqualFold(strings.TrimSpace(t.Name), strings.TrimSpace(name)) {
+			return t.TagID, nil
+		}
 	}
-	return out, nil
-}
-
-func (a tagAdapter) CreateTag(ctx context.Context, name, color string) (agents.Tag, error) {
-	s, err := a.store.NewTag(ctx, name, color)
+	created, err := a.store.NewTag(ctx, name, "")
 	if err != nil {
-		return agents.Tag{}, err
+		return ids.UUID{}, err
 	}
-	return agents.Tag{TagID: s.TagID, Name: s.Name, Color: s.Color, Archived: s.Archived}, nil
+	return created.TagID, nil
 }
 
 func (a tagAdapter) ApplyTag(ctx context.Context, tagID ids.UUID, entityType string, entityID ids.UUID) error {

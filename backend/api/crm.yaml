@@ -6106,7 +6106,6 @@ paths:
     get:
       tags: [Tags]
       operationId: listTags
-      x-mcp-tool: { verb: list_tags, record_type: tag, tier: auto_execute, scope: read }
       summary: List tags.
       parameters:
         - $ref: '#/components/parameters/IncludeArchived'
@@ -6120,7 +6119,13 @@ paths:
     post:
       tags: [Tags]
       operationId: createTag
-      x-mcp-tool: { verb: create_tag, record_type: tag, tier: auto_execute, scope: write }
+      # No tool verb of its own. apply_tag takes a tag_name and creates the word
+      # when the workspace has none — "add tag: K5 Conference 2026" is one act
+      # to the person asking, and a create verb whose only caller is the next
+      # line of the same flow is a second call that exists for the surface's
+      # convenience rather than theirs. The tool surface still creates tags;
+      # it just does not have a verb that ONLY creates one.
+      x-agent-access: human-only
       summary: Create a tag.
       requestBody:
         required: true
@@ -6142,7 +6147,7 @@ paths:
     delete:
       tags: [Tags]
       operationId: archiveTag
-      x-mcp-tool: { verb: archive_tag, record_type: tag, tier: confirmation_required, scope: write }
+      x-mcp-tool: { verb: archive_record, record_type: tag, tier: confirmation_required, scope: write }
       summary: Archive a tag.
       responses:
         '200':

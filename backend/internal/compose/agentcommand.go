@@ -81,6 +81,7 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"archiveActivity":      archiveCommand,
 	"archiveDeal":          archiveCommand,
 	"archiveList":          archiveCommand,
+	"archiveTag":           archiveCommand,
 	"archiveOffer":         archiveCommand,
 	"archiveOfferTemplate": archiveCommand,
 	"archiveOrganization":  archiveCommand,
@@ -89,7 +90,6 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"archiveProject":       archiveCommand,
 	"archiveRelationship":  archiveCommand,
 	"archiveSavedView":     archiveCommand,
-	"archiveTag":           archiveCommand,
 
 	"createCustomField":         createCommand,
 	"createDeal":                createCommand,
@@ -102,7 +102,6 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	"createProject":             createCommand,
 	"createRelationship":        createCommand,
 	"createSavedView":           createCommand,
-	"createTag":                 createCommand,
 	"createWebhookSubscription": createCommand,
 
 	opRenameCustomField:         patchCommand,
@@ -156,8 +155,11 @@ var restCommands = map[string]func(pol agentPolicy, deps restCommandDeps, r *htt
 	// exclusion from actionShapedUpdateOps must name the identical
 	// operationId), though it is not a MEMBER of that map; createOffer has no
 	// such twin at all, since create_record never reaches the split.
-	opAddListMember:       addListMemberCommand,
-	opApplyTag:            applyTagCommand,
+	opAddListMember: addListMemberCommand,
+	opApplyTag:      applyTagCommand,
+	// removeTag binds to the same subject applyTag does — the tag — so it
+	// resolves the same command rather than a near-copy of it.
+	opRemoveTag:           applyTagCommand,
 	opAddOfferLineItem:    addOfferLineItemCommand,
 	opUpdateOfferLineItem: updateOfferLineItemCommand,
 	opRemoveOfferLineItem: removeOfferLineItemCommand,

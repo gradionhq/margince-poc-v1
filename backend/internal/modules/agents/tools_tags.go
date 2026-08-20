@@ -21,24 +21,20 @@ import (
 	"context"
 	"encoding/json"
 
+	"errors"
+
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// Tag is one entry in the workspace vocabulary.
-type Tag struct {
-	TagID    ids.UUID `json:"tag_id"`
-	Name     string   `json:"name"`
-	Color    string   `json:"color,omitempty"`
-	Archived bool     `json:"archived"`
-}
-
 // Tags is the seam onto the collections module's tag paths.
 type Tags interface {
-	ListTags(ctx context.Context, includeArchived bool) ([]Tag, error)
-	CreateTag(ctx context.Context, name, color string) (Tag, error)
+	// EnsureTag answers the id of the workspace tag with this name, creating
+	// it only when no such word exists. Reuse is the default because a
+	// vocabulary that grows a near-duplicate per call stops being one.
+	EnsureTag(ctx context.Context, name string) (ids.UUID, error)
 	ApplyTag(ctx context.Context, tagID ids.UUID, entityType string, entityID ids.UUID) error
 	RemoveTag(ctx context.Context, tagID ids.UUID, entityType string, entityID ids.UUID) error
 }
@@ -49,8 +45,6 @@ func RegisterTagTools(r *Registry, tags Tags) {
 	if tags == nil {
 		return
 	}
-	r.Register(listTags{tags: tags})
-	r.Register(createTag{tags: tags})
 	r.Register(applyTag{tags: tags})
 	r.Register(removeTag{tags: tags})
 }
@@ -59,70 +53,13 @@ func RegisterTagTools(r *Registry, tags Tags) {
 // person, organization, deal and lead are what `taggable` admits.
 const tagTargetEnum = `["person","organization","deal","lead"]`
 
-// --- list_tags (🟢 read) ---
-
-type listTags struct{ tags Tags }
-
-func (t listTags) Spec() mcp.ToolSpec {
-	return mcp.ToolSpec{
-		Name: "list_tags", Title: "List tags", Version: toolVersionV1,
-		Description:   listTagsCopy.render(),
-		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "listTags",
-		InputSchema: schema(`{"type":"object","properties":{
-			"include_archived":{"type":"boolean"}},"additionalProperties":false}`),
-		OutputSchema: schemaFor[ListTagsResult](),
-	}
-}
-
-func (t listTags) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		IncludeArchived bool `json:"include_archived"`
-	}
-	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	tags, err := t.tags.ListTags(ctx, args.IncludeArchived)
-	if err != nil {
-		return nil, err
-	}
-	if tags == nil {
-		tags = []Tag{}
-	}
-	return json.Marshal(ListTagsResult{Tags: tags})
-}
-
-// --- create_tag (🟢 write: adds a word, changes no record) ---
-
-type createTag struct{ tags Tags }
-
-func (t createTag) Spec() mcp.ToolSpec {
-	return mcp.ToolSpec{
-		Name: "create_tag", Title: "Create a tag", Version: toolVersionV1,
-		Description:   createTagCopy.render(),
-		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "createTag",
-		InputSchema: schema(`{"type":"object","required":["name"],"properties":{
-			"name":{"type":"string","maxLength":120},
-			"color":{"type":"string","maxLength":32}},"additionalProperties":false}`),
-		OutputSchema: schemaFor[Tag](),
-	}
-}
-
-func (t createTag) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
-	var args struct {
-		Name  string `json:"name"`
-		Color string `json:"color"`
-	}
-	if err := decodeArgs(in, &args); err != nil {
-		return nil, err
-	}
-	tag, err := t.tags.CreateTag(ctx, args.Name, args.Color)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(tag)
-}
+// taggingSchema is apply's and remove's argument shape, spelled once: they name
+// the same three things, and two copies is two places for them to drift.
+const taggingSchema = `{"type":"object","required":["record_type","record_id"],"properties":{
+	"tag_id":{"type":"string","format":"uuid"},
+	"tag_name":{"type":"string","maxLength":120,"description":"Instead of tag_id: the tag is created if the workspace has no such word"},
+	"record_type":{"type":"string","enum":` + tagTargetEnum + `},
+	"record_id":{"type":"string","format":"uuid"}},"additionalProperties":false}`
 
 // --- apply_tag / remove_tag (🟢 write) ---
 
@@ -133,11 +70,8 @@ func (t applyTag) Spec() mcp.ToolSpec {
 		Name: "apply_tag", Title: "Apply a tag to a record", Version: toolVersionV1,
 		Description:   applyTagCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "applyTag",
-		InputSchema: schema(`{"type":"object","required":["tag_id","record_type","record_id"],"properties":{
-			"tag_id":{"type":"string","format":"uuid"},
-			"record_type":{"type":"string","enum":` + tagTargetEnum + `},
-			"record_id":{"type":"string","format":"uuid"}},"additionalProperties":false}`),
+		OpenAPIOp:    "applyTag",
+		InputSchema:  schema(taggingSchema),
 		OutputSchema: schemaFor[TagAppliedResult](),
 	}
 }
@@ -146,6 +80,22 @@ func (t applyTag) Handle(ctx context.Context, in json.RawMessage) (json.RawMessa
 	args, err := decodeTagging(in)
 	if err != nil {
 		return nil, err
+	}
+	// A name rather than an id is the capture flow's shape: "add tag: K5
+	// Conference 2026" is one act to the person asking, and making them call a
+	// create verb first only to pass its answer back is a second call that
+	// exists for the surface's convenience rather than theirs. Reuse first —
+	// an existing word wins over a new one, so tagging twice does not leave
+	// two spellings of the same tag.
+	if args.TagID.IsZero() {
+		if args.TagName == "" {
+			return nil, &BadArgsError{Cause: errors.New("give tag_id, or tag_name to reuse or create one")}
+		}
+		resolved, err := t.tags.EnsureTag(ctx, args.TagName)
+		if err != nil {
+			return nil, err
+		}
+		args.TagID = resolved
 	}
 	if err := t.tags.ApplyTag(ctx, args.TagID, args.RecordType, args.RecordID); err != nil {
 		return nil, err
@@ -162,11 +112,8 @@ func (t removeTag) Spec() mcp.ToolSpec {
 		Name: "remove_tag", Title: "Take a tag off a record", Version: toolVersionV1,
 		Description:   removeTagCopy.render(),
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "removeTag",
-		InputSchema: schema(`{"type":"object","required":["tag_id","record_type","record_id"],"properties":{
-			"tag_id":{"type":"string","format":"uuid"},
-			"record_type":{"type":"string","enum":` + tagTargetEnum + `},
-			"record_id":{"type":"string","format":"uuid"}},"additionalProperties":false}`),
+		OpenAPIOp:    "removeTag",
+		InputSchema:  schema(taggingSchema),
 		OutputSchema: schemaFor[TagAppliedResult](),
 	}
 }
@@ -186,6 +133,7 @@ func (t removeTag) Handle(ctx context.Context, in json.RawMessage) (json.RawMess
 
 type taggingArgs struct {
 	TagID      ids.UUID `json:"tag_id"`
+	TagName    string   `json:"tag_name"`
 	RecordType string   `json:"record_type"`
 	RecordID   ids.UUID `json:"record_id"`
 }

@@ -36,11 +36,6 @@ type ListColleaguesResult struct {
 	Truncated bool `json:"truncated,omitempty"`
 }
 
-// ListTagsResult is the workspace tag vocabulary.
-type ListTagsResult struct {
-	Tags []Tag `json:"tags"`
-}
-
 // TagAppliedResult reports one tagging. `applied` is false for a removal,
 // which is the same shape rather than a second one: a caller that acted on a
 // record wants the record back either way.

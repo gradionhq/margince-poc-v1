@@ -227,9 +227,31 @@ func TestTheOperatorConsoleServesTheTextAnMCPClientIsServed(t *testing.T) {
 // The room is deliberately NOT spent by lowering the fraction here. It is what
 // the next tools are for, and re-tightening the bound in the change that creates
 // the room would spend it before anyone can argue for how.
+//
+// RAISED to 2/3 on 2026-08-21, with the measurement that argues for it.
+//
+// 5/8 was set when the listing measured ~12,132 against 15,000. Four tools
+// later — whoami, list_colleagues, apply_tag, remove_tag, each answering a
+// question the surface previously could not — it measures ~15,377, and the
+// last three changes each paid for themselves by cutting prose the tools
+// needed: an alias nobody could discover, a language rule trimmed to one
+// clause, four tag verbs cut to two. That is the bound spending features
+// rather than bounding growth.
+//
+// The repeated-boilerplate wins were taken first, and they were real:
+// retryKeyProperty prints once per mutating tool (eighteen), approval_id's
+// description ten times, timestampNote eight. Trimming those three bought
+// ~200 tokens between them. What is left is per-tool schema, which is the
+// tool, and prose already cut to the bone.
+//
+// 2/3 of 24,000 is 16,000 — the run still keeps a third of its window, and the
+// ~600 tokens this adds is the room the next verb needs rather than a licence
+// to stop counting. What has NOT changed is that the listing is O(catalog):
+// the honest next answer is scope-filtering or deferring schemas, both of them
+// protocol decisions, and both still ahead of us.
 const (
-	listingBudgetNumerator   = 5
-	listingBudgetDenominator = 8
+	listingBudgetNumerator   = 2
+	listingBudgetDenominator = 3
 )
 
 // Every written description rides in every Surface-B prompt, and nothing in

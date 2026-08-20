@@ -143,6 +143,7 @@ var unrunnableCalls = map[string]unrunnableCall{
 	"archiveActivity":      malformedRoutedID(http.MethodDelete, "/activities"),
 	"archiveDeal":          malformedRoutedID(http.MethodDelete, "/deals"),
 	"archiveList":          malformedRoutedID(http.MethodDelete, "/lists"),
+	"archiveTag":           malformedRoutedID(http.MethodDelete, "/tags"),
 	"archiveOffer":         malformedRoutedID(http.MethodDelete, "/offers"),
 	"archiveOfferTemplate": malformedRoutedID(http.MethodDelete, "/offer-templates"),
 	"archiveOrganization":  malformedRoutedID(http.MethodDelete, "/organizations"),
@@ -151,7 +152,6 @@ var unrunnableCalls = map[string]unrunnableCall{
 	"archiveProject":       malformedRoutedID(http.MethodDelete, "/projects"),
 	"archiveRelationship":  malformedRoutedID(http.MethodDelete, "/relationships"),
 	"archiveSavedView":     malformedRoutedID(http.MethodDelete, "/views"),
-	"archiveTag":           malformedRoutedID(http.MethodDelete, "/tags"),
 
 	"disqualifyLead":            malformedRoutedID(http.MethodDelete, "/leads"),
 	"retireCustomField":         malformedRoutedID(http.MethodPost, "/custom-fields"),

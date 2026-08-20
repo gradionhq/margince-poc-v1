@@ -11,11 +11,11 @@ receives it. This page is rendered from that file.
 
 | | |
 |---|---:|
-| Tools | 45 |
+| Tools | 47 |
 | Resources | 8 |
-| Tool catalog | 124.3 KB |
+| Tool catalog | 128.2 KB |
 | Resource catalog | 3.0 KB |
-| Approx. wire tokens | 32599 |
+| Approx. wire tokens | 33592 |
 | Largest tool | `run_report` (4.6 KB) |
 | Scopes rendered | `read`, `draft`, `write`, `send`, `enrich` |
 
@@ -28,11 +28,11 @@ budget in `agenttooldescriptions_test.go`.
 
 | Part | Bytes | Share | In a run's prompt? |
 |---|---:|---:|---|
-| Output schemas | 54.9 KB | 44% | **No** — a result's shape, never listed to a model |
-| Descriptions (incl. governance clause) | 32.3 KB | 25% | Yes, every step |
-| Input schemas | 27.6 KB | 22% | Yes, every step |
-| _Names, annotations, punctuation_ | 9.6 KB | 7% | Partly |
-| **Description + input schema** | **59.8 KB** | **48%** | **the recurring cost** |
+| Output schemas | 56.8 KB | 44% | **No** — a result's shape, never listed to a model |
+| Descriptions (incl. governance clause) | 32.7 KB | 25% | Yes, every step |
+| Input schemas | 28.7 KB | 22% | Yes, every step |
+| _Names, annotations, punctuation_ | 10.0 KB | 7% | Partly |
+| **Description + input schema** | **61.4 KB** | **47%** | **the recurring cost** |
 
 So the headline total is dominated by the part a model is never charged for, and
 descriptions are a minority of it. Trimming the copy to shrink the total trades a
@@ -55,13 +55,14 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 - [`ui://margince/handoff.html`](#handoff_view) — Delivery handoff
 - [`ui://margince/pipeline-review.html`](#pipeline_review_view) — Pipeline review
 
-### Tools (45)
+### Tools (47)
 
 | Tool | What it is for | Read-only | View | Size |
 |---|---|:-:|---|---:|
 | [`account_coverage`](#account_coverage) | Relationship coverage on a deal | yes |  | 2.6 KB |
 | [`advance_deal`](#advance_deal) | Advance a deal to a stage |  |  | 3.3 KB |
 | [`advance_project_phase`](#advance_project_phase) | Move a project to a phase |  |  | 2.3 KB |
+| [`apply_tag`](#apply_tag) | Apply a tag to a record |  |  | 1.9 KB |
 | [`archive_record`](#archive_record) | Archive a record |  |  | 2.3 KB |
 | [`at_risk_relationships`](#at_risk_relationships) | Relationships going cold | yes |  | 2.4 KB |
 | [`book_meeting`](#book_meeting) | Book a meeting |  |  | 2.9 KB |
@@ -92,6 +93,7 @@ resource, the way `margince://schema/record-fields` did, not by writing less.
 | [`read_brief`](#read_brief) | Read the morning brief | yes | [`ui://margince/account-brief.html`](#account_brief_view) | 2.8 KB |
 | [`read_record`](#read_record) | Read a record | yes |  | 1.9 KB |
 | [`relink_activity`](#relink_activity) | Re-associate an activity to a record |  |  | 2.3 KB |
+| [`remove_tag`](#remove_tag) | Take a tag off a record |  |  | 1.9 KB |
 | [`resolve_entities`](#resolve_entities) | Resolve people and companies | yes |  | 3.6 KB |
 | [`review_commitments`](#review_commitments) | Review open commitments | yes | [`ui://margince/commitments.html`](#commitments_view) | 2.8 KB |
 | [`run_report`](#run_report) | Run a report | yes |  | 4.6 KB |
@@ -729,6 +731,168 @@ Move a project to another phase — initiative, pursuing, delivering, closed. Th
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### apply_tag
+
+**Apply a tag to a record**
+
+Put an existing tag on a person, company, deal or lead. The tag must exist. Applying twice is refused as a conflict. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "record_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "record_type": {
+      "enum": [
+        "person",
+        "organization",
+        "deal",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "tag_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "tag_name": {
+      "description": "Instead of tag_id: the tag is created if the workspace has no such word",
+      "maxLength": 120,
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_type",
+    "record_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "record_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "record_id",
+        "record_type",
+        "tag_id"
       ],
       "type": "object"
     },
@@ -6246,6 +6410,168 @@ Fix what an already-recorded activity is about, when a captured mail or meeting 
       },
       "required": [
         "id"
+      ],
+      "type": "object"
+    },
+    "evidence": {
+      "items": {
+        "properties": {
+          "captured_by": {
+            "type": "string"
+          },
+          "record_id": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "record_type": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "record_id",
+          "record_type"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "freshness": {
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "last_synced_at": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "authoritative"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "type": "string"
+    },
+    "trace_id": {
+      "type": "string"
+    },
+    "trust": {
+      "type": "string"
+    },
+    "warnings": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "data",
+    "evidence",
+    "freshness",
+    "schema_version",
+    "trace_id",
+    "trust",
+    "warnings"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+### remove_tag
+
+**Take a tag off a record**
+
+Take one tag off one record, leaving the word in the vocabulary. Removing one that is not there succeeds. archive_record on a tag retires it for all. (Governance: runs immediately; requires passport scope "write".)
+
+<details><summary>Input schema</summary>
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "description": "Optional. The same key returns the first result instead of acting twice; different arguments under one key are refused.",
+      "maxLength": 255,
+      "type": "string"
+    },
+    "record_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "record_type": {
+      "enum": [
+        "person",
+        "organization",
+        "deal",
+        "lead"
+      ],
+      "type": "string"
+    },
+    "tag_id": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "tag_name": {
+      "description": "Instead of tag_id: the tag is created if the workspace has no such word",
+      "maxLength": 120,
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_type",
+    "record_id"
+  ],
+  "type": "object"
+}
+```
+
+</details>
+
+<details><summary>Output schema</summary>
+
+```json
+{
+  "properties": {
+    "data": {
+      "properties": {
+        "applied": {
+          "type": "boolean"
+        },
+        "record_id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "record_type": {
+          "type": "string"
+        },
+        "tag_id": {
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "applied",
+        "record_id",
+        "record_type",
+        "tag_id"
       ],
       "type": "object"
     },
