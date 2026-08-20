@@ -70,6 +70,6 @@ func OverlayIncumbentResolver(pool *pgxpool.Pool, vault keyvault.Vault) func(con
 		if err != nil {
 			return nil, err
 		}
-		return hubspotIncumbentFactory(conn.Region, string(token)), nil
+		return liveIncumbentFactory(conn.Region, string(token)), nil
 	}
 }

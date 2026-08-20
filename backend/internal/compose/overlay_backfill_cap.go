@@ -134,12 +134,12 @@ func splitCappedCursor(cursor string) (consumed int, inner string) {
 // builder the overlay connection lifecycle and reconcile sweep resolve the
 // owners directory and backfill through. When limit > 0 it wraps the live
 // HubSpot adapter in cappedIncumbent so backfill is bounded; limit == 0
-// (the unset default) returns the plain hubspotIncumbentFactory uncapped.
+// (the unset default) returns the plain liveIncumbentFactory uncapped.
 func overlayIncumbentFactory(limit int) func(region, token string) overlay.Incumbent {
 	if limit <= 0 {
-		return hubspotIncumbentFactory
+		return liveIncumbentFactory
 	}
 	return func(region, token string) overlay.Incumbent {
-		return cappedIncumbent{Incumbent: hubspotIncumbentFactory(region, token), limit: limit}
+		return cappedIncumbent{Incumbent: liveIncumbentFactory(region, token), limit: limit}
 	}
 }

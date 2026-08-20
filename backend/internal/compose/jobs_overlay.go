@@ -139,7 +139,7 @@ func (a OverlayReconcileWorkspaceArgs) WorkspaceID() ids.UUID { return a.Workspa
 // its outcome against the sweep backoff.
 //
 // Building the per-workspace incumbent adapter HERE — via newIncumbent
-// (hubspotIncumbentFactory in production) from the due connection's own
+// (liveIncumbentFactory in production) from the due connection's own
 // vaulted token + region — answers the seam left open by
 // compose/overlay.go's NewOverlayProvider (which wires FreshnessReader
 // with inc:nil, "a per-workspace credential lookup the Dispatcher — one
@@ -278,7 +278,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		return fmt.Errorf("overlay reconcile: resolving the vaulted token: %w", err)
 	}
 	// newIncumbent builds THIS connection's adapter from its own vaulted
-	// region+token — injected (hubspotIncumbentFactory in production) so
+	// region+token — injected (liveIncumbentFactory in production) so
 	// the whole sweep is drivable against a fake incumbent in a test,
 	// rather than reaching a real HubSpot over the network.
 	inc := newIncumbent(d.Region, string(token))
