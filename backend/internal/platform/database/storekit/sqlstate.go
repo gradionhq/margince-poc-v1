@@ -16,6 +16,7 @@ const (
 	pgForeignKeyViolation = "23503"
 	pgCheckViolation      = "23514"
 	pgExclusionViolation  = "23P01"
+	pgQueryCanceled       = "57014"
 )
 
 // pgViolation names the violated constraint when err is the given
@@ -89,4 +90,17 @@ func ExclusionViolation(err error) (constraint string, ok bool) {
 // business-rule breach is never a server fault.
 func CheckViolation(err error) (constraint string, ok bool) {
 	return pgViolation(err, pgCheckViolation)
+}
+
+// IsQueryCanceled detects the 57014 a statement raises when it stops before
+// answering: a spent statement_timeout, an operator's pg_cancel_backend, or
+// the client going away.
+//
+// It deliberately does NOT say which of the three, because the SQLSTATE does
+// not. A caller that means to report a spent budget owes the second half of
+// that judgement itself — a cancelled request is not a degraded one, and only
+// the caller holds the context that tells them apart.
+func IsQueryCanceled(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgQueryCanceled
 }
