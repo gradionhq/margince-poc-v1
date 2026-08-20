@@ -194,19 +194,36 @@ function dealsQueryParams(f: DealFilters) {
 // live Kanban reads one screenful, not a keyset walk). Disabled in overlay
 // mode: there the flat mirror table paginates through OverlayDealsTable
 // (its own keyset walk), so this single-page native query does not fetch.
+/**
+ * The deals the board and the table share.
+ *
+ * A keyset walk rather than one fixed page. The board draws a column per
+ * stage out of whatever this holds, so a single capped read meant a busy
+ * stage quietly showed a fraction of its cards while its header — which
+ * comes from the deals-by-stage report over EVERY matching deal — went on
+ * naming the true count. A column saying "40 deals" above six cards is the
+ * one thing a pipeline view must not do.
+ */
 function useDeals(f: DealFilters) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: ["deals", f],
     enabled: !f.overlay,
-    queryFn: async () => {
+    // `as` steers useInfiniteQuery's TPageParam generic to the cursor type,
+    // exactly as OverlayDealsTable does and for the same reason: a bare
+    // `undefined` infers TPageParam=undefined and the string cursor no longer
+    // type-checks.
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }) => {
       const { data, error } = await api.GET("/deals", {
-        params: { query: dealsQueryParams(f) },
+        params: { query: { ...dealsQueryParams(f), cursor: pageParam } },
       });
       if (error) {
         throwProblem(error);
       }
       return data;
     },
+    getNextPageParam: (last) =>
+      last.page?.has_more ? (last.page.next_cursor ?? undefined) : undefined,
   });
 }
 
@@ -235,7 +252,13 @@ function dealsByStageReportFilters(f: DealFilters): Record<string, unknown> {
 // live pipeline regardless of the board's "show archived" toggle.
 function useStageTotals(f: DealFilters) {
   return useQuery({
-    queryKey: ["deals-by-stage-totals", f],
+    // Under ["deals"] on purpose, so the ONE invalidation every deal mutation
+    // already fires refreshes the column headers along with the cards. Keyed
+    // apart from them, a moved card sat under a header still counting it in
+    // the stage it left — and a foreign-currency deal arriving in a
+    // single-currency stage left the old sum standing, which is the mixed-
+    // currency refusal not happening.
+    queryKey: ["deals", "by-stage-totals", f],
     enabled: !f.overlay,
     queryFn: async () => {
       const { data, error } = await api.POST("/reports/{report}", {
@@ -925,26 +948,29 @@ export function DealsScreen({
   // Only ids the list currently holds count as selected: a row that left the
   // result set (refetched away, filtered out, archived by this very run) must
   // not linger as an invisible selection nobody can clear.
-  const selectedRows = (dealsQuery.data?.data ?? []).filter((deal) =>
-    selected.has(deal.id),
+  // Every page walked so far, in one list. The board draws its columns from
+  // this and the table renders it directly, so both surfaces grow together as
+  // the reader asks for more.
+  const loadedDeals = (dealsQuery.data?.pages ?? []).flatMap(
+    (page) => page.data,
   );
+  const selectedRows = loadedDeals.filter((deal) => selected.has(deal.id));
   const liveSelection = new Set(selectedRows.map((deal) => deal.id));
 
-  // dealsQuery is a plain (non-infinite) query — the board reads one honest
-  // screenful, never a keyset walk (see useDeals) — so the table view's
-  // ListState reports no further page: hasMore/loadMore are inert. Only the
-  // table view renders this state; the board keeps reading dealsQuery
-  // directly through QueryGate below.
+  // The table's own dials over the same keyset walk the board reads, so
+  // "load more" on either surface advances both.
   const dealsListState: ListState<Deal> = {
-    rows: dealsQuery.data?.data ?? [],
+    rows: loadedDeals,
     query,
     setQuery,
     isPending: dealsQuery.isPending,
     isError: dealsQuery.isError,
     error: dealsQuery.error,
     refetch: () => dealsQuery.refetch(),
-    hasMore: false,
-    loadMore: () => {},
+    hasMore: dealsQuery.hasNextPage,
+    loadMore: () => {
+      dealsQuery.fetchNextPage();
+    },
   };
 
   const orgsQuery = useQuery({
@@ -999,9 +1025,7 @@ export function DealsScreen({
     // array this render was handed, so the precondition names the row as it was
     // drawn on the board rather than whatever it has become since — which is the
     // whole claim optimistic concurrency makes.
-    const version = dealsQuery.data?.data.find(
-      (deal) => deal.id === dealId,
-    )?.version;
+    const version = loadedDeals.find((deal) => deal.id === dealId)?.version;
     if (toStage.semantic === "open") {
       advance.mutate({ dealId, version, toStage });
     } else {
@@ -1183,8 +1207,7 @@ export function DealsScreen({
         <ListSurface
           action={createAction}
           count={
-            dealsQuery.data &&
-            t("board.count", { count: dealsQuery.data.data.length })
+            dealsQuery.data && t("board.count", { count: loadedDeals.length })
           }
           tools={dealTools}
           chips={dealChips}
@@ -1202,12 +1225,21 @@ export function DealsScreen({
           <QueryGate query={pipelinesQuery}>
             {() =>
               effectivePipeline ? (
-                <QueryGate query={dealsQuery}>
-                  {(page) => (
+                // Only the INITIAL load goes through the gate. An infinite
+                // query reports isError when ANY page fails, later ones
+                // included, so keeping the gate around a loaded board would
+                // let one failed "load more" throw away every card already on
+                // screen. Past the first page the board stands and the button
+                // retries — exactly what OverlayDealsTable does above, and for
+                // the same reason.
+                (dealsQuery.data?.pages ?? []).length === 0 ? (
+                  <QueryGate query={dealsQuery}>{() => null}</QueryGate>
+                ) : (
+                  <>
                     <PipelineBoard
                       columns={buildColumns(
                         effectivePipeline.stages ?? [],
-                        page.data,
+                        loadedDeals,
                         stageTotalsQuery.data ?? new Map(),
                         orgMarks,
                       )}
@@ -1215,8 +1247,9 @@ export function DealsScreen({
                       cardDragHandlers={cardDragHandlers}
                       columnDropHandlers={columnDropHandlers}
                     />
-                  )}
-                </QueryGate>
+                    <LoadMoreButton query={dealsQuery} />
+                  </>
+                )
               ) : null
             }
           </QueryGate>
@@ -1229,15 +1262,6 @@ export function DealsScreen({
           rowKey={(deal) => deal.id}
           rowRoute={(deal) => ({ screen: "deals", id: deal.id })}
           searchable={false}
-          // The board and this table read one shared screenful rather than a
-          // keyset walk, so when the server says it held rows back, the table
-          // says so too — a capped list that looks complete is the one thing
-          // this surface must not do.
-          footer={
-            dealsQuery.data?.page?.has_more ? (
-              <p className="lt-note">{t("deals.capped")}</p>
-            ) : undefined
-          }
           action={createAction}
           tools={tableTools}
           dataChips={dealChips}

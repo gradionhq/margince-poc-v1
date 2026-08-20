@@ -1538,8 +1538,6 @@ export const vi = {
   "deals.filterPartnerAll": "Mọi nguồn",
   "deals.sortNewest": "Mới nhất",
   "deals.unit": "deal",
-  "deals.capped":
-    "Đang hiển thị các deal đã tải. Hãy thu hẹp danh sách để xem phần còn lại.",
   "deals.bulkSelected": "Đã chọn {count}",
   "deals.bulkSelectRow": "Chọn {name}",
   "deals.bulkOwner": "Người phụ trách mới",
