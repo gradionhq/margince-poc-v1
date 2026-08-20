@@ -1,0 +1,130 @@
+# The Go build cache has one writer, and it is not a gate.
+#
+# A warm build cache for this repo measures ~550 MB and is worth most of a Go
+# job's wall clock. Until now it was written as a BYPRODUCT of two gating jobs on
+# a push to main — which means it depended on a main push surviving to
+# completion, and at this repository's merge velocity 64% of them were cancelled.
+# The cache was being seeded by accident, rarely.
+#
+# It cannot move to the merge queue. actions/cache scopes an entry to the branch
+# that wrote it plus the default branch, and a merge_group run lives on a
+# throwaway `gh-readonly-queue/main/...` ref: an entry saved there is invisible
+# to every PR lane and dies with the ref. RESTORING works from anywhere — only
+# the write is scoped — so the writer has to run on main, which is what this
+# does.
+#
+# On a SCHEDULE rather than on push. Seeding both flavours means redoing a full
+# `make check-backend` and an integration shard against a live Postgres; at ~80
+# merges a day, running that pair per push would burn the pipeline and mostly
+# self-cancel — the same starvation this whole change exists to remove, merely
+# made harmless. Go's build cache is content-addressed and the key ends in the
+# commit SHA with restore-keys walking back to the newest prior entry, so a
+# three-hour-old entry is substantially warm and never WRONG: it misses the
+# entries whose inputs changed and recompiles those.
+#
+# This workflow gates nothing. A red or cancelled run costs latency on the next
+# lane and nothing else.
+name: cache-warm
+
+on:
+  schedule:
+    # Every three hours. Ten-ish merges of drift against a content-addressed
+    # cache, which is still a warm restore.
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One writer at a time. Two concurrent runs would race for the same key and the
+# loser's ~550 MB upload would evict the entry it meant to seed. Never cancel: a
+# cancelled run saves nothing, and the entire point is that a run finishes.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  # The untagged compile every non-integration Go job reads.
+  plain:
+    name: warm plain
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The gate this mirrors diffs against origin/main; a shallow checkout
+          # would silently disarm it and warm a different set of artifacts than
+          # the gate actually compiles.
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Restore the Go build cache
+        id: go-cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: plain
+      - name: Compile what the gate compiles (make check-backend)
+        working-directory: .
+        env:
+          # In CI a missing base ref is a broken checkout, never a skip.
+          CONTRACT_BREAKING_REQUIRE_BASE: "1"
+          MIGRATION_VERSIONS_REQUIRE_BASE: "1"
+        run: make check-backend
+      # !cancelled() rather than success(): a red gate still compiled the tree,
+      # and those artifacts are exactly as reusable as a green run's. This
+      # workflow is not a verdict, so a failure here must still leave the cache
+      # better than it found it.
+      - name: Refresh the shared build cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.key }}
+
+  # The `-tags=integration -cover -coverpkg=./...` compile the twelve shards
+  # read. ONE shard is enough: every shard compiles substantially the same set,
+  # which is why the lane it mirrors also elects a single writer.
+  integration:
+    name: warm integration
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Restore the Go build cache
+        id: go-cache
+        uses: ./.github/actions/go-build-cache
+        with:
+          flavor: integration
+      - name: Start the dev infra stack (compose + app role)
+        run: make db-up
+      - name: Compile and run one shard
+        env:
+          INTEGRATION_SHARD: 1/12
+          INTEGRATION_SHARD_OUT: ${{ runner.temp }}/shard-out
+          # The tests are DB-bound, not CPU-bound: on the 4-core runner the
+          # nproc-derived default leaves the slice mostly waiting on Postgres.
+          INTEGRATION_JOBS: 16
+        run: make test-integration
+      - name: Refresh the shared build cache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.key }}
