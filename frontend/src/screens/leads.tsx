@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch, requireVersion } from "../api/version";
@@ -1182,6 +1182,37 @@ type LeadTab = (typeof LEAD_TABS)[number];
 // LeadScreen — no new fetches, no behavior change from the pre-tab layout;
 // the promote modal's open/trigger/note state stays lifted in the parent so
 // it survives a tab switch away and back.
+// The status ladder climbs a few seconds AFTER a logged touch: the workflow
+// runs off the outbox, in the worker, not inside the POST. Without a delayed
+// re-read the stepper keeps the old status until a manual reload — which
+// reads as "logging did nothing". Three staggered re-reads cover the
+// relay+workflow latency without polling forever; unmounting cancels them.
+function useLadderRefresh(id: string): () => void {
+  const queryClient = useQueryClient();
+  const timers = useRef<number[]>([]);
+  useEffect(
+    () => () => {
+      for (const timer of timers.current) {
+        window.clearTimeout(timer);
+      }
+    },
+    [],
+  );
+  return () => {
+    for (const delay of [1500, 4000, 8000]) {
+      timers.current.push(
+        window.setTimeout(() => {
+          queryClient.invalidateQueries({ queryKey: ["lead", id] });
+          queryClient.invalidateQueries({ queryKey: ["leads"] });
+          queryClient.invalidateQueries({
+            queryKey: ["record-history", "lead", id],
+          });
+        }, delay),
+      );
+    }
+  };
+}
+
 function LeadOverviewPane({
   lead,
   id,
@@ -1190,6 +1221,7 @@ function LeadOverviewPane({
   onQualify,
   onDisqualify,
   onLifecycleChanged,
+  onTouchLogged,
 }: Readonly<{
   lead: Lead;
   id: string;
@@ -1198,6 +1230,10 @@ function LeadOverviewPane({
   onQualify: () => void;
   onDisqualify: () => void;
   onLifecycleChanged: () => void;
+  // Owned by LeadScreen, ABOVE the tab switch: the refresh timers this
+  // schedules must survive this pane unmounting when the reader flips to
+  // History mid-climb.
+  onTouchLogged: () => void;
 }>) {
   // Qualify turns a mirrored lead into a person — a write the incumbent mirror
   // refuses (unsupported_by_sor), so the verbs are hidden in overlay.
@@ -1221,7 +1257,7 @@ function LeadOverviewPane({
       {/* The composer follows the facts so opening a lead answers "what
           should I do" before asking the rep to type. */}
       {!lead.archived_at && !overlay && (
-        <LogActivity entityType="lead" entityId={id} />
+        <LogActivity entityType="lead" entityId={id} onLogged={onTouchLogged} />
       )}
       <CustomFieldsCard object="lead" record={lead} />
     </>
@@ -1395,6 +1431,7 @@ function LeadDialogs({
 }
 
 export function LeadScreen({ id }: Readonly<{ id: string }>) {
+  const refreshAfterTouch = useLadderRefresh(id);
   const t = useT();
   const cf = useObjectCustomFields("lead");
   const queryClient = useQueryClient();
@@ -1544,6 +1581,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                   queryClient.invalidateQueries({ queryKey: ["leads"] });
                   queryClient.invalidateQueries({ queryKey: ["lead", id] });
                 }}
+                onTouchLogged={refreshAfterTouch}
               />
             )}
             <LeadDialogs

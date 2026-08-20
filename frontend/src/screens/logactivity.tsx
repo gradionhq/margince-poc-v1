@@ -322,7 +322,12 @@ export function LogActivityForm({
 export function LogActivity({
   entityType,
   entityId,
-}: Readonly<{ entityType: EntityKind; entityId: string }>) {
+  onLogged,
+}: Readonly<{
+  entityType: EntityKind;
+  entityId: string;
+  onLogged?: () => void;
+}>) {
   const t = useT();
   // Logging an activity writes to a mirrored record; in overlay every write
   // answers unsupported_by_sor, so the form would only fail on submit. Guarded
@@ -334,7 +339,11 @@ export function LogActivity({
   }
   return (
     <Card className="card-stack" title={t("log.title")} sub={t("log.sub")}>
-      <LogActivityForm entityType={entityType} entityId={entityId} />
+      <LogActivityForm
+        entityType={entityType}
+        entityId={entityId}
+        onLogged={onLogged}
+      />
     </Card>
   );
 }
