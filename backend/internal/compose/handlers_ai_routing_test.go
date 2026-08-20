@@ -8,10 +8,15 @@ package compose
 // endpoint, or refuses a document the operator bound a model to carry.
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestABindingSurvivesTheRoundTripToTheWireAndBack(t *testing.T) {
@@ -93,5 +98,77 @@ func TestASubmittedDocumentWithNoTiersIsUnconfigured(t *testing.T) {
 	cfg := fromContractAiRouting(crmcontracts.AiRouting{Profile: "eu_hosted"})
 	if !cfg.Unconfigured() {
 		t.Errorf("tiers = %v, want unconfigured", cfg.Tiers)
+	}
+}
+
+// agentReq is a request carrying an AGENT principal — a passport-authenticated
+// caller rather than a signed-in human.
+func agentReq(body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPut, "/v1/ai/routing", strings.NewReader(body))
+	ctx := principal.WithWorkspaceID(req.Context(), ids.NewV7())
+	ctx = principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:" + ids.NewV7().String(),
+		Permissions: principal.Permissions{
+			// Deliberately granted the object. The refusal under test must not
+			// depend on the agent lacking the grant — an agent could hold one
+			// through a passport whose scopes admit it.
+			Objects:  map[string]principal.ObjectGrant{"ai_routing": {Read: true, Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+	return req.WithContext(ctx)
+}
+
+// An agent never re-points which vendor processes the installation's
+// correspondence, WHATEVER its passport scopes admit. This is the governance
+// claim the contract makes with x-agent-access: human-only, and it must hold at
+// the handler rather than only in the document.
+func TestAnAgentCannotReplaceTheModelBinding(t *testing.T) {
+	h := aiRoutingHandlers{store: &ai.RoutingStore{}}
+	rec := httptest.NewRecorder()
+
+	h.ReplaceAiRouting(rec, agentReq(`{"profile":"eu_hosted","tiers":{}}`))
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d — an agent re-pointed the model binding", rec.Code, http.StatusForbidden)
+	}
+}
+
+// A malformed body is a 422 naming the fault, not a panic and not a partially
+// applied binding.
+func TestAMalformedBindingDocumentIsRefused(t *testing.T) {
+	h := aiRoutingHandlers{store: &ai.RoutingStore{}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/v1/ai/routing", strings.NewReader("{not json"))
+	ctx := principal.WithWorkspaceID(req.Context(), ids.NewV7())
+	req = req.WithContext(principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + ids.NewV7().String(), UserID: ids.NewV7(),
+		Permissions: principal.Permissions{
+			Objects:  map[string]principal.ObjectGrant{"ai_routing": {Read: true, Update: true}},
+			RowScope: principal.RowScopeAll,
+		},
+	}))
+
+	h.ReplaceAiRouting(rec, req)
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want %d for a body that is not JSON", rec.Code, http.StatusUnprocessableEntity)
+	}
+}
+
+// A role that wired no store answers 501, not a nil dereference. Both verbs,
+// because a role wires them together and a half-wired surface is the state
+// nobody would think to check.
+func TestAnUnwiredRoutingSurfaceIsNotImplemented(t *testing.T) {
+	var h aiRoutingHandlers
+	for name, call := range map[string]func(http.ResponseWriter, *http.Request){
+		"GetAiRouting":     h.GetAiRouting,
+		"ReplaceAiRouting": h.ReplaceAiRouting,
+	} {
+		rec := httptest.NewRecorder()
+		call(rec, httptest.NewRequest(http.MethodGet, "/v1/ai/routing", nil))
+		if rec.Code != http.StatusNotImplemented {
+			t.Errorf("%s: status = %d, want %d", name, rec.Code, http.StatusNotImplemented)
+		}
 	}
 }
