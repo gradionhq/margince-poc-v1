@@ -10,7 +10,7 @@
   border-radius: var(--r-sm);
   background: var(--bgElevated);
   overflow: hidden;
-  transition: 0.15s;
+  transition: var(--dur-state);
 }
 
 /* The ring goes on the WRAPPER rather than the editable div, so focusing the
@@ -40,7 +40,7 @@
   background: transparent;
   color: var(--textSecondary);
   cursor: pointer;
-  transition: 0.12s;
+  transition: var(--dur-state);
 }
 
 .richtext-btn:hover {

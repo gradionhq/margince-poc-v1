@@ -70,8 +70,8 @@
    * 3:1 against the ground. */
   border: 1px solid var(--borderControl);
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+    background-color var(--dur-state) var(--ease-in-out),
+    border-color var(--dur-state) var(--ease-in-out);
 }
 
 /* The thumb, drawn inside the track so the whole control is one element to
@@ -86,8 +86,8 @@
   border-radius: var(--r-full);
   background: var(--borderControl);
   transition:
-    transform 0.15s ease,
-    background-color 0.15s ease;
+    transform var(--dur-state) var(--ease-in-out),
+    background-color var(--dur-state) var(--ease-in-out);
 }
 
 .switchcontrol[aria-checked="true"] .switchknob {

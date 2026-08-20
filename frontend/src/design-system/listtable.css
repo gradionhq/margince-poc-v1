@@ -577,7 +577,7 @@
   width: 14px;
   height: var(--lt-body, 0);
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--dur-state) var(--ease-in-out);
   background: linear-gradient(
     to right,
     color-mix(in srgb, var(--overlayScrim) 30%, transparent),
@@ -676,7 +676,7 @@
  * sorted column, so clicking a header never nudges the other headers sideways. */
 .lt-arrow {
   visibility: hidden;
-  transition: transform 120ms ease;
+  transition: transform var(--dur-state) var(--ease-in-out);
 }
 .lt-sort.on .lt-arrow {
   visibility: visible;

@@ -74,15 +74,25 @@ export function SearchScreen({ q }: Readonly<{ q: string }>) {
           onChange={(event) => setDraft(event.target.value)}
         />
       </form>
-      <QueryGate query={query as QueryLike<SearchResponse>}>
-        {(data) =>
-          data.data.length === 0 ? (
-            <EmptyState>{t("search.empty", { q })}</EmptyState>
-          ) : (
-            <SearchGroups results={data.data} />
-          )
-        }
-      </QueryGate>
+      {/* No term, no read — and therefore no gate. A query held back by `enabled`
+          reports `pending` in react-query v5, so handing it to QueryGate drew
+          three loading bars under this box forever, with nothing in flight: a
+          bare `#/search` is reachable from the address bar, and the page it
+          showed said "working on it" about a request that had not been made.
+          The screen asks for a term instead. */}
+      {q.trim() === "" ? (
+        <EmptyState>{t("search.prompt")}</EmptyState>
+      ) : (
+        <QueryGate query={query as QueryLike<SearchResponse>}>
+          {(data) =>
+            data.data.length === 0 ? (
+              <EmptyState>{t("search.empty", { q })}</EmptyState>
+            ) : (
+              <SearchGroups results={data.data} />
+            )
+          }
+        </QueryGate>
+      )}
     </div>
   );
 }

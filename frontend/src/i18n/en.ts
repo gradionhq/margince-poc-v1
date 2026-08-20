@@ -140,6 +140,7 @@ export const en = {
   // the catalogue by gen-composition (see i18n/index.tsx).
 
   "search.placeholder": "Search people, companies, deals, activities, leads…",
+  "search.prompt": "Type what you are looking for.",
   "search.empty": "No matches for “{q}”.",
   "search.group.person": "People",
   "search.group.organization": "Organizations",

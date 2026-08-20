@@ -22,8 +22,8 @@
   background: var(--bgPage);
   cursor: pointer;
   transition:
-    border-color 0.15s ease,
-    background 0.15s ease;
+    border-color var(--dur-state) var(--ease-in-out),
+    background var(--dur-state) var(--ease-in-out);
 }
 
 /* Dragover is a state the pointer cannot otherwise confirm: without it there is

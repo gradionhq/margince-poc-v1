@@ -646,7 +646,7 @@
 .core-progress .core-progress-value {
   stroke: var(--coreC1);
   stroke-linecap: round;
-  transition: stroke-dasharray 0.4s ease;
+  transition: stroke-dasharray 0.4s var(--ease-in-out);
 }
 /* The filter definitions the component renders: never seen, and never allowed to
    take part in layout. */

@@ -84,10 +84,6 @@
      stated here rather than on each screen family, which is how a list ended up
      with a lane and a scrolling page ended up relying on its own end rhythm. */
   --agentLane: calc(var(--space-6) + 40px);
-  --shellAnim: 0.2s;
-  /* Standard/in-out, because the panel starts and ends on screen. A decelerate
-     curve belongs to something entering from off-canvas. */
-  --shellEase: cubic-bezier(0.2, 0, 0, 1);
   /* The reading column, for the pages that want one. Read DOWN — a settings
      form, a company or contact record with its rail of facts beside prose — and
      a measured line is the point; a label a monitor away from its control is
@@ -112,7 +108,7 @@
   padding-right: env(safe-area-inset-right);
   /* Collapsing animates the grid column so the sidebar and the content edge
      move together; labels cross-fade with it. */
-  transition: --railW var(--shellAnim) var(--shellEase);
+  transition: --railW var(--dur-move) var(--ease-out);
 }
 /* The frame every screen sits in, INCLUDING the rail-less auth surface — which
    sizes itself in dvh for a reason (screens/auth.css: on iOS, 100vh subtracts the
@@ -132,10 +128,13 @@
 /* Reduce means reduce, not remove: the MOVEMENT goes (the column snaps to its
    new width), while the label's opacity crossfade stays. A fade is not motion,
    and stripping it would leave labels appearing and vanishing with no signal
-   that anything happened. */
+   that anything happened.
+   The label's own half of this is further down the file, next to the rule it has
+   to beat — a media query adds no specificity, so `.rail .ws-name` here and
+   `.rail .ws-name` there are a tie that document order settles, and this one used
+   to lose it. */
 @media (prefers-reduced-motion: reduce) {
-  .app,
-  .rail .ws-name {
+  .app {
     transition: none;
   }
 }
@@ -373,8 +372,17 @@
   opacity: 1;
   overflow: hidden;
   transition:
-    opacity 0.18s ease,
-    width var(--shellAnim) var(--shellEase);
+    opacity var(--dur-state) var(--ease-in-out),
+    width var(--dur-move) var(--ease-out);
+}
+/* The other half of the rule above, and it is here rather than beside `.app`'s
+   because equal specificity is settled by document order: this has to be
+   declared AFTER the width transition it removes. The fade stays — a label that
+   appeared and vanished with no signal would be a different defect. */
+@media (prefers-reduced-motion: reduce) {
+  .rail .ws-name {
+    transition: opacity var(--dur-state) var(--ease-in-out);
+  }
 }
 .rail.collapsed .ws-name {
   width: 0;
@@ -475,8 +483,8 @@
   /* A pointer-tracked highlight reads as lag past ~200ms; Carbon times this
      class of change at 70–110ms. */
   transition:
-    background 0.11s ease,
-    color 0.11s ease;
+    background var(--dur-state) var(--ease-in-out),
+    color var(--dur-state) var(--ease-in-out);
   cursor: pointer;
   border: 0;
   background: transparent;
@@ -529,7 +537,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
-  transition: opacity 0.18s ease;
+  transition: opacity var(--dur-state) var(--ease-in-out);
 }
 .rail .navitem:has(.count) .navlabel {
   right: 38px;
@@ -603,7 +611,7 @@
  * shell (the component workbench), and an unresolved custom property in a
  * shorthand invalidates the whole declaration rather than degrading it. */
 .rail .navlevel.drilled {
-  animation: navlevel-in 0.16s var(--shellEase, cubic-bezier(0.2, 0, 0, 1)) both;
+  animation: navlevel-in var(--dur-state) var(--ease-out) both;
 }
 @keyframes navlevel-in {
   from {
@@ -695,7 +703,7 @@
    is about to go, which is the whole gesture in 2px. */
 .rail .navback svg {
   color: var(--textMeta);
-  transition: transform 0.16s var(--shellEase, cubic-bezier(0.2, 0, 0, 1));
+  transition: transform var(--dur-state) var(--ease-out);
 }
 .rail .navback:hover svg,
 .rail .navback:focus-visible svg {
@@ -1126,7 +1134,7 @@
     inset: 0;
     z-index: 29;
     background: color-mix(in srgb, var(--textPrimary) 38%, transparent);
-    animation: railscrim-in 0.16s ease-out;
+    animation: railscrim-in var(--dur-state) var(--ease-out);
   }
   @keyframes railscrim-in {
     from {

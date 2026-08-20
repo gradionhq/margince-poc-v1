@@ -56,7 +56,7 @@
      happens to sit inside. */
   line-height: 1.25;
   min-block-size: var(--control-h);
-  transition: 0.15s;
+  transition: var(--dur-state);
   display: inline-flex;
   align-items: center;
   /* A button shrink-wraps its label, so this changes nothing until something
@@ -264,7 +264,7 @@
   background: transparent;
   color: var(--textMeta);
   cursor: pointer;
-  transition: 0.15s;
+  transition: var(--dur-state);
 }
 .iconbtn svg {
   inline-size: 16px;

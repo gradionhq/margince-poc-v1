@@ -22,7 +22,7 @@
   margin: -2px -4px;
   border-radius: var(--r-sm);
   cursor: pointer;
-  transition: background-color 0.12s;
+  transition: background-color var(--dur-state);
 }
 /* The affordance is a soft fill behind the value, not an underline: an
    underline reads as a link — somewhere to GO — on the one control whose whole
@@ -63,7 +63,7 @@
 .inline-editable-caret {
   color: var(--textMeta);
   opacity: 0;
-  transition: opacity 0.15s;
+  transition: opacity var(--dur-state);
 }
 .inline-editable-choice:hover .inline-editable-caret,
 .inline-editable-choice:focus-visible .inline-editable-caret {

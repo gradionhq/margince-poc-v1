@@ -293,7 +293,7 @@
 }
 
 .mw-identity i[data-state="working"] {
-  animation: mw-pulse 1.4s ease-in-out infinite;
+  animation: mw-pulse 1.4s var(--ease-in-out) infinite;
 }
 
 .mw-identity i[data-state="success"] {
@@ -327,8 +327,8 @@
   background: var(--aiLight);
   cursor: pointer;
   transition:
-    border-color 0.14s ease,
-    background 0.14s ease;
+    border-color var(--dur-state) var(--ease-in-out),
+    background var(--dur-state) var(--ease-in-out);
 }
 .mw-aistat-btn:hover {
   border-color: var(--ai);
@@ -346,7 +346,7 @@
   height: 12px;
   flex: none;
   color: var(--aiText);
-  transition: transform 0.16s ease;
+  transition: transform var(--dur-state) var(--ease-in-out);
 }
 .mw-aistat-btn[aria-expanded="true"] .mw-aistat-caret {
   transform: rotate(180deg);
@@ -377,7 +377,7 @@
   border-radius: var(--r-md);
   background: var(--bgElevated);
   box-shadow: var(--shadow-pop);
-  animation: mw-aistat-in 0.16s ease both;
+  animation: mw-aistat-in var(--dur-state) var(--ease-in-out) both;
 }
 @keyframes mw-aistat-in {
   from {
@@ -576,7 +576,7 @@
   flex: 1;
   border-radius: var(--r-full);
   background: var(--borderStrong);
-  transition: background 0.2s ease;
+  transition: background var(--dur-move) var(--ease-in-out);
 }
 
 .mw-progress-track i.is-done,
@@ -608,7 +608,7 @@
   z-index: -1;
   border-radius: var(--r-full);
   background: var(--accentLight);
-  animation: mw-step-breathe 3.4s ease-in-out infinite;
+  animation: mw-step-breathe 3.4s var(--ease-in-out) infinite;
 }
 
 @keyframes mw-step-breathe {

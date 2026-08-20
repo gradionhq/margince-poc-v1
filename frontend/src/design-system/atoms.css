@@ -234,7 +234,7 @@
 .skeleton {
   background: var(--bgCard);
   border-radius: var(--r-sm);
-  animation: ds-pulse 1.4s ease-in-out infinite;
+  animation: ds-pulse 1.4s var(--ease-in-out) infinite;
 }
 @keyframes ds-pulse {
   0%,
@@ -243,6 +243,17 @@
   }
   50% {
     opacity: 0.55;
+  }
+}
+/* The pulse is the one animation in this tier that never ends, so it is the one a
+   reader who asked for less motion cannot wait out — and it was running for them
+   until now. It stops at its own resting opacity rather than at nothing: the
+   SHAPE is what says "this is coming", and a placeholder that vanished under
+   reduced motion would take the message with it. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    opacity: 0.78;
   }
 }
 
@@ -752,7 +763,7 @@
   min-block-size: var(--control-h);
   width: 100%;
   outline: none;
-  transition: 0.15s;
+  transition: var(--dur-state);
 }
 .input:focus {
   border-color: var(--accent);
@@ -784,7 +795,7 @@
   background: var(--bgElevated);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-sm);
-  transition: 0.15s;
+  transition: var(--dur-state);
 }
 .field-shell:focus-within {
   border-color: var(--accent);
@@ -928,7 +939,7 @@
   padding: 9px 11px;
   width: 100%;
   outline: none;
-  transition: 0.15s;
+  transition: var(--dur-state);
   resize: vertical;
 }
 .textarea:focus {
@@ -1058,7 +1069,7 @@
   width: 14px;
   height: 14px;
   flex: none;
-  transition: transform 0.15s;
+  transition: transform var(--dur-state);
 }
 .disclosure[open] .disclosure-chevron {
   transform: rotate(90deg);

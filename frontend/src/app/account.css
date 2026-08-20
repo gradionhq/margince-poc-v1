@@ -96,7 +96,7 @@
   z-index: 60;
   /* The menu comes OUT OF the trigger rather than appearing beside it: the
      transform origin is the control that opened it, so the growth reads as one
-     movement instead of a panel switching on. Short (0.14s) because this is
+     movement instead of a panel switching on. Short (--dur-state) because this is
      chrome — a menu you have to wait for is a menu that feels slow — and on the
      shell's own curve, so it belongs to the same choreography as the sidebar
      collapse rather than carrying a second easing vocabulary.
@@ -105,8 +105,7 @@
      outside the shell (the component workbench), and an unresolved custom
      property in a shorthand invalidates the whole declaration — which would
      silently drop the animation there rather than degrade it. */
-  animation: accountmenu-drop 0.14s
-    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  animation: accountmenu-drop var(--dur-state) var(--ease-out) both;
   transform-origin: top right;
 }
 
@@ -121,10 +120,13 @@
   }
 }
 /* The end state, immediately — a menu that renders nothing under reduced motion
-   is broken, not accessible. */
+   is broken, not accessible.
+   Only the menu here. The flyout's own rule is declared further down, beside the
+   animation it removes: a media query adds no specificity, and `.accountsub` here
+   losing to `.accountsub` there on document order is why the flyout kept
+   animating for readers who had asked it not to. */
 @media (prefers-reduced-motion: reduce) {
-  .accountmenu,
-  .accountsub {
+  .accountmenu {
     animation: none;
   }
 }
@@ -236,9 +238,17 @@
   box-shadow: var(--shadow-pop);
   /* Above the menu it flies out of, which is itself above the shell. */
   z-index: 61;
-  animation: accountsub-open 0.12s
-    var(--shellEase, cubic-bezier(0.4, 0, 0.2, 1)) both;
+  animation: accountsub-open var(--dur-state) var(--ease-out) both;
   transform-origin: top right;
+}
+/* The other half of the reduced-motion rule above, declared after the animation
+   it removes so document order settles the tie in its favour. `both` on the
+   animation means the flyout would otherwise hold its start frame; removing the
+   animation is what puts it in its end state. */
+@media (prefers-reduced-motion: reduce) {
+  .accountsub {
+    animation: none;
+  }
 }
 
 @keyframes accountsub-open {

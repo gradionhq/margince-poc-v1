@@ -61,7 +61,7 @@ button.evidence-chip:hover {
 .evidence-chip-toggle svg {
   inline-size: 12px;
   block-size: 12px;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-state) var(--ease-in-out);
 }
 
 .evidence-chip-toggle[aria-expanded="true"] svg {

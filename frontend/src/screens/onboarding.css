@@ -2309,6 +2309,10 @@
   .ob-spinner,
   .ob-core-live,
   .mw-thinking span,
+  /* The read-back skeleton's sweep: infinite, so it is the one here a reader
+     cannot wait out. The band stays — the SHAPE is what says the field is
+     coming — and only the sweep across it stops. */
+  .skel-bar,
   .ob-core-choices button {
     animation: none;
     transition: none;

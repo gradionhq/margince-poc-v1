@@ -136,6 +136,7 @@ export const vi = {
   "ext.operations": "Các thao tác đã công bố",
 
   "search.placeholder": "Tìm người, công ty, deal, hoạt động, lead…",
+  "search.prompt": "Nhập nội dung bạn muốn tìm.",
   "search.empty": "Không có kết quả cho “{q}”.",
   "search.group.person": "Người",
   "search.group.organization": "Tổ chức",

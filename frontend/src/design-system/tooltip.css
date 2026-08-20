@@ -27,7 +27,7 @@
      reader announces — and only its paint waits, so a pointer crossing a row
      on its way elsewhere never flashes a tip on the way past. */
   opacity: 0;
-  animation: tooltip-in 90ms ease-out 150ms forwards;
+  animation: tooltip-in var(--dur-tap) var(--ease-out) var(--dur-state) forwards;
 }
 @keyframes tooltip-in {
   to {

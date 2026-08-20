@@ -13,7 +13,7 @@
   height: 100%;
   background: linear-gradient(90deg, var(--accent), var(--away));
   border-radius: var(--r-full);
-  transition: width 0.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: width 0.5s var(--ease-out);
 }
 /* A reading whose low end is the bad one carries its own colour, so the bar
  * agrees with the band badge the caller draws beside it. Flat, not a

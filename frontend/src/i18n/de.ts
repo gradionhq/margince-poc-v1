@@ -129,6 +129,7 @@ export const de = {
 
   "search.placeholder":
     "Personen, Firmen, Deals, Aktivitäten, Leads durchsuchen…",
+  "search.prompt": "Gib ein, wonach du suchst.",
   "search.empty": "Keine Treffer für „{q}“.",
   "search.group.person": "Personen",
   "search.group.organization": "Organisationen",

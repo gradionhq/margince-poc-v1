@@ -456,3 +456,176 @@ describe("design-system conformance gates (B-EP09.1)", scanBudget, () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Motion, source-wide. Both gates below exist because a reduced-motion promise
+// is invisible when it is broken: the reader who asked for less motion is not
+// the reader running the app in development, so nothing catches it by eye.
+// ---------------------------------------------------------------------------
+
+const cssFiles = files.filter((file) => file.endsWith(".css"));
+
+/**
+ * The rules inside every `prefers-reduced-motion: reduce` block of one
+ * stylesheet, as (selector, property) pairs with the offset they close at.
+ *
+ * A hand-rolled scan rather than a parser: these stylesheets are biome-formatted,
+ * so a rule is a selector list, `{`, declarations, `}`, and the one nesting that
+ * occurs is the media block itself. A parser would be the right answer if this
+ * had to survive arbitrary CSS; it has to survive THIS tree, which the gate also
+ * keeps formatted.
+ */
+function reducedMotionRules(
+  text: string,
+): { selector: string; property: string; endsAt: number }[] {
+  const out: { selector: string; property: string; endsAt: number }[] = [];
+  const opener = /@media[^{]*prefers-reduced-motion:\s*reduce[^{]*\{/g;
+  for (let match = opener.exec(text); match; match = opener.exec(text)) {
+    // Walk to the matching close brace of the media block.
+    let depth = 1;
+    let index = match.index + match[0].length;
+    const start = index;
+    while (index < text.length && depth > 0) {
+      if (text[index] === "{") depth += 1;
+      if (text[index] === "}") depth -= 1;
+      index += 1;
+    }
+    const body = text.slice(start, index - 1);
+    const rule = /([^{}]+)\{([^{}]*)\}/g;
+    for (let inner = rule.exec(body); inner; inner = rule.exec(body)) {
+      const selectors = inner[1]
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .split(",")
+        .map((one) => one.trim().replace(/\s+/g, " "))
+        .filter(Boolean);
+      const properties = inner[2]
+        .split(";")
+        .map((line) => line.split(":")[0].trim())
+        .filter((name) => /^[a-z-]+$/.test(name));
+      for (const selector of selectors) {
+        for (const property of properties) {
+          out.push({ selector, property, endsAt: index });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The stylesheet with every at-rule BLOCK blanked to spaces of the same length,
+ * so offsets still line up with the original text.
+ *
+ * Blanking rather than deleting is what lets the two collectors here be compared
+ * by position at all. And it has to happen before rules are matched: a regex that
+ * skipped media blocks by anchoring on the preceding `}` matched only every
+ * OTHER rule, because the brace it anchors on is consumed by the match before it
+ * — which silently exempted half of every stylesheet from both gates below.
+ */
+function withoutAtRuleBlocks(text: string): string {
+  const out = text.split("");
+  const opener = /@[a-z-]+[^{]*\{/g;
+  for (let match = opener.exec(text); match; match = opener.exec(text)) {
+    let depth = 1;
+    let index = match.index + match[0].length;
+    while (index < text.length && depth > 0) {
+      if (text[index] === "{") depth += 1;
+      if (text[index] === "}") depth -= 1;
+      index += 1;
+    }
+    for (let blank = match.index; blank < index; blank += 1) {
+      if (out[blank] !== "\n") {
+        out[blank] = " ";
+      }
+    }
+    opener.lastIndex = index;
+  }
+  return out.join("");
+}
+
+/** Every top-level rule in a stylesheet, with where its selector starts. */
+function plainRules(
+  text: string,
+): { selector: string; body: string; at: number }[] {
+  const out: { selector: string; body: string; at: number }[] = [];
+  const rule = /([^{}]+)\{([^{}]*)\}/g;
+  const flat = withoutAtRuleBlocks(text);
+  for (let match = rule.exec(flat); match; match = rule.exec(flat)) {
+    const selectors = match[1]
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split(",")
+      .map((one) => one.trim().replace(/\s+/g, " "))
+      .filter(Boolean);
+    for (const selector of selectors) {
+      out.push({ selector, body: match[2], at: match.index });
+    }
+  }
+  return out;
+}
+
+describe("motion", () => {
+  // The defect this pins was live twice at once: `.rail .ws-name` and
+  // `.accountsub` each had a reduce rule that a later plain rule of IDENTICAL
+  // specificity overrode, because a media query adds none — so the label kept
+  // animating its width and the theme flyout kept flying for exactly the readers
+  // who had asked them not to. Both stylesheets read as if the promise were kept.
+  it("declares every reduced-motion rule after the rule it has to beat", () => {
+    for (const file of cssFiles) {
+      const text = readFileSync(file, "utf8");
+      const plain = plainRules(text);
+      for (const { selector, property, endsAt } of reducedMotionRules(text)) {
+        const defeated = plain.find(
+          (rule) =>
+            rule.selector === selector &&
+            rule.at > endsAt &&
+            new RegExp(`(^|;|\\s)${property}\\s*:`).test(rule.body),
+        );
+        expect(
+          defeated,
+          `${relative(frontendRoot, file)}: the reduced-motion rule for \`${selector}\` ` +
+            `sets \`${property}\`, and \`${selector}\` sets it again at the same ` +
+            `specificity further down the file — document order settles the tie, so ` +
+            `the reduced-motion rule loses. Move it after the rule it removes.`,
+        ).toBeUndefined();
+      }
+    }
+  });
+
+  // An infinite animation is the one kind that cannot be waited out: a pulse or
+  // a shimmer that nobody asked for runs for as long as the surface is on
+  // screen. The finite ones are a smaller promise and are tracked separately.
+  it("gives every infinite animation a reduced-motion answer", () => {
+    for (const file of cssFiles) {
+      const text = readFileSync(file, "utf8");
+      // Per SELECTOR, not per file: a stylesheet that carries one reduce block
+      // and three pulses would otherwise read as covered. The gate asks the
+      // question a reader would — is THIS animation answered.
+      const covered = new Set(
+        reducedMotionRules(text).map((rule) => rule.selector),
+      );
+      for (const rule of plainRules(text)) {
+        if (!/animation[^;]*\binfinite\b/.test(rule.body)) {
+          continue;
+        }
+        // A component may switch its own motion in JS instead; `data-motion` is
+        // the tree's convention for that and is pinned by its own suite.
+        if (/data-motion/.test(text)) {
+          continue;
+        }
+        // An ANCESTOR counts, and is usually the better answer: the Core hides
+        // the whole mote field (`.core-feed { display: none }`) rather than
+        // stopping twelve individual particles, which leaves nothing frozen
+        // mid-flight.
+        const answered = [...covered].some(
+          (named) =>
+            named === rule.selector || rule.selector.startsWith(`${named} `),
+        );
+        expect(
+          answered,
+          `${relative(frontendRoot, file)}: \`${rule.selector}\` runs an infinite ` +
+            `animation and no reduced-motion rule names it or an ancestor of it`,
+        ).toBe(true);
+      }
+    }
+  });
+});
