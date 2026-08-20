@@ -122,9 +122,13 @@ func TestARoleRefusedTheEdgeSeesTheAccountPageWithoutItsEdgesAndIsToldSo(t *test
 	// gate's placement protects: refusing BEFORE the statement leaves it at
 	// zero, where filtering rows after the read would report a remainder that
 	// discloses the size of the withheld population.
-	if graph.DroppedCount < 0 {
-		t.Errorf("dropped_count = %d without the edge grant, want it never negative — the contract's "+
-			"own minimum, and a remainder computed over withheld rows is how it goes wrong",
+	// Zero, not merely non-negative. The gate refuses BEFORE the statement, so
+	// nothing was read and nothing was dropped; a post-filtering implementation
+	// would pass a >= 0 assertion while reporting a remainder that discloses
+	// the size of the withheld population.
+	if graph.DroppedCount != 0 {
+		t.Errorf("dropped_count = %d without the edge grant, want 0 — a non-zero remainder means rows "+
+			"were read and then filtered, and the number itself then discloses how many were withheld",
 			graph.DroppedCount)
 	}
 }

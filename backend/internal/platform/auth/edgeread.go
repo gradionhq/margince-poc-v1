@@ -34,8 +34,16 @@ import (
 // The two halves are returned by one call because taking the scope while
 // skipping the gate is the defect: a caller that composes an endpoint's grant
 // with an endpoint's scope has written something that looks complete and reads
-// an edge the edge grant would have refused. There is no exported way to reach
-// the conjunction for the relationship table without passing the gate first.
+// an edge the edge grant would have refused.
+//
+// It does NOT make the wrong thing unreachable. RelationshipEndpointScope stays
+// exported, because the module that owns the relationship surface composes it
+// under gates taken at its own store entry points. What holds the rule is
+// backend/edgereaders_test.go: it requires the object gate at every read of the
+// table, and accepts the row half alone only inside those owning packages. A
+// new compose read that takes the conjunction and never asks the gate fails
+// that census — which is the enforcement this function is the ergonomics of,
+// not a property of the function itself.
 //
 // A caller refused the object gets apperrors.ErrPermissionDenied unwrapped, so
 // a section-assembling read can name the omission through the contract's own

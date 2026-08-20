@@ -144,6 +144,20 @@ func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.Organization
 // opened one transaction and already gated the account computes the same
 // roll-up inside it rather than opening a second one at a second instant.
 func AccountStrengthFor(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) (AccountStrength, error) {
+	// The EDGE grant is asked here and REFUSED, where the person grant below is
+	// swallowed into a dormant answer. The two look alike and are not: a caller
+	// who may not read people sees an account with nobody they may read, and
+	// dormant is the true roll-up over that empty set. A caller who may not read
+	// EDGES cannot tell which people work here at all, so the roll-up is not
+	// dormant — it is unknown, and answering `none` would state as a fact about
+	// the account something this caller was refused the means to compute.
+	//
+	// It is asked before the read rather than sorted out from its error, because
+	// StrengthForOrgContacts returns one sentinel for both refusals and the
+	// difference between them is the whole point.
+	if err := auth.Require(ctx, "relationship", principal.ActionRead); err != nil {
+		return AccountStrength{}, err
+	}
 	contacts, err := StrengthForOrgContacts(ctx, tx, orgID, now)
 	if errors.Is(err, apperrors.ErrPermissionDenied) {
 		// A caller holding organization:read but not person:read sees an

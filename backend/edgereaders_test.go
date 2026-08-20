@@ -48,6 +48,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,21 +58,54 @@ import (
 // relationshipReadLiteral matches a SQL string literal that reads the
 // relationship table by name.
 //
-// The trailing alternation includes end-of-string and a newline, and that is
-// not incidental: a pattern requiring a trailing SPACE misses every line ending
-// in `FROM relationship`, which is exactly how this change's own first census
-// undercounted its subject by five sites. restrictedreaders_test.go's
-// equivalent already had it right; this is the same expression.
-var relationshipReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+relationship(\s|$|\n)`)
-
-// edgeGateSeeds are the spellings that ARE the edge's read admission.
+// The trailing alternation ends the match on whitespace, a newline, the end of
+// the text, or a delimiter, and the match is run against the literal's TEXT
+// rather than its quoted token. Both halves matter and each was got wrong once:
 //
-// EdgeReadScope is the one a new caller should reach for; the other two are the
-// row half and the single-record probe, which predate it and are still the
-// right call in the module that owns the object's own surface.
-var edgeGateSeeds = []string{
-	"EdgeReadScope", "RelationshipEndpointScope", "EnsureRelationshipVisible",
+//   - a pattern requiring a trailing SPACE misses every line ending in
+//     `FROM relationship`, which is how this change's own first census
+//     undercounted its subject by five sites;
+//   - matching against ast.BasicLit.Value leaves the closing backquote in the
+//     text, so `$` can never fire and a literal ENDING at `FROM relationship`
+//     is invisible — the same class of miss, one layer down, and it survived
+//     the first mutation drill because that probe ended the line rather than
+//     the literal.
+//
+// literalText below is what strips the quoting. restrictedreaders_test.go
+// carries the same expression and had the same second flaw; it is fixed there
+// in this change, because one spelling of a rule with two copies is not a rule
+// (review-loop rule 1).
+var relationshipReadLiteral = regexp.MustCompile(`(?i)\b(FROM|JOIN)\s+relationship(\s|$|[,;)])`)
+
+// edgeLiteralText is contentionprobe_test.go's literalText, narrowed to the
+// one shape this gate asks about. Shared rather than respelled: it unquotes
+// through strconv, which is stricter than trimming the delimiters by hand.
+func edgeLiteralText(lit *ast.BasicLit) string {
+	text, isString := literalText(lit)
+	if !isString {
+		return ""
+	}
+	return text
 }
+
+// edgeGateSeeds are the spellings that ARE the edge's read admission, anywhere.
+// Only EdgeReadScope qualifies: it is the one that takes the object gate.
+var edgeGateSeeds = []string{"EdgeReadScope"}
+
+// rowHalfSeeds are the row-scope spellings. They bound WHICH edges, and answer
+// nothing about whether the caller may read edges at all — so on their own they
+// are the INVERTED form of the defect this gate exists to catch, and a compose
+// read taking the conjunction without the gate must not read green.
+//
+// They still satisfy inside the packages that own the object's own surface,
+// where the object gate is asked at the store entry point and these are the
+// clause that entry point composes.
+var rowHalfSeeds = []string{"RelationshipEndpointScope", "EnsureRelationshipVisible"}
+
+// rowHalfOwners are the packages where a row-half spelling alone is enough:
+// people owns the relationship surface and gates every store entry point on it,
+// and auth is where the gate itself lives.
+var rowHalfOwners = []string{"internal/modules/people", "internal/platform/auth"}
 
 // requireCall matches a call that asks the object gate under any of this
 // tree's spellings — auth.Require, or a package-local wrapper such as
@@ -157,8 +191,8 @@ var deferredEdgeReads = gatekit.Waive(map[string]string{
 })
 
 // wantMinimumGatedSites is the floor below the count of sites that satisfy the
-// gate today (eleven functions across compose and modules, plus the module that
-// owns the object's own surface).
+// gate today (twenty, across compose, the modules that read edges, and the
+// module that owns the object's own surface).
 //
 // It exists for the reason composerowscope_test.go's equivalent does: an
 // extractor that stops recognising SQL finds no sites and reports nothing,
@@ -185,7 +219,7 @@ func readsRelationshipTable(filePath string, file *ast.File) bool {
 func holdsRelationshipLiteral(node ast.Node) bool {
 	found := false
 	ast.Inspect(node, func(n ast.Node) bool {
-		if lit, ok := n.(*ast.BasicLit); ok && relationshipReadLiteral.MatchString(lit.Value) {
+		if lit, ok := n.(*ast.BasicLit); ok && relationshipReadLiteral.MatchString(edgeLiteralText(lit)) {
 			found = true
 		}
 		return !found
@@ -205,9 +239,13 @@ func TestEveryReaderOfTheRelationshipTableCarriesTheEdgeGateOrAVerdict(t *testin
 			if site.function != "" {
 				subject += ":" + site.function
 			}
-			carriesGate := site.holdsGate || (site.function != "" && gated[pkg][site.function])
+			// Its own body first, then the helpers IT CALLS — never its own
+			// name. A by-name lookup would let a gated Store.X vouch for an
+			// ungated Handlers.X, which is the vouching this gate is
+			// per-function precisely to prevent.
+			carriesGate := site.holdsGate || callsAGatedHelper(site.calls, gated[pkg])
 			if site.function == "" {
-				carriesGate = site.holdsGate || fileHoldsAGatedFunction(parsed, gated[pkg])
+				carriesGate = site.holdsGate || fileHoldsAGatedFunction(t, parsed, gated[pkg])
 			}
 			verdict := verdictFor(t, subject)
 
@@ -303,15 +341,29 @@ type site struct {
 	function  string
 	sql       string
 	holdsGate bool
+	// calls is what this declaration calls, so a gate reached through a helper
+	// in a sibling file resolves without consulting this declaration's name.
+	calls map[string]bool
 }
+
+func callsAGatedHelper(calls map[string]bool, gated map[string]bool) bool {
+	for name := range calls {
+		if gated[name] {
+			return true
+		}
+	}
+	return false
+}
+
+func pkgOf(filePath string) string { return path.Dir(filePath) }
 
 func relationshipReadSites(parsed gatekit.ParsedFile) []site {
 	var sites []site
 	for _, decl := range parsed.File.Decls {
 		var reads []string
 		ast.Inspect(decl, func(n ast.Node) bool {
-			if lit, ok := n.(*ast.BasicLit); ok && relationshipReadLiteral.MatchString(lit.Value) {
-				reads = append(reads, lit.Value)
+			if lit, ok := n.(*ast.BasicLit); ok && relationshipReadLiteral.MatchString(edgeLiteralText(lit)) {
+				reads = append(reads, edgeLiteralText(lit))
 			}
 			return true
 		})
@@ -322,8 +374,10 @@ func relationshipReadSites(parsed gatekit.ParsedFile) []site {
 		if fn, isFunc := decl.(*ast.FuncDecl); isFunc {
 			name = fn.Name.Name
 		}
+		refs := referencesIn(decl)
 		sites = append(sites, site{
-			function: name, sql: firstSQLLine(reads[0]), holdsGate: holdsSeedGate(referencesIn(decl)),
+			function: name, sql: firstSQLLine(reads[0]),
+			holdsGate: holdsSeedGate(refs, pkgOf(parsed.Path)), calls: refs.calls,
 		})
 	}
 	return sites
@@ -364,7 +418,7 @@ func gatedFunctionsByPackage(t *testing.T, files []gatekit.ParsedFile) map[strin
 		gated[pkg] = map[string]bool{}
 		for name, decls := range funcs {
 			for _, refs := range decls {
-				if holdsSeedGate(refs) {
+				if holdsSeedGate(refs, pkg) {
 					gated[pkg][name] = true
 					break
 				}
@@ -398,20 +452,25 @@ func gatedFunctionsByPackage(t *testing.T, files []gatekit.ParsedFile) map[strin
 // platform spellings, or the older object-gate form — a Require-shaped call
 // somewhere in a body that also names the object. The pair is what makes it the
 // edge's gate and not some other object's.
-func holdsSeedGate(refs references) bool {
+func holdsSeedGate(refs references, pkg string) bool {
 	for _, seed := range edgeGateSeeds {
 		if refs.calls[seed] {
 			return true
 		}
 	}
-	// The older form: a Require-shaped call in a body that also names the
-	// object. The PAIR is what makes it this edge's gate rather than some other
-	// object's, which is why neither half counts alone.
-	if !refs.literals["relationship"] {
+	// The older form: a Require-shaped call taking the object as an ARGUMENT.
+	// Read off the call rather than from the body at large, because a body
+	// holding RequireHuman(ctx) and, separately, an unrelated "relationship"
+	// string — an entity-type constant, a table name in a comment's sibling
+	// literal — would otherwise vouch for itself.
+	if refs.gatesTheEdge {
+		return true
+	}
+	if !slices.Contains(rowHalfOwners, pkg) {
 		return false
 	}
-	for name := range refs.calls {
-		if requireCall.MatchString(name) {
+	for _, seed := range rowHalfSeeds {
+		if refs.calls[seed] {
 			return true
 		}
 	}
@@ -426,6 +485,12 @@ func holdsSeedGate(refs references) bool {
 type references struct {
 	calls    map[string]bool
 	literals map[string]bool
+	// gatesTheEdge records a Require-shaped call that takes "relationship" as
+	// one of its OWN arguments. Kept as a resolved fact rather than as two
+	// facts a reader has to pair up, because pairing them at the body level is
+	// what let RequireHuman(ctx) beside an unrelated "relationship" literal
+	// vouch for a read.
+	gatesTheEdge bool
 }
 
 // packageFunctionReferences parses every non-test source in one package
@@ -468,6 +533,9 @@ func referencesIn(node ast.Node) references {
 	ast.Inspect(node, func(n ast.Node) bool {
 		switch typed := n.(type) {
 		case *ast.CallExpr:
+			if name := calleeName(typed); requireCall.MatchString(name) && namesTheEdge(typed) {
+				refs.gatesTheEdge = true
+			}
 			// calleeName is retentionscope_test.go's, shared rather than
 			// respelled: "the called function's own name, ignoring any
 			// qualifier" is the same question here, and auth.EdgeReadScope and
@@ -476,17 +544,26 @@ func referencesIn(node ast.Node) references {
 				refs.calls[name] = true
 			}
 		case *ast.BasicLit:
-			refs.literals[strings.Trim(typed.Value, "`\"")] = true
+			refs.literals[edgeLiteralText(typed)] = true
 		}
 		return true
 	})
 	return refs
 }
 
-func fileHoldsAGatedFunction(parsed gatekit.ParsedFile, gated map[string]bool) bool {
-	for name := range functionBodies(parsed) {
+// fileHoldsAGatedFunction answers for a package-level SQL fragment, which has
+// no declaration of its own to ask: the file that declares it is judged as a
+// whole, as restrictedreaders_test.go judges one.
+func fileHoldsAGatedFunction(t *testing.T, parsed gatekit.ParsedFile, gated map[string]bool) bool {
+	t.Helper()
+	for name, decls := range functionBodies(parsed) {
 		if gated[name] {
 			return true
+		}
+		for _, refs := range decls {
+			if holdsSeedGate(refs, pkgOf(parsed.Path)) {
+				return true
+			}
 		}
 	}
 	return false
@@ -499,4 +576,52 @@ func firstSQLLine(literal string) string {
 		}
 	}
 	return strings.TrimSpace(literal)
+}
+
+// namesTheEdge reports whether a call passes the relationship object as one of
+// its own arguments — auth.Require(ctx, "relationship", …) and person360's
+// requireRead(ctx, "relationship") alike. Asked of the CALL rather than of the
+// body, so an unrelated "relationship" literal elsewhere in a function cannot
+// pair with an unrelated Require-shaped call to vouch for a read.
+func namesTheEdge(call *ast.CallExpr) bool {
+	for _, arg := range call.Args {
+		if lit, isLit := arg.(*ast.BasicLit); isLit && edgeLiteralText(lit) == "relationship" {
+			return true
+		}
+	}
+	return false
+}
+
+// The extractor's own unit test, and it exists because the census is only as
+// good as this regex: every miss it has had was a boundary the pattern could
+// not see, and each one read exactly like a clean tree.
+func TestTheRelationshipReadExtractorSeesEveryBoundary(t *testing.T) {
+	seen := map[string]bool{
+		"`SELECT r.id FROM relationship r WHERE r.kind = 'employment'`": true,
+		// Ends at the table name, so the closing delimiter is the next
+		// character. This is the one that slipped: matched against the quoted
+		// token, `$` never fires and the read is invisible.
+		"`SELECT r.person_id FROM relationship`":                          true,
+		"`SELECT r.person_id\n\tFROM relationship\n\tWHERE r.kind = 'x'`": true,
+		"`SELECT r.id FROM relationship, person p`":                       true,
+		"`SELECT r.id FROM relationship)`":                                true,
+		"`... JOIN relationship theirs ON theirs.person_id = p.id`":       true,
+		"`SELECT 1 FROM RELATIONSHIP r`":                                  true,
+		// Not reads of this table: a longer name that merely starts with it,
+		// and a write, which the census deliberately does not judge.
+		"`SELECT 1 FROM relationship_history r`":        false,
+		"`INSERT INTO relationship (kind) VALUES ($1)`": false,
+		"`SELECT relationship FROM person`":             false,
+	}
+	for literal, want := range seen {
+		got := relationshipReadLiteral.MatchString(edgeLiteralText(&ast.BasicLit{
+			Kind: token.STRING, Value: literal,
+		}))
+		if got != want {
+			t.Errorf("the extractor %s %s\n  want it %s — a boundary the pattern cannot see reads "+
+				"exactly like a clean tree",
+				map[bool]string{true: "matched", false: "missed"}[got], literal,
+				map[bool]string{true: "matched", false: "missed"}[want])
+		}
+	}
 }
