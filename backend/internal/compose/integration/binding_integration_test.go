@@ -65,9 +65,9 @@ func TestReindexNeededAfterStaleIdentityRow(t *testing.T) {
 	// entity has an embedding row, just not a current one, so it must
 	// still count as pending (the swap case, distinct from "no row at all").
 	if _, err := e.Owner.Exec(ctx, `
-		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-		VALUES ($1, 'person', $2, 0, 'stale-hash', 'fake/old@1024', '[1,2,3]'::vector)`,
-		e.WS, personID); err != nil {
+		INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('person', $1, 0, 'stale-hash', 'fake/old@1024', '[1,2,3]'::vector)`,
+		personID); err != nil {
 		t.Fatalf("seeding the stale-identity row: %v", err)
 	}
 
@@ -329,9 +329,9 @@ func TestPendingAndTokenSumAggregateAcrossWorkspaces(t *testing.T) {
 	// Already covered at the current identity: must not count as pending.
 	coveredID := e.SeedID(t, `INSERT INTO person (id, full_name, source, captured_by) VALUES ($1, 'Already Covered', 'manual', 'human:x')`)
 	if _, err := e.Owner.Exec(ctx, `
-		INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-		VALUES ($1, 'person', $2, 0, 'covered-hash', $3, '[1,2,3]'::vector)`,
-		e.WS, coveredID, identity); err != nil {
+		INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+		VALUES ('person', $1, 0, 'covered-hash', $2, '[1,2,3]'::vector)`,
+		coveredID, identity); err != nil {
 		t.Fatalf("seeding the already-covered row: %v", err)
 	}
 

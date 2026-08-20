@@ -48,7 +48,6 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 	personID := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
-		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO person (id, full_name, first_name, title, source, captured_by)
 			 VALUES ($1, 'Selma Subject', 'Selma', 'CFO', 'manual', 'human:x')`, personID); err != nil {
@@ -88,8 +87,8 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 		// model filter; a mixed-width store must still erase fully).
 		vector := "[" + strings.TrimSuffix(strings.Repeat("0.1,", 1023), ",") + ",0.1]"
 		_, err := tx.Exec(ctx,
-			`INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-			 VALUES (`+wsClause+`, 'person', $1, 0, 'h', 'gemini/gemini-embedding-001@1024', $2::vector)`, personID, vector)
+			`INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+			 VALUES ('person', $1, 0, 'h', 'gemini/gemini-embedding-001@1024', $2::vector)`, personID, vector)
 		return err
 	})
 	if err != nil {

@@ -114,8 +114,8 @@ func (s *Store) UpsertEmbedding(ctx context.Context, entityType string, entityID
 		// restriction commits before this statement runs or it does not; either
 		// way this statement sees the row as it is now.
 		tag, err := tx.Exec(ctx, `
-			INSERT INTO embedding (workspace_id, entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
-			SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 0, $3, $4, $5::vector
+			INSERT INTO embedding (entity_type, entity_id, chunk_ix, chunk_hash, model, embedding)
+			SELECT $1, $2, 0, $3, $4, $5::vector
 			 WHERE NOT EXISTS (SELECT 1 FROM activity a WHERE $1 = 'activity' AND a.id = $2 AND a.restricted_at IS NOT NULL)
 			ON CONFLICT (entity_type, entity_id, chunk_ix)
 			DO UPDATE SET chunk_hash = EXCLUDED.chunk_hash, model = EXCLUDED.model,
